@@ -57,7 +57,7 @@ public final class MavenService {
     public static final String SDK_GROUP_ID = "com.github.LiQiyeDev";
     public static final String SDK_ARTIFACT_ID = "botmaker-sdk";
     /** Version used for the SDK when none is supplied / JitPack is unreachable. */
-    public static final String SDK_FALLBACK_VERSION = "1.0.0";
+    public static final String SDK_FALLBACK_VERSION = "1.0.3";
 
     /** Dependencies every generated project gets (mirrors the old build.gradle). */
     private record Dep(String groupId, String artifactId, String version, String scope) {}
@@ -66,9 +66,7 @@ public final class MavenService {
             new Dep(SDK_GROUP_ID, SDK_ARTIFACT_ID, SDK_FALLBACK_VERSION, null),
             new Dep("net.java.dev.jna", "jna", "5.13.0", null),
             new Dep("net.java.dev.jna", "jna-platform", "5.13.0", null),
-            new Dep("org.bytedeco", "opencv-platform", "4.7.0-1.5.9", null),
             new Dep("com.fasterxml.jackson.core", "jackson-databind", "2.15.2", null),
-            new Dep("com.android.tools.ddms", "ddmlib", "30.0.0", null),
             new Dep("org.junit.jupiter", "junit-jupiter", "5.9.3", "test")
     );
 
