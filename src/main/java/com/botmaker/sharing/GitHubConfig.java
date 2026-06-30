@@ -17,10 +17,8 @@ public final class GitHubConfig {
 
     private GitHubConfig() {}
 
-    // TODO(maintainer): register a device-flow GitHub OAuth App and paste its public client id here.
-    public static final String OAUTH_CLIENT_ID = "Ov23lin7gZBNuLv6B3JX";
+    public static final String OAUTH_CLIENT_ID = "Ov23lizugeHUiWl7WZhQ";
 
-    // TODO(maintainer): create this repo and seed an index.json (a JSON array of catalog entries).
     public static final String INDEX_OWNER = "LiQiyeDev";
     public static final String INDEX_REPO = "botmaker-gallery";
     public static final String INDEX_BRANCH = "main";
