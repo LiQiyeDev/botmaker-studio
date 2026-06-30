@@ -1,0 +1,252 @@
+/*
+ * Cross-cutting block "state" styling, toggled from AbstractCodeBlock via JavaFX pseudo-classes
+ * (set only on a block's root node, so children are unaffected). Base block appearance still comes
+ * from the inline theme/StyleBuilder system.
+ */
+
+*:highlighted {
+    -fx-border-color: #3498db;
+    -fx-border-width: 2;
+    -fx-border-style: solid;
+}
+
+*:error {
+    -fx-border-color: #e74c3c;
+    -fx-border-width: 2;
+    -fx-border-style: solid;
+}
+
+*:breakpoint {
+    -fx-border-color: #e74c3c;
+    -fx-border-width: 0 0 0 2;
+    -fx-border-style: solid;
+}
+
+*:read-only {
+    -fx-opacity: 0.8;
+    -fx-cursor: default;
+}
+
+/*
+ * Drag-and-drop drop-zone feedback, toggled from BlockDragAndDropManager via pseudo-classes.
+ * Background-fill only (no border, no size change): the separator already reserves a fixed 12px gap, so filling
+ * it reads as an insertion line WITHOUT reflowing the blocks below. -fx-background-insets centres it as a thin
+ * bar within the reserved gap. Copy (new block from palette) is blue, move (reordering) is green.
+ */
+*:drag-over-copy {
+    -fx-background-color: #007bff;
+    -fx-background-insets: 4 0 4 0;
+    -fx-background-radius: 2;
+}
+
+*:drag-over-move {
+    -fx-background-color: #28a745;
+    -fx-background-insets: 4 0 4 0;
+    -fx-background-radius: 2;
+}
+
+/*
+ * Identifier / field-access blocks that still hold a generated default name the user hasn't confirmed.
+ * Toggled via the "unedited-identifier" style class from AbstractExpressionBlock.applyUneditedClass.
+ */
+.unedited-identifier {
+    -fx-border-color: #F39C12;
+    -fx-border-width: 0 0 1 0;
+    -fx-border-style: dashed;
+}
+
+/*
+ * Inline bracketed list/array display ([ … ] / { … }), built by LayoutComponents.createInlineListDisplay.
+ * The "--light" variant renders brackets white for use on dark-background blocks (e.g. class fields).
+ */
+.inline-list-display .list-bracket {
+    -fx-font-weight: bold;
+    -fx-font-size: 14px;
+}
+
+.inline-list-display--light .list-bracket {
+    -fx-text-fill: white;
+}
+
+/*
+ * InstantiationBlock ("Create <Class>( … )"). Moved here from inline setStyle(...) strings in
+ * InstantiationBlock.createUINode so block appearance lives with the rest of the block styling.
+ */
+.instantiation-block {
+    -fx-background-color: #E8F6F3;
+    -fx-background-radius: 12;
+    -fx-border-color: #1ABC9C;
+    -fx-border-radius: 12;
+    -fx-padding: 4 8 4 8;
+}
+
+.instantiation-block .class-selector {
+    -fx-font-weight: bold;
+    -fx-text-fill: #2c3e50;
+    -fx-background-color: transparent;
+}
+
+.instantiation-block .constructor-button {
+    -fx-font-size: 9px;
+    -fx-padding: 2 4 2 4;
+    -fx-background-radius: 10;
+}
+
+.instantiation-block .param-name-label {
+    -fx-font-size: 9px;
+    -fx-text-fill: #999;
+}
+
+/*
+ * Call-argument pill, built by BlockUIComponents.createArgumentPill. Shared by InstantiationBlock (light
+ * background → translucent-black fill) and MethodInvocationBlock (the "--on-dark" variant → translucent-white).
+ */
+.argument-pill {
+    -fx-background-color: rgba(0, 0, 0, 0.05);
+    -fx-background-radius: 4;
+    -fx-padding: 2;
+}
+
+.argument-pill--on-dark {
+    -fx-background-color: rgba(255, 255, 255, 0.1);
+}
+
+.argument-pill .expression-add-button {
+    -fx-font-size: 8px;
+    -fx-padding: 1px 3px;
+}
+
+.argument-pill .arg-type-label {
+    -fx-font-size: 9px;
+    -fx-padding: 0 5 0 2;
+}
+
+/*
+ * Method / Constructor declaration blocks. Moved here from inline setStyle(...) strings in
+ * MethodDeclarationBlock + ConstructorBlock. The header is purple by default; the "--constructor" modifier
+ * recolours header + body-wrapper green. ":collapsed" squares off the header's bottom corners.
+ */
+.block-header {
+    -fx-background-color: #8E44AD;
+    -fx-background-radius: 8 8 0 0;
+    -fx-padding: 8 10 8 10;
+}
+
+.block-header:collapsed {
+    -fx-background-radius: 8;
+}
+
+.block-header--constructor {
+    -fx-background-color: #27AE60;
+}
+
+.block-body-wrapper {
+    -fx-border-color: #8E44AD;
+    -fx-border-width: 0 0 0 4;
+    -fx-background-color: rgba(142, 68, 173, 0.05);
+}
+
+.block-body-wrapper--constructor {
+    -fx-border-color: #27AE60;
+    -fx-background-color: rgba(39, 174, 96, 0.05);
+}
+
+.collapse-button {
+    -fx-background-color: transparent;
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+    -fx-padding: 0 5 0 0;
+    -fx-cursor: hand;
+}
+
+.header-keyword-label {
+    -fx-text-fill: rgba(255, 255, 255, 0.8);
+    -fx-font-weight: bold;
+    -fx-font-size: 10px;
+}
+
+.header-name-label {
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+    -fx-font-size: 14px;
+}
+
+.header-params-label {
+    -fx-text-fill: rgba(255, 255, 255, 0.7);
+    -fx-font-size: 11px;
+}
+
+.header-delete-button {
+    -fx-background-color: transparent;
+    -fx-text-fill: #E74C3C;
+    -fx-font-size: 16px;
+    -fx-padding: 0;
+    -fx-cursor: hand;
+}
+
+.method-name-field {
+    -fx-background-color: rgba(0, 0, 0, 0.2);
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+    -fx-font-size: 13px;
+    -fx-padding: 2 5 2 5;
+}
+
+.method-returns-label {
+    -fx-text-fill: rgba(255, 255, 255, 0.7);
+    -fx-font-style: italic;
+    -fx-font-size: 11px;
+}
+
+.add-param-button {
+    -fx-font-size: 10px;
+    -fx-padding: 2 6 2 6;
+    -fx-background-color: rgba(255, 255, 255, 0.2);
+    -fx-text-fill: white;
+    -fx-background-radius: 10;
+}
+
+/* White-on-dark combo box used for return-type selection in method headers. */
+.inline-type-selector {
+    -fx-font-size: 11px;
+    -fx-background-color: rgba(255, 255, 255, 0.2);
+    -fx-text-fill: white;
+    -fx-background-radius: 4;
+}
+
+/* Parameter "pill" inside a method/constructor header. */
+.param-pill {
+    -fx-background-color: rgba(255, 255, 255, 0.9);
+    -fx-background-radius: 12;
+    -fx-padding: 3 8 3 8;
+}
+
+.param-type-label {
+    -fx-text-fill: #8E44AD;
+    -fx-font-weight: bold;
+    -fx-font-size: 11px;
+}
+
+.param-name-field {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+    -fx-font-size: 11px;
+    -fx-text-fill: #333;
+}
+
+.param-name-field:focused {
+    -fx-background-color: white;
+    -fx-text-fill: black;
+}
+
+.param-delete-button {
+    -fx-background-color: transparent;
+    -fx-text-fill: #999;
+    -fx-font-size: 10px;
+    -fx-padding: 0 0 0 4;
+    -fx-cursor: hand;
+}
+
+.param-delete-button:hover {
+    -fx-text-fill: #E74C3C;
+}

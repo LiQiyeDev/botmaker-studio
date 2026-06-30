@@ -1,0 +1,470 @@
+package com.botmaker.ui.render.menu;
+
+import com.botmaker.services.CodeEditorService;
+import com.botmaker.parser.ExpressionChoice;
+import com.botmaker.project.ProjectState;
+import com.botmaker.project.activity.ActivityVariable;
+import com.botmaker.suggestions.ProjectAnalyzer;
+import com.botmaker.types.ResolvedType;
+import com.botmaker.palette.BlockCatalog;
+import com.botmaker.palette.BlockCategory;
+import com.botmaker.palette.BlockType;
+import com.botmaker.palette.ExpressionCatalog;
+import com.botmaker.palette.ExpressionCategory;
+import com.botmaker.palette.ExpressionType;
+import com.botmaker.util.MethodSignature;
+import com.botmaker.util.VariableScopeVisitor;
+import io.github.classgraph.ClassInfo;
+import javafx.scene.Node;
+import javafx.scene.control.ContextMenu;
+import javafx.scene.control.CustomMenuItem;
+import javafx.scene.control.Menu;
+import javafx.scene.control.MenuItem;
+import javafx.scene.control.SeparatorMenuItem;
+import javafx.scene.control.TextField;
+import org.eclipse.jdt.core.dom.ASTNode;
+import org.eclipse.jdt.core.dom.ITypeBinding;
+import org.eclipse.jdt.core.dom.IVariableBinding;
+import org.eclipse.jdt.core.dom.TypeDeclaration;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
+
+/**
+ * Builds the type-aware context menus for inserting and replacing blocks. This is the domain-heavy
+ * counterpart to the pure widget factories in {@link com.botmaker.ui.render.components.BlockUIComponents}:
+ * it reads {@link ProjectAnalyzer} for visible variables, callable methods, constructors and enum
+ * constants, and emits the user's pick either as an {@link ExpressionType} or an
+ * {@link ExpressionChoice}.
+ */
+public final class ExpressionMenuFactory {
+
+    private ExpressionMenuFactory() {}
+
+    /**
+     * Wires {@code label} as a clickable type selector: hand cursor, a "click to change" {@code tooltip}, and a
+     * click that opens {@link #showTypeSelectorMenu}. {@code currentType} is resolved lazily at click time, since
+     * some callers (parameter / enum blocks) only know the type then. Shared by the variable / field / parameter /
+     * enum blocks so the cursor + tooltip + menu wiring lives in one place.
+     */
+    public static void installTypeSelector(
+            javafx.scene.control.Label label,
+            String tooltip,
+            java.util.function.Supplier<ResolvedType> currentType,
+            CodeEditorService context,
+            ASTNode contextNode,
+            Consumer<ResolvedType> onTypeSelected) {
+        label.setCursor(javafx.scene.Cursor.HAND);
+        javafx.scene.control.Tooltip.install(label, new javafx.scene.control.Tooltip(tooltip));
+        label.setOnMouseClicked(e -> showTypeSelectorMenu(label, currentType.get(), context, contextNode, onTypeSelected));
+    }
+
+    public static void showTypeSelectorMenu(
+            Node anchor,
+            ResolvedType currentType,
+            CodeEditorService context,
+            ASTNode contextNode,
+            Consumer<ResolvedType> onTypeSelected) {
+        ContextMenu menu = new ContextMenu();
+        int dims = currentType.arrayDimensions();
+        ResolvedType leaf = currentType.leafType();
+
+        MenuItem addDim = new MenuItem("Add Dimension []");
+        addDim.setOnAction(e -> onTypeSelected.accept(leaf.asArray(dims + 1)));
+        menu.getItems().add(addDim);
+
+        if (dims > 0) {
+            MenuItem removeDim = new MenuItem("Remove Dimension []");
+            removeDim.setOnAction(e -> onTypeSelected.accept(leaf.asArray(dims - 1)));
+            menu.getItems().add(removeDim);
+        }
+
+        menu.getItems().add(new SeparatorMenuItem());
+
+        Menu changeBaseMenu = new Menu("Change Base Type");
+
+        for (String typeName : ProjectAnalyzer.getFundamentalTypeNames()) {
+            ResolvedType fundamental = ResolvedType.named(typeName);
+            createTypeMenuItem(changeBaseMenu, fundamental, dims, onTypeSelected);
+        }
+
+        changeBaseMenu.getItems().add(new SeparatorMenuItem());
+
+        List<ResolvedType> projectTypes = context.getProjectAnalyzer().getAvailableTypes(contextNode);
+
+        if (!projectTypes.isEmpty()) {
+            for (ResolvedType type : projectTypes) {
+                if (!ProjectAnalyzer.getFundamentalTypeNames().contains(type.simpleName())) {
+                    createTypeMenuItem(changeBaseMenu, type, dims, onTypeSelected);
+                }
+            }
+        }
+
+        menu.getItems().add(changeBaseMenu);
+        menu.show(anchor, javafx.geometry.Side.BOTTOM, 0, 0);
+    }
+
+    private static void createTypeMenuItem(Menu parent, ResolvedType baseType, int dims, Consumer<ResolvedType> onSelect) {
+        MenuItem item = new MenuItem(baseType.simpleName());
+        item.setOnAction(e -> {
+            ResolvedType result = baseType.asArray(dims);
+            onSelect.accept(result);
+        });
+        parent.getItems().add(item);
+    }
+
+    public static ContextMenu createExpressionTypeMenu(
+            ResolvedType expectedType,
+            boolean constantOnly,
+            CodeEditorService context,
+            ASTNode contextNode,
+            Predicate<ExpressionType> filter,
+            Consumer<Object> onSelect) {
+
+        ContextMenu menu = new ContextMenu();
+        ProjectState state = (context != null) ? context.getState() : null;
+        List<ExpressionType> available = ExpressionCatalog.getForType(expectedType, constantOnly, state);
+        if (filter != null) {
+            available = available.stream().filter(filter).collect(Collectors.toList());
+        }
+
+        Map<ExpressionCategory, List<ExpressionType>> grouped = available.stream()
+                .collect(Collectors.groupingBy(ExpressionType::category));
+
+        // ExpressionCategory's declaration order is the display order; iterate it directly.
+        for (ExpressionCategory cat : ExpressionCategory.values()) {
+            List<ExpressionType> items = grouped.get(cat);
+            if (items == null || items.isEmpty()) continue;
+            switch (cat) {
+                case LITERAL, REFERENCE -> appendReferenceSection(menu, items, expectedType, context, contextNode, onSelect);
+                case STRUCTURE -> appendStructureSection(menu, cat, items, expectedType, context, state, onSelect);
+                default -> appendOperatorSection(menu, cat, items, onSelect);
+            }
+        }
+
+        if (menu.getItems().isEmpty()) menu.getItems().add(disabledItem("(No options available)"));
+        return menu;
+    }
+
+    /** Literals + references: plain items, except VARIABLE / ENUM_CONSTANT / FUNCTION_CALL which fan out into submenus. */
+    private static void appendReferenceSection(ContextMenu menu, List<ExpressionType> items, ResolvedType expectedType,
+                                               CodeEditorService context, ASTNode contextNode, Consumer<Object> onSelect) {
+        if (!menu.getItems().isEmpty()) menu.getItems().add(new SeparatorMenuItem());
+        for (ExpressionType expr : items) {
+            if (expr == ExpressionCatalog.VARIABLE) {
+                if (contextNode != null) menu.getItems().add(variableSubmenu(expectedType, context, contextNode, onSelect));
+            } else if (expr == ExpressionCatalog.ACTIVITY) {
+                menu.getItems().add(activitiesSubmenu(expectedType, context, onSelect));
+            } else if (expr == ExpressionCatalog.ENUM_CONSTANT && expectedType.isEnum()) {
+                Menu sub = specificEnumSubmenu(expectedType, onSelect);
+                if (sub != null) menu.getItems().add(sub);
+            } else if (expr == ExpressionCatalog.ENUM_CONSTANT && (expectedType.isUnknown() || expectedType.simpleName().equals("Object"))) {
+                menu.getItems().add(globalEnumSubmenu(context, contextNode, onSelect));
+            } else if (expr == ExpressionCatalog.FUNCTION_CALL) {
+                menu.getItems().add(functionCallSubmenu(expectedType, context, contextNode, onSelect));
+            } else {
+                menu.getItems().add(createItem(expr, onSelect));
+            }
+        }
+    }
+
+    /** Structure category: INSTANTIATION expands to the target type's constructors when the type is known. */
+    private static void appendStructureSection(ContextMenu menu, ExpressionCategory cat, List<ExpressionType> items,
+                                               ResolvedType expectedType, CodeEditorService context, ProjectState state,
+                                               Consumer<Object> onSelect) {
+        Menu subMenu = new Menu(cat.getLabel());
+        for (ExpressionType expr : items) {
+            if (expr == ExpressionCatalog.INSTANTIATION && !expectedType.isUnknown() && state != null) {
+                for (MethodSignature sig : context.getProjectAnalyzer().getConstructors(expectedType.simpleName())) {
+                    MenuItem item = new MenuItem("New " + sig);
+                    item.setOnAction(e -> onSelect.accept(new ExpressionChoice.Constructor(expectedType.simpleName(), sig.paramTypes())));
+                    subMenu.getItems().add(item);
+                }
+            } else {
+                subMenu.getItems().add(createItem(expr, onSelect));
+            }
+        }
+        if (!subMenu.getItems().isEmpty()) menu.getItems().add(subMenu);
+    }
+
+    /** Math / comparison / logic: a flat submenu of plain items. */
+    private static void appendOperatorSection(ContextMenu menu, ExpressionCategory cat, List<ExpressionType> items, Consumer<Object> onSelect) {
+        Menu subMenu = new Menu(cat.getLabel());
+        for (ExpressionType expr : items) subMenu.getItems().add(createItem(expr, onSelect));
+        menu.getItems().add(subMenu);
+    }
+
+    private static Menu variableSubmenu(ResolvedType expectedType, CodeEditorService context, ASTNode contextNode, Consumer<Object> onSelect) {
+        Menu varMenu = new Menu("Variables");
+        List<ProjectAnalyzer.VariableOption> vars = context.getProjectAnalyzer().getVisibleVariables(contextNode, expectedType);
+        if (vars.isEmpty()) {
+            varMenu.getItems().add(disabledItem("(No variables)"));
+        } else {
+            for (ProjectAnalyzer.VariableOption var : vars) {
+                MenuItem item = new MenuItem(var.name() + (var.isField() ? " (Field)" : ""));
+                item.setOnAction(e -> onSelect.accept(new ExpressionChoice.Variable(var.name())));
+                varMenu.getItems().add(item);
+            }
+        }
+        return varMenu;
+    }
+
+    /** "Activities": the project's global config variables whose type is assignment-compatible with the slot. */
+    private static Menu activitiesSubmenu(ResolvedType expectedType, CodeEditorService context, Consumer<Object> onSelect) {
+        Menu menu = new Menu("Activities");
+        List<ActivityVariable> activities = context.getProjectAnalyzer().getActivityVariables(expectedType);
+        if (activities.isEmpty()) {
+            menu.getItems().add(disabledItem("(No activities)"));
+        } else {
+            for (ActivityVariable a : activities) {
+                MenuItem item = new MenuItem(a.name() + " (" + a.type().displayName() + ")");
+                item.setOnAction(e -> onSelect.accept(new ExpressionChoice.Field("Activities", a.name())));
+                menu.getItems().add(item);
+            }
+        }
+        return menu;
+    }
+
+    private static Menu specificEnumSubmenu(ResolvedType enumType, Consumer<Object> onSelect) {
+        List<String> constants = enumType.enumConstants();
+        if (constants.isEmpty()) return null;
+        Menu enumMenu = new Menu("Enum Values");
+        for (String constName : constants) {
+            MenuItem item = new MenuItem(constName);
+            item.setOnAction(e -> onSelect.accept(new ExpressionChoice.EnumConstant(enumType.simpleName(), constName)));
+            enumMenu.getItems().add(item);
+        }
+        return enumMenu;
+    }
+
+    private static Menu globalEnumSubmenu(CodeEditorService context, ASTNode contextNode, Consumer<Object> onSelect) {
+        Menu enumRoot = new Menu("Enums");
+        List<ResolvedType> enums = context.getProjectAnalyzer().getAvailableTypes(contextNode)
+                .stream().filter(ResolvedType::isEnum).toList();
+        for (ResolvedType enumType : enums) {
+            Menu enumSub = new Menu(enumType.simpleName());
+            for (String c : enumType.enumConstants()) {
+                MenuItem item = new MenuItem(c);
+                item.setOnAction(e -> onSelect.accept(new ExpressionChoice.EnumConstant(enumType.simpleName(), c)));
+                enumSub.getItems().add(item);
+            }
+            enumRoot.getItems().add(enumSub);
+        }
+        return enumRoot;
+    }
+
+    /**
+     * "Call Function": the enclosing class's own methods (local call), one submenu per visible non-primitive
+     * variable (instance methods) and per in-scope static class, plus a lazily-built "Library (static)" group
+     * covering every external-jar class with public static returning methods.
+     */
+    private static Menu functionCallSubmenu(ResolvedType expectedType, CodeEditorService context, ASTNode contextNode, Consumer<Object> onSelect) {
+        Menu functionMenu = new Menu("Call Function");
+        ProjectAnalyzer analyzer = (context != null) ? context.getProjectAnalyzer() : null;
+        VariableScopeVisitor.NodeScope scope = (analyzer != null && contextNode != null)
+                ? analyzer.getAvailableScopes(contextNode) : null;
+
+        List<Menu> scopeMenus = new ArrayList<>();
+
+        // 1. Enclosing class's own methods — local call (no receiver).
+        String enclosingClass = enclosingClassName(contextNode);
+        if (analyzer != null && enclosingClass != null) {
+            addIfNonNull(scopeMenus, buildScopeMenu("This (" + enclosingClass + ")", "", enclosingClass, false, expectedType, analyzer, onSelect));
+        }
+
+        // 2. Visible variables (instance members) + 3. in-scope static classes. Each submenu is dropped when
+        // it has no members compatible with the slot type (buildScopeMenu returns null).
+        if (scope != null) {
+            for (IVariableBinding var : scope.variables()) {
+                if (!ProjectAnalyzer.isUserVariable(var.getName())) continue; // hide args/this/super/scanner/…
+                ResolvedType varType = ResolvedType.of(var.getType());
+                if (varType.isArray()) continue;                  // arrays have no meaningful instance members
+                if (varType.isPrimitive() && !varType.isString()) continue;
+                addIfNonNull(scopeMenus, buildScopeMenu(var.getName(), var.getName(), var.getType().getQualifiedName(), false, expectedType, analyzer, onSelect));
+            }
+            for (ITypeBinding type : scope.types()) {
+                if (type.getName().equals(enclosingClass)) continue; // already covered as "This (...)"
+                addIfNonNull(scopeMenus, buildScopeMenu(type.getName(), type.getName(), type.getQualifiedName(), true, expectedType, analyzer, onSelect));
+            }
+        }
+
+        if (scopeMenus.isEmpty()) functionMenu.getItems().add(disabledItem("(No visible objects/classes)"));
+        else functionMenu.getItems().addAll(scopeMenus);
+
+        // 4. External-jar statics, grouped by package — populated lazily (the list can be very large).
+        if (analyzer != null && analyzer.getLibraryIndex() != null) {
+            Menu libMenu = new Menu("Library (static)");
+            libMenu.getItems().add(disabledItem("Loading…"));
+            libMenu.setOnShowing(ev -> populateLibraryStatics(libMenu, expectedType, analyzer, onSelect));
+            functionMenu.getItems().add(libMenu);
+        }
+        return functionMenu;
+    }
+
+    /** Simple name of the {@link TypeDeclaration} enclosing {@code node}, or {@code null}. */
+    private static String enclosingClassName(ASTNode node) {
+        for (ASTNode cur = node; cur != null; cur = cur.getParent()) {
+            if (cur instanceof TypeDeclaration td) return td.getName().getIdentifier();
+        }
+        return null;
+    }
+
+    /** Lazily fills the "Library (static)" submenu, grouped by package; idempotent. */
+    private static void populateLibraryStatics(Menu libMenu, ResolvedType expectedType, ProjectAnalyzer analyzer, Consumer<Object> onSelect) {
+        if (Boolean.TRUE.equals(libMenu.getProperties().get("loaded"))) return;
+        libMenu.getProperties().put("loaded", true);
+        libMenu.getItems().clear();
+
+        Map<String, List<ClassInfo>> byPackage = new TreeMap<>();
+        for (ClassInfo ci : analyzer.getLibraryIndex().getStaticUtilityTypes()) {
+            byPackage.computeIfAbsent(ci.getPackageName() == null ? "" : ci.getPackageName(),
+                    k -> new ArrayList<>()).add(ci);
+        }
+        byPackage.forEach((pkg, classes) -> {
+            Menu pkgMenu = new Menu(pkg.isEmpty() ? "(default)" : pkg);
+            classes.stream()
+                    .sorted(java.util.Comparator.comparing(ClassInfo::getSimpleName))
+                    .forEach(ci -> addIfNonNull(pkgMenu.getItems(),
+                            buildScopeMenu(ci.getSimpleName(), ci.getSimpleName(), ci.getName(), true, expectedType, analyzer, onSelect)));
+            if (!pkgMenu.getItems().isEmpty()) libMenu.getItems().add(pkgMenu); // skip jars/packages with nothing compatible
+        });
+        if (libMenu.getItems().isEmpty()) libMenu.getItems().add(disabledItem("(None compatible)"));
+    }
+
+    private static <T> void addIfNonNull(List<T> list, T item) {
+        if (item != null) list.add(item);
+    }
+
+    private static MenuItem disabledItem(String text) {
+        MenuItem item = new MenuItem(text);
+        item.setDisable(true);
+        return item;
+    }
+
+    /**
+     * Creates the bot-first insert menu for statement blocks. A search box filters every block by name; with no
+     * query the most common automation actions (find / click / wait, from {@link BlockCatalog#botActions()}) are
+     * promoted flat to the top, with the remaining blocks grouped by category below.
+     */
+    public static ContextMenu createStatementMenu(Consumer<BlockType> onSelection) {
+        ContextMenu menu = new ContextMenu();
+
+        TextField search = new TextField();
+        search.setPromptText("Search blocks…");
+        CustomMenuItem searchItem = new CustomMenuItem(search);
+        searchItem.setHideOnClick(false);
+        menu.getItems().add(searchItem);
+
+        rebuildStatementItems(menu, "", onSelection);
+        search.textProperty().addListener((obs, old, query) -> rebuildStatementItems(menu, query, onSelection));
+        menu.setOnShown(e -> search.requestFocus());
+
+        return menu;
+    }
+
+    /** Rebuilds the menu body (everything below the search box at index 0) for the current search {@code query}. */
+    private static void rebuildStatementItems(ContextMenu menu, String query, Consumer<BlockType> onSelection) {
+        menu.getItems().remove(1, menu.getItems().size());
+
+        String q = query == null ? "" : query.trim().toLowerCase();
+
+        // Active search: flat, filtered list across every block — no submenus to dig through.
+        if (!q.isEmpty()) {
+            List<MenuItem> matches = BlockCatalog.all().stream()
+                    .filter(b -> b.displayName().toLowerCase().contains(q))
+                    .map(b -> statementItem(b, onSelection))
+                    .collect(Collectors.toList());
+            if (matches.isEmpty()) menu.getItems().add(disabledItem("No matching blocks"));
+            else menu.getItems().addAll(matches);
+            return;
+        }
+
+        // Default: bot actions promoted flat at the top.
+        List<BlockType> promoted = BlockCatalog.botActions();
+        for (BlockType block : promoted) menu.getItems().add(statementItem(block, onSelection));
+        menu.getItems().add(new SeparatorMenuItem());
+
+        // Remaining blocks grouped by category (promoted ones skipped to avoid duplicates).
+        Set<BlockType> promotedSet = new HashSet<>(promoted);
+        Map<BlockCategory, List<BlockType>> grouped = BlockCatalog.all().stream()
+                .filter(b -> !promotedSet.contains(b))
+                .collect(Collectors.groupingBy(BlockType::category, LinkedHashMap::new, Collectors.toList()));
+
+        for (BlockCategory category : BlockCategory.values()) {
+            List<BlockType> blocks = grouped.get(category);
+            if (blocks == null || blocks.isEmpty()) continue;
+            Menu categoryMenu = new Menu(category.getLabel());
+            for (BlockType block : blocks) categoryMenu.getItems().add(statementItem(block, onSelection));
+            menu.getItems().add(categoryMenu);
+        }
+    }
+
+    private static MenuItem statementItem(BlockType block, Consumer<BlockType> onSelection) {
+        MenuItem item = new MenuItem(block.displayName());
+        item.setOnAction(e -> onSelection.accept(block));
+        return item;
+    }
+
+    /**
+     * Submenu of the type-compatible members (methods + readable fields) of {@code typeName}. {@code label} is
+     * the menu's display text while {@code scope} is the AST receiver — they differ for the enclosing class
+     * ("This (Foo)" labelled, {@code scope=""} so the reference has no receiver; fields are then skipped since
+     * a bare receiver-less field isn't offered here). Returns {@code null} when nothing is compatible, so the
+     * caller can drop the whole scope/jar entry rather than show an empty submenu.
+     */
+    private static Menu buildScopeMenu(String label, String scope, String typeName, boolean isStatic,
+                                       ResolvedType expectedType, ProjectAnalyzer analyzer, Consumer<Object> onSelect) {
+        Menu scopeMenu = new Menu(label);
+
+        // Methods (grouped by name; overloads nest one level).
+        Map<String, List<MethodSignature>> grouped = analyzer.getMethods(typeName, isStatic).stream()
+                .filter(m -> m.returnsCompatibleWith(expectedType))
+                .collect(Collectors.groupingBy(MethodSignature::name));
+        grouped.keySet().stream().sorted().forEach(mName -> {
+            List<MethodSignature> sigs = grouped.get(mName);
+            if (sigs.size() == 1) {
+                MethodSignature sig = sigs.getFirst();
+                MenuItem item = new MenuItem(mName);
+                item.setOnAction(e -> onSelect.accept(new ExpressionChoice.Method(scope, mName, sig.paramTypes(), isStatic)));
+                scopeMenu.getItems().add(item);
+            } else {
+                Menu overloadMenu = new Menu(mName);
+                for (MethodSignature sig : sigs) {
+                    MenuItem sigItem = new MenuItem(sig.toString());
+                    sigItem.setOnAction(e -> onSelect.accept(new ExpressionChoice.Method(scope, mName, sig.paramTypes(), isStatic)));
+                    overloadMenu.getItems().add(sigItem);
+                }
+                scopeMenu.getItems().add(overloadMenu);
+            }
+        });
+
+        // Fields (static constants for class scopes, instance members for variable scopes). Needs a receiver.
+        if (!scope.isEmpty()) {
+            List<ProjectAnalyzer.FieldOption> fields = analyzer.getFields(typeName, isStatic).stream()
+                    .filter(f -> MethodSignature.typeSatisfies(f.type(), expectedType))
+                    .toList();
+            if (!fields.isEmpty() && !scopeMenu.getItems().isEmpty()) scopeMenu.getItems().add(new SeparatorMenuItem());
+            for (ProjectAnalyzer.FieldOption f : fields) {
+                MenuItem item = new MenuItem(f.name() + " : " + f.type().simpleName());
+                item.setOnAction(e -> onSelect.accept(new ExpressionChoice.Field(scope, f.name())));
+                scopeMenu.getItems().add(item);
+            }
+        }
+
+        return scopeMenu.getItems().isEmpty() ? null : scopeMenu;
+    }
+
+    private static MenuItem createItem(ExpressionType expr, Consumer<Object> onSelect) {
+        MenuItem item = new MenuItem(expr.displayName());
+        item.setOnAction(e -> onSelect.accept(expr));
+        return item;
+    }
+}

@@ -1,0 +1,110 @@
+package com.botmaker.project;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.attribute.FileTime;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Stream;
+
+import static com.botmaker.config.Constants.ARCHIVE_ROOT;
+import static com.botmaker.config.Constants.PROJECTS_ROOT;
+
+/**
+ * Manages project discovery and listing
+ */
+public class ProjectManager {
+
+
+
+    /**
+     * Lists all available projects
+     */
+    public List<ProjectInfo> listProjects() {
+        return listProjectsUnder(PROJECTS_ROOT);
+    }
+
+    /** Lists archived (soft-deleted) projects, in the same shape as {@link #listProjects()}. */
+    public List<ProjectInfo> listArchivedProjects() {
+        return listProjectsUnder(ARCHIVE_ROOT);
+    }
+
+    private List<ProjectInfo> listProjectsUnder(Path root) {
+        List<ProjectInfo> projects = new ArrayList<>();
+
+        if (!Files.exists(root)) {
+            return projects;
+        }
+
+        try (Stream<Path> paths = Files.list(root)) {
+            paths.filter(Files::isDirectory)
+                    .filter(this::isValidProject)
+                    .forEach(projectPath -> {
+                        try {
+                            String projectName = projectPath.getFileName().toString();
+                            FileTime lastModified = Files.getLastModifiedTime(projectPath);
+                            LocalDateTime modifiedDate = LocalDateTime.ofInstant(
+                                    lastModified.toInstant(),
+                                    ZoneId.systemDefault()
+                            );
+                            projects.add(new ProjectInfo(projectName, projectPath, modifiedDate));
+                        } catch (IOException e) {
+                            System.err.println("Error reading project: " + projectPath);
+                        }
+                    });
+        } catch (IOException e) {
+            System.err.println("Error listing projects: " + e.getMessage());
+        }
+
+        return projects;
+    }
+
+    /**
+     * Checks if a directory is a valid project
+     * (has src/main/java structure and pom.xml)
+     */
+    private boolean isValidProject(Path projectPath) {
+        Path srcPath = projectPath.resolve("src/main/java");
+        Path pom = projectPath.resolve("pom.xml");
+        return Files.exists(srcPath) && Files.exists(pom);
+    }
+
+    /** Soft-deletes a project by moving it into the archive directory. */
+    public void archiveProject(String name) throws IOException {
+        Path source = PROJECTS_ROOT.resolve(name);
+        if (!Files.exists(source)) {
+            throw new IOException("Project '" + name + "' does not exist.");
+        }
+        Files.createDirectories(ARCHIVE_ROOT);
+        Files.move(source, ARCHIVE_ROOT.resolve(name));
+    }
+
+    /** Restores an archived project back into the live projects directory. */
+    public void restoreProject(String name) throws IOException {
+        Path source = ARCHIVE_ROOT.resolve(name);
+        if (!Files.exists(source)) {
+            throw new IOException("Archived project '" + name + "' does not exist.");
+        }
+        Path dest = PROJECTS_ROOT.resolve(name);
+        if (Files.exists(dest)) {
+            throw new IOException("A project named '" + name + "' already exists.");
+        }
+        Files.move(source, dest);
+    }
+
+    /**
+     * Gets the source file path for a project
+     */
+    public Path getSourceFilePath(String projectName) {
+        String packageName = projectName.toLowerCase();
+        return PROJECTS_ROOT
+                .resolve(projectName)
+                .resolve("src/main/java/com")
+                .resolve(packageName)
+                .resolve(projectName + ".java");
+    }
+}

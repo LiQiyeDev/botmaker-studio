@@ -1,0 +1,70 @@
+package com.botmaker.ui.render.layout;
+
+import com.botmaker.core.BodyBlock;
+import com.botmaker.services.CodeEditorService;
+import javafx.geometry.Insets;
+import javafx.scene.Node;
+import javafx.scene.layout.VBox;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+public class BodyLayoutBuilder {
+    private final Node headerNode; // Optional header
+    private BodyBlock bodyBlock;
+    private CodeEditorService context;
+    private boolean indented = true;
+    private Insets indentation = new Insets(5, 0, 0, 20);
+    private final List<String> styleClasses = new ArrayList<>();
+
+    public BodyLayoutBuilder() {
+        this.headerNode = null;
+    }
+
+    public BodyLayoutBuilder(Node headerNode) {
+        this.headerNode = headerNode;
+    }
+
+    public BodyLayoutBuilder withContent(BodyBlock body, CodeEditorService context) {
+        this.bodyBlock = body;
+        this.context = context;
+        return this;
+    }
+
+    public BodyLayoutBuilder withIndentation(Insets insets) {
+        this.indentation = insets;
+        this.indented = true;
+        return this;
+    }
+
+    public BodyLayoutBuilder noIndentation() {
+        this.indented = false;
+        return this;
+    }
+
+    public BodyLayoutBuilder withStyleClass(String... classes) {
+        styleClasses.addAll(Arrays.asList(classes));
+        return this;
+    }
+
+    public VBox build() {
+        VBox container = new VBox(5);
+        styleClasses.forEach(c -> container.getStyleClass().add(c));
+
+        if (headerNode != null) {
+            container.getChildren().add(headerNode);
+        }
+
+        if (bodyBlock != null) {
+            VBox bodyContainer = new VBox();
+            if (indented) {
+                bodyContainer.setPadding(indentation);
+            }
+            bodyContainer.getChildren().add(bodyBlock.getUINode(context));
+            container.getChildren().add(bodyContainer);
+        }
+
+        return container;
+    }
+}

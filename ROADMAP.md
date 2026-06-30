@@ -1,0 +1,248 @@
+# BotMaker Roadmap
+
+Living backlog + changelog for BotMaker — the **Studio** (this repo) and the **SDK** (at `../BotMaker-sdk`).
+Claude updates the **Completed** section whenever work lands here (see CLAUDE.md → Roadmap).
+
+## Current state (2026-06-27)
+
+- **The SDK engine is strong; its exposed surface is thin.** Present: OpenCV template matching; rich
+  `ImageFinder` / `ImageClicker` / `ImageWaiter` (waitAndClick, clickUntilSuccess, clickWhileVisible, ifExists,
+  region-scoped search); desktop + window + multi-monitor capture; `getForegroundWindow`; window-relative click.
+  Missing from the public API: keyboard, rich mouse, window targeting.
+- **SDK dependency:** the Studio depends on `com.github.LiQiyeDev:BotMaker-sdk` (JitPack). The version is
+  no longer hand-bumped — `JitPackSearch` reads available versions from JitPack's `maven-metadata.xml`: new
+  projects pick the latest at creation (overridable), and any project's SDK version is editable from **Manage
+  Libraries** (pinned, non-removable row). `MavenService.SDK_FALLBACK_VERSION` is only used when JitPack is
+  unreachable. Each generated project keeps whatever version is pinned in its own `pom.xml`.
+
+## Refactoring backlog (Studio)
+
+- [ ] **A5 — Refresh CLAUDE.md.** It still references the removed `BlockFactory` / `BlockParser` and the old
+  `AddableBlock`; document `BlockType` / `BlockCatalog` and the event-driven drag-and-drop.
+
+## PC-game feature backlog (SDK + Studio)
+
+Priority: **P0** = blocks core usage, **P1** = important, **P2** = nice-to-have.
+
+- [ ] **B1 (P0) — Keyboard input (SDK).** No `Keyboard` class exists. Add `api.interaction.Keyboard`: tap, hold,
+  release, key combos, type-string; per-OS (Linux XTest, Windows SendInput). + palette blocks.
+- [ ] **B2 (P0) — Richer Mouse (SDK).** Currently left-click only. Add right / middle / double click, move, drag,
+  scroll, button down/up (hold). + palette blocks.
+- [~] **B3 (P0) — Image-template capture + region picker (Studio).** Image-template half **done** (2026-06-30):
+  in-block picker + screenshot→crop→save-as-named-template asset tool (`ScreenCaptureService`,
+  `ResourceManagerDialog`, `ImageTemplateLibrary`). Still pending: a visual **Rect** region picker for
+  `new Rect(0,0,0,0)` args.
+- [ ] **B4 (P1) — Window targeting in the public API (SDK).** Surface the existing internal
+  `getForegroundWindow` / `captureWindow` / window-relative click as a `Window` / target so bots survive window
+  moves, focus changes, and multi-monitor.
+- [ ] **B5 (P1) — Run scaffold + global stop hotkey (Studio).** Generated projects are a hello-world `main`; bots
+  are loops. Provide a run-loop scaffold and a global panic/stop hotkey (the game holds focus;
+  `StopRunRequestedEvent` only fires from the toolbar today). Needs a global hook (e.g. jnativehook) or SDK-level
+  hook.
+- [ ] **B6 (P1) — Surface the rich vision/input API as blocks (Studio).** waitAndClick, clickUntilSuccess,
+  exists → if, region-scoped find, key-press — buildable from the palette, not only via type-menus.
+- [ ] **B7 (P2) — Replace the `BotMaker.DefaultMethod()` stub** that the "Call Function" block inserts.
+- [ ] **B8 (P1) — Bump the Studio's SDK dependency** to the current SDK version and rebuild the type index so new
+  APIs appear in the palette / type-menus.
+
+## Completed
+
+Most recent first. Claude appends here when work lands (date — what changed — where).
+
+- **2026-06-30 — Self-contained release (jpackage) + README rework.** Added a `dist` Maven profile that shades
+  the app and runs `jpackage` into a portable app-image bundling its own Java+JavaFX runtime — end users no
+  longer need a JavaFX-bundled JDK (`pom.xml`). Added `com.botmaker.Launcher` (non-`Application` entry point) so
+  the fat jar / app-image launches without the "JavaFX runtime components are missing" error. Reworked
+  `README.md`: corrected stale Gradle→Maven, removed the dead JDT-language-server setup step (the LSP server is
+  never launched; diagnostics come from in-process JDT Core) and the nonexistent light/dark theme claim, added
+  Download + Packaging sections.
+
+- **2026-06-30 — Resource Manager shortcut + richer screen chooser w/ remembered default.** Image-template
+  picker gains an "Open Resource Manager…" item (`MethodInvocationBlock` → new `OpenResourceManagerEvent`,
+  handled in `UIManager`). The multi-monitor capture chooser (`ScreenCaptureService`) now grabs the desktop
+  first and shows per-screen preview thumbnails + details (resolution/position/primary/scale); the last pick
+  is remembered and preselected via `ProjectPreferences.captureScreenIndex`.
+- **2026-06-30 — Project/SDK/gallery links + bigger template previews + screen picker.** Help menu now
+  links to the Studio and SDK GitHub repos (`MenuBarManager`); Project menu links to the published
+  project repo (`UIManager`/`MenuBarManager`); gallery dialog links to the gallery repo (`GalleryDialog`).
+  Inline image-picker thumbnails (`MethodInvocationBlock`) and the Resource Manager preview
+  (`ResourceManagerDialog`) are larger and window-scaled. Screen capture adds a multi-monitor chooser
+  (`ScreenCaptureService`).
+- **2026-06-30 — Wayland screen capture + hide/lock `Activities.java`.** `ScreenCaptureService` now
+  shells out to an installed screenshot CLI (`grim`/`gnome-screenshot`/`spectacle`) under Wayland (where
+  `Robot` returns black), keeping `Robot` on X11/Windows. The generated `Activities.java` is hidden from
+  the file tree (`FileExplorerManager.buildFileTree`) and forced read-only in the editor
+  (`CodeEditorService.refreshUI`, "[Generated - Read Only]").
+- **2026-06-30 — Activities (global config variables).** Editor defines named, typed globals
+  (`ActivityType`: Bool/Int/Double/Text/Time/Date → Java types); the user fills values. Schema + values
+  persist to `src/main/resources/activities.json` (`ActivitiesConfig`, modeled on `BotSource`); a
+  generated `Activities.java` exposes `public static final` fields loaded from that JSON at startup, so
+  blocks reference `Activities.<name>`. New `ActivityService`, `ProjectState.activities`, wired in
+  `BotProject.open`. Expression menu gains an **Activities** submenu (`ExpressionCatalog.ACTIVITY` +
+  `ExpressionMenuFactory.activitiesSubmenu` + `ProjectAnalyzer.getActivityVariables`), type-filtered,
+  emitting an `ExpressionChoice.Field("Activities", …)`. UI: **Project → Manage Activities** /
+  **Set Activity Values**. `src/main/resources` added to the run/debug classpath so the JSON resolves.
+- **2026-06-30 — Image-template capture + in-block picker (B3, partial).** `find`/`click`/`waitFor`
+  blocks now render an inline image-template picker for their `ImageTemplate` argument
+  (`MethodInvocationBlock.renderArguments` → thumbnail `MenuButton`): pick a saved template or
+  **Capture new…** (crop the screen). New `ScreenCaptureService` (pure-Java AWT `Robot`, full virtual
+  desktop, rubber-band crop; Wayland caveat noted), `ImageTemplateLibrary` (lists PNGs under
+  `src/main/resources/images`, maps to project-relative paths), `CodeEditor.setImageTemplate`, and a
+  **Project → Resource Manager** dialog (preview / rename / delete / capture). Rect region picker still
+  pending.
+- **2026-06-29 — Gallery/selection refinements (round 2).** (1) **Publish version** is now a structured,
+  monotonic picker: `PublishDialog` uses an editable `ComboBox` seeded with the patch/minor/major bumps
+  after the repo's latest release, and Publish is disabled (with a reason) unless the value is valid
+  semver AND strictly greater than the last published tag (`SemVer.compare`/`isGreater`/`nextMinor`/
+  `nextMajor`). (2) **Project selection**: sort dropdown (Name/Date asc-desc), always-on **Local** /
+  **Imported** group headers (new `Row`/`ProjectRow`/`HeaderRow` model), and a **My projects only**
+  filter (local + published-by-you) gated behind GitHub sign-in. Removed the "Clear Language Server
+  Cache" checkbox (open now always passes `clearCache=false`). (3) **Linux browser fix**: new
+  `util/BrowserLauncher` falls back from `Desktop.browse` to `xdg-open`/`open`/`rundll32`, fixing the
+  OAuth page not opening; reused by `PublishDialog` + `GitHubAccountBar`. Tests: extended `SemVerTest`.
+
+- **2026-06-29 — Gallery publish UX + project archive + GitHub account management.** (1) **Publish
+  dialog**: version (tag) now auto-proposes the next patch after the repo's latest release (new pure
+  `sharing/SemVer.next`, falls back to local provenance then `1.0.0`); added a **Tags** field threaded
+  through `BotPublisher.publish`/`submitToGallery` (was hardcoded `[]`). (2) **Account management**: new
+  reusable `ui/app/GitHubAccountBar` (extracts the device-flow sign-in from `PublishDialog`) adds
+  **Sign out** / **Switch account** and shows the signed-in login; used by both the publish dialog and
+  the project-selection screen. `GitHubAuth` gained a cached `login(client)` (cleared on sign-out / new
+  token). (3) **Project selection**: **Archive** (soft-delete → `~/BotMakerProjects/.archive/`, new
+  `Constants.ARCHIVE_ROOT` + `ProjectManager.archiveProject/restoreProject/listArchivedProjects`) with a
+  **Show archived** toggle to restore; per-project ownership badges (Local / Published by you / Imported
+  from {owner}). Cleanup: removed `ProjectManager.isValidProject` debug prints. Tests: `SemVerTest`,
+  `PublishDialogTagsTest`.
+
+- **2026-06-29 — Gallery publish fixes (post first-publish).** (1) `BotPublisher.submitToGallery`: when the
+  publisher owns the index repo (maintainer case), commit the `index.json` entry directly instead of
+  trying to fork-your-own-repo + self-PR (which 422'd `"No commits between main and main"`). Factored the
+  read/append/commit into `editIndex` + a pure, tested `mergeEntry` helper that **dedupes by `owner/repo`**
+  so re-publishing is idempotent; non-owners still fork → `awaitFork` → edit → PR. (2)
+  `ProjectSelectionScreen`: the create-project SDK version combo is pre-seeded with `SDK_FALLBACK_VERSION`
+  so it's never empty/offline-blank; the JitPack fetch then refines it (and no longer wipes the seed on an
+  empty result). Test: `BotPublisherIndexTest`.
+
+- **2026-06-29 — Federated bot gallery: publisher side (Track B, part 2).** New in `com.botmaker.sharing`:
+  `GitHubAuth` ("Sign in with GitHub" OAuth device flow — no token pasting; token stored 0600 under the
+  cache dir, never in `~/BotMakerProjects/`), `ProjectArchive` (collect publishable files, excluding
+  `target`/`.git`/provenance), `BotPublisher` (ensure repo → push the project tree via the Git Data API
+  → cut a release tag → best-effort fork+PR to the curated index repo → write local provenance), and
+  `GitHubClient.patch`. UI `ui/app/PublishDialog` (device-flow sign-in panel, repo/description/version form,
+  result with repo + PR links), reachable from **Project → Publish to Gallery…**. Degrades gracefully when
+  `OAUTH_CLIENT_ID` is unset ("publishing not configured"). Tests: `ProjectArchiveTest`. **Maintainer
+  setup still required to go live:** register a device-flow GitHub OAuth App and paste its client id into
+  `GitHubConfig.OAUTH_CLIENT_ID`; create the index repo (`INDEX_OWNER/INDEX_REPO`) with a seed `index.json`.
+
+- **2026-06-29 — Federated bot gallery: consumer side (Track B, part 1).** New `com.botmaker.sharing`
+  package: `GitHubConfig` (stubbed maintainer values — OAuth `client_id` + index-repo coords — with
+  graceful degradation), `GitHubClient` (JDK `HttpClient` + Jackson REST/raw helper, no GitHub SDK),
+  `GalleryEntry` + `GitHubGallery` (browse the curated `index.json` via raw CDN URL; live `latestReleaseTag`
+  per author repo), `BotSource` (provenance `botmaker-source.json`), `BotInstaller` (download release zip →
+  unzip into `~/BotMakerProjects/` with zip-slip guard → record provenance; `checkForUpdate`/`update`).
+  UI `ui/app/GalleryDialog` (Browse + Installed tabs, trust-warning gated install, per-row update badge),
+  reachable from **Project → Browse Gallery…** and a **Browse Gallery** button on the project-selection
+  screen. Account-free (browse/install). Tests: `GalleryAndInstallerTest`. Remaining: Track B part 2 —
+  publisher side (OAuth device flow, repo create + Git Data API push, release, index fork+PR).
+
+- **2026-06-29 — SDK version is JitPack-driven & user-editable (Track A of SDK/sharing work).** New
+  `services/JitPackSearch` fetches versions/latest from the SDK's JitPack `maven-metadata.xml` (no more
+  hand-bumping). `MavenService` exposes `SDK_GROUP_ID/ARTIFACT_ID/FALLBACK_VERSION`, a
+  `writePom(..., sdkVersion)` overload, `readSdkVersion`, and `writeUserLibraries(..., sdkVersion)`;
+  `LibraryService.updateLibraries(userLibs, sdkVersion)` replaces `updateUserLibraries`. The create-project
+  dialog (`ProjectSelectionScreen`) now has an SDK-version picker defaulting to the latest JitPack release,
+  threaded through `ProjectCreator.createProject(name, sdkVersion)`. **Manage Libraries** shows the SDK as a
+  pinned, non-removable row and gives every row an editable version dropdown (JitPack for `com.github.*`,
+  else Maven Central). Tests: `JitPackSearchTest`, `MavenServiceSdkTest`. Remaining: Track B — federated
+  GitHub bot-sharing gallery (publish/browse/install/update) per the plan.
+
+- **2026-06-28 — Bot-builder surfacing: SDK-backed Print/Read, whitelisted type menus, imports UI.**
+  (1) Print/Read blocks now compile to the SDK instead of raw Java: added `BotMaker.print(...)` and
+  `readLine/readInt/readDouble/readBoolean` (`BotMaker-sdk` `api/BotMaker.java`, lazy private `Scanner`);
+  `StatementFactory` emits `BotMaker.print(...)` / `BotMaker.readX()` (and adds the import), `BlockConverter`
+  recognizes them, `BlockCatalog`/`ReadInputBlock` use the `readX` names, and `scanner` left `HIDDEN_VARIABLES`.
+  (2) Whitelisted the type/expression menus to `com.botmaker.sdk.api.*` via a configurable
+  `allowedPackagePrefixes` filter in `TypeSummaryManager.ensureCaches()` — transitive deps (opencv/jackson/
+  eclipse/ddmlib) and the SDK `internal` package are still indexed for resolution but hidden from the user.
+  (3) **Project → Manage Imports…** (`ui/app/ManageImportsDialog`) lists/adds/removes the current file's
+  imports via new `CodeEditor.addImport/removeImport/getImports` + `ImportManager.removeImport/listImports`.
+  Bumped `MavenService.DEFAULT_DEPENDENCIES` to the republished `com.botmaker.sdk:botmaker-sdk:1.0.1` so the
+  new Print/Read blocks compile in generated user projects. (B7 `DefaultMethod` stub still pending.)
+
+- **2026-06-28 — Fixed three bugs (undo/redo, function-call dropdowns, type-menu lag).**
+  (1) Undo/Redo was a no-op: `CodeEditorService.applyHistoryState` published a `CodeUpdatedEvent` while
+  `isRestoringHistory` was set, which suppressed the UI refresh — switched it to `UIRefreshRequestedEvent`
+  (refreshes without re-recording history) and deleted the now-dead `isRestoringHistory` flag.
+  (2) `MethodInvocationBlock` dropdowns now mirror `ExpressionMenuFactory`: the class selector adds a
+  `--- LIBRARIES ---` section from `getStaticUtilityTypes()`, and the method selector filters by the slot's
+  expected return type (via new `MethodSignature.returnsCompatibleWith` / `typeSatisfies`, also reused by the
+  menu). (3) First-menu lag: warm `TypeSummaryManager`'s derived caches + `ProjectAnalyzer`'s library
+  `ResolvedType`s on a background daemon thread at `BotProject.open` (new `warmCaches` / `warmLibraryTypes`;
+  `ensureCaches` / `libraryTypes` made `synchronized`).
+- **2026-06-28 — Removed `CompletionContext`.** The record (in the vestigial `lsp/` package) was just a partial
+  copy of the `CodeEditorService` that built it, plus three dead fields (`docUri`/`sourceCode`/`docVersion`), a
+  dead `getConfig()`, and an unused `LanguageServer` import. Now the owning `CodeEditorService` is threaded
+  directly through `getUINode` / `createUINode`; added `getState` / `getEventBus` / `getDragAndDropManager`
+  getters and rewrote call sites (`context.codeEditor()` → `getCodeEditor()`, `context.codeEditorService()` →
+  `context`, etc.). Deleted the record, `createCompletionContext()`, and the empty `lsp/` package; updated
+  CLAUDE.md.
+- **2026-06-28 — Blocks-package duplication sweep (round 2).** Extracted four more duplicated UI patterns:
+  `ExpressionMenuFactory.installTypeSelector` (cursor + tooltip + type-menu wiring, used by the variable /
+  field / parameter / enum blocks); a new `ui/render/menu/MenuComponents` with `populate` / `showListMenu`
+  (flat list→menu with empty fallback, used by `IdentifierBlock` / `ListBlock` / `MethodInvocationBlock`) and
+  `populateGroupedTypeMenu` (PRIMITIVES/CLASSES grouped type picker, shared by `MethodDeclarationBlock` /
+  `ConstructorBlock` — the constructor add-param menu is now grouped/sorted/deduped like the method one); and
+  `AbstractExpressionBlock.createArgumentPill` (change-button + pill wiring shared by `InstantiationBlock` /
+  `MethodInvocationBlock`).
+- **2026-06-28 — `InstantiationBlock` cleanup.** Dropped the private `determineExpectedType()` (a worse,
+  two-case duplicate of `ProjectAnalyzer.inferExpectedType`) in favour of the shared analyzer, and moved all
+  inline `setStyle(...)` strings into `blocks.css` style classes (`.instantiation-block` and children).
+- **2026-06-28 — Expression-menu follow-ups: context node, empty-slot picks, Call-Function, perf.** Local
+  `VariableDeclarationBlock` / `ReturnBlock` / `SwitchBlock` were calling menu overloads that hardcoded
+  `contextNode = null` (no Variables/Call-Function suggestions); removed those overloads and pass
+  `this.astNode`. Added a single `NodeCreator.createExpression(selection)` that builds an AST node from either
+  an `ExpressionType` or an `ExpressionChoice`, and routed the empty-slot setters (`setVariableInitializer` /
+  `setFieldInitializer` / `setReturnExpression`) through it so empty slots now accept variable/method/
+  constructor/enum picks (not just literals). `ExpressionMenuFactory.functionCallSubmenu` now offers the
+  enclosing class's own methods ("This (Class)", local call) and a lazily-built "Library (static)" group over
+  all external-jar classes with static returning methods (`TypeSummaryManager.getStaticUtilityTypes`).
+  Performance: `TypeSummaryManager` lazily caches the flattened type list + simple/qualified-name maps +
+  static-utility list; `ProjectAnalyzer.getAvailableTypes` memoizes the library `ResolvedType` list
+  (invalidated on index-size change), removing the per-open full library rescan. Covered by extended
+  `ScopeAtLiteralNodeTest`. Follow-up: Call-Function now hides non-user variables (`args`/`this`/… via
+  `isUserVariable`) and array-typed targets, and filters method suggestions to those whose return type is
+  assignable to the slot's expected type. QOL: scope/jar/package submenus with no type-compatible members are
+  dropped instead of shown empty (`buildScopeMenu` returns null); and readable **fields** are now suggested
+  alongside methods — static constants for class scopes, instance members for variable scopes — via a new
+  `ExpressionChoice.Field` + `ProjectAnalyzer.getFields`, inserted as `scope.field`.
+- **2026-06-28 — Fix empty Variables/Methods menus + auto method signatures.** Root cause: the editor AST was
+  parsed without `setUnitName`, so source bindings came back null, and `VariableScopeVisitor.getScopeAt` only
+  answered for "trigger" nodes — so the menu's literal/placeholder `contextNode` always yielded an empty
+  scope (enums still showed because they come from the ClassGraph index, not the scope visitor). Added
+  `setUnitName` in `ProjectAnalyzer.createCompilationUnit` (threaded from the active file) and made
+  `getScopeAt` capture the live scope at `preVisit(node)` for any node (excluding the node's own
+  declaration). Refactored the 165-line `ExpressionMenuFactory.createExpressionTypeMenu` into per-concern
+  helpers and drove category order off the enums. `MethodInvocationBlock` now resolves methods/signatures via
+  `ProjectAnalyzer.getMethods` (project **and** external-library types), auto-picks the overload matching the
+  current arg count (smart-merge handles args), and dropped the manual ⟳ sync button (kept the ⚙ overload
+  picker). New `ScopeAtLiteralNodeTest` covers the fix.
+- **2026-06-28 — A2: `AstRewriter` merged into `CodeEditor`.** Deleted the ~40-method pass-through façade; pure
+  `(cu, code) → code` rewrites now go straight to `parser/handlers/*` or to `private static` transforms folded
+  into `CodeEditor`, and the per-method `canModify()` / `triggerUpdate()` boilerplate is factored into one
+  `edit(markUnedited, op)` helper. Pipeline is now `CodeEditor → handlers/* + NodeCreator → AstRewriteHelper`.
+- **2026-06-28 — A1: `AddableExpression` enum → sealed `ExpressionType` hierarchy.** New `com.botmaker.palette`
+  members (`ExpressionType` with `Literal` / `Reference` / `InfixOp` / `PrefixOp`, JDT-free `Op` enum;
+  `ExpressionCategory`; `ExpressionCatalog` constants + `getForType` / `isCompatibleWith`). `ExpressionFactory`
+  pattern-matches the sealed type instead of two name-decoding switches; deleted the nullable
+  operator/return-type fields. Covered by `BlockDragDropEditTest`.
+- **2026-06-27 — `AddableBlock` enum → sealed `BlockType` hierarchy.** New dependency-free `com.botmaker.palette`
+  package (`BlockType`, `Initializer`, `BlockCategory`, `BlockCatalog`); `StatementFactory` now pattern-matches on
+  the sealed type with data-driven `VarDecl` / `ScannerRead` / `LibraryCall` builders; deleted the dead `blockClass`
+  field and the name-decoding switch / `name().startsWith` / `valueOf` coupling. Covered by `BlockDragDropEditTest`.
+- **2026-06-27 — Drag-and-drop QoL.** Non-reflowing insertion indicator (pseudo-class, background-only);
+  whole-block top/bottom-half drop hitbox; self-move guard; removed the forbidden-drag cursor flash; removed the
+  right-click "toggle breakpoint" popup (the gutter circle still toggles breakpoints).
+- **2026-06-27 — Drag-and-drop architecture rework.** Event-driven drops (`BlockDropRequestedEvent` /
+  `BlockMoveRequestedEvent`) replacing never-wired callbacks; fixed the method-declaration double-drag
+  registration; parent-chain control hit-test; pseudo-class drag feedback. All four flows (palette-add,
+  class-member add, statement move, method reorder) now work.
