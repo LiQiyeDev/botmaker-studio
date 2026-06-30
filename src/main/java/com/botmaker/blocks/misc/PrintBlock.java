@@ -1,4 +1,3 @@
-// FILE: rs\bgroi\Documents\dev\IntellijProjects\BotMaker\src\main\java\com\botmaker\blocks\PrintBlock.java
 package com.botmaker.blocks.misc;
 
 import com.botmaker.core.AbstractStatementBlock;

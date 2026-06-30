@@ -1,4 +1,3 @@
-// FILE: rs\bgroi\Documents\dev\IntellijProjects\BotMaker\src\main\java\com\botmaker\services\CodeEditorService.java
 package com.botmaker.services;
 
 import com.botmaker.project.ProjectConfig;

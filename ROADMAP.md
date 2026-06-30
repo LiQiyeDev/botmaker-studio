@@ -49,13 +49,19 @@ Priority: **P0** = blocks core usage, **P1** = important, **P2** = nice-to-have.
 
 Most recent first. Claude appends here when work lands (date — what changed — where).
 
-- **2026-06-30 — Self-contained release (jpackage) + README rework.** Added a `dist` Maven profile that shades
-  the app and runs `jpackage` into a portable app-image bundling its own Java+JavaFX runtime — end users no
-  longer need a JavaFX-bundled JDK (`pom.xml`). Added `com.botmaker.Launcher` (non-`Application` entry point) so
-  the fat jar / app-image launches without the "JavaFX runtime components are missing" error. Reworked
-  `README.md`: corrected stale Gradle→Maven, removed the dead JDT-language-server setup step (the LSP server is
-  never launched; diagnostics come from in-process JDT Core) and the nonexistent light/dark theme claim, added
-  Download + Packaging sections.
+- **2026-06-30 — Cross-platform GitHub Release (CI) + dist profile actually landed.** Implemented the `dist`
+  Maven profile that was previously only documented: stages the shaded jar and runs `jpackage` into a portable
+  app-image, bundling the **full build JDK** (`--runtime-image ${java.home}`) so the Studio's `javac`/`java`/JDI
+  subprocesses for compiling, running and debugging user bots work (`pom.xml`). Added
+  `.github/workflows/release.yml` — an ubuntu+windows matrix that builds on a `v*` tag push and publishes both
+  app-image zips to a GitHub Release. Per-leg `-Djavacpp.platform=<host>` ships host-only OpenCV natives
+  (~1.2 GB → ~580 MB). Added a shade signature-file filter (fixes "Invalid signature file digest") and pointed the
+  shade manifest at `com.botmaker.Launcher` so the bare fat jar runs too. Fixed a stray-char typo in `pom.xml`.
+- **2026-06-30 — Self-contained release groundwork + README rework.** Added `com.botmaker.Launcher`
+  (non-`Application` entry point) so the fat jar / app-image launches without the "JavaFX runtime components are
+  missing" error. Reworked `README.md`: corrected stale Gradle→Maven, removed the dead JDT-language-server setup
+  step (the LSP server is never launched; diagnostics come from in-process JDT Core) and the nonexistent
+  light/dark theme claim, added Download + Packaging sections.
 
 - **2026-06-30 — Resource Manager shortcut + richer screen chooser w/ remembered default.** Image-template
   picker gains an "Open Resource Manager…" item (`MethodInvocationBlock` → new `OpenResourceManagerEvent`,

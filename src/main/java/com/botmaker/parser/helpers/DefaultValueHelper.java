@@ -1,4 +1,3 @@
-// FILE: rs\bgroi\Documents\dev\IntellijProjects\BotMaker\src\main\java\com\botmaker\parser\helpers\DefaultValueHelper.java
 package com.botmaker.parser.helpers;
 
 import com.botmaker.types.ResolvedType;

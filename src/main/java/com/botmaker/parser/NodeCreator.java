@@ -1,4 +1,3 @@
-// FILE: rs\bgroi\Documents\dev\IntellijProjects\BotMaker\src\main\java\com\botmaker\parser\NodeCreator.java
 package com.botmaker.parser;
 
 import com.botmaker.parser.factories.ExpressionFactory;

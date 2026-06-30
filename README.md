@@ -131,11 +131,19 @@ mvn -Pdist package
 # → target/dist/BotMaker Studio/   (run the launcher inside)
 ```
 
+**Releases are built automatically by CI.** Pushing a `v*` tag (e.g. `git tag v1.0.0 && git push origin v1.0.0`)
+runs `.github/workflows/release.yml`, which builds the app-image on both Linux and Windows runners and attaches the
+two zips to a GitHub Release. Tags containing a hyphen (e.g. `v1.0.0-rc1`) publish as pre-releases.
+
 Notes:
 
 - A small `com.botmaker.Launcher` (which does *not* extend `Application`) is the jar/app-image entry point —
   launching an `Application` subclass directly from a fat jar fails with "JavaFX runtime components are missing".
+- The bundled runtime is the **full build JDK** (`--runtime-image ${java.home}`), not a stripped JRE — the Studio
+  shells out to `javac`/`java` and uses JDI to compile, run and debug user bots, so those tools must be present.
 - `jpackage` builds **only for the OS it runs on** — run the profile on each platform you want to ship.
+- Pass `-Djavacpp.platform=<host>` (e.g. `linux-x86_64`, `windows-x86_64`) to ship host-only OpenCV natives
+  instead of every platform's — this cuts the app-image roughly in half (~1.2 GB → ~580 MB). CI does this per leg.
 - For a native installer instead of the portable directory, change `<type>` in the `dist` profile from
   `APP_IMAGE` to `DEB`/`RPM` (Linux), `MSI`/`EXE` (Windows), or `DMG`/`PKG` (macOS).
 

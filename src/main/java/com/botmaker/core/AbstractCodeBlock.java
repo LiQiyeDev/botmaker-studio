@@ -1,4 +1,3 @@
-// FILE: rs\bgroi\Documents\dev\IntellijProjects\BotMaker\src\main\java\com\botmaker\core\AbstractCodeBlock.java
 package com.botmaker.core;
 
 import com.botmaker.core.render.BlockDecorator;

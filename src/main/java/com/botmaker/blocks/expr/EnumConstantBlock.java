@@ -1,4 +1,3 @@
-// FILE: rs\bgroi\Documents\dev\IntellijProjects\BotMaker\src\main\java\com\botmaker\blocks\EnumConstantBlock.java
 package com.botmaker.blocks.expr;
 
 import com.botmaker.ui.render.menu.ExpressionMenuFactory;

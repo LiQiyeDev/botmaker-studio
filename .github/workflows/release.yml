@@ -1,0 +1,91 @@
+name: Release
+
+# Build self-contained, per-OS app-images and publish them to a GitHub Release.
+# Triggered by pushing a version tag (e.g. `v1.0.0`); workflow_dispatch allows a
+# manual dry run (no Release is created on dispatch — artifacts only).
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x64
+            javacpp: linux-x86_64
+          - os: windows-latest
+            platform: windows-x64
+            javacpp: windows-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Build app-image
+        # -Djavacpp.platform=<host> ships only this OS's OpenCV natives (much smaller image).
+        run: mvn -B -Pdist package -Djavacpp.platform=${{ matrix.javacpp }}
+
+      - name: Resolve version label
+        id: ver
+        shell: bash
+        run: |
+          ref="${GITHUB_REF_NAME}"
+          # On tag pushes GITHUB_REF_NAME is the tag (e.g. v1.0.0); otherwise use the sha.
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "label=${ref}" >> "$GITHUB_OUTPUT"
+          else
+            echo "label=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package zip (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cd "target/dist"
+          zip -r -q "${GITHUB_WORKSPACE}/BotMaker-Studio-${{ steps.ver.outputs.label }}-${{ matrix.platform }}.zip" "BotMaker Studio"
+
+      - name: Package zip (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "target/dist/BotMaker Studio" -DestinationPath "BotMaker-Studio-${{ steps.ver.outputs.label }}-${{ matrix.platform }}.zip"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BotMaker-Studio-${{ matrix.platform }}
+          path: BotMaker-Studio-*-${{ matrix.platform }}.zip
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    # Only publish a Release for actual tag pushes, not manual dry runs.
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.zip
+          generate_release_notes: true
+          # Tags containing a hyphen (e.g. v1.0.0-rc1) are treated as pre-releases.
+          prerelease: ${{ contains(github.ref_name, '-') }}

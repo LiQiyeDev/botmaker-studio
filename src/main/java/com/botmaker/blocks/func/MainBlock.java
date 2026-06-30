@@ -1,4 +1,3 @@
-// FILE: rs\bgroi\Documents\dev\IntellijProjects\BotMaker\src\main\java\com\botmaker\blocks\MainBlock.java
 package com.botmaker.blocks.func;
 
 import com.botmaker.services.CodeEditorService;

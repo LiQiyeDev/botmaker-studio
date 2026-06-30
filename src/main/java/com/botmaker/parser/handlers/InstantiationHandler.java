@@ -1,4 +1,3 @@
-// FILE: rs\bgroi\Documents\dev\IntellijProjects\BotMaker\src\main\java\com\botmaker\parser\handlers\InstantiationHandler.java
 package com.botmaker.parser.handlers;
 
 import com.botmaker.parser.ImportManager;

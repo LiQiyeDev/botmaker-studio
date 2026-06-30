@@ -1,4 +1,3 @@
-// FILE: rs\bgroi\Documents\dev\IntellijProjects\BotMaker\src\main\java\com\botmaker\blocks\DeclareClassVariableBlock.java
 package com.botmaker.blocks.var;
 
 import com.botmaker.ui.render.menu.ExpressionMenuFactory;

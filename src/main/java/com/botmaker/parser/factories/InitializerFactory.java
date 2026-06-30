@@ -1,4 +1,3 @@
-// FILE: rs\bgroi\Documents\dev\IntellijProjects\BotMaker\src\main\java\com\botmaker\parser\factories\InitializerFactory.java
 package com.botmaker.parser.factories;
 
 import com.botmaker.parser.helpers.DefaultValueHelper;
