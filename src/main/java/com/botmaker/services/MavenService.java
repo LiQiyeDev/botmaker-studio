@@ -55,9 +55,9 @@ public final class MavenService {
 
     /** Maven coordinate of the BotMaker SDK (published from GitHub tags via JitPack). */
     public static final String SDK_GROUP_ID = "com.github.LiQiyeDev";
-    public static final String SDK_ARTIFACT_ID = "BotMaker-sdk";
+    public static final String SDK_ARTIFACT_ID = "botmaker-sdk";
     /** Version used for the SDK when none is supplied / JitPack is unreachable. */
-    public static final String SDK_FALLBACK_VERSION = "1.0.6";
+    public static final String SDK_FALLBACK_VERSION = "1.0.0";
 
     /** Dependencies every generated project gets (mirrors the old build.gradle). */
     private record Dep(String groupId, String artifactId, String version, String scope) {}
