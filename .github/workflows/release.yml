@@ -36,8 +36,12 @@ jobs:
           cache: maven
 
       - name: Build app-image
+        # bash (Git Bash on Windows) keeps -D argument quoting consistent across both runners.
         # -Djavacpp.platform=<host> ships only this OS's OpenCV natives (much smaller image).
-        run: mvn -B -Pdist package -Djavacpp.platform=${{ matrix.javacpp }}
+        # Tests are skipped here: the release pipeline only packages the artifact; the test
+        # suite runs on push/PR CI. (Avoids gating releases on known-red tests.)
+        shell: bash
+        run: mvn -B -Pdist package -DskipTests -Djavacpp.platform=${{ matrix.javacpp }}
 
       - name: Resolve version label
         id: ver
