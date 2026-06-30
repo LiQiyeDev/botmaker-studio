@@ -132,20 +132,6 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- JavaCV -->
-        <dependency>
-            <groupId>org.bytedeco</groupId>
-            <artifactId>javacv-platform</artifactId>
-            <version>1.5.12</version>
-        </dependency>
-
-        <!-- Android DDMLib -->
-        <dependency>
-            <groupId>com.android.tools.ddms</groupId>
-            <artifactId>ddmlib</artifactId>
-            <version>31.2.0</version>
-        </dependency>
-
         <!-- Jackson Databind -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
