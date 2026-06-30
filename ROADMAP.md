@@ -49,6 +49,33 @@ Priority: **P0** = blocks core usage, **P1** = important, **P2** = nice-to-have.
 
 Most recent first. Claude appends here when work lands (date — what changed — where).
 
+- **2026-06-30 — Bot runtime: OpenCV classpath fixed + SDK loads the native; Wayland-capture limitation noted.**
+  A generated vision bot failed at runtime with `NoClassDefFoundError: org/opencv/core/Mat`. Root cause was in
+  the Studio's in-process Aether resolver (`MavenService.resolveClasspath`): `MavenRepositorySystemUtils.newSession()`
+  didn't expose the JVM system properties, so bytedeco's `javacpp-presets` parent POM failed model-building on a
+  JDK-activated profile (`Failed to determine Java version for profile doclint-java8-disable`); the descriptor
+  read was silently ignored, collapsing the whole `opencv-platform` subtree (so the opencv main jar + natives
+  never reached the run classpath). Fix: `session.setSystemProperties(System.getProperties())` — the `-platform`
+  aggregators now expand exactly like `mvn` (23 → 173 jars; `opencv-…​.jar` + host natives present). On the SDK
+  side, the production path (`ImageFinder.find → Template → OpencvManager`) never loaded the OpenCV native — added
+  `internal/opencv/OpenCvNative.ensureLoaded()` (`Loader.load(opencv_java.class)`, idempotent) called from the
+  static initializers of `OpencvManager`, `Template`, and `internal/capture/ScreenCapture`. Runtime system
+  dependency: bytedeco's `opencv_java` links highgui → **GTK2** (`libgtk-x11-2.0.so.0`); on Fedora install
+  `gtk2`. Screen capture (`ScreenCapture.captureDesktop`) already unions all monitors and is silent on **X11 /
+  Windows**; on a **Wayland** session AWT Robot is forced through the desktop portal (per-call prompt) — for
+  silent all-monitor capture, run the bot in a Plasma **X11** session. SDK changes await the user's JitPack
+  publish.
+- **2026-06-30 — Palette/menu blocks now emit imports for SDK/library types + image picker works in lists.**
+  Fixed the compile bug where dropping vision blocks produced unimported bare names
+  (`ImageFinder.find(new ImageTemplate(...))` → `cannot find symbol`). Added
+  `ImportManager.addImportForSimpleName(...)` (resolves a simple name to its FQN via `ProjectAnalyzer` and
+  imports it) and threaded the `ProjectAnalyzer` into the write path (`CodeEditor` ctor) and the node
+  builders (`StatementFactory`, `ExpressionFactory`, `MethodHandler.createMethodInvocation`, `NodeCreator`),
+  so static-call scopes, `new T(...)`, var-decl types and enum constants all import. Extracted the inline
+  image-template picker out of `MethodInvocationBlock` into a reusable
+  `ui/render/components/ImageTemplatePicker` and used it in `ListBlock`: `ImageTemplate` list elements now
+  render the picker, and the list "+" adds a `new ImageTemplate("")` element directly
+  (`ListHandler.addImageTemplateElement` / `CodeEditor.addImageTemplateToList`).
 - **2026-06-30 — Cross-platform GitHub Release (CI) + dist profile actually landed.** Implemented the `dist`
   Maven profile that was previously only documented: stages the shaded jar and runs `jpackage` into a portable
   app-image, bundling the **full build JDK** (`--runtime-image ${java.home}`) so the Studio's `javac`/`java`/JDI

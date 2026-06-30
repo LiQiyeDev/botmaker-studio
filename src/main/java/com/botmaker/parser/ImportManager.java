@@ -2,6 +2,7 @@ package com.botmaker.parser;
 
 import com.botmaker.project.ProjectFile;
 import com.botmaker.project.ProjectState;
+import com.botmaker.suggestions.ProjectAnalyzer;
 import com.botmaker.types.ResolvedType;
 import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.CompilationUnit;
@@ -41,6 +42,28 @@ public class ImportManager {
         }
 
         addImportInternal(cu, rewriter, qualifiedName);
+    }
+
+    /**
+     * Resolves a (possibly already-qualified) type name to its fully-qualified name via the
+     * {@code analyzer} (project source first, then the library index) and imports it. This is the
+     * import path for palette/menu-created references — static call scopes, {@code new T(...)} types,
+     * variable-declaration types and enum-constant scopes — which only carry a simple name.
+     *
+     * <p>Best-effort: a no-op when the type is unresolved/primitive/{@code java.lang}/same-package/
+     * already-imported. When {@code analyzer} is {@code null} it falls back to the raw string overload
+     * (which silently ignores unqualified names), so callers without an analyzer keep their old behavior.
+     */
+    public static void addImportForSimpleName(CompilationUnit cu, ASTRewrite rewriter, String typeName,
+                                              ProjectAnalyzer analyzer, ProjectState state) {
+        if (cu == null || typeName == null || typeName.isBlank()) return;
+        if (analyzer == null) {
+            addImport(cu, rewriter, typeName);
+            return;
+        }
+        ResolvedType resolved = analyzer.findTypeByName(typeName.trim());
+        if (resolved == null || resolved.isUnknown()) return;
+        addImport(cu, rewriter, resolved, state);
     }
 
     /**

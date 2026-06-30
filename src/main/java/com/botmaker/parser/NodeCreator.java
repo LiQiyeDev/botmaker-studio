@@ -23,21 +23,25 @@ public class NodeCreator {
      * empty slot" and "replace an existing expression" share one path. Returns {@code null} if unbuildable.
      */
     public static Expression createExpression(AST ast, Object selection, CompilationUnit cu,
-                                              ASTRewrite rewriter, ResolvedType contextType) {
+                                              ASTRewrite rewriter, ResolvedType contextType,
+                                              ProjectAnalyzer analyzer) {
         if (selection instanceof ExpressionType type) {
-            return createDefaultExpression(ast, type, cu, rewriter, contextType);
+            return createDefaultExpression(ast, type, cu, rewriter, contextType, analyzer);
         }
         if (selection instanceof ExpressionChoice choice) {
             return switch (choice) {
-                case ExpressionChoice.Method m -> MethodHandler.createMethodInvocation(ast, m);
+                case ExpressionChoice.Method m -> MethodHandler.createMethodInvocation(ast, m, cu, rewriter, analyzer);
                 case ExpressionChoice.Constructor c -> {
                     ClassInstanceCreation creation = ast.newClassInstanceCreation();
                     creation.setType(ProjectAnalyzer.createTypeNode(ast, ResolvedType.named(c.typeName())));
+                    ImportManager.addImportForSimpleName(cu, rewriter, c.typeName(), analyzer, null);
                     for (ResolvedType p : c.paramTypes()) creation.arguments().add(createDefaultInitializer(ast, p));
                     yield creation;
                 }
-                case ExpressionChoice.EnumConstant e ->
-                        ast.newQualifiedName(ast.newSimpleName(e.typeName()), ast.newSimpleName(e.constantName()));
+                case ExpressionChoice.EnumConstant e -> {
+                    ImportManager.addImportForSimpleName(cu, rewriter, e.typeName(), analyzer, null);
+                    yield ast.newQualifiedName(ast.newSimpleName(e.typeName()), ast.newSimpleName(e.constantName()));
+                }
                 case ExpressionChoice.Variable v -> ast.newSimpleName(v.variableName());
                 case ExpressionChoice.Field f -> f.scope() == null || f.scope().isEmpty()
                         ? ast.newSimpleName(f.fieldName())
@@ -48,22 +52,23 @@ public class NodeCreator {
     }
 
     public static Expression createDefaultExpression(AST ast, ExpressionType type, CompilationUnit cu,
-                                              ASTRewrite rewriter, ResolvedType contextType) {
-        return ExpressionFactory.createDefaultExpression(ast, type, cu, rewriter, contextType);
+                                              ASTRewrite rewriter, ResolvedType contextType, ProjectAnalyzer analyzer) {
+        return ExpressionFactory.createDefaultExpression(ast, type, cu, rewriter, contextType, analyzer);
     }
 
     public static Expression createDefaultExpression(AST ast, ExpressionType type, CompilationUnit cu,
-                                                     ASTRewrite rewriter, String contextTypeName) {
-        return createDefaultExpression(ast, type, cu, rewriter, ResolvedType.named(contextTypeName));
+                                                     ASTRewrite rewriter, String contextTypeName, ProjectAnalyzer analyzer) {
+        return createDefaultExpression(ast, type, cu, rewriter, ResolvedType.named(contextTypeName), analyzer);
     }
 
     public static Expression createDefaultExpression(AST ast, ExpressionType type, CompilationUnit cu,
                                                      ASTRewrite rewriter) {
-        return ExpressionFactory.createDefaultExpression(ast, type, cu, rewriter, null);
+        return ExpressionFactory.createDefaultExpression(ast, type, cu, rewriter, null, null);
     }
 
-    public static Statement createDefaultStatement(AST ast, BlockType type, CompilationUnit cu, ASTRewrite rewriter, ProjectState state) {
-        return StatementFactory.createStatement(ast, type, cu, rewriter, state);
+    public static Statement createDefaultStatement(AST ast, BlockType type, CompilationUnit cu, ASTRewrite rewriter,
+                                                   ProjectState state, ProjectAnalyzer analyzer) {
+        return StatementFactory.createStatement(ast, type, cu, rewriter, state, analyzer);
     }
 
     public static Expression createDefaultInitializer(AST ast, ResolvedType type) {

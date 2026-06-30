@@ -39,6 +39,7 @@ public class CodeEditor {
 
     private final ProjectState state;
     private final EventBus eventBus;
+    private final ProjectAnalyzer analyzer;
 
     private static final Map<String, InfixExpression.Operator> INFIX_OPS = Map.ofEntries(
             Map.entry("+", InfixExpression.Operator.PLUS),
@@ -72,9 +73,10 @@ public class CodeEditor {
             Map.entry("--", PostfixExpression.Operator.DECREMENT)
     );
 
-    public CodeEditor(ProjectState state, EventBus eventBus) {
+    public CodeEditor(ProjectState state, EventBus eventBus, ProjectAnalyzer analyzer) {
         this.state = state;
         this.eventBus = eventBus;
+        this.analyzer = analyzer;
     }
 
     private String getCurrentCode() { return state.getCurrentCode(); }
@@ -139,12 +141,15 @@ public class CodeEditor {
     public void setImageTemplate(Expression toReplace, String path) {
         edit(true, (cu, code) -> {
             AST ast = cu.getAST();
+            ASTRewrite rewriter = ASTRewrite.create(ast);
             ClassInstanceCreation cic = ast.newClassInstanceCreation();
             cic.setType(ast.newSimpleType(ast.newSimpleName("ImageTemplate")));
             StringLiteral lit = ast.newStringLiteral();
             lit.setLiteralValue(path);
             cic.arguments().add(lit);
-            return replaceNode(cu, code, toReplace, cic);
+            ImportManager.addImportForSimpleName(cu, rewriter, "ImageTemplate", analyzer, null);
+            rewriter.replace(toReplace, cic, null);
+            return AstRewriteHelper.applyRewrite(rewriter, code);
         });
     }
 
@@ -187,11 +192,11 @@ public class CodeEditor {
             targetNode = toReplace.getParent();
         }
         Expression target = (Expression) targetNode;
-        edit(false, (cu, code) -> MethodHandler.replaceWithMethodCall(cu, code, target, choice, state));
+        edit(false, (cu, code) -> MethodHandler.replaceWithMethodCall(cu, code, target, choice, state, analyzer));
     }
 
     public void addMethodCallStatement(BodyBlock targetBody, ExpressionChoice.Method choice, int index) {
-        edit(false, (cu, code) -> MethodHandler.addMethodCallStatement(cu, code, targetBody, choice, index));
+        edit(false, (cu, code) -> MethodHandler.addMethodCallStatement(cu, code, targetBody, choice, index, analyzer));
     }
 
     public void addMethodToClass(TypeDeclaration typeDecl, String methodName, String returnType, int index) {
@@ -228,7 +233,7 @@ public class CodeEditor {
 
     /** {@code selection} is an {@link ExpressionType} or an {@link ExpressionChoice} (variable/method/…). */
     public void setReturnExpression(ReturnStatement returnStmt, Object selection) {
-        edit(true, (cu, code) -> setReturnExpression(cu, code, returnStmt, selection));
+        edit(true, (cu, code) -> setReturnExpression(cu, code, returnStmt, selection, analyzer));
     }
 
     // =================================================================================
@@ -301,6 +306,11 @@ public class CodeEditor {
         edit(true, (cu, code) -> ListHandler.addElementToList(cu, code, listNode, type, insertIndex));
     }
 
+    /** Adds a {@code new ImageTemplate("")} element to the list — drives the per-element image picker. */
+    public void addImageTemplateToList(ASTNode listNode, int insertIndex) {
+        edit(true, (cu, code) -> ListHandler.addImageTemplateElement(cu, code, listNode, insertIndex, analyzer));
+    }
+
     public void deleteElementFromList(ASTNode listNode, int elementIndex) {
         edit(false, (cu, code) -> ListHandler.deleteElementFromList(cu, code, listNode, elementIndex));
     }
@@ -311,21 +321,21 @@ public class CodeEditor {
 
     /** {@code selection} is an {@link ExpressionType} or an {@link ExpressionChoice} (variable/method/…). */
     public void setVariableInitializer(VariableDeclarationStatement varDecl, Object selection) {
-        edit(true, (cu, code) -> setVariableInitializer(cu, code, varDecl, selection));
+        edit(true, (cu, code) -> setVariableInitializer(cu, code, varDecl, selection, analyzer));
     }
 
     /** {@code selection} is an {@link ExpressionType} or an {@link ExpressionChoice} (variable/method/…). */
     public void setFieldInitializer(FieldDeclaration fieldDecl, Object selection) {
-        edit(true, (cu, code) -> setFieldInitializer(cu, code, fieldDecl, selection));
+        edit(true, (cu, code) -> setFieldInitializer(cu, code, fieldDecl, selection, analyzer));
     }
 
     public void setFieldInitializerToDefault(FieldDeclaration fieldDecl, ResolvedType fieldType) {
         ExpressionType defaultType = mapTypeToExpressionType(fieldType.simpleName());
-        edit(true, (cu, code) -> setFieldInitializer(cu, code, fieldDecl, defaultType));
+        edit(true, (cu, code) -> setFieldInitializer(cu, code, fieldDecl, defaultType, analyzer));
     }
 
     public void replaceExpression(Expression toReplace, ExpressionType type) {
-        edit(true, (cu, code) -> replaceExpression(cu, code, toReplace, type));
+        edit(true, (cu, code) -> replaceExpression(cu, code, toReplace, type, analyzer));
     }
 
     public void replaceLiteralValue(Expression toReplace, String newLiteralValue) {
@@ -344,7 +354,7 @@ public class CodeEditor {
         if (!canModify()) return;
         CompilationUnit cu = getCompilationUnit();
         if (cu == null) return;
-        String newCode = addStatement(cu, getCurrentCode(), targetBody, type, index, state);
+        String newCode = addStatement(cu, getCurrentCode(), targetBody, type, index, state, analyzer);
         if (newCode == null) return;
         triggerUpdate(newCode, true);
         eventBus.publish(new CoreApplicationEvents.BlockAddedEvent(type));
@@ -436,22 +446,22 @@ public class CodeEditor {
     // PURE TRANSFORMS — bespoke AST shapes (formerly AstRewriter). Each is (cu, code, …) -> code.
     // =================================================================================
 
-    private static String setVariableInitializer(CompilationUnit cu, String originalCode, VariableDeclarationStatement varDecl, Object selection) {
+    private static String setVariableInitializer(CompilationUnit cu, String originalCode, VariableDeclarationStatement varDecl, Object selection, ProjectAnalyzer analyzer) {
         return setFragmentInitializer(cu, originalCode,
-                (VariableDeclarationFragment) varDecl.fragments().getFirst(), varDecl.getType().toString(), selection);
+                (VariableDeclarationFragment) varDecl.fragments().getFirst(), varDecl.getType().toString(), selection, analyzer);
     }
 
-    private static String setFieldInitializer(CompilationUnit cu, String originalCode, FieldDeclaration fieldDecl, Object selection) {
+    private static String setFieldInitializer(CompilationUnit cu, String originalCode, FieldDeclaration fieldDecl, Object selection, ProjectAnalyzer analyzer) {
         return setFragmentInitializer(cu, originalCode,
-                (VariableDeclarationFragment) fieldDecl.fragments().getFirst(), fieldDecl.getType().toString(), selection);
+                (VariableDeclarationFragment) fieldDecl.fragments().getFirst(), fieldDecl.getType().toString(), selection, analyzer);
     }
 
     private static String setFragmentInitializer(CompilationUnit cu, String originalCode,
-                                                 VariableDeclarationFragment fragment, String declaredType, Object selection) {
+                                                 VariableDeclarationFragment fragment, String declaredType, Object selection, ProjectAnalyzer analyzer) {
         AST ast = cu.getAST();
         ASTRewrite rewriter = ASTRewrite.create(ast);
         ResolvedType contextType = ResolvedType.named(ProjectAnalyzer.unwrapCollectionType(declaredType));
-        Expression newExpr = NodeCreator.createExpression(ast, selection, cu, rewriter, contextType);
+        Expression newExpr = NodeCreator.createExpression(ast, selection, cu, rewriter, contextType, analyzer);
         if (newExpr == null) return originalCode;
         if (fragment.getInitializer() == null) {
             rewriter.set(fragment, VariableDeclarationFragment.INITIALIZER_PROPERTY, newExpr, null);
@@ -461,12 +471,12 @@ public class CodeEditor {
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
     }
 
-    private static String setReturnExpression(CompilationUnit cu, String originalCode, ReturnStatement returnStmt, Object selection) {
+    private static String setReturnExpression(CompilationUnit cu, String originalCode, ReturnStatement returnStmt, Object selection, ProjectAnalyzer analyzer) {
         AST ast = cu.getAST();
         ASTRewrite rewriter = ASTRewrite.create(ast);
         ResolvedType contextType = ProjectAnalyzer.inferExpectedType(returnStmt.getExpression() != null
                 ? returnStmt.getExpression() : returnStmt);
-        Expression newExpr = NodeCreator.createExpression(ast, selection, cu, rewriter, contextType);
+        Expression newExpr = NodeCreator.createExpression(ast, selection, cu, rewriter, contextType, analyzer);
         if (newExpr == null) return originalCode;
         if (returnStmt.getExpression() == null) {
             rewriter.set(returnStmt, ReturnStatement.EXPRESSION_PROPERTY, newExpr, null);
@@ -476,11 +486,11 @@ public class CodeEditor {
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
     }
 
-    private static String replaceExpression(CompilationUnit cu, String originalCode, Expression toReplace, ExpressionType type) {
+    private static String replaceExpression(CompilationUnit cu, String originalCode, Expression toReplace, ExpressionType type, ProjectAnalyzer analyzer) {
         AST ast = cu.getAST();
         ASTRewrite rewriter = ASTRewrite.create(ast);
         String contextType = ProjectAnalyzer.inferExpectedType(toReplace).simpleName();
-        Expression newExpression = NodeCreator.createDefaultExpression(ast, type, cu, rewriter, contextType);
+        Expression newExpression = NodeCreator.createDefaultExpression(ast, type, cu, rewriter, contextType, analyzer);
         if (newExpression == null) return originalCode;
         rewriter.replace(toReplace, newExpression, null);
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
@@ -511,10 +521,10 @@ public class CodeEditor {
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
     }
 
-    private static String addStatement(CompilationUnit cu, String originalCode, BodyBlock targetBody, BlockType type, int index, ProjectState state) {
+    private static String addStatement(CompilationUnit cu, String originalCode, BodyBlock targetBody, BlockType type, int index, ProjectState state, ProjectAnalyzer analyzer) {
         AST ast = cu.getAST();
         ASTRewrite rewriter = ASTRewrite.create(ast);
-        Statement newStatement = NodeCreator.createDefaultStatement(ast, type, cu, rewriter, state);
+        Statement newStatement = NodeCreator.createDefaultStatement(ast, type, cu, rewriter, state, analyzer);
         if (newStatement == null) return originalCode;
         ListRewrite listRewrite = AstRewriteHelper.getListRewriteForBody(rewriter, targetBody);
         insertIntoList(listRewrite, targetBody, newStatement, index);

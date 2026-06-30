@@ -9,6 +9,7 @@ import com.botmaker.types.ResolvedType;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
+import com.botmaker.ui.render.components.ImageTemplatePicker;
 import com.botmaker.ui.render.menu.MenuComponents;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
@@ -89,29 +90,38 @@ public class ListBlock extends AbstractExpressionBlock {
         Label indexLabel = new Label(String.valueOf(index));
         indexLabel.setStyle("-fx-font-family: monospace; -fx-text-fill: #666; -fx-font-size: 9px; -fx-min-width: 10px;");
 
-        Node elementNode = element.getUINode(context);
+        // For ImageTemplate elements the picker IS the editor — the type-change menu is redundant.
+        boolean isImageTemplate = ImageTemplatePicker.isImageTemplateType(itemType);
+        Node elementNode = isImageTemplate
+                ? ImageTemplatePicker.create(context, element)
+                : element.getUINode(context);
         if (element instanceof ListBlock) HBox.setHgrow(elementNode, javafx.scene.layout.Priority.ALWAYS);
-
-        Button changeButton = new Button("+");
-        changeButton.getStyleClass().add("icon-button");
-        changeButton.setStyle("-fx-font-size: 8px; -fx-padding: 1px 4px; -fx-opacity: 0.3;");
-        changeButton.setOnAction(e -> showChangeElementMenu(changeButton, context, index, itemType));
 
         Button deleteButton = new Button("✕");
         deleteButton.getStyleClass().add("icon-button");
         deleteButton.setStyle("-fx-font-size: 8px; -fx-padding: 1px 4px; -fx-text-fill: #ff5555; -fx-opacity: 0.3;");
         deleteButton.setOnAction(e -> deleteElement(index, context));
 
+        Button changeButton = new Button("+");
+        if (!isImageTemplate) {
+            changeButton.getStyleClass().add("icon-button");
+            changeButton.setStyle("-fx-font-size: 8px; -fx-padding: 1px 4px; -fx-opacity: 0.3;");
+            changeButton.setOnAction(e -> showChangeElementMenu(changeButton, context, index, itemType));
+        }
+
         row.setOnMouseEntered(e -> {
-            changeButton.setStyle("-fx-font-size: 8px; -fx-padding: 1px 4px; -fx-opacity: 1.0;");
+            if (!isImageTemplate) changeButton.setStyle("-fx-font-size: 8px; -fx-padding: 1px 4px; -fx-opacity: 1.0;");
             deleteButton.setStyle("-fx-font-size: 8px; -fx-padding: 1px 4px; -fx-text-fill: #ff5555; -fx-opacity: 1.0;");
         });
         row.setOnMouseExited(e -> {
-            changeButton.setStyle("-fx-font-size: 8px; -fx-padding: 1px 4px; -fx-opacity: 0.3;");
+            if (!isImageTemplate) changeButton.setStyle("-fx-font-size: 8px; -fx-padding: 1px 4px; -fx-opacity: 0.3;");
             deleteButton.setStyle("-fx-font-size: 8px; -fx-padding: 1px 4px; -fx-text-fill: #ff5555; -fx-opacity: 0.3;");
         });
 
-        row.getChildren().addAll(indexLabel, elementNode, changeButton, deleteButton);
+        row.getChildren().add(indexLabel);
+        row.getChildren().add(elementNode);
+        if (!isImageTemplate) row.getChildren().add(changeButton);
+        row.getChildren().add(deleteButton);
         return row;
     }
 
@@ -245,6 +255,12 @@ public class ListBlock extends AbstractExpressionBlock {
     }
 
     private void showAddElementMenu(Button button, CodeEditorService context, int insertIndex, ResolvedType targetType) {
+        // For an ImageTemplate list, skip the generic expression menu — add a template element directly and
+        // let its per-element image picker drive the actual choice.
+        if (ImageTemplatePicker.isImageTemplateType(targetType)) {
+            context.getCodeEditor().addImageTemplateToList(this.astNode, insertIndex);
+            return;
+        }
         List<ExpressionType> options = ExpressionCatalog.getForType(targetType, context.getState());
         MenuComponents.showListMenu(button, options, ExpressionType::displayName,
                 type -> context.getCodeEditor().addElementToList(this.astNode, type, insertIndex),

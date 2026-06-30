@@ -169,6 +169,12 @@ public final class MavenService {
         Path localRepo = Path.of(System.getProperty("user.home"), ".m2", "repository");
         session.setLocalRepositoryManager(
                 system.newLocalRepositoryManager(session, new LocalRepository(localRepo.toFile())));
+        // Expose the JVM's system properties (notably java.version) to the model builder so POMs whose
+        // effective model depends on JDK-activated profiles resolve correctly. Without this, bytedeco's
+        // javacpp-presets parent fails ("Failed to determine Java version for profile doclint-java8-disable"),
+        // the descriptor read is silently ignored, and the whole opencv subtree — including the opencv main
+        // jar that carries org.opencv.core.Mat — is dropped from the bot's runtime classpath.
+        session.setSystemProperties(System.getProperties());
 
         List<RemoteRepository> remoteRepos = buildRemoteRepositories(model);
 

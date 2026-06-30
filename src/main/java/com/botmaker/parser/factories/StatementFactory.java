@@ -18,12 +18,13 @@ public class StatementFactory {
      * the sealed type — the data-carrying variants ({@link BlockType.VarDecl}, {@link BlockType.ScannerRead},
      * {@link BlockType.LibraryCall}) are built generically from their fields, so new variants are pure data.
      */
-    public static Statement createStatement(AST ast, BlockType type, CompilationUnit cu, ASTRewrite rewriter, ProjectState state) {
+    public static Statement createStatement(AST ast, BlockType type, CompilationUnit cu, ASTRewrite rewriter,
+                                            ProjectState state, ProjectAnalyzer analyzer) {
         return switch (type) {
             case BlockType.ControlFlow cf -> createControlFlow(ast, cf.kind(), cu, rewriter, state);
-            case BlockType.VarDecl v -> buildVarDecl(ast, v);
+            case BlockType.VarDecl v -> buildVarDecl(ast, v, cu, rewriter, analyzer);
             case BlockType.ScannerRead r -> buildScannerRead(ast, r, cu, rewriter);
-            case BlockType.LibraryCall l -> buildLibraryCall(ast, l);
+            case BlockType.LibraryCall l -> buildLibraryCall(ast, l, cu, rewriter, analyzer);
             case BlockType.EnumDecl ignored -> createEnumDeclaration(ast);
             case BlockType.MethodMember ignored -> null; // a method is a class member, not a body statement
         };
@@ -51,13 +52,15 @@ public class StatementFactory {
 
     // --- Data-driven builders ---
 
-    private static Statement buildVarDecl(AST ast, BlockType.VarDecl v) {
+    private static Statement buildVarDecl(AST ast, BlockType.VarDecl v, CompilationUnit cu,
+                                          ASTRewrite rewriter, ProjectAnalyzer analyzer) {
         VariableDeclarationFragment fragment = ast.newVariableDeclarationFragment();
         fragment.setName(ast.newSimpleName(v.varName()));
-        Expression init = buildExpression(ast, v.init());
+        Expression init = buildExpression(ast, v.init(), cu, rewriter, analyzer);
         if (init != null) fragment.setInitializer(init);
         VariableDeclarationStatement varDecl = ast.newVariableDeclarationStatement(fragment);
         varDecl.setType(typeNode(ast, v.typeName(), v.primitive()));
+        if (!v.primitive()) ImportManager.addImportForSimpleName(cu, rewriter, v.typeName(), analyzer, null);
         return varDecl;
     }
 
@@ -74,20 +77,23 @@ public class StatementFactory {
         return varDecl;
     }
 
-    private static Statement buildLibraryCall(AST ast, BlockType.LibraryCall l) {
+    private static Statement buildLibraryCall(AST ast, BlockType.LibraryCall l, CompilationUnit cu,
+                                              ASTRewrite rewriter, ProjectAnalyzer analyzer) {
         MethodInvocation mi = ast.newMethodInvocation();
         mi.setExpression(ast.newSimpleName(l.className()));
         mi.setName(ast.newSimpleName(l.method()));
+        ImportManager.addImportForSimpleName(cu, rewriter, l.className(), analyzer, null);
         if (l.args().isEmpty()) {
             mi.arguments().add(ast.newNullLiteral());
         } else {
-            for (Initializer arg : l.args()) mi.arguments().add(buildExpression(ast, arg));
+            for (Initializer arg : l.args()) mi.arguments().add(buildExpression(ast, arg, cu, rewriter, analyzer));
         }
         return ast.newExpressionStatement(mi);
     }
 
     /** Turns a declarative {@link Initializer} into an AST expression (recursive for {@code new T(args...)}). */
-    private static Expression buildExpression(AST ast, Initializer init) {
+    private static Expression buildExpression(AST ast, Initializer init, CompilationUnit cu,
+                                              ASTRewrite rewriter, ProjectAnalyzer analyzer) {
         return switch (init) {
             case Initializer.IntLit i -> ast.newNumberLiteral(i.value());
             case Initializer.DoubleLit d -> ast.newNumberLiteral(d.value());
@@ -101,11 +107,14 @@ public class StatementFactory {
             case Initializer.NewInstance n -> {
                 ClassInstanceCreation creation = ast.newClassInstanceCreation();
                 creation.setType(ast.newSimpleType(ast.newSimpleName(n.typeName())));
-                for (Initializer arg : n.args()) creation.arguments().add(buildExpression(ast, arg));
+                ImportManager.addImportForSimpleName(cu, rewriter, n.typeName(), analyzer, null);
+                for (Initializer arg : n.args()) creation.arguments().add(buildExpression(ast, arg, cu, rewriter, analyzer));
                 yield creation;
             }
-            case Initializer.EnumConst e ->
-                    ast.newQualifiedName(ast.newSimpleName(e.typeName()), ast.newSimpleName(e.constant()));
+            case Initializer.EnumConst e -> {
+                ImportManager.addImportForSimpleName(cu, rewriter, e.typeName(), analyzer, null);
+                yield ast.newQualifiedName(ast.newSimpleName(e.typeName()), ast.newSimpleName(e.constant()));
+            }
         };
     }
 

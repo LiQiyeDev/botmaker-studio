@@ -74,7 +74,7 @@ public class BlockDragDropEditTest {
         root = result.root();
         assertNotNull(root, "Converter should produce a root block for the class");
 
-        editor = new CodeEditor(state, bus);
+        editor = new CodeEditor(state, bus, new com.botmaker.suggestions.ProjectAnalyzer(null, state));
     }
 
     @Test

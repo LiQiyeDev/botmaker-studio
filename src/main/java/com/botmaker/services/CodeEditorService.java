@@ -58,7 +58,7 @@ public class CodeEditorService {
         this.diagnosticsManager = diagnosticsManager;
         this.projectAnalyzer = projectAnalyzer;
         this.historyManager = new HistoryManager();
-        this.codeEditor = new CodeEditor(state, eventBus);
+        this.codeEditor = new CodeEditor(state, eventBus, projectAnalyzer);
         setupEventHandlers();
     }
 

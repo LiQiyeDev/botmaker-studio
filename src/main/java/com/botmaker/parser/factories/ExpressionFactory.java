@@ -6,6 +6,8 @@ import com.botmaker.palette.ExpressionType.Literal;
 import com.botmaker.palette.ExpressionType.Op;
 import com.botmaker.palette.ExpressionType.PrefixOp;
 import com.botmaker.palette.ExpressionType.Reference;
+import com.botmaker.parser.ImportManager;
+import com.botmaker.suggestions.ProjectAnalyzer;
 import com.botmaker.types.ResolvedType;
 import com.botmaker.util.DefaultNames;
 import org.eclipse.jdt.core.dom.*;
@@ -14,7 +16,8 @@ import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 public class ExpressionFactory {
 
     public static Expression createDefaultExpression(AST ast, ExpressionType type, CompilationUnit cu,
-                                                     ASTRewrite rewriter, ResolvedType contextType) {
+                                                     ASTRewrite rewriter, ResolvedType contextType,
+                                                     ProjectAnalyzer analyzer) {
         return switch (type) {
             case Literal l -> switch (l.kind()) {
                 case TEXT -> createStringLiteral(ast, "text");
@@ -34,17 +37,19 @@ public class ExpressionFactory {
                 case ACTIVITY -> ast.newSimpleName(DefaultNames.DEFAULT_VARIABLE);
                 case SUB_LIST -> ast.newArrayInitializer();
                 case ENUM_CONSTANT -> createEnumConstantExpression(ast, contextType);
-                case INSTANTIATION -> createInstantiation(ast, contextType);
+                case INSTANTIATION -> createInstantiation(ast, contextType, cu, rewriter, analyzer);
             };
             case InfixOp op -> createInfixExpression(ast, op.operator());
             case PrefixOp op -> createPrefixExpression(ast, mapPrefix(op.operator()));
         };
     }
 
-    private static Expression createInstantiation(AST ast, ResolvedType contextType) {
+    private static Expression createInstantiation(AST ast, ResolvedType contextType, CompilationUnit cu,
+                                                  ASTRewrite rewriter, ProjectAnalyzer analyzer) {
         ClassInstanceCreation cic = ast.newClassInstanceCreation();
         String typeName = (contextType != null && !contextType.isUnknown()) ? contextType.simpleName() : "Object";
         cic.setType(ast.newSimpleType(ast.newSimpleName(typeName)));
+        ImportManager.addImportForSimpleName(cu, rewriter, typeName, analyzer, null);
         return cic;
     }
 

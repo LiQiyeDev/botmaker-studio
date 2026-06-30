@@ -3,6 +3,7 @@ package com.botmaker.parser.handlers;
 import com.botmaker.parser.ExpressionChoice;
 
 import com.botmaker.core.BodyBlock;
+import com.botmaker.parser.ImportManager;
 import com.botmaker.parser.NodeCreator;
 import com.botmaker.parser.helpers.AstRewriteHelper;
 import com.botmaker.project.ProjectState;
@@ -22,21 +23,21 @@ public class MethodHandler {
         // Wrapper for string-based calls
         return addMethodToClass(cu, originalCode, typeDecl, methodName, ResolvedType.named(returnType), index);
     }
-    public static String replaceWithMethodCall(CompilationUnit cu, String originalCode, Expression toReplace, ExpressionChoice.Method choice, ProjectState state) {
+    public static String replaceWithMethodCall(CompilationUnit cu, String originalCode, Expression toReplace, ExpressionChoice.Method choice, ProjectState state, ProjectAnalyzer analyzer) {
         AST ast = cu.getAST();
         ASTRewrite rewriter = ASTRewrite.create(ast);
 
-        MethodInvocation mi = createMethodInvocation(ast, choice);
+        MethodInvocation mi = createMethodInvocation(ast, choice, cu, rewriter, analyzer);
 
         rewriter.replace(toReplace, mi, null);
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
     }
 
-    public static String addMethodCallStatement(CompilationUnit cu, String originalCode, BodyBlock targetBody, ExpressionChoice.Method choice, int index) {
+    public static String addMethodCallStatement(CompilationUnit cu, String originalCode, BodyBlock targetBody, ExpressionChoice.Method choice, int index, ProjectAnalyzer analyzer) {
         AST ast = cu.getAST();
         ASTRewrite rewriter = ASTRewrite.create(ast);
 
-        MethodInvocation mi = createMethodInvocation(ast, choice);
+        MethodInvocation mi = createMethodInvocation(ast, choice, cu, rewriter, analyzer);
         ExpressionStatement stmt = ast.newExpressionStatement(mi);
 
         // Insert into body
@@ -47,12 +48,18 @@ public class MethodHandler {
     }
 
     /** Builds a {@code MethodInvocation} from a menu pick; shared by NodeCreator's unified expression builder. */
-    public static MethodInvocation createMethodInvocation(AST ast, ExpressionChoice.Method choice) {
+    public static MethodInvocation createMethodInvocation(AST ast, ExpressionChoice.Method choice,
+                                                          CompilationUnit cu, ASTRewrite rewriter,
+                                                          ProjectAnalyzer analyzer) {
         MethodInvocation mi = ast.newMethodInvocation();
 
         // Scope
         if (choice.scope() != null && !choice.scope().isEmpty()) {
             mi.setExpression(ast.newSimpleName(choice.scope()));
+            // A static call's scope is a type name that may need importing; a local-variable scope won't resolve.
+            if (choice.isStatic()) {
+                ImportManager.addImportForSimpleName(cu, rewriter, choice.scope(), analyzer, null);
+            }
         }
 
         // Name
