@@ -87,8 +87,10 @@ public class ProjectSelectionScreen {
         // Header
         Label titleLabel = new Label("Select a Project");
         titleLabel.setStyle("-fx-font-size: 24px; -fx-font-weight: bold;");
+        Label versionLabel = new Label("v" + com.botmaker.config.AppVersion.get());
+        versionLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: #888;");
         GitHubAccountBar accountBar = new GitHubAccountBar(stage, gitHubAuth, gitHubClient, this::onAuthChanged);
-        VBox header = new VBox(10, titleLabel, accountBar);
+        VBox header = new VBox(10, titleLabel, versionLabel, accountBar);
         header.setAlignment(Pos.CENTER);
         header.setPadding(new Insets(0, 0, 20, 0));
 

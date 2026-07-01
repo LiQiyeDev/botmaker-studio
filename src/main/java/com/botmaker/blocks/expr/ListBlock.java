@@ -3,16 +3,15 @@ package com.botmaker.blocks.expr;
 import com.botmaker.core.AbstractExpressionBlock;
 import com.botmaker.core.ExpressionBlock;
 import com.botmaker.services.CodeEditorService;
-import com.botmaker.palette.ExpressionCatalog;
-import com.botmaker.palette.ExpressionType;
 import com.botmaker.types.ResolvedType;
+import com.botmaker.ui.render.menu.ExpressionMenuFactory;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import com.botmaker.ui.render.components.ArgumentEditors;
 import com.botmaker.ui.render.components.ImageTemplatePicker;
-import com.botmaker.ui.render.menu.MenuComponents;
 import javafx.scene.control.Button;
+import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
@@ -42,36 +41,19 @@ public class ListBlock extends AbstractExpressionBlock {
 
         boolean isNested = (this.astNode.getParent() instanceof ArrayInitializer) ||
                 (this.astNode.getParent() instanceof MethodInvocation);
+        container.getStyleClass().add(isNested ? "list-block-nested" : "list-block-root");
+        container.setPadding(isNested ? new Insets(4, 6, 4, 6) : new Insets(6, 10, 6, 10));
 
-        if (isNested) {
-            container.setStyle("-fx-background-color: rgba(255,255,255,0.08); -fx-background-radius: 6; -fx-border-color: rgba(255,255,255,0.15); -fx-border-width: 1;");
-            container.setPadding(new Insets(4, 6, 4, 6));
-        } else {
-            container.setPadding(new Insets(6, 10, 6, 10));
-        }
-
-        HBox headerRow = new HBox(8);
-        headerRow.setAlignment(Pos.CENTER_LEFT);
-
-        // Use the FIXED determineItemType
-        ResolvedType itemType = determineItemType();
+        ResolvedType itemType = ListElementType.of(this.astNode);
 
         String typeLabel = isFixedArray ? "Array" : "List";
         Label listLabel = new Label(typeLabel + " (" + elements.size() + ")");
-        listLabel.getStyleClass().add("list-label");
-        if (!isFixedArray) listLabel.setStyle("-fx-text-fill: #aaddff;");
-
-        Button addButton = new Button("+");
-        addButton.getStyleClass().add("expression-add-button");
-        addButton.setStyle("-fx-font-size: 10px; -fx-padding: 2px 8px;");
-        addButton.setOnAction(e -> showAddElementMenu(addButton, context, elements.size(), itemType));
-
-        headerRow.getChildren().addAll(listLabel, addButton);
-        container.getChildren().add(headerRow);
+        listLabel.getStyleClass().addAll("list-label", isFixedArray ? "list-label-array" : "list-label-generic");
+        container.getChildren().add(listLabel);
 
         if (elements.isEmpty()) {
             Label emptyLabel = new Label(" (empty) ");
-            emptyLabel.setStyle("-fx-font-style: italic; -fx-text-fill: rgba(255,255,255,0.4); -fx-font-size: 10px;");
+            emptyLabel.getStyleClass().add("list-empty-label");
             container.getChildren().add(emptyLabel);
         } else {
             VBox elementsContainer = new VBox(3);
@@ -82,14 +64,23 @@ public class ListBlock extends AbstractExpressionBlock {
             }
             container.getChildren().add(elementsContainer);
         }
+
+        // The "+" add button lives beneath the last element (append position), not above the list.
+        Button addButton = new Button("+");
+        addButton.getStyleClass().add("list-add-button");
+        addButton.setOnAction(e -> showAddElementMenu(addButton, context, elements.size(), itemType));
+        container.getChildren().add(addButton);
+
         return container;
     }
 
     private HBox createElementRow(int index, ExpressionBlock element, CodeEditorService context, ResolvedType itemType) {
         HBox row = new HBox(6);
         row.setAlignment(Pos.CENTER_LEFT);
+        row.getStyleClass().add("list-element-row");
+
         Label indexLabel = new Label(String.valueOf(index));
-        indexLabel.setStyle("-fx-font-family: monospace; -fx-text-fill: #666; -fx-font-size: 9px; -fx-min-width: 10px;");
+        indexLabel.getStyleClass().add("list-index-label");
 
         // For typed elements (ImageTemplate / Rect / Point / enum) the specialized editor IS the editor —
         // the generic type-change menu is redundant.
@@ -98,161 +89,29 @@ public class ListBlock extends AbstractExpressionBlock {
         Node elementNode = hasSpecialEditor ? specialized : element.getUINode(context);
         if (element instanceof ListBlock) HBox.setHgrow(elementNode, javafx.scene.layout.Priority.ALWAYS);
 
+        Button upButton = new Button("▲");
+        upButton.getStyleClass().addAll("list-move-button");
+        upButton.setDisable(index == 0);
+        upButton.setOnAction(e -> context.getCodeEditor().moveListElement(this.astNode, index, index - 1));
+
+        Button downButton = new Button("▼");
+        downButton.getStyleClass().addAll("list-move-button");
+        downButton.setDisable(index == elements.size() - 1);
+        downButton.setOnAction(e -> context.getCodeEditor().moveListElement(this.astNode, index, index + 1));
+
         Button deleteButton = new Button("✕");
-        deleteButton.getStyleClass().add("icon-button");
-        deleteButton.setStyle("-fx-font-size: 8px; -fx-padding: 1px 4px; -fx-text-fill: #ff5555; -fx-opacity: 0.3;");
+        deleteButton.getStyleClass().addAll("icon-button", "list-delete-button");
         deleteButton.setOnAction(e -> deleteElement(index, context));
 
-        Button changeButton = new Button("+");
+        row.getChildren().addAll(indexLabel, elementNode);
         if (!hasSpecialEditor) {
-            changeButton.getStyleClass().add("icon-button");
-            changeButton.setStyle("-fx-font-size: 8px; -fx-padding: 1px 4px; -fx-opacity: 0.3;");
+            Button changeButton = new Button("+");
+            changeButton.getStyleClass().addAll("icon-button", "list-change-button");
             changeButton.setOnAction(e -> showChangeElementMenu(changeButton, context, index, itemType));
+            row.getChildren().add(changeButton);
         }
-
-        row.setOnMouseEntered(e -> {
-            if (!hasSpecialEditor) changeButton.setStyle("-fx-font-size: 8px; -fx-padding: 1px 4px; -fx-opacity: 1.0;");
-            deleteButton.setStyle("-fx-font-size: 8px; -fx-padding: 1px 4px; -fx-text-fill: #ff5555; -fx-opacity: 1.0;");
-        });
-        row.setOnMouseExited(e -> {
-            if (!hasSpecialEditor) changeButton.setStyle("-fx-font-size: 8px; -fx-padding: 1px 4px; -fx-opacity: 0.3;");
-            deleteButton.setStyle("-fx-font-size: 8px; -fx-padding: 1px 4px; -fx-text-fill: #ff5555; -fx-opacity: 0.3;");
-        });
-
-        row.getChildren().add(indexLabel);
-        row.getChildren().add(elementNode);
-        if (!hasSpecialEditor) row.getChildren().add(changeButton);
-        row.getChildren().add(deleteButton);
+        row.getChildren().addAll(upButton, downButton, deleteButton);
         return row;
-    }
-
-    // ========================================================================
-    // FIXED: Determine item type by walking up AST and calculating depth
-    // ========================================================================
-
-    private ResolvedType determineItemType() {
-        ASTNode node = this.astNode;
-
-        // Walk up to find the declared array type
-        ResolvedType declaredType = findDeclaredArrayType(node);
-
-        if (declaredType.isUnknown()) {
-            return ResolvedType.UNKNOWN;
-        }
-
-        // Calculate our nesting depth (how many ArrayInitializers deep are we?)
-        int depth = calculateInitializerDepth(node);
-
-        // Element type = declared dimensions - depth
-        int declaredDims = declaredType.arrayDimensions();
-        int elementDims = declaredDims - depth;
-
-        ResolvedType elementType;
-        if (elementDims > 0) {
-            elementType = declaredType.leafType().asArray(elementDims);
-        } else {
-            elementType = declaredType.leafType();
-        }
-
-        return elementType;
-    }
-
-    /**
-     * Finds the declared type of the array by walking up the AST.
-     */
-    private ResolvedType findDeclaredArrayType(ASTNode node) {
-        ASTNode current = node;
-
-        while (current != null) {
-            ASTNode parent = current.getParent();
-
-            if (parent == null) {
-                break;
-            }
-
-            // Case 1: ArrayCreation - new int[][] { ... }
-            if (parent instanceof ArrayCreation) {
-                ArrayCreation ac = (ArrayCreation) parent;
-                ArrayType arrayType = ac.getType();
-
-                // Try to get binding first
-                ITypeBinding binding = arrayType.resolveBinding();
-                if (binding != null) {
-                    return ResolvedType.of(binding);
-                }
-
-                // Fallback to string representation
-                String typeStr = arrayType.toString();
-                return ResolvedType.named(typeStr);
-            }
-
-            // Case 2: VariableDeclarationFragment - int[][] x = { ... } (without 'new')
-            if (parent instanceof VariableDeclarationFragment) {
-                VariableDeclarationFragment frag = (VariableDeclarationFragment) parent;
-                ASTNode grandParent = frag.getParent();
-
-                Type type = null;
-                if (grandParent instanceof VariableDeclarationStatement) {
-                    type = ((VariableDeclarationStatement) grandParent).getType();
-                } else if (grandParent instanceof FieldDeclaration) {
-                    type = ((FieldDeclaration) grandParent).getType();
-                }
-
-                if (type != null) {
-                    ITypeBinding binding = type.resolveBinding();
-                    if (binding != null) {
-                        return ResolvedType.of(binding);
-                    }
-                    String typeStr = type.toString();
-                    return ResolvedType.named(typeStr);
-                }
-            }
-
-            // Case 3: MethodInvocation argument - Arrays.asList({...})
-            if (parent instanceof MethodInvocation) {
-                MethodInvocation mi = (MethodInvocation) parent;
-                int argIndex = mi.arguments().indexOf(current);
-                if (argIndex >= 0) {
-                    IMethodBinding methodBinding = mi.resolveMethodBinding();
-                    if (methodBinding != null && argIndex < methodBinding.getParameterTypes().length) {
-                        ITypeBinding paramType = methodBinding.getParameterTypes()[argIndex];
-                        return ResolvedType.of(paramType);
-                    }
-                }
-            }
-
-            current = parent;
-        }
-
-        return ResolvedType.UNKNOWN;
-    }
-
-    /**
-     * Calculates how many ArrayInitializer levels deep this node is.
-     * The outermost ArrayInitializer is depth 1.
-     */
-    private int calculateInitializerDepth(ASTNode node) {
-        int depth = 0;
-        ASTNode current = node;
-
-        while (current != null) {
-            if (current instanceof ArrayInitializer) {
-                depth++;
-            }
-
-            ASTNode parent = current.getParent();
-
-            // Stop when we hit the declaration/creation
-            if (parent instanceof ArrayCreation ||
-                    parent instanceof VariableDeclarationFragment ||
-                    (parent instanceof MethodInvocation && !(current instanceof ArrayInitializer))) {
-                break;
-            }
-
-            current = parent;
-        }
-
-        return depth;
     }
 
     private void showAddElementMenu(Button button, CodeEditorService context, int insertIndex, ResolvedType targetType) {
@@ -262,20 +121,24 @@ public class ListBlock extends AbstractExpressionBlock {
             context.getCodeEditor().addImageTemplateToList(this.astNode, insertIndex);
             return;
         }
-        List<ExpressionType> options = ExpressionCatalog.getForType(targetType, context.getState());
-        MenuComponents.showListMenu(button, options, ExpressionType::displayName,
-                type -> context.getCodeEditor().addElementToList(this.astNode, type, insertIndex),
-                "(No valid expressions for " + targetType.simpleName() + ")");
+        // Reuse the same type-aware menu the "change" path uses (variable / method / constructor / enum
+        // submenus), but insert the chosen expression at the target index instead of replacing one.
+        ContextMenu menu = ExpressionMenuFactory.createExpressionTypeMenu(
+                targetType,
+                false,
+                context,
+                this.astNode,
+                x -> true,
+                selection -> context.getCodeEditor().insertIntoList(this.astNode, insertIndex, selection, targetType)
+        );
+        menu.show(button, javafx.geometry.Side.BOTTOM, 0, 0);
     }
 
     private void showChangeElementMenu(Button button, CodeEditorService context, int elementIndex, ResolvedType targetType) {
         if (elementIndex < elements.size()) {
             ExpressionBlock oldElement = elements.get(elementIndex);
             Expression oldExpr = (Expression) oldElement.getAstNode();
-
-            // Delegate to the shared menu logic in AbstractExpressionBlock
-            // Use oldExpr as the 'toReplace' target
-            // Use this.astNode (the array initializer/list) as context for scope resolution
+            // Delegate to the shared type-aware replace menu in AbstractExpressionBlock.
             showExpressionMenuAndReplace(button, context, targetType, oldExpr);
         }
     }

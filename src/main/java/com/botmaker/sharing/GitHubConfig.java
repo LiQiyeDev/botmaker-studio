@@ -21,6 +21,10 @@ public final class GitHubConfig {
 
     public static final String INDEX_OWNER = "LiQiyeDev";
     public static final String INDEX_REPO = "botmaker-gallery";
+
+    /** The Studio's own repo, whose GitHub Releases host the app installers (used by the in-app updater). */
+    public static final String STUDIO_OWNER = "LiQiyeDev";
+    public static final String STUDIO_REPO = "BotMaker-Studio";
     public static final String INDEX_BRANCH = "main";
     public static final String INDEX_PATH = "index.json";
 

@@ -58,6 +58,9 @@ public class BodyLayoutBuilder {
 
         if (bodyBlock != null) {
             VBox bodyContainer = new VBox();
+            // "block-body" draws the left accent bar (blocks.css) so the body reads as enclosed by the block,
+            // not merely indented.
+            bodyContainer.getStyleClass().add("block-body");
             if (indented) {
                 bodyContainer.setPadding(indentation);
             }

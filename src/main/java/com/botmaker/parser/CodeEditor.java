@@ -372,6 +372,20 @@ public class CodeEditor {
         edit(true, (cu, code) -> ListHandler.addElementToList(cu, code, listNode, type, insertIndex));
     }
 
+    /**
+     * Inserts an element built from an expression-menu {@code selection} (an {@link ExpressionType} or an
+     * {@link com.botmaker.parser.ExpressionChoice}) at {@code insertIndex}. Powers the type-aware list "+" menu.
+     * {@code elementType} is the list's inferred element type, used to build sensible default arguments.
+     */
+    public void insertIntoList(ASTNode listNode, int insertIndex, Object selection, ResolvedType elementType) {
+        edit(true, (cu, code) -> ListHandler.insertChoiceIntoList(cu, code, listNode, insertIndex, selection, elementType, analyzer));
+    }
+
+    /** Moves the list element at {@code fromIndex} to {@code toIndex} (used by the per-row up/down buttons). */
+    public void moveListElement(ASTNode listNode, int fromIndex, int toIndex) {
+        edit(false, (cu, code) -> ListHandler.moveElement(cu, code, listNode, fromIndex, toIndex));
+    }
+
     /** Adds a {@code new ImageTemplate("")} element to the list — drives the per-element image picker. */
     public void addImageTemplateToList(ASTNode listNode, int insertIndex) {
         edit(true, (cu, code) -> ListHandler.addImageTemplateElement(cu, code, listNode, insertIndex, analyzer));

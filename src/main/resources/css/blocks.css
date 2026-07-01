@@ -275,3 +275,70 @@
 .param-delete-button:hover {
     -fx-text-fill: #E74C3C;
 }
+
+/*
+ * ListBlock (array / List literals). All sizes are ABSOLUTE so per-element buttons stay the same size no
+ * matter how deeply lists are nested (previously set via compounding inline -fx-font-size strings).
+ */
+.list-block-nested {
+    -fx-background-color: rgba(255, 255, 255, 0.08);
+    -fx-background-radius: 6;
+    -fx-border-color: rgba(255, 255, 255, 0.15);
+    -fx-border-width: 1;
+}
+
+.list-label {
+    -fx-font-size: 11px;
+}
+
+.list-label-generic {
+    -fx-text-fill: #aaddff;
+}
+
+.list-empty-label {
+    -fx-font-style: italic;
+    -fx-text-fill: rgba(255, 255, 255, 0.4);
+    -fx-font-size: 10px;
+}
+
+.list-index-label {
+    -fx-font-family: monospace;
+    -fx-text-fill: #666;
+    -fx-font-size: 9px;
+    -fx-min-width: 10px;
+}
+
+.list-add-button {
+    -fx-font-size: 10px;
+    -fx-padding: 2px 8px;
+}
+
+.list-block .icon-button,
+.list-move-button {
+    -fx-font-size: 8px;
+    -fx-padding: 1px 4px;
+    -fx-opacity: 0.3;
+}
+
+.list-delete-button {
+    -fx-text-fill: #ff5555;
+}
+
+/* Reveal the per-row action buttons on hover (replaces the old inline setOnMouseEntered/Exited restyle). */
+.list-element-row:hover .icon-button,
+.list-element-row:hover .list-move-button {
+    -fx-opacity: 1.0;
+}
+
+.list-move-button:disabled {
+    -fx-opacity: 0.15;
+}
+
+/*
+ * Container-block body accent. BodyLayoutBuilder tags the indented body VBox with "block-body"; the left bar
+ * makes the loop/if body visually enclosed rather than distinguished by indentation alone.
+ */
+.block-body {
+    -fx-border-color: rgba(52, 152, 219, 0.45);
+    -fx-border-width: 0 0 0 3;
+}

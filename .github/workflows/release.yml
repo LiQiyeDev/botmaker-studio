@@ -55,23 +55,38 @@ jobs:
             echo "label=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Package zip (Linux)
+      # The portable app-image (zipped) is kept as a no-install fallback; the native installers
+      # (.deb/.rpm on Linux, .msi on Windows) are emitted by `-Pdist` into target/dist alongside it.
+      - name: Package zip + collect installers (Linux)
         if: runner.os == 'Linux'
         run: |
           cd "target/dist"
           zip -r -q "${GITHUB_WORKSPACE}/BotMaker-Studio-${{ steps.ver.outputs.label }}-${{ matrix.platform }}.zip" "BotMaker Studio"
+          cd "${GITHUB_WORKSPACE}"
+          # Rename installers to a versioned, platform-tagged name for the release assets.
+          for f in target/dist/*.deb target/dist/*.rpm; do
+            [ -e "$f" ] || continue
+            cp "$f" "BotMaker-Studio-${{ steps.ver.outputs.label }}-${{ matrix.platform }}.${f##*.}"
+          done
 
-      - name: Package zip (Windows)
+      - name: Package zip + collect installers (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           Compress-Archive -Path "target/dist/BotMaker Studio" -DestinationPath "BotMaker-Studio-${{ steps.ver.outputs.label }}-${{ matrix.platform }}.zip"
+          Get-ChildItem "target/dist/*.msi" | ForEach-Object {
+            Copy-Item $_.FullName "BotMaker-Studio-${{ steps.ver.outputs.label }}-${{ matrix.platform }}.msi"
+          }
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: BotMaker-Studio-${{ matrix.platform }}
-          path: BotMaker-Studio-*-${{ matrix.platform }}.zip
+          path: |
+            BotMaker-Studio-*-${{ matrix.platform }}.zip
+            BotMaker-Studio-*-${{ matrix.platform }}.deb
+            BotMaker-Studio-*-${{ matrix.platform }}.rpm
+            BotMaker-Studio-*-${{ matrix.platform }}.msi
           if-no-files-found: error
 
   release:
@@ -89,7 +104,11 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/*.zip
+          files: |
+            artifacts/*.zip
+            artifacts/*.deb
+            artifacts/*.rpm
+            artifacts/*.msi
           generate_release_notes: true
           # Tags containing a hyphen (e.g. v1.0.0-rc1) are treated as pre-releases.
           prerelease: ${{ contains(github.ref_name, '-') }}

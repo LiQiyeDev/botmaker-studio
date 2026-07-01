@@ -5,8 +5,10 @@ import com.botmaker.parser.NodeCreator;
 import com.botmaker.parser.helpers.AstRewriteHelper;
 import com.botmaker.palette.ExpressionType;
 import com.botmaker.suggestions.ProjectAnalyzer;
+import com.botmaker.types.ResolvedType;
 import org.eclipse.jdt.core.dom.*;
 import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
+import org.eclipse.jdt.core.dom.rewrite.ListRewrite;
 
 import java.util.List;
 
@@ -50,22 +52,52 @@ public class ListHandler {
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
     }
 
+    /**
+     * Inserts an element built from a menu {@code selection} (a {@link ExpressionType} or a
+     * {@link com.botmaker.parser.ExpressionChoice}) at {@code insertIndex}. Unlike {@link #addElementToList},
+     * which only ever inserts a bare placeholder, this reuses the shared
+     * {@link NodeCreator#createExpression} builder so the list's "+" menu can offer the same type-aware
+     * picks (variable / method / constructor / enum constant) the replace menu does.
+     */
+    public static String insertChoiceIntoList(CompilationUnit cu, String originalCode, ASTNode listNode,
+                                              int insertIndex, Object selection, ResolvedType contextType,
+                                              ProjectAnalyzer analyzer) {
+        AST ast = cu.getAST();
+        ASTRewrite rewriter = ASTRewrite.create(ast);
+
+        Expression newElement = NodeCreator.createExpression(ast, selection, cu, rewriter, contextType, analyzer);
+        if (newElement == null) return originalCode;
+
+        insertElement(rewriter, listNode, newElement, insertIndex);
+        return AstRewriteHelper.applyRewrite(rewriter, originalCode);
+    }
+
+    /** Moves the element at {@code fromIndex} to {@code toIndex} within the list, preserving its node. */
+    public static String moveElement(CompilationUnit cu, String originalCode, ASTNode listNode,
+                                     int fromIndex, int toIndex) {
+        AST ast = cu.getAST();
+        ASTRewrite rewriter = ASTRewrite.create(ast);
+
+        ListTarget target = resolveListTarget(listNode);
+        if (target == null) return originalCode;
+
+        int size = target.expressions().size();
+        if (fromIndex < 0 || fromIndex >= size || toIndex < 0 || toIndex >= size || fromIndex == toIndex) {
+            return originalCode;
+        }
+
+        ASTNode moving = (ASTNode) target.expressions().get(fromIndex);
+        ListRewrite lr = rewriter.getListRewrite(target.node(), target.property());
+        // createMoveTarget removes the node from its original slot; insertAt places the move target at toIndex.
+        lr.insertAt(rewriter.createMoveTarget(moving), toIndex, null);
+        return AstRewriteHelper.applyRewrite(rewriter, originalCode);
+    }
+
     /** Inserts {@code newElement} at {@code insertIndex} into whichever list shape {@code listNode} is. */
     private static void insertElement(ASTRewrite rewriter, ASTNode listNode, Expression newElement, int insertIndex) {
-        if (listNode instanceof ArrayInitializer) {
-            rewriter.getListRewrite(listNode, ArrayInitializer.EXPRESSIONS_PROPERTY)
-                    .insertAt(newElement, insertIndex, null);
-        } else if (listNode instanceof MethodInvocation) {
-            rewriter.getListRewrite(listNode, MethodInvocation.ARGUMENTS_PROPERTY)
-                    .insertAt(newElement, insertIndex, null);
-        } else if (listNode instanceof ClassInstanceCreation) {
-            ClassInstanceCreation cic = (ClassInstanceCreation) listNode;
-            if (!cic.arguments().isEmpty() && cic.arguments().getFirst() instanceof MethodInvocation) {
-                MethodInvocation mi = (MethodInvocation) cic.arguments().getFirst();
-                rewriter.getListRewrite(mi, MethodInvocation.ARGUMENTS_PROPERTY)
-                        .insertAt(newElement, insertIndex, null);
-            }
-        }
+        ListTarget target = resolveListTarget(listNode);
+        if (target == null) return;
+        rewriter.getListRewrite(target.node(), target.property()).insertAt(newElement, insertIndex, null);
     }
 
     /**
@@ -76,35 +108,33 @@ public class ListHandler {
         AST ast = cu.getAST();
         ASTRewrite rewriter = ASTRewrite.create(ast);
 
-        List<?> expressions;
-        ChildListPropertyDescriptor property;
-        ASTNode targetNode = listNode;
+        ListTarget target = resolveListTarget(listNode);
+        if (target == null) return originalCode;
 
-        if (listNode instanceof ClassInstanceCreation) {
-            ClassInstanceCreation cic = (ClassInstanceCreation) listNode;
-            if (!cic.arguments().isEmpty() && cic.arguments().getFirst() instanceof MethodInvocation) {
-                MethodInvocation mi = (MethodInvocation) cic.arguments().getFirst();
-                targetNode = mi;
-                expressions = mi.arguments();
-                property = MethodInvocation.ARGUMENTS_PROPERTY;
-            } else {
-                return originalCode;
-            }
-        } else if (listNode instanceof ArrayInitializer) {
-            expressions = ((ArrayInitializer) listNode).expressions();
-            property = ArrayInitializer.EXPRESSIONS_PROPERTY;
-        } else if (listNode instanceof MethodInvocation) {
-            expressions = ((MethodInvocation) listNode).arguments();
-            property = MethodInvocation.ARGUMENTS_PROPERTY;
-        } else {
-            return originalCode;
-        }
-
-        if (elementIndex >= 0 && elementIndex < expressions.size()) {
-            rewriter.getListRewrite(targetNode, property)
-                    .remove((ASTNode) expressions.get(elementIndex), null);
+        if (elementIndex >= 0 && elementIndex < target.expressions().size()) {
+            rewriter.getListRewrite(target.node(), target.property())
+                    .remove((ASTNode) target.expressions().get(elementIndex), null);
         }
 
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
+    }
+
+    /** The AST node + child-list property + current element list for one of the three supported list shapes. */
+    private record ListTarget(ASTNode node, ChildListPropertyDescriptor property, List<?> expressions) {}
+
+    /** Resolves {@code listNode} (array initializer / {@code List.of(...)} / {@code new ArrayList<>(List.of(...))}) to its element list, or {@code null} if unrecognised. */
+    private static ListTarget resolveListTarget(ASTNode listNode) {
+        if (listNode instanceof ArrayInitializer ai) {
+            return new ListTarget(ai, ArrayInitializer.EXPRESSIONS_PROPERTY, ai.expressions());
+        }
+        if (listNode instanceof MethodInvocation mi) {
+            return new ListTarget(mi, MethodInvocation.ARGUMENTS_PROPERTY, mi.arguments());
+        }
+        if (listNode instanceof ClassInstanceCreation cic
+                && !cic.arguments().isEmpty()
+                && cic.arguments().getFirst() instanceof MethodInvocation inner) {
+            return new ListTarget(inner, MethodInvocation.ARGUMENTS_PROPERTY, inner.arguments());
+        }
+        return null;
     }
 }

@@ -273,12 +273,82 @@ public class MenuBarManager {
         MenuItem sdkRepoItem = new MenuItem("BotMaker SDK on GitHub");
         sdkRepoItem.setOnAction(e -> BrowserLauncher.open(SDK_REPO_URL));
 
+        MenuItem checkUpdatesItem = new MenuItem("Check for Updates…");
+        checkUpdatesItem.setOnAction(e -> checkForUpdates(false));
+
         MenuItem aboutItem = new MenuItem("About BotMaker");
         aboutItem.setOnAction(e -> showAboutDialog());
 
-        helpMenu.getItems().addAll(studioRepoItem, sdkRepoItem, new SeparatorMenuItem(), aboutItem);
+        helpMenu.getItems().addAll(studioRepoItem, sdkRepoItem, new SeparatorMenuItem(),
+                checkUpdatesItem, aboutItem);
 
         return helpMenu;
+    }
+
+    /**
+     * Checks GitHub Releases for a newer version and, if the user agrees, downloads and launches the matching
+     * installer. When {@code silentIfNone} is true a "you're up to date" result shows no dialog (used for an
+     * optional check on startup); a manual check always reports its outcome.
+     */
+    public void checkForUpdates(boolean silentIfNone) {
+        com.botmaker.services.UpdateService service = new com.botmaker.services.UpdateService();
+        service.checkForUpdate().thenAccept(opt -> javafx.application.Platform.runLater(() -> {
+            if (opt.isEmpty()) {
+                if (!silentIfNone) {
+                    showInfo("You're up to date",
+                            "BotMaker Studio " + com.botmaker.config.AppVersion.get() + " is the latest version.");
+                }
+                return;
+            }
+            com.botmaker.services.UpdateService.AvailableUpdate update = opt.get();
+            if (!confirm("Update available",
+                    "Version " + update.tag() + " is available (you have "
+                            + com.botmaker.config.AppVersion.get() + ").\n\nDownload and install it now?")) {
+                return;
+            }
+            service.downloadInstaller(update)
+                    .thenAccept(path -> javafx.application.Platform.runLater(() -> {
+                        try {
+                            service.launchInstaller(path);
+                            showInfo("Installer started",
+                                    "The installer for " + update.tag() + " has been launched.\n\n"
+                                            + "Please quit BotMaker Studio to finish updating.");
+                        } catch (Exception ex) {
+                            showError("Update failed", ex.getMessage());
+                        }
+                    }))
+                    .exceptionally(ex -> {
+                        javafx.application.Platform.runLater(() -> showError("Download failed", ex.getMessage()));
+                        return null;
+                    });
+        }));
+    }
+
+    private boolean confirm(String header, String content) {
+        javafx.scene.control.Alert alert =
+                new javafx.scene.control.Alert(javafx.scene.control.Alert.AlertType.CONFIRMATION);
+        alert.initOwner(primaryStage);
+        alert.setTitle(header);
+        alert.setHeaderText(header);
+        alert.setContentText(content);
+        return alert.showAndWait().filter(b -> b == javafx.scene.control.ButtonType.OK).isPresent();
+    }
+
+    private void showInfo(String header, String content) {
+        showAlert(javafx.scene.control.Alert.AlertType.INFORMATION, header, content);
+    }
+
+    private void showError(String header, String content) {
+        showAlert(javafx.scene.control.Alert.AlertType.ERROR, header, content);
+    }
+
+    private void showAlert(javafx.scene.control.Alert.AlertType type, String header, String content) {
+        javafx.scene.control.Alert alert = new javafx.scene.control.Alert(type);
+        alert.initOwner(primaryStage);
+        alert.setTitle(header);
+        alert.setHeaderText(header);
+        alert.setContentText(content);
+        alert.showAndWait();
     }
 
     /**
@@ -292,7 +362,7 @@ public class MenuBarManager {
         alert.setTitle("About BotMaker");
         alert.setHeaderText("BotMaker Blocks");
         alert.setContentText(
-                "Version: 1.0.0\n\n" +
+                "Version: " + com.botmaker.config.AppVersion.get() + "\n\n" +
                         "A visual block-based programming environment for Java.\n\n" +
                         "Build Java applications using drag-and-drop blocks!"
         );

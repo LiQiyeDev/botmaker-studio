@@ -49,6 +49,20 @@ Priority: **P0** = blocks core usage, **P1** = important, **P2** = nice-to-have.
 
 Most recent first. Claude appends here when work lands (date — what changed — where).
 
+- **2026-07-01 — List block fixes + for-each body accent + version/auto-update/installers.** Two clusters:
+  - **Lists** — element-type inference extracted to a pure, unit-tested `ListElementType` (fixes multi-dim
+    arrays: outer `String[][]` now yields `String[]`, and adds generic `List<T>` support); the "+" add menu now
+    reuses the type-aware `ExpressionMenuFactory` (variable/method/constructor submenus) via new
+    `CodeEditor.insertIntoList` / `ListHandler.insertChoiceIntoList` instead of a bare placeholder; the "+" moved
+    beneath the last element; per-row ▲/▼ reorder buttons (`CodeEditor.moveListElement` /
+    `ListHandler.moveElement`); list button/label styling moved from compounding inline styles to absolute-size
+    CSS so nested lists no longer shrink (`blocks.css`). For-each/if/while body now shows a left accent bar
+    (`BodyLayoutBuilder` `block-body` class + `blocks.css`).
+  - **Distribution** — runtime version via `Implementation-Version` in the shade manifest + `config/AppVersion`,
+    shown in About + the landing screen; in-app updater (`services/UpdateService`, Help → **Check for Updates…**)
+    that compares GitHub Releases via `SemVer` and downloads/launches the OS installer; `-Pdist` now builds native
+    `.deb`/`.rpm` (Linux) and `.msi` (Windows) installers (OS-activated pom profiles) and `release.yml` publishes
+    them alongside the portable zip.
 - **2026-07-01 — Non-blocking project open with progress screen.** `BotProject.open()` now runs on a
   background `Task` (`BotMakerStudio.openProject`); the window shows a loading scene (indeterminate
   `ProgressBar` + live status label) immediately instead of freezing while Maven downloads jars. Progress
