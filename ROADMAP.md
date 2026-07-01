@@ -49,6 +49,11 @@ Priority: **P0** = blocks core usage, **P1** = important, **P2** = nice-to-have.
 
 Most recent first. Claude appends here when work lands (date — what changed — where).
 
+- **2026-07-01 — Non-blocking project open with progress screen.** `BotProject.open()` now runs on a
+  background `Task` (`BotMakerStudio.openProject`); the window shows a loading scene (indeterminate
+  `ProgressBar` + live status label) immediately instead of freezing while Maven downloads jars. Progress
+  is driven by a new `Consumer<String>` threaded through `BotProject.open` → `MavenService.resolveClasspath`,
+  which wires an Aether `TransferListener` to report per-jar downloads plus coarse stage messages.
 - **2026-07-01 — Specialized SDK call block + bot-first argument editors + breakpoint restore.** A large
   authoring upgrade across the block system:
   - **Breakpoints re-addable** — `toggleBreakpoint()` was orphaned; re-wired via an "Add/Remove Breakpoint"

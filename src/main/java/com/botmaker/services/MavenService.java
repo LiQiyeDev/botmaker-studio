@@ -20,6 +20,9 @@ import org.eclipse.aether.resolution.DependencyRequest;
 import org.eclipse.aether.resolution.DependencyResolutionException;
 import org.eclipse.aether.resolution.DependencyResult;
 import org.eclipse.aether.supplier.RepositorySystemSupplier;
+import org.eclipse.aether.transfer.AbstractTransferListener;
+import org.eclipse.aether.transfer.TransferEvent;
+import org.eclipse.aether.transfer.TransferResource;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -32,6 +35,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
@@ -148,6 +152,16 @@ public final class MavenService {
      * <p>Resolution is best-effort: if some artifacts fail, the ones that did resolve are still returned.
      */
     public static List<String> resolveClasspath(Path projectDir) {
+        return resolveClasspath(projectDir, msg -> {});
+    }
+
+    /**
+     * As {@link #resolveClasspath(Path)}, but reports per-artifact download progress via {@code progress}
+     * (invoked with a short human-readable message, e.g. {@code "Downloading opencv-4.9.0.jar"}). The
+     * consumer only fires for actual network transfers, so already-cached opens stay quiet. It may be
+     * called from Aether's worker threads — callers that touch the UI must marshal onto the FX thread.
+     */
+    public static List<String> resolveClasspath(Path projectDir, Consumer<String> progress) {
         Path pomPath = projectDir.resolve("pom.xml");
         if (!Files.exists(pomPath)) {
             System.err.println("No pom.xml found at " + pomPath);
@@ -173,6 +187,12 @@ public final class MavenService {
         // the descriptor read is silently ignored, and the whole opencv subtree — including the opencv main
         // jar that carries org.opencv.core.Mat — is dropped from the bot's runtime classpath.
         session.setSystemProperties(System.getProperties());
+        session.setTransferListener(new AbstractTransferListener() {
+            @Override
+            public void transferInitiated(TransferEvent event) {
+                progress.accept("Downloading " + fileName(event.getResource()));
+            }
+        });
 
         List<RemoteRepository> remoteRepos = buildRemoteRepositories(model);
 
@@ -200,6 +220,14 @@ public final class MavenService {
             }
         }
         return jars;
+    }
+
+    /** The trailing file name of a transfer resource (e.g. {@code opencv-4.9.0.jar}), for progress text. */
+    private static String fileName(TransferResource resource) {
+        String name = resource.getResourceName();
+        if (name == null) return "";
+        int slash = name.lastIndexOf('/');
+        return slash >= 0 ? name.substring(slash + 1) : name;
     }
 
     private static void collectJars(List<ArtifactResult> results, List<String> out) {

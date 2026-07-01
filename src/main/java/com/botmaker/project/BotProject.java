@@ -15,6 +15,7 @@ import com.botmaker.validation.DiagnosticsManager;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * Represents a single open project with all its services.
@@ -80,6 +81,18 @@ public class BotProject {
     public static BotProject open(String projectName,
                                   Path projectsRoot,
                                   boolean enableEventLogging) {
+        return open(projectName, projectsRoot, enableEventLogging, msg -> {});
+    }
+
+    /**
+     * As {@link #open(String, Path, boolean)}, but reports coarse-grained progress via {@code progress}
+     * (e.g. {@code "Resolving dependencies…"}, per-jar download messages, {@code "Loading project…"}).
+     * The consumer may be invoked from background/worker threads.
+     */
+    public static BotProject open(String projectName,
+                                  Path projectsRoot,
+                                  boolean enableEventLogging,
+                                  Consumer<String> progress) {
         // 1. Create config
         ProjectConfig config = ProjectConfig.forProject(projectName, projectsRoot);
 
@@ -95,9 +108,10 @@ public class BotProject {
         BlockDragAndDropManager dragAndDropManager = new BlockDragAndDropManager(eventBus);
 
         // 5. Resolve dependencies (Maven Resolver, reads pom.xml)
+        progress.accept("Resolving dependencies…");
         List<String> classpath;
         try {
-            classpath = MavenService.resolveClasspath(config.projectPath());
+            classpath = MavenService.resolveClasspath(config.projectPath(), progress);
             state.setResolvedClasspath(classpath);
         } catch (Exception e) {
             System.err.println("Warning: Could not resolve classpath: " + e.getMessage());
@@ -105,6 +119,7 @@ public class BotProject {
         }
 
         // 6. Build or load the type index for external libraries
+        progress.accept("Indexing libraries…");
         TypeSummaryManager typeSummaryManager = TypeSummaryManager.buildOrLoad(classpath);
 
         // 7. Create the unified ProjectAnalyzer
@@ -128,6 +143,7 @@ public class BotProject {
         activityService.load();
 
         // 8. Create code editing pipeline
+        progress.accept("Loading project…");
         BlockConverter blockConverter = new BlockConverter(state);
 
         // 9. Assemble the project
