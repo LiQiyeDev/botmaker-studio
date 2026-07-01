@@ -137,6 +137,46 @@ public class CodeEditor {
         edit(false, (cu, code) -> replaceNode(cu, code, toReplace, cu.getAST().newSimpleName(variableName)));
     }
 
+    /**
+     * Declares a new local variable {@code type name = <default>;} just before the statement enclosing
+     * {@code toReplace}, then references it in that slot — a single atomic rewrite. Lets the user create a
+     * typed variable (e.g. a {@code Direction}) inline from the Variables submenu. Falls back to a plain
+     * reference when there is no enclosing block to host the declaration.
+     */
+    public void declareVariableBeforeAndReference(Expression toReplace, ResolvedType type, String name) {
+        edit(true, (cu, code) -> {
+            AST ast = cu.getAST();
+            ASTRewrite rewriter = ASTRewrite.create(ast);
+
+            Statement stmt = enclosingBlockStatement(toReplace);
+            if (stmt == null) {
+                rewriter.replace(toReplace, ast.newSimpleName(name), null);
+                return AstRewriteHelper.applyRewrite(rewriter, code);
+            }
+
+            VariableDeclarationFragment frag = ast.newVariableDeclarationFragment();
+            frag.setName(ast.newSimpleName(name));
+            Expression init = NodeCreator.createDefaultInitializer(ast, type);
+            if (init != null) frag.setInitializer(init);
+            VariableDeclarationStatement decl = ast.newVariableDeclarationStatement(frag);
+            decl.setType(ProjectAnalyzer.createTypeNode(ast, type));
+
+            Block block = (Block) stmt.getParent();
+            rewriter.getListRewrite(block, Block.STATEMENTS_PROPERTY).insertBefore(decl, stmt, null);
+            rewriter.replace(toReplace, ast.newSimpleName(name), null);
+            ImportManager.addImportForSimpleName(cu, rewriter, type.leafType().simpleName(), analyzer, null);
+            return AstRewriteHelper.applyRewrite(rewriter, code);
+        });
+    }
+
+    /** The nearest ancestor {@link Statement} directly contained in a {@link Block}, or {@code null}. */
+    private static Statement enclosingBlockStatement(ASTNode node) {
+        for (ASTNode n = node; n != null; n = n.getParent()) {
+            if (n instanceof Statement s && s.getParent() instanceof Block) return s;
+        }
+        return null;
+    }
+
     /** Replaces {@code toReplace} with {@code new ImageTemplate("<path>")} — the image-template arg picker. */
     public void setImageTemplate(Expression toReplace, String path) {
         edit(true, (cu, code) -> {
@@ -148,6 +188,32 @@ public class CodeEditor {
             lit.setLiteralValue(path);
             cic.arguments().add(lit);
             ImportManager.addImportForSimpleName(cu, rewriter, "ImageTemplate", analyzer, null);
+            rewriter.replace(toReplace, cic, null);
+            return AstRewriteHelper.applyRewrite(rewriter, code);
+        });
+    }
+
+    /** Replaces {@code toReplace} with {@code new Rect(x, y, w, h)} — the screen-region arg picker. */
+    public void setRect(Expression toReplace, int x, int y, int w, int h) {
+        replaceWithIntCtor(toReplace, "Rect", x, y, w, h);
+    }
+
+    /** Replaces {@code toReplace} with {@code new Point(x, y)} — the cursor-position arg picker. */
+    public void setPoint(Expression toReplace, int x, int y) {
+        replaceWithIntCtor(toReplace, "Point", x, y);
+    }
+
+    /** Replaces {@code toReplace} with {@code new <typeName>(a, b, …)} using int-literal arguments. */
+    private void replaceWithIntCtor(Expression toReplace, String typeName, int... args) {
+        edit(true, (cu, code) -> {
+            AST ast = cu.getAST();
+            ASTRewrite rewriter = ASTRewrite.create(ast);
+            ClassInstanceCreation cic = ast.newClassInstanceCreation();
+            cic.setType(ast.newSimpleType(ast.newSimpleName(typeName)));
+            for (int v : args) {
+                cic.arguments().add(ast.newNumberLiteral(Integer.toString(v)));
+            }
+            ImportManager.addImportForSimpleName(cu, rewriter, typeName, analyzer, null);
             rewriter.replace(toReplace, cic, null);
             return AstRewriteHelper.applyRewrite(rewriter, code);
         });

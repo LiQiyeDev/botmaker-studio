@@ -129,17 +129,50 @@ public final class ExpressionMenuFactory {
             Predicate<ExpressionType> filter,
             Consumer<Object> onSelect) {
 
+        // Bot-first, searchable menu that mirrors the statement menu: a live search box filters a flat list
+        // of quick picks (values, variables, enum constants, "new X"); with no query the categorized
+        // submenus are shown as before.
         ContextMenu menu = new ContextMenu();
+
+        TextField search = new TextField();
+        search.setPromptText("Search…");
+        CustomMenuItem searchItem = new CustomMenuItem(search);
+        searchItem.setHideOnClick(false);
+        menu.getItems().add(searchItem);
+
+        rebuildExpressionItems(menu, "", expectedType, constantOnly, context, contextNode, filter, onSelect);
+        search.textProperty().addListener((obs, old, query) ->
+                rebuildExpressionItems(menu, query, expectedType, constantOnly, context, contextNode, filter, onSelect));
+        menu.setOnShown(e -> search.requestFocus());
+        return menu;
+    }
+
+    /** Rebuilds the menu body (everything below the search box at index 0) for the current {@code query}. */
+    private static void rebuildExpressionItems(ContextMenu menu, String query, ResolvedType expectedType,
+                                               boolean constantOnly, CodeEditorService context, ASTNode contextNode,
+                                               Predicate<ExpressionType> filter, Consumer<Object> onSelect) {
+        menu.getItems().remove(1, menu.getItems().size());
+
         ProjectState state = (context != null) ? context.getState() : null;
         List<ExpressionType> available = ExpressionCatalog.getForType(expectedType, constantOnly, state);
-        if (filter != null) {
-            available = available.stream().filter(filter).collect(Collectors.toList());
+        if (filter != null) available = available.stream().filter(filter).collect(Collectors.toList());
+
+        String q = query == null ? "" : query.trim().toLowerCase();
+
+        // Active search: a flat, filtered list of the leaf quick picks — no submenus to dig through.
+        if (!q.isEmpty()) {
+            List<MenuItem> matches = collectSearchableLeaves(available, expectedType, context, contextNode, state, onSelect)
+                    .stream()
+                    .filter(mi -> mi.getText() != null && mi.getText().toLowerCase().contains(q))
+                    .collect(Collectors.toList());
+            if (matches.isEmpty()) menu.getItems().add(disabledItem("No matches"));
+            else menu.getItems().addAll(matches);
+            return;
         }
 
+        // Default: the categorized view (declaration order of ExpressionCategory is the display order).
         Map<ExpressionCategory, List<ExpressionType>> grouped = available.stream()
                 .collect(Collectors.groupingBy(ExpressionType::category));
-
-        // ExpressionCategory's declaration order is the display order; iterate it directly.
         for (ExpressionCategory cat : ExpressionCategory.values()) {
             List<ExpressionType> items = grouped.get(cat);
             if (items == null || items.isEmpty()) continue;
@@ -150,8 +183,48 @@ public final class ExpressionMenuFactory {
             }
         }
 
-        if (menu.getItems().isEmpty()) menu.getItems().add(disabledItem("(No options available)"));
-        return menu;
+        if (menu.getItems().size() == 1) menu.getItems().add(disabledItem("(No options available)"));
+    }
+
+    /**
+     * Flattens the slot's quick picks into searchable leaf items: plain literals/operators, the visible
+     * variables (plus "New &lt;Type&gt; variable…"), enum constants, activities and constructors. Deep
+     * "Call Function" scopes are intentionally left to the categorized view (too large to flatten).
+     */
+    private static List<MenuItem> collectSearchableLeaves(List<ExpressionType> available, ResolvedType expectedType,
+                                                          CodeEditorService context, ASTNode contextNode,
+                                                          ProjectState state, Consumer<Object> onSelect) {
+        List<MenuItem> leaves = new ArrayList<>();
+        for (ExpressionType expr : available) {
+            if (expr == ExpressionCatalog.VARIABLE) {
+                if (contextNode != null) collectMenuLeaves(variableSubmenu(expectedType, context, contextNode, onSelect), leaves);
+            } else if (expr == ExpressionCatalog.ACTIVITY) {
+                collectMenuLeaves(activitiesSubmenu(expectedType, context, onSelect), leaves);
+            } else if (expr == ExpressionCatalog.ENUM_CONSTANT && expectedType.isEnum()) {
+                Menu sub = specificEnumSubmenu(expectedType, onSelect);
+                if (sub != null) collectMenuLeaves(sub, leaves);
+            } else if (expr == ExpressionCatalog.INSTANTIATION && !expectedType.isUnknown() && state != null) {
+                for (MethodSignature sig : context.getProjectAnalyzer().getConstructors(expectedType.simpleName())) {
+                    MenuItem item = new MenuItem("New " + sig);
+                    item.setOnAction(e -> onSelect.accept(new ExpressionChoice.Constructor(expectedType.simpleName(), sig.paramTypes())));
+                    leaves.add(item);
+                }
+            } else if (expr == ExpressionCatalog.ENUM_CONSTANT || expr == ExpressionCatalog.FUNCTION_CALL) {
+                // Global-enum / function-call fan-outs are left to the categorized view.
+            } else {
+                leaves.add(createItem(expr, onSelect));
+            }
+        }
+        return leaves;
+    }
+
+    /** Recursively collects the actionable (non-disabled) leaf {@link MenuItem}s under {@code menu}. */
+    private static void collectMenuLeaves(Menu menu, List<MenuItem> out) {
+        if (menu == null) return;
+        for (MenuItem mi : menu.getItems()) {
+            if (mi instanceof Menu sub) collectMenuLeaves(sub, out);
+            else if (!mi.isDisable() && mi.getText() != null) out.add(mi);
+        }
     }
 
     /** Literals + references: plain items, except VARIABLE / ENUM_CONSTANT / FUNCTION_CALL which fan out into submenus. */
@@ -205,8 +278,19 @@ public final class ExpressionMenuFactory {
     private static Menu variableSubmenu(ResolvedType expectedType, CodeEditorService context, ASTNode contextNode, Consumer<Object> onSelect) {
         Menu varMenu = new Menu("Variables");
         List<ProjectAnalyzer.VariableOption> vars = context.getProjectAnalyzer().getVisibleVariables(contextNode, expectedType);
+
+        // "New <Type> variable…": declare a fresh local of the slot's type and reference it. This is the
+        // generic way to create (e.g.) a Direction variable inline — no per-type catalog entry required.
+        if (expectedType != null && !expectedType.isUnknown()) {
+            String name = freshVariableName(expectedType, vars);
+            MenuItem create = new MenuItem("New " + expectedType.simpleName() + " variable…");
+            create.setOnAction(e -> onSelect.accept(new ExpressionChoice.NewVariable(expectedType, name)));
+            varMenu.getItems().add(create);
+            varMenu.getItems().add(new SeparatorMenuItem());
+        }
+
         if (vars.isEmpty()) {
-            varMenu.getItems().add(disabledItem("(No variables)"));
+            varMenu.getItems().add(disabledItem("(No existing variables)"));
         } else {
             for (ProjectAnalyzer.VariableOption var : vars) {
                 MenuItem item = new MenuItem(var.name() + (var.isField() ? " (Field)" : ""));
@@ -215,6 +299,19 @@ public final class ExpressionMenuFactory {
             }
         }
         return varMenu;
+    }
+
+    /** A lowercase-simple-name-based variable name (e.g. {@code direction}), suffixed to avoid clashing with
+     *  an existing visible variable ({@code direction2}, …). */
+    private static String freshVariableName(ResolvedType type, List<ProjectAnalyzer.VariableOption> existing) {
+        String simple = type.leafType().simpleName();
+        String base = simple.isEmpty() ? "value" : Character.toLowerCase(simple.charAt(0)) + simple.substring(1);
+        Set<String> taken = existing.stream().map(ProjectAnalyzer.VariableOption::name).collect(Collectors.toSet());
+        if (!taken.contains(base)) return base;
+        for (int i = 2; ; i++) {
+            String candidate = base + i;
+            if (!taken.contains(candidate)) return candidate;
+        }
     }
 
     /** "Activities": the project's global config variables whose type is assignment-compatible with the slot. */

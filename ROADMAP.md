@@ -28,10 +28,10 @@ Priority: **P0** = blocks core usage, **P1** = important, **P2** = nice-to-have.
   release, key combos, type-string; per-OS (Linux XTest, Windows SendInput). + palette blocks.
 - [ ] **B2 (P0) — Richer Mouse (SDK).** Currently left-click only. Add right / middle / double click, move, drag,
   scroll, button down/up (hold). + palette blocks.
-- [~] **B3 (P0) — Image-template capture + region picker (Studio).** Image-template half **done** (2026-06-30):
-  in-block picker + screenshot→crop→save-as-named-template asset tool (`ScreenCaptureService`,
-  `ResourceManagerDialog`, `ImageTemplateLibrary`). Still pending: a visual **Rect** region picker for
-  `new Rect(0,0,0,0)` args.
+- [x] **B3 (P0) — Image-template capture + region picker (Studio).** **Done** — image-template picker + capture
+  (2026-06-30); the visual **Rect** region picker and **Point** magnifier picker for `new Rect(...)`/`new Point(...)`
+  args landed 2026-07-01 (`RectPicker`, `PointPicker`, `ScreenCaptureService.selectRegion`/`pickPoint`,
+  `ArgumentEditors`).
 - [ ] **B4 (P1) — Window targeting in the public API (SDK).** Surface the existing internal
   `getForegroundWindow` / `captureWindow` / window-relative click as a `Window` / target so bots survive window
   moves, focus changes, and multi-monitor.
@@ -48,6 +48,26 @@ Priority: **P0** = blocks core usage, **P1** = important, **P2** = nice-to-have.
 ## Completed
 
 Most recent first. Claude appends here when work lands (date — what changed — where).
+
+- **2026-07-01 — Specialized SDK call block + bot-first argument editors + breakpoint restore.** A large
+  authoring upgrade across the block system:
+  - **Breakpoints re-addable** — `toggleBreakpoint()` was orphaned; re-wired via an "Add/Remove Breakpoint"
+    context-menu item (`InteractionDecorator`), a clickable gutter strip and a double-click handler
+    (`GutterDecorator`).
+  - **SDK call block** — `LibraryCallBlock`/`MethodInvocationBlock` now render a distinct `sdk-call-block`
+    (purple accent + "🤖 SDK" badge, `blocks.css`) with an **inline class dropdown** to switch between the SDK
+    facades; SDK calls are recognized in expression context too. Canonical facade list in new `palette/SdkApi`
+    (fixes `BlockConverter.isLibraryClass` missing `ImageWaiter`/`ClickConfig`).
+  - **Typed argument editors** — new `ui/render/components/ArgumentEditors` dispatches per-arg widgets, shared by
+    `MethodInvocationBlock` + `ListBlock`: image picker for **every** `ImageTemplate` (varargs now stretched via
+    `MethodSignature.varargs`/`paramTypeAt`, so all of `findAny(...)` get it), new **RectPicker** (drag a region,
+    reusing `ScreenCaptureService.selectRegion`) and **PointPicker** (magnifier overlay, `pickPoint`), a manual
+    `NumberFieldsDialog`, and a **Direction/enum dropdown** (SDK library params are now index-backed/enum-aware via
+    `ProjectAnalyzer.resolveLibraryType`). New `CodeEditor.setRect`/`setPoint`.
+  - **Expression menu** — reworked to mirror the statement menu: a search box + flat quick-picks
+    (`ExpressionMenuFactory`), plus a generic **"New &lt;Type&gt; variable…"** entry in the Variables submenu
+    (`ExpressionChoice.NewVariable` → `CodeEditor.declareVariableBeforeAndReference`) — so a `Direction` (or any
+    typed) variable can be created inline. Completes backlog **B3**'s pending Rect picker.
 
 - **2026-06-30 — Bot runtime: OpenCV classpath fixed + SDK loads the native; Wayland-capture limitation noted.**
   A generated vision bot failed at runtime with `NoClassDefFoundError: org/opencv/core/Mat`. Root cause was in

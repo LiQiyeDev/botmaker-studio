@@ -9,6 +9,7 @@ import com.botmaker.types.ResolvedType;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
+import com.botmaker.ui.render.components.ArgumentEditors;
 import com.botmaker.ui.render.components.ImageTemplatePicker;
 import com.botmaker.ui.render.menu.MenuComponents;
 import javafx.scene.control.Button;
@@ -90,11 +91,11 @@ public class ListBlock extends AbstractExpressionBlock {
         Label indexLabel = new Label(String.valueOf(index));
         indexLabel.setStyle("-fx-font-family: monospace; -fx-text-fill: #666; -fx-font-size: 9px; -fx-min-width: 10px;");
 
-        // For ImageTemplate elements the picker IS the editor — the type-change menu is redundant.
-        boolean isImageTemplate = ImageTemplatePicker.isImageTemplateType(itemType);
-        Node elementNode = isImageTemplate
-                ? ImageTemplatePicker.create(context, element)
-                : element.getUINode(context);
+        // For typed elements (ImageTemplate / Rect / Point / enum) the specialized editor IS the editor —
+        // the generic type-change menu is redundant.
+        Node specialized = ArgumentEditors.editorFor(context, element, itemType);
+        boolean hasSpecialEditor = specialized != null;
+        Node elementNode = hasSpecialEditor ? specialized : element.getUINode(context);
         if (element instanceof ListBlock) HBox.setHgrow(elementNode, javafx.scene.layout.Priority.ALWAYS);
 
         Button deleteButton = new Button("✕");
@@ -103,24 +104,24 @@ public class ListBlock extends AbstractExpressionBlock {
         deleteButton.setOnAction(e -> deleteElement(index, context));
 
         Button changeButton = new Button("+");
-        if (!isImageTemplate) {
+        if (!hasSpecialEditor) {
             changeButton.getStyleClass().add("icon-button");
             changeButton.setStyle("-fx-font-size: 8px; -fx-padding: 1px 4px; -fx-opacity: 0.3;");
             changeButton.setOnAction(e -> showChangeElementMenu(changeButton, context, index, itemType));
         }
 
         row.setOnMouseEntered(e -> {
-            if (!isImageTemplate) changeButton.setStyle("-fx-font-size: 8px; -fx-padding: 1px 4px; -fx-opacity: 1.0;");
+            if (!hasSpecialEditor) changeButton.setStyle("-fx-font-size: 8px; -fx-padding: 1px 4px; -fx-opacity: 1.0;");
             deleteButton.setStyle("-fx-font-size: 8px; -fx-padding: 1px 4px; -fx-text-fill: #ff5555; -fx-opacity: 1.0;");
         });
         row.setOnMouseExited(e -> {
-            if (!isImageTemplate) changeButton.setStyle("-fx-font-size: 8px; -fx-padding: 1px 4px; -fx-opacity: 0.3;");
+            if (!hasSpecialEditor) changeButton.setStyle("-fx-font-size: 8px; -fx-padding: 1px 4px; -fx-opacity: 0.3;");
             deleteButton.setStyle("-fx-font-size: 8px; -fx-padding: 1px 4px; -fx-text-fill: #ff5555; -fx-opacity: 0.3;");
         });
 
         row.getChildren().add(indexLabel);
         row.getChildren().add(elementNode);
-        if (!isImageTemplate) row.getChildren().add(changeButton);
+        if (!hasSpecialEditor) row.getChildren().add(changeButton);
         row.getChildren().add(deleteButton);
         return row;
     }

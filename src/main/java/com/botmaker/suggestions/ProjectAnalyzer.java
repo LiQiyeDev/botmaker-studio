@@ -966,30 +966,44 @@ public class ProjectAnalyzer {
     private static MethodSignature createSignatureFromDeclaration(MethodDeclaration md) {
         List<ResolvedType> types = new ArrayList<>();
         List<String> names = new ArrayList<>();
+        boolean varargs = false;
         for (Object p : md.parameters()) {
             SingleVariableDeclaration param = (SingleVariableDeclaration) p;
+            // For a varargs param JDT's getType() is already the element type (ImageTemplate for T...).
             types.add(resolveType(param.getType()));
             names.add(param.getName().getIdentifier());
+            varargs = param.isVarargs();
         }
         ResolvedType returnType = md.getReturnType2() != null ? resolveType(md.getReturnType2()) : ResolvedType.primitive("void");
-        return new MethodSignature(md.getName().getIdentifier(), types, names, returnType);
+        return new MethodSignature(md.getName().getIdentifier(), types, names, returnType, varargs);
     }
 
     private static MethodSignature createSignatureFromBinding(IMethodBinding mb) {
         List<ResolvedType> types = Arrays.stream(mb.getParameterTypes())
                 .map(ResolvedType::of).collect(Collectors.toList());
+        // Bindings model a varargs param as its array type; normalize the trailing param to the element type.
+        if (mb.isVarargs() && !types.isEmpty()) {
+            ResolvedType last = types.get(types.size() - 1);
+            if (last.isArray()) types.set(types.size() - 1, last.leafType().asArray(last.arrayDimensions() - 1));
+        }
         List<String> names = new ArrayList<>();
         for (int i = 0; i < types.size(); i++) names.add("arg" + i);
-        return new MethodSignature(mb.getName(), types, names, ResolvedType.of(mb.getReturnType()));
+        return new MethodSignature(mb.getName(), types, names, ResolvedType.of(mb.getReturnType()), mb.isVarargs());
     }
 
     private MethodSignature toMethodSignature(MethodInfo mi) {
         List<ResolvedType> paramTypes = libraryParamTypes(mi);
+        boolean varargs = mi.isVarArgs();
+        // A varargs param's bytecode descriptor is the array type (…ImageTemplate[]); use the element type.
+        if (varargs && !paramTypes.isEmpty()) {
+            ResolvedType last = paramTypes.get(paramTypes.size() - 1);
+            if (last.isArray()) paramTypes.set(paramTypes.size() - 1, last.leafType().asArray(last.arrayDimensions() - 1));
+        }
         // Bytecode does not carry parameter names (unless compiled with -parameters), so synthesize.
         List<String> paramNames = new ArrayList<>();
         for (int i = 0; i < paramTypes.size(); i++) paramNames.add("arg" + i);
         ResolvedType returnType = ResolvedType.named(mi.getTypeSignatureOrTypeDescriptor().getResultType().toString());
-        return new MethodSignature(mi.getName(), paramTypes, paramNames, returnType);
+        return new MethodSignature(mi.getName(), paramTypes, paramNames, returnType, varargs);
     }
 
     /** A constructor signature carries the type's simple name (not {@code <init>}) and the type as its return. */
@@ -1000,10 +1014,31 @@ public class ProjectAnalyzer {
         return new MethodSignature(className, paramTypes, paramNames, ResolvedType.named(className));
     }
 
-    private static List<ResolvedType> libraryParamTypes(MethodInfo mi) {
+    private List<ResolvedType> libraryParamTypes(MethodInfo mi) {
         return Arrays.stream(mi.getParameterInfo())
-                .map(p -> ResolvedType.named(p.getTypeSignatureOrTypeDescriptor().toString()))
-                .collect(Collectors.toList());
+                .map(p -> resolveLibraryType(p.getTypeSignatureOrTypeDescriptor().toString()))
+                .collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    /**
+     * Resolves a bytecode type descriptor (e.g. {@code com.botmaker.sdk.api.core.Direction} or
+     * {@code …ImageTemplate[]}) to a {@link ResolvedType}, preferring the library index so the result is
+     * enum-aware ({@link ResolvedType.FromIndex}). Falls back to a name-only type for primitives / types not
+     * in the index. Array/varargs suffixes are stripped and re-applied.
+     */
+    private ResolvedType resolveLibraryType(String descriptor) {
+        int dims = 0;
+        String base = descriptor;
+        while (base.endsWith("[]")) { dims++; base = base.substring(0, base.length() - 2); }
+
+        ResolvedType leaf = ResolvedType.named(base);
+        if (libraryIndex != null) {
+            String simple = base.contains(".") ? base.substring(base.lastIndexOf('.') + 1) : base;
+            Optional<ClassInfo> ci = libraryIndex.findByQualifiedName(base);
+            if (ci.isEmpty()) ci = libraryIndex.findBySimpleName(simple);
+            if (ci.isPresent()) leaf = ResolvedType.of(ci.get());
+        }
+        return dims == 0 ? leaf : leaf.asArray(dims);
     }
 
     private static boolean isSystemOutPrint(MethodInvocation mi) {

@@ -62,26 +62,55 @@ public final class ScreenCaptureService {
      * the user cancels (Esc / empty selection / screen chooser) or capture is unavailable.
      */
     public void captureRegion(Window owner, Consumer<BufferedImage> onCaptured) {
-        // Grab the whole desktop first so the chooser can show a live preview of each screen.
+        ScreenShot shot = prepareScreenshot(owner);
+        if (shot != null) showOverlay(owner, shot.target(), shot.image(), onCaptured);
+    }
+
+    /** A screenshot of one chosen monitor, plus that monitor's JavaFX {@link Screen} (for coordinate mapping). */
+    private record ScreenShot(Screen target, BufferedImage image) {}
+
+    /**
+     * Grabs the desktop, lets the user pick a monitor (when there are several), and crops to it. Returns
+     * {@code null} if capture fails or the user cancels. Shared by the image-crop, region-select and
+     * point-pick flows.
+     */
+    private ScreenShot prepareScreenshot(Window owner) {
         BufferedImage desktop;
         try {
             desktop = grabVirtualDesktop();
         } catch (Exception e) {
             System.err.println("Screen capture failed: " + e.getMessage());
-            return;
+            return null;
         }
-        if (desktop == null) return;
+        if (desktop == null) return null;
         if (looksBlank(desktop)) {
             System.err.println("Screen capture looks blank — on Linux this usually means a Wayland session; "
                     + "X11 is required for Robot capture.");
         }
-
         List<Screen> screens = Screen.getScreens();
         Screen target = (screens.size() > 1) ? chooseScreen(owner, screens, desktop) : Screen.getPrimary();
-        if (target == null) return; // chooser cancelled
+        if (target == null) return null; // chooser cancelled
+        return new ScreenShot(target, cropToScreen(desktop, screens, target));
+    }
 
-        BufferedImage screenshot = cropToScreen(desktop, screens, target);
-        showOverlay(owner, target, screenshot, onCaptured);
+    /**
+     * Interactive rubber-band selection returning the chosen region as {@code [x, y, width, height]} in
+     * logical desktop coordinates (the coordinate space of the SDK's {@code Rect}). Does nothing if the user
+     * cancels (Esc / empty selection) or capture is unavailable.
+     */
+    public void selectRegion(Window owner, Consumer<int[]> onSelected) {
+        ScreenShot shot = prepareScreenshot(owner);
+        if (shot != null) showRegionOverlay(owner, shot.target(), shot.image(), onSelected);
+    }
+
+    /**
+     * Interactive point pick: a full-screen overlay with a magnified close-up that follows the cursor and a
+     * live coordinate readout; left-click sets the point. Returns {@code [x, y]} in logical desktop
+     * coordinates. Does nothing if the user cancels (Esc) or capture is unavailable.
+     */
+    public void pickPoint(Window owner, Consumer<int[]> onPicked) {
+        ScreenShot shot = prepareScreenshot(owner);
+        if (shot != null) showPointOverlay(owner, shot.target(), shot.image(), onPicked);
     }
 
     /**
@@ -315,6 +344,148 @@ public final class ScreenCaptureService {
 
         stage.setScene(scene);
         stage.show();
+    }
+
+    /**
+     * Rubber-band overlay that reports the selected region as logical desktop coordinates. Mirrors
+     * {@link #showOverlay} but, instead of cropping the image, maps the selection rectangle (pane-logical
+     * pixels) to the screen's logical origin: {@code global = target.min + selection}. Correct at scale 1.0;
+     * mixed-DPI layouts may be slightly off (same caveat as the image crop path).
+     */
+    private void showRegionOverlay(Window owner, Screen target, BufferedImage screenshot, Consumer<int[]> onSelected) {
+        ImageView background = new ImageView(toFxImage(screenshot));
+        Pane pane = new Pane(background);
+
+        Rectangle selection = new Rectangle();
+        selection.setFill(Color.color(0.3, 0.6, 1.0, 0.25));
+        selection.setStroke(Color.web("#2f80ed"));
+        selection.setStrokeWidth(1.5);
+        selection.setVisible(false);
+        pane.getChildren().add(selection);
+
+        Stage stage = fullScreenStage(owner, target, "Drag to select a region. Press Esc to cancel.");
+
+        final double[] origin = new double[2];
+        pane.setOnMousePressed(e -> {
+            origin[0] = e.getX();
+            origin[1] = e.getY();
+            selection.setX(e.getX());
+            selection.setY(e.getY());
+            selection.setWidth(0);
+            selection.setHeight(0);
+            selection.setVisible(true);
+        });
+        pane.setOnMouseDragged(e -> {
+            selection.setX(Math.min(origin[0], e.getX()));
+            selection.setY(Math.min(origin[1], e.getY()));
+            selection.setWidth(Math.abs(e.getX() - origin[0]));
+            selection.setHeight(Math.abs(e.getY() - origin[1]));
+        });
+        pane.setOnMouseReleased(e -> {
+            stage.close();
+            if (selection.getWidth() < 3 || selection.getHeight() < 3) return;
+            double ox = target.getBounds().getMinX();
+            double oy = target.getBounds().getMinY();
+            onSelected.accept(new int[]{
+                    (int) Math.round(ox + selection.getX()),
+                    (int) Math.round(oy + selection.getY()),
+                    (int) Math.round(selection.getWidth()),
+                    (int) Math.round(selection.getHeight())});
+        });
+
+        Scene scene = new Scene(pane);
+        scene.setOnKeyPressed(e -> { if (e.getCode() == KeyCode.ESCAPE) stage.close(); });
+        background.fitWidthProperty().bind(scene.widthProperty());
+        background.fitHeightProperty().bind(scene.heightProperty());
+        background.setPreserveRatio(false);
+        stage.setScene(scene);
+        stage.show();
+    }
+
+    /**
+     * Point-pick overlay: a zoomed close-up follows the cursor with a crosshair and a live "x, y" readout;
+     * left-click reports the point as logical desktop coordinates. Esc cancels.
+     */
+    private void showPointOverlay(Window owner, Screen target, BufferedImage screenshot, Consumer<int[]> onPicked) {
+        Image fxImage = toFxImage(screenshot);
+        ImageView background = new ImageView(fxImage);
+        Pane pane = new Pane(background);
+
+        final double zoom = 8.0;
+        final double lensSize = 140;
+        ImageView lens = new ImageView(fxImage);
+        lens.setManaged(false);
+        lens.setFitWidth(lensSize);
+        lens.setFitHeight(lensSize);
+        lens.setPreserveRatio(false);
+        lens.setVisible(false);
+        Rectangle lensBorder = new Rectangle(lensSize, lensSize);
+        lensBorder.setManaged(false);
+        lensBorder.setFill(Color.TRANSPARENT);
+        lensBorder.setStroke(Color.web("#2f80ed"));
+        lensBorder.setStrokeWidth(2);
+        lensBorder.setVisible(false);
+        Label readout = new Label();
+        readout.setManaged(false);
+        readout.setStyle("-fx-background-color: rgba(0,0,0,0.75); -fx-text-fill: white; -fx-padding: 2 6 2 6; -fx-font-family: monospace;");
+        readout.setVisible(false);
+        pane.getChildren().addAll(lens, lensBorder, readout);
+
+        double ox = target.getBounds().getMinX();
+        double oy = target.getBounds().getMinY();
+
+        Stage stage = fullScreenStage(owner, target, "Move to a spot and click to set the point. Press Esc to cancel.");
+
+        pane.setOnMouseMoved(e -> {
+            double sx = screenshot.getWidth() / pane.getWidth();
+            double sy = screenshot.getHeight() / pane.getHeight();
+            double px = e.getX() * sx, py = e.getY() * sy;
+            double viewW = lensSize / zoom, viewH = lensSize / zoom;
+            double vx = clamp(px - viewW / 2, 0, screenshot.getWidth() - viewW);
+            double vy = clamp(py - viewH / 2, 0, screenshot.getHeight() - viewH);
+            lens.setViewport(new javafx.geometry.Rectangle2D(vx, vy, viewW, viewH));
+            // Place lens near the cursor without covering it.
+            double lx = e.getX() + 16, ly = e.getY() + 16;
+            if (lx + lensSize > pane.getWidth()) lx = e.getX() - lensSize - 16;
+            if (ly + lensSize > pane.getHeight()) ly = e.getY() - lensSize - 16;
+            lens.relocate(lx, ly);
+            lensBorder.relocate(lx, ly);
+            readout.setText((int) Math.round(ox + e.getX()) + ", " + (int) Math.round(oy + e.getY()));
+            readout.relocate(lx, ly + lensSize + 2);
+            lens.setVisible(true);
+            lensBorder.setVisible(true);
+            readout.setVisible(true);
+        });
+        pane.setOnMouseClicked(e -> {
+            if (e.getButton() != javafx.scene.input.MouseButton.PRIMARY) return;
+            stage.close();
+            onPicked.accept(new int[]{(int) Math.round(ox + e.getX()), (int) Math.round(oy + e.getY())});
+        });
+
+        Scene scene = new Scene(pane);
+        scene.setOnKeyPressed(e -> { if (e.getCode() == KeyCode.ESCAPE) stage.close(); });
+        background.fitWidthProperty().bind(scene.widthProperty());
+        background.fitHeightProperty().bind(scene.heightProperty());
+        background.setPreserveRatio(false);
+        stage.setScene(scene);
+        stage.show();
+    }
+
+    private static double clamp(double v, double min, double max) {
+        return Math.max(min, Math.min(v, max));
+    }
+
+    /** A borderless, modal, full-screen stage placed on {@code target} — shared overlay chrome. */
+    private static Stage fullScreenStage(Window owner, Screen target, String hint) {
+        Stage stage = new Stage(StageStyle.UNDECORATED);
+        if (owner != null) stage.initOwner(owner);
+        stage.initModality(Modality.APPLICATION_MODAL);
+        stage.setX(target.getBounds().getMinX());
+        stage.setY(target.getBounds().getMinY());
+        stage.setFullScreen(true);
+        stage.setFullScreenExitHint(hint);
+        stage.setFullScreenExitKeyCombination(javafx.scene.input.KeyCombination.NO_MATCH);
+        return stage;
     }
 
     /** Maps the on-screen selection rectangle back to source-image pixels and returns the sub-image. */

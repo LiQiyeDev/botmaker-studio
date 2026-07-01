@@ -4,7 +4,26 @@ import com.botmaker.types.ResolvedType;
 
 import java.util.List;
 
-public record MethodSignature(String name, List<ResolvedType> paramTypes, List<String> paramNames, ResolvedType returnType) {
+public record MethodSignature(String name, List<ResolvedType> paramTypes, List<String> paramNames,
+                              ResolvedType returnType, boolean varargs) {
+
+    /** Convenience constructor for non-varargs signatures (the common case). */
+    public MethodSignature(String name, List<ResolvedType> paramTypes, List<String> paramNames, ResolvedType returnType) {
+        this(name, paramTypes, paramNames, returnType, false);
+    }
+
+    /**
+     * The declared type of parameter {@code index}, stretching the trailing varargs parameter over every
+     * index at or beyond it. For {@code findAny(ImageTemplate... t)} (paramTypes = [ImageTemplate], varargs)
+     * this returns {@code ImageTemplate} for index 0, 1, 2, … — so every varargs argument resolves to the
+     * element type instead of {@code UNKNOWN}. Returns {@code null} when {@code index} is out of range and
+     * the method is not varargs.
+     */
+    public ResolvedType paramTypeAt(int index) {
+        if (index < paramTypes.size()) return paramTypes.get(index);
+        if (varargs && !paramTypes.isEmpty()) return paramTypes.get(paramTypes.size() - 1);
+        return null;
+    }
 
     /**
      * Picks the overload best matching {@code argCount}: the first signature with an exact parameter-count match,

@@ -187,6 +187,8 @@ public abstract class AbstractCodeBlock implements CodeBlock {
                         context.getCodeEditor().replaceWithVariable(toReplace, v.variableName());
                 case ExpressionChoice.Field f ->
                         context.getCodeEditor().replaceWithFieldReference(toReplace, f.scope(), f.fieldName());
+                case ExpressionChoice.NewVariable nv ->
+                        context.getCodeEditor().declareVariableBeforeAndReference(toReplace, nv.type(), nv.name());
             }
         }
     }

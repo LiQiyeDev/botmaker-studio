@@ -122,6 +122,31 @@
 }
 
 /*
+ * SDK call block — the specialized, class-switchable call to a BotMaker-SDK facade
+ * (ImageFinder / ImageClicker / …). Deliberately distinct from a plain method call: a purple accent,
+ * a rounded "SDK" badge and a bold class dropdown.
+ */
+.sdk-call-block {
+    -fx-background-color: #f3ecfb;
+    -fx-border-color: #8E44AD;
+    -fx-border-width: 1.5;
+    -fx-border-radius: 6;
+}
+
+.sdk-call-block .sdk-badge {
+    -fx-background-color: #8E44AD;
+    -fx-text-fill: white;
+    -fx-font-size: 9px;
+    -fx-font-weight: bold;
+    -fx-background-radius: 8;
+    -fx-padding: 1 6 1 6;
+}
+
+.sdk-call-block .sdk-class-selector {
+    -fx-font-weight: bold;
+}
+
+/*
  * Method / Constructor declaration blocks. Moved here from inline setStyle(...) strings in
  * MethodDeclarationBlock + ConstructorBlock. The header is purple by default; the "--constructor" modifier
  * recolours header + body-wrapper green. ":collapsed" squares off the header's bottom corners.

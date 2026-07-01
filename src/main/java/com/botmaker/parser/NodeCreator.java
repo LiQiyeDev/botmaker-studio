@@ -46,6 +46,9 @@ public class NodeCreator {
                 case ExpressionChoice.Field f -> f.scope() == null || f.scope().isEmpty()
                         ? ast.newSimpleName(f.fieldName())
                         : ast.newQualifiedName(ast.newName(f.scope()), ast.newSimpleName(f.fieldName()));
+                // NewVariable is handled specially (declaration + reference) in applyExpressionSelection and
+                // does not flow through here; yield just the reference as a safe fallback.
+                case ExpressionChoice.NewVariable nv -> ast.newSimpleName(nv.name());
             };
         }
         return null;

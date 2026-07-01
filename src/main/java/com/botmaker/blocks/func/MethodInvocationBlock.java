@@ -10,8 +10,8 @@ import com.botmaker.project.ProjectFile;
 import com.botmaker.suggestions.ProjectAnalyzer;
 import com.botmaker.ui.render.layout.BlockLayout;
 import com.botmaker.ui.render.layout.SentenceLayoutBuilder;
+import com.botmaker.ui.render.components.ArgumentEditors;
 import com.botmaker.ui.render.components.BlockUIComponents;
-import com.botmaker.ui.render.components.ImageTemplatePicker;
 import com.botmaker.ui.render.menu.MenuComponents;
 import com.botmaker.util.MethodSignature;
 import com.botmaker.types.ResolvedType;
@@ -88,16 +88,29 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
         final java.util.function.Supplier<String> currentScopeGetter;
 
         if (fixedScopeName != null) {
-            // --- FIXED SCOPE MODE (LibraryCallBlock) ---
-            Label fixedLabel = new Label(fixedScopeName);
-            fixedLabel.getStyleClass().add("type-label");
-            fixedLabel.setStyle("-fx-font-weight: bold; -fx-text-fill: #2c3e50;");
-            scopeNode = fixedLabel;
+            // --- SDK CALL MODE (LibraryCallBlock) ---
+            // The class is switchable inline: a dropdown of the SDK facade classes. Picking a different
+            // class rewrites the call to that class (keeping the method name when it still exists, else the
+            // class's first method) — the AST rewrite then re-renders the block.
+            ComboBox<String> classSelector = new ComboBox<>();
+            classSelector.getStyleClass().add("sdk-class-selector");
+            classSelector.getItems().addAll(com.botmaker.palette.SdkApi.FACADE_CLASSES);
+            if (!classSelector.getItems().contains(fixedScopeName)) {
+                classSelector.getItems().add(0, fixedScopeName);
+            }
+            classSelector.setValue(fixedScopeName);
+            classSelector.setStyle("-fx-font-size: 11px; -fx-font-weight: bold;");
+            scopeNode = classSelector;
 
-            currentScopeGetter = () -> fixedScopeName;
+            currentScopeGetter = classSelector::getValue;
 
-            // Logic to populate methods immediately
-            refreshMethodsAction = () -> populateMethodList(context, fixedScopeName, methodSelector);
+            refreshMethodsAction = () -> populateMethodList(context, classSelector.getValue(), methodSelector);
+
+            classSelector.setOnAction(e -> {
+                String newClass = classSelector.getValue();
+                if (newClass == null || newClass.equals(fixedScopeName)) return;
+                switchSdkClass(context, newClass);
+            });
         } else {
             // --- DYNAMIC SCOPE MODE (Standard) ---
             ComboBox<String> fileSelector = createScopeSelector(context, currentFileClass);
@@ -163,7 +176,13 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
         // --- 4. Build Layout ---
         var sentenceBuilder = BlockLayout.sentence();
 
-        if (fixedScopeName == null) sentenceBuilder.addLabel("Call"); // Only show "Call" for generic blocks
+        if (fixedScopeName == null) {
+            sentenceBuilder.addLabel("Call"); // Only show "Call" for generic blocks
+        } else {
+            Label sdkBadge = new Label("🤖 SDK");
+            sdkBadge.getStyleClass().add("sdk-badge");
+            sentenceBuilder.addNode(sdkBadge);
+        }
 
         sentenceBuilder
                 .addNode(scopeNode)
@@ -307,10 +326,9 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
 
     private void styleContainer(HBox container) {
         container.setStyle(" -fx-background-radius: " + (isStatementContext ? "4" : "12") + "; -fx-padding: " + (isStatementContext ? "5 10 5 10" : "3 8 3 8") + ";");
-        // Specific style for Library calls
+        // Distinct look for SDK calls — colour/border live in blocks.css (sdk-call-block).
         if (fixedScopeName != null) {
-            container.getStyleClass().add("library-call-block");
-            container.setStyle(container.getStyle() + "-fx-background-color: #e8f6f3; -fx-border-color: #1abc9c;");
+            container.getStyleClass().add("sdk-call-block");
         }
     }
 
@@ -344,6 +362,23 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
     private List<ResolvedType> bestOverloadParams(CodeEditorService context, String className, String methodName, int argCount) {
         MethodSignature best = MethodSignature.bestForArity(findSignatures(context, className, methodName), argCount);
         return best != null ? best.paramTypes() : new ArrayList<>();
+    }
+
+    /**
+     * Rewrites this SDK call to {@code newClass}: keeps the current method name when the new class still
+     * declares it, otherwise falls back to that class's first static method. The AST rewrite re-renders the
+     * block (so the dropdowns and typed argument editors rebuild against the new class).
+     */
+    private void switchSdkClass(CodeEditorService context, String newClass) {
+        List<MethodSignature> methods = context.getProjectAnalyzer().getMethods(newClass, true);
+        String targetMethod = methods.stream().map(MethodSignature::name).anyMatch(n -> n.equals(methodName))
+                ? methodName
+                : methods.stream().map(MethodSignature::name).sorted().findFirst().orElse(methodName);
+
+        List<ResolvedType> paramTypes = bestOverloadParams(context, newClass, targetMethod, arguments.size());
+        this.fixedScopeName = newClass;
+        this.scopeName = newClass;
+        context.getCodeEditor().updateMethodInvocation((MethodInvocation) this.astNode, newClass, targetMethod, paramTypes);
     }
 
     /** Explicit overload picker (⚙): lets the user choose a specific overload; arg sync is automatic. */
@@ -381,10 +416,14 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
         for (int i = 0; i < arguments.size(); i++) {
             ExpressionBlock arg = arguments.get(i);
 
-            ResolvedType paramType = (currentSignature != null && i < currentSignature.paramTypes().size()) ? currentSignature.paramTypes().get(i) : ResolvedType.UNKNOWN;
+            // paramTypeAt stretches a trailing varargs parameter over every trailing argument, so e.g. every
+            // ImageTemplate in findAny(a, b, c) gets the image picker — not just the first.
+            ResolvedType paramType = currentSignature != null ? currentSignature.paramTypeAt(i) : null;
+            if (paramType == null) paramType = ResolvedType.UNKNOWN;
 
-            if (ImageTemplatePicker.isImageTemplateType(paramType)) {
-                builder.addNode(ImageTemplatePicker.create(context, arg));
+            Node editor = ArgumentEditors.editorFor(context, arg, paramType);
+            if (editor != null) {
+                builder.addNode(editor);
                 continue;
             }
 

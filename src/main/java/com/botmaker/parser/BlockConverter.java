@@ -470,7 +470,10 @@ public class BlockConverter {
             }
         }
         if (expr instanceof MethodInvocation mi) {
-            MethodInvocationBlock block = new MethodInvocationBlock(BlockId.of(expr), expr);
+            String scope = mi.getExpression() != null ? mi.getExpression().toString() : "";
+            MethodInvocationBlock block = isLibraryClass(scope)
+                    ? new LibraryCallBlock(BlockId.of(expr), expr, scope)
+                    : new MethodInvocationBlock(BlockId.of(expr), expr);
             map.put(expr, block);
             for (Object arg : mi.arguments()) {
                 parseExpression((Expression) arg, ctx).ifPresent(block::addArgument);
@@ -520,8 +523,7 @@ public class BlockConverter {
     // =========================================================================
 
     private static boolean isLibraryClass(String name) {
-        return name.equals("ImageFinder") || name.equals("ImageMatcher") || name.equals("ImageClicker") ||
-                name.equals("ImageState") || name.equals("Mouse") || name.equals("Wait") || name.equals("Screen");
+        return com.botmaker.palette.SdkApi.isFacadeClass(name);
     }
 
     private static boolean isComparisonOperator(InfixExpression.Operator op) {

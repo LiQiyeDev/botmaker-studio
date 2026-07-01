@@ -14,7 +14,8 @@ import java.util.List;
  */
 public sealed interface ExpressionChoice
         permits ExpressionChoice.Method, ExpressionChoice.Constructor,
-                ExpressionChoice.EnumConstant, ExpressionChoice.Variable, ExpressionChoice.Field {
+                ExpressionChoice.EnumConstant, ExpressionChoice.Variable, ExpressionChoice.Field,
+                ExpressionChoice.NewVariable {
 
     /** Call {@code methodName} on {@code scope} (a variable name or a type name for statics). */
     record Method(String scope, String methodName, List<ResolvedType> paramTypes, boolean isStatic)
@@ -31,4 +32,11 @@ public sealed interface ExpressionChoice
 
     /** A reference to the in-scope variable {@code variableName}. */
     record Variable(String variableName) implements ExpressionChoice {}
+
+    /**
+     * Declare a new local variable of {@code type} named {@code name} just before the current statement, then
+     * reference it in the slot. Lets the user create (e.g.) a {@code Direction} variable inline from the
+     * Variables submenu.
+     */
+    record NewVariable(ResolvedType type, String name) implements ExpressionChoice {}
 }
