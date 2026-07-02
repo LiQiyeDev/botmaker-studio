@@ -4,10 +4,7 @@ import com.botmaker.services.CodeEditorService;
 import com.botmaker.ui.dnd.BlockDragAndDropManager;
 import com.botmaker.ui.render.layout.BlockLayout;
 import com.botmaker.ui.render.components.BlockUIComponents;
-import com.botmaker.ui.render.menu.MenuComponents;
 import com.botmaker.util.DefaultNames;
-import com.botmaker.types.ResolvedType;
-import com.botmaker.suggestions.ProjectAnalyzer;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
@@ -64,15 +61,12 @@ public class ConstructorBlock extends MethodDeclarationBlock {
             paramRowBuilder.addNode(super.createParamNode((SingleVariableDeclaration) params.get(i), i, context));
         }
 
-        javafx.scene.control.MenuButton addParamBtn = new javafx.scene.control.MenuButton("+");
+        Button addParamBtn = new Button("+");
         addParamBtn.getStyleClass().add("add-param-button");
-
-        // MODIFICATION: Use getAvailableTypes
-        List<ResolvedType> availableTypes = context.getProjectAnalyzer().getAvailableTypes(null);
-        MenuComponents.populateGroupedTypeMenu(addParamBtn.getItems(), availableTypes,
-                ProjectAnalyzer.getFundamentalTypeNames(),
-                type -> context.getCodeEditor().addParameterToMethod(md, type.simpleName(),
-                        DefaultNames.forType(type.simpleName())));
+        addParamBtn.setOnAction(e -> com.botmaker.ui.render.menu.ExpressionMenuFactory.showTypeMenu(
+                addParamBtn, null, context, null, false, false,
+                type -> context.getCodeEditor().addParameterToMethod(md, type,
+                        DefaultNames.forType(type.simpleName()))));
         paramRowBuilder.addNode(addParamBtn);
 
         headerBox.getChildren().add(paramRowBuilder.build());

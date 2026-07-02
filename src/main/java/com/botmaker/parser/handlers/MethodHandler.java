@@ -6,6 +6,7 @@ import com.botmaker.core.BodyBlock;
 import com.botmaker.parser.ImportManager;
 import com.botmaker.parser.NodeCreator;
 import com.botmaker.parser.helpers.AstRewriteHelper;
+import com.botmaker.parser.helpers.DefaultValueHelper;
 import com.botmaker.project.ProjectState;
 import com.botmaker.palette.ExpressionType;
 import com.botmaker.types.ResolvedType;
@@ -88,11 +89,23 @@ public class MethodHandler {
         }
 
         Block body = ast.newBlock();
+        // A non-void method needs a return to compile; seed it with a default value the user can replace.
+        if (!returnType.isVoid()) {
+            ReturnStatement ret = ast.newReturnStatement();
+            ret.setExpression(defaultReturnExpression(ast, returnType));
+            body.statements().add(ret);
+        }
         newMethod.setBody(body);
 
         ListRewrite listRewrite = rewriter.getListRewrite(typeDecl, TypeDeclaration.BODY_DECLARATIONS_PROPERTY);
         listRewrite.insertAt(newMethod, index, null);
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
+    }
+
+    /** Default {@code return} value for {@code type}: literal for primitives/String/char, {@code null} for objects. */
+    private static Expression defaultReturnExpression(AST ast, ResolvedType type) {
+        Expression primitive = DefaultValueHelper.createDefaultForPrimitive(ast, type);
+        return primitive != null ? primitive : ast.newNullLiteral();
     }
 
     public static String deleteMethodFromClass(CompilationUnit cu, String originalCode, MethodDeclaration method) {
@@ -146,29 +159,77 @@ public class MethodHandler {
     }
 
     public static String setMethodReturnType(CompilationUnit cu, String originalCode,
-                                      MethodDeclaration method, ResolvedType newType) {
+                                      MethodDeclaration method, ResolvedType newType, ProjectAnalyzer analyzer) {
         AST ast = cu.getAST();
         ASTRewrite rewriter = ASTRewrite.create(ast);
 
+        Type oldTypeNode = method.getReturnType2();
+        ResolvedType oldType = oldTypeNode != null
+                ? ProjectAnalyzer.resolveType(oldTypeNode) : ResolvedType.primitive("void");
+
         Type newTypeNode = newType.isVoid() ?
                 ast.newPrimitiveType(PrimitiveType.VOID) :
-                ProjectAnalyzer.createTypeNode(ast, newType);
-
+                ProjectAnalyzer.createSimpleTypeNode(ast, newType);
         rewriter.replace(method.getReturnType2(), newTypeNode, null);
+
+        // Keep the trailing return in sync, but never clobber a return the user has edited.
+        updateTrailingReturn(ast, rewriter, method, oldType, newType);
+
+        if (!newType.isVoid()) {
+            ImportManager.addImportForSimpleName(cu, rewriter, newType.leafType().simpleName(), analyzer, null);
+        }
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
     }
 
+    /**
+     * Adjusts the method's trailing {@code return} to match a changed return type: removes it when switching to
+     * {@code void}; otherwise inserts a default one if none exists, or replaces an <em>untouched</em> default
+     * value with the new type's default (a return the user has written is left alone).
+     */
+    private static void updateTrailingReturn(AST ast, ASTRewrite rewriter, MethodDeclaration method,
+                                             ResolvedType oldType, ResolvedType newType) {
+        Block body = method.getBody();
+        if (body == null) return;
+        List<?> statements = body.statements();
+        ListRewrite bodyRewrite = rewriter.getListRewrite(body, Block.STATEMENTS_PROPERTY);
+
+        Object last = statements.isEmpty() ? null : statements.get(statements.size() - 1);
+        ReturnStatement trailing = last instanceof ReturnStatement r ? r : null;
+
+        if (newType.isVoid()) {
+            if (trailing != null) bodyRewrite.remove(trailing, null);
+            return;
+        }
+
+        Expression newDefault = defaultReturnExpression(ast, newType);
+        if (trailing == null) {
+            ReturnStatement ret = ast.newReturnStatement();
+            ret.setExpression(newDefault);
+            bodyRewrite.insertLast(ret, null);
+            return;
+        }
+
+        Expression currentExpr = trailing.getExpression();
+        if (currentExpr == null) {
+            rewriter.set(trailing, ReturnStatement.EXPRESSION_PROPERTY, newDefault, null);
+        } else if (currentExpr.toString().equals(defaultReturnExpression(ast, oldType).toString())) {
+            rewriter.replace(currentExpr, newDefault, null);
+        }
+    }
+
     public static String addParameterToMethod(CompilationUnit cu, String originalCode,
-                                       MethodDeclaration method, ResolvedType type, String paramName) {
+                                       MethodDeclaration method, ResolvedType type, String paramName,
+                                       ProjectAnalyzer analyzer) {
         AST ast = cu.getAST();
         ASTRewrite rewriter = ASTRewrite.create(ast);
         ListRewrite listRewrite = rewriter.getListRewrite(method, MethodDeclaration.PARAMETERS_PROPERTY);
 
         SingleVariableDeclaration newParam = ast.newSingleVariableDeclaration();
-        newParam.setType(ProjectAnalyzer.createTypeNode(ast, type));
+        newParam.setType(ProjectAnalyzer.createSimpleTypeNode(ast, type));
         newParam.setName(ast.newSimpleName(paramName));
 
         listRewrite.insertLast(newParam, null);
+        ImportManager.addImportForSimpleName(cu, rewriter, type.leafType().simpleName(), analyzer, null);
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
     }
 
@@ -197,7 +258,8 @@ public class MethodHandler {
 
 
     public static String changeMethodParameterType(CompilationUnit cu, String originalCode,
-                                            MethodDeclaration method, int index, ResolvedType newType) {
+                                            MethodDeclaration method, int index, ResolvedType newType,
+                                            ProjectAnalyzer analyzer) {
         AST ast = cu.getAST();
         ASTRewrite rewriter = ASTRewrite.create(ast);
         List<?> params = method.parameters();
@@ -205,14 +267,11 @@ public class MethodHandler {
         if (index >= 0 && index < params.size()) {
             SingleVariableDeclaration param = (SingleVariableDeclaration) params.get(index);
 
-            // Create the new type node using TypeManager (Phase 1 fix applies here)
-            Type newTypeNode = ProjectAnalyzer.createTypeNode(ast, newType);
-
-            // Replace the old type
+            Type newTypeNode = ProjectAnalyzer.createSimpleTypeNode(ast, newType);
             rewriter.replace(param.getType(), newTypeNode, null);
 
-            // Ensure import exists
-            com.botmaker.parser.ImportManager.addImport(cu, rewriter, newType, null);
+            // Ensure the import exists — resolve Named-only picks to an FQN via the analyzer.
+            ImportManager.addImportForSimpleName(cu, rewriter, newType.leafType().simpleName(), analyzer, null);
         }
 
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);

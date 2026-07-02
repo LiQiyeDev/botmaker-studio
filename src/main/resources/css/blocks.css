@@ -239,6 +239,17 @@
     -fx-background-radius: 4;
 }
 
+/* Clickable return-type chip in the method header (opens the unified searchable type menu). */
+.return-type-label {
+    -fx-text-fill: #FFD479;
+    -fx-font-weight: bold;
+    -fx-font-size: 12px;
+    -fx-background-color: rgba(255, 255, 255, 0.15);
+    -fx-background-radius: 4;
+    -fx-padding: 1 8 1 8;
+    -fx-cursor: hand;
+}
+
 /* Parameter "pill" inside a method/constructor header. */
 .param-pill {
     -fx-background-color: rgba(255, 255, 255, 0.9);
@@ -313,10 +324,26 @@
     -fx-padding: 2px 8px;
 }
 
-.list-block .icon-button,
+/*
+ * Shared fixed footprint for every small glyph action button (move ▲▼ / add + / change / delete ✕ ×). A fixed
+ * min/pref size stops variable-width glyphs from shrinking rows and keeps these buttons identical everywhere
+ * (list rows, switch cases, argument pills). Built via BlockUIComponents.create*Button.
+ */
+.icon-button,
 .list-move-button {
-    -fx-font-size: 8px;
-    -fx-padding: 1px 4px;
+    -fx-min-width: 18px;
+    -fx-pref-width: 18px;
+    -fx-min-height: 16px;
+    -fx-pref-height: 16px;
+    -fx-padding: 0;
+    -fx-font-size: 9px;
+    -fx-alignment: center;
+    -fx-content-display: center;
+}
+
+/* In list rows the action buttons stay dimmed until the row is hovered (switch cases show them at full opacity). */
+.list-element-row .icon-button,
+.list-element-row .list-move-button {
     -fx-opacity: 0.3;
 }
 

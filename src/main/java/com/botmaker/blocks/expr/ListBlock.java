@@ -9,6 +9,7 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import com.botmaker.ui.render.components.ArgumentEditors;
+import com.botmaker.ui.render.components.BlockUIComponents;
 import com.botmaker.ui.render.components.ImageTemplatePicker;
 import javafx.scene.control.Button;
 import javafx.scene.control.ContextMenu;
@@ -89,15 +90,13 @@ public class ListBlock extends AbstractExpressionBlock {
         Node elementNode = hasSpecialEditor ? specialized : element.getUINode(context);
         if (element instanceof ListBlock) HBox.setHgrow(elementNode, javafx.scene.layout.Priority.ALWAYS);
 
-        Button upButton = new Button("▲");
-        upButton.getStyleClass().addAll("list-move-button");
+        Button upButton = BlockUIComponents.createMoveUpButton(
+                () -> context.getCodeEditor().moveListElement(this.astNode, index, index - 1));
         upButton.setDisable(index == 0);
-        upButton.setOnAction(e -> context.getCodeEditor().moveListElement(this.astNode, index, index - 1));
 
-        Button downButton = new Button("▼");
-        downButton.getStyleClass().addAll("list-move-button");
+        Button downButton = BlockUIComponents.createMoveDownButton(
+                () -> context.getCodeEditor().moveListElement(this.astNode, index, index + 1));
         downButton.setDisable(index == elements.size() - 1);
-        downButton.setOnAction(e -> context.getCodeEditor().moveListElement(this.astNode, index, index + 1));
 
         Button deleteButton = new Button("✕");
         deleteButton.getStyleClass().addAll("icon-button", "list-delete-button");

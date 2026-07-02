@@ -159,7 +159,7 @@ public class CodeEditor {
             Expression init = NodeCreator.createDefaultInitializer(ast, type);
             if (init != null) frag.setInitializer(init);
             VariableDeclarationStatement decl = ast.newVariableDeclarationStatement(frag);
-            decl.setType(ProjectAnalyzer.createTypeNode(ast, type));
+            decl.setType(ProjectAnalyzer.createSimpleTypeNode(ast, type));
 
             Block block = (Block) stmt.getParent();
             rewriter.getListRewrite(block, Block.STATEMENTS_PROPERTY).insertBefore(decl, stmt, null);
@@ -224,7 +224,7 @@ public class CodeEditor {
     // =================================================================================
 
     public void changeMethodParameterType(MethodDeclaration method, int index, ResolvedType newType) {
-        edit(false, (cu, code) -> MethodHandler.changeMethodParameterType(cu, code, method, index, newType));
+        edit(false, (cu, code) -> MethodHandler.changeMethodParameterType(cu, code, method, index, newType, analyzer));
     }
 
     public void addConstructorToClass(TypeDeclaration typeDecl) {
@@ -277,12 +277,12 @@ public class CodeEditor {
         edit(false, (cu, code) -> MethodHandler.renameMethodParameter(cu, code, method, index, newName));
     }
 
-    public void setMethodReturnType(MethodDeclaration method, String newTypeName) {
-        edit(false, (cu, code) -> MethodHandler.setMethodReturnType(cu, code, method, ResolvedType.named(newTypeName)));
+    public void setMethodReturnType(MethodDeclaration method, ResolvedType newType) {
+        edit(false, (cu, code) -> MethodHandler.setMethodReturnType(cu, code, method, newType, analyzer));
     }
 
-    public void addParameterToMethod(MethodDeclaration method, String typeName, String paramName) {
-        edit(false, (cu, code) -> MethodHandler.addParameterToMethod(cu, code, method, ResolvedType.named(typeName), paramName));
+    public void addParameterToMethod(MethodDeclaration method, ResolvedType type, String paramName) {
+        edit(false, (cu, code) -> MethodHandler.addParameterToMethod(cu, code, method, type, paramName, analyzer));
     }
 
     public void deleteParameterFromMethod(MethodDeclaration method, int index) {

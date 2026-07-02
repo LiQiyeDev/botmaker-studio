@@ -8,6 +8,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 
 import java.awt.Desktop;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -18,6 +20,7 @@ import java.time.Duration;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.DoubleConsumer;
 
 /**
  * Checks GitHub Releases for a newer BotMaker Studio and, when the user opts in, downloads the installer that
@@ -61,26 +64,51 @@ public final class UpdateService {
         }).exceptionally(e -> Optional.empty());
     }
 
-    /** Downloads the installer to a temp file and returns its path. Fails the future on any download error. */
-    public CompletableFuture<Path> downloadInstaller(AvailableUpdate update) {
+    /**
+     * Downloads the installer to a temp file and returns its path, reporting fractional progress in
+     * {@code [0.0, 1.0]} to {@code progress} as bytes arrive (or {@code -1.0} when the server sends no
+     * {@code Content-Length}, i.e. progress is indeterminate). {@code progress} is invoked on the
+     * HTTP client's executor thread — the caller is responsible for marshalling to the UI thread.
+     * Fails the future on any download error.
+     */
+    public CompletableFuture<Path> downloadInstaller(AvailableUpdate update, DoubleConsumer progress) {
         HttpRequest req = HttpRequest.newBuilder(URI.create(update.downloadUrl()))
                 .timeout(Duration.ofMinutes(5))
                 .header("Accept", "application/octet-stream")
                 .GET().build();
-        return downloader.sendAsync(req, HttpResponse.BodyHandlers.ofByteArray())
+        return downloader.sendAsync(req, HttpResponse.BodyHandlers.ofInputStream())
                 .thenApply(resp -> {
                     if (resp.statusCode() != 200) {
                         throw new RuntimeException("Download failed (HTTP " + resp.statusCode() + ")");
                     }
+                    long total = resp.headers().firstValueAsLong("content-length").orElse(-1L);
                     try {
                         Path dir = Files.createTempDirectory("botmaker-update");
                         Path file = dir.resolve(update.assetName());
-                        Files.write(file, resp.body());
+                        streamToFile(resp.body(), file, total, progress);
                         return file;
                     } catch (IOException e) {
                         throw new RuntimeException("Could not save installer: " + e.getMessage(), e);
                     }
                 });
+    }
+
+    /** Copies {@code in} to {@code file}, reporting {@code read/total} (or {@code -1.0} when {@code total<=0}). */
+    private static void streamToFile(InputStream in, Path file, long total, DoubleConsumer progress)
+            throws IOException {
+        try (InputStream src = in;
+             OutputStream out = Files.newOutputStream(file)) {
+            byte[] buf = new byte[64 * 1024];
+            long read = 0;
+            int n;
+            progress.accept(total > 0 ? 0.0 : -1.0);
+            while ((n = src.read(buf)) != -1) {
+                out.write(buf, 0, n);
+                read += n;
+                if (total > 0) progress.accept((double) read / total);
+            }
+            if (total > 0) progress.accept(1.0);
+        }
     }
 
     /** Hands {@code installer} to the OS so its native installer UI runs. Best-effort across platforms. */

@@ -147,15 +147,13 @@ public class SwitchBlock extends AbstractStatementBlock implements BlockWithChil
             }
 
             if (index >= 0) {
-                Button upBtn = new Button("▲");
-                upBtn.setStyle("-fx-font-size: 9px; -fx-padding: 2 4 2 4;");
+                Button upBtn = BlockUIComponents.createMoveUpButton(
+                        () -> context.getCodeEditor().moveSwitchCase((SwitchCase) this.astNode, true));
                 upBtn.setDisable(index == 0);
-                upBtn.setOnAction(e -> context.getCodeEditor().moveSwitchCase((SwitchCase) this.astNode, true));
 
-                Button downBtn = new Button("▼");
-                downBtn.setStyle("-fx-font-size: 9px; -fx-padding: 2 4 2 4;");
+                Button downBtn = BlockUIComponents.createMoveDownButton(
+                        () -> context.getCodeEditor().moveSwitchCase((SwitchCase) this.astNode, false));
                 downBtn.setDisable(index == totalCases - 1);
-                downBtn.setOnAction(e -> context.getCodeEditor().moveSwitchCase((SwitchCase) this.astNode, false));
 
                 caseHeaderBuilder
                         .addNode(BlockUIComponents.createSpacer())

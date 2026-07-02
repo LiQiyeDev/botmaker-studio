@@ -306,22 +306,81 @@ public class MenuBarManager {
                             + com.botmaker.config.AppVersion.get() + ").\n\nDownload and install it now?")) {
                 return;
             }
-            service.downloadInstaller(update)
-                    .thenAccept(path -> javafx.application.Platform.runLater(() -> {
+            downloadAndInstall(service, update);
+        }));
+    }
+
+    /**
+     * Downloads {@code update}'s installer behind a modal progress dialog, then hands it to the OS installer on
+     * a background thread (the launch does AWT {@code Desktop} work that must never run on the FX thread, which
+     * previously froze the window to a white screen). The user restarts the app manually once the installer runs.
+     */
+    private void downloadAndInstall(com.botmaker.services.UpdateService service,
+                                    com.botmaker.services.UpdateService.AvailableUpdate update) {
+        javafx.scene.control.ProgressBar bar = new javafx.scene.control.ProgressBar(0);
+        bar.setPrefWidth(320);
+        javafx.scene.control.Label status = new javafx.scene.control.Label("Downloading " + update.tag() + "…");
+        status.setStyle("-fx-text-fill: gray;");
+        javafx.scene.layout.VBox box = new javafx.scene.layout.VBox(
+                12, new javafx.scene.control.Label("Updating BotMaker Studio"), bar, status);
+        box.setAlignment(javafx.geometry.Pos.CENTER);
+        box.setPadding(new javafx.geometry.Insets(24));
+
+        javafx.stage.Stage dialog = new javafx.stage.Stage();
+        dialog.initOwner(primaryStage);
+        dialog.initModality(javafx.stage.Modality.APPLICATION_MODAL);
+        dialog.setTitle("Updating…");
+        dialog.setScene(new javafx.scene.Scene(box));
+        dialog.setOnCloseRequest(javafx.event.Event::consume); // no manual close mid-download
+        dialog.show();
+
+        // Progress arrives on the HTTP client's thread; marshal to FX. A negative fraction means the server sent
+        // no Content-Length, so show an indeterminate bar instead.
+        java.util.function.DoubleConsumer onProgress = fraction -> javafx.application.Platform.runLater(() -> {
+            if (fraction < 0) {
+                bar.setProgress(javafx.scene.control.ProgressBar.INDETERMINATE_PROGRESS);
+            } else {
+                bar.setProgress(fraction);
+                status.setText("Downloading " + update.tag() + "… " + (int) Math.round(fraction * 100) + "%");
+            }
+        });
+
+        service.downloadInstaller(update, onProgress)
+                .thenAccept(path -> javafx.application.Platform.runLater(() -> {
+                    status.setText("Starting installer…");
+                    bar.setProgress(javafx.scene.control.ProgressBar.INDETERMINATE_PROGRESS);
+                    // Launch off the FX thread; report the outcome back on it.
+                    java.util.concurrent.CompletableFuture.runAsync(() -> {
                         try {
                             service.launchInstaller(path);
+                        } catch (Exception ex) {
+                            throw new java.util.concurrent.CompletionException(ex);
+                        }
+                    }).whenComplete((v, ex) -> javafx.application.Platform.runLater(() -> {
+                        dialog.close();
+                        if (ex == null) {
                             showInfo("Installer started",
                                     "The installer for " + update.tag() + " has been launched.\n\n"
-                                            + "Please quit BotMaker Studio to finish updating.");
-                        } catch (Exception ex) {
-                            showError("Update failed", ex.getMessage());
+                                            + "Please quit BotMaker Studio and reopen it to finish updating.");
+                        } else {
+                            showError("Update failed", rootMessage(ex));
                         }
-                    }))
-                    .exceptionally(ex -> {
-                        javafx.application.Platform.runLater(() -> showError("Download failed", ex.getMessage()));
-                        return null;
+                    }));
+                }))
+                .exceptionally(ex -> {
+                    javafx.application.Platform.runLater(() -> {
+                        dialog.close();
+                        showError("Download failed", rootMessage(ex));
                     });
-        }));
+                    return null;
+                });
+    }
+
+    /** Unwraps {@code CompletionException} so the alert shows the real cause, not the wrapper. */
+    private static String rootMessage(Throwable t) {
+        Throwable cause = (t instanceof java.util.concurrent.CompletionException && t.getCause() != null)
+                ? t.getCause() : t;
+        return cause.getMessage() == null ? cause.toString() : cause.getMessage();
     }
 
     private boolean confirm(String header, String content) {

@@ -43,12 +43,26 @@ Priority: **P0** = blocks core usage, **P1** = important, **P2** = nice-to-have.
   exists → if, region-scoped find, key-press — buildable from the palette, not only via type-menus.
 - [ ] **B7 (P2) — Replace the `BotMaker.DefaultMethod()` stub** that the "Call Function" block inserts.
 - [ ] **B8 (P1) — Bump the Studio's SDK dependency** to the current SDK version and rebuild the type index so new
-  APIs appear in the palette / type-menus.
+  APIs appear in the palette / type-menus.ic
 
 ## Completed
 
 Most recent first. Claude appends here when work lands (date — what changed — where).
 
+- 2026-07-02 — App-update flow fixed: download now runs behind a modal progress bar and the installer launch moved off the FX thread (AWT `Desktop` on the FX thread was freezing the window to a white screen); manual-restart messaging (`MenuBarManager.downloadAndInstall`, `UpdateService.downloadInstaller(update, progress)`).
+- 2026-07-02 — Version reporting fixed: dev-fallback bumped to 1.0.5 (`AppVersion.FALLBACK`, pom `app.version`/`version`); release workflow already bakes the tag's numeric version into the manifest so installed builds report their true version. Correctly-stamped builds require a new tagged release.
+- 2026-07-02 — Main window stays maximized: geometry persisted via `ProjectPreferences.WindowState`, restored large and maximized (`BotMakerStudio.configureWindow`) so opening a popup no longer shrinks the window to a quarter-screen.
+- 2026-07-02 — App icon wired: Stage window/taskbar icon from `icons/icon-*.png` rasters (`BotMakerStudio.applyAppIcons`) + jpackage `<icon>` per OS profile via `${installer.icon}` (png default, `.ico` on Windows). Source SVG lives at `src/main/resources/icons/icon.svg`; rasters must be generated/committed.
+
+- **2026-07-02 — Method blocks, unified type menu & list-UI fixes.** (a) Return types now offer the full
+  primitive+SDK+project type list (was primitives-only) via a clickable chip; (b) one searchable type picker
+  (`ExpressionMenuFactory.showTypeMenu`) replaces the return ComboBox, the add-param menu and the type-change
+  submenu — `MenuComponents.populateGroupedTypeMenu` retired; (c) new non-void methods get a default `return`
+  (primitive literal / `null` for objects), kept in sync on return-type change only when still an untouched default,
+  removed on switch to `void` (`MethodHandler`); (d) class parameter/return types are now imported
+  (`MethodHandler` add/change/return → `ImportManager.addImportForSimpleName`); (e) fixed list **move-down** no-op
+  (`ListHandler.moveElement` off-by-one); (f) small glyph action buttons share a fixed footprint
+  (`BlockUIComponents.createMove{Up,Down}Button` + `.icon-button` CSS), unifying `ListBlock` and `SwitchBlock`.
 - **2026-07-01 — List block fixes + for-each body accent + version/auto-update/installers.** Two clusters:
   - **Lists** — element-type inference extracted to a pure, unit-tested `ListElementType` (fixes multi-dim
     arrays: outer `String[][]` now yields `String[]`, and adds generic `List<T>` support); the "+" add menu now

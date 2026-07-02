@@ -8,7 +8,7 @@ package com.botmaker.config;
 public final class AppVersion {
 
     /** Kept in sync with the pom {@code app.version} property; used only when no manifest version is present. */
-    public static final String FALLBACK = "1.0.0";
+    public static final String FALLBACK = "1.0.5";
 
     private AppVersion() {}
 

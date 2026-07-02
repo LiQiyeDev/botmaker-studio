@@ -35,13 +35,11 @@ jobs:
           java-version: '21'
           cache: maven
 
-      - name: Build app-image
-        # bash (Git Bash on Windows) keeps -D argument quoting consistent across both runners.
-        # -Djavacpp.platform=<host> ships only this OS's OpenCV natives (much smaller image).
-        # Tests are skipped here: the release pipeline only packages the artifact; the test
-        # suite runs on push/PR CI. (Avoids gating releases on known-red tests.)
-        shell: bash
-        run: mvn -B -Pdist package -DskipTests -Djavacpp.platform=${{ matrix.javacpp }}
+      # jpackage's RPM build shells out to rpmbuild (not on ubuntu-latest) and its DEB build needs fakeroot.
+      # Without these, `-Pdist package` fails on Linux and the whole release job (and thus the Release) aborts.
+      - name: Install Linux packaging tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y rpm fakeroot
 
       - name: Resolve version label
         id: ver
@@ -54,6 +52,25 @@ jobs:
           else
             echo "label=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
+          # Numeric MAJOR.MINOR.PATCH for jpackage/manifest: strip a leading `v` and any pre-release suffix
+          # (v1.0.5 -> 1.0.5, v1.2.0-rc1 -> 1.2.0). Non-tag builds fall back to 1.0.0 (jpackage rejects non-numeric).
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            num="${ref#v}"; num="${num%%-*}"
+          else
+            num="1.0.0"
+          fi
+          echo "appversion=${num}" >> "$GITHUB_OUTPUT"
+
+      - name: Build app-image
+        # bash (Git Bash on Windows) keeps -D argument quoting consistent across both runners.
+        # -Djavacpp.platform=<host> ships only this OS's OpenCV natives (much smaller image).
+        # -Dapp.version=<tag> bakes the real version into the jpackage --app-version + manifest
+        # Implementation-Version, so the installed app reports its true version (else the updater
+        # always sees itself as the pom default 1.0.0 and re-prompts).
+        # Tests are skipped here: the release pipeline only packages the artifact; the test
+        # suite runs on push/PR CI. (Avoids gating releases on known-red tests.)
+        shell: bash
+        run: mvn -B -Pdist package -DskipTests -Djavacpp.platform=${{ matrix.javacpp }} -Dapp.version=${{ steps.ver.outputs.appversion }}
 
       # The portable app-image (zipped) is kept as a no-install fallback; the native installers
       # (.deb/.rpm on Linux, .msi on Windows) are emitted by `-Pdist` into target/dist alongside it.

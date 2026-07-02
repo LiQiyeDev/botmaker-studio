@@ -795,6 +795,17 @@ public class ProjectAnalyzer {
         return createTypeNode(ast, type.qualifiedName());
     }
 
+    /**
+     * Like {@link #createTypeNode(AST, ResolvedType)} but always uses the type's SIMPLE (leaf) name. For callers
+     * that also add an {@code import}, so the generated source reads {@code Point}, not
+     * {@code com.botmaker.sdk.api.Point}.
+     */
+    public static Type createSimpleTypeNode(AST ast, ResolvedType type) {
+        if (type == null || type.isUnknown()) return ast.newSimpleType(ast.newSimpleName("Object"));
+        int dims = type.arrayDimensions();
+        return createTypeNode(ast, type.leafType().simpleName() + "[]".repeat(dims));
+    }
+
     public static Type createTypeNode(AST ast, String typeName) {
         int dimensions = 0;
         String baseName = typeName;

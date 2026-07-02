@@ -21,7 +21,7 @@ public class TypeHandler {
 
         ImportManager.addImport(cu, rewriter, newType.leafType(), state);
 
-        Type newTypeNode = ProjectAnalyzer.createTypeNode(ast, newType);
+        Type newTypeNode = ProjectAnalyzer.createSimpleTypeNode(ast, newType);
         rewriter.replace(varDecl.getType(), newTypeNode, null);
 
         if (!varDecl.fragments().isEmpty()) {
@@ -44,7 +44,7 @@ public class TypeHandler {
 
         ImportManager.addImport(cu, rewriter, newType, state);
 
-        Type newTypeNode = ProjectAnalyzer.createTypeNode(ast, newType);
+        Type newTypeNode = ProjectAnalyzer.createSimpleTypeNode(ast, newType);
         rewriter.replace(fieldDecl.getType(), newTypeNode, null);
 
         if (!fieldDecl.fragments().isEmpty()) {

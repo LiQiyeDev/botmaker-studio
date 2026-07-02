@@ -12,9 +12,11 @@ import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressBar;
+import javafx.scene.image.Image;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -28,8 +30,14 @@ public class BotMakerStudio extends Application {
     /** The currently open project (null when on project selection screen). */
     private BotProject currentProject;
 
+    /** The primary window, kept for owning dialogs. */
+    private Stage primaryStage;
+
     @Override
     public void start(Stage primaryStage) {
+        this.primaryStage = primaryStage;
+        applyAppIcons(primaryStage);
+        configureWindow(primaryStage);
         String lastProject = ProjectPreferences.getLastOpened();
         if (lastProject != null && projectExists(lastProject)) {
             openProject(primaryStage, lastProject);
@@ -184,6 +192,65 @@ public class BotMakerStudio extends Application {
     // HELPERS
     // =========================================================================
 
+    /**
+     * Load the window/taskbar icon from the bundled PNG rasters (generated from {@code icons/icon.svg};
+     * JavaFX's {@link Image} can't read SVG). Multiple sizes let the OS pick the sharpest per context.
+     * Missing rasters are skipped so a fresh checkout without generated PNGs still launches.
+     */
+    /**
+     * Restores the last window geometry (or a sensible large default) and starts maximized, then keeps both in
+     * sync with {@link ProjectPreferences}. Setting an explicit restored size means un-maximizing (or a
+     * window-manager restore when a dialog opens) returns to a large window, not the small intrinsic scene size —
+     * which is what made popups shrink the app to the top-left quarter of the screen.
+     */
+    private void configureWindow(Stage stage) {
+        javafx.geometry.Rectangle2D vb = javafx.stage.Screen.getPrimary().getVisualBounds();
+        ProjectPreferences.WindowState saved = ProjectPreferences.loadWindowState();
+
+        ProjectPreferences.WindowState state = (saved != null && saved.isUsable())
+                ? saved
+                : new ProjectPreferences.WindowState(
+                        vb.getMinX() + vb.getWidth() * 0.05, vb.getMinY() + vb.getHeight() * 0.05,
+                        vb.getWidth() * 0.9, vb.getHeight() * 0.9, true);
+
+        stage.setX(state.getX());
+        stage.setY(state.getY());
+        stage.setWidth(state.getWidth());
+        stage.setHeight(state.getHeight());
+        stage.setMaximized(saved == null || saved.isMaximized());
+
+        // Track the restored (non-maximized) geometry so we persist a usable size, never the maximized bounds.
+        javafx.beans.value.ChangeListener<Number> geom = (obs, o, n) -> {
+            if (!stage.isMaximized()) {
+                state.setX(stage.getX());
+                state.setY(stage.getY());
+                state.setWidth(stage.getWidth());
+                state.setHeight(stage.getHeight());
+            }
+        };
+        stage.xProperty().addListener(geom);
+        stage.yProperty().addListener(geom);
+        stage.widthProperty().addListener(geom);
+        stage.heightProperty().addListener(geom);
+
+        // Flush to disk only on cheap, infrequent events (never per resize-pixel): maximize toggle, focus loss, close.
+        stage.maximizedProperty().addListener((obs, was, isMax) -> {
+            state.setMaximized(isMax);
+            ProjectPreferences.saveWindowState(state);
+        });
+        stage.focusedProperty().addListener((obs, was, focused) -> {
+            if (!focused) ProjectPreferences.saveWindowState(state);
+        });
+        stage.setOnHidden(e -> ProjectPreferences.saveWindowState(state));
+    }
+
+    private void applyAppIcons(Stage stage) {
+        for (int size : new int[] {16, 32, 64, 128, 256, 512}) {
+            InputStream in = getClass().getResourceAsStream("/icons/icon-" + size + ".png");
+            if (in != null) stage.getIcons().add(new Image(in));
+        }
+    }
+
     private boolean projectExists(String projectName) {
         Path projectPath = PROJECTS_ROOT.resolve(projectName);
         return Files.exists(projectPath) && Files.exists(projectPath.resolve("pom.xml"));
@@ -191,6 +258,7 @@ public class BotMakerStudio extends Application {
 
     private void showErrorDialog(String message) {
         Alert alert = new Alert(Alert.AlertType.ERROR);
+        if (primaryStage != null) alert.initOwner(primaryStage);
         alert.setTitle("Error");
         alert.setHeaderText("Failed to open project");
         alert.setContentText(message);

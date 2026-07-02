@@ -88,8 +88,10 @@ public class ListHandler {
 
         ASTNode moving = (ASTNode) target.expressions().get(fromIndex);
         ListRewrite lr = rewriter.getListRewrite(target.node(), target.property());
-        // createMoveTarget removes the node from its original slot; insertAt places the move target at toIndex.
-        lr.insertAt(rewriter.createMoveTarget(moving), toIndex, null);
+        // insertAt indexes into the ORIGINAL list. For a downward move the source slot still counts before the
+        // target, so the destination shifts up by one; without the +1 a "move down by 1" is a no-op.
+        int insertIndex = fromIndex < toIndex ? toIndex + 1 : toIndex;
+        lr.insertAt(rewriter.createMoveTarget(moving), insertIndex, null);
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
     }
 

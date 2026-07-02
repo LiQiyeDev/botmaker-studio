@@ -1,0 +1,117 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8E44AD"/>
+      <stop offset="100%" stop-color="#241B3A"/>
+    </linearGradient>
+    <linearGradient id="blockLight" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#E7E9F5"/>
+    </linearGradient>
+    <linearGradient id="blockPurple" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#A85FCB"/>
+      <stop offset="100%" stop-color="#7B3FA0"/>
+    </linearGradient>
+    <linearGradient id="blockOrange" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFC163"/>
+      <stop offset="100%" stop-color="#FF9F45"/>
+    </linearGradient>
+    <radialGradient id="lens" cx="50%" cy="40%" r="65%">
+      <stop offset="0%" stop-color="#BFF3EC"/>
+      <stop offset="55%" stop-color="#3FBFB0"/>
+      <stop offset="100%" stop-color="#1D7A70"/>
+    </radialGradient>
+    <filter id="softShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#140B24" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+
+  <!-- Background squircle -->
+  <rect x="0" y="0" width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect x="16" y="16" width="480" height="480" rx="100" fill="none" stroke="#FFFFFF" stroke-opacity="0.07" stroke-width="2"/>
+
+  <g filter="url(#softShadow)">
+
+    <!-- Body block (IDE code block, puzzle-notched) -->
+    <path d="
+      M 170 302
+      L 170 262
+      Q 170 250 182 250
+      L 212 250
+      Q 218 238 230 238
+      Q 242 238 248 250
+      L 282 250
+      Q 294 250 294 262
+      L 294 302
+      Q 302 308 302 320
+      Q 302 332 294 338
+      L 294 374
+      Q 294 386 282 386
+      L 182 386
+      Q 170 386 170 374
+      L 170 338
+      Q 162 332 162 320
+      Q 162 308 170 302
+      Z"
+      fill="url(#blockLight)"/>
+    <!-- code lines inside body block, evoking the IDE rows -->
+    <rect x="188" y="298" width="70" height="10" rx="5" fill="#8E44AD" opacity="0.55"/>
+    <rect x="188" y="320" width="46" height="10" rx="5" fill="#3FBFB0" opacity="0.7"/>
+    <rect x="188" y="342" width="58" height="10" rx="5" fill="#FF9F45" opacity="0.7"/>
+    <rect x="188" y="364" width="34" height="10" rx="5" fill="#8E44AD" opacity="0.4"/>
+
+    <!-- Head block on top, connecting via notch -->
+    <path d="
+      M 164 176
+      L 164 150
+      Q 164 138 176 138
+      L 336 138
+      Q 348 138 348 150
+      L 348 244
+      Q 348 256 336 256
+      L 296 256
+      Q 290 248 278 248
+      Q 266 248 260 256
+      L 176 256
+      Q 164 256 164 244
+      L 164 208
+      Q 172 202 172 192
+      Q 172 182 164 176
+      Z"
+      fill="url(#blockPurple)"/>
+
+    <!-- camera / image-recognition lens as the single central eye -->
+    <circle cx="256" cy="196" r="42" fill="#241B3A"/>
+    <circle cx="256" cy="196" r="34" fill="url(#lens)"/>
+    <circle cx="256" cy="196" r="15" fill="#0E2A27"/>
+    <circle cx="248" cy="188" r="5" fill="#FFFFFF" opacity="0.85"/>
+    <!-- scan-line / viewfinder corners to signal recognition -->
+    <path d="M 208 168 L 208 158 L 218 158" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" fill="none" opacity="0.85"/>
+    <path d="M 304 168 L 304 158 L 294 158" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" fill="none" opacity="0.85"/>
+    <path d="M 208 224 L 208 234 L 218 234" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" fill="none" opacity="0.85"/>
+    <path d="M 304 224 L 304 234 L 294 234" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" fill="none" opacity="0.85"/>
+
+    <!-- antenna -->
+    <line x1="256" y1="138" x2="256" y2="112" stroke="#241B3A" stroke-width="8" stroke-linecap="round"/>
+    <circle cx="256" cy="102" r="12" fill="url(#blockOrange)"/>
+
+    <!-- side connector block (arm) -->
+    <path d="
+      M 302 292
+      L 338 292
+      Q 350 292 350 304
+      L 350 320
+      Q 358 324 358 334
+      Q 358 344 350 348
+      L 350 356
+      Q 350 368 338 368
+      L 302 368
+      Z"
+      fill="url(#blockOrange)"/>
+
+    <!-- puzzle studs bottom-left, IDE/block motif -->
+    <circle cx="186" cy="410" r="10" fill="#3FBFB0" opacity="0.9"/>
+    <circle cx="214" cy="410" r="10" fill="#FF9F45" opacity="0.9"/>
+    <circle cx="242" cy="410" r="10" fill="#FFFFFF" opacity="0.7"/>
+  </g>
+</svg>

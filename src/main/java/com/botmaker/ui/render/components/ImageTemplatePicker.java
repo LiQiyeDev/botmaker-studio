@@ -107,7 +107,9 @@ public final class ImageTemplatePicker {
                 new ScreenCaptureService().savePng(img, target);
                 applyTemplate(context, arg, ImageTemplateLibrary.pathFor(config, target));
             } catch (IOException ex) {
-                new Alert(Alert.AlertType.ERROR, "Failed to save template: " + ex.getMessage()).showAndWait();
+                Alert error = new Alert(Alert.AlertType.ERROR, "Failed to save template: " + ex.getMessage());
+                error.initOwner(owner);
+                error.showAndWait();
             }
         }));
     }

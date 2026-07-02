@@ -30,6 +30,7 @@ public class ProjectPreferences {
     private String lastOpenedProject;
     private List<ProjectEntry> recentProjects = new ArrayList<>();
     private Integer captureScreenIndex;
+    private WindowState windowState;
 
     public ProjectPreferences() {}
 
@@ -40,6 +41,8 @@ public class ProjectPreferences {
     public List<ProjectEntry> getRecentProjects() { return recentProjects; }
     public Integer getCaptureScreenIndex() { return captureScreenIndex; }
     public void setCaptureScreenIndex(Integer index) { this.captureScreenIndex = index; }
+    public WindowState getWindowState() { return windowState; }
+    public void setWindowState(WindowState windowState) { this.windowState = windowState; }
 
     public void addRecentProject(String projectName) {
         recentProjects.removeIf(p -> p.getName().equals(projectName));
@@ -95,7 +98,51 @@ public class ProjectPreferences {
         prefs.save();
     }
 
+    /** The persisted main-window geometry, or {@code null} if never saved. */
+    public static WindowState loadWindowState() {
+        return load().getWindowState();
+    }
+
+    public static void saveWindowState(WindowState state) {
+        ProjectPreferences prefs = load();
+        prefs.setWindowState(state);
+        prefs.save();
+    }
+
     // --- Inner Record ---
+
+    /** Main-window geometry + maximized flag, so the app reopens where the user left it. */
+    public static class WindowState {
+        private double x;
+        private double y;
+        private double width;
+        private double height;
+        private boolean maximized;
+
+        public WindowState() {}
+
+        public WindowState(double x, double y, double width, double height, boolean maximized) {
+            this.x = x;
+            this.y = y;
+            this.width = width;
+            this.height = height;
+            this.maximized = maximized;
+        }
+
+        public double getX() { return x; }
+        public void setX(double x) { this.x = x; }
+        public double getY() { return y; }
+        public void setY(double y) { this.y = y; }
+        public double getWidth() { return width; }
+        public void setWidth(double width) { this.width = width; }
+        public double getHeight() { return height; }
+        public void setHeight(double height) { this.height = height; }
+        public boolean isMaximized() { return maximized; }
+        public void setMaximized(boolean maximized) { this.maximized = maximized; }
+
+        @JsonIgnore
+        public boolean isUsable() { return width >= 400 && height >= 300; }
+    }
 
     public static class ProjectEntry {
         private String name;

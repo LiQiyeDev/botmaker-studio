@@ -1,7 +1,6 @@
 package com.botmaker.blocks.func;
 
 import com.botmaker.ui.render.menu.ExpressionMenuFactory;
-import com.botmaker.ui.render.menu.MenuComponents;
 import com.botmaker.util.DefaultNames;
 
 import com.botmaker.core.AbstractStatementBlock;
@@ -139,17 +138,14 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
         Label returnsLabel = new Label("returns");
         returnsLabel.getStyleClass().add("method-returns-label");
 
-        ComboBox<String> typeSelector = new ComboBox<>();
-        typeSelector.getItems().add("void");
-        typeSelector.getItems().addAll(ProjectAnalyzer.getFundamentalTypeNames());
-        typeSelector.setValue(returnType);
-        typeSelector.getStyleClass().add("inline-type-selector");
-        typeSelector.setOnAction(e -> {
-            String selected = typeSelector.getValue();
-            if (!selected.equals(returnType)) {
-                context.getCodeEditor().setMethodReturnType((MethodDeclaration) this.astNode, selected);
-            }
-        });
+        MethodDeclaration mdRet = (MethodDeclaration) this.astNode;
+        Label returnTypeLabel = new Label(returnType);
+        returnTypeLabel.getStyleClass().add("return-type-label");
+        ExpressionMenuFactory.installTypeSelector(returnTypeLabel, "Click to change return type",
+                () -> mdRet.getReturnType2() != null
+                        ? ProjectAnalyzer.resolveType(mdRet.getReturnType2()) : ResolvedType.primitive("void"),
+                context, null, true,
+                newType -> context.getCodeEditor().setMethodReturnType(mdRet, newType));
 
         var topRowBuilder = BlockLayout.sentence()
                 .addNode(collapseBtn)
@@ -157,7 +153,7 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
                 .addNode(nameNode)
                 .addNode(BlockUIComponents.createSpacer())
                 .addNode(returnsLabel)
-                .addNode(typeSelector);
+                .addNode(returnTypeLabel);
 
         if (isDeletable) {
             Button deleteBtn = new Button("×");
@@ -186,14 +182,12 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
         }
 
         if (isDeletable) {
-            MenuButton addParamBtn = new MenuButton("+");
+            Button addParamBtn = new Button("+");
             addParamBtn.getStyleClass().add("add-param-button");
-
-            List<ResolvedType> availableTypes = context.getProjectAnalyzer().getAvailableTypes(null);
-            MenuComponents.populateGroupedTypeMenu(addParamBtn.getItems(), availableTypes,
-                    ProjectAnalyzer.getFundamentalTypeNames(),
+            addParamBtn.setOnAction(e -> ExpressionMenuFactory.showTypeMenu(addParamBtn, null, context, null,
+                    false, false,
                     type -> context.getCodeEditor().addParameterToMethod((MethodDeclaration) this.astNode,
-                            type.simpleName(), DefaultNames.forType(type.simpleName())));
+                            type, DefaultNames.forType(type.simpleName()))));
 
             paramRowBuilder.addNode(addParamBtn);
         }

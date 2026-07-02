@@ -21,13 +21,14 @@ public final class BlockUIComponents {
 
     public static Button createDeleteButton(Runnable onDelete) {
         Button btn = new Button("X");
+        btn.getStyleClass().add("icon-button");
         btn.setOnAction(e -> onDelete.run());
         return btn;
     }
 
     public static Button createAddButton(EventHandler<ActionEvent> handler) {
         Button btn = new Button("+");
-        btn.getStyleClass().add("expression-add-button");
+        btn.getStyleClass().addAll("icon-button", "expression-add-button");
         btn.setOnAction(handler);
         return btn;
     }
@@ -35,8 +36,25 @@ public final class BlockUIComponents {
     // UNIFIED: Change button now looks like Add button
     public static Button createChangeButton(EventHandler<ActionEvent> handler) {
         Button btn = new Button("+");
-        btn.getStyleClass().add("expression-add-button");
+        btn.getStyleClass().addAll("icon-button", "expression-add-button");
         btn.setOnAction(handler);
+        return btn;
+    }
+
+    /** Small up-arrow reorder button — same fixed footprint as the other {@code icon-button}s. */
+    public static Button createMoveUpButton(Runnable onMove) {
+        return moveButton("▲", onMove);
+    }
+
+    /** Small down-arrow reorder button — same fixed footprint as the other {@code icon-button}s. */
+    public static Button createMoveDownButton(Runnable onMove) {
+        return moveButton("▼", onMove);
+    }
+
+    private static Button moveButton(String glyph, Runnable onMove) {
+        Button btn = new Button(glyph);
+        btn.getStyleClass().addAll("icon-button", "list-move-button");
+        btn.setOnAction(e -> onMove.run());
         return btn;
     }
 
