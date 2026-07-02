@@ -26,7 +26,8 @@ public final class SdkApi {
             "ClickConfig",
             "Mouse",
             "Wait",
-            "Screen");
+            "Screen",
+            "Game");
 
     private static final Set<String> FACADE_SET = Set.copyOf(FACADE_CLASSES);
 

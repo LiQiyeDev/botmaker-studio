@@ -49,6 +49,24 @@ Priority: **P0** = blocks core usage, **P1** = important, **P2** = nice-to-have.
 
 Most recent first. Claude appends here when work lands (date — what changed — where).
 
+- **2026-07-02 — Game-launch picker UX (Studio).** **Launch Program** now opens a native `FileChooser`
+  ("Browse for program…" / "Enter path…" fallback) instead of a bare string — new
+  `ui/render/components/ExecutablePicker`. **Launch Steam Game** now opens a reusable cover-art grid popup
+  (`ui/render/components/GameLibraryPickerDialog`: searchable tiles from local `library_600x900.jpg` /
+  `header.jpg`, initials placeholder when none, plus a manual-id fallback field) instead of a text combo —
+  `SteamGamePicker` rewritten to launch it. Discovery generalised behind `game.GameLibraryProvider` +
+  `game.InstalledGame(platform, id, name, artwork)`, with `game.SteamLibraryScanner` refactored to
+  implement it and resolve local cover art — so Epic/GOG plug in later by adding a provider (dialog + block
+  wiring reused). Wired via `ArgumentEditors` `Game.launch`/`launchSteam` branches; tile CSS in `blocks.css`.
+- **2026-07-02 — Game launch blocks (SDK + Studio).** New SDK facade `api.launch.Game`
+  (`launch(path, args…)` via `ProcessBuilder`; `launchSteam(appId)` via cross-platform
+  `steam://rungameid/<id>` with `steam -applaunch` fallback; internal `launch.UriLauncher`). Studio exposes
+  two blocks in a new **Game** category — **Launch Program** / **Launch Steam Game** (`BlockCatalog`,
+  `BlockCategory.GAME`, `ColorPalette`, `SdkApi` facade so they round-trip). The Steam block's appId arg gets
+  a dropdown of locally-installed games via `game.SteamLibraryScanner` (parses `libraryfolders.vdf` +
+  `appmanifest_*.acf`, no login/API key) wired through `ArgumentEditors`/new `SteamGamePicker` (editable,
+  free-text appId still allowed). Steam launching needs no auth of ours — the signed-in Steam client owns the
+  session. Note: scanner lists Steam "tools" too (Proton, Linux Runtime) — filtering them out is a future refinement.
 - 2026-07-02 — App-update flow fixed: download now runs behind a modal progress bar and the installer launch moved off the FX thread (AWT `Desktop` on the FX thread was freezing the window to a white screen); manual-restart messaging (`MenuBarManager.downloadAndInstall`, `UpdateService.downloadInstaller(update, progress)`).
 - 2026-07-02 — Version reporting fixed: dev-fallback bumped to 1.0.5 (`AppVersion.FALLBACK`, pom `app.version`/`version`); release workflow already bakes the tag's numeric version into the manifest so installed builds report their true version. Correctly-stamped builds require a new tagged release.
 - 2026-07-02 — Main window stays maximized: geometry persisted via `ProjectPreferences.WindowState`, restored large and maximized (`BotMakerStudio.configureWindow`) so opening a popup no longer shrinks the window to a quarter-screen.

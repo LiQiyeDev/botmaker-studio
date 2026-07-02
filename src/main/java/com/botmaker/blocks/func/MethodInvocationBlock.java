@@ -421,7 +421,7 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
             ResolvedType paramType = currentSignature != null ? currentSignature.paramTypeAt(i) : null;
             if (paramType == null) paramType = ResolvedType.UNKNOWN;
 
-            Node editor = ArgumentEditors.editorFor(context, arg, paramType);
+            Node editor = ArgumentEditors.editorFor(context, arg, paramType, targetType, methodName);
             if (editor != null) {
                 builder.addNode(editor);
                 continue;

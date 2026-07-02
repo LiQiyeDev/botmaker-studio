@@ -13,6 +13,7 @@ public enum BlockCategory {
     CONTROL("Control"),
     FUNCTIONS("Functions"),
     VISION("Vision"),
+    GAME("Game"),
     UTILITY("Utility");
 
     private final String label;

@@ -23,6 +23,18 @@ public final class ArgumentEditors {
 
     /** The specialized editor for {@code paramType}, or {@code null} to use the generic pill. */
     public static Node editorFor(CodeEditorService context, ExpressionBlock arg, ResolvedType paramType) {
+        return editorFor(context, arg, paramType, null, null);
+    }
+
+    /**
+     * The specialized editor for an argument, or {@code null} to use the generic pill. {@code className} /
+     * {@code methodName} identify the enclosing call so method-specific editors (e.g. the Steam game picker
+     * for {@code Game.launchSteam}) can be chosen; pass {@code null} for both when there is no call context.
+     */
+    public static Node editorFor(CodeEditorService context, ExpressionBlock arg, ResolvedType paramType,
+                                 String className, String methodName) {
+        if (isSteamGameArg(className, methodName)) return SteamGamePicker.create(context, arg);
+        if (isExecutableArg(className, methodName)) return ExecutablePicker.create(context, arg);
         if (paramType == null) return null;
         if (ImageTemplatePicker.isImageTemplateType(paramType)) return ImageTemplatePicker.create(context, arg);
         if (isType(paramType, "Rect")) return RectPicker.create(context, arg);
@@ -31,6 +43,20 @@ public final class ArgumentEditors {
         ResolvedType enumType = resolveEnum(context, paramType);
         if (enumType != null) return enumDropdown(context, arg, enumType);
         return null;
+    }
+
+    /** True for the {@code appId} argument of {@code Game.launchSteam(...)} (the class is a simple name). */
+    private static boolean isSteamGameArg(String className, String methodName) {
+        return "launchSteam".equals(methodName) && isGameClass(className);
+    }
+
+    /** True for the path argument of {@code Game.launch(...)}. */
+    private static boolean isExecutableArg(String className, String methodName) {
+        return "launch".equals(methodName) && isGameClass(className);
+    }
+
+    private static boolean isGameClass(String className) {
+        return className != null && (className.equals("Game") || className.endsWith(".Game"));
     }
 
     private static boolean isType(ResolvedType type, String simpleName) {

@@ -98,6 +98,12 @@ public final class BlockCatalog {
     public static final BlockType DECLARE_DIRECTION = new VarDecl("DECLARE_DIRECTION", "Direction", VISION,
             "Direction", false, "dir", new EnumConst("Direction", "NORTH"));
 
+    // --- Game ---
+    public static final BlockType LAUNCH_GAME = new LibraryCall("LAUNCH_GAME", "Launch Program", GAME,
+            "Game", "launch", List.of(new StrLit("")));
+    public static final BlockType LAUNCH_STEAM_GAME = new LibraryCall("LAUNCH_STEAM_GAME", "Launch Steam Game", GAME,
+            "Game", "launchSteam", List.of(new StrLit("")));
+
     // --- Utility ---
     public static final BlockType COMMENT = cf("COMMENT", "Comment", UTILITY, Kind.COMMENT);
 
@@ -111,6 +117,7 @@ public final class BlockCatalog {
             FUNCTION_CALL, METHOD_DECLARATION, DECLARE_ENUM,
             FIND_IMAGE, CLICK_IMAGE, WAIT_FOR_IMAGE, CLICK_ANY,
             DECLARE_POINT, DECLARE_RECT, DECLARE_SIZE, DECLARE_MATCH, DECLARE_TEMPLATE, DECLARE_DIRECTION,
+            LAUNCH_GAME, LAUNCH_STEAM_GAME,
             COMMENT);
 
     /** All insertable blocks in palette/menu display order. */

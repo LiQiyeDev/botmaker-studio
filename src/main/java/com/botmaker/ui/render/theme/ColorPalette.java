@@ -12,6 +12,7 @@ public class ColorPalette {
     private String controlColor = "#E74C3C";
     private String functionsColor = "#8E44AD";
     private String visionColor = "#1ABC9C"; // Vision Color
+    private String gameColor = "#16A085"; // Game / launch actions
     private String utilityColor = "#7F8C8D";
 
     // UI element colors
@@ -40,6 +41,7 @@ public class ColorPalette {
             case CONTROL -> controlColor;
             case FUNCTIONS -> functionsColor;
             case VISION -> visionColor;
+            case GAME -> gameColor;
             case UTILITY -> utilityColor;
         };
     }

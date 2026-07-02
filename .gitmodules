@@ -1,0 +1,4 @@
+[submodule "BotMaker-sdk"]
+	path = BotMaker-sdk
+	url = git@github.com:LiQiyeDev/botmaker-sdk.git
+	branch = main
