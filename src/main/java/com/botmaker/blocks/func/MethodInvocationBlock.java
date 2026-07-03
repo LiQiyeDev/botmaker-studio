@@ -5,6 +5,7 @@ import com.botmaker.core.AbstractExpressionBlock;
 import com.botmaker.core.ExpressionBlock;
 import com.botmaker.core.StatementBlock;
 import com.botmaker.events.CoreApplicationEvents;
+import com.botmaker.palette.SdkApi;
 import com.botmaker.services.CodeEditorService;
 import com.botmaker.project.ProjectFile;
 import com.botmaker.suggestions.ProjectAnalyzer;
@@ -94,7 +95,7 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
             // class's first method) — the AST rewrite then re-renders the block.
             ComboBox<String> classSelector = new ComboBox<>();
             classSelector.getStyleClass().add("sdk-class-selector");
-            classSelector.getItems().addAll(com.botmaker.palette.SdkApi.FACADE_CLASSES);
+            classSelector.getItems().addAll(SdkApi.FACADE_CLASSES);
             if (!classSelector.getItems().contains(fixedScopeName)) {
                 classSelector.getItems().add(0, fixedScopeName);
             }

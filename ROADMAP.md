@@ -24,17 +24,19 @@ Claude updates the **Completed** section whenever work lands here (see CLAUDE.md
 
 Priority: **P0** = blocks core usage, **P1** = important, **P2** = nice-to-have.
 
-- [ ] **B1 (P0) — Keyboard input (SDK).** No `Keyboard` class exists. Add `api.interaction.Keyboard`: tap, hold,
-  release, key combos, type-string; per-OS (Linux XTest, Windows SendInput). + palette blocks.
-- [ ] **B2 (P0) — Richer Mouse (SDK).** Currently left-click only. Add right / middle / double click, move, drag,
-  scroll, button down/up (hold). + palette blocks.
+- [ ] **B1 (P0) — Keyboard input.** SDK side **done** (2026-07-03): `api.interaction.Keyboard`
+  (press/release/tap/combo/type) + OS-neutral `api.interaction.Key`; Linux XTest, Windows keybd_event.
+  **Remaining: palette blocks** in the Studio (awaits SDK JitPack publish).
+- [ ] **B2 (P0) — Richer Mouse.** SDK side **done** (2026-07-03): move/moveTo, right/middle/double click,
+  drag, scroll, button down/up + `MouseButton`. **Remaining: palette blocks** (awaits SDK publish).
 - [x] **B3 (P0) — Image-template capture + region picker (Studio).** **Done** — image-template picker + capture
   (2026-06-30); the visual **Rect** region picker and **Point** magnifier picker for `new Rect(...)`/`new Point(...)`
   args landed 2026-07-01 (`RectPicker`, `PointPicker`, `ScreenCaptureService.selectRegion`/`pickPoint`,
   `ArgumentEditors`).
-- [ ] **B4 (P1) — Window targeting in the public API (SDK).** Surface the existing internal
-  `getForegroundWindow` / `captureWindow` / window-relative click as a `Window` / target so bots survive window
-  moves, focus changes, and multi-monitor.
+- [x] **B4 (P1) — Window targeting in the public API (SDK).** **Done** (2026-07-03): public
+  `api.capture.Window` (foreground/find/all, capture, focus/move/resize) implementing a new
+  `api.capture.CaptureSource` seam that every matcher (`ImageFinder`/`ImageState`/`Vision`) now accepts —
+  so bots target a specific window (even off-screen / 2nd monitor) and survive moves/focus changes.
 - [ ] **B5 (P1) — Run scaffold + global stop hotkey (Studio).** Generated projects are a hello-world `main`; bots
   are loops. Provide a run-loop scaffold and a global panic/stop hotkey (the game holds focus;
   `StopRunRequestedEvent` only fires from the toolbar today). Needs a global hook (e.g. jnativehook) or SDK-level
@@ -48,6 +50,47 @@ Priority: **P0** = blocks core usage, **P1** = important, **P2** = nice-to-have.
 ## Completed
 
 Most recent first. Claude appends here when work lands (date — what changed — where).
+
+- **2026-07-03 — Fix SDK version not applying in Manage Libraries (Studio).** The inline version editor only
+  committed on dropdown-select or Enter; typing a version then clicking Apply silently cancelled the edit, so the
+  pom was rewritten with the old version. `VersionCell` now also commits on editor focus-loss (guarded on the
+  popup being closed) — `ui/app/ManageLibrariesDialog`.
+- **2026-07-03 — Lambda vision blocks (Studio).** Surfaced the SDK's lambda control-flow helpers as first-class
+  body-carrying palette blocks: **While Image Exists** / **If Image Exists** / **Repeat Until Image Appears**
+  (`palette/BlockCatalog`), each a droppable-body block whose dropped statements become the lambda body and inside
+  which the matched `match` (`MatchResult`) is in scope. New reusable machinery, method-agnostic so any future
+  "static call with a trailing body lambda" reuses it: `parser/handlers/LambdaCallHandler` (sole
+  `LambdaExpression` build + parse site), a `BlockType.LambdaCall` sealed variant, codegen in
+  `StatementFactory`, a round-trip parse branch in `BlockConverter` (detects `Class.method(img, m -> {…})` and
+  recurses the lambda body via `parseBodyBlock`), and the `blocks/vision/LambdaCallBlock` UI block (modeled on
+  `WhileBlock`). Emits e.g. `ImageFinder.whileExists(img, match -> { … })`; `untilExists` uses a no-arg
+  `() -> {}` (Runnable).
+- **2026-07-03 — Simplified SDK vision API (SDK + Studio).** Collapsed the 9-class `api.vision` package to
+  three action classes — `ImageFinder` (find/findAll/findAny + `exists` + lambda control-flow
+  `whileExists`/`ifExists` taking `Consumer<MatchResult>`, `untilExists` taking `Runnable`), `ImageClicker`
+  (click/clickAny/clickAll), `ImageWaiter` (waitFor/waitUntilGone/waitAndClick) — plus the unchanged
+  `MatchResult`/`ImageTemplate`/`ClickConfig`. Deleted `Vision`, `ImageState` (+ `ScreenState`), `ImageMatcher`
+  and the `…then…`/long-tail variants. Studio: dropped `ImageMatcher`/`ImageState` from
+  `palette/SdkApi.FACADE_CLASSES`. CLAUDE.md: documented that all SDK changes go through the `./BotMaker-sdk`
+  submodule.
+- **2026-07-03 — SDK Vision/Input/Window overhaul, Phases 1–3 (SDK).** Foundation for window-aware,
+  game-driving bots. **(Ph1) Window targeting** — new `api.capture.CaptureSource` seam (`capture()` +
+  `origin()`), implemented by `Screen` (`Screen.asSource()`) and a new public `api.capture.Window`
+  (`foreground`/`find`/`all`, `capture`, `focus`/`move`/`resize`, window-relative `click`). `ImageFinder`
+  /`ImageState` gained `CaptureSource` overloads (all legacy signatures preserved) so matching + absolute
+  click coords work against a specific window. Extended internal `NativeController` + Linux (X11
+  `XMoveResizeWindow`/`XRaiseWindow`/`XSetInputFocus`) and Windows (`SetWindowPos`/`ShowWindow`/
+  `SetForegroundWindow`) impls. **(Ph2) Lambda decision-tree** — new `api.vision.Vision.evaluate(source,
+  callback, templates…)` captures once and hands a `ScreenState` to a callback (also fixed `ImageState.
+  checkState`'s prior double-capture via a single `computeState`). **(Ph3) Keyboard + richer Mouse** —
+  new `api.interaction.Keyboard` (press/release/tap/combo/type) + OS-neutral `Key` enum; `Mouse` extended
+  with move/right/middle/double-click/drag/scroll/down-up + `MouseButton`; backed by new
+  `NativeController` input methods (Linux XTest `XTestFakeKeyEvent`/keysym→keycode, Windows
+  `keybd_event`/`mouse_event`). Tests: `WindowApiTest`, `InputApiTest`, `VisionEvaluateTest` (+ injectable
+  `NativeControllerFactory.setForTesting` / `RecordingNativeController`), 14 green. **SDK-only** (no palette
+  blocks yet — awaits the maintainer's JitPack publish). Staged next: humanization (Bezier, `Wait.random`),
+  color/mask/OCR vision, debug overlays. Linux-first; Windows impls best-effort.
+- 2026-07-02 — Added Botmaker-sdk as submodule to studio
 
 - **2026-07-02 — Game-launch picker UX (Studio).** **Launch Program** now opens a native `FileChooser`
   ("Browse for program…" / "Enter path…" fallback) instead of a bare string — new

@@ -3,6 +3,7 @@ package com.botmaker.palette;
 import com.botmaker.palette.BlockType.ControlFlow;
 import com.botmaker.palette.BlockType.ControlFlow.Kind;
 import com.botmaker.palette.BlockType.EnumDecl;
+import com.botmaker.palette.BlockType.LambdaCall;
 import com.botmaker.palette.BlockType.LibraryCall;
 import com.botmaker.palette.BlockType.MethodMember;
 import com.botmaker.palette.BlockType.ScannerRead;
@@ -85,6 +86,12 @@ public final class BlockCatalog {
             new LibraryCall("WAIT_FOR_IMAGE", "Wait For Image", VISION, "ImageWaiter", "waitFor", List.of());
     public static final BlockType CLICK_ANY =
             new LibraryCall("CLICK_ANY", "Click Any Image", VISION, "ImageClicker", "clickAny", List.of());
+    public static final BlockType WHILE_IMAGE_EXISTS = new LambdaCall("WHILE_IMAGE_EXISTS", "While Image Exists",
+            VISION, "ImageFinder", "whileExists", List.of(), "match");
+    public static final BlockType IF_IMAGE_EXISTS = new LambdaCall("IF_IMAGE_EXISTS", "If Image Exists",
+            VISION, "ImageFinder", "ifExists", List.of(), "match");
+    public static final BlockType UNTIL_IMAGE_EXISTS = new LambdaCall("UNTIL_IMAGE_EXISTS", "Repeat Until Image Appears",
+            VISION, "ImageFinder", "untilExists", List.of(), null);
     public static final BlockType DECLARE_POINT = new VarDecl("DECLARE_POINT", "Point", VISION, "Point", false, "p",
             new NewInstance("Point", List.of(new IntLit("0"), new IntLit("0"))));
     public static final BlockType DECLARE_RECT = new VarDecl("DECLARE_RECT", "Rect", VISION, "Rect", false, "r",
@@ -116,6 +123,7 @@ public final class BlockCatalog {
             CLICK, READ_LINE, READ_INT, READ_DOUBLE,
             FUNCTION_CALL, METHOD_DECLARATION, DECLARE_ENUM,
             FIND_IMAGE, CLICK_IMAGE, WAIT_FOR_IMAGE, CLICK_ANY,
+            WHILE_IMAGE_EXISTS, IF_IMAGE_EXISTS, UNTIL_IMAGE_EXISTS,
             DECLARE_POINT, DECLARE_RECT, DECLARE_SIZE, DECLARE_MATCH, DECLARE_TEMPLATE, DECLARE_DIRECTION,
             LAUNCH_GAME, LAUNCH_STEAM_GAME,
             COMMENT);

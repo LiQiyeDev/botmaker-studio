@@ -21,8 +21,6 @@ public final class SdkApi {
             "ImageFinder",
             "ImageClicker",
             "ImageWaiter",
-            "ImageMatcher",
-            "ImageState",
             "ClickConfig",
             "Mouse",
             "Wait",

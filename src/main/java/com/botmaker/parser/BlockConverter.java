@@ -14,11 +14,13 @@ import com.botmaker.blocks.loop.WhileBlock;
 import com.botmaker.blocks.misc.CommentBlock;
 import com.botmaker.blocks.misc.PrintBlock;
 import com.botmaker.blocks.misc.ReadInputBlock;
+import com.botmaker.blocks.vision.LambdaCallBlock;
 import com.botmaker.blocks.var.AssignmentBlock;
 import com.botmaker.blocks.var.DeclareClassVariableBlock;
 import com.botmaker.blocks.var.DeclareEnumBlock;
 import com.botmaker.blocks.var.VariableDeclarationBlock;
 import com.botmaker.core.*;
+import com.botmaker.parser.handlers.LambdaCallHandler;
 import com.botmaker.project.ProjectState;
 import com.botmaker.ui.dnd.BlockDragAndDropManager;
 import org.eclipse.jdt.core.dom.*;
@@ -269,6 +271,9 @@ public class BlockConverter {
             String scope = mi.getExpression() != null ? mi.getExpression().toString() : "";
 
             if (isLibraryClass(scope)) {
+                if (LambdaCallHandler.isLambdaCall(mi)) {
+                    return parseLambdaCall(stmt, mi, ctx);
+                }
                 LibraryCallBlock block = new LibraryCallBlock(BlockId.of(stmt), stmt, scope);
                 ctx.nodeToBlockMap().put(stmt, block);
                 for (Object arg : mi.arguments()) {
@@ -285,6 +290,25 @@ public class BlockConverter {
             return Optional.of(block);
         }
         return Optional.empty();
+    }
+
+    /**
+     * A facade call with a trailing body lambda ({@code ImageFinder.whileExists(img, m -> { … })}). Builds a
+     * {@link LambdaCallBlock} exposing the leading image argument as a fillable slot and the lambda body as a
+     * droppable {@link BodyBlock} (recursed via {@link #parseBodyBlock}), so the block round-trips.
+     */
+    private Optional<StatementBlock> parseLambdaCall(ExpressionStatement stmt, MethodInvocation mi, ParseContext ctx) {
+        LambdaExpression lambda = LambdaCallHandler.lambdaArg(mi);
+        LambdaCallBlock block = new LambdaCallBlock(BlockId.of(stmt), stmt, mi.getName().getIdentifier());
+        ctx.nodeToBlockMap().put(stmt, block);
+
+        List<?> args = mi.arguments();
+        if (args.size() > 1) {
+            // leading image argument (everything before the trailing lambda; the vision helpers have exactly one)
+            parseExpression((Expression) args.get(0), ctx).ifPresent(block::setImage);
+        }
+        if (lambda.getBody() instanceof Block b) block.setBody(parseBodyBlock(b, ctx));
+        return Optional.of(block);
     }
 
     private Optional<StatementBlock> parseVariableDecl(VariableDeclarationStatement stmt, ParseContext ctx) {

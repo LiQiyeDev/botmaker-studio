@@ -60,7 +60,9 @@ User projects live in `~/BotMakerProjects/` (not inside this repo). Each project
 
 ### BotMaker SDK dependency
 
-The Studio depends on the **BotMaker SDK** (`com.github.LiQiyeDev:BotMaker-sdk`, sibling repo at `../BotMaker-sdk`) pinned to `0.0.0-SNAPSHOT`. That SNAPSHOT is intentional — it's published to JitPack (via the SDK repo's GitHub Action) so it resolves on a clean checkout. **The maintainer owns the SDK→JitPack publish; don't push or publish the SDK yourself.** For testing local SDK changes, run `mvn install` in `../BotMaker-sdk` to put the build in your local Maven repo (checked before JitPack).
+The Studio depends on the **BotMaker SDK** (`com.github.LiQiyeDev:BotMaker-sdk`) pinned to `0.0.0-SNAPSHOT`. That SNAPSHOT is intentional — it's published to JitPack (via the SDK repo's GitHub Action) so it resolves on a clean checkout. **The maintainer owns the SDK→JitPack publish; don't push or publish the SDK yourself.**
+
+The SDK is **vendored as a git submodule at `./BotMaker-sdk`** (see `.gitmodules`). **All SDK changes must be made through this in-project submodule** — edit the sources under `./BotMaker-sdk`, commit inside the submodule, then bump the submodule pointer in the Studio repo. Do not edit an external sibling checkout. For testing local SDK changes, run `mvn install` in `./BotMaker-sdk` to put the build in your local Maven repo (checked before JitPack).
 
 The read-input blocks depend on a small SDK protocol: `BotMaker.readX()` prints a `BM-INPUT:<type>` marker (SOH-wrapped) to stdout before blocking on stdin. The Studio detects and strips that marker (`CodeExecutionService` for run, `DebuggingService` for debug), shows the modal input prompt, and writes the entered line back to the process's stdin via `SendInputEvent` → `sendInput(...)`. Changing the marker on either side without the other breaks input prompts.
 

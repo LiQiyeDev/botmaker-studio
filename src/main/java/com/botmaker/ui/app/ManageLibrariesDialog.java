@@ -154,6 +154,16 @@ public class ManageLibrariesDialog {
             combo.getEditor().setOnAction(e -> {
                 if (isEditing()) commitEdit(combo.getEditor().getText().trim());
             });
+            // Also commit a typed-but-not-Enter'd version when focus leaves the cell (e.g. the user
+            // types a version and clicks Apply). Without this the edit is silently cancelled and the
+            // old version is what gets written to the pom. Guarded on the popup being closed so opening
+            // the dropdown to pick a value doesn't prematurely commit.
+            combo.getEditor().focusedProperty().addListener((obs, was, focused) -> {
+                if (!focused && isEditing() && !combo.isShowing()) {
+                    String text = combo.getEditor().getText();
+                    if (text != null && !text.isBlank()) commitEdit(text.trim());
+                }
+            });
         }
 
         @Override

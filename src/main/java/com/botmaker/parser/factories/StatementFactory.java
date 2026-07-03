@@ -3,13 +3,16 @@ package com.botmaker.parser.factories;
 import com.botmaker.palette.BlockType;
 import com.botmaker.palette.Initializer;
 import com.botmaker.parser.ImportManager;
+import com.botmaker.parser.handlers.LambdaCallHandler;
 import com.botmaker.project.ProjectState;
 import com.botmaker.suggestions.ProjectAnalyzer;
 import com.botmaker.types.ResolvedType;
 import org.eclipse.jdt.core.dom.*;
 import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 
 public class StatementFactory {
 
@@ -25,6 +28,7 @@ public class StatementFactory {
             case BlockType.VarDecl v -> buildVarDecl(ast, v, cu, rewriter, analyzer);
             case BlockType.ScannerRead r -> buildScannerRead(ast, r, cu, rewriter);
             case BlockType.LibraryCall l -> buildLibraryCall(ast, l, cu, rewriter, analyzer);
+            case BlockType.LambdaCall l -> buildLambdaCall(ast, l, cu, rewriter, analyzer);
             case BlockType.EnumDecl ignored -> createEnumDeclaration(ast);
             case BlockType.MethodMember ignored -> null; // a method is a class member, not a body statement
         };
@@ -88,6 +92,19 @@ public class StatementFactory {
         } else {
             for (Initializer arg : l.args()) mi.arguments().add(buildExpression(ast, arg, cu, rewriter, analyzer));
         }
+        return ast.newExpressionStatement(mi);
+    }
+
+    private static Statement buildLambdaCall(AST ast, BlockType.LambdaCall l, CompilationUnit cu,
+                                             ASTRewrite rewriter, ProjectAnalyzer analyzer) {
+        List<Expression> leading = new ArrayList<>();
+        if (l.leadingArgs().isEmpty()) {
+            leading.add(ast.newNullLiteral()); // empty "+" slot the user fills — same convention as buildLibraryCall
+        } else {
+            for (Initializer arg : l.leadingArgs()) leading.add(buildExpression(ast, arg, cu, rewriter, analyzer));
+        }
+        MethodInvocation mi = LambdaCallHandler.buildLambdaCall(
+                ast, cu, rewriter, analyzer, l.className(), l.method(), leading, l.lambdaParam());
         return ast.newExpressionStatement(mi);
     }
 
