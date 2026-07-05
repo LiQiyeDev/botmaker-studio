@@ -7,7 +7,12 @@
     <groupId>com.botmaker</groupId>
     <artifactId>BotMaker</artifactId>
     <version>1.0.5-SNAPSHOT</version>
+    <packaging>pom</packaging>
 
+    <modules>
+        <!-- The exact folder name of your git submodule -->
+        <module>botmaker-sdk</module>
+    </modules>
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
