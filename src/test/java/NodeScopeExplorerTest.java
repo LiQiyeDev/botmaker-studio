@@ -1,7 +1,7 @@
-import com.botmaker.suggestions.ProjectAnalyzer;
+import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import io.github.classgraph.FieldInfo;
 import io.github.classgraph.MethodInfo;
-import com.botmaker.util.VariableScopeVisitor;
+import com.botmaker.studio.util.VariableScopeVisitor;
 import org.eclipse.jdt.core.dom.*;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;

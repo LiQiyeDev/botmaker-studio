@@ -1,0 +1,325 @@
+package com.botmaker.studio.runtime;
+
+import com.botmaker.studio.project.ProjectConfig;
+import com.botmaker.studio.events.CoreApplicationEvents;
+import com.botmaker.studio.events.EventBus;
+import com.botmaker.studio.project.ProjectFile;
+import com.botmaker.studio.project.ProjectState;
+import com.botmaker.studio.util.ClassPathManager;
+import com.botmaker.studio.validation.DiagnosticsManager;
+import javafx.application.Platform;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+public class CodeExecutionService {
+
+    private final DiagnosticsManager diagnosticsManager;
+    private final ProjectConfig config;
+    private final ProjectState state;
+    private final EventBus eventBus;
+
+    private volatile Process currentRunningProcess;
+    private volatile ScheduledExecutorService activeUiUpdater;
+    private final AtomicBoolean isRunning = new AtomicBoolean(false);
+
+    private static final int MAX_UI_BUFFER_SIZE = 4096;
+    private static final int UI_UPDATE_RATE_MS = 100;
+
+    public CodeExecutionService(
+            DiagnosticsManager diagnosticsManager,
+            ProjectConfig config,
+            ProjectState state,
+            EventBus eventBus) {
+        this.diagnosticsManager = diagnosticsManager;
+        this.config = config;
+        this.state = state;
+        this.eventBus = eventBus;
+        setupEventHandlers();
+    }
+
+    private void setupEventHandlers() {
+        eventBus.subscribe(CoreApplicationEvents.CompilationRequestedEvent.class,
+                e -> compileCode(state.getCurrentCode()), false);
+        eventBus.subscribe(CoreApplicationEvents.ExecutionRequestedEvent.class,
+                e -> runCode(state.getCurrentCode()), false);
+        eventBus.subscribe(CoreApplicationEvents.StopRunRequestedEvent.class,
+                e -> stopRunningProgram(), false);
+        eventBus.subscribe(CoreApplicationEvents.SendInputEvent.class,
+                e -> sendInput(e.text()), false);
+    }
+
+    /** Writes a line to the running program's stdin (used by the input popup). Echoes it to the console too. */
+    public void sendInput(String line) {
+        Process process = currentRunningProcess;
+        if (process == null || !process.isAlive()) return;
+        try {
+            OutputStream stdin = process.getOutputStream();
+            stdin.write((line + System.lineSeparator()).getBytes(StandardCharsets.UTF_8));
+            stdin.flush();
+            Platform.runLater(() -> eventBus.publish(new CoreApplicationEvents.OutputAppendedEvent(line + "\n")));
+        } catch (IOException ignored) {}
+    }
+
+    private void status(String message) {
+        Platform.runLater(() -> eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(message)));
+    }
+
+    public void runCode(String currentEditorCode) {
+        if (diagnosticsManager.hasErrors()) {
+            status("Run aborted due to errors.");
+            return;
+        }
+        if (isRunning.get()) {
+            status("Program is already running. Stop it first.");
+            return;
+        }
+
+        new Thread(() -> {
+            try {
+                status("Compiling...");
+                Platform.runLater(() -> eventBus.publish(new CoreApplicationEvents.OutputClearedEvent()));
+
+                if (!compileAndWait(currentEditorCode, config.compiledOutputPath())) {
+                    status("Run aborted due to build failure.");
+                    return;
+                }
+
+                status("Running... (Press Stop to terminate)");
+                isRunning.set(true);
+
+                // Tell UI the program has started so the Stop button becomes clickable.
+                eventBus.publish(new CoreApplicationEvents.ProgramStartedEvent());
+
+                // Run the compiled main class directly: java -cp <classes:deps> <mainClass>
+                ProcessBuilder pb = new ProcessBuilder(
+                        config.javaExecutable(),
+                        "-cp", buildRuntimeClasspath(),
+                        config.mainClassName())
+                        .directory(config.projectPath().toFile());
+
+                currentRunningProcess = pb.start();
+
+                OutputPump pump = startProcessOutputReaders(currentRunningProcess);
+
+                int exitCode = currentRunningProcess.waitFor();
+
+                // Drain the readers and flush anything still buffered before the updater is torn down,
+                // otherwise short-lived programs lose all output that arrived in the last <100ms.
+                for (Thread reader : pump.readers()) reader.join();
+                pump.flushRemaining().run();
+
+                if (exitCode == 0) status("Program completed successfully.");
+                else if (exitCode == 143 || exitCode == 130 || exitCode == 1 || exitCode == -1)
+                    status("Program stopped.");
+                else status("Program exited with code: " + exitCode);
+
+            } catch (InterruptedException e) {
+                status("Program stopped by user.");
+            } catch (Exception e) {
+                e.printStackTrace();
+                status("Error: " + e.getMessage());
+            } finally {
+                isRunning.set(false);
+                currentRunningProcess = null;
+                stopUiUpdater();
+                // Tell UI the program has finished so the Stop button disables.
+                eventBus.publish(new CoreApplicationEvents.ProgramStoppedEvent());
+            }
+        }, "CodeRunner").start();
+    }
+
+    /** Builds {@code <compiledOutput><sep><resources><sep><dep jars...>} for launching/compiling the project. */
+    private String buildRuntimeClasspath() {
+        StringBuilder cp = new StringBuilder(config.compiledOutputPath().toString());
+        // Put src/main/resources on the classpath so generated code can read /activities.json (and other
+        // bundled resources) at runtime, mirroring Maven's resource-on-classpath semantics.
+        cp.append(java.io.File.pathSeparator).append(config.resourcesRoot().toString());
+        if (state.getResolvedClasspath() != null) {
+            for (String jar : state.getResolvedClasspath()) {
+                cp.append(java.io.File.pathSeparator).append(jar);
+            }
+        }
+        return cp.toString();
+    }
+
+    public void compileCode(String code) {
+        new Thread(() -> {
+            try {
+                Platform.runLater(() -> eventBus.publish(new CoreApplicationEvents.OutputClearedEvent()));
+                status("Compiling...");
+                if (compileAndWait(code, config.compiledOutputPath())) {
+                    status("Compilation successful.");
+                }
+            } catch (IOException | InterruptedException e) {
+                status("Compilation Error: " + e.getMessage());
+            }
+        }).start();
+    }
+
+    public boolean compileAndWait(String currentActiveCode, Path compiledOutputPath) throws IOException, InterruptedException {
+        state.setCurrentCode(currentActiveCode);
+
+        for (ProjectFile file : state.getAllFiles()) {
+            Path path = file.getPath();
+            if (path != null) {
+                Files.createDirectories(path.getParent());
+                Files.writeString(path, file.getContent());
+            }
+        }
+
+        Files.createDirectories(compiledOutputPath);
+
+        List<String> sourceFiles = ClassPathManager.findJavaFiles(config.sourceRoot());
+        if (sourceFiles.isEmpty()) {
+            Platform.runLater(() -> eventBus.publish(new CoreApplicationEvents.OutputAppendedEvent("No source files to compile.\n")));
+            return false;
+        }
+
+        List<String> command = new ArrayList<>(List.of(
+                config.javacExecutable(),
+                "-cp", buildRuntimeClasspath(),
+                "-d", compiledOutputPath.toString()));
+        command.addAll(sourceFiles);
+
+        ProcessBuilder pb = new ProcessBuilder(command)
+                .directory(config.projectPath().toFile());
+        pb.redirectErrorStream(true);
+
+        Process process = pb.start();
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                String finalLine = line + "\n";
+                Platform.runLater(() -> eventBus.publish(new CoreApplicationEvents.OutputAppendedEvent(finalLine)));
+            }
+        }
+
+        int exitCode = process.waitFor();
+        return exitCode == 0;
+    }
+
+    public void stopRunningProgram() {
+        if (currentRunningProcess != null && currentRunningProcess.isAlive()) {
+            currentRunningProcess.destroyForcibly();
+
+            // Also attempt to kill child processes (like the actual Java process spawned by Gradle)
+            currentRunningProcess.descendants().forEach(ProcessHandle::destroyForcibly);
+        }
+        stopUiUpdater();
+        // Force state update immediately on hard kill
+        isRunning.set(false);
+        eventBus.publish(new CoreApplicationEvents.ProgramStoppedEvent());
+    }
+
+    private void stopUiUpdater() {
+        if (activeUiUpdater != null) {
+            activeUiUpdater.shutdownNow();
+            activeUiUpdater = null;
+        }
+    }
+
+    public boolean isRunning() { return isRunning.get(); }
+
+    /** Handle over the live output readers and a final synchronous flush of whatever they buffered. */
+    private record OutputPump(List<Thread> readers, Runnable flushRemaining) {}
+
+    private OutputPump startProcessOutputReaders(Process process) {
+        final StringBuilder buffer = new StringBuilder();
+
+        stopUiUpdater();
+        activeUiUpdater = Executors.newSingleThreadScheduledExecutor();
+
+        activeUiUpdater.scheduleAtFixedRate(() -> {
+            flushBuffer(buffer);
+            if (!isRunning.get()) activeUiUpdater.shutdown();
+        }, UI_UPDATE_RATE_MS, UI_UPDATE_RATE_MS, TimeUnit.MILLISECONDS);
+
+        // Only stdout carries the BM-INPUT marker the SDK emits before blocking on a read.
+        Thread out = new Thread(() -> readStream(process.getInputStream(), buffer, true), "Leaky-Reader-Out");
+        Thread err = new Thread(() -> readStream(process.getErrorStream(), buffer, false), "Leaky-Reader-Err");
+        out.start();
+        err.start();
+
+        return new OutputPump(List.of(out, err), () -> flushBuffer(buffer));
+    }
+
+    private void readStream(InputStream stream, StringBuilder buffer, boolean detectMarkers) {
+        byte[] readBuf = new byte[1024];
+        int len;
+        StringBuilder carry = new StringBuilder();
+        try {
+            while ((len = stream.read(readBuf)) != -1) {
+                String text = new String(readBuf, 0, len, StandardCharsets.UTF_8);
+                if (detectMarkers) text = extractInputMarkers(text, carry);
+                appendToBuffer(buffer, text);
+            }
+        } catch (IOException ignored) {}
+    }
+
+    private void appendToBuffer(StringBuilder buffer, String text) {
+        if (text.isEmpty()) return;
+        synchronized (buffer) {
+            if (buffer.length() < MAX_UI_BUFFER_SIZE) {
+                buffer.append(text);
+            } else {
+                String warning = "\n[output truncated...]\n";
+                if (buffer.length() < MAX_UI_BUFFER_SIZE + warning.length()) {
+                    buffer.append(warning);
+                }
+            }
+        }
+    }
+
+    /**
+     * Strips {@code \u0001BM-INPUT:<type>\u0001} markers the SDK prints right before a blocking read, publishing an
+     * {@link CoreApplicationEvents.InputRequestedEvent} for each. {@code carry} holds a trailing partial marker that
+     * was split across reads so it can be completed by the next chunk; everything else is returned for the console.
+     */
+    private String extractInputMarkers(String text, StringBuilder carry) {
+        String s = carry.toString() + text;
+        carry.setLength(0);
+        StringBuilder out = new StringBuilder();
+        int i = 0;
+        while (i < s.length()) {
+            int start = s.indexOf('\u0001', i);
+            if (start < 0) { out.append(s, i, s.length()); break; }
+            out.append(s, i, start);
+            int end = s.indexOf('\u0001', start + 1);
+            if (end < 0) { carry.append(s, start, s.length()); break; } // incomplete marker — hold for next chunk
+            String token = s.substring(start + 1, end);
+            i = end + 1;
+            if (token.startsWith("BM-INPUT:")) {
+                String type = token.substring("BM-INPUT:".length());
+                Platform.runLater(() -> eventBus.publish(new CoreApplicationEvents.InputRequestedEvent(type)));
+                if (i < s.length() && s.charAt(i) == '\n') i++; // swallow the marker's own newline
+            } else {
+                out.append('\u0001').append(token).append('\u0001'); // not ours — leave untouched
+            }
+        }
+        return out.toString();
+    }
+
+    private void flushBuffer(StringBuilder buffer) {
+        String textToSend;
+        synchronized (buffer) {
+            if (buffer.isEmpty()) return;
+            textToSend = buffer.toString();
+            buffer.setLength(0);
+        }
+        Platform.runLater(() -> eventBus.publish(new CoreApplicationEvents.OutputAppendedEvent(textToSend)));
+    }
+}

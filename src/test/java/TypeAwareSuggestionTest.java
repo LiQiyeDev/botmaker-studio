@@ -1,6 +1,6 @@
-import com.botmaker.suggestions.ProjectAnalyzer;
-import com.botmaker.types.ResolvedType;
-import com.botmaker.util.VariableScopeVisitor;
+import com.botmaker.studio.suggestions.ProjectAnalyzer;
+import com.botmaker.studio.types.ResolvedType;
+import com.botmaker.studio.util.VariableScopeVisitor;
 import org.eclipse.jdt.core.dom.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

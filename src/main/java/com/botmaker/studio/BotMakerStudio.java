@@ -1,0 +1,297 @@
+package com.botmaker.studio;
+
+import com.botmaker.studio.project.BotProject;
+import com.botmaker.studio.project.ProjectPreferences;
+import com.botmaker.studio.ui.app.ProjectSelectionScreen;
+import com.botmaker.studio.ui.app.UIManager;
+import javafx.application.Application;
+import javafx.application.Platform;
+import javafx.concurrent.Task;
+import javafx.geometry.Pos;
+import javafx.scene.Scene;
+import javafx.scene.control.Alert;
+import javafx.scene.control.Label;
+import javafx.scene.control.ProgressBar;
+import javafx.scene.image.Image;
+import javafx.scene.layout.VBox;
+import javafx.stage.Stage;
+
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+
+public class BotMakerStudio extends Application {
+
+    /** Root directory where all user projects live. */
+    public static final Path PROJECTS_ROOT =
+            Path.of(System.getProperty("user.home"), "BotMakerProjects").toAbsolutePath();
+
+    /** The currently open project (null when on project selection screen). */
+    private BotProject currentProject;
+
+    /** The primary window, kept for owning dialogs. */
+    private Stage primaryStage;
+
+    /** Whether the window should start maximized (restored/default), applied after the scene is shown. */
+    private boolean startMaximized;
+
+    @Override
+    public void start(Stage primaryStage) {
+        this.primaryStage = primaryStage;
+        applyAppIcons(primaryStage);
+        configureWindow(primaryStage);
+        String lastProject = ProjectPreferences.getLastOpened();
+        if (lastProject != null && projectExists(lastProject)) {
+            openProject(primaryStage, lastProject);
+        } else {
+            showProjectSelection(primaryStage);
+        }
+    }
+
+    // =========================================================================
+    // PROJECT SELECTION
+    // =========================================================================
+
+    private void showProjectSelection(Stage primaryStage) {
+        ProjectSelectionScreen selectionScreen = new ProjectSelectionScreen(
+                primaryStage,
+                (projectName, clearCache) -> openProject(primaryStage, projectName)
+        );
+        primaryStage.setScene(selectionScreen.createScene());
+        primaryStage.setTitle("BotMaker - Select Project");
+        primaryStage.show();
+        applyMaximizedState(primaryStage);
+    }
+
+    /**
+     * Applies the restored/default maximized state after the real scene is shown, then forces a
+     * layout pass so the content fills the maximized bounds. Maximizing a scene-less stage (as the
+     * old {@code configureWindow} did) leaves the content sized to the intrinsic scene until a
+     * manual resize — this is the fix for that black-border-on-startup bug.
+     */
+    private void applyMaximizedState(Stage stage) {
+        Platform.runLater(() -> {
+            if (startMaximized) {
+                stage.setMaximized(true);
+            }
+            if (stage.getScene() != null && stage.getScene().getRoot() != null) {
+                stage.getScene().getRoot().requestLayout();
+            }
+        });
+    }
+
+    // =========================================================================
+    // PROJECT LIFECYCLE
+    // =========================================================================
+
+    private void openProject(Stage primaryStage, String projectName) {
+        // 1. Close previous project
+        if (currentProject != null) {
+            currentProject.close();
+            currentProject = null;
+        }
+
+        // 2. Save preference
+        ProjectPreferences.updateLastOpened(projectName);
+
+        // 3. Show the loading screen immediately so the window is never blank/frozen while the (slow,
+        //    possibly download-heavy) open runs off the FX thread.
+        Label statusLabel = new Label("Resolving dependencies…");
+        primaryStage.setScene(createLoadingScene(projectName, statusLabel));
+        primaryStage.setTitle("BotMaker - Opening " + projectName + "…");
+        primaryStage.show();
+        applyMaximizedState(primaryStage);
+
+        // 4. Run BotProject.open() on a background thread; its progress messages feed the status label.
+        Task<BotProject> openTask = new Task<>() {
+            @Override
+            protected BotProject call() {
+                return BotProject.open(projectName, PROJECTS_ROOT, false, this::updateMessage);
+            }
+        };
+        statusLabel.textProperty().bind(openTask.messageProperty());
+
+        openTask.setOnSucceeded(e -> {
+            statusLabel.textProperty().unbind();
+            currentProject = openTask.getValue();
+            finishOpen(primaryStage, projectName);
+        });
+
+        openTask.setOnFailed(e -> {
+            statusLabel.textProperty().unbind();
+            Throwable ex = openTask.getException();
+            if (ex != null) ex.printStackTrace();
+            showErrorDialog("Error opening project: " + (ex == null ? "unknown error" : ex.getMessage()));
+            showProjectSelection(primaryStage);
+        });
+
+        Thread t = new Thread(openTask, "project-open");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** Post-open UI wiring that must run on the FX thread once {@link BotProject#open} has completed. */
+    private void finishOpen(Stage primaryStage, String projectName) {
+        try {
+            UIManager uiManager = getUiManager(primaryStage);
+
+            primaryStage.setScene(uiManager.createScene());
+            primaryStage.setTitle("BotMaker Blocks - " + projectName);
+
+            currentProject.getCodeEditorService().loadInitialCode();
+
+            primaryStage.setOnCloseRequest(e -> {
+                e.consume();
+                shutdown();
+            });
+
+            primaryStage.show();
+            applyMaximizedState(primaryStage);
+        } catch (Exception e) {
+            e.printStackTrace();
+            showErrorDialog("Error opening project: " + e.getMessage());
+            showProjectSelection(primaryStage);
+        }
+    }
+
+    /** A minimal loading scene: title, an indeterminate progress bar, and a live status line. */
+    private Scene createLoadingScene(String projectName, Label statusLabel) {
+        Label title = new Label("Opening " + projectName + "…");
+        title.setStyle("-fx-font-size: 18px; -fx-font-weight: bold;");
+
+        ProgressBar progressBar = new ProgressBar();
+        progressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
+        progressBar.setPrefWidth(320);
+
+        statusLabel.setStyle("-fx-font-size: 12px; -fx-text-fill: gray;");
+
+        VBox box = new VBox(15, title, progressBar, statusLabel);
+        box.setAlignment(Pos.CENTER);
+        return new Scene(box, 620, 600);
+    }
+
+    private UIManager getUiManager(Stage primaryStage) {
+        UIManager uiManager = new UIManager(
+                currentProject.getDragAndDropManager(),
+                currentProject.getEventBus(),
+                currentProject.getCodeEditorService(),
+                currentProject.getDiagnosticsManager(),
+                primaryStage,
+                currentProject.getConfig(),
+                currentProject.getState(),
+                currentProject.getProjectAnalyzer(),
+                currentProject.getLibraryService(),
+                currentProject.getActivityService()
+        );
+        uiManager.setOnSelectProject(v -> switchToProjectSelector(primaryStage));
+        return uiManager;
+    }
+
+    private void switchToProjectSelector(Stage primaryStage) {
+        if (currentProject != null) {
+            currentProject.close();
+            currentProject = null;
+        }
+        showProjectSelection(primaryStage);
+    }
+
+    private void shutdown() {
+        new Thread(() -> {
+            try {
+                if (currentProject != null) currentProject.close();
+            } catch (Exception ex) {
+                System.err.println("Error during shutdown: " + ex.getMessage());
+            } finally {
+                Platform.runLater(() -> {
+                    Platform.exit();
+                    System.exit(0);
+                });
+            }
+        }).start();
+    }
+
+    // =========================================================================
+    // HELPERS
+    // =========================================================================
+
+    /**
+     * Load the window/taskbar icon from the bundled PNG rasters (generated from {@code icons/icon.svg};
+     * JavaFX's {@link Image} can't read SVG). Multiple sizes let the OS pick the sharpest per context.
+     * Missing rasters are skipped so a fresh checkout without generated PNGs still launches.
+     */
+    /**
+     * Restores the last window geometry (or a sensible large default) and starts maximized, then keeps both in
+     * sync with {@link ProjectPreferences}. Setting an explicit restored size means un-maximizing (or a
+     * window-manager restore when a dialog opens) returns to a large window, not the small intrinsic scene size —
+     * which is what made popups shrink the app to the top-left quarter of the screen.
+     */
+    private void configureWindow(Stage stage) {
+        javafx.geometry.Rectangle2D vb = javafx.stage.Screen.getPrimary().getVisualBounds();
+        ProjectPreferences.WindowState saved = ProjectPreferences.loadWindowState();
+
+        ProjectPreferences.WindowState state = (saved != null && saved.isUsable())
+                ? saved
+                : new ProjectPreferences.WindowState(
+                        vb.getMinX() + vb.getWidth() * 0.05, vb.getMinY() + vb.getHeight() * 0.05,
+                        vb.getWidth() * 0.9, vb.getHeight() * 0.9, true);
+
+        stage.setX(state.getX());
+        stage.setY(state.getY());
+        stage.setWidth(state.getWidth());
+        stage.setHeight(state.getHeight());
+        // Don't maximize here: the stage has no scene yet, so maximizing now lays content out at its
+        // intrinsic scene size, leaving a black border until a manual resize. Deferred to
+        // applyMaximizedState(), called once the real scene is shown.
+        this.startMaximized = (saved == null || saved.isMaximized());
+
+        // Track the restored (non-maximized) geometry so we persist a usable size, never the maximized bounds.
+        javafx.beans.value.ChangeListener<Number> geom = (obs, o, n) -> {
+            if (!stage.isMaximized()) {
+                state.setX(stage.getX());
+                state.setY(stage.getY());
+                state.setWidth(stage.getWidth());
+                state.setHeight(stage.getHeight());
+            }
+        };
+        stage.xProperty().addListener(geom);
+        stage.yProperty().addListener(geom);
+        stage.widthProperty().addListener(geom);
+        stage.heightProperty().addListener(geom);
+
+        // Flush to disk only on cheap, infrequent events (never per resize-pixel): maximize toggle, focus loss, close.
+        stage.maximizedProperty().addListener((obs, was, isMax) -> {
+            state.setMaximized(isMax);
+            ProjectPreferences.saveWindowState(state);
+        });
+        stage.focusedProperty().addListener((obs, was, focused) -> {
+            if (!focused) ProjectPreferences.saveWindowState(state);
+        });
+        stage.setOnHidden(e -> ProjectPreferences.saveWindowState(state));
+    }
+
+    private void applyAppIcons(Stage stage) {
+        for (int size : new int[] {16, 32, 64, 128, 256, 512}) {
+            InputStream in = getClass().getResourceAsStream("/icons/icon-" + size + ".png");
+            if (in != null) stage.getIcons().add(new Image(in));
+        }
+    }
+
+    private boolean projectExists(String projectName) {
+        Path projectPath = PROJECTS_ROOT.resolve(projectName);
+        return Files.exists(projectPath) && Files.exists(projectPath.resolve("pom.xml"));
+    }
+
+    private void showErrorDialog(String message) {
+        Alert alert = new Alert(Alert.AlertType.ERROR);
+        if (primaryStage != null) alert.initOwner(primaryStage);
+        alert.setTitle("Error");
+        alert.setHeaderText("Failed to open project");
+        alert.setContentText(message);
+        alert.showAndWait();
+    }
+
+    public static void main(String[] args) {
+        launch(args);
+    }
+}

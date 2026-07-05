@@ -4,7 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.botmaker</groupId>
+    <groupId>com.botmaker.studio</groupId>
     <artifactId>botmaker-studio</artifactId>
     <version>1.0.5-SNAPSHOT</version>
 
@@ -200,7 +200,7 @@
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                                     <!-- Launcher does not extend Application, so `java -jar` works
                                          without "JavaFX runtime components are missing". -->
-                                    <mainClass>com.botmaker.Launcher</mainClass>
+                                    <mainClass>com.botmaker.studio.Launcher</mainClass>
                                     <!-- Numeric app.version (no -SNAPSHOT) so AppVersion.get() can read it at
                                          runtime and compare cleanly against GitHub release tags. -->
                                     <manifestEntries>
@@ -219,7 +219,7 @@
                 <artifactId>javafx-maven-plugin</artifactId>
                 <version>0.0.8</version>
                 <configuration>
-                    <mainClass>com.botmaker.BotMakerStudio</mainClass>
+                    <mainClass>com.botmaker.studio.BotMakerStudio</mainClass>
                 </configuration>
             </plugin>
 
@@ -316,7 +316,7 @@
                                     <vendor>LiQiyeDev</vendor>
                                     <input>${project.build.directory}/jpackage-input</input>
                                     <mainJar>${project.build.finalName}.jar</mainJar>
-                                    <mainClass>com.botmaker.Launcher</mainClass>
+                                    <mainClass>com.botmaker.studio.Launcher</mainClass>
                                     <!-- Bundle the full build JDK (not a stripped JRE) so
                                          javac + jdk.jdi are available for user-bot compile/run/debug. -->
                                     <runtimeImage>${java.home}</runtimeImage>
@@ -340,7 +340,7 @@
                                     <vendor>LiQiyeDev</vendor>
                                     <input>${project.build.directory}/jpackage-input</input>
                                     <mainJar>${project.build.finalName}.jar</mainJar>
-                                    <mainClass>com.botmaker.Launcher</mainClass>
+                                    <mainClass>com.botmaker.studio.Launcher</mainClass>
                                     <runtimeImage>${java.home}</runtimeImage>
                                     <destination>${project.build.directory}/dist</destination>
                                     <icon>${installer.icon}</icon>
@@ -359,7 +359,7 @@
                                     <vendor>LiQiyeDev</vendor>
                                     <input>${project.build.directory}/jpackage-input</input>
                                     <mainJar>${project.build.finalName}.jar</mainJar>
-                                    <mainClass>com.botmaker.Launcher</mainClass>
+                                    <mainClass>com.botmaker.studio.Launcher</mainClass>
                                     <runtimeImage>${java.home}</runtimeImage>
                                     <destination>${project.build.directory}/dist</destination>
                                     <icon>${installer.icon}</icon>
@@ -379,7 +379,7 @@
                                     <vendor>LiQiyeDev</vendor>
                                     <input>${project.build.directory}/jpackage-input</input>
                                     <mainJar>${project.build.finalName}.jar</mainJar>
-                                    <mainClass>com.botmaker.Launcher</mainClass>
+                                    <mainClass>com.botmaker.studio.Launcher</mainClass>
                                     <runtimeImage>${java.home}</runtimeImage>
                                     <destination>${project.build.directory}/dist</destination>
                                     <icon>${installer.icon}</icon>

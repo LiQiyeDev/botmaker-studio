@@ -137,7 +137,7 @@ two zips to a GitHub Release. Tags containing a hyphen (e.g. `v1.0.0-rc1`) publi
 
 Notes:
 
-- A small `com.botmaker.Launcher` (which does *not* extend `Application`) is the jar/app-image entry point —
+- A small `com.botmaker.studio.Launcher` (which does *not* extend `Application`) is the jar/app-image entry point —
   launching an `Application` subclass directly from a fat jar fails with "JavaFX runtime components are missing".
 - The bundled runtime is the **full build JDK** (`--runtime-image ${java.home}`), not a stripped JRE — the Studio
   shells out to `javac`/`java` and uses JDI to compile, run and debug user bots, so those tools must be present.

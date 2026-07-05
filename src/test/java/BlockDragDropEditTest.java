@@ -1,16 +1,16 @@
-import com.botmaker.core.AbstractCodeBlock;
-import com.botmaker.core.BlockWithChildren;
-import com.botmaker.core.BodyBlock;
-import com.botmaker.core.CodeBlock;
-import com.botmaker.core.StatementBlock;
-import com.botmaker.events.CoreApplicationEvents;
-import com.botmaker.events.EventBus;
-import com.botmaker.parser.BlockConverter;
-import com.botmaker.parser.CodeEditor;
-import com.botmaker.project.ProjectFile;
-import com.botmaker.project.ProjectState;
-import com.botmaker.palette.BlockCatalog;
-import com.botmaker.ui.dnd.BlockDragAndDropManager;
+import com.botmaker.studio.core.AbstractCodeBlock;
+import com.botmaker.studio.core.BlockWithChildren;
+import com.botmaker.studio.core.BodyBlock;
+import com.botmaker.studio.core.CodeBlock;
+import com.botmaker.studio.core.StatementBlock;
+import com.botmaker.studio.events.CoreApplicationEvents;
+import com.botmaker.studio.events.EventBus;
+import com.botmaker.studio.parser.BlockConverter;
+import com.botmaker.studio.parser.CodeEditor;
+import com.botmaker.studio.project.ProjectFile;
+import com.botmaker.studio.project.ProjectState;
+import com.botmaker.studio.palette.BlockCatalog;
+import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
 import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.jdt.core.dom.BodyDeclaration;
 import org.eclipse.jdt.core.dom.TypeDeclaration;
@@ -74,7 +74,7 @@ public class BlockDragDropEditTest {
         root = result.root();
         assertNotNull(root, "Converter should produce a root block for the class");
 
-        editor = new CodeEditor(state, bus, new com.botmaker.suggestions.ProjectAnalyzer(null, state));
+        editor = new CodeEditor(state, bus, new com.botmaker.studio.suggestions.ProjectAnalyzer(null, state));
     }
 
     @Test

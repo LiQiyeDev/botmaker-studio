@@ -1,7 +1,7 @@
-import com.botmaker.parser.factories.InitializerFactory;
-import com.botmaker.parser.handlers.MethodHandler;
-import com.botmaker.suggestions.ProjectAnalyzer;
-import com.botmaker.types.ResolvedType;
+import com.botmaker.studio.parser.factories.InitializerFactory;
+import com.botmaker.studio.parser.handlers.MethodHandler;
+import com.botmaker.studio.suggestions.ProjectAnalyzer;
+import com.botmaker.studio.types.ResolvedType;
 import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.ASTParser;
 import org.eclipse.jdt.core.dom.ASTVisitor;

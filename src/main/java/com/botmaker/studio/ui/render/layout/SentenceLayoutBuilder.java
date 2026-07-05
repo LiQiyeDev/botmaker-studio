@@ -1,0 +1,91 @@
+package com.botmaker.studio.ui.render.layout;
+
+import com.botmaker.studio.ui.dnd.DropZoneFactory;
+import com.botmaker.studio.services.CodeEditorService;
+import com.botmaker.studio.ui.render.components.SelectorComponents;
+import javafx.geometry.Pos;
+import javafx.scene.Node;
+import javafx.scene.control.ComboBox;
+import javafx.scene.control.Label;
+import javafx.scene.layout.HBox;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Consumer;
+
+public class SentenceLayoutBuilder {
+    private final List<Node> nodes = new ArrayList<>();
+    private double spacing = 5.0;
+    private Pos alignment = Pos.CENTER_LEFT;
+
+    public SentenceLayoutBuilder addKeyword(String text) {
+        Label label = new Label(text);
+        label.getStyleClass().add("keyword-label");
+        nodes.add(label);
+        return this;
+    }
+
+    public SentenceLayoutBuilder addLabel(String text) {
+        nodes.add(new Label(text));
+        return this;
+    }
+
+    public SentenceLayoutBuilder addNode(Node node) {
+        nodes.add(node);
+        return this;
+    }
+
+    /**
+     * ResolvedType overload for addExpressionSlot
+     */
+    public SentenceLayoutBuilder addExpressionSlot(com.botmaker.studio.core.ExpressionBlock expression,
+                                                   com.botmaker.studio.services.CodeEditorService context,
+                                                   com.botmaker.studio.types.ResolvedType expectedType) {
+        if (expression != null) {
+            // A typed slot gets its specialized picker (image/group/rect/point/enum), same as call-argument
+            // slots — so e.g. the whileExists/ifExists image slot is fillable, not just a raw expression node.
+            Node picker = com.botmaker.studio.ui.render.components.pickers.PickerRegistry.pickerNodeFor(
+                    com.botmaker.studio.ui.render.components.pickers.PickerContext.of(context, expression, expectedType));
+            nodes.add(picker != null ? picker : expression.getUINode(context));
+        } else {
+            javafx.scene.control.Label placeholder = new javafx.scene.control.Label("⟨expression⟩");
+            placeholder.setStyle("-fx-text-fill: rgba(255,255,255,0.4); -fx-font-style: italic;");
+            nodes.add(placeholder);
+        }
+        return this;
+    }
+
+    public SentenceLayoutBuilder addOperatorSelector(
+            String[] names,
+            String[] symbols,
+            String current,
+            Consumer<String> onChange) {
+        ComboBox<String> selector = SelectorComponents.createOperatorSelector(
+                names, symbols, current, onChange
+        );
+        nodes.add(selector);
+        return this;
+    }
+
+    public SentenceLayoutBuilder spacing(double spacing) {
+        this.spacing = spacing;
+        return this;
+    }
+
+    // --- ADDED MISSING METHOD ---
+    public SentenceLayoutBuilder alignment(Pos alignment) {
+        this.alignment = alignment;
+        return this;
+    }
+
+    public HBox build() {
+        HBox container = new HBox(spacing);
+        container.setAlignment(alignment);
+        container.getChildren().addAll(nodes);
+        return container;
+    }
+
+    private Node createDropZone(CodeEditorService context) {
+        return DropZoneFactory.createExpressionDropZone(context);
+    }
+}
