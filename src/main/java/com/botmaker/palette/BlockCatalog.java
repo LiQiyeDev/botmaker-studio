@@ -64,6 +64,10 @@ public final class BlockCatalog {
     // --- Input & interaction ---
     public static final BlockType CLICK = new LibraryCall("CLICK", "Mouse Click", INPUT, "Mouse", "click",
             List.of(new NewInstance("Point", List.of(new IntLit("0"), new IntLit("0")))));
+    public static final BlockType TYPE_TEXT = new LibraryCall("TYPE_TEXT", "Type Text", INPUT, "Keyboard", "type",
+            List.of(new StrLit("")));
+    public static final BlockType PRESS_KEY = new LibraryCall("PRESS_KEY", "Press Key", INPUT, "Keyboard", "tap",
+            List.of(new EnumConst("Key", "ENTER")));
     public static final BlockType READ_LINE =
             new ScannerRead("READ_LINE", "Read Text", INPUT, "readLine", "String", false, "input");
     public static final BlockType READ_INT =
@@ -120,7 +124,7 @@ public final class BlockCatalog {
             WHILE, FOR, DO_WHILE,
             BREAK, CONTINUE, RETURN, WAIT,
             DECLARE_INT, DECLARE_DOUBLE, DECLARE_BOOLEAN, DECLARE_STRING, DECLARE_ARRAY, ASSIGNMENT,
-            CLICK, READ_LINE, READ_INT, READ_DOUBLE,
+            CLICK, TYPE_TEXT, PRESS_KEY, READ_LINE, READ_INT, READ_DOUBLE,
             FUNCTION_CALL, METHOD_DECLARATION, DECLARE_ENUM,
             FIND_IMAGE, CLICK_IMAGE, WAIT_FOR_IMAGE, CLICK_ANY,
             WHILE_IMAGE_EXISTS, IF_IMAGE_EXISTS, UNTIL_IMAGE_EXISTS,

@@ -1,13 +1,29 @@
 package com.botmaker.parser.factories;
 
+import com.botmaker.parser.handlers.LambdaCallHandler;
 import com.botmaker.parser.helpers.DefaultValueHelper;
 import com.botmaker.project.ProjectState;
 import com.botmaker.types.ResolvedType;
 import com.botmaker.suggestions.ProjectAnalyzer;
 import org.eclipse.jdt.core.dom.*;
 import java.util.List;
+import java.util.Map;
 
 public class InitializerFactory {
+
+    /**
+     * Common functional interfaces → SAM (single-abstract-method) parameter count. Keyed on the SIMPLE name so it
+     * matches whether the type resolved from the library index or is name-only (the JDK {@code java.util.function.*}
+     * types are not in our index). A default value for one of these is a block-bodied lambda (not {@code new I()},
+     * which is uncompilable) so it round-trips into an editable {@code LambdaCallBlock}.
+     */
+    private static final Map<String, Integer> FUNCTIONAL_INTERFACE_ARITY = Map.ofEntries(
+            Map.entry("Runnable", 0),
+            Map.entry("Supplier", 0), Map.entry("Consumer", 1), Map.entry("Predicate", 1),
+            Map.entry("Function", 1), Map.entry("UnaryOperator", 1),
+            Map.entry("IntConsumer", 1), Map.entry("IntSupplier", 0), Map.entry("IntPredicate", 1),
+            Map.entry("BiConsumer", 2), Map.entry("BiFunction", 2), Map.entry("BiPredicate", 2),
+            Map.entry("BinaryOperator", 2), Map.entry("Comparator", 2));
 
     public static Expression createDefaultInitializer(AST ast, ResolvedType type, CompilationUnit cu, ProjectState state) {
         if (type == null) return ast.newNullLiteral();
@@ -24,6 +40,20 @@ public class InitializerFactory {
 
         if (richType.isArray()) {
             return createArrayInitializer(ast, richType, java.util.Collections.emptyList(), cu, state);
+        }
+
+        // Functional interface (Consumer/Runnable/…): an empty block-bodied lambda, so the call round-trips into an
+        // editable LambdaCallBlock instead of an uncompilable `new Consumer<>()`. Strip generics off the qualified
+        // name first — a name-only Consumer<…> otherwise yields the garbled simple name "MatchResult>".
+        String raw = richType.leafType().qualifiedName();
+        int generic = raw.indexOf('<');
+        if (generic >= 0) raw = raw.substring(0, generic);
+        String simpleName = raw.contains(".") ? raw.substring(raw.lastIndexOf('.') + 1) : raw;
+        Integer arity = FUNCTIONAL_INTERFACE_ARITY.get(simpleName);
+        if (arity != null) {
+            List<String> params = arity == 1 ? List.of("it")
+                    : java.util.stream.IntStream.range(0, arity).mapToObj(i -> "arg" + i).toList();
+            return LambdaCallHandler.emptyBlockLambda(ast, params);
         }
 
         // 1. Enum Handling (Now works because richType has binding)

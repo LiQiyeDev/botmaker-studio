@@ -40,18 +40,28 @@ public final class LambdaCallHandler {
             mi.arguments().add(arg);
         }
 
-        LambdaExpression lambda = ast.newLambdaExpression();
-        if (lambdaParam != null && !lambdaParam.isBlank()) {
-            VariableDeclarationFragment param = ast.newVariableDeclarationFragment();
-            param.setName(ast.newSimpleName(lambdaParam));
-            lambda.parameters().add(param);
-            lambda.setParentheses(false);
-        } else {
-            lambda.setParentheses(true);
-        }
-        lambda.setBody(ast.newBlock());
-        mi.arguments().add(lambda);
+        List<String> params = (lambdaParam != null && !lambdaParam.isBlank()) ? List.of(lambdaParam) : List.of();
+        mi.arguments().add(emptyBlockLambda(ast, params));
         return mi;
+    }
+
+    /**
+     * An empty block-bodied lambda ({@code param -> {}} / {@code (a, b) -> {}} / {@code () -> {}}) with the given
+     * named parameters. Block-bodied so it round-trips into a droppable {@code BodyBlock} (see
+     * {@code BlockConverter.parseLambdaCall}). Shared by {@link #buildLambdaCall} and the functional-interface
+     * default-argument path in {@code InitializerFactory}.
+     */
+    public static LambdaExpression emptyBlockLambda(AST ast, List<String> paramNames) {
+        LambdaExpression lambda = ast.newLambdaExpression();
+        for (String name : paramNames) {
+            VariableDeclarationFragment param = ast.newVariableDeclarationFragment();
+            param.setName(ast.newSimpleName(name));
+            lambda.parameters().add(param);
+        }
+        // A single unparenthesised parameter reads best (m -> {}); zero or multiple params require parentheses.
+        lambda.setParentheses(paramNames.size() != 1);
+        lambda.setBody(ast.newBlock());
+        return lambda;
     }
 
     /** True when {@code mi}'s last argument is a lambda with a {@code { … }} block body. */

@@ -809,6 +809,10 @@ public class ProjectAnalyzer {
     public static Type createTypeNode(AST ast, String typeName) {
         int dimensions = 0;
         String baseName = typeName;
+        // Drop any generic type arguments (Consumer<…> -> Consumer): the raw type is enough for a generated node,
+        // and a '<'/'>'-bearing name would blow up ast.newName with "Invalid identifier".
+        int generic = baseName.indexOf('<');
+        if (generic >= 0) baseName = baseName.substring(0, generic).trim();
         while (baseName.endsWith("[]")) {
             dimensions++;
             baseName = baseName.substring(0, baseName.length() - 2).trim();
@@ -1039,7 +1043,11 @@ public class ProjectAnalyzer {
      */
     private ResolvedType resolveLibraryType(String descriptor) {
         int dims = 0;
+        // Strip generic type arguments (…Consumer<…MatchResult> -> …Consumer) so the raw FQN resolves in the index
+        // and carries a clean simple name (a functional interface is recognised by its raw name downstream).
         String base = descriptor;
+        int generic = base.indexOf('<');
+        if (generic >= 0) base = base.substring(0, generic);
         while (base.endsWith("[]")) { dims++; base = base.substring(0, base.length() - 2); }
 
         ResolvedType leaf = ResolvedType.named(base);

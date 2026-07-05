@@ -44,7 +44,13 @@ public class SentenceLayoutBuilder {
                                                    com.botmaker.services.CodeEditorService context,
                                                    com.botmaker.types.ResolvedType expectedType) {
         if (expression != null) {
-            nodes.add(expression.getUINode(context));
+            // Any ImageTemplate-typed slot gets the thumbnail/menu picker (same control call-argument slots use),
+            // so e.g. the whileExists/ifExists image slot is fillable — not just a raw expression node.
+            if (com.botmaker.ui.render.components.ImageTemplatePicker.isImageTemplateType(expectedType)) {
+                nodes.add(com.botmaker.ui.render.components.ImageTemplatePicker.create(context, expression));
+            } else {
+                nodes.add(expression.getUINode(context));
+            }
         } else {
             javafx.scene.control.Label placeholder = new javafx.scene.control.Label("⟨expression⟩");
             placeholder.setStyle("-fx-text-fill: rgba(255,255,255,0.4); -fx-font-style: italic;");

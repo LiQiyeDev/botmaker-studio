@@ -7,6 +7,7 @@ import javafx.geometry.Insets;
 import javafx.scene.Cursor;
 import javafx.scene.Node;
 import javafx.scene.input.MouseButton;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.Pane;
 import javafx.scene.layout.Region;
 import javafx.scene.paint.Color;
@@ -62,10 +63,11 @@ public final class GutterDecorator implements BlockDecorator {
             circle.visibleProperty().bind(block.breakpointActiveProperty());
             pane.getChildren().add(circle);
 
-            // Double-click anywhere on the block also toggles (per user request). Attached as a handler so
-            // interactive child controls (combo boxes, text fields) that consume the event take priority.
+            // Double-click anywhere on the block also toggles (per user request). Added as an event handler (not
+            // setOnMouseClicked) so it layers on top of any click handler the block itself installed in
+            // createUINode (e.g. BooleanLiteralBlock's single-click value toggle) instead of clobbering it.
             if (!block.isReadOnly()) {
-                node.setOnMouseClicked(e -> {
+                node.addEventHandler(MouseEvent.MOUSE_CLICKED, e -> {
                     if (e.getButton() == MouseButton.PRIMARY && e.getClickCount() == 2) {
                         block.toggleBreakpoint();
                         e.consume();

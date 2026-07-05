@@ -26,7 +26,8 @@ Priority: **P0** = blocks core usage, **P1** = important, **P2** = nice-to-have.
 
 - [ ] **B1 (P0) — Keyboard input.** SDK side **done** (2026-07-03): `api.interaction.Keyboard`
   (press/release/tap/combo/type) + OS-neutral `api.interaction.Key`; Linux XTest, Windows keybd_event.
-  **Remaining: palette blocks** in the Studio (awaits SDK JitPack publish).
+  Palette blocks **Type Text** (`Keyboard.type`) + **Press Key** (`Keyboard.tap`) landed 2026-07-03.
+  **Remaining: a `Keyboard.combo(Key...)` block** (varargs key-picker UI).
 - [ ] **B2 (P0) — Richer Mouse.** SDK side **done** (2026-07-03): move/moveTo, right/middle/double click,
   drag, scroll, button down/up + `MouseButton`. **Remaining: palette blocks** (awaits SDK publish).
 - [x] **B3 (P0) — Image-template capture + region picker (Studio).** **Done** — image-template picker + capture
@@ -51,6 +52,18 @@ Priority: **P0** = blocks core usage, **P1** = important, **P2** = nice-to-have.
 
 Most recent first. Claude appends here when work lands (date — what changed — where).
 
+- **2026-07-03 — Image picker on lambda/sentence slots + boolean-toggle fix (Studio).** Any `ImageTemplate`
+  expression slot rendered via `SentenceLayoutBuilder.addExpressionSlot` (e.g. the whileExists/ifExists image
+  slot) now shows the `ImageTemplatePicker` (the slot previously ignored its expected type). Also fixed the
+  true/false pill not flipping on click: `GutterDecorator` used `setOnMouseClicked`, clobbering
+  `BooleanLiteralBlock`'s own toggle handler — switched to `addEventHandler(MOUSE_CLICKED, …)`.
+- **2026-07-03 — Fix `whileExists` method-switch crash + Keyboard palette blocks (Studio).** Switching a
+  method-call block's method to a facade method with a trailing functional-interface param (e.g. `whileExists`'s
+  `Consumer<MatchResult>`) threw `Invalid identifier` — `ProjectAnalyzer.createTypeNode` fed a generic name to
+  `ast.newName`. Now `createTypeNode` and `resolveLibraryType` strip generics, and `InitializerFactory` defaults a
+  functional-interface arg to a block-bodied lambda (`emptyBlockLambda` in `LambdaCallHandler`) so it round-trips
+  into an editable `LambdaCallBlock`. Added **Type Text** (`Keyboard.type`) and **Press Key** (`Keyboard.tap`)
+  palette blocks under Input.
 - **2026-07-03 — Fix SDK version not applying in Manage Libraries (Studio).** The inline version editor only
   committed on dropdown-select or Enter; typing a version then clicking Apply silently cancelled the edit, so the
   pom was rewritten with the old version. `VersionCell` now also commits on editor focus-loss (guarded on the
