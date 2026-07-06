@@ -48,6 +48,9 @@ public class ManageCaptureTargetsDialog {
     private final Label statusLabel = new Label();
     private final ProgressIndicator progress = new ProgressIndicator();
 
+    /** Window titles remembered across sessions, so a window can be re-picked without the app running. */
+    private final java.util.LinkedHashSet<String> knownWindowTitles = new java.util.LinkedHashSet<>();
+
     /** The row currently marked default, or {@code null} for none. Tracked by identity into {@link #rows}. */
     private CaptureTarget defaultTarget;
     private ListView<CaptureTarget> list;
@@ -67,6 +70,13 @@ public class ManageCaptureTargetsDialog {
         StudioProjectSettings current = settingsService.current();
         rows.setAll(current.captureTargets());
         defaultTarget = current.defaultTarget();
+        knownWindowTitles.addAll(current.knownWindowTitles());
+        // Titles from already-saved window targets are known too (older projects predate the stored list).
+        for (CaptureTarget t : current.captureTargets()) {
+            if (t instanceof WindowTarget w && w.titleSubstring() != null && !w.titleSubstring().isBlank()) {
+                knownWindowTitles.add(w.titleSubstring());
+            }
+        }
 
         VBox root = new VBox(12);
         root.setPadding(new Insets(16));
@@ -156,26 +166,35 @@ public class ManageCaptureTargetsDialog {
     }
 
     private HBox buildAddWindowRow() {
-        ComboBox<String> combo = new ComboBox<>(FXCollections.observableArrayList(ScreenCaptureService.listWindowTitles()));
+        ComboBox<String> combo = new ComboBox<>(FXCollections.observableArrayList(windowTitleOptions()));
         combo.setEditable(true);
         combo.setPromptText("window title (substring)");
         HBox.setHgrow(combo, Priority.ALWAYS);
         combo.setMaxWidth(Double.MAX_VALUE);
 
         Button refresh = new Button("↻");
-        refresh.setOnAction(e -> combo.setItems(FXCollections.observableArrayList(ScreenCaptureService.listWindowTitles())));
+        refresh.setOnAction(e -> combo.setItems(FXCollections.observableArrayList(windowTitleOptions())));
 
         Button add = new Button("Add window");
         add.setOnAction(e -> {
             String title = combo.getEditor().getText();
             if (title == null || title.isBlank()) { error("Enter or pick a window title."); return; }
-            addTarget(new WindowTarget(title.trim()));
+            String trimmed = title.trim();
+            knownWindowTitles.add(trimmed);
+            addTarget(new WindowTarget(trimmed));
             combo.getEditor().clear();
         });
 
         HBox row = new HBox(8, combo, refresh, add);
         row.setAlignment(Pos.CENTER_LEFT);
         return row;
+    }
+
+    /** Window titles for the add-window dropdown: currently-open windows first, then remembered ones. */
+    private List<String> windowTitleOptions() {
+        java.util.LinkedHashSet<String> options = new java.util.LinkedHashSet<>(ScreenCaptureService.listWindowTitles());
+        options.addAll(knownWindowTitles);
+        return new ArrayList<>(options);
     }
 
     private void addTarget(CaptureTarget target) {
@@ -209,7 +228,7 @@ public class ManageCaptureTargetsDialog {
         if (defaultIndex != null && defaultIndex < 0) defaultIndex = null;
 
         setBusy(apply, cancel, true);
-        settingsService.update(new StudioProjectSettings(result, defaultIndex))
+        settingsService.update(new StudioProjectSettings(result, defaultIndex, new ArrayList<>(knownWindowTitles)))
                 .whenComplete((ok, err) -> Platform.runLater(() -> {
                     setBusy(apply, cancel, false);
                     if (err != null) error(rootMessage(err));

@@ -27,7 +27,6 @@ public class MenuBarManager {
     private Runnable onManageActivities;
     private Runnable onSetActivityValues;
     private Runnable onManageResources;
-    private Runnable onManageCaptureTargets;
     private Runnable onBrowseGallery;
     private Runnable onPublishGallery;
     private EventBus eventBus;
@@ -189,11 +188,6 @@ public class MenuBarManager {
             if (onManageResources != null) onManageResources.run();
         });
 
-        MenuItem captureTargetsItem = new MenuItem("Capture Targets...");
-        captureTargetsItem.setOnAction(e -> {
-            if (onManageCaptureTargets != null) onManageCaptureTargets.run();
-        });
-
         MenuItem browseGalleryItem = new MenuItem("Browse Gallery...");
         browseGalleryItem.setOnAction(e -> {
             if (onBrowseGallery != null) onBrowseGallery.run();
@@ -213,7 +207,7 @@ public class MenuBarManager {
 
         projectMenu.getItems().addAll(
                 manageLibrariesItem, manageImportsItem, new SeparatorMenuItem(),
-                manageActivitiesItem, setActivityValuesItem, manageResourcesItem, captureTargetsItem,
+                manageActivitiesItem, setActivityValuesItem, manageResourcesItem,
                 new SeparatorMenuItem(),
                 browseGalleryItem, publishGalleryItem, new SeparatorMenuItem(),
                 projectRepoItem);
@@ -476,11 +470,6 @@ public class MenuBarManager {
     /** Sets the callback for when "Resource Manager..." is clicked. */
     public void setOnManageResources(Runnable callback) {
         this.onManageResources = callback;
-    }
-
-    /** Sets the callback for when "Capture Targets..." is clicked. */
-    public void setOnManageCaptureTargets(Runnable callback) {
-        this.onManageCaptureTargets = callback;
     }
 
     /**

@@ -20,9 +20,12 @@ import java.util.List;
  *
  * @param captureTargets      the saved screen/window targets (order is the display order)
  * @param defaultTargetIndex  index into {@code captureTargets} of the default, or {@code null} for none
+ * @param knownWindowTitles   window titles seen/used before, remembered so a window can be picked as a
+ *                            target without the app being currently open (backward-compatible; absent → empty)
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex) {
+public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex,
+                                    List<String> knownWindowTitles) {
 
     public static final String FILE_NAME = "settings.json";
 
@@ -32,14 +35,20 @@ public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer 
 
     public StudioProjectSettings {
         captureTargets = captureTargets == null ? List.of() : List.copyOf(captureTargets);
+        knownWindowTitles = knownWindowTitles == null ? List.of() : List.copyOf(knownWindowTitles);
         if (defaultTargetIndex != null
                 && (defaultTargetIndex < 0 || defaultTargetIndex >= captureTargets.size())) {
             defaultTargetIndex = null;
         }
     }
 
+    /** Convenience constructor for callers that don't manage the remembered window titles. */
+    public StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex) {
+        this(captureTargets, defaultTargetIndex, List.of());
+    }
+
     public static StudioProjectSettings empty() {
-        return new StudioProjectSettings(List.of(), null);
+        return new StudioProjectSettings(List.of(), null, List.of());
     }
 
     /** The default target, or {@code null} if none is set (pickers then show the chooser). */
@@ -50,12 +59,17 @@ public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer 
 
     /** This settings with the target list replaced (keeps the default if still in range). */
     public StudioProjectSettings withTargets(List<CaptureTarget> targets) {
-        return new StudioProjectSettings(targets, defaultTargetIndex);
+        return new StudioProjectSettings(targets, defaultTargetIndex, knownWindowTitles);
     }
 
     /** This settings with the default index replaced. */
     public StudioProjectSettings withDefaultIndex(Integer index) {
-        return new StudioProjectSettings(captureTargets, index);
+        return new StudioProjectSettings(captureTargets, index, knownWindowTitles);
+    }
+
+    /** This settings with the remembered window titles replaced. */
+    public StudioProjectSettings withKnownWindowTitles(List<String> titles) {
+        return new StudioProjectSettings(captureTargets, defaultTargetIndex, titles);
     }
 
     /** Reads {@code settings.json} from {@code resourcesDir}; returns {@link #empty()} if absent/invalid. */

@@ -37,6 +37,9 @@ public class ProjectSelectionScreen {
     private final ProjectCreator projectCreator;
     private final JitPackSearch jitPackSearch = new JitPackSearch();
 
+    /** Convenience SDK version option that resolves to the newest concrete version on create. */
+    private static final String SDK_VERSION_LATEST = "latest";
+
     private final GitHubClient gitHubClient = new GitHubClient();
     private final GitHubAuth gitHubAuth = new GitHubAuth();
     /** The signed-in GitHub login, resolved lazily; used to tell "published by you" from "imported". */
@@ -467,6 +470,14 @@ public class ProjectSelectionScreen {
         dialog.setResultConverter(dialogButton -> {
             if (dialogButton == createButtonType) {
                 String version = sdkVersionCombo.getValue() == null ? "" : sdkVersionCombo.getValue().trim();
+                // "latest" is a convenience option — resolve it to the newest concrete version already loaded
+                // in the combo (newest first), so the new project's pom is pinned to a real version.
+                if (SDK_VERSION_LATEST.equalsIgnoreCase(version)) {
+                    version = sdkVersionCombo.getItems().stream()
+                            .filter(v -> !SDK_VERSION_LATEST.equalsIgnoreCase(v))
+                            .findFirst()
+                            .orElse(MavenService.SDK_FALLBACK_VERSION);
+                }
                 return new CreateRequest(projectNameField.getText(), version);
             }
             return null;
@@ -482,7 +493,10 @@ public class ProjectSelectionScreen {
         jitPackSearch.fetchVersions(MavenService.SDK_GROUP_ID, MavenService.SDK_ARTIFACT_ID)
                 .thenAccept(versions -> Platform.runLater(() -> {
                     if (versions.isEmpty()) return; // keep the pre-seeded fallback
-                    combo.getItems().setAll(versions);
+                    List<String> items = new java.util.ArrayList<>(versions.size() + 1);
+                    items.add(SDK_VERSION_LATEST);
+                    items.addAll(versions);
+                    combo.getItems().setAll(items);
                     combo.setValue(versions.get(0)); // newest first
                 }));
     }

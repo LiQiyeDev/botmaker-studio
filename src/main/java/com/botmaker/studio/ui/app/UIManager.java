@@ -104,7 +104,7 @@ public class UIManager {
         this.menuBarManager.setOnSetActivityValues(() ->
                 new SetActivityValuesDialog(primaryStage, activityService).show());
         this.menuBarManager.setOnManageResources(this::openResourceManager);
-        this.menuBarManager.setOnManageCaptureTargets(() ->
+        this.toolbarManager.setOnManageCaptureTargets(() ->
                 new ManageCaptureTargetsDialog(primaryStage, projectSettingsService).show());
         GitHubClient gitHubClient = new GitHubClient();
         GitHubGallery gallery = new GitHubGallery(gitHubClient);
@@ -192,9 +192,14 @@ public class UIManager {
         HBox rightContainer = new HBox(executionControls);
         rightContainer.setAlignment(Pos.CENTER_RIGHT);
 
+        HBox captureControls = toolbarManager.createCaptureGroup();
+        HBox centerContainer = new HBox(captureControls);
+        centerContainer.setAlignment(Pos.CENTER);
+
         BorderPane topBar = new BorderPane();
         topBar.setPadding(new Insets(6));
         topBar.setLeft(leftContainer);
+        topBar.setCenter(centerContainer);
         topBar.setRight(rightContainer);
         topBar.getStyleClass().add("main-toolbar");
         topBar.setMinHeight(50);

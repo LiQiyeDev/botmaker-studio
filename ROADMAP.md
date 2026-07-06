@@ -96,6 +96,19 @@ Priority: **P0** = blocks core usage, **P1** = important, **P2** = nice-to-have.
 
 Most recent first. Claude appends here when work lands (date — what changed — where).
 
+- **2026-07-06 — Capture Targets moved to the toolbar (Studio).** The `Project → Capture Targets…` menu item
+  is now a **🎯 Capture Targets** button in the toolbar's (previously empty) center — `ToolbarManager.createCaptureGroup`
+  + `UIManager` `topBar.setCenter(...)`; removed from `MenuBarManager`.
+- **2026-07-06 — Remember window titles for capture targets (Studio).** The add-window dropdown now lists
+  previously-seen/used window titles (union of live windows + a persisted list), so a game window can be picked
+  as the default target without the app running. New `knownWindowTitles` on `StudioProjectSettings` (backward-
+  compatible), populated in `ManageCaptureTargetsDialog`.
+- **2026-07-06 — Fix SDK version un-editable + add a "latest" option (Studio).** The inline `VersionCell`
+  editor collapsed the instant JitPack versions loaded: the async `combo.setValue(...)` fired the combo's
+  `onAction` → `commitEdit` → editor torn down. Added a `loading` guard so programmatic value-seeding no longer
+  commits. Added a **latest** version option (in Manage Libraries version combos + the create-project SDK combo)
+  that resolves to the newest concrete version at apply/create time so the pom stays pinned to a real version —
+  `ui/app/ManageLibrariesDialog`, `ui/app/ProjectSelectionScreen`.
 - **2026-07-03 — Image picker on lambda/sentence slots + boolean-toggle fix (Studio).** Any `ImageTemplate`
   expression slot rendered via `SentenceLayoutBuilder.addExpressionSlot` (e.g. the whileExists/ifExists image
   slot) now shows the `ImageTemplatePicker` (the slot previously ignored its expected type). Also fixed the

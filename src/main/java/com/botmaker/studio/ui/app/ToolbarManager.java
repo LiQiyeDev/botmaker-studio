@@ -16,6 +16,9 @@ public class ToolbarManager {
     private Button runButton, debugButton, unifiedStopButton;
     private Button stepOverButton, continueButton;
 
+    /** Opens the Manage Capture Targets dialog; wired by {@link UIManager}. */
+    private Runnable onManageCaptureTargets;
+
     private enum AppState { IDLE, RUNNING, DEBUGGING }
     private AppState currentAppState = AppState.IDLE;
 
@@ -62,6 +65,27 @@ public class ToolbarManager {
         HBox group = new HBox(5, undoButton, redoButton, compileButton);
         group.setAlignment(Pos.CENTER_LEFT);
         group.setPadding(new Insets(0, 10, 0, 0));
+        return group;
+    }
+
+    /** Sets the callback invoked when the toolbar's Capture Targets button is clicked. */
+    public void setOnManageCaptureTargets(Runnable callback) {
+        this.onManageCaptureTargets = callback;
+    }
+
+    /**
+     * Creates the center group: the Capture Targets button (opens the manage dialog).
+     */
+    public HBox createCaptureGroup() {
+        Button captureButton = new Button("🎯 Capture Targets");
+        captureButton.getStyleClass().add("toolbar-btn");
+        captureButton.setTooltip(new Tooltip("Manage screen / window capture targets"));
+        captureButton.setOnAction(e -> {
+            if (onManageCaptureTargets != null) onManageCaptureTargets.run();
+        });
+
+        HBox group = new HBox(5, captureButton);
+        group.setAlignment(Pos.CENTER);
         return group;
     }
 

@@ -44,6 +44,9 @@ public class ManageLibrariesDialog {
     private static final int SUGGESTION_LIMIT = 15;
     private static final int VERSION_LIMIT = 40;
 
+    /** Sentinel version that resolves to the newest concrete version at apply time (see {@link #resolveLatest}). */
+    private static final String LATEST = "latest";
+
     private final Window owner;
     private final LibraryService libraryService;
     private final MavenCentralSearch search;
@@ -144,22 +147,29 @@ public class ManageLibrariesDialog {
      */
     private final class VersionCell extends javafx.scene.control.TableCell<UserLibrary, String> {
         private final ComboBox<String> combo = new ComboBox<>();
+        /**
+         * True while the combo's items/value are being mutated programmatically (initial seed + async
+         * version load). Setting a {@link ComboBox}'s value fires its {@code onAction}; without this guard
+         * the async {@code setValue} would call {@link #commitEdit} and tear down the editor the instant
+         * versions finished loading — making the version look impossible to change.
+         */
+        private boolean loading;
 
         VersionCell() {
             combo.setEditable(true);
             combo.setMaxWidth(Double.MAX_VALUE);
             combo.setOnAction(e -> {
-                if (isEditing() && combo.getValue() != null) commitEdit(combo.getValue().trim());
+                if (!loading && isEditing() && combo.getValue() != null) commitEdit(combo.getValue().trim());
             });
             combo.getEditor().setOnAction(e -> {
-                if (isEditing()) commitEdit(combo.getEditor().getText().trim());
+                if (!loading && isEditing()) commitEdit(combo.getEditor().getText().trim());
             });
             // Also commit a typed-but-not-Enter'd version when focus leaves the cell (e.g. the user
             // types a version and clicks Apply). Without this the edit is silently cancelled and the
             // old version is what gets written to the pom. Guarded on the popup being closed so opening
             // the dropdown to pick a value doesn't prematurely commit.
             combo.getEditor().focusedProperty().addListener((obs, was, focused) -> {
-                if (!focused && isEditing() && !combo.isShowing()) {
+                if (!loading && !focused && isEditing() && !combo.isShowing()) {
                     String text = combo.getEditor().getText();
                     if (text != null && !text.isBlank()) commitEdit(text.trim());
                 }
@@ -170,13 +180,30 @@ public class ManageLibrariesDialog {
         public void startEdit() {
             super.startEdit();
             if (!isEditing()) return;
+            loading = true;
             combo.getItems().setAll(getItem() == null ? List.of() : List.of(getItem()));
             combo.setValue(getItem());
+            loading = false;
             setText(null);
             setGraphic(combo);
             combo.requestFocus();
             UserLibrary lib = getCurrentRow();
-            if (lib != null) loadVersionsInto(combo, lib);
+            if (lib != null) loadVersions(lib);
+        }
+
+        /** Populates the combo with available versions for {@code lib} (newest first, with a "latest"
+         * option on top), preserving the current selection and suppressing spurious commits. */
+        private void loadVersions(UserLibrary lib) {
+            String current = combo.getValue();
+            CompletableFuture<List<String>> future = lib.groupId().startsWith("com.github.")
+                    ? jitpack.fetchVersions(lib.groupId(), lib.artifactId())
+                    : search.fetchVersions(lib.groupId(), lib.artifactId(), VERSION_LIMIT);
+            future.thenAccept(versions -> Platform.runLater(() -> {
+                loading = true;
+                combo.getItems().setAll(withLatest(versions));
+                if (current != null && !current.isBlank()) combo.setValue(current);
+                loading = false;
+            }));
         }
 
         @Override
@@ -222,16 +249,28 @@ public class ManageLibrariesDialog {
         }
     }
 
-    /** Populates the combo with available versions for {@code lib}, preserving the current selection. */
-    private void loadVersionsInto(ComboBox<String> combo, UserLibrary lib) {
-        String current = combo.getValue();
-        CompletableFuture<List<String>> future = lib.groupId().startsWith("com.github.")
-                ? jitpack.fetchVersions(lib.groupId(), lib.artifactId())
-                : search.fetchVersions(lib.groupId(), lib.artifactId(), VERSION_LIMIT);
-        future.thenAccept(versions -> Platform.runLater(() -> {
-            combo.getItems().setAll(versions);
-            if (current != null && !current.isBlank()) combo.setValue(current);
-        }));
+    /** Prepends the {@link #LATEST} sentinel to a fetched (newest-first) version list. */
+    private static List<String> withLatest(List<String> versions) {
+        List<String> items = new java.util.ArrayList<>(versions.size() + 1);
+        items.add(LATEST);
+        items.addAll(versions);
+        return items;
+    }
+
+    /**
+     * Resolves a library's version, mapping the {@link #LATEST} sentinel to the newest concrete version
+     * (JitPack for {@code com.github.*}, otherwise Maven Central — both list newest first). Non-sentinel
+     * versions pass through unchanged. Resolves to {@code ""} if no version could be determined.
+     */
+    private CompletableFuture<String> resolveLatest(UserLibrary lib) {
+        String version = lib.version() == null ? "" : lib.version().trim();
+        if (!LATEST.equalsIgnoreCase(version)) {
+            return CompletableFuture.completedFuture(version);
+        }
+        return lib.groupId().startsWith("com.github.")
+                ? jitpack.fetchLatestVersion(lib.groupId(), lib.artifactId())
+                : search.fetchVersions(lib.groupId(), lib.artifactId(), 1)
+                        .thenApply(v -> v.isEmpty() ? "" : v.get(0));
     }
 
     // -------------------------------------------------------------------------
@@ -292,7 +331,7 @@ public class ManageLibrariesDialog {
         versionCombo.getItems().clear();
         search.fetchVersions(groupId, artifactId, VERSION_LIMIT)
                 .thenAccept(versions -> Platform.runLater(() -> {
-                    versionCombo.getItems().setAll(versions);
+                    versionCombo.getItems().setAll(withLatest(versions));
                     if (!preferred.isBlank()) {
                         versionCombo.setValue(preferred);
                     } else if (!versions.isEmpty()) {
@@ -356,24 +395,50 @@ public class ManageLibrariesDialog {
         statusLabel.setText("");
         setBusy(apply, cancel, true);
 
-        String sdkVersion = libraries.stream()
-                .filter(ManageLibrariesDialog::isSdk)
-                .map(UserLibrary::version)
-                .findFirst()
-                .orElse("");
-        List<UserLibrary> userLibs = libraries.stream()
-                .filter(l -> !isSdk(l))
+        // Resolve any "latest" versions to their concrete newest before writing the pom, so the pom stays
+        // pinned to a real version. Each row resolves independently and off the FX thread.
+        List<CompletableFuture<UserLibrary>> resolved = libraries.stream()
+                .map(lib -> resolveLatest(lib)
+                        .thenApply(v -> new UserLibrary(lib.groupId(), lib.artifactId(), v)))
                 .collect(Collectors.toList());
 
-        libraryService.updateLibraries(userLibs, sdkVersion)
-                .whenComplete((ok, err) -> Platform.runLater(() -> {
-                    setBusy(apply, cancel, false);
-                    if (err != null) {
-                        error(rootMessage(err));
-                    } else {
-                        stage.close();
+        CompletableFuture.allOf(resolved.toArray(new CompletableFuture[0]))
+                .thenAccept(ignored -> {
+                    List<UserLibrary> libs = resolved.stream()
+                            .map(CompletableFuture::join)
+                            .collect(Collectors.toList());
+
+                    UserLibrary unresolved = libs.stream()
+                            .filter(l -> l.version() == null || l.version().isBlank())
+                            .findFirst()
+                            .orElse(null);
+                    if (unresolved != null) {
+                        Platform.runLater(() -> {
+                            setBusy(apply, cancel, false);
+                            error("Could not resolve a version for " + unresolved.groupArtifact() + ".");
+                        });
+                        return;
                     }
-                }));
+
+                    String sdkVersion = libs.stream()
+                            .filter(ManageLibrariesDialog::isSdk)
+                            .map(UserLibrary::version)
+                            .findFirst()
+                            .orElse("");
+                    List<UserLibrary> userLibs = libs.stream()
+                            .filter(l -> !isSdk(l))
+                            .collect(Collectors.toList());
+
+                    libraryService.updateLibraries(userLibs, sdkVersion)
+                            .whenComplete((ok, err) -> Platform.runLater(() -> {
+                                setBusy(apply, cancel, false);
+                                if (err != null) {
+                                    error(rootMessage(err));
+                                } else {
+                                    stage.close();
+                                }
+                            }));
+                });
     }
 
     private void setBusy(Button apply, Button cancel, boolean busy) {
