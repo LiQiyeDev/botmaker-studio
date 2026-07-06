@@ -88,25 +88,23 @@ public final class BlockCatalog {
             new LibraryCall("CLICK_IMAGE", "Click Image", VISION, "ImageClicker", "click", List.of());
     public static final BlockType WAIT_FOR_IMAGE =
             new LibraryCall("WAIT_FOR_IMAGE", "Wait For Image", VISION, "ImageWaiter", "waitFor", List.of());
-    public static final BlockType CLICK_ANY =
-            new LibraryCall("CLICK_ANY", "Click Any Image", VISION, "ImageClicker", "clickAny", List.of());
     public static final BlockType WHILE_IMAGE_EXISTS = new LambdaCall("WHILE_IMAGE_EXISTS", "While Image Exists",
             VISION, "ImageFinder", "whileExists", List.of(), "match");
     public static final BlockType IF_IMAGE_EXISTS = new LambdaCall("IF_IMAGE_EXISTS", "If Image Exists",
             VISION, "ImageFinder", "ifExists", List.of(), "match");
     public static final BlockType UNTIL_IMAGE_EXISTS = new LambdaCall("UNTIL_IMAGE_EXISTS", "Repeat Until Image Appears",
             VISION, "ImageFinder", "untilExists", List.of(), null);
-    public static final BlockType DECLARE_POINT = new VarDecl("DECLARE_POINT", "Point", VISION, "Point", false, "p",
+    public static final BlockType DECLARE_POINT = new VarDecl("DECLARE_POINT", "Point", BOT_VARIABLE, "Point", false, "p",
             new NewInstance("Point", List.of(new IntLit("0"), new IntLit("0"))));
-    public static final BlockType DECLARE_RECT = new VarDecl("DECLARE_RECT", "Rect", VISION, "Rect", false, "r",
+    public static final BlockType DECLARE_RECT = new VarDecl("DECLARE_RECT", "Rect", BOT_VARIABLE, "Rect", false, "r",
             new NewInstance("Rect", List.of(new IntLit("0"), new IntLit("0"), new IntLit("0"), new IntLit("0"))));
-    public static final BlockType DECLARE_SIZE = new VarDecl("DECLARE_SIZE", "Size", VISION, "Size", false, "s",
+    public static final BlockType DECLARE_SIZE = new VarDecl("DECLARE_SIZE", "Size", BOT_VARIABLE, "Size", false, "s",
             new NewInstance("Size", List.of(new IntLit("0"), new IntLit("0"))));
     public static final BlockType DECLARE_MATCH =
-            new VarDecl("DECLARE_MATCH", "MatchResult", VISION, "MatchResult", false, "match", new NullLit());
-    public static final BlockType DECLARE_TEMPLATE = new VarDecl("DECLARE_TEMPLATE", "ImageTemplate", VISION,
+            new VarDecl("DECLARE_MATCH", "MatchResult", BOT_VARIABLE, "MatchResult", false, "match", new NullLit());
+    public static final BlockType DECLARE_TEMPLATE = new VarDecl("DECLARE_TEMPLATE", "ImageTemplate", BOT_VARIABLE,
             "ImageTemplate", false, "template", new NewInstance("ImageTemplate", List.of(new StrLit("image.png"))));
-    public static final BlockType DECLARE_DIRECTION = new VarDecl("DECLARE_DIRECTION", "Direction", VISION,
+    public static final BlockType DECLARE_DIRECTION = new VarDecl("DECLARE_DIRECTION", "Direction", BOT_VARIABLE,
             "Direction", false, "dir", new EnumConst("Direction", "NORTH"));
 
     // --- Game ---
@@ -126,7 +124,7 @@ public final class BlockCatalog {
             DECLARE_INT, DECLARE_DOUBLE, DECLARE_BOOLEAN, DECLARE_STRING, DECLARE_ARRAY, ASSIGNMENT,
             CLICK, TYPE_TEXT, PRESS_KEY, READ_LINE, READ_INT, READ_DOUBLE,
             FUNCTION_CALL, METHOD_DECLARATION, DECLARE_ENUM,
-            FIND_IMAGE, CLICK_IMAGE, WAIT_FOR_IMAGE, CLICK_ANY,
+            FIND_IMAGE, CLICK_IMAGE, WAIT_FOR_IMAGE,
             WHILE_IMAGE_EXISTS, IF_IMAGE_EXISTS, UNTIL_IMAGE_EXISTS,
             DECLARE_POINT, DECLARE_RECT, DECLARE_SIZE, DECLARE_MATCH, DECLARE_TEMPLATE, DECLARE_DIRECTION,
             LAUNCH_GAME, LAUNCH_STEAM_GAME,
@@ -142,7 +140,7 @@ public final class BlockCatalog {
      * common automation building blocks — find / click / wait — are the first thing reached for.
      */
     private static final List<BlockType> BOT_ACTIONS = List.of(
-            FIND_IMAGE, CLICK_IMAGE, CLICK_ANY, WAIT_FOR_IMAGE, CLICK, WAIT);
+            FIND_IMAGE, CLICK_IMAGE, WAIT_FOR_IMAGE, CLICK, WAIT);
 
     public static List<BlockType> botActions() {
         return BOT_ACTIONS;

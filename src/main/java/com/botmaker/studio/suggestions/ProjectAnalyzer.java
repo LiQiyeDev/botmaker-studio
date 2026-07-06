@@ -1014,19 +1014,29 @@ public class ProjectAnalyzer {
             ResolvedType last = paramTypes.get(paramTypes.size() - 1);
             if (last.isArray()) paramTypes.set(paramTypes.size() - 1, last.leafType().asArray(last.arrayDimensions() - 1));
         }
-        // Bytecode does not carry parameter names (unless compiled with -parameters), so synthesize.
-        List<String> paramNames = new ArrayList<>();
-        for (int i = 0; i < paramTypes.size(); i++) paramNames.add("arg" + i);
         ResolvedType returnType = ResolvedType.named(mi.getTypeSignatureOrTypeDescriptor().getResultType().toString());
-        return new MethodSignature(mi.getName(), paramTypes, paramNames, returnType, varargs);
+        return new MethodSignature(mi.getName(), paramTypes, libraryParamNames(mi), returnType, varargs);
     }
 
     /** A constructor signature carries the type's simple name (not {@code <init>}) and the type as its return. */
     private MethodSignature toConstructorSignature(MethodInfo mi, String className) {
         List<ResolvedType> paramTypes = libraryParamTypes(mi);
-        List<String> paramNames = new ArrayList<>();
-        for (int i = 0; i < paramTypes.size(); i++) paramNames.add("arg" + i);
-        return new MethodSignature(className, paramTypes, paramNames, ResolvedType.named(className));
+        return new MethodSignature(className, paramTypes, libraryParamNames(mi), ResolvedType.named(className));
+    }
+
+    /**
+     * Real parameter names when the jar was compiled with {@code -parameters} (the BotMaker SDK is; most
+     * libraries are not), else synthesized {@code arg0/arg1/…}. ClassGraph exposes the name from the
+     * {@code MethodParameters} attribute, returning {@code null} when it's absent.
+     */
+    private List<String> libraryParamNames(MethodInfo mi) {
+        var params = mi.getParameterInfo();
+        List<String> names = new ArrayList<>(params.length);
+        for (int i = 0; i < params.length; i++) {
+            String name = params[i].getName();
+            names.add(name != null && !name.isBlank() ? name : "arg" + i);
+        }
+        return names;
     }
 
     private List<ResolvedType> libraryParamTypes(MethodInfo mi) {

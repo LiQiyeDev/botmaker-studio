@@ -4,6 +4,7 @@ import com.botmaker.studio.core.AbstractExpressionBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.core.StatementBlock;
 import com.botmaker.studio.palette.SdkApi;
+import com.botmaker.studio.palette.SdkDocs;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
@@ -25,6 +26,7 @@ import org.eclipse.jdt.core.dom.*;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 
@@ -189,6 +191,9 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
                 .addLabel(".")
                 .addNode(methodSelector);
 
+        // "Learn about it" (ⓘ) — SDK method help sourced from the sources-jar Javadoc (SDK calls only).
+        addInfoButton(sentenceBuilder, context, currentScopeGetter);
+
         // Signature Button (explicit overload picker) — argument sync is automatic on method change.
         addSignatureButton(sentenceBuilder, context, currentScopeGetter, methodSelector, finalCurrentFileClass);
 
@@ -243,9 +248,12 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
         Collections.sort(staticClassItems);
 
         // External-library static-utility classes (same source as ExpressionMenuFactory's "Library (static)").
+        // SDK facades are excluded here: they're reached only via the curated Vision palette blocks (+ this
+        // block's own SDK class/method/⚙ selectors once placed), so there's a single way in.
         List<String> libraryClassItems = new ArrayList<>();
         if (context.getProjectAnalyzer().getLibraryIndex() != null) {
-            context.getProjectAnalyzer().getLibraryIndex().getStaticUtilityTypes()
+            context.getProjectAnalyzer().getLibraryIndex().getStaticUtilityTypes().stream()
+                    .filter(ci -> !SdkApi.isFacadeClass(ci.getSimpleName()))
                     .forEach(ci -> libraryClassItems.add(ci.getSimpleName()));
         }
         Collections.sort(libraryClassItems);
@@ -425,8 +433,8 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
         MethodSignature signature = determineCurrentSignature(context, targetType, methodName);
         if (!PickAllSession.hasPickableArgs(signature, arguments.size())) return;
 
-        Button pickAll = new Button("📸");
-        pickAll.setTooltip(new Tooltip("Pick all on-screen arguments in one pass"));
+        Button pickAll = new Button("📸 Pick all");
+        pickAll.setTooltip(new Tooltip("Capture every image & region argument of this call in one screen selection"));
         pickAll.setStyle("-fx-font-size: 9px; -fx-padding: 2 4 2 4; -fx-background-radius: 10;");
         pickAll.setOnAction(e -> {
             Window owner = pickAll.getScene() != null ? pickAll.getScene().getWindow() : null;
@@ -440,6 +448,10 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
         String targetType = (currentScope != null) ? resolveTargetType(currentScope, context) : "";
         MethodSignature currentSignature = determineCurrentSignature(context, targetType, methodName);
 
+        // SDK facade calls carry real parameter names + @param docs (from the sources jar); use them to label
+        // the pills (e.g. findCompare(good, bad)) instead of the bare type. Empty for non-SDK calls.
+        List<SdkDocs.Param> docParams = sdkDocParams(context, targetType, currentSignature);
+
         for (int i = 0; i < arguments.size(); i++) {
             ExpressionBlock arg = arguments.get(i);
 
@@ -448,17 +460,73 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
             ResolvedType paramType = currentSignature != null ? currentSignature.paramTypeAt(i) : null;
             if (paramType == null) paramType = ResolvedType.UNKNOWN;
 
+            final ResolvedType finalParamType = paramType;
+            SdkDocs.Param doc = (i < docParams.size()) ? docParams.get(i) : null;
+            String argName = (doc != null && doc.name() != null && !doc.name().isBlank()) ? doc.name() : null;
+            String argDesc = (doc != null) ? doc.desc() : null;
+
             Node editor = ArgumentEditors.editorFor(context, arg, paramType, targetType, methodName, i);
             if (editor != null) {
-                builder.addNode(editor);
+                // Specialized picker (image/region/enum). Wrap it in the standard pill so it *also* gets the
+                // "+" change button (open the expression menu to swap in a variable/other expression) — the
+                // control some SDK arg slots were missing — plus its parameter name/description.
+                Label pickerLabel = argName != null ? argLabel(argName, argDesc) : null;
+                Button changeBtn = BlockUIComponents.createChangeButton(e ->
+                        showExpressionMenuAndReplace((Button) e.getSource(), context, finalParamType, (Expression) arg.getAstNode()));
+                builder.addNode(BlockUIComponents.createArgumentPill(pickerLabel, editor, changeBtn, true));
                 continue;
             }
 
-            Label typeLabel = new Label(paramType.simpleName());
-            typeLabel.getStyleClass().add("arg-type-label");
-
+            Label typeLabel = argLabel(argName != null ? argName : paramType.simpleName(), argDesc);
             builder.addNode(createArgumentPill(context, arg, paramType, typeLabel, true));
         }
+    }
+
+    /** A small arg-slot label (parameter name or type) carrying the {@code @param} description as a tooltip. */
+    private Label argLabel(String text, String desc) {
+        Label label = new Label(text);
+        label.getStyleClass().add("arg-type-label");
+        if (desc != null && !desc.isBlank()) label.setTooltip(new Tooltip(desc));
+        return label;
+    }
+
+    /** The documented parameters of the best-matching SDK overload for this call (empty for non-SDK calls). */
+    private List<SdkDocs.Param> sdkDocParams(CodeEditorService context, String targetType, MethodSignature sig) {
+        if (fixedScopeName == null || sig == null) return List.of();
+        List<String> typeNames = sig.paramTypes().stream().map(ResolvedType::simpleName).collect(Collectors.toList());
+        return context.getSdkDocs().lookup(targetType, methodName, typeNames)
+                .map(SdkDocs.Overload::params).orElse(List.of());
+    }
+
+    /**
+     * Adds the "learn about it" (ⓘ) button when this is an SDK call and the sources-jar Javadoc documents the
+     * current method — a click-open popover with the method summary and per-parameter descriptions. SDK-only
+     * for now (the generic call path has no doc source); no-op when nothing is documented.
+     */
+    private void addInfoButton(SentenceLayoutBuilder builder, CodeEditorService context,
+                               java.util.function.Supplier<String> scopeGetter) {
+        if (fixedScopeName == null) return;
+        String currentScope = scopeGetter.get();
+        String targetType = (currentScope != null) ? resolveTargetType(currentScope, context) : fixedScopeName;
+        MethodSignature sig = determineCurrentSignature(context, targetType, methodName);
+        List<String> typeNames = (sig != null)
+                ? sig.paramTypes().stream().map(ResolvedType::simpleName).collect(Collectors.toList())
+                : List.of();
+
+        Optional<SdkDocs.Overload> overload = context.getSdkDocs().lookup(targetType, methodName, typeNames);
+        if (overload.isEmpty()) return;
+        SdkDocs.Overload o = overload.get();
+
+        StringBuilder body = new StringBuilder();
+        if (o.summary() != null && !o.summary().isBlank()) body.append(o.summary().trim());
+        for (SdkDocs.Param p : o.params()) {
+            if (p.desc() != null && !p.desc().isBlank()) {
+                if (body.length() > 0) body.append("\n\n");
+                body.append("• ").append(p.name()).append(" — ").append(p.desc().trim());
+            }
+        }
+        if (body.length() == 0) return;
+        builder.addNode(BlockUIComponents.createInfoButton(methodName + "()", body.toString()));
     }
 
 }

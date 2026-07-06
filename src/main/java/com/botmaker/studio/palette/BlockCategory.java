@@ -13,6 +13,8 @@ public enum BlockCategory {
     CONTROL("Control"),
     FUNCTIONS("Functions"),
     VISION("Vision"),
+    /** Vision/geometry variable declarations (Point, Rect, Size, MatchResult, …) — their own insert submenu. */
+    BOT_VARIABLE("Declare Bot Variable"),
     GAME("Game"),
     UTILITY("Utility");
 

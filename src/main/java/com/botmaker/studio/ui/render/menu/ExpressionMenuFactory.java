@@ -12,6 +12,7 @@ import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.palette.ExpressionCatalog;
 import com.botmaker.studio.palette.ExpressionCategory;
 import com.botmaker.studio.palette.ExpressionType;
+import com.botmaker.studio.palette.SdkApi;
 import com.botmaker.studio.util.MethodSignature;
 import com.botmaker.studio.util.VariableScopeVisitor;
 import io.github.classgraph.ClassInfo;
@@ -504,6 +505,9 @@ public final class ExpressionMenuFactory {
 
         Map<String, List<ClassInfo>> byPackage = new TreeMap<>();
         for (ClassInfo ci : analyzer.getLibraryIndex().getStaticUtilityTypes()) {
+            // SDK facades are intentionally omitted — they're reached only through the curated Vision
+            // palette blocks, so there's a single access path (see BlockCatalog / MethodInvocationBlock).
+            if (SdkApi.isFacadeClass(ci.getSimpleName())) continue;
             byPackage.computeIfAbsent(ci.getPackageName() == null ? "" : ci.getPackageName(),
                     k -> new ArrayList<>()).add(ci);
         }
@@ -577,13 +581,23 @@ public final class ExpressionMenuFactory {
                 .filter(b -> !promotedSet.contains(b))
                 .collect(Collectors.groupingBy(BlockType::category, LinkedHashMap::new, Collectors.toList()));
 
+        // "Declare Bot Variable" (vision/geometry types) is promoted to the first submenu, right under
+        // the bot actions, since declaring a Point/Rect/MatchResult is a common next step.
+        addCategoryMenu(menu, BlockCategory.BOT_VARIABLE, grouped, onSelection);
+
         for (BlockCategory category : BlockCategory.values()) {
-            List<BlockType> blocks = grouped.get(category);
-            if (blocks == null || blocks.isEmpty()) continue;
-            Menu categoryMenu = new Menu(category.getLabel());
-            for (BlockType block : blocks) categoryMenu.getItems().add(statementItem(block, onSelection));
-            menu.getItems().add(categoryMenu);
+            if (category == BlockCategory.BOT_VARIABLE) continue; // already placed at the top
+            addCategoryMenu(menu, category, grouped, onSelection);
         }
+    }
+
+    private static void addCategoryMenu(ContextMenu menu, BlockCategory category,
+                                        Map<BlockCategory, List<BlockType>> grouped, Consumer<BlockType> onSelection) {
+        List<BlockType> blocks = grouped.get(category);
+        if (blocks == null || blocks.isEmpty()) return;
+        Menu categoryMenu = new Menu(category.getLabel());
+        for (BlockType block : blocks) categoryMenu.getItems().add(statementItem(block, onSelection));
+        menu.getItems().add(categoryMenu);
     }
 
     private static MenuItem statementItem(BlockType block, Consumer<BlockType> onSelection) {

@@ -6,6 +6,7 @@ import com.botmaker.studio.parser.BlockConverter;
 import com.botmaker.studio.runtime.CodeExecutionService;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.CodeEditorService;
+import com.botmaker.studio.services.SdkDocsService;
 import com.botmaker.studio.services.DebuggingService;
 import com.botmaker.studio.services.LibraryService;
 import com.botmaker.studio.services.MavenService;
@@ -177,10 +178,14 @@ public class BotProject {
                                     BlockDragAndDropManager dragAndDropManager,
                                     BlockConverter blockConverter) {
 
+        // SDK documentation (descriptions + param docs from the resolved SDK sources jar; loads in bg)
+        SdkDocsService sdkDocsService = new SdkDocsService(config, eventBus);
+
         // Code Editor
         this.codeEditorService = new CodeEditorService(
                 config, state, eventBus, blockConverter,
-                dragAndDropManager, diagnosticsManager, projectAnalyzer
+                dragAndDropManager, diagnosticsManager, projectAnalyzer,
+                sdkDocsService
         );
 
         // Execution (subscribes to compile/run/stop events in its constructor)

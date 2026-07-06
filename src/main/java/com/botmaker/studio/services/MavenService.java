@@ -15,6 +15,8 @@ import org.eclipse.aether.artifact.DefaultArtifact;
 import org.eclipse.aether.collection.CollectRequest;
 import org.eclipse.aether.repository.LocalRepository;
 import org.eclipse.aether.repository.RemoteRepository;
+import org.eclipse.aether.resolution.ArtifactRequest;
+import org.eclipse.aether.resolution.ArtifactResolutionException;
 import org.eclipse.aether.resolution.ArtifactResult;
 import org.eclipse.aether.resolution.DependencyRequest;
 import org.eclipse.aether.resolution.DependencyResolutionException;
@@ -33,6 +35,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -281,6 +284,42 @@ public final class MavenService {
                 .filter(v -> v != null && !v.isBlank())
                 .findFirst()
                 .orElse(SDK_FALLBACK_VERSION);
+    }
+
+    /**
+     * Resolves the {@code sources} classifier jar for the BotMaker SDK version declared in the project's
+     * pom (downloading from JitPack if not already cached in {@code ~/.m2}), returning its local path.
+     * The Studio does not compile against the SDK, but the sources jar carries the API Javadoc that
+     * {@code index/SdkDocsParser} reads to describe methods/parameters (see {@code services/SdkDocsService}).
+     * Best-effort: returns empty when the pom is missing, the artifact can't be resolved, or offline.
+     * May block on the network — call off the FX thread.
+     */
+    public static Optional<Path> resolveSdkSourcesJar(Path projectDir) {
+        Model model = readModel(projectDir);
+        if (model == null) {
+            return Optional.empty();
+        }
+        Artifact artifact = new DefaultArtifact(
+                SDK_GROUP_ID, SDK_ARTIFACT_ID, "sources", "jar", readSdkVersion(projectDir));
+
+        RepositorySystem system = new RepositorySystemSupplier().get();
+        DefaultRepositorySystemSession session = MavenRepositorySystemUtils.newSession();
+        Path localRepo = Path.of(System.getProperty("user.home"), ".m2", "repository");
+        session.setLocalRepositoryManager(
+                system.newLocalRepositoryManager(session, new LocalRepository(localRepo.toFile())));
+        session.setSystemProperties(System.getProperties());
+
+        ArtifactRequest request = new ArtifactRequest();
+        request.setArtifact(artifact);
+        request.setRepositories(buildRemoteRepositories(model));
+        try {
+            ArtifactResult result = system.resolveArtifact(session, request);
+            var file = result.getArtifact().getFile();
+            return file != null ? Optional.of(file.toPath()) : Optional.empty();
+        } catch (ArtifactResolutionException e) {
+            System.err.println("Could not resolve SDK sources jar: " + e.getMessage());
+            return Optional.empty();
+        }
     }
 
     /**

@@ -14,6 +14,7 @@ import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.state.HistoryManager;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.palette.BlockType;
+import com.botmaker.studio.palette.SdkDocs;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
 import com.botmaker.studio.ui.dnd.DropInfo;
 import com.botmaker.studio.ui.dnd.MoveBlockInfo;
@@ -42,6 +43,7 @@ public class CodeEditorService {
     private final DiagnosticsManager diagnosticsManager;
     private final HistoryManager historyManager;
     private final ProjectAnalyzer projectAnalyzer;
+    private final SdkDocsService sdkDocsService;
 
     public CodeEditorService(
             ProjectConfig config,
@@ -49,7 +51,8 @@ public class CodeEditorService {
             EventBus eventBus,
             BlockConverter blockConverter,
             BlockDragAndDropManager dragAndDropManager,
-            DiagnosticsManager diagnosticsManager, ProjectAnalyzer projectAnalyzer) {
+            DiagnosticsManager diagnosticsManager, ProjectAnalyzer projectAnalyzer,
+            SdkDocsService sdkDocsService) {
         this.config = config;
         this.state = state;
         this.eventBus = eventBus;
@@ -57,6 +60,7 @@ public class CodeEditorService {
         this.dragAndDropManager = dragAndDropManager;
         this.diagnosticsManager = diagnosticsManager;
         this.projectAnalyzer = projectAnalyzer;
+        this.sdkDocsService = sdkDocsService;
         this.historyManager = new HistoryManager();
         this.codeEditor = new CodeEditor(state, eventBus, projectAnalyzer);
         setupEventHandlers();
@@ -65,6 +69,9 @@ public class CodeEditorService {
 
     public ProjectConfig getConfig() { return config; }
     public ProjectAnalyzer getProjectAnalyzer() { return projectAnalyzer; }
+
+    /** SDK method documentation (summaries + param docs), parsed from the resolved SDK sources jar. */
+    public SdkDocs getSdkDocs() { return sdkDocsService.current(); }
 
     private void setupEventHandlers() {
         eventBus.subscribe(CoreApplicationEvents.UIRefreshRequestedEvent.class, event ->

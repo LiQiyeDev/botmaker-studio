@@ -9,6 +9,7 @@ import com.botmaker.studio.palette.ExpressionCatalog;
 import com.botmaker.studio.palette.ExpressionType;
 import com.botmaker.studio.parser.handlers.EnumManipulationHandler;
 import com.botmaker.studio.parser.handlers.InstantiationHandler;
+import com.botmaker.studio.parser.handlers.LambdaCallHandler;
 import com.botmaker.studio.parser.handlers.ListHandler;
 import com.botmaker.studio.parser.handlers.MethodHandler;
 import com.botmaker.studio.parser.handlers.OperatorReplacementHandler;
@@ -257,6 +258,24 @@ public class CodeEditor {
             ImportManager.addImportForSimpleName(cu, rewriter, "ImageTemplate", analyzer, null);
             ImportManager.addImportForSimpleName(cu, rewriter, "ImageTemplateGroup", analyzer, null);
             rewriter.replace(toReplace, call, null);
+            return AstRewriteHelper.applyRewrite(rewriter, code);
+        });
+    }
+
+    /**
+     * Switches a vision loop statement between its single / {@code …Any} / {@code …All} variants (the ⚙
+     * overload picker on {@code LambdaCallBlock}). Delegates to {@link LambdaCallHandler#switchVariant}:
+     * renames the method, converts the image arg single↔group, and adjusts the lambda parameter.
+     */
+    public void switchLambdaVariant(Statement lambdaStmt, String newMethod, boolean group, boolean lambdaParam) {
+        edit(true, (cu, code) -> {
+            if (!(lambdaStmt instanceof ExpressionStatement es
+                    && es.getExpression() instanceof MethodInvocation mi)) {
+                return code;
+            }
+            AST ast = cu.getAST();
+            ASTRewrite rewriter = ASTRewrite.create(ast);
+            LambdaCallHandler.switchVariant(ast, cu, rewriter, analyzer, mi, newMethod, group, lambdaParam);
             return AstRewriteHelper.applyRewrite(rewriter, code);
         });
     }

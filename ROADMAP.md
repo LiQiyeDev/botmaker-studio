@@ -6,6 +6,25 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-06 — SDK docs from the sources jar + vision-block overhaul.** Studio now reads the SDK's real
+  Javadoc + parameter names at runtime by resolving `botmaker-sdk:<version>:sources` via Aether and parsing it
+  with Eclipse JDT (`index/SdkDocsParser` → `palette/SdkDocs`, owned per-project by `services/SdkDocsService`,
+  refreshed on `LibrariesChangedEvent`). No committed JSON — the SDK source is the single source of truth.
+  - **Named argument pills + "learn about it" (ⓘ) help** on SDK calls (`MethodInvocationBlock`,
+    `LambdaCallBlock`): pills read the real param name (`findCompare(good, bad)`) with the `@param` text as a
+    tooltip, and a click-open popover (`BlockUIComponents.createInfoButton`) shows the method summary + per-param
+    docs. Every specialized SDK arg pill now also carries the "+" change button (open the expression menu).
+  - **Vision loop blocks are first-class** (`LambdaCallBlock`): a ⚙ overload picker switches
+    `whileExists ↔ …Any ↔ …All` (and the `if`/`until` families), swapping the slot between a single
+    `ImageTemplate` and the multi-chip `ImageTemplateGroup` picker and fixing the lambda param
+    (`Consumer<MatchResult>` vs `Runnable`) — driven by `parser/handlers/LambdaCallHandler.switchVariant`
+    (`CodeEditor.switchLambdaVariant`). The "+" change button now sits next to the picker.
+  - **One canonical path to SDK methods:** SDK facades are filtered out of the generic "Call Function →
+    Library (static)" menu / scope dropdown (`ExpressionMenuFactory`, `MethodInvocationBlock`); reach them via the
+    curated Vision palette + the in-block class/method/⚙ selectors.
+  - **Menu de-dup:** dropped "Click Any Image"; `BOT_ACTIONS` is now 5 promoted actions; new
+    **"Declare Bot Variable"** submenu (`BlockCategory.BOT_VARIABLE`) holds the vision var-decls, rendered right
+    below the promoted actions. 📸 pick-all button relabelled ("📸 Pick all" + explanatory tooltip).
 - **2026-07-06 — Launch Program block: split path vs. launch-option args + native file browser.**
   `Game.launch(path, args...)` no longer renders duplicate program pickers: `PickerContext` now carries the
   `argIndex`, so `ExecutablePicker` matches only argument 0 (the program path) and trailing varargs use a new

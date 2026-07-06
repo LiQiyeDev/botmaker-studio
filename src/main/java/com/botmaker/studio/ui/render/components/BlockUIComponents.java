@@ -3,12 +3,17 @@ package com.botmaker.studio.ui.render.components;
 import javafx.event.ActionEvent;
 import javafx.event.EventHandler;
 import javafx.geometry.Pos;
+import javafx.geometry.Side;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
+import javafx.scene.control.ContextMenu;
+import javafx.scene.control.CustomMenuItem;
 import javafx.scene.control.Label;
+import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.VBox;
 
 /**
  * Pure JavaFX widget factories for blocks (buttons, labels, spacers, header rows). No domain
@@ -100,6 +105,33 @@ public final class BlockUIComponents {
         }
         argBox.getChildren().addAll(argNode, changeButton);
         return argBox;
+    }
+
+    /**
+     * A small "ⓘ" info button that opens a click-dismissable popover ({@code title} in bold over a
+     * word-wrapped {@code body}). Used for the "learn about it" SDK method help on
+     * {@code MethodInvocationBlock} / {@code LambdaCallBlock}; domain-free — callers assemble the text from
+     * {@code palette.SdkDocs}.
+     */
+    public static Button createInfoButton(String title, String body) {
+        Button btn = new Button("ⓘ");
+        btn.getStyleClass().add("icon-button");
+        btn.setTooltip(new Tooltip("Learn about this method"));
+
+        VBox content = new VBox(4);
+        content.setStyle("-fx-padding: 8 10 8 10;");
+        content.setMaxWidth(360);
+        Label titleLabel = new Label(title);
+        titleLabel.setStyle("-fx-font-weight: bold;");
+        Label bodyLabel = new Label(body);
+        bodyLabel.setWrapText(true);
+        bodyLabel.setMaxWidth(340);
+        content.getChildren().addAll(titleLabel, bodyLabel);
+
+        ContextMenu popover = new ContextMenu();
+        popover.getItems().add(new CustomMenuItem(content, false)); // hideOnClick=false → text stays put
+        btn.setOnAction(e -> popover.show(btn, Side.BOTTOM, 0, 0));
+        return btn;
     }
 
     public static HBox createHeaderRow(Runnable onDelete, Node... content) {
