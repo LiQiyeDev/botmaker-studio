@@ -48,6 +48,14 @@
     </repositories>
 
     <dependencies>
+        <!-- Shared cross-platform native window plumbing (enumerate / capture / focus).
+             Editor-time window capture only; the Studio does NOT depend on the BotMaker SDK. -->
+        <dependency>
+            <groupId>com.botmaker.shared</groupId>
+            <artifactId>botmaker-shared</artifactId>
+            <version>0.0.0-SNAPSHOT</version>
+        </dependency>
+
         <!-- JavaFX -->
         <dependency>
             <groupId>org.openjfx</groupId>

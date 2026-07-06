@@ -24,6 +24,9 @@ public class ProjectState {
     // --- Activities (global config variables) ---
     private ActivitiesConfig activities = ActivitiesConfig.empty();
 
+    // --- Editor settings (capture targets, etc.) ---
+    private StudioProjectSettings settings = StudioProjectSettings.empty();
+
     // --- AST Block Mapping (for active file) ---
     private Map<ASTNode, CodeBlock> nodeToBlockMap = new HashMap<>();
 
@@ -105,6 +108,14 @@ public class ProjectState {
     // =========================================================================
     // ACTIVITIES
     // =========================================================================
+
+    public StudioProjectSettings getSettings() {
+        return settings;
+    }
+
+    public void setSettings(StudioProjectSettings settings) {
+        this.settings = settings != null ? settings : StudioProjectSettings.empty();
+    }
 
     public ActivitiesConfig getActivities() {
         return activities;

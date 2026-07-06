@@ -35,7 +35,7 @@ public final class RectPicker {
             MenuItem select = new MenuItem("Select on screen…");
             select.setOnAction(a -> {
                 Window owner = button.getScene() != null ? button.getScene().getWindow() : null;
-                new ScreenCaptureService().selectRegion(owner, r -> Platform.runLater(() ->
+                screenCapture(context).selectRegion(owner, r -> Platform.runLater(() ->
                         context.getCodeEditor().setRect(expr(arg), r[0], r[1], r[2], r[3])));
             });
             MenuItem edit = new MenuItem("Edit values…");
@@ -45,6 +45,11 @@ public final class RectPicker {
             button.getItems().addAll(select, new SeparatorMenuItem(), edit);
         });
         return button;
+    }
+
+    /** A capture service bound to this project's settings, so it honors the default capture target. */
+    private static ScreenCaptureService screenCapture(CodeEditorService context) {
+        return ScreenCaptureService.forProject(context);
     }
 
     private static Expression expr(ExpressionBlock arg) {

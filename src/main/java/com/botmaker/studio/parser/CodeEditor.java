@@ -179,6 +179,18 @@ public class CodeEditor {
 
     /** Replaces {@code toReplace} with {@code new ImageTemplate("<path>")} — the image-template arg picker. */
     public void setImageTemplate(Expression toReplace, String path) {
+        setImageTemplate(toReplace, path, null);
+    }
+
+    /**
+     * Like {@link #setImageTemplate(Expression, String)}, but when {@code windowTitle} is non-null and the
+     * template is the sole argument of an {@code ImageFinder.find(...)} call, also injects
+     * {@code Window.find("<windowTitle>").orElseThrow()} as the capture source — so a project whose default
+     * capture target is a window finds inside that window automatically, with no per-call window choice
+     * (Phase 5a). When {@code windowTitle} is null or the enclosing call isn't a single-argument
+     * {@code ImageFinder.find}, it behaves exactly like the plain setter (whole-screen search).
+     */
+    public void setImageTemplate(Expression toReplace, String path, String windowTitle) {
         edit(true, (cu, code) -> {
             AST ast = cu.getAST();
             ASTRewrite rewriter = ASTRewrite.create(ast);
@@ -189,8 +201,37 @@ public class CodeEditor {
             cic.arguments().add(lit);
             ImportManager.addImportForSimpleName(cu, rewriter, "ImageTemplate", analyzer, null);
             rewriter.replace(toReplace, cic, null);
+
+            if (windowTitle != null && isSoleFindArgument(toReplace)) {
+                MethodInvocation find = (MethodInvocation) toReplace.getParent();
+                rewriter.getListRewrite(find, MethodInvocation.ARGUMENTS_PROPERTY)
+                        .insertLast(windowFindOrElseThrow(ast, windowTitle), null);
+                ImportManager.addImportForSimpleName(cu, rewriter, "Window", analyzer, null);
+            }
             return AstRewriteHelper.applyRewrite(rewriter, code);
         });
+    }
+
+    /** True when {@code templateSlot} is the only argument of an {@code ImageFinder.find(...)} call. */
+    private static boolean isSoleFindArgument(Expression templateSlot) {
+        if (!(templateSlot.getParent() instanceof MethodInvocation mi)) return false;
+        if (!"find".equals(mi.getName().getIdentifier())) return false;
+        if (mi.getExpression() == null || !"ImageFinder".equals(mi.getExpression().toString())) return false;
+        return mi.arguments().size() == 1 && mi.arguments().get(0) == templateSlot;
+    }
+
+    /** Builds the AST for {@code Window.find("<title>").orElseThrow()} (a window-targeted capture source). */
+    private static Expression windowFindOrElseThrow(AST ast, String title) {
+        MethodInvocation find = ast.newMethodInvocation();
+        find.setExpression(ast.newSimpleName("Window"));
+        find.setName(ast.newSimpleName("find"));
+        StringLiteral t = ast.newStringLiteral();
+        t.setLiteralValue(title);
+        find.arguments().add(t);
+        MethodInvocation orElseThrow = ast.newMethodInvocation();
+        orElseThrow.setExpression(find);
+        orElseThrow.setName(ast.newSimpleName("orElseThrow"));
+        return orElseThrow;
     }
 
     /**
@@ -228,6 +269,65 @@ public class CodeEditor {
     /** Replaces {@code toReplace} with {@code new Point(x, y)} — the cursor-position arg picker. */
     public void setPoint(Expression toReplace, int x, int y) {
         replaceWithIntCtor(toReplace, "Point", x, y);
+    }
+
+    /** A value to drop into a call argument slot by the multi-argument "Pick all on screen" session. */
+    public sealed interface ArgValue {
+        record RectVal(int x, int y, int w, int h) implements ArgValue {}
+        record PointVal(int x, int y) implements ArgValue {}
+        record ImageVal(String path) implements ArgValue {}
+    }
+
+    /**
+     * Replaces several arguments of {@code mi} in a single rewrite — used by the "Pick all on screen"
+     * session so a whole call's on-screen args are set atomically (applying them one-by-one would
+     * invalidate the other cached argument nodes after the first re-parse). Keys are argument indices.
+     */
+    public void setCallArguments(MethodInvocation mi, java.util.Map<Integer, ArgValue> values) {
+        if (values == null || values.isEmpty()) return;
+        edit(true, (cu, code) -> {
+            AST ast = cu.getAST();
+            ASTRewrite rewriter = ASTRewrite.create(ast);
+            List<?> args = mi.arguments();
+            for (var e : values.entrySet()) {
+                int idx = e.getKey();
+                if (idx < 0 || idx >= args.size()) continue;
+                Expression slot = (Expression) args.get(idx);
+                Expression replacement;
+                String typeName;
+                switch (e.getValue()) {
+                    case ArgValue.RectVal r -> {
+                        replacement = intCtor(ast, "Rect", r.x(), r.y(), r.w(), r.h());
+                        typeName = "Rect";
+                    }
+                    case ArgValue.PointVal p -> {
+                        replacement = intCtor(ast, "Point", p.x(), p.y());
+                        typeName = "Point";
+                    }
+                    case ArgValue.ImageVal im -> {
+                        ClassInstanceCreation cic = ast.newClassInstanceCreation();
+                        cic.setType(ast.newSimpleType(ast.newSimpleName("ImageTemplate")));
+                        StringLiteral lit = ast.newStringLiteral();
+                        lit.setLiteralValue(im.path());
+                        cic.arguments().add(lit);
+                        replacement = cic;
+                        typeName = "ImageTemplate";
+                    }
+                    default -> { continue; }
+                }
+                ImportManager.addImportForSimpleName(cu, rewriter, typeName, analyzer, null);
+                rewriter.replace(slot, replacement, null);
+            }
+            return AstRewriteHelper.applyRewrite(rewriter, code);
+        });
+    }
+
+    /** {@code new <typeName>(a, b, …)} with int-literal arguments (helper for the batch rewrite). */
+    private static ClassInstanceCreation intCtor(AST ast, String typeName, int... args) {
+        ClassInstanceCreation cic = ast.newClassInstanceCreation();
+        cic.setType(ast.newSimpleType(ast.newSimpleName(typeName)));
+        for (int v : args) cic.arguments().add(ast.newNumberLiteral(Integer.toString(v)));
+        return cic;
     }
 
     /** Replaces {@code toReplace} with {@code new <typeName>(a, b, …)} using int-literal arguments. */

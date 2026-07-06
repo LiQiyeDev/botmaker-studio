@@ -11,12 +11,14 @@ import com.botmaker.studio.ui.render.layout.BlockLayout;
 import com.botmaker.studio.ui.render.layout.SentenceLayoutBuilder;
 import com.botmaker.studio.ui.render.components.ArgumentEditors;
 import com.botmaker.studio.ui.render.components.BlockUIComponents;
+import com.botmaker.studio.ui.render.components.PickAllSession;
 import com.botmaker.studio.ui.render.menu.MenuComponents;
 import com.botmaker.studio.util.MethodSignature;
 import com.botmaker.studio.types.ResolvedType;
 import javafx.scene.Node;
 import javafx.scene.control.*;
 import javafx.scene.layout.HBox;
+import javafx.stage.Window;
 import javafx.util.Callback;
 import org.eclipse.jdt.core.dom.*;
 
@@ -189,6 +191,9 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
 
         // Signature Button (explicit overload picker) — argument sync is automatic on method change.
         addSignatureButton(sentenceBuilder, context, currentScopeGetter, methodSelector, finalCurrentFileClass);
+
+        // "Pick all on screen" — one overlay pass over every on-screen-pickable argument of this call.
+        addPickAllButton(sentenceBuilder, context, currentScopeGetter);
 
         sentenceBuilder.addLabel("(");
 
@@ -404,6 +409,30 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
                     "No signatures found");
         });
         builder.addNode(signatureBtn);
+    }
+
+    /**
+     * "📸 Pick all" button — captures the target once and walks every on-screen-pickable argument
+     * ({@code ImageTemplate}/{@code Rect}/{@code Point}) of this call through a single overlay, applying them
+     * in one rewrite (see {@link PickAllSession}). Added only when at least one such argument exists, so
+     * ordinary calls stay uncluttered. The overload is resolved the same way {@code renderArguments} resolves
+     * per-argument types, so the button and the typed pickers agree.
+     */
+    private void addPickAllButton(SentenceLayoutBuilder builder, CodeEditorService context,
+                                  java.util.function.Supplier<String> scopeGetter) {
+        String currentScope = scopeGetter.get();
+        String targetType = (currentScope != null) ? resolveTargetType(currentScope, context) : "";
+        MethodSignature signature = determineCurrentSignature(context, targetType, methodName);
+        if (!PickAllSession.hasPickableArgs(signature, arguments.size())) return;
+
+        Button pickAll = new Button("📸");
+        pickAll.setTooltip(new Tooltip("Pick all on-screen arguments in one pass"));
+        pickAll.setStyle("-fx-font-size: 9px; -fx-padding: 2 4 2 4; -fx-background-radius: 10;");
+        pickAll.setOnAction(e -> {
+            Window owner = pickAll.getScene() != null ? pickAll.getScene().getWindow() : null;
+            PickAllSession.run(context, (MethodInvocation) this.astNode, arguments, signature, owner);
+        });
+        builder.addNode(pickAll);
     }
 
     private void renderArguments(SentenceLayoutBuilder builder, CodeEditorService context, java.util.function.Supplier<String> scopeGetter, ComboBox<String> methodSelector) {

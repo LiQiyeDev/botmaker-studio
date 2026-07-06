@@ -53,6 +53,13 @@ public class CoreApplicationEvents {
     public record ActivitiesChangedEvent(com.botmaker.studio.project.activity.ActivitiesConfig config)
             implements ApplicationEvent {}
 
+    /**
+     * Published after the project's {@link com.botmaker.studio.project.StudioProjectSettings} change
+     * (e.g. capture targets added/removed or the default target switched).
+     */
+    public record SettingsChangedEvent(com.botmaker.studio.project.StudioProjectSettings settings)
+            implements ApplicationEvent {}
+
     /** Published after the project's saved image templates change (added / renamed / deleted). */
     public record ResourcesChangedEvent() implements ApplicationEvent {}
 

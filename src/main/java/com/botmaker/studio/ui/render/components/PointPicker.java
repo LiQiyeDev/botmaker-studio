@@ -35,7 +35,7 @@ public final class PointPicker {
             MenuItem pick = new MenuItem("Pick on screen…");
             pick.setOnAction(a -> {
                 Window owner = button.getScene() != null ? button.getScene().getWindow() : null;
-                new ScreenCaptureService().pickPoint(owner, p -> Platform.runLater(() ->
+                screenCapture(context).pickPoint(owner, p -> Platform.runLater(() ->
                         context.getCodeEditor().setPoint(expr(arg), p[0], p[1])));
             });
             MenuItem edit = new MenuItem("Edit values…");
@@ -45,6 +45,11 @@ public final class PointPicker {
             button.getItems().addAll(pick, new SeparatorMenuItem(), edit);
         });
         return button;
+    }
+
+    /** A capture service bound to this project's settings, so it honors the default capture target. */
+    private static ScreenCaptureService screenCapture(CodeEditorService context) {
+        return ScreenCaptureService.forProject(context);
     }
 
     private static Expression expr(ExpressionBlock arg) {

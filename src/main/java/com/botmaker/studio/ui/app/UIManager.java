@@ -10,6 +10,7 @@ import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.JitPackSearch;
 import com.botmaker.studio.services.LibraryService;
 import com.botmaker.studio.services.MavenCentralSearch;
+import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.sharing.BotInstaller;
 import com.botmaker.studio.sharing.BotPublisher;
@@ -48,7 +49,7 @@ public class UIManager {
     private final DiagnosticsManager diagnosticsManager;
     private final Stage primaryStage;
     private final ProjectConfig config;
-    private final ScreenCaptureService screenCaptureService = new ScreenCaptureService();
+    private final ScreenCaptureService screenCaptureService;
 
     private final ToolbarManager toolbarManager;
     private final EventLogManager eventLogManager;
@@ -83,6 +84,11 @@ public class UIManager {
         this.primaryStage = primaryStage;
         this.config = config;
 
+        // Editor settings (capture targets + default). Stateless over (config, state, eventBus); the
+        // capture service honors the default target so pickers stop re-asking which screen to use.
+        ProjectSettingsService projectSettingsService = new ProjectSettingsService(config, state, eventBus);
+        this.screenCaptureService = new ScreenCaptureService(projectSettingsService);
+
         this.toolbarManager = new ToolbarManager(eventBus);
         this.eventLogManager = new EventLogManager(eventBus);
         this.menuBarManager = new MenuBarManager(primaryStage);
@@ -98,6 +104,8 @@ public class UIManager {
         this.menuBarManager.setOnSetActivityValues(() ->
                 new SetActivityValuesDialog(primaryStage, activityService).show());
         this.menuBarManager.setOnManageResources(this::openResourceManager);
+        this.menuBarManager.setOnManageCaptureTargets(() ->
+                new ManageCaptureTargetsDialog(primaryStage, projectSettingsService).show());
         GitHubClient gitHubClient = new GitHubClient();
         GitHubGallery gallery = new GitHubGallery(gitHubClient);
         BotInstaller botInstaller = new BotInstaller(gitHubClient, gallery);

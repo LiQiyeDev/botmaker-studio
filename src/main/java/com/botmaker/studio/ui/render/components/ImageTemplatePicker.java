@@ -5,7 +5,9 @@ import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.services.CodeEditorService;
+import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.services.ImageTemplateLibrary;
+import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.types.ResolvedType;
 import javafx.application.Platform;
@@ -85,13 +87,23 @@ public final class ImageTemplatePicker {
     }
 
     private static void applyTemplate(CodeEditorService context, ExpressionBlock arg, String path) {
-        context.getCodeEditor().setImageTemplate((Expression) ((AbstractCodeBlock) arg).getAstNode(), path);
+        context.getCodeEditor().setImageTemplate(
+                (Expression) ((AbstractCodeBlock) arg).getAstNode(), path, defaultWindowTitle(context));
+    }
+
+    /**
+     * The configured default window's title substring, or {@code null} when the project's default capture
+     * target isn't a window — drives whether an {@code ImageFinder.find} pick becomes window-targeted.
+     */
+    static String defaultWindowTitle(CodeEditorService context) {
+        CaptureTarget target = ProjectSettingsService.forProject(context).defaultTarget();
+        return (target instanceof CaptureTarget.WindowTarget w) ? w.titleSubstring() : null;
     }
 
     private static void captureNewTemplate(CodeEditorService context, ExpressionBlock arg, Node anchor) {
         ProjectConfig config = context.getConfig();
         Window owner = anchor.getScene() != null ? anchor.getScene().getWindow() : null;
-        new ScreenCaptureService().captureRegion(owner, img -> Platform.runLater(() -> {
+        screenCapture(context).captureRegion(owner, img -> Platform.runLater(() -> {
             TextInputDialog dialog = new TextInputDialog("accept_button");
             dialog.initOwner(owner);
             dialog.setTitle("Template name");
@@ -101,17 +113,32 @@ public final class ImageTemplatePicker {
                     .map(s -> s.trim().replaceAll("[^A-Za-z0-9_-]", "_"))
                     .filter(s -> !s.isBlank());
             if (name.isEmpty()) return;
-            Path target = config.imagesRoot().resolve(name.get() + ".png");
             try {
-                Files.createDirectories(target.getParent());
-                new ScreenCaptureService().savePng(img, target);
-                applyTemplate(context, arg, ImageTemplateLibrary.pathFor(config, target));
+                applyTemplate(context, arg, saveTemplate(config, img, name.get()));
             } catch (IOException ex) {
                 Alert error = new Alert(Alert.AlertType.ERROR, "Failed to save template: " + ex.getMessage());
                 error.initOwner(owner);
                 error.showAndWait();
             }
         }));
+    }
+
+    /**
+     * Saves {@code img} as {@code <imagesRoot>/<name>.png} and returns its project-root-relative path
+     * (the string that goes inside {@code new ImageTemplate("…")}). Shared by "Capture new…" and the
+     * multi-argument "Pick all on screen" session. {@code name} must already be sanitized.
+     */
+    public static String saveTemplate(ProjectConfig config, java.awt.image.BufferedImage img, String name)
+            throws IOException {
+        Path target = config.imagesRoot().resolve(name + ".png");
+        Files.createDirectories(target.getParent());
+        new ScreenCaptureService().savePng(img, target);
+        return ImageTemplateLibrary.pathFor(config, target);
+    }
+
+    /** A capture service bound to this project's settings, so it honors the default capture target. */
+    private static ScreenCaptureService screenCapture(CodeEditorService context) {
+        return ScreenCaptureService.forProject(context);
     }
 
     /** Sets the button's label + thumbnail to reflect {@code path} (project-root-relative), or a prompt. */

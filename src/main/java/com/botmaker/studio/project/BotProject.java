@@ -9,6 +9,7 @@ import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.DebuggingService;
 import com.botmaker.studio.services.LibraryService;
 import com.botmaker.studio.services.MavenService;
+import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
 import com.botmaker.studio.validation.DiagnosticsManager;
@@ -41,6 +42,7 @@ public class BotProject {
     private final ProjectAnalyzer projectAnalyzer;
     private final LibraryService libraryService;
     private final ActivityService activityService;
+    private final ProjectSettingsService projectSettingsService;
 
     // --- Lazy-initialized services ---
     private CodeEditorService codeEditorService;
@@ -55,7 +57,8 @@ public class BotProject {
                        BlockDragAndDropManager dragAndDropManager,
                        ProjectAnalyzer projectAnalyzer,
                        LibraryService libraryService,
-                       ActivityService activityService) {
+                       ActivityService activityService,
+                       ProjectSettingsService projectSettingsService) {
         this.config = config;
         this.state = state;
         this.eventBus = eventBus;
@@ -64,6 +67,7 @@ public class BotProject {
         this.projectAnalyzer = projectAnalyzer;
         this.libraryService = libraryService;
         this.activityService = activityService;
+        this.projectSettingsService = projectSettingsService;
     }
 
     // =========================================================================
@@ -142,6 +146,10 @@ public class BotProject {
         ActivityService activityService = new ActivityService(config, state, eventBus);
         activityService.load();
 
+        // 7d. Editor settings (capture targets, etc.); load existing settings into state
+        ProjectSettingsService projectSettingsService = new ProjectSettingsService(config, state, eventBus);
+        projectSettingsService.load();
+
         // 8. Create code editing pipeline
         progress.accept("Loading project…");
         BlockConverter blockConverter = new BlockConverter(state);
@@ -150,7 +158,8 @@ public class BotProject {
         BotProject project = new BotProject(
                 config, state, eventBus,
                 diagnosticsManager, dragAndDropManager,
-                projectAnalyzer, libraryService, activityService
+                projectAnalyzer, libraryService, activityService,
+                projectSettingsService
         );
         project.blockConverter = blockConverter;
 
@@ -197,6 +206,7 @@ public class BotProject {
     public ProjectAnalyzer getProjectAnalyzer() { return projectAnalyzer; }
     public LibraryService getLibraryService() { return libraryService; }
     public ActivityService getActivityService() { return activityService; }
+    public ProjectSettingsService getProjectSettingsService() { return projectSettingsService; }
     public CodeEditorService getCodeEditorService() { return codeEditorService; }
     public CodeExecutionService getCodeExecutionService() { return codeExecutionService; }
     public DebuggingService getDebuggingService() { return debuggingService; }
