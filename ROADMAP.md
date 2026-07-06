@@ -1,7 +1,8 @@
 # BotMaker Roadmap
 
-Living backlog + changelog for BotMaker — the **Studio** (this repo) and the **SDK** (at `../BotMaker-sdk`).
-Claude updates the **Completed** section whenever work lands here (see CLAUDE.md → Roadmap).
+Living backlog + changelog for the **Studio** (this repo). The **SDK** (`../botmaker-sdk`) and **shared**
+(`../botmaker-shared`) modules each keep their own `ROADMAP.md`. Claude updates the **Completed** section
+whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 

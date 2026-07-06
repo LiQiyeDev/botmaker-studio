@@ -9,34 +9,38 @@ so work can be resumed if a session is interrupted.
 
 ## Roadmap
 
-`ROADMAP.md` (repo root) is the living backlog + changelog for both the Studio and the SDK. **After completing a
-meaningful change, update it:** add a dated entry to the top of the **Completed** section (date — what changed —
-where), and check off / remove the corresponding backlog item if it's now done. Keep entries to 1–3 lines. New
-backlog ideas that surface during work go under the relevant backlog section.
+`ROADMAP.md` (repo root) is the living backlog + changelog for the **Studio** (this repo only — the SDK and
+shared modules each own their own `ROADMAP.md`). **After completing a meaningful change, update it:** add a
+dated entry to the top of the **Completed** section (date — what changed — where), and check off / remove the
+corresponding backlog item if it's now done. Keep entries to 1–3 lines. New backlog ideas that surface during
+work go under the relevant backlog section.
 
 ## Commands
 
+This is a **Maven** project (`pom.xml`) — there is no Gradle build.
+
 ```bash
 # Build
-./gradlew build
+mvn compile
 
 # Run the application
-./gradlew run
+mvn javafx:run
 
 # Run all tests
-./gradlew test
+mvn test
 
 # Run a single test class
-./gradlew test --tests "TypeAwareSuggestionTest"
+mvn test -Dtest=TypeAwareSuggestionTest
 
 # Run a single test method
-./gradlew test --tests "TypeAwareSuggestionTest#methodName"
+mvn test -Dtest=TypeAwareSuggestionTest#methodName
 
-# Build a distributable
-./gradlew installDist
+# Build a distributable (native app-image + installer)
+mvn -Pdist package
 ```
 
-Tests run with JUnit Jupiter. The test task uses `useJUnitPlatform()`.
+From the **umbrella** root you can also run the Studio via the reactor: `mvn -pl botmaker-studio javafx:run`.
+Tests run with JUnit Jupiter (Surefire).
 
 ## Code Style
 
@@ -58,11 +62,27 @@ tar -xzf jdt-language-server-*.tar.gz -C tools/jdt-language-server
 
 User projects live in `~/BotMakerProjects/` (not inside this repo). Each project is a standard **Maven** project with the layout `src/main/java/com/<projectnamelowercase>/<ProjectName>.java`. The BotMaker-Studio app itself is also a Maven project (`pom.xml`): build with `mvn compile`, run with `mvn javafx:run`, test with `mvn test`.
 
-### BotMaker SDK dependency
+### Relationship to the SDK and shared
 
-The Studio depends on the **BotMaker SDK** (`com.github.LiQiyeDev:BotMaker-sdk`) pinned to `0.0.0-SNAPSHOT`. That SNAPSHOT is intentional — it's published to JitPack (via the SDK repo's GitHub Action) so it resolves on a clean checkout. **The maintainer owns the SDK→JitPack publish; don't push or publish the SDK yourself.**
+The Studio does **not** compile against the BotMaker SDK. Its only BotMaker Maven dependency is
+**`botmaker-shared`** (`com.github.LiQiyeDev:botmaker-shared`, editor-time native window capture). The SDK
+enters the picture two other ways, neither of which is a Studio dependency:
 
-This Studio repo is a submodule of the **`botmaker` umbrella repo**, which holds `botmaker-studio/` and `botmaker-sdk/` as sibling submodules plus an aggregator `pom.xml`. From the umbrella root, `mvn install` builds the SDK then the Studio in one reactor. **All SDK changes must be made through the umbrella's `botmaker-sdk/` submodule** — edit the sources there, commit inside the SDK submodule, then bump the SDK submodule pointer in the umbrella repo. Do not edit an external sibling checkout or vendor the SDK inside this Studio repo. For testing local SDK changes, run `mvn install` in the umbrella's `botmaker-sdk/` (checked before JitPack) or `mvn install` at the umbrella root.
+- **Studio generates bot projects that depend on the SDK.** `services/MavenService` writes each user
+  project's `pom.xml` pinning `com.github.LiQiyeDev:botmaker-sdk` (default `SDK_FALLBACK_VERSION`;
+  user-selectable in the project screen from JitPack's version list). The generated bot — not the Studio —
+  is the SDK's consumer.
+- **Studio knows the SDK's public API surface** for the palette/autocomplete. `palette/SdkApi` hard-codes the
+  facade class names (`ImageFinder`, `Mouse`, …) as strings; it does not import SDK types. Keep it in sync
+  with the SDK's `api.*` facades by hand.
+
+This Studio repo is a submodule of the **`botmaker` umbrella repo** (sibling submodules `botmaker-shared/`,
+`botmaker-sdk/`, `botmaker-studio/` + an aggregator `pom.xml`; see `../CLAUDE.md`). From the umbrella root
+`mvn install` builds shared → sdk → studio in one reactor. **All SDK/shared changes go through their umbrella
+submodules** — edit there, commit inside that submodule, bump its pointer in the umbrella. Don't vendor either
+inside this repo. To try local SDK changes in a generated bot without pushing a tag, use
+`botmaker-sdk/dev-install.sh` and pin the bot to `local-SNAPSHOT` (see `../botmaker-sdk/CLAUDE.md`). Releases
+are cut with the umbrella's `../release.sh`; **the maintainer owns the SDK/shared → JitPack publish.**
 
 The read-input blocks depend on a small SDK protocol: `BotMaker.readX()` prints a `BM-INPUT:<type>` marker (SOH-wrapped) to stdout before blocking on stdin. The Studio detects and strips that marker (`CodeExecutionService` for run, `DebuggingService` for debug), shows the modal input prompt, and writes the entered line back to the process's stdin via `SendInputEvent` → `sendInput(...)`. Changing the marker on either side without the other breaks input prompts.
 
