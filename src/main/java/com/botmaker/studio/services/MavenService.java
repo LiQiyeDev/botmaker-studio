@@ -61,7 +61,7 @@ public final class MavenService {
     public static final String SDK_GROUP_ID = "com.github.LiQiyeDev";
     public static final String SDK_ARTIFACT_ID = "botmaker-sdk";
     /** Version used for the SDK when none is supplied / JitPack is unreachable. */
-    public static final String SDK_FALLBACK_VERSION = "1.0.3";
+    public static final String SDK_FALLBACK_VERSION = "1.0.7";
 
     /** Dependencies every generated project gets (mirrors the old build.gradle). */
     private record Dep(String groupId, String artifactId, String version, String scope) {}
