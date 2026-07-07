@@ -34,15 +34,24 @@ public class FileExplorerManager {
 
         Label header = new Label("Project Files");
         header.getStyleClass().add("sidebar-header");
+        header.setMaxWidth(Double.MAX_VALUE);
 
         Button newFileBtn = new Button("New Function Library");
+        newFileBtn.getStyleClass().add("sidebar-button");
         newFileBtn.setMaxWidth(Double.MAX_VALUE);
         newFileBtn.setOnAction(e -> showCreateFileDialog());
 
         configureTree();
         refreshTree();
 
+        // The tree fills all remaining space (both axes) so the panel never shows dead area below it.
+        fileTree.getStyleClass().add("file-tree");
+        fileTree.setMaxWidth(Double.MAX_VALUE);
+        fileTree.setMaxHeight(Double.MAX_VALUE);
+        VBox.setVgrow(fileTree, javafx.scene.layout.Priority.ALWAYS);
+
         container.getChildren().addAll(header, newFileBtn, fileTree);
+        container.setFillWidth(true);
         return container;
     }
 
@@ -53,43 +62,46 @@ public class FileExplorerManager {
             @Override
             protected void updateItem(Path item, boolean empty) {
                 super.updateItem(item, empty);
+                // Reset cross-cutting state every render (cells are recycled).
+                getStyleClass().removeAll("tree-dir", "tree-lib", "tree-active");
                 if (empty || item == null) {
                     setText(null);
                     setGraphic(null);
-                    setStyle("");
+                    setContextMenu(null);
+                    return;
+                }
+                String fileName = item.getFileName().toString();
+                boolean isDirectory = Files.isDirectory(item);
+                String pathStr = item.toString().replace("\\", "/");
+                boolean isLibrary = pathStr.contains("com/botmaker/library");
+
+                setText(fileName);
+                setGraphic(icon(isDirectory ? "📁" : isLibrary ? "📦" : "📄"));
+
+                if (isDirectory) {
+                    getStyleClass().add("tree-dir");
+                    setContextMenu(null);
+                } else if (isLibrary) {
+                    setText(fileName + "  [Lib]");
+                    getStyleClass().add("tree-lib");
                     setContextMenu(null);
                 } else {
-                    String fileName = item.getFileName().toString();
-                    boolean isDirectory = Files.isDirectory(item);
+                    boolean active = state.getActiveFile() != null
+                            && item.equals(state.getActiveFile().getPath());
+                    if (active) getStyleClass().add("tree-active");
 
-                    // Simple logic to show packages cleanly (optional)
-                    setText(fileName);
-
-                    String pathStr = item.toString().replace("\\", "/");
-                    boolean isLibrary = pathStr.contains("com/botmaker/library");
-
-                    if (isDirectory) {
-                        setStyle("-fx-font-weight: bold; -fx-text-fill: #333;");
-                    }
-                    else if (isLibrary) {
-                        setText(fileName + " [Lib]");
-                        setStyle("-fx-text-fill: #888; -fx-font-style: italic;");
-                    }
-                    else {
-                        if (state.getActiveFile() != null && item.equals(state.getActiveFile().getPath())) {
-                            setStyle("-fx-font-weight: bold; -fx-text-fill: #007bff;");
-                        } else {
-                            setStyle("-fx-text-fill: black;");
-                        }
-
-                        // Context menu for delete...
-                        ContextMenu cm = new ContextMenu();
-                        MenuItem deleteItem = new MenuItem("Delete File");
-                        deleteItem.setOnAction(e -> {codeEditorService.deleteFile(item); refreshTree(); });
-                        cm.getItems().add(deleteItem);
-                        setContextMenu(cm);
-                    }
+                    ContextMenu cm = new ContextMenu();
+                    MenuItem deleteItem = new MenuItem("Delete File");
+                    deleteItem.setOnAction(e -> { codeEditorService.deleteFile(item); refreshTree(); });
+                    cm.getItems().add(deleteItem);
+                    setContextMenu(cm);
                 }
+            }
+
+            private Label icon(String glyph) {
+                Label l = new Label(glyph);
+                l.getStyleClass().add("tree-icon");
+                return l;
             }
         });
 

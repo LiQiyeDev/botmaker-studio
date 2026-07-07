@@ -15,7 +15,7 @@ import java.util.List;
 public sealed interface ExpressionChoice
         permits ExpressionChoice.Method, ExpressionChoice.Constructor,
                 ExpressionChoice.EnumConstant, ExpressionChoice.Variable, ExpressionChoice.Field,
-                ExpressionChoice.NewVariable {
+                ExpressionChoice.NewVariable, ExpressionChoice.RawExpression {
 
     /** Call {@code methodName} on {@code scope} (a variable name or a type name for statics). */
     record Method(String scope, String methodName, List<ResolvedType> paramTypes, boolean isStatic)
@@ -39,4 +39,10 @@ public sealed interface ExpressionChoice
      * Variables submenu.
      */
     record NewVariable(ResolvedType type, String name) implements ExpressionChoice {}
+
+    /**
+     * Insert a ready-made Java expression snippet verbatim (parsed into AST). Used by the capture-source
+     * picker, which emits a fully-qualified helper call (e.g. {@code com.mybot.BotConfig.defaultSource()}).
+     */
+    record RawExpression(String code) implements ExpressionChoice {}
 }

@@ -54,6 +54,7 @@ public class UIManager {
     private final ToolbarManager toolbarManager;
     private final EventLogManager eventLogManager;
     private final MenuBarManager menuBarManager;
+    private com.botmaker.studio.services.debug.TelemetryDashboardServer dashboardServer;
     private final FileExplorerManager fileExplorerManager;
     private final WindowPreviewManager windowPreviewManager;
 
@@ -119,10 +120,26 @@ public class UIManager {
                         config.projectName(), config.projectPath()).show());
         this.menuBarManager.setProjectRepoUrl(BotSource.read(config.projectPath())
                 .map(s -> "https://github.com/" + s.slug()).orElse(null));
+        this.menuBarManager.setOnOpenDebugDashboard(this::openDebugDashboard);
         this.fileExplorerManager = new FileExplorerManager(config, codeEditorService, state);
-        this.windowPreviewManager = new WindowPreviewManager(eventBus);
+        this.windowPreviewManager = new WindowPreviewManager(eventBus, config, state);
 
         setupEventHandlers();
+    }
+
+    /** Starts (once) the local telemetry debug dashboard server and opens it in the browser. */
+    private void openDebugDashboard() {
+        try {
+            if (dashboardServer == null) {
+                dashboardServer = new com.botmaker.studio.services.debug.TelemetryDashboardServer(eventBus);
+            }
+            String url = dashboardServer.startAndGetUrl();
+            com.botmaker.studio.util.BrowserLauncher.open(url);
+            eventBus.publish(new CoreApplicationEvents.StatusMessageEvent("Debug dashboard at " + url));
+        } catch (Exception e) {
+            eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(
+                    "Could not start debug dashboard: " + e.getMessage()));
+        }
     }
 
     /** Opens the Resource Manager dialog. Reused by the Project menu and the block image-picker shortcut. */
@@ -210,9 +227,11 @@ public class UIManager {
         topBar.setStyle("-fx-border-color: #dcdcdc; -fx-border-width: 0 0 1 0; -fx-background-color: #f4f4f4;");
 
         // --- 2. Left Panel: File Explorer (top) + live Window Preview (bottom) ---
+        // Fill the column (no maxWidth cap) so the tree occupies the full width the divider gives it —
+        // otherwise a capped explorer leaves dead space to its right when the divider is dragged out.
         VBox fileExplorer = fileExplorerManager.createView();
         fileExplorer.setMinWidth(150);
-        fileExplorer.setMaxWidth(400);
+        fileExplorer.setMaxWidth(Double.MAX_VALUE);
 
         // Preview sits directly under the explorer and to the left of the terminal tabs; collapsible.
         Node previewPanel = windowPreviewManager.getView();
@@ -220,6 +239,8 @@ public class UIManager {
         leftColumn.setOrientation(Orientation.VERTICAL);
         leftColumn.getItems().addAll(fileExplorer, previewPanel);
         leftColumn.setDividerPositions(0.62);
+        // Keep the left column's size on window resize (don't let it swallow the canvas).
+        SplitPane.setResizableWithParent(leftColumn, false);
 
         // --- 3. Center: Code Canvas ---
         blocksContainer = new VBox(10);

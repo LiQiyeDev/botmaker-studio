@@ -33,6 +33,79 @@
     -fx-text-alignment: center;
 }
 
+/* Hover-revealed zoom / follow / reload controls, floated over the bottom of the preview. */
+.preview-controls {
+    -fx-background-color: rgba(20, 20, 20, 0.72);
+    -fx-background-radius: 8;
+    -fx-padding: 3 6 3 6;
+}
+
+.preview-ctl {
+    -fx-background-color: transparent;
+    -fx-text-fill: #e8eaed;
+    -fx-font-size: 13px;
+    -fx-min-width: 26;
+    -fx-min-height: 22;
+    -fx-padding: 1 6 1 6;
+    -fx-background-radius: 6;
+    -fx-cursor: hand;
+}
+
+.preview-ctl:hover {
+    -fx-background-color: rgba(255, 255, 255, 0.16);
+}
+
+.preview-ctl:selected {
+    -fx-background-color: #3498db;
+    -fx-text-fill: white;
+}
+
+/*
+ * File explorer (FileExplorerManager): a header, a "new library" button, and a tree that fills the panel.
+ * Row state (folder / library / active file) is set via style classes rather than inline styles.
+ */
+.file-explorer {
+    -fx-background-color: #fafafa;
+    -fx-padding: 6;
+    -fx-spacing: 6;
+}
+
+.file-explorer .sidebar-header {
+    -fx-font-weight: bold;
+    -fx-font-size: 12px;
+    -fx-text-fill: #444;
+    -fx-padding: 2 4 2 4;
+}
+
+.file-explorer .sidebar-button {
+    -fx-font-size: 11px;
+}
+
+.file-tree {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+}
+
+.file-tree .tree-icon {
+    -fx-padding: 0 4 0 0;
+    -fx-font-size: 12px;
+}
+
+.file-tree .tree-dir {
+    -fx-font-weight: bold;
+    -fx-text-fill: #333;
+}
+
+.file-tree .tree-lib {
+    -fx-text-fill: #888;
+    -fx-font-style: italic;
+}
+
+.file-tree .tree-active {
+    -fx-font-weight: bold;
+    -fx-text-fill: #007bff;
+}
+
 *:breakpoint {
     -fx-border-color: #e74c3c;
     -fx-border-width: 0 0 0 2;

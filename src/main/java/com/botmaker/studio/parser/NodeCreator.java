@@ -49,6 +49,14 @@ public class NodeCreator {
                 // NewVariable is handled specially (declaration + reference) in applyExpressionSelection and
                 // does not flow through here; yield just the reference as a safe fallback.
                 case ExpressionChoice.NewVariable nv -> ast.newSimpleName(nv.name());
+                // A ready-made snippet (e.g. a capture-source helper call): parse and copy into this AST.
+                case ExpressionChoice.RawExpression rx -> {
+                    org.eclipse.jdt.core.dom.ASTParser p = org.eclipse.jdt.core.dom.ASTParser.newParser(AST.getJLSLatest());
+                    p.setKind(org.eclipse.jdt.core.dom.ASTParser.K_EXPRESSION);
+                    p.setSource(rx.code().toCharArray());
+                    org.eclipse.jdt.core.dom.ASTNode parsed = p.createAST(null);
+                    yield (parsed instanceof Expression pe) ? (Expression) ASTNode.copySubtree(ast, pe) : ast.newNullLiteral();
+                }
             };
         }
         return null;

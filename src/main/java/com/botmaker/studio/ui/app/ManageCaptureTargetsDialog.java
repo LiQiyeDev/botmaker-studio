@@ -2,10 +2,9 @@ package com.botmaker.studio.ui.app;
 
 import com.botmaker.studio.project.StudioProjectSettings;
 import com.botmaker.studio.project.capture.CaptureTarget;
-import com.botmaker.studio.project.capture.CaptureTarget.ScreenTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.WindowTarget;
 import com.botmaker.studio.services.ProjectSettingsService;
-import com.botmaker.studio.services.ScreenCaptureService;
+import com.botmaker.studio.ui.app.capture.CaptureSourcePicker;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -13,7 +12,6 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
-import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
@@ -23,10 +21,8 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.stage.Modality;
-import javafx.stage.Screen;
 import javafx.stage.Stage;
 import javafx.stage.Window;
-import javafx.util.StringConverter;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -80,7 +76,7 @@ public class ManageCaptureTargetsDialog {
 
         VBox root = new VBox(12);
         root.setPadding(new Insets(16));
-        root.getChildren().addAll(buildList(), buildAddScreenRow(), buildAddWindowRow(), buildButtonBar());
+        root.getChildren().addAll(buildList(), buildAddRow(), buildButtonBar());
 
         stage.setScene(new Scene(root, 520, 460));
         stage.show();
@@ -135,66 +131,26 @@ public class ManageCaptureTargetsDialog {
         }
     }
 
-    private HBox buildAddScreenRow() {
-        List<Screen> screens = Screen.getScreens();
-        ObservableList<Integer> indices = FXCollections.observableArrayList();
-        for (int i = 0; i < screens.size(); i++) indices.add(i);
-
-        ComboBox<Integer> combo = new ComboBox<>(indices);
-        combo.setConverter(new StringConverter<>() {
-            @Override public String toString(Integer i) {
-                if (i == null) return "";
-                javafx.geometry.Rectangle2D b = screens.get(i).getBounds();
-                return String.format("Screen %d — %d×%d", i + 1, (int) b.getWidth(), (int) b.getHeight());
+    /**
+     * A single visual "add" action: opens the {@link CaptureSourcePicker} (screens + windows with live
+     * thumbnails) and adds the chosen concrete source to the list, remembering any window title.
+     */
+    private HBox buildAddRow() {
+        Button choose = new Button("＋ Add capture source…");
+        choose.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(choose, Priority.ALWAYS);
+        choose.setOnAction(e -> new CaptureSourcePicker(stage, false).showAndWait().ifPresent(sel -> {
+            if (sel instanceof CaptureSourcePicker.Selection.Concrete c) {
+                if (c.target() instanceof WindowTarget wt && wt.titleSubstring() != null) {
+                    knownWindowTitles.add(wt.titleSubstring());
+                }
+                addTarget(c.target());
             }
-            @Override public Integer fromString(String s) { return null; }
-        });
-        if (!indices.isEmpty()) combo.getSelectionModel().selectFirst();
-        HBox.setHgrow(combo, Priority.ALWAYS);
-        combo.setMaxWidth(Double.MAX_VALUE);
+        }));
 
-        Button add = new Button("Add screen");
-        add.setOnAction(e -> {
-            Integer idx = combo.getValue();
-            if (idx == null) return;
-            addTarget(new ScreenTarget(idx));
-        });
-
-        HBox row = new HBox(8, combo, add);
+        HBox row = new HBox(8, choose);
         row.setAlignment(Pos.CENTER_LEFT);
         return row;
-    }
-
-    private HBox buildAddWindowRow() {
-        ComboBox<String> combo = new ComboBox<>(FXCollections.observableArrayList(windowTitleOptions()));
-        combo.setEditable(true);
-        combo.setPromptText("window title (substring)");
-        HBox.setHgrow(combo, Priority.ALWAYS);
-        combo.setMaxWidth(Double.MAX_VALUE);
-
-        Button refresh = new Button("↻");
-        refresh.setOnAction(e -> combo.setItems(FXCollections.observableArrayList(windowTitleOptions())));
-
-        Button add = new Button("Add window");
-        add.setOnAction(e -> {
-            String title = combo.getEditor().getText();
-            if (title == null || title.isBlank()) { error("Enter or pick a window title."); return; }
-            String trimmed = title.trim();
-            knownWindowTitles.add(trimmed);
-            addTarget(new WindowTarget(trimmed));
-            combo.getEditor().clear();
-        });
-
-        HBox row = new HBox(8, combo, refresh, add);
-        row.setAlignment(Pos.CENTER_LEFT);
-        return row;
-    }
-
-    /** Window titles for the add-window dropdown: currently-open windows first, then remembered ones. */
-    private List<String> windowTitleOptions() {
-        java.util.LinkedHashSet<String> options = new java.util.LinkedHashSet<>(ScreenCaptureService.listWindowTitles());
-        options.addAll(knownWindowTitles);
-        return new ArrayList<>(options);
     }
 
     private void addTarget(CaptureTarget target) {

@@ -6,6 +6,64 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-08 — Wayland live preview (portal + PipeWire), capture-source picker fixes, lazy `BotConfig`,
+  running-block highlight.** Follow-ups after validating the 2026-07-07 landings on Fedora/Wayland:
+  - **Non-disruptive Wayland capture (WS2).** `services/preview/` new: `PortalScreenCast` (xdg-desktop-portal
+    ScreenCast handshake over D-Bus — `CreateSession`→`SelectSources(persist_mode=2, restore_token)`→`Start`→
+    `OpenPipeWireRemote`, restore token stored globally in `ProjectPreferences` so GNOME prompts **once ever**),
+    `PipeWireVideoSource` (GStreamer `pipewiresrc→videoconvert→appsink` live BGRx→ARGB), `PreviewScreenFeed`
+    (negotiates off-thread, delivers frames + monitor origin). `WindowPreviewManager` no longer calls AWT
+    `Robot` for screen capture on Wayland (that per-frame grab was what re-prompted endlessly) — it renders the
+    live PipeWire feed via `WritableImage`/`PixelWriter`, throttled ~18 FPS, with a fallback hint if the
+    portal/GStreamer stack is missing. New deps: `dbus-java-core` + `-transport-native-unixsocket` 5.1.0,
+    `gst1-java-core` 1.4.0 (runtime needs `gstreamer1-plugins-good`). X11/Windows/macOS keep the Robot path.
+    *Limitations:* a **specific screen index** can't be forced on Wayland (the portal picker owns monitor
+    choice); window-by-title still can't be enumerated on native Wayland (X11 client list only).
+  - **Capture-source picker is now a real inline picker.** `ui/render/components/CaptureSourcePicker` +
+    `PickerRegistry` entry (before `Rect`): a `CaptureSource`/`Window` arg slot shows a 🎯 button opening the
+    visual chooser popup (was falling through to the generic pill next to the `Rect` region picker). Emits a
+    fully-qualified `BotConfig.defaultSource()/screen(i)/window("…")` snippet.
+  - **`BotConfig.java` is now lazy.** `ProjectSettingsService` no longer writes it on project open or on every
+    settings change; `ensureBotConfig()` materializes it only when a block first references it (then keeps it
+    synced). A freshly-declared `CaptureSource` variable defaults to fully-qualified `CaptureSource.screen()`
+    (no sidecar, no import). Fixes the unwanted `BotConfig` file appearing unprompted.
+  - **Running-block highlight on a plain run.** Telemetry gained a source line (shared wire v2 + SDK
+    `IpcObserver.botLine()`); `WindowPreviewManager` builds a line→block map on run start and highlights the
+    executing block as `Match`/`Click` events arrive (debug/trace still highlights via JDI). *Requires the
+    local-SNAPSHOT SDK + shared v2 — a bot pinned to an old released SDK speaks wire v1 and its frames are
+    rejected; re-run `./dev-install.sh` and reselect the local SDK.*
+  - Picker's Windows section now shows an explanatory placeholder on Wayland instead of a blank list.
+
+- **2026-07-07 — Preview honors default target + zoom/follow; visual capture-source picker; valid
+  `CaptureSource` codegen; explorer rework; telemetry debug dashboard.** Five related landings:
+  - **Live preview (`WindowPreviewManager`)** now resolves its target from the project's default
+    `CaptureTarget` (a live telemetry *window* still wins), so a window default drives the panel — and it
+    previews the default even while idle. Added a hover-revealed control bar: zoom `＋/－/⤢`, a **Follow
+    found object** toggle (eases a source-image viewport onto the last `Match` rect), and a **reload** button.
+    Overlays render through the same viewport. Screen capture now grabs the chosen monitor's bounds, not the
+    whole virtual desktop. CSS: `.preview-controls`/`.preview-ctl` in `blocks.css`.
+  - **Visual capture-source picker** (`ui/app/capture/CaptureSourcePicker`): a Steam-style chooser with
+    Screens + Windows categories (live thumbnails + names) and a "Project default" tile. Reused by the
+    toolbar Capture Targets dialog (replaces the combo-box add-rows) and by in-block selection.
+  - **Valid, default-tracking `CaptureSource` codegen (WS4).** `CaptureSource` is an SDK *interface* — the
+    old default-arg path emitted `new CaptureSource()` (uncompilable). `InitializerFactory` now defaults such
+    a slot to `BotConfig.defaultSource()`; `ExpressionMenuFactory` offers "🎯 Choose capture source…" for
+    `CaptureSource`/`Window` slots (no constructor) → a `RawExpression` snippet inserted via
+    `RawExpressionHandler`. `ProjectSettingsService` generates/regenerates `BotConfig.java`
+    (`defaultSource()` tracks the project default; `window(title)` / `screen(index)` back concrete picks) on
+    every settings change and at load; `ProjectConfig.botConfigSourceFile()` added.
+  - **File explorer rework** (`FileExplorerManager` + `UIManager` left column): tree fills the panel
+    (vgrow + max sizes), no maxWidth cap (kills the drag-into-dead-space), file/folder/lib icons, and
+    active-file/dir/lib styling moved from inline `setStyle` to CSS style classes (`.file-explorer` in
+    `blocks.css`).
+  - **Telemetry debug dashboard** (`services/debug/TelemetryDashboardServer`, View ▸ Open Debug Dashboard):
+    an opt-in local `HttpServer` (ephemeral port, auto-opens browser) that streams every `ViewFeedbackEvent`
+    over SSE plus a periodically-captured live frame with overlays, on a self-contained HTML page.
+  - Pairs with the SDK's new `Screen.at(index)` per-monitor `CaptureSource` (see `../botmaker-sdk/ROADMAP.md`).
+  - **Deferred:** the non-intrusive Wayland *live-video* capture (persistent xdg-desktop-portal ScreenCast
+    session + PipeWire) — WS2 — is not yet implemented; screen preview still uses per-frame `Robot`, which on
+    GNOME/Wayland re-prompts. A **window** default already avoids the portal (native capture).
+
 - **2026-07-07 — Auto-list local SDK dev builds in the version pickers.** `MavenService.localSdkVersions()`
   scans `~/.m2/.../botmaker-sdk/` for installed `*-SNAPSHOT` builds (jar present, newest first). Both pickers
   surface them at the top: the New Project combo (`ProjectSelectionScreen`, labeled `(local build)` via a

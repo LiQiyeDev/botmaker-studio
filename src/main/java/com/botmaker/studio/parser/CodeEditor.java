@@ -13,6 +13,7 @@ import com.botmaker.studio.parser.handlers.LambdaCallHandler;
 import com.botmaker.studio.parser.handlers.ListHandler;
 import com.botmaker.studio.parser.handlers.MethodHandler;
 import com.botmaker.studio.parser.handlers.OperatorReplacementHandler;
+import com.botmaker.studio.parser.handlers.RawExpressionHandler;
 import com.botmaker.studio.parser.handlers.TypeHandler;
 import com.botmaker.studio.parser.helpers.AstRewriteHelper;
 import com.botmaker.studio.project.ProjectState;
@@ -136,6 +137,11 @@ public class CodeEditor {
 
     public void replaceWithVariable(Expression toReplace, String variableName) {
         edit(false, (cu, code) -> replaceNode(cu, code, toReplace, cu.getAST().newSimpleName(variableName)));
+    }
+
+    /** Replaces {@code toReplace} with a ready-made expression snippet (e.g. a capture-source helper call). */
+    public void replaceWithRawExpression(Expression toReplace, String exprCode) {
+        edit(false, (cu, code) -> RawExpressionHandler.replaceWithExpression(cu, code, toReplace, exprCode));
     }
 
     /**

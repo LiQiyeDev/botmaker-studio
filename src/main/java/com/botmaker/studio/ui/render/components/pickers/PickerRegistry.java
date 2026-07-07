@@ -1,5 +1,6 @@
 package com.botmaker.studio.ui.render.components.pickers;
 
+import com.botmaker.studio.ui.render.components.CaptureSourcePicker;
 import com.botmaker.studio.ui.render.components.ExecutablePicker;
 import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
 import com.botmaker.studio.ui.render.components.LaunchOptionPicker;
@@ -38,6 +39,9 @@ public final class PickerRegistry {
             SpecialTypePicker.of(ctx -> ImageTemplatePicker.isImageTemplateType(ctx.paramType()),
                     ctx -> ImageTemplatePicker.create(ctx.context(), ctx.arg())),
             ImageTemplateGroupPicker.asSpecialType(),
+            // CaptureSource is an SDK interface — never a `new` ctor; always the visual chooser popup.
+            SpecialTypePicker.of(ctx -> ctx.isType("CaptureSource") || ctx.isType("Window"),
+                    ctx -> CaptureSourcePicker.create(ctx.context(), ctx.arg())),
             SpecialTypePicker.of(ctx -> ctx.isType("Rect"),
                     ctx -> RectPicker.create(ctx.context(), ctx.arg())),
             SpecialTypePicker.of(ctx -> ctx.isType("Point"),

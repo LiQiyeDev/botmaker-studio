@@ -1,0 +1,318 @@
+package com.botmaker.studio.ui.app.capture;
+
+import com.botmaker.shared.capture.GenericWindow;
+import com.botmaker.shared.capture.NativeControllerFactory;
+import com.botmaker.studio.project.capture.CaptureTarget;
+import com.botmaker.studio.project.capture.CaptureTarget.ScreenTarget;
+import com.botmaker.studio.project.capture.CaptureTarget.WindowTarget;
+import javafx.application.Platform;
+import javafx.geometry.Insets;
+import javafx.geometry.Pos;
+import javafx.scene.Node;
+import javafx.scene.Scene;
+import javafx.scene.control.Button;
+import javafx.scene.control.Label;
+import javafx.scene.control.ScrollPane;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
+import javafx.scene.layout.FlowPane;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
+import javafx.scene.layout.VBox;
+import javafx.stage.Modality;
+import javafx.stage.Screen;
+import javafx.stage.Stage;
+import javafx.stage.Window;
+
+import javax.imageio.ImageIO;
+import java.awt.GraphicsDevice;
+import java.awt.GraphicsEnvironment;
+import java.awt.Rectangle;
+import java.awt.Robot;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+
+/**
+ * A Steam-library-style visual chooser for a capture source: two categories — <b>Screens</b> and
+ * <b>Windows</b> — each rendered as a tile with a live thumbnail and a name, plus an optional
+ * <b>Project default</b> tile. It is the single reusable picker behind both the toolbar's Capture Targets
+ * button (choosing the project default) and the in-block {@code CaptureSource} selection.
+ *
+ * <p>Thumbnails are grabbed off the FX thread and best-effort: windows via the shared native controller
+ * (no focus, no OS prompt); monitors by cropping a full-desktop grab. Returns the user's {@link Selection}
+ * or {@link Optional#empty()} on cancel.
+ */
+public final class CaptureSourcePicker {
+
+    /** What the user chose: either "track the project default", or a concrete, frozen {@link CaptureTarget}. */
+    public sealed interface Selection permits Selection.ProjectDefault, Selection.Concrete {
+        record ProjectDefault() implements Selection {}
+        record Concrete(CaptureTarget target) implements Selection {}
+    }
+
+    private static final double TILE_W = 220;
+    private static final double THUMB_H = 124;
+
+    private final Window owner;
+    private final boolean includeProjectDefault;
+
+    private Selection selected;
+    private VBox selectedTile;
+    private Stage stage;
+    private ScheduledExecutorService thumbExec;
+
+    public CaptureSourcePicker(Window owner, boolean includeProjectDefault) {
+        this.owner = owner;
+        this.includeProjectDefault = includeProjectDefault;
+    }
+
+    /** Shows the picker modally and returns the chosen source, or empty if cancelled. */
+    public Optional<Selection> showAndWait() {
+        stage = new Stage();
+        if (owner != null) stage.initOwner(owner);
+        stage.initModality(Modality.APPLICATION_MODAL);
+        stage.setTitle("Choose capture source");
+
+        FlowPane screens = category();
+        FlowPane windows = category();
+
+        VBox content = new VBox(10);
+        content.setPadding(new Insets(14));
+        if (includeProjectDefault) {
+            content.getChildren().add(projectDefaultTile());
+        }
+        content.getChildren().addAll(
+                sectionLabel("Screens"), screens,
+                sectionLabel("Windows"), windows);
+
+        ScrollPane scroll = new ScrollPane(content);
+        scroll.setFitToWidth(true);
+
+        Button refresh = new Button("↻ Refresh");
+        refresh.setOnAction(e -> { windows.getChildren().clear(); loadWindows(windows); });
+        Button cancel = new Button("Cancel");
+        cancel.setOnAction(e -> { selected = null; close(); });
+        Button ok = new Button("Select");
+        ok.setDefaultButton(true);
+        ok.setOnAction(e -> close());
+
+        HBox spacer = new HBox();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        HBox bar = new HBox(8, refresh, spacer, cancel, ok);
+        bar.setAlignment(Pos.CENTER_LEFT);
+        bar.setPadding(new Insets(10, 14, 12, 14));
+
+        VBox rootBox = new VBox(scroll, bar);
+        VBox.setVgrow(scroll, Priority.ALWAYS);
+
+        loadScreens(screens);
+        loadWindows(windows);
+
+        stage.setScene(new Scene(rootBox, 760, 560));
+        stage.setOnHidden(e -> stopThumbs());
+        stage.showAndWait();
+        return Optional.ofNullable(selected);
+    }
+
+    private void close() {
+        stopThumbs();
+        if (stage != null) stage.close();
+    }
+
+    private static Label sectionLabel(String text) {
+        Label l = new Label(text);
+        l.setStyle("-fx-font-weight: bold; -fx-font-size: 13px; -fx-padding: 6 0 0 2;");
+        return l;
+    }
+
+    private static FlowPane category() {
+        FlowPane pane = new FlowPane(12, 12);
+        pane.setPadding(new Insets(2));
+        return pane;
+    }
+
+    // --- Tiles ---
+
+    private VBox projectDefaultTile() {
+        VBox tile = tile("Project default", "Tracks the project's default capture target");
+        select(tile, new Selection.ProjectDefault()); // preselect
+        tile.setOnMouseClicked(e -> {
+            select(tile, new Selection.ProjectDefault());
+            if (e.getClickCount() == 2) close();
+        });
+        return tile;
+    }
+
+    private void loadScreens(FlowPane into) {
+        List<Screen> screens = Screen.getScreens();
+        for (int i = 0; i < screens.size(); i++) {
+            int index = i;
+            Screen s = screens.get(i);
+            javafx.geometry.Rectangle2D b = s.getBounds();
+            String name = String.format("Screen %d — %d×%d", i + 1,
+                    (int) b.getWidth(), (int) b.getHeight());
+            VBox tile = tile(name, s.equals(Screen.getPrimary()) ? "Primary monitor" : "Monitor");
+            CaptureTarget target = new ScreenTarget(index);
+            tile.setOnMouseClicked(e -> {
+                select(tile, new Selection.Concrete(target));
+                if (e.getClickCount() == 2) close();
+            });
+            if (!includeProjectDefault && selected == null) select(tile, new Selection.Concrete(target));
+            into.getChildren().add(tile);
+            thumbs().submit(() -> {
+                Image img = toFxImage(captureMonitor(index));
+                if (img != null) Platform.runLater(() -> setThumb(tile, img));
+            });
+        }
+    }
+
+    private void loadWindows(FlowPane into) {
+        thumbs().submit(() -> {
+            List<GenericWindow> wins;
+            try {
+                wins = NativeControllerFactory.get().getAllWindows();
+            } catch (Throwable t) {
+                wins = List.of();
+            }
+            long named = wins.stream().filter(w -> w.getTitle() != null && !w.getTitle().isBlank()).count();
+            if (named == 0) {
+                Platform.runLater(() -> into.getChildren().add(emptyWindowsHint()));
+                return;
+            }
+            for (GenericWindow w : wins) {
+                String title = w.getTitle();
+                if (title == null || title.isBlank()) continue;
+                BufferedImage shot;
+                try {
+                    shot = NativeControllerFactory.get().captureWindow(w);
+                } catch (Throwable t) {
+                    shot = null;
+                }
+                Image img = toFxImage(shot);
+                Platform.runLater(() -> {
+                    VBox tile = tile(title, "Window");
+                    CaptureTarget target = new WindowTarget(title);
+                    tile.setOnMouseClicked(e -> {
+                        select(tile, new Selection.Concrete(target));
+                        if (e.getClickCount() == 2) close();
+                    });
+                    if (img != null) setThumb(tile, img);
+                    into.getChildren().add(tile);
+                });
+            }
+        });
+    }
+
+    /**
+     * Shown when no titled windows are enumerable. On GNOME/Wayland the X11 client list only sees XWayland
+     * (X11) apps — Wayland-native windows are invisible to us — so the grid can be legitimately empty.
+     */
+    private static Node emptyWindowsHint() {
+        boolean wayland = System.getenv("WAYLAND_DISPLAY") != null;
+        Label l = new Label(wayland
+                ? "No windows detected. On Wayland only X11/XWayland apps (e.g. many games via Proton) are\n"
+                        + "listed; native Wayland windows can't be enumerated. Use a Screen or the project default."
+                : "No windows detected. Open the app you want to capture, then press ↻ Refresh.");
+        l.setWrapText(true);
+        l.setStyle("-fx-text-fill: gray; -fx-font-size: 11px; -fx-padding: 6 2 2 2;");
+        return l;
+    }
+
+    private VBox tile(String name, String subtitle) {
+        StackPane thumbHolder = new StackPane();
+        thumbHolder.setMinSize(TILE_W, THUMB_H);
+        thumbHolder.setPrefSize(TILE_W, THUMB_H);
+        thumbHolder.setMaxSize(TILE_W, THUMB_H);
+        thumbHolder.setStyle("-fx-background-color: #101216; -fx-background-radius: 6;");
+        Label loading = new Label("…");
+        loading.setStyle("-fx-text-fill: #6b7280;");
+        thumbHolder.getChildren().add(loading);
+
+        Label nameLabel = new Label(name);
+        nameLabel.setMaxWidth(TILE_W);
+        nameLabel.setStyle("-fx-font-size: 12px; -fx-font-weight: bold;");
+        Label subLabel = new Label(subtitle);
+        subLabel.setStyle("-fx-font-size: 10px; -fx-text-fill: gray;");
+
+        VBox tile = new VBox(4, thumbHolder, nameLabel, subLabel);
+        tile.setPadding(new Insets(6));
+        tile.setMaxWidth(TILE_W + 12);
+        tile.getStyleClass().add("capture-tile");
+        tile.setStyle(tileStyle(false));
+        return tile;
+    }
+
+    private void setThumb(VBox tile, Image img) {
+        if (tile.getChildren().isEmpty() || !(tile.getChildren().get(0) instanceof StackPane holder)) return;
+        ImageView iv = new ImageView(img);
+        iv.setPreserveRatio(true);
+        iv.setFitWidth(TILE_W);
+        iv.setFitHeight(THUMB_H);
+        holder.getChildren().setAll(iv);
+    }
+
+    private void select(VBox tile, Selection sel) {
+        if (selectedTile != null) selectedTile.setStyle(tileStyle(false));
+        selectedTile = tile;
+        selected = sel;
+        tile.setStyle(tileStyle(true));
+    }
+
+    private static String tileStyle(boolean sel) {
+        String border = sel ? "#3498db" : "transparent";
+        return "-fx-background-radius: 8; -fx-border-radius: 8; -fx-border-width: 2; -fx-cursor: hand;"
+                + " -fx-border-color: " + border + ";"
+                + " -fx-background-color: " + (sel ? "rgba(52,152,219,0.10)" : "transparent") + ";";
+    }
+
+    // --- Capture helpers (best-effort) ---
+
+    private static BufferedImage captureMonitor(int index) {
+        try {
+            GraphicsDevice[] devices = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
+            Rectangle b = (index >= 0 && index < devices.length)
+                    ? devices[index].getDefaultConfiguration().getBounds()
+                    : GraphicsEnvironment.getLocalGraphicsEnvironment()
+                        .getDefaultScreenDevice().getDefaultConfiguration().getBounds();
+            return new Robot().createScreenCapture(b);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private synchronized ScheduledExecutorService thumbs() {
+        if (thumbExec == null || thumbExec.isShutdown()) {
+            thumbExec = Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "capture-picker-thumbs");
+                t.setDaemon(true);
+                return t;
+            });
+        }
+        return thumbExec;
+    }
+
+    private synchronized void stopThumbs() {
+        if (thumbExec != null) {
+            thumbExec.shutdownNow();
+            thumbExec = null;
+        }
+    }
+
+    private static Image toFxImage(BufferedImage image) {
+        if (image == null) return null;
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            ImageIO.write(image, "png", out);
+            return new Image(new ByteArrayInputStream(out.toByteArray()));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+}

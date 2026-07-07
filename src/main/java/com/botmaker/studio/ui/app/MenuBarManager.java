@@ -33,6 +33,7 @@ public class MenuBarManager {
     private MenuItem undoItem;
     private MenuItem redoItem;
     private MenuItem projectRepoItem;
+    private Runnable onOpenDebugDashboard;
     private String projectRepoUrl;
 
     /** GitHub repo of the Studio itself (opened from Help → BotMaker Studio on GitHub). */
@@ -242,13 +243,23 @@ public class MenuBarManager {
         ));
         resetZoomItem.setDisable(true); // Not implemented yet
 
+        MenuItem debugDashboardItem = new MenuItem("Open Debug Dashboard");
+        debugDashboardItem.setOnAction(e -> { if (onOpenDebugDashboard != null) onOpenDebugDashboard.run(); });
+
         viewMenu.getItems().addAll(
                 zoomInItem,
                 zoomOutItem,
-                resetZoomItem
+                resetZoomItem,
+                new SeparatorMenuItem(),
+                debugDashboardItem
         );
 
         return viewMenu;
+    }
+
+    /** Sets the action for View ▸ Open Debug Dashboard (starts the local telemetry dashboard server). */
+    public void setOnOpenDebugDashboard(Runnable callback) {
+        this.onOpenDebugDashboard = callback;
     }
 
 

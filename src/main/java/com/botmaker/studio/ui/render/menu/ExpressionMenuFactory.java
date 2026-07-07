@@ -3,6 +3,8 @@ package com.botmaker.studio.ui.render.menu;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.parser.ExpressionChoice;
 import com.botmaker.studio.project.ProjectState;
+import com.botmaker.studio.project.capture.CaptureTarget;
+import com.botmaker.studio.ui.app.capture.CaptureSourcePicker;
 import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.types.ResolvedType;
@@ -242,16 +244,23 @@ public final class ExpressionMenuFactory {
 
         String q = query == null ? "" : query.trim().toLowerCase();
 
+        // A CaptureSource / Window slot is picked visually (the SDK CaptureSource is an interface — it must not
+        // be offered a `new` constructor). Surface the picker at the top of both the search and categorized views.
+        boolean captureSlot = isCaptureSourceType(expectedType);
+
         // Active search: a flat, filtered list of the leaf quick picks — no submenus to dig through.
         if (!q.isEmpty()) {
             List<MenuItem> matches = collectSearchableLeaves(available, expectedType, context, contextNode, state, onSelect)
                     .stream()
                     .filter(mi -> mi.getText() != null && mi.getText().toLowerCase().contains(q))
                     .collect(Collectors.toList());
+            if (captureSlot && "choose capture source".contains(q)) matches.add(0, captureSourceItem(context, onSelect));
             if (matches.isEmpty()) menu.getItems().add(disabledItem("No matches"));
             else menu.getItems().addAll(matches);
             return;
         }
+
+        if (captureSlot) menu.getItems().add(captureSourceItem(context, onSelect));
 
         // Default: the categorized view (declaration order of ExpressionCategory is the display order).
         Map<ExpressionCategory, List<ExpressionType>> grouped = available.stream()
@@ -286,7 +295,7 @@ public final class ExpressionMenuFactory {
             } else if (expr == ExpressionCatalog.ENUM_CONSTANT && expectedType.isEnum()) {
                 Menu sub = specificEnumSubmenu(expectedType, onSelect);
                 if (sub != null) collectMenuLeaves(sub, leaves);
-            } else if (expr == ExpressionCatalog.INSTANTIATION && !expectedType.isUnknown() && state != null) {
+            } else if (expr == ExpressionCatalog.INSTANTIATION && !expectedType.isUnknown() && !isCaptureSourceType(expectedType) && state != null) {
                 for (MethodSignature sig : context.getProjectAnalyzer().getConstructors(expectedType.simpleName())) {
                     MenuItem item = new MenuItem("New " + sig);
                     item.setOnAction(e -> onSelect.accept(new ExpressionChoice.Constructor(expectedType.simpleName(), sig.paramTypes())));
@@ -338,7 +347,7 @@ public final class ExpressionMenuFactory {
                                                Consumer<Object> onSelect) {
         Menu subMenu = new Menu(cat.getLabel());
         for (ExpressionType expr : items) {
-            if (expr == ExpressionCatalog.INSTANTIATION && !expectedType.isUnknown() && state != null) {
+            if (expr == ExpressionCatalog.INSTANTIATION && !expectedType.isUnknown() && !isCaptureSourceType(expectedType) && state != null) {
                 for (MethodSignature sig : context.getProjectAnalyzer().getConstructors(expectedType.simpleName())) {
                     MenuItem item = new MenuItem("New " + sig);
                     item.setOnAction(e -> onSelect.accept(new ExpressionChoice.Constructor(expectedType.simpleName(), sig.paramTypes())));
@@ -530,6 +539,39 @@ public final class ExpressionMenuFactory {
         MenuItem item = new MenuItem(text);
         item.setDisable(true);
         return item;
+    }
+
+    /** True when a slot expects the SDK's {@code CaptureSource} (or a {@code Window} used as one). */
+    private static boolean isCaptureSourceType(ResolvedType expectedType) {
+        if (expectedType == null || expectedType.isUnknown()) return false;
+        String name = expectedType.leafType().simpleName();
+        return "CaptureSource".equals(name) || "Window".equals(name);
+    }
+
+    /** The "Choose capture source…" entry: opens the visual picker and emits the helper-call snippet. */
+    private static MenuItem captureSourceItem(CodeEditorService context, Consumer<Object> onSelect) {
+        MenuItem item = new MenuItem("🎯 Choose capture source…");
+        item.setOnAction(e -> new CaptureSourcePicker(null, true).showAndWait()
+                .ifPresent(sel -> onSelect.accept(new ExpressionChoice.RawExpression(captureSourceCode(context, sel)))));
+        return item;
+    }
+
+    /**
+     * Maps a picker {@link CaptureSourcePicker.Selection} to a fully-qualified generated-helper call, so it
+     * resolves from any file without import management: {@code com.<pkg>.BotConfig.defaultSource()} /
+     * {@code .window("…")} / {@code .screen(index)}.
+     */
+    private static String captureSourceCode(CodeEditorService context, CaptureSourcePicker.Selection sel) {
+        com.botmaker.studio.services.ProjectSettingsService.forProject(context).ensureBotConfig();
+        String botConfig = "com." + context.getConfig().packageName() + ".BotConfig";
+        return switch (sel) {
+            case CaptureSourcePicker.Selection.ProjectDefault ignored -> botConfig + ".defaultSource()";
+            case CaptureSourcePicker.Selection.Concrete c -> switch (c.target()) {
+                case CaptureTarget.ScreenTarget st -> botConfig + ".screen(" + st.index() + ")";
+                case CaptureTarget.WindowTarget wt -> botConfig + ".window(\""
+                        + wt.titleSubstring().replace("\\", "\\\\").replace("\"", "\\\"") + "\")";
+            };
+        };
     }
 
     /**
