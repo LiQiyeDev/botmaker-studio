@@ -16,7 +16,7 @@
         <!-- botmaker-shared version. Default 0.0.0-SNAPSHOT resolves the sibling module in the umbrella
              reactor; the umbrella release.sh bumps this to the released shared tag so a JitPack/standalone
              build resolves com.github.LiQiyeDev:botmaker-shared:<tag>. -->
-        <botmaker.shared.version>v0.0.1</botmaker.shared.version>
+        <botmaker.shared.version>0.0.0-SNAPSHOT</botmaker.shared.version>
         <!-- Numeric-only version for jpackage (rejects -SNAPSHOT / non-numeric versions). -->
         <app.version>1.0.5</app.version>
 
@@ -183,6 +183,33 @@
             <version>1.10.2</version>
             <scope>test</scope>
         </dependency>
+
+        <!-- Headless JavaFX UI testing. TestFX drives the real scene graph (real mouse/keyboard
+             events on real controls, assertions on rendered nodes); Monocle's Headless platform
+             runs it with NO X server / display, so the same tests pass on a laptop and in CI.
+             This is the automated counterpart to the manual testing/linux x11docker harness (which
+             exercises the native window layer in botmaker-shared that needs a real display server).
+             See src/test/java/com/botmaker/studio/ui/fx/FxHeadlessTest. -->
+        <dependency>
+            <groupId>org.testfx</groupId>
+            <artifactId>testfx-core</artifactId>
+            <version>4.0.18</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testfx</groupId>
+            <artifactId>testfx-junit5</artifactId>
+            <version>4.0.18</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testfx</groupId>
+            <artifactId>openjfx-monocle</artifactId>
+            <!-- 21.0.2 matches JavaFX 21; jdk-12.0.1+2's MonocleWindow lacks Window._updateViewSize(long)
+                 added in JavaFX 21-ea+17 → AbstractMethodError on stage.show() (TestFX/Monocle #97). -->
+            <version>21.0.2</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -234,6 +261,12 @@
                 <version>0.0.8</version>
                 <configuration>
                     <mainClass>com.botmaker.studio.BotMakerStudio</mainClass>
+                    <!-- Grant native access to the unnamed module so JavaFX's own System::load
+                         (glass native libs) doesn't print the "restricted method" warning at startup;
+                         also pre-empts the future release that blocks it outright. -->
+                    <options>
+                        <option>--enable-native-access=ALL-UNNAMED</option>
+                    </options>
                 </configuration>
             </plugin>
 
@@ -243,8 +276,26 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.2.5</version>
                 <configuration>
-                    <!-- JVM args translated from your Gradle test task -->
-                    <argLine>-Xmx6096m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=C:/Users/ben/heap-dump.hprof -verbose:gc</argLine>
+                    <!-- JVM args translated from your Gradle test task (heap-dump path made
+                         portable: lands under target/, so it works on Linux/macOS/Windows). -->
+                    <argLine>-Xmx6096m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=${project.build.directory} -verbose:gc
+                        --add-exports javafx.graphics/com.sun.glass.ui.monocle=ALL-UNNAMED
+                        --add-opens javafx.graphics/com.sun.glass.ui=ALL-UNNAMED
+                        --add-opens javafx.graphics/com.sun.glass.ui.monocle=ALL-UNNAMED
+                        --add-opens javafx.graphics/com.sun.javafx.application=ALL-UNNAMED</argLine>
+                    <!-- Run the JavaFX UI tests headless via Monocle: no X server / display needed.
+                         These are read at FX Toolkit init, so they must be set here (before the first
+                         ApplicationTest boots the FX runtime). FxHeadlessTest re-applies them in a
+                         static block as a fallback for IDE runs that bypass Surefire. -->
+                    <systemPropertyVariables>
+                        <testfx.robot>glass</testfx.robot>
+                        <testfx.headless>true</testfx.headless>
+                        <glass.platform>Monocle</glass.platform>
+                        <monocle.platform>Headless</monocle.platform>
+                        <prism.order>sw</prism.order>
+                        <prism.text>t2k</prism.text>
+                        <java.awt.headless>true</java.awt.headless>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
         </plugins>
@@ -331,6 +382,11 @@
                                     <input>${project.build.directory}/jpackage-input</input>
                                     <mainJar>${project.build.finalName}.jar</mainJar>
                                     <mainClass>com.botmaker.studio.Launcher</mainClass>
+                                    <!-- Same native-access grant as the dev-run plugin, so the
+                                         packaged app-image/installer launches without the warning. -->
+                                    <javaOptions>
+                                        <javaOption>--enable-native-access=ALL-UNNAMED</javaOption>
+                                    </javaOptions>
                                     <!-- Bundle the full build JDK (not a stripped JRE) so
                                          javac + jdk.jdi are available for user-bot compile/run/debug. -->
                                     <runtimeImage>${java.home}</runtimeImage>
@@ -355,6 +411,11 @@
                                     <input>${project.build.directory}/jpackage-input</input>
                                     <mainJar>${project.build.finalName}.jar</mainJar>
                                     <mainClass>com.botmaker.studio.Launcher</mainClass>
+                                    <!-- Same native-access grant as the dev-run plugin, so the
+                                         packaged app-image/installer launches without the warning. -->
+                                    <javaOptions>
+                                        <javaOption>--enable-native-access=ALL-UNNAMED</javaOption>
+                                    </javaOptions>
                                     <runtimeImage>${java.home}</runtimeImage>
                                     <destination>${project.build.directory}/dist</destination>
                                     <icon>${installer.icon}</icon>
@@ -374,6 +435,11 @@
                                     <input>${project.build.directory}/jpackage-input</input>
                                     <mainJar>${project.build.finalName}.jar</mainJar>
                                     <mainClass>com.botmaker.studio.Launcher</mainClass>
+                                    <!-- Same native-access grant as the dev-run plugin, so the
+                                         packaged app-image/installer launches without the warning. -->
+                                    <javaOptions>
+                                        <javaOption>--enable-native-access=ALL-UNNAMED</javaOption>
+                                    </javaOptions>
                                     <runtimeImage>${java.home}</runtimeImage>
                                     <destination>${project.build.directory}/dist</destination>
                                     <icon>${installer.icon}</icon>
@@ -394,6 +460,11 @@
                                     <input>${project.build.directory}/jpackage-input</input>
                                     <mainJar>${project.build.finalName}.jar</mainJar>
                                     <mainClass>com.botmaker.studio.Launcher</mainClass>
+                                    <!-- Same native-access grant as the dev-run plugin, so the
+                                         packaged app-image/installer launches without the warning. -->
+                                    <javaOptions>
+                                        <javaOption>--enable-native-access=ALL-UNNAMED</javaOption>
+                                    </javaOptions>
                                     <runtimeImage>${java.home}</runtimeImage>
                                     <destination>${project.build.directory}/dist</destination>
                                     <icon>${installer.icon}</icon>

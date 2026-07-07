@@ -1,5 +1,7 @@
 package com.botmaker.studio.services;
 
+import com.botmaker.shared.ipc.IpcEnv;
+import com.botmaker.shared.ipc.TelemetryServer;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.config.Constants;
 import com.botmaker.studio.core.CodeBlock;
@@ -50,6 +52,19 @@ public class DebuggingService {
     private VirtualMachine vm;
     private ThreadReference currentDebugThread;
     private Map<Integer, CodeBlock> lineToBlockMap;
+    private volatile TelemetryServer telemetryServer;
+
+    // "Follow" (trace) mode: attach like debug but auto-resume past every block, highlighting each live.
+    private volatile boolean traceMode;
+
+    // Highlight throttle (trace mode only). The JDI side resumes immediately; highlight repaints are
+    // coalesced to at most one every HIGHLIGHT_THROTTLE_MS (trailing edge), so a tight loop pulses softly
+    // instead of strobing. Mirrors the coalescing pattern in CodeExecutionService's activeUiUpdater.
+    private static final long HIGHLIGHT_THROTTLE_MS = 130;
+    private volatile CodeBlock pendingHighlight;
+    private final java.util.concurrent.atomic.AtomicBoolean flushScheduled =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+    private java.util.concurrent.ScheduledExecutorService highlightScheduler;
 
     public DebuggingService(
             ProjectState state,
@@ -67,7 +82,8 @@ public class DebuggingService {
     private void setupEventHandlers() {
         eventBus.subscribe(CoreApplicationEvents.DebugControlRequest.class, e -> {
             switch (e) {
-                case CoreApplicationEvents.DebugStartRequestedEvent ignored -> startDebugging();
+                case CoreApplicationEvents.DebugStartRequestedEvent ignored -> startDebugging(false);
+                case CoreApplicationEvents.FollowStartRequestedEvent ignored -> startDebugging(true);
                 case CoreApplicationEvents.DebugStepOverRequestedEvent ignored -> stepOver();
                 case CoreApplicationEvents.DebugContinueRequestedEvent ignored -> continueExecution();
                 case CoreApplicationEvents.DebugStopRequestedEvent ignored -> stopDebugging();
@@ -107,9 +123,12 @@ public class DebuggingService {
     }
 
     /**
-     * Kicks off the debugging session on a separate thread.
+     * Kicks off a debug ({@code trace=false}) or follow/trace ({@code trace=true}) session on a
+     * separate thread. In trace mode user breakpoints are ignored and every mapped block is observed
+     * and immediately resumed, so execution is followed live without ever pausing.
      */
-    public void startDebugging() {
+    public void startDebugging(boolean trace) {
+        this.traceMode = trace;
         new Thread(() -> {
             try {
                 String code = state.getCurrentCode();
@@ -140,14 +159,18 @@ public class DebuggingService {
                         if (!lineToBlockMap.containsKey(line) || block instanceof StatementBlock) {
                             lineToBlockMap.put(line, block);
                         }
-                        if (block.isBreakpoint()) {
+                        // Trace mode ignores user breakpoints (following never stops); collect them only for debug.
+                        if (!trace && block.isBreakpoint()) {
                             activeBreakpointLines.add(line);
                         }
                     }
                 }
 
-                // If no breakpoints, add one at start so it doesn't just run to finish immediately
-                if (activeBreakpointLines.isEmpty() && !lineToBlockMap.isEmpty()) {
+                if (trace) {
+                    // Follow mode: observe EVERY mapped line so each executed block is highlighted, then resumed.
+                    activeBreakpointLines.addAll(lineToBlockMap.keySet());
+                } else if (activeBreakpointLines.isEmpty() && !lineToBlockMap.isEmpty()) {
+                    // If no breakpoints, add one at start so it doesn't just run to finish immediately
                     lineToBlockMap.keySet().stream().min(Integer::compareTo).ifPresent(firstLine -> {
                         activeBreakpointLines.add(firstLine);
                         eventBus.publish(new CoreApplicationEvents.StatusMessageEvent("No breakpoints set. Pausing at start (Line " + firstLine + ")."));
@@ -192,6 +215,7 @@ public class DebuggingService {
                         "-cp", fullClassPath.toString(),
                         className
                 );
+                startTelemetry(pb);
                 this.currentProcess = pb.start();
 
                 // Redirect output to UI
@@ -279,7 +303,8 @@ public class DebuggingService {
                     }
                     else if (event instanceof LocatableEvent) {
                         handleLocatableEvent((LocatableEvent) event);
-                        shouldResume = false;
+                        // Trace mode never pauses: fall through to eventSet.resume() and keep following.
+                        if (!traceMode) shouldResume = false;
                     }
                 }
 
@@ -322,15 +347,81 @@ public class DebuggingService {
         CodeBlock block = lineToBlockMap.get(lineNumber);
         CodeBlock target = (block != null) ? block.getHighlightTarget() : null;
 
+        if (traceMode) {
+            // Follow mode: highlight the block (throttled), never pause the UI. The event loop resumes.
+            scheduleHighlight(target);
+            return;
+        }
+
         eventBus.publish(new CoreApplicationEvents.DebugSessionPausedEvent(lineNumber, target));
         eventBus.publish(new CoreApplicationEvents.BlockHighlightEvent(target));
         eventBus.publish(new CoreApplicationEvents.StatusMessageEvent("Paused at line: " + lineNumber));
+    }
+
+    /**
+     * Coalesces highlight repaints in trace mode: keeps only the latest target and publishes a single
+     * {@link CoreApplicationEvents.BlockHighlightEvent} per {@link #HIGHLIGHT_THROTTLE_MS} (trailing edge),
+     * so a hot loop pulses softly instead of strobing. The JDI side has already resumed by the time this fires.
+     */
+    private void scheduleHighlight(CodeBlock target) {
+        this.pendingHighlight = target;
+        if (flushScheduled.compareAndSet(false, true)) {
+            highlightScheduler().schedule(() -> {
+                CodeBlock latest = this.pendingHighlight;
+                flushScheduled.set(false);
+                Platform.runLater(() -> eventBus.publish(new CoreApplicationEvents.BlockHighlightEvent(latest)));
+            }, HIGHLIGHT_THROTTLE_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
+        }
+    }
+
+    /** Starts the loopback telemetry server for the preview panel and passes port+token to the debuggee. */
+    private void startTelemetry(ProcessBuilder pb) {
+        stopTelemetry();
+        try {
+            String token = java.util.UUID.randomUUID().toString();
+            TelemetryServer server = new TelemetryServer(token, feedback ->
+                    Platform.runLater(() -> eventBus.publish(new CoreApplicationEvents.ViewFeedbackEvent(feedback))));
+            this.telemetryServer = server;
+            pb.environment().put(IpcEnv.PORT, String.valueOf(server.port()));
+            pb.environment().put(IpcEnv.TOKEN, token);
+        } catch (IOException e) {
+            System.err.println("Telemetry server failed to start: " + e.getMessage());
+        }
+    }
+
+    private void stopTelemetry() {
+        TelemetryServer server = telemetryServer;
+        if (server != null) {
+            server.close();
+            telemetryServer = null;
+        }
+    }
+
+    private synchronized java.util.concurrent.ScheduledExecutorService highlightScheduler() {
+        if (highlightScheduler == null || highlightScheduler.isShutdown()) {
+            highlightScheduler = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "follow-highlight-throttle");
+                t.setDaemon(true);
+                return t;
+            });
+        }
+        return highlightScheduler;
     }
 
     private void handleDisconnect() {
         this.currentDebugThread = null;
         this.vm = null;
         this.currentProcess = null;
+
+        synchronized (this) {
+            if (highlightScheduler != null) {
+                highlightScheduler.shutdownNow();
+                highlightScheduler = null;
+            }
+        }
+        flushScheduled.set(false);
+        pendingHighlight = null;
+        stopTelemetry();
 
         eventBus.publish(new CoreApplicationEvents.DebugSessionFinishedEvent());
         eventBus.publish(new CoreApplicationEvents.StatusMessageEvent("Debug session finished."));

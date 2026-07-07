@@ -33,9 +33,6 @@ public class BotMakerStudio extends Application {
     /** The primary window, kept for owning dialogs. */
     private Stage primaryStage;
 
-    /** Whether the window should start maximized (restored/default), applied after the scene is shown. */
-    private boolean startMaximized;
-
     @Override
     public void start(Stage primaryStage) {
         this.primaryStage = primaryStage;
@@ -61,20 +58,17 @@ public class BotMakerStudio extends Application {
         primaryStage.setScene(selectionScreen.createScene());
         primaryStage.setTitle("BotMaker - Select Project");
         primaryStage.show();
-        applyMaximizedState(primaryStage);
+        requestSceneLayout(primaryStage);
     }
 
     /**
-     * Applies the restored/default maximized state after the real scene is shown, then forces a
-     * layout pass so the content fills the maximized bounds. Maximizing a scene-less stage (as the
-     * old {@code configureWindow} did) leaves the content sized to the intrinsic scene until a
-     * manual resize — this is the fix for that black-border-on-startup bug.
+     * Forces a layout pass once the real scene is shown, so the content fills the (explicitly sized) stage.
+     * The stage is already given concrete bounds in {@link #configureWindow} before {@code show()}, so this
+     * is just a belt-and-suspenders relayout — no {@code setMaximized} here (see {@code configureWindow} for
+     * why the startup fill is done with explicit bounds rather than the WM's async maximize).
      */
-    private void applyMaximizedState(Stage stage) {
+    private void requestSceneLayout(Stage stage) {
         Platform.runLater(() -> {
-            if (startMaximized) {
-                stage.setMaximized(true);
-            }
             if (stage.getScene() != null && stage.getScene().getRoot() != null) {
                 stage.getScene().getRoot().requestLayout();
             }
@@ -101,7 +95,7 @@ public class BotMakerStudio extends Application {
         primaryStage.setScene(createLoadingScene(projectName, statusLabel));
         primaryStage.setTitle("BotMaker - Opening " + projectName + "…");
         primaryStage.show();
-        applyMaximizedState(primaryStage);
+        requestSceneLayout(primaryStage);
 
         // 4. Run BotProject.open() on a background thread; its progress messages feed the status label.
         Task<BotProject> openTask = new Task<>() {
@@ -147,7 +141,7 @@ public class BotMakerStudio extends Application {
             });
 
             primaryStage.show();
-            applyMaximizedState(primaryStage);
+            requestSceneLayout(primaryStage);
         } catch (Exception e) {
             e.printStackTrace();
             showErrorDialog("Error opening project: " + e.getMessage());
@@ -221,37 +215,50 @@ public class BotMakerStudio extends Application {
      * Missing rasters are skipped so a fresh checkout without generated PNGs still launches.
      */
     /**
-     * Restores the last window geometry (or a sensible large default) and starts maximized, then keeps both in
-     * sync with {@link ProjectPreferences}. Setting an explicit restored size means un-maximizing (or a
-     * window-manager restore when a dialog opens) returns to a large window, not the small intrinsic scene size —
-     * which is what made popups shrink the app to the top-left quarter of the screen.
+     * Sizes the window at startup and keeps its geometry synced with {@link ProjectPreferences}.
+     *
+     * <p>The default (fresh install, or a previous session left "maximized") is to <em>fill the usable
+     * screen</em> by setting explicit bounds to the primary screen's visual bounds — deliberately <em>not</em>
+     * {@code stage.setMaximized(true)}. On GTK/X11 a maximize is applied asynchronously by the window manager
+     * after {@code show()}, so the scene is laid out at the pre-maximize size (a black border between content
+     * and frame until a manual resize), the window visibly jumps, and the first maximize toggle is frequently
+     * dropped (the "have to click twice to expand" symptom). An explicit fill is deterministic and paints
+     * correctly on the first frame. A user's explicitly-saved <em>restored</em> (non-maximized) size still wins.
      */
     private void configureWindow(Stage stage) {
         javafx.geometry.Rectangle2D vb = javafx.stage.Screen.getPrimary().getVisualBounds();
         ProjectPreferences.WindowState saved = ProjectPreferences.loadWindowState();
 
+        // The restored (non-maximized) geometry we persist and fall back to; a large inset window by default.
         ProjectPreferences.WindowState state = (saved != null && saved.isUsable())
                 ? saved
                 : new ProjectPreferences.WindowState(
                         vb.getMinX() + vb.getWidth() * 0.05, vb.getMinY() + vb.getHeight() * 0.05,
                         vb.getWidth() * 0.9, vb.getHeight() * 0.9, true);
 
-        stage.setX(state.getX());
-        stage.setY(state.getY());
-        stage.setWidth(state.getWidth());
-        stage.setHeight(state.getHeight());
-        // Don't maximize here: the stage has no scene yet, so maximizing now lays content out at its
-        // intrinsic scene size, leaving a black border until a manual resize. Deferred to
-        // applyMaximizedState(), called once the real scene is shown.
-        this.startMaximized = (saved == null || saved.isMaximized());
+        boolean fill = (saved == null || !saved.isUsable() || saved.isMaximized());
+        if (fill) {
+            stage.setX(vb.getMinX());
+            stage.setY(vb.getMinY());
+            stage.setWidth(vb.getWidth());
+            stage.setHeight(vb.getHeight());
+        } else {
+            stage.setX(state.getX());
+            stage.setY(state.getY());
+            stage.setWidth(state.getWidth());
+            stage.setHeight(state.getHeight());
+        }
 
-        // Track the restored (non-maximized) geometry so we persist a usable size, never the maximized bounds.
+        // Track the actual (non-maximized) geometry so we persist a usable size, never the maximized bounds.
+        // Any such change (user resize/move, or our startup fill) also clears the "maximized" flag, so a filled
+        // window the user later resizes is restored at that size next launch instead of re-filling the screen.
         javafx.beans.value.ChangeListener<Number> geom = (obs, o, n) -> {
             if (!stage.isMaximized()) {
                 state.setX(stage.getX());
                 state.setY(stage.getY());
                 state.setWidth(stage.getWidth());
                 state.setHeight(stage.getHeight());
+                state.setMaximized(false);
             }
         };
         stage.xProperty().addListener(geom);

@@ -1,5 +1,7 @@
 package com.botmaker.studio.runtime;
 
+import com.botmaker.shared.ipc.IpcEnv;
+import com.botmaker.shared.ipc.TelemetryServer;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
@@ -33,6 +35,7 @@ public class CodeExecutionService {
 
     private volatile Process currentRunningProcess;
     private volatile ScheduledExecutorService activeUiUpdater;
+    private volatile TelemetryServer telemetryServer;
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
 
     private static final int MAX_UI_BUFFER_SIZE = 4096;
@@ -110,6 +113,7 @@ public class CodeExecutionService {
                         config.mainClassName())
                         .directory(config.projectPath().toFile());
 
+                startTelemetry(pb);
                 currentRunningProcess = pb.start();
 
                 OutputPump pump = startProcessOutputReaders(currentRunningProcess);
@@ -135,6 +139,7 @@ public class CodeExecutionService {
                 isRunning.set(false);
                 currentRunningProcess = null;
                 stopUiUpdater();
+                stopTelemetry();
                 // Tell UI the program has finished so the Stop button disables.
                 eventBus.publish(new CoreApplicationEvents.ProgramStoppedEvent());
             }
@@ -220,9 +225,37 @@ public class CodeExecutionService {
             currentRunningProcess.descendants().forEach(ProcessHandle::destroyForcibly);
         }
         stopUiUpdater();
+        stopTelemetry();
         // Force state update immediately on hard kill
         isRunning.set(false);
         eventBus.publish(new CoreApplicationEvents.ProgramStoppedEvent());
+    }
+
+    /**
+     * Starts the loopback telemetry server (for the live window-preview panel) and passes its ephemeral port
+     * + a random session token to the bot via environment. Best-effort: if it fails to bind, the bot still
+     * runs, just without a preview (and the SDK opens no socket when the env vars are absent).
+     */
+    private void startTelemetry(ProcessBuilder pb) {
+        stopTelemetry();
+        try {
+            String token = java.util.UUID.randomUUID().toString();
+            TelemetryServer server = new TelemetryServer(token, feedback ->
+                    Platform.runLater(() -> eventBus.publish(new CoreApplicationEvents.ViewFeedbackEvent(feedback))));
+            this.telemetryServer = server;
+            pb.environment().put(IpcEnv.PORT, String.valueOf(server.port()));
+            pb.environment().put(IpcEnv.TOKEN, token);
+        } catch (IOException e) {
+            System.err.println("Telemetry server failed to start: " + e.getMessage());
+        }
+    }
+
+    private void stopTelemetry() {
+        TelemetryServer server = telemetryServer;
+        if (server != null) {
+            server.close();
+            telemetryServer = null;
+        }
     }
 
     private void stopUiUpdater() {

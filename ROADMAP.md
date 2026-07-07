@@ -6,6 +6,65 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-07 — Auto-list local SDK dev builds in the version pickers.** `MavenService.localSdkVersions()`
+  scans `~/.m2/.../botmaker-sdk/` for installed `*-SNAPSHOT` builds (jar present, newest first). Both pickers
+  surface them at the top: the New Project combo (`ProjectSelectionScreen`, labeled `(local build)` via a
+  cell factory, preselected when present) and the SDK row in `ManageLibrariesDialog`. Removes the old "type
+  `local-SNAPSHOT` by hand" step — these versions never appear in JitPack's tag list. Pairs with the SDK
+  `dev-install.sh` fix that routes a local SDK build to the local `botmaker-shared` build.
+
+- **2026-07-07 — Deterministic startup window fill (fixes black border / jump / click-twice on GTK).**
+  `BotMakerStudio.configureWindow` now fills the primary screen's visual bounds with explicit stage bounds
+  instead of a post-`show()` `Platform.runLater(stage.setMaximized(true))`. On GTK/X11 the WM applied the
+  maximize asynchronously, so the scene laid out at the pre-maximize size (black border), the window jumped,
+  and the first maximize toggle was often dropped ("click twice to expand"). Explicit bounds paint correctly
+  on the first frame. A user's saved non-maximized size still wins; the geometry listener now clears the
+  maximized flag on any manual resize so a filled-then-resized window is restored at that size, not re-filled.
+
+- **2026-07-07 — Live window-preview panel + telemetry IPC server.** A new bottom-left panel
+  (`ui/app/WindowPreviewManager`, under the File Explorer in a vertical `SplitPane`) shows a live capture of
+  the bot's target window/screen with overlays where the vision/interaction functions acted (green/red match
+  rect, click crosshair, faint search region; overlays linger ~1.2s then fade). Fed by a new
+  `ViewFeedbackEvent` republished from the `com.botmaker.shared.ipc` `TelemetryServer`, which
+  `CodeExecutionService` (run) and `DebuggingService` (debug/trace) start before launch and hand to the bot
+  via `BM_IPC_PORT`/`BM_IPC_TOKEN` env; closed on stop. Capture is non-intrusive — grabs the target window
+  via the shared native controller *without* focusing it, on a ~6fps timer while running, so it never
+  disturbs the bot. `BM-INPUT` stays on stdout unchanged. Requires the SDK observer-emit half (see the SDK
+  ROADMAP). End-to-end env auto-install verified across two real JVMs; the on-screen overlays are the manual
+  (display-dependent) check via `dev-install.sh` + a stub bot.
+
+- **2026-07-07 — Follow execution (live trace highlight).** New "👁 Follow" toolbar button
+  (`ToolbarManager`) + `FollowStartRequestedEvent` (in the `DebugControlRequest` family). `DebuggingService`
+  gained a trace mode (`startDebugging(boolean trace)`): it attaches JDI like debug but installs breakpoints
+  on *every* mapped line, ignores user breakpoints, and in `handleLocatableEvent` highlights the block and
+  immediately resumes (never fires `DebugSessionPausedEvent`). Highlight repaints are coalesced to one per
+  130 ms (trailing edge, `scheduleHighlight`) so a tight loop pulses instead of strobing. Note: JavaFX 21 CSS
+  has no `transition`, so the throttle — not a CSS fade — is what smooths the highlight.
+
+- **2026-07-07 — Silence the native-access startup warning.** Added
+  `--enable-native-access=ALL-UNNAMED` to both launch paths in `pom.xml`: the `javafx-maven-plugin`
+  `<options>` (dev `mvn javafx:run`) and every `jpackage-maven-plugin` execution's `<javaOptions>`
+  (packaged app-image/deb/rpm/msi). Stops JavaFX's `System::load` (glass native libs) "restricted method"
+  warning and pre-empts the future JDK release that blocks it. Backlog: the remaining two JFX-21-internal
+  warnings (Marlin `sun.misc.Unsafe::allocateMemory`, classpath "unnamed module") are only cleared by a
+  JavaFX 21→25 upgrade — deferred.
+
+- **2026-07-07 — UI interaction map + interaction tests.** New `docs/INTERACTION-MAP.md` catalogues every
+  user interaction with its node hooks (style classes / text / titles) and headless-vs-native testability —
+  the source of truth for what `ui/fx/` should cover. Added 12 headless interaction tests: `StatementMenuTest`
+  (statement-menu search/filter + item→callback wiring), `SeparatorInsertButtonTest` (the "+" hover→visibility→
+  menu state machine — the fragile area behind the reported statement-menu issue), `ToolbarInteractionTest`
+  (buttons publish the right `EventBus` events; Run/Stop enablement tracks run state). Deferred: block-reorder
+  at the event layer, per-block context menu, create-project name validation, tab auto-switch / global shortcuts.
+- **2026-07-07 — Headless automated UI tests (TestFX + Monocle).** Studio's JavaFX layer is now
+  testable with no X server / display: TestFX drives the real scene graph, run on Monocle's `Headless`
+  platform. New `src/test/java/com/botmaker/studio/ui/fx/`: `FxHeadlessTest` (base), `FxHarnessSmokeTest`
+  (proves the headless robot end-to-end) and `ProjectSelectionScreenSmokeTest` (renders the real startup
+  screen and asserts its controls). Wiring in `pom.xml`: `testfx-core`/`testfx-junit5`/`openjfx-monocle`
+  test deps + Surefire `systemPropertyVariables` (Monocle headless) and the JavaFX 17+ `--add-exports`/
+  `--add-opens` the robot needs; also fixed a hardcoded Windows heap-dump path in `argLine`. Complements
+  the manual `testing/linux` x11docker harness, which stays the way to test the `botmaker-shared` native
+  X11/Wayland window layer (not reachable headless).
 - **2026-07-06 — SDK docs from the sources jar + vision-block overhaul.** Studio now reads the SDK's real
   Javadoc + parameter names at runtime by resolving `botmaker-sdk:<version>:sources` via Aether and parsing it
   with Eclipse JDT (`index/SdkDocsParser` → `palette/SdkDocs`, owned per-project by `services/SdkDocsService`,

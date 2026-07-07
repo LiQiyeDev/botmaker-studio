@@ -434,11 +434,19 @@ public class ProjectSelectionScreen {
         ComboBox<String> sdkVersionCombo = new ComboBox<>();
         sdkVersionCombo.setEditable(true);
         sdkVersionCombo.setMaxWidth(Double.MAX_VALUE);
-        // Seed with the fallback so the field is never empty (and works offline); the JitPack fetch then
-        // replaces the list with the real versions and preselects the latest.
-        sdkVersionCombo.getItems().add(MavenService.SDK_FALLBACK_VERSION);
-        sdkVersionCombo.setValue(MavenService.SDK_FALLBACK_VERSION);
-        loadSdkVersions(sdkVersionCombo);
+        // Render locally-installed dev builds with a " (local build)" hint, keeping the raw version as the value.
+        List<String> localVersions = MavenService.localSdkVersions();
+        decorateLocalBuilds(sdkVersionCombo, localVersions);
+        // Seed synchronously so the field is never empty and works offline: any local dev build first (so a
+        // dev-installed SDK is the default), else the fallback. The JitPack fetch then appends the real versions.
+        if (!localVersions.isEmpty()) {
+            sdkVersionCombo.getItems().addAll(localVersions);
+            sdkVersionCombo.setValue(localVersions.get(0));
+        } else {
+            sdkVersionCombo.getItems().add(MavenService.SDK_FALLBACK_VERSION);
+            sdkVersionCombo.setValue(MavenService.SDK_FALLBACK_VERSION);
+        }
+        loadSdkVersions(sdkVersionCombo, localVersions);
 
         content.getChildren().addAll(
                 new Label("Project Name:"),
@@ -487,18 +495,33 @@ public class ProjectSelectionScreen {
         result.ifPresent(req -> createProject(req.projectName(), req.sdkVersion()));
     }
 
-    /** Replaces the combo's items with the JitPack versions and preselects the latest (keeps the seeded
-     * fallback if the fetch returns nothing, e.g. offline). */
-    private void loadSdkVersions(ComboBox<String> combo) {
+    /** Replaces the combo's items with the local dev builds (top) + JitPack versions. Preselects a local
+     * build when present (dev testing is the intent), else the newest JitPack tag. Keeps the seeded values
+     * if the fetch returns nothing, e.g. offline. */
+    private void loadSdkVersions(ComboBox<String> combo, List<String> localVersions) {
         jitPackSearch.fetchVersions(MavenService.SDK_GROUP_ID, MavenService.SDK_ARTIFACT_ID)
                 .thenAccept(versions -> Platform.runLater(() -> {
-                    if (versions.isEmpty()) return; // keep the pre-seeded fallback
-                    List<String> items = new java.util.ArrayList<>(versions.size() + 1);
+                    if (versions.isEmpty()) return; // keep the pre-seeded local build / fallback
+                    List<String> items = new java.util.ArrayList<>(localVersions.size() + versions.size() + 1);
+                    items.addAll(localVersions); // local dev builds first, so they're one click away
                     items.add(SDK_VERSION_LATEST);
                     items.addAll(versions);
                     combo.getItems().setAll(items);
-                    combo.setValue(versions.get(0)); // newest first
+                    combo.setValue(localVersions.isEmpty() ? versions.get(0) : localVersions.get(0));
                 }));
+    }
+
+    /** Renders {@code localVersions} entries with a " (local build)" suffix in the dropdown while keeping the
+     * raw version string as the committed value (the generated pom needs the bare version). */
+    private static void decorateLocalBuilds(ComboBox<String> combo, List<String> localVersions) {
+        if (localVersions.isEmpty()) return;
+        combo.setCellFactory(list -> new javafx.scene.control.ListCell<>() {
+            @Override protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null
+                        : localVersions.contains(item) ? item + "  (local build)" : item);
+            }
+        });
     }
 
     /** Result of the create-project dialog. */

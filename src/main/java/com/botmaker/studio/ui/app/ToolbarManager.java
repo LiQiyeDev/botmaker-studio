@@ -13,7 +13,7 @@ public class ToolbarManager {
     private final EventBus eventBus;
     // Controls
     private Button undoButton, redoButton;
-    private Button runButton, debugButton, unifiedStopButton;
+    private Button runButton, debugButton, followButton, unifiedStopButton;
     private Button stepOverButton, continueButton;
 
     /** Opens the Manage Capture Targets dialog; wired by {@link UIManager}. */
@@ -101,6 +101,11 @@ public class ToolbarManager {
         debugButton.getStyleClass().addAll("toolbar-btn", "btn-debug");
         debugButton.setOnAction(e -> eventBus.publish(new CoreApplicationEvents.DebugStartRequestedEvent()));
 
+        followButton = new Button("👁 Follow");
+        followButton.getStyleClass().addAll("toolbar-btn", "btn-follow");
+        followButton.setTooltip(new Tooltip("Run and highlight each executing block live (never pauses at breakpoints)"));
+        followButton.setOnAction(e -> eventBus.publish(new CoreApplicationEvents.FollowStartRequestedEvent()));
+
         unifiedStopButton = new Button("⏹ Stop");
         unifiedStopButton.getStyleClass().addAll("toolbar-btn", "btn-stop");
         unifiedStopButton.setDisable(true);
@@ -117,7 +122,7 @@ public class ToolbarManager {
         continueButton.setDisable(true);
         continueButton.setOnAction(e -> eventBus.publish(new CoreApplicationEvents.DebugContinueRequestedEvent()));
 
-        HBox group = new HBox(5, runButton, debugButton, unifiedStopButton, stepOverButton, continueButton);
+        HBox group = new HBox(5, runButton, debugButton, followButton, unifiedStopButton, stepOverButton, continueButton);
         group.setAlignment(Pos.CENTER_RIGHT);
         return group;
     }
@@ -131,6 +136,7 @@ public class ToolbarManager {
         boolean isBusy = (currentAppState != AppState.IDLE);
         runButton.setDisable(isBusy);
         debugButton.setDisable(isBusy);
+        followButton.setDisable(isBusy);
         unifiedStopButton.setDisable(!isBusy);
 
         if (currentAppState == AppState.DEBUGGING) {

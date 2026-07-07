@@ -198,9 +198,14 @@ public class ManageLibrariesDialog {
             CompletableFuture<List<String>> future = lib.groupId().startsWith("com.github.")
                     ? jitpack.fetchVersions(lib.groupId(), lib.artifactId())
                     : search.fetchVersions(lib.groupId(), lib.artifactId(), VERSION_LIMIT);
+            boolean isSdk = MavenService.SDK_GROUP_ID.equals(lib.groupId())
+                    && MavenService.SDK_ARTIFACT_ID.equals(lib.artifactId());
+            List<String> localSdk = isSdk ? MavenService.localSdkVersions() : List.of();
             future.thenAccept(versions -> Platform.runLater(() -> {
                 loading = true;
-                combo.getItems().setAll(withLatest(versions));
+                List<String> items = new java.util.ArrayList<>(localSdk); // local dev builds first, if any
+                items.addAll(withLatest(versions));
+                combo.getItems().setAll(items);
                 if (current != null && !current.isBlank()) combo.setValue(current);
                 loading = false;
             }));

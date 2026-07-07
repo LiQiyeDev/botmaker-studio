@@ -32,6 +32,7 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -65,6 +66,41 @@ public final class MavenService {
     public static final String SDK_ARTIFACT_ID = "botmaker-sdk";
     /** Version used for the SDK when none is supplied / JitPack is unreachable. */
     public static final String SDK_FALLBACK_VERSION = "1.0.7";
+
+    /**
+     * Locally-installed SDK dev builds found in {@code ~/.m2} (e.g. {@code local-SNAPSHOT} produced by
+     * {@code botmaker-sdk/dev-install.sh}), newest first. These never appear in JitPack's tag list, so the
+     * version pickers surface them from here — a developer picks the local build instead of typing it. A bot
+     * pinned to such a version resolves it from {@code ~/.m2} ahead of JitPack (see {@link #resolveClasspath}).
+     *
+     * <p>Best-effort: returns an empty list on any IO error or when nothing is installed (the common user case).
+     */
+    public static List<String> localSdkVersions() {
+        Path sdkDir = Path.of(System.getProperty("user.home"), ".m2", "repository",
+                SDK_GROUP_ID.replace('.', '/'), SDK_ARTIFACT_ID);
+        if (!Files.isDirectory(sdkDir)) return List.of();
+        try (var entries = Files.list(sdkDir)) {
+            return entries
+                    .filter(Files::isDirectory)
+                    // Only dev builds (SNAPSHOTs), and only if the jar is actually present.
+                    .filter(dir -> dir.getFileName().toString().contains("SNAPSHOT"))
+                    .filter(dir -> Files.exists(dir.resolve(
+                            SDK_ARTIFACT_ID + "-" + dir.getFileName() + ".jar")))
+                    .sorted(Comparator.comparingLong(MavenService::lastModifiedMillis).reversed())
+                    .map(dir -> dir.getFileName().toString())
+                    .collect(Collectors.toList());
+        } catch (IOException e) {
+            return List.of();
+        }
+    }
+
+    private static long lastModifiedMillis(Path p) {
+        try {
+            return Files.getLastModifiedTime(p).toMillis();
+        } catch (IOException e) {
+            return 0L;
+        }
+    }
 
     /** Dependencies every generated project gets (mirrors the old build.gradle). */
     private record Dep(String groupId, String artifactId, String version, String scope) {}

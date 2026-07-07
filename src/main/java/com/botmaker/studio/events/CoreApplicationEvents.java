@@ -72,6 +72,12 @@ public class CoreApplicationEvents {
     public record OutputAppendedEvent(String text) implements ApplicationEvent {}
     public record OutputClearedEvent() implements ApplicationEvent {}
 
+    /**
+     * A decoded telemetry frame from the running bot (a template match / click / search region), republished
+     * from the {@code com.botmaker.shared.ipc} server for the live window-preview panel to draw as an overlay.
+     */
+    public record ViewFeedbackEvent(com.botmaker.shared.ipc.TelemetryEvent feedback) implements ApplicationEvent {}
+
     /** Published when the running program signals it is blocking on stdin; {@code type} is e.g. {@code int}. */
     public record InputRequestedEvent(String type) implements ApplicationEvent {}
     /** Published by the UI to deliver a line of input to the running program's stdin. */
@@ -99,10 +105,15 @@ public class CoreApplicationEvents {
     // --- Debug control requests (user-initiated). Subscribe to the family to receive all. ---
 
     public sealed interface DebugControlRequest extends ApplicationEvent
-            permits DebugStartRequestedEvent, DebugStepOverRequestedEvent,
+            permits DebugStartRequestedEvent, FollowStartRequestedEvent, DebugStepOverRequestedEvent,
                     DebugContinueRequestedEvent, DebugStopRequestedEvent {}
 
     public record DebugStartRequestedEvent() implements DebugControlRequest {}
+    /**
+     * Request to launch in "follow" (trace) mode: attach like debug but auto-resume past every executed
+     * block, highlighting each live and never pausing at breakpoints. Handled by {@code DebuggingService}.
+     */
+    public record FollowStartRequestedEvent() implements DebugControlRequest {}
     public record DebugStepOverRequestedEvent() implements DebugControlRequest {}
     public record DebugContinueRequestedEvent() implements DebugControlRequest {}
     public record DebugStopRequestedEvent() implements DebugControlRequest {}

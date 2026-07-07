@@ -55,6 +55,7 @@ public class UIManager {
     private final EventLogManager eventLogManager;
     private final MenuBarManager menuBarManager;
     private final FileExplorerManager fileExplorerManager;
+    private final WindowPreviewManager windowPreviewManager;
 
     private VBox blocksContainer;
     private Label statusLabel;
@@ -119,6 +120,7 @@ public class UIManager {
         this.menuBarManager.setProjectRepoUrl(BotSource.read(config.projectPath())
                 .map(s -> "https://github.com/" + s.slug()).orElse(null));
         this.fileExplorerManager = new FileExplorerManager(config, codeEditorService, state);
+        this.windowPreviewManager = new WindowPreviewManager(eventBus);
 
         setupEventHandlers();
     }
@@ -207,10 +209,17 @@ public class UIManager {
         topBar.setMaxHeight(50);
         topBar.setStyle("-fx-border-color: #dcdcdc; -fx-border-width: 0 0 1 0; -fx-background-color: #f4f4f4;");
 
-        // --- 2. Left Panel: File Explorer ---
+        // --- 2. Left Panel: File Explorer (top) + live Window Preview (bottom) ---
         VBox fileExplorer = fileExplorerManager.createView();
         fileExplorer.setMinWidth(150);
         fileExplorer.setMaxWidth(400);
+
+        // Preview sits directly under the explorer and to the left of the terminal tabs; collapsible.
+        Node previewPanel = windowPreviewManager.getView();
+        SplitPane leftColumn = new SplitPane();
+        leftColumn.setOrientation(Orientation.VERTICAL);
+        leftColumn.getItems().addAll(fileExplorer, previewPanel);
+        leftColumn.setDividerPositions(0.62);
 
         // --- 3. Center: Code Canvas ---
         blocksContainer = new VBox(10);
@@ -256,7 +265,7 @@ public class UIManager {
 
         SplitPane mainSplit = new SplitPane();
         mainSplit.setOrientation(Orientation.HORIZONTAL);
-        mainSplit.getItems().addAll(fileExplorer, verticalSplit);
+        mainSplit.getItems().addAll(leftColumn, verticalSplit);
         mainSplit.setDividerPositions(0.25);
 
         statusLabel = new Label("Ready");
