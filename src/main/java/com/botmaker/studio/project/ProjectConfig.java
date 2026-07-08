@@ -59,9 +59,4 @@ public record ProjectConfig(
     public Path activitiesSourceFile() {
         return sourceRoot.resolve("com").resolve(packageName).resolve("Activities.java");
     }
-
-    /** The generated {@code BotConfig.java} sidecar (capture-source helpers; sibling of the main class). */
-    public Path botConfigSourceFile() {
-        return sourceRoot.resolve("com").resolve(packageName).resolve("BotConfig.java");
-    }
 }

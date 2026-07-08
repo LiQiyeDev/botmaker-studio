@@ -74,9 +74,8 @@ public class InitializerFactory {
         }
 
         // 2b. CaptureSource is an SDK *interface* — `new CaptureSource()` won't compile. Default a slot of
-        // that type to the whole-desktop source (fully qualified, so it needs no import and no generated
-        // BotConfig sidecar); the user narrows it via the capture-source picker, which is what materializes
-        // BotConfig only if they choose the project default / a specific screen or window.
+        // that type to the whole-desktop source (fully qualified, so it needs no import); the user narrows it
+        // via the capture-source picker, which emits an inline expression (see CaptureExpr) — no sidecar.
         if ("CaptureSource".equals(richType.leafType().simpleName())) {
             MethodInvocation screen = ast.newMethodInvocation();
             screen.setExpression(ast.newName("com.botmaker.sdk.api.capture.CaptureSource"));

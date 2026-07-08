@@ -42,7 +42,7 @@ public sealed interface ExpressionChoice
 
     /**
      * Insert a ready-made Java expression snippet verbatim (parsed into AST). Used by the capture-source
-     * picker, which emits a fully-qualified helper call (e.g. {@code com.mybot.BotConfig.defaultSource()}).
+     * picker, which emits a fully-qualified inline call (e.g. {@code …capture.CaptureSource.screen()}).
      */
     record RawExpression(String code) implements ExpressionChoice {}
 }

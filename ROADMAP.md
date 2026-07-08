@@ -6,6 +6,34 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-08 — Regression fixes for the capture-source picker / Wayland-preview batch.** Six issues found
+  running the 960d01d landing on Fedora/GNOME-Wayland:
+  - **Drag crash fixed.** `CodeEditor.moveStatement` cast a block's AST node straight to `Statement`, but a
+    bare method-call block (find/click/print — a `MethodInvocationBlock`) is backed by a `MethodInvocation`,
+    not the enclosing `ExpressionStatement` → `ClassCastException` on drag. Now resolves the nearest enclosing
+    `Statement` (`enclosingStatement`). Regression test in `BlockDragDropEditTest`.
+  - **Debug run now uses the project working dir.** `DebuggingService`'s bot `ProcessBuilder` lacked
+    `.directory(config.projectPath())` (which `CodeExecutionService` had), so a debugged/telemetry run
+    inherited Studio's CWD and OpenCV `imread` couldn't find `src/main/resources/images/*.png` (the
+    follow-mode path bug). Added.
+  - **Capture picker no longer prompts per monitor on Wayland.** The picker grabbed each monitor thumbnail
+    with AWT `Robot`, re-triggering the portal share picker per tile. New shared `services/capture/DesktopGrab`
+    (prompt-free CLI grab on Wayland — grim/gnome-screenshot/spectacle — Robot on X11) grabs the desktop once
+    and crops per monitor; `ScreenCaptureService` now delegates to it too (de-dup).
+  - **`BotConfig.java` sidecar dropped.** Capture-source blocks now emit inline, fully-qualified expressions
+    (`CaptureSource.screen()` / `Screen.at(i)` / `CaptureSource.window("t")`, via new
+    `project/capture/CaptureExpr`) — no generated sidecar is ever written. Removed
+    `ProjectSettingsService.ensureBotConfig/writeBotConfig/generateBotConfig` and `ProjectConfig.botConfigSourceFile`.
+    "Project default" is snapshotted to the current default target at pick time.
+  - **Capture-source picker now consistent across all SDK overloads** — the SDK gained full `CaptureSource`
+    coverage (see `../botmaker-sdk/ROADMAP.md`); the picker is type-driven (`PickerRegistry` on
+    `CaptureSource`/`Window`) so it attaches to every new source parameter with no Studio change.
+  - **Wayland preview D-Bus session lifetime fixed.** `PortalScreenCast.open()` returned only the `Stream`,
+    leaving the `PortalScreenCast` (and its D-Bus connection, which backs the PipeWire session) unreferenced →
+    GC closed the socket mid-use → `FatalException`/EOF, negotiation reported as failed. Now returns the live
+    handle (`PreviewScreenFeed` keeps it and closes it on `close()`), uses a non-shared connection, and clears
+    a stale `restore_token` on failure so the next attempt re-prompts cleanly.
+
 - **2026-07-08 — Wayland live preview (portal + PipeWire), capture-source picker fixes, lazy `BotConfig`,
   running-block highlight.** Follow-ups after validating the 2026-07-07 landings on Fedora/Wayland:
   - **Non-disruptive Wayland capture (WS2).** `services/preview/` new: `PortalScreenCast` (xdg-desktop-portal

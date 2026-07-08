@@ -10,9 +10,9 @@ import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 
 /**
  * Replaces an expression slot with a parsed Java <em>expression snippet</em> (e.g.
- * {@code com.mybot.BotConfig.defaultSource()}). Used where the exact source text is known up front — the
- * capture-source picker emits a fully-qualified helper call, which is simpler and more robust than building
- * the equivalent {@code MethodInvocation} AST by hand (a fully-qualified name needs no import management).
+ * {@code com.botmaker.sdk.api.capture.CaptureSource.screen()}). Used where the exact source text is known up
+ * front — the capture-source picker emits a fully-qualified inline call, which is simpler and more robust than
+ * building the equivalent {@code MethodInvocation} AST by hand (a fully-qualified name needs no import mgmt).
  */
 public final class RawExpressionHandler {
 

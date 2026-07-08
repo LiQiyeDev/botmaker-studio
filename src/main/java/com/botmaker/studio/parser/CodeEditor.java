@@ -790,13 +790,25 @@ public class CodeEditor {
     private static String moveStatement(CompilationUnit cu, String originalCode, StatementBlock blockToMove, BodyBlock sourceBody, BodyBlock targetBody, int targetIndex) {
         AST ast = cu.getAST();
         ASTRewrite rewriter = ASTRewrite.create(ast);
-        Statement statement = (Statement) blockToMove.getAstNode();
+        // A block's backing node isn't always the Statement itself: a bare expression block (e.g.
+        // ImageFinder.find(...)) stores the MethodInvocation, whose enclosing ExpressionStatement is what
+        // the list rewrite operates on. Walk up to the nearest Statement rather than casting blindly.
+        Statement statement = enclosingStatement(blockToMove.getAstNode());
+        if (statement == null) return originalCode;
         ListRewrite sourceListRewrite = AstRewriteHelper.getListRewriteForBody(rewriter, sourceBody);
         ListRewrite targetListRewrite = AstRewriteHelper.getListRewriteForBody(rewriter, targetBody);
         Statement copiedStatement = (Statement) ASTNode.copySubtree(ast, statement);
         sourceListRewrite.remove(statement, null);
         insertIntoList(targetListRewrite, targetBody, copiedStatement, targetIndex);
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
+    }
+
+    /** The nearest enclosing {@link Statement} of {@code node} (itself if already one), or {@code null}. */
+    private static Statement enclosingStatement(ASTNode node) {
+        while (node != null && !(node instanceof Statement)) {
+            node = node.getParent();
+        }
+        return (Statement) node;
     }
 
     private static String convertElseToElseIf(CompilationUnit cu, String originalCode, IfStatement ifStatement) {

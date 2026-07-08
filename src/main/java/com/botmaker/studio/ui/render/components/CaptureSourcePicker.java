@@ -2,7 +2,7 @@ package com.botmaker.studio.ui.render.components;
 
 import com.botmaker.studio.core.AbstractCodeBlock;
 import com.botmaker.studio.core.ExpressionBlock;
-import com.botmaker.studio.project.capture.CaptureTarget;
+import com.botmaker.studio.project.capture.CaptureExpr;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.ProjectSettingsService;
 import javafx.scene.Node;
@@ -14,8 +14,10 @@ import org.eclipse.jdt.core.dom.Expression;
  * A control standing in for a {@code CaptureSource} (or {@code Window}) argument. Shows the current source
  * and, on click, opens the visual {@link com.botmaker.studio.ui.app.capture.CaptureSourcePicker Steam-style
  * chooser} (screens + windows with live thumbnails, plus "Project default"). A pick rewrites the backing
- * expression to a fully-qualified {@code BotConfig} helper call ({@code defaultSource()} / {@code screen(i)}
- * / {@code window("t")}) via {@link com.botmaker.studio.parser.CodeEditor#replaceWithRawExpression}.
+ * expression to an inline, fully-qualified SDK call ({@code CaptureSource.screen()} / {@code Screen.at(i)} /
+ * {@code CaptureSource.window("t")}, from {@link CaptureExpr}) via
+ * {@link com.botmaker.studio.parser.CodeEditor#replaceWithRawExpression}. "Project default" is resolved to
+ * the current default target's inline expression at pick time (a snapshot — there is no generated sidecar).
  *
  * <p>The SDK's {@code CaptureSource} is an <em>interface</em> — it must never be offered a {@code new}
  * constructor; this picker is the only way to fill such a slot. Used for a method parameter typed
@@ -40,21 +42,16 @@ public final class CaptureSourcePicker {
     }
 
     /**
-     * The fully-qualified {@code BotConfig} helper call for {@code sel}. Emitting any of these makes the bot
-     * reference {@code BotConfig}, so we lazily materialize {@code BotConfig.java} here (it is not written
-     * proactively on project open — only when a block actually uses it).
+     * The inline, fully-qualified capture-source expression for {@code sel} (see {@link CaptureExpr}). The
+     * "Project default" choice is resolved to the project's current default target at pick time; there is no
+     * generated {@code BotConfig} sidecar.
      */
     private static String sourceCode(CodeEditorService context, com.botmaker.studio.ui.app.capture.CaptureSourcePicker.Selection sel) {
-        ProjectSettingsService.forProject(context).ensureBotConfig();
-        String botConfig = "com." + context.getConfig().packageName() + ".BotConfig";
         return switch (sel) {
             case com.botmaker.studio.ui.app.capture.CaptureSourcePicker.Selection.ProjectDefault ignored ->
-                    botConfig + ".defaultSource()";
-            case com.botmaker.studio.ui.app.capture.CaptureSourcePicker.Selection.Concrete c -> switch (c.target()) {
-                case CaptureTarget.ScreenTarget st -> botConfig + ".screen(" + st.index() + ")";
-                case CaptureTarget.WindowTarget wt -> botConfig + ".window(\""
-                        + wt.titleSubstring().replace("\\", "\\\\").replace("\"", "\\\"") + "\")";
-            };
+                    CaptureExpr.of(ProjectSettingsService.forProject(context).defaultTarget());
+            case com.botmaker.studio.ui.app.capture.CaptureSourcePicker.Selection.Concrete c ->
+                    CaptureExpr.of(c.target());
         };
     }
 
@@ -62,14 +59,13 @@ public final class CaptureSourcePicker {
         return (Expression) ((AbstractCodeBlock) arg).getAstNode();
     }
 
-    /** A friendly label for the current source expression (BotConfig helper call), else the raw text. */
+    /** A friendly label for the current inline source expression (see {@link CaptureExpr}), else raw text. */
     private static String label(ExpressionBlock arg) {
         String raw = expr(arg).toString().trim();
         if (raw.isBlank()) return "🎯 Choose source…";
-        if (raw.endsWith("defaultSource()")) return "🎯 Project default";
-        int screen = raw.indexOf(".screen(");
-        if (screen >= 0) {
-            String idx = raw.substring(screen + 8, raw.indexOf(')', screen));
+        int at = raw.indexOf("Screen.at(");
+        if (at >= 0) {
+            String idx = raw.substring(at + 10, raw.indexOf(')', at));
             try { return "🎯 Screen " + (Integer.parseInt(idx.trim()) + 1); } catch (NumberFormatException ignored) {}
         }
         int win = raw.indexOf(".window(\"");
@@ -78,6 +74,7 @@ public final class CaptureSourcePicker {
             int end = raw.indexOf('"', start);
             if (end > start) return "🎯 " + raw.substring(start, end);
         }
+        if (raw.endsWith("screen()")) return "🎯 Whole screen";
         return "🎯 " + raw;
     }
 }

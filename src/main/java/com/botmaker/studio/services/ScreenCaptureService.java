@@ -3,6 +3,7 @@ package com.botmaker.studio.services;
 import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeController;
 import com.botmaker.shared.capture.NativeControllerFactory;
+import com.botmaker.studio.services.capture.DesktopGrab;
 import com.botmaker.studio.project.ProjectPreferences;
 import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.ScreenTarget;
@@ -353,97 +354,17 @@ public final class ScreenCaptureService {
     }
 
     /**
-     * Captures the whole desktop into a single image. Under Wayland (where {@link Robot} is blocked and
-     * returns black) this delegates to an installed screenshot CLI; otherwise it uses {@link Robot} over
-     * the union of all screen devices. Returns {@code null} if no Wayland capture tool is available.
+     * Captures the whole desktop into a single image, without ever showing a share picker. Delegates to the
+     * shared {@link DesktopGrab} (screenshot CLI under Wayland where {@link Robot} is blocked/prompts,
+     * {@code Robot} otherwise). Returns {@code null} if no capture path is available.
      */
-    private BufferedImage grabVirtualDesktop() throws Exception {
-        if (isWayland()) return grabViaCli();
-
-        java.awt.Rectangle bounds = new java.awt.Rectangle();
-        for (GraphicsDevice gd : GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices()) {
-            bounds = bounds.union(gd.getDefaultConfiguration().getBounds());
-        }
-        return new Robot().createScreenCapture(bounds);
-    }
-
-    /** True if we appear to be running under a Wayland session. */
-    private static boolean isWayland() {
-        return "wayland".equalsIgnoreCase(System.getenv("XDG_SESSION_TYPE"))
-                || System.getenv("WAYLAND_DISPLAY") != null;
-    }
-
-    /**
-     * Full-screen grab via an external screenshot tool (Wayland path). Tries each known tool in order
-     * and returns the first successful capture; returns {@code null} (with a logged hint) if none work.
-     */
-    private static BufferedImage grabViaCli() throws IOException {
-        // Each entry is the argv with a trailing placeholder for the output PNG path.
-        String[][] tools = {
-                {"grim"},                                // wlroots / Sway / Hyprland
-                {"gnome-screenshot", "-f"},              // GNOME
-                {"spectacle", "-b", "-n", "-f", "-o"},   // KDE Plasma
-        };
-        Path tmp = Files.createTempFile("botmaker-shot-", ".png");
-        try {
-            for (String[] tool : tools) {
-                if (!toolExists(tool[0])) continue;
-                String[] argv = new String[tool.length + 1];
-                System.arraycopy(tool, 0, argv, 0, tool.length);
-                argv[tool.length] = tmp.toString();
-                if (runQuietly(argv) && Files.size(tmp) > 0) {
-                    BufferedImage img = ImageIO.read(tmp.toFile());
-                    if (img != null) return img;
-                }
-            }
-        } finally {
-            Files.deleteIfExists(tmp);
-        }
-        System.err.println("No working Wayland screenshot tool found. Install one of: grim "
-                + "(wlroots/Sway/Hyprland), gnome-screenshot (GNOME), or spectacle (KDE).");
-        return null;
-    }
-
-    /** True if {@code name} resolves on PATH (via {@code which}). */
-    private static boolean toolExists(String name) {
-        try {
-            return new ProcessBuilder("which", name)
-                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
-                    .redirectError(ProcessBuilder.Redirect.DISCARD)
-                    .start().waitFor() == 0;
-        } catch (IOException | InterruptedException e) {
-            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
-            return false;
-        }
-    }
-
-    /** Runs {@code argv}, discarding its output, and returns true if it exits 0 within the timeout. */
-    private static boolean runQuietly(String[] argv) {
-        try {
-            Process p = new ProcessBuilder(argv)
-                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
-                    .redirectError(ProcessBuilder.Redirect.DISCARD)
-                    .start();
-            if (!p.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)) {
-                p.destroyForcibly();
-                return false;
-            }
-            return p.exitValue() == 0;
-        } catch (IOException | InterruptedException e) {
-            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
-            return false;
-        }
+    private BufferedImage grabVirtualDesktop() {
+        return DesktopGrab.grabVirtualDesktop();
     }
 
     /** True if every sampled pixel is pure black (heuristic for a failed/Wayland capture). */
     private static boolean looksBlank(BufferedImage img) {
-        int step = Math.max(1, Math.min(img.getWidth(), img.getHeight()) / 20);
-        for (int y = 0; y < img.getHeight(); y += step) {
-            for (int x = 0; x < img.getWidth(); x += step) {
-                if ((img.getRGB(x, y) & 0xFFFFFF) != 0) return false;
-            }
-        }
-        return true;
+        return DesktopGrab.looksBlank(img);
     }
 
     private void showOverlay(Window owner, ScreenShot shot, Consumer<BufferedImage> onCaptured) {

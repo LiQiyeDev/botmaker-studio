@@ -3,7 +3,6 @@ package com.botmaker.studio.ui.render.menu;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.parser.ExpressionChoice;
 import com.botmaker.studio.project.ProjectState;
-import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.ui.app.capture.CaptureSourcePicker;
 import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
@@ -557,20 +556,16 @@ public final class ExpressionMenuFactory {
     }
 
     /**
-     * Maps a picker {@link CaptureSourcePicker.Selection} to a fully-qualified generated-helper call, so it
-     * resolves from any file without import management: {@code com.<pkg>.BotConfig.defaultSource()} /
-     * {@code .window("…")} / {@code .screen(index)}.
+     * Maps a picker {@link CaptureSourcePicker.Selection} to an inline, fully-qualified capture-source
+     * expression (see {@link com.botmaker.studio.project.capture.CaptureExpr}) that resolves from any file
+     * without import management: {@code …CaptureSource.screen()} / {@code …Screen.at(i)} /
+     * {@code …CaptureSource.window("t")}. "Project default" is snapshotted to the current default target.
      */
     private static String captureSourceCode(CodeEditorService context, CaptureSourcePicker.Selection sel) {
-        com.botmaker.studio.services.ProjectSettingsService.forProject(context).ensureBotConfig();
-        String botConfig = "com." + context.getConfig().packageName() + ".BotConfig";
         return switch (sel) {
-            case CaptureSourcePicker.Selection.ProjectDefault ignored -> botConfig + ".defaultSource()";
-            case CaptureSourcePicker.Selection.Concrete c -> switch (c.target()) {
-                case CaptureTarget.ScreenTarget st -> botConfig + ".screen(" + st.index() + ")";
-                case CaptureTarget.WindowTarget wt -> botConfig + ".window(\""
-                        + wt.titleSubstring().replace("\\", "\\\\").replace("\"", "\\\"") + "\")";
-            };
+            case CaptureSourcePicker.Selection.ProjectDefault ignored -> com.botmaker.studio.project.capture.CaptureExpr.of(
+                    com.botmaker.studio.services.ProjectSettingsService.forProject(context).defaultTarget());
+            case CaptureSourcePicker.Selection.Concrete c -> com.botmaker.studio.project.capture.CaptureExpr.of(c.target());
         };
     }
 

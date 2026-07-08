@@ -132,6 +132,51 @@ public class BlockDragDropEditTest {
     }
 
     @Test
+    void moveExpressionStatement_doesNotThrowClassCast() {
+        // A bare method-call statement (e.g. a find/click block) is backed by a MethodInvocation, not the
+        // enclosing ExpressionStatement. moveStatement must resolve the enclosing Statement rather than cast
+        // the block's AST node blindly (regression: ClassCastException MethodInvocation -> Statement).
+        String source = """
+                package test;
+
+                public class Subject {
+                    public void run() {
+                        System.out.println("a");
+                        int y = 2;
+                    }
+                }
+                """;
+        ProjectState s = new ProjectState();
+        Path path = Paths.get("Subject.java").toAbsolutePath();
+        s.addFile(new ProjectFile(path, source));
+        s.setActiveFile(path);
+        s.setSourcePath(Paths.get("src", "main", "java").toAbsolutePath());
+        s.setResolvedClasspath(TestSupport.runtimeClassPath());
+
+        EventBus bus = new EventBus(false);
+        String[] captured = new String[1];
+        bus.subscribe(CoreApplicationEvents.CodeUpdatedEvent.class, e -> captured[0] = e.newCode());
+
+        BlockConverter converter = new BlockConverter(s);
+        BlockConverter.ConvertResult result = converter.convert(
+                source, s.getMutableNodeToBlockMap(), new BlockDragAndDropManager(bus), false, false);
+        s.setCompilationUnit(result.cu());
+        CodeEditor ed = new CodeEditor(s, bus, new com.botmaker.studio.suggestions.ProjectAnalyzer(null, s));
+
+        BodyBlock body = collect(result.root(), BodyBlock.class).stream()
+                .filter(b -> !b.getStatements().isEmpty()).findFirst().orElseThrow();
+        StatementBlock callStmt = body.getStatements().get(0); // System.out.println("a");
+
+        // Move the call statement to the end — this previously threw before producing any code update.
+        ed.moveStatement(callStmt, body, body, 2);
+
+        assertNotNull(captured[0], "Moving an expression-statement block should produce a code update");
+        int callPos = captured[0].indexOf("println");
+        int yPos = captured[0].indexOf("int y");
+        assertTrue(yPos >= 0 && callPos > yPos, "After the move, y should precede the call:\n" + captured[0]);
+    }
+
+    @Test
     void moveExistingMethod_reordersClassMembers() {
         // Resolve the second method (the one with an empty body) and move it before the first.
         CodeBlock secondMethod = methodBlocks().get(1);

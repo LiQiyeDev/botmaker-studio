@@ -48,6 +48,8 @@ public final class PortalScreenCast implements AutoCloseable {
 
     private final DBusConnection connection;
     private final String senderToken; // unique bus name, ':'-stripped and '.'→'_', for request path prediction
+    private Stream stream;
+    private boolean usedRestoreToken;
 
     private PortalScreenCast(DBusConnection connection) {
         this.connection = connection;
@@ -55,24 +57,48 @@ public final class PortalScreenCast implements AutoCloseable {
         this.senderToken = (unique.startsWith(":") ? unique.substring(1) : unique).replace('.', '_');
     }
 
-    /** Connects to the session bus and negotiates the persistent screen-cast session, returning its stream. */
-    public static Stream open() throws PortalUnavailableException {
+    /**
+     * Connects to the session bus and negotiates the persistent screen-cast session. Returns the live
+     * {@code PortalScreenCast}: the caller <b>must keep it open</b> for as long as it plays the stream and
+     * {@link #close()} it when done. The D-Bus connection backs the PipeWire session, so letting this handle
+     * be garbage-collected (as an earlier version did by returning only the {@link Stream}) tears down the
+     * socket mid-use — surfacing as a fatal EOF on the connection thread.
+     */
+    public static PortalScreenCast open() throws PortalUnavailableException {
         DBusConnection conn;
         try {
-            conn = DBusConnectionBuilder.forSessionBus().build();
+            // A dedicated (non-shared) connection: the portal session is bound to this connection's lifetime,
+            // so it must not be a process-wide shared bus that another consumer could close underneath us.
+            conn = DBusConnectionBuilder.forSessionBus().withShared(false).build();
         } catch (Throwable t) {
             throw new PortalUnavailableException("No D-Bus session bus for the portal", t);
         }
+        PortalScreenCast portal = new PortalScreenCast(conn);
         try {
-            PortalScreenCast portal = new PortalScreenCast(conn);
-            return portal.negotiate();
+            portal.stream = portal.negotiate();
+            return portal;
         } catch (PortalUnavailableException e) {
-            try { conn.close(); } catch (Exception ignored) {}
+            portal.onNegotiationFailed();
             throw e;
         } catch (Throwable t) {
-            try { conn.close(); } catch (Exception ignored) {}
+            portal.onNegotiationFailed();
             throw new PortalUnavailableException("ScreenCast negotiation failed: " + t.getMessage(), t);
         }
+    }
+
+    /** The negotiated live PipeWire stream (valid while this handle is open). */
+    public Stream stream() {
+        return stream;
+    }
+
+    /**
+     * Cleanup after a failed negotiation: close the connection and, if we sent a saved restore token, drop it
+     * — a stale/invalid token is a common cause of the portal rejecting the session, so the next attempt
+     * should re-prompt cleanly rather than replay the bad grant.
+     */
+    private void onNegotiationFailed() {
+        if (usedRestoreToken) ProjectPreferences.updateScreenCastToken("");
+        try { connection.close(); } catch (Exception ignored) {}
     }
 
     private Stream negotiate() throws Exception {
@@ -95,7 +121,10 @@ public final class PortalScreenCast implements AutoCloseable {
             options.put("cursor_mode", new Variant<>(new UInt32(2)));   // 2 = embedded in the stream
             options.put("persist_mode", new Variant<>(new UInt32(2)));  // 2 = persist until explicitly revoked
             String saved = ProjectPreferences.getScreenCastToken();
-            if (saved != null && !saved.isBlank()) options.put("restore_token", new Variant<>(saved));
+            if (saved != null && !saved.isBlank()) {
+                options.put("restore_token", new Variant<>(saved));
+                usedRestoreToken = true;
+            }
             return screenCast.SelectSources(session, options);
         });
 

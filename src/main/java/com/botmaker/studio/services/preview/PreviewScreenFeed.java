@@ -19,7 +19,7 @@ public final class PreviewScreenFeed implements AutoCloseable {
     private final FrameSink sink;
 
     private Thread negotiator;
-    private PortalScreenCast.Stream stream;
+    private PortalScreenCast portal;
     private PipeWireVideoSource video;
     private volatile boolean starting;
     private volatile boolean active;
@@ -51,20 +51,24 @@ public final class PreviewScreenFeed implements AutoCloseable {
     }
 
     private void negotiate() {
+        PortalScreenCast p = null;
         try {
-            PortalScreenCast.Stream s = PortalScreenCast.open();
+            p = PortalScreenCast.open();
+            PortalScreenCast.Stream s = p.stream();
             PipeWireVideoSource v = new PipeWireVideoSource(s.fd(), s.nodeId(),
                     (argb, w, h) -> { if (!closed) sink.onFrame(argb, w, h, s.originX(), s.originY()); });
             v.start();
             synchronized (this) {
-                if (closed) { v.close(); return; }
-                this.stream = s;
+                if (closed) { v.close(); p.close(); return; }
+                this.portal = p;   // keep the portal (its D-Bus connection backs the PipeWire session) alive
                 this.video = v;
                 this.active = true;
                 this.starting = false;
             }
         } catch (Throwable t) {
+            // Single-line report; the portal/GStreamer stack simply isn't available and we fall back to Robot.
             System.err.println("[preview] Wayland live feed unavailable: " + t.getMessage());
+            if (p != null) { try { p.close(); } catch (Throwable ignored) {} }
             synchronized (this) { failed = true; starting = false; }
         }
     }
@@ -78,6 +82,9 @@ public final class PreviewScreenFeed implements AutoCloseable {
             try { video.close(); } catch (Throwable ignored) {}
             video = null;
         }
-        stream = null;
+        if (portal != null) {
+            try { portal.close(); } catch (Throwable ignored) {}
+            portal = null;
+        }
     }
 }

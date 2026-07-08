@@ -3,6 +3,7 @@ package com.botmaker.studio.ui.app.capture;
 import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeControllerFactory;
 import com.botmaker.studio.project.capture.CaptureTarget;
+import com.botmaker.studio.services.capture.DesktopGrab;
 import com.botmaker.studio.project.capture.CaptureTarget.ScreenTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.WindowTarget;
 import javafx.application.Platform;
@@ -152,6 +153,7 @@ public final class CaptureSourcePicker {
 
     private void loadScreens(FlowPane into) {
         List<Screen> screens = Screen.getScreens();
+        java.util.List<VBox> tiles = new java.util.ArrayList<>();
         for (int i = 0; i < screens.size(); i++) {
             int index = i;
             Screen s = screens.get(i);
@@ -166,11 +168,25 @@ public final class CaptureSourcePicker {
             });
             if (!includeProjectDefault && selected == null) select(tile, new Selection.Concrete(target));
             into.getChildren().add(tile);
-            thumbs().submit(() -> {
-                Image img = toFxImage(captureMonitor(index));
-                if (img != null) Platform.runLater(() -> setThumb(tile, img));
-            });
+            tiles.add(tile);
         }
+        // Thumbnails: on Wayland grab the whole desktop ONCE (prompt-free CLI) and crop per monitor — using
+        // an AWT Robot per tile would re-trigger the portal share picker for every monitor. On X11 the
+        // per-monitor Robot grab is fine and needs no external tool.
+        thumbs().submit(() -> {
+            java.awt.GraphicsDevice[] devices =
+                    java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
+            BufferedImage desktop = DesktopGrab.isWayland() ? DesktopGrab.grabVirtualDesktop() : null;
+            for (int i = 0; i < tiles.size() && i < devices.length; i++) {
+                java.awt.Rectangle bounds = devices[i].getDefaultConfiguration().getBounds();
+                BufferedImage shot = (desktop != null)
+                        ? DesktopGrab.cropToBounds(desktop, bounds)
+                        : captureMonitorRobot(bounds);
+                Image img = toFxImage(shot);
+                VBox tile = tiles.get(i);
+                if (img != null) Platform.runLater(() -> setThumb(tile, img));
+            }
+        });
     }
 
     private void loadWindows(FlowPane into) {
@@ -274,14 +290,10 @@ public final class CaptureSourcePicker {
 
     // --- Capture helpers (best-effort) ---
 
-    private static BufferedImage captureMonitor(int index) {
+    /** Per-monitor grab via AWT {@link Robot} (X11/Windows only — on Wayland this would prompt per call). */
+    private static BufferedImage captureMonitorRobot(Rectangle bounds) {
         try {
-            GraphicsDevice[] devices = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
-            Rectangle b = (index >= 0 && index < devices.length)
-                    ? devices[index].getDefaultConfiguration().getBounds()
-                    : GraphicsEnvironment.getLocalGraphicsEnvironment()
-                        .getDefaultScreenDevice().getDefaultConfiguration().getBounds();
-            return new Robot().createScreenCapture(b);
+            return new Robot().createScreenCapture(bounds);
         } catch (Throwable t) {
             return null;
         }
