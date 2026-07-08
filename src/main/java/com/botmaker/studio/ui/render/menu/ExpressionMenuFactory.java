@@ -558,14 +558,16 @@ public final class ExpressionMenuFactory {
     /**
      * Maps a picker {@link CaptureSourcePicker.Selection} to an inline, fully-qualified capture-source
      * expression (see {@link com.botmaker.studio.project.capture.CaptureExpr}) that resolves from any file
-     * without import management: {@code …CaptureSource.screen()} / {@code …Screen.at(i)} /
-     * {@code …CaptureSource.window("t")}. "Project default" is snapshotted to the current default target.
+     * without import management: {@code …CaptureSource.desktop()} / {@code …CaptureSource.monitor(i)} /
+     * {@code …CaptureSource.window("t")}, optionally narrowed with a trailing {@code .region(new Rect(...))}.
+     * "Project default" is snapshotted to the current default target.
      */
     private static String captureSourceCode(CodeEditorService context, CaptureSourcePicker.Selection sel) {
         return switch (sel) {
             case CaptureSourcePicker.Selection.ProjectDefault ignored -> com.botmaker.studio.project.capture.CaptureExpr.of(
                     com.botmaker.studio.services.ProjectSettingsService.forProject(context).defaultTarget());
-            case CaptureSourcePicker.Selection.Concrete c -> com.botmaker.studio.project.capture.CaptureExpr.of(c.target());
+            case CaptureSourcePicker.Selection.Concrete c ->
+                    com.botmaker.studio.project.capture.CaptureExpr.of(c.target(), c.region());
         };
     }
 

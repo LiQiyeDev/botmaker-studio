@@ -366,7 +366,21 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
     }
 
     private MethodSignature determineCurrentSignature(CodeEditorService context, String className, String methodName){
-        return MethodSignature.bestForArity(findSignatures(context, className, methodName), arguments.size());
+        // Resolve by the ACTUAL argument types, not just their count — so same-arity overloads that differ only
+        // in a parameter's type (e.g. find(t, CaptureSource) vs find(t, Rect) vs find(t, double), all arity-2)
+        // pick the overload the arguments really match, giving each slot the correct picker. Falls back to
+        // count-only when argument types are unresolved.
+        return MethodSignature.bestForArgs(findSignatures(context, className, methodName), currentArgTypes());
+    }
+
+    /** The resolved (binding-backed) types of this call's current arguments, for type-aware overload selection. */
+    private List<ResolvedType> currentArgTypes() {
+        List<ResolvedType> types = new ArrayList<>();
+        for (ExpressionBlock arg : arguments) {
+            ASTNode node = arg.getAstNode();
+            types.add(node instanceof Expression expr ? ProjectAnalyzer.resolveType(expr) : ResolvedType.UNKNOWN);
+        }
+        return types;
     }
 
     /** Parameter types of the overload best matching {@code argCount} (exact match preferred, else first). */

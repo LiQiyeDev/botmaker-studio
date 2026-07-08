@@ -6,6 +6,25 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-08 — CaptureSource picker: type-aware overloads, region-as-modifier, project-default seeding.**
+  Follows the SDK's CaptureSource redesign (`../botmaker-sdk/ROADMAP.md`).
+  - **Picker no longer mis-renders on same-arity overloads.** Overload selection was by argument *count* only
+    (`MethodSignature.bestForArity`), so `find(t, CaptureSource)` vs `find(t, Rect)` vs `find(t, double)` (all
+    arity-2) picked whichever the analyzer listed first → a CaptureSource slot could get a RectPicker. New
+    `MethodSignature.bestForArgs` scores same-arity overloads against the **actual** argument types
+    (`ProjectAnalyzer.resolveType(Expression)`, binding-backed) and `MethodInvocationBlock` now uses it
+    (`determineCurrentSignature`), so each slot gets the right picker. Falls back to count-only when arg types
+    are unresolved.
+  - **Region is picked as a rect *of* the chosen source.** The capture chooser gained an optional
+    x/y/w/h region row; `CaptureExpr` emits a trailing `.region(new Rect(...))` and `CaptureSource.Selection`
+    carries a `CaptureRegion`. (Visual rubber-band selection deferred; numeric entry is the interim.)
+  - **`CaptureExpr` retargeted to the new SDK factories** — emits `CaptureSource.desktop()` /
+    `CaptureSource.monitor(i)` / `CaptureSource.window("t")` (was `screen()` / `Screen.at(i)`), so generated
+    bot code compiles against the redesigned SDK. In-block picker label + expression menu updated to match.
+  - **New CaptureSource blocks seed from the project default.** `InitializerFactory` hard-coded
+    `CaptureSource.screen()`; it now parses `CaptureExpr.of(project default target)` (window/monitor/desktop)
+    into the AST, falling back to `desktop()` when no default is set.
+
 - **2026-07-08 — Wayland preview follow-up: window + screen capture.** The first regression batch (below)
   didn't cover the two live capture pipelines; a run on Fedora/GNOME-Wayland still failed.
   - **Window preview / bot window vision fixed in `shared`.** `LinuxController.captureWindow` used AWT

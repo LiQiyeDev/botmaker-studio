@@ -2,6 +2,7 @@ package com.botmaker.studio.ui.app.capture;
 
 import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeControllerFactory;
+import com.botmaker.studio.project.capture.CaptureRegion;
 import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.services.capture.DesktopGrab;
 import com.botmaker.studio.project.capture.CaptureTarget.ScreenTarget;
@@ -14,6 +15,7 @@ import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.TextField;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.FlowPane;
@@ -55,7 +57,16 @@ public final class CaptureSourcePicker {
     /** What the user chose: either "track the project default", or a concrete, frozen {@link CaptureTarget}. */
     public sealed interface Selection permits Selection.ProjectDefault, Selection.Concrete {
         record ProjectDefault() implements Selection {}
-        record Concrete(CaptureTarget target) implements Selection {}
+
+        /**
+         * A concrete source, optionally narrowed to a {@link CaptureRegion} of it (a rect in the source's own
+         * pixel space). {@code region} is {@code null} for the whole source.
+         */
+        record Concrete(CaptureTarget target, CaptureRegion region) implements Selection {
+            public Concrete(CaptureTarget target) {
+                this(target, null);
+            }
+        }
     }
 
     private static final double TILE_W = 220;
@@ -96,17 +107,28 @@ public final class CaptureSourcePicker {
         ScrollPane scroll = new ScrollPane(content);
         scroll.setFitToWidth(true);
 
+        // Optional region: a rectangle WITHIN the chosen source (its own pixel coords; 0,0 = source top-left),
+        // emitted as CaptureSource.<source>.region(new Rect(x,y,w,h)). Left blank = the whole source.
+        TextField rx = regionField("x");
+        TextField ry = regionField("y");
+        TextField rw = regionField("w");
+        TextField rh = regionField("h");
+        Label regionLabel = new Label("Region of source (optional):");
+        regionLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
+        HBox regionRow = new HBox(6, regionLabel, rx, ry, rw, rh);
+        regionRow.setAlignment(Pos.CENTER_LEFT);
+
         Button refresh = new Button("↻ Refresh");
         refresh.setOnAction(e -> { windows.getChildren().clear(); loadWindows(windows); });
         Button cancel = new Button("Cancel");
         cancel.setOnAction(e -> { selected = null; close(); });
         Button ok = new Button("Select");
         ok.setDefaultButton(true);
-        ok.setOnAction(e -> close());
+        ok.setOnAction(e -> { applyRegion(rx, ry, rw, rh); close(); });
 
         HBox spacer = new HBox();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox bar = new HBox(8, refresh, spacer, cancel, ok);
+        HBox bar = new HBox(8, refresh, spacer, regionRow, cancel, ok);
         bar.setAlignment(Pos.CENTER_LEFT);
         bar.setPadding(new Insets(10, 14, 12, 14));
 
@@ -125,6 +147,37 @@ public final class CaptureSourcePicker {
     private void close() {
         stopThumbs();
         if (stage != null) stage.close();
+    }
+
+    /** A narrow numeric field for one region coordinate (prompt = x/y/w/h). */
+    private static TextField regionField(String prompt) {
+        TextField f = new TextField();
+        f.setPromptText(prompt);
+        f.setPrefColumnCount(3);
+        f.setStyle("-fx-font-size: 11px;");
+        return f;
+    }
+
+    /**
+     * If a concrete source is selected and all four fields parse to a positive-area rectangle, narrow the
+     * selection to that {@link CaptureRegion} (a rect in the source's own pixel space). Blank/partial/invalid
+     * input leaves the selection as the whole source. Region on "Project default" is not supported.
+     */
+    private void applyRegion(TextField rx, TextField ry, TextField rw, TextField rh) {
+        if (!(selected instanceof Selection.Concrete c)) return;
+        Integer x = parseInt(rx.getText()), y = parseInt(ry.getText());
+        Integer w = parseInt(rw.getText()), h = parseInt(rh.getText());
+        if (x == null || y == null || w == null || h == null || w <= 0 || h <= 0) return;
+        selected = new Selection.Concrete(c.target(), new CaptureRegion(x, y, w, h));
+    }
+
+    private static Integer parseInt(String s) {
+        if (s == null || s.isBlank()) return null;
+        try {
+            return Integer.parseInt(s.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private static Label sectionLabel(String text) {

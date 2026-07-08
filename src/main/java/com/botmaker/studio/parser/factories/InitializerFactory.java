@@ -3,6 +3,9 @@ package com.botmaker.studio.parser.factories;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
 import com.botmaker.studio.parser.helpers.DefaultValueHelper;
 import com.botmaker.studio.project.ProjectState;
+import com.botmaker.studio.project.capture.CaptureExpr;
+import com.botmaker.studio.project.capture.CaptureTarget;
+import com.botmaker.studio.project.StudioProjectSettings;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import org.eclipse.jdt.core.dom.*;
@@ -73,14 +76,18 @@ public class InitializerFactory {
             return primitiveDefault;
         }
 
-        // 2b. CaptureSource is an SDK *interface* — `new CaptureSource()` won't compile. Default a slot of
-        // that type to the whole-desktop source (fully qualified, so it needs no import); the user narrows it
-        // via the capture-source picker, which emits an inline expression (see CaptureExpr) — no sidecar.
+        // 2b. CaptureSource is an SDK *interface* — `new CaptureSource()` won't compile. Seed a slot of that
+        // type from the PROJECT DEFAULT capture target (window / monitor / whole desktop), emitted as a
+        // fully-qualified inline expression (see CaptureExpr, so it needs no import) — the same text the
+        // capture-source picker produces, with no sidecar. Falls back to the whole desktop when no default is
+        // set (or the snippet fails to parse). The user can still re-target it via the picker.
         if ("CaptureSource".equals(richType.leafType().simpleName())) {
-            MethodInvocation screen = ast.newMethodInvocation();
-            screen.setExpression(ast.newName("com.botmaker.sdk.api.capture.CaptureSource"));
-            screen.setName(ast.newSimpleName("screen"));
-            return screen;
+            Expression seeded = parseExpr(ast, CaptureExpr.of(projectDefaultTarget(state)));
+            if (seeded != null) return seeded;
+            MethodInvocation desktop = ast.newMethodInvocation();
+            desktop.setExpression(ast.newName("com.botmaker.sdk.api.capture.CaptureSource"));
+            desktop.setName(ast.newSimpleName("desktop"));
+            return desktop;
         }
 
         // 3. Objects
@@ -96,6 +103,23 @@ public class InitializerFactory {
     // Overload for backward compatibility
     public static Expression createDefaultInitializer(AST ast, ResolvedType type) {
         return createDefaultInitializer(ast, type, null, null);
+    }
+
+    /** The project's default capture target, or {@code null} (→ whole desktop) when unset/unavailable. */
+    private static CaptureTarget projectDefaultTarget(ProjectState state) {
+        if (state == null) return null;
+        StudioProjectSettings settings = state.getSettings();
+        return settings != null ? settings.defaultTarget() : null;
+    }
+
+    /** Parses a Java expression snippet into an AST node owned by {@code ast}, or {@code null} on failure. */
+    private static Expression parseExpr(AST ast, String code) {
+        if (code == null || code.isBlank()) return null;
+        ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
+        parser.setKind(ASTParser.K_EXPRESSION);
+        parser.setSource(code.toCharArray());
+        ASTNode parsed = parser.createAST(null);
+        return parsed instanceof Expression expr ? (Expression) ASTNode.copySubtree(ast, expr) : null;
     }
 
     public static Expression createArrayInitializer(AST ast, ResolvedType type, List<Expression> valuesToPreserve, CompilationUnit cu, ProjectState state) {

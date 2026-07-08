@@ -39,6 +39,53 @@ public record MethodSignature(String name, List<ResolvedType> paramTypes, List<S
     }
 
     /**
+     * Picks the overload that best matches the <em>actual</em> argument types — not just their count. This is
+     * what lets same-arity overloads that differ only in a parameter's type be told apart, e.g.
+     * {@code find(template, CaptureSource)} vs {@code find(template, Rect)} vs {@code find(template, double)}
+     * (all arity-2): the one whose parameter types line up with the arguments wins, so the right per-slot
+     * editor/picker is chosen. Falls back to {@link #bestForArity} when nothing scores (e.g. argument types are
+     * unresolved), preserving the old count-only behaviour.
+     */
+    public static MethodSignature bestForArgs(List<MethodSignature> sigs, List<ResolvedType> argTypes) {
+        if (sigs == null || sigs.isEmpty()) return null;
+        int argCount = argTypes == null ? 0 : argTypes.size();
+        MethodSignature best = null;
+        int bestScore = Integer.MIN_VALUE;
+        for (MethodSignature sig : sigs) {
+            if (!sig.acceptsArgCount(argCount)) continue;
+            int score = 0;
+            for (int i = 0; i < argCount; i++) {
+                score += matchScore(argTypes.get(i), sig.paramTypeAt(i));
+            }
+            if (score > bestScore) {
+                bestScore = score;
+                best = sig;
+            }
+        }
+        return best != null ? best : bestForArity(sigs, argCount);
+    }
+
+    /** Whether this signature can be called with {@code argCount} arguments (varargs stretches the tail). */
+    public boolean acceptsArgCount(int argCount) {
+        int n = paramTypes.size();
+        return varargs ? argCount >= n - 1 : argCount == n;
+    }
+
+    /**
+     * How well an argument of type {@code actual} fits a parameter of type {@code expected}: 2 for an exact or
+     * assignment-compatible match, 1 when either side is unknown (no evidence either way — don't penalise), 0
+     * for a concrete mismatch. Reference-type mismatches (CaptureSource vs Rect) score 0 and lose; unknowns
+     * keep the old count-only outcome.
+     */
+    private static int matchScore(ResolvedType actual, ResolvedType expected) {
+        if (expected == null || expected.isUnknown()) return 1;
+        if (actual == null || actual.isUnknown()) return 1;
+        if (actual.simpleName().equals(expected.simpleName())) return 2;
+        if (actual.isAssignmentCompatible(expected)) return 2;
+        return 0;
+    }
+
+    /**
      * True when a value of {@code actual} can satisfy a slot expecting {@code expected}: an unknown slot
      * (or unknown actual) accepts anything, else the simple names match or {@code actual} is assignment-
      * compatible. Shared type-compatibility check for menu and block dropdown filtering.

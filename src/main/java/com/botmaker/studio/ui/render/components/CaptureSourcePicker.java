@@ -51,7 +51,7 @@ public final class CaptureSourcePicker {
             case com.botmaker.studio.ui.app.capture.CaptureSourcePicker.Selection.ProjectDefault ignored ->
                     CaptureExpr.of(ProjectSettingsService.forProject(context).defaultTarget());
             case com.botmaker.studio.ui.app.capture.CaptureSourcePicker.Selection.Concrete c ->
-                    CaptureExpr.of(c.target());
+                    CaptureExpr.of(c.target(), c.region());
         };
     }
 
@@ -63,18 +63,19 @@ public final class CaptureSourcePicker {
     private static String label(ExpressionBlock arg) {
         String raw = expr(arg).toString().trim();
         if (raw.isBlank()) return "🎯 Choose source…";
-        int at = raw.indexOf("Screen.at(");
-        if (at >= 0) {
-            String idx = raw.substring(at + 10, raw.indexOf(')', at));
-            try { return "🎯 Screen " + (Integer.parseInt(idx.trim()) + 1); } catch (NumberFormatException ignored) {}
+        String suffix = raw.contains(".region(") ? " ▸ region" : "";
+        int mon = raw.indexOf("monitor(");
+        if (mon >= 0) {
+            String idx = raw.substring(mon + 8, raw.indexOf(')', mon));
+            try { return "🎯 Screen " + (Integer.parseInt(idx.trim()) + 1) + suffix; } catch (NumberFormatException ignored) {}
         }
         int win = raw.indexOf(".window(\"");
         if (win >= 0) {
             int start = win + 9;
             int end = raw.indexOf('"', start);
-            if (end > start) return "🎯 " + raw.substring(start, end);
+            if (end > start) return "🎯 " + raw.substring(start, end) + suffix;
         }
-        if (raw.endsWith("screen()")) return "🎯 Whole screen";
+        if (raw.contains("desktop()")) return "🎯 Whole screen" + suffix;
         return "🎯 " + raw;
     }
 }
