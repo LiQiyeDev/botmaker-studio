@@ -2,6 +2,7 @@ package com.botmaker.studio;
 
 import com.botmaker.studio.project.BotProject;
 import com.botmaker.studio.project.ProjectPreferences;
+import com.botmaker.studio.ui.app.ForceX11Notice;
 import com.botmaker.studio.ui.app.ProjectSelectionScreen;
 import com.botmaker.studio.ui.app.UIManager;
 import javafx.application.Application;
@@ -32,6 +33,9 @@ public class BotMakerStudio extends Application {
 
     /** The primary window, kept for owning dialogs. */
     private Stage primaryStage;
+
+    /** Guards the one-time-per-session Wayland → X11 notice (across project switches). */
+    private boolean waylandNoticeChecked;
 
     @Override
     public void start(Stage primaryStage) {
@@ -142,6 +146,12 @@ public class BotMakerStudio extends Application {
 
             primaryStage.show();
             requestSceneLayout(primaryStage);
+
+            // One-time-per-session: on Wayland, guide the user to switch to X11 (and offer package install).
+            if (!waylandNoticeChecked) {
+                waylandNoticeChecked = true;
+                ForceX11Notice.maybeShow(primaryStage);
+            }
         } catch (Exception e) {
             e.printStackTrace();
             showErrorDialog("Error opening project: " + e.getMessage());

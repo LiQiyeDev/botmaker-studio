@@ -38,7 +38,8 @@ class ToolbarInteractionTest extends FxHeadlessTest {
         // A subscriber on the ApplicationEvent supertype receives every event the toolbar emits.
         bus.subscribe(ApplicationEvent.class, published::add);
 
-        ToolbarManager toolbar = new ToolbarManager(bus);
+        // No project settings needed for these edit/execution-group assertions (only the capture group reads them).
+        ToolbarManager toolbar = new ToolbarManager(bus, null);
         HBox edit = toolbar.createEditGroup();
         HBox exec = toolbar.createExecutionGroup();
 

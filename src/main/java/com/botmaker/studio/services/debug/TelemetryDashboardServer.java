@@ -5,10 +5,14 @@ import com.botmaker.shared.capture.NativeControllerFactory;
 import com.botmaker.shared.ipc.TelemetryEvent;
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
+import com.botmaker.studio.project.capture.CaptureTarget;
+import com.botmaker.studio.services.ProjectSettingsService;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
 import javax.imageio.ImageIO;
+import java.awt.GraphicsDevice;
+import java.awt.GraphicsEnvironment;
 import java.awt.Rectangle;
 import java.awt.Robot;
 import java.awt.image.BufferedImage;
@@ -38,6 +42,7 @@ public final class TelemetryDashboardServer {
     private static final int FRAME_FPS = 4;
 
     private final EventBus eventBus;
+    private final ProjectSettingsService settings;
     private final List<OutputStream> clients = new CopyOnWriteArrayList<>();
 
     private HttpServer server;
@@ -45,8 +50,9 @@ public final class TelemetryDashboardServer {
     private volatile TelemetryEvent.Target lastTarget;
     private volatile int port;
 
-    public TelemetryDashboardServer(EventBus eventBus) {
+    public TelemetryDashboardServer(EventBus eventBus, ProjectSettingsService settings) {
         this.eventBus = eventBus;
+        this.settings = settings;
     }
 
     /** Starts the server (idempotent) and returns the base URL to open. */
@@ -110,30 +116,84 @@ public final class TelemetryDashboardServer {
 
     private void pushFrame() {
         if (clients.isEmpty()) return;
-        TelemetryEvent.Target t = lastTarget;
-        if (t == null) return;
-        BufferedImage img;
-        int sx, sy, sw, sh;
-        try {
-            if (t.title() != null && t.width() > 0 && t.height() > 0) {
-                GenericWindow win = resolveWindow(t.title());
-                if (win == null) return;
-                img = NativeControllerFactory.get().captureWindow(win); // no focus — non-intrusive
-                Rectangle b = win.getRect();
-                sx = b.x; sy = b.y; sw = b.width; sh = b.height;
-            } else {
-                Rectangle b = virtualBounds();
-                img = new Robot().createScreenCapture(b);
-                sx = b.x; sy = b.y; sw = b.width; sh = b.height;
-            }
-        } catch (Throwable ex) {
-            return;
-        }
-        if (img == null) return;
-        String b64 = toBase64Jpeg(img);
+        Capture cap = resolveCapture();
+        if (cap == null) return;
+        String b64 = toBase64Jpeg(cap.img());
         if (b64 == null) return;
         broadcast("frame", String.format(
-                "{\"img\":\"%s\",\"sx\":%d,\"sy\":%d,\"sw\":%d,\"sh\":%d}", b64, sx, sy, sw, sh));
+                "{\"img\":\"%s\",\"sx\":%d,\"sy\":%d,\"sw\":%d,\"sh\":%d}",
+                b64, cap.sx(), cap.sy(), cap.sw(), cap.sh()));
+    }
+
+    /** A captured frame plus the absolute surface origin/size its pixel (0,0) maps to. */
+    private record Capture(BufferedImage img, int sx, int sy, int sw, int sh) {}
+
+    /**
+     * Resolves what to preview this tick, mirroring {@code WindowPreviewManager.effectiveTarget()}: a live
+     * window from telemetry wins; else the project default (window / monitor / whole desktop); else a
+     * whole-screen telemetry target; else the primary screen. This is what makes the dashboard preview the
+     * <em>project default</em> target while idle instead of always grabbing the whole current screen.
+     */
+    private Capture resolveCapture() {
+        TelemetryEvent.Target t = lastTarget;
+        if (t != null && t.title() != null && t.width() > 0 && t.height() > 0) {
+            Capture c = captureWindowTarget(t.title());
+            if (c != null) return c;
+        }
+        CaptureTarget def = safeDefault();
+        if (def instanceof CaptureTarget.WindowTarget wt && wt.titleSubstring() != null) {
+            Capture c = captureWindowTarget(wt.titleSubstring());
+            if (c != null) return c;
+        } else if (def instanceof CaptureTarget.ScreenTarget st) {
+            return captureBounds(screenBounds(st.index()));
+        } else if (def instanceof CaptureTarget.DesktopTarget) {
+            return captureBounds(virtualBounds());
+        }
+        if (t != null) return captureBounds(virtualBounds()); // whole-screen telemetry target
+        return captureBounds(primaryBounds());                // idle, no default → current primary screen
+    }
+
+    private Capture captureWindowTarget(String title) {
+        try {
+            GenericWindow win = resolveWindow(title);
+            if (win == null) return null;
+            BufferedImage img = NativeControllerFactory.get().captureWindow(win); // no focus — non-intrusive
+            if (img == null) return null;
+            Rectangle b = win.getRect();
+            return new Capture(img, b.x, b.y, b.width, b.height);
+        } catch (Throwable ex) {
+            return null;
+        }
+    }
+
+    private Capture captureBounds(Rectangle b) {
+        try {
+            BufferedImage img = new Robot().createScreenCapture(b);
+            return img == null ? null : new Capture(img, b.x, b.y, b.width, b.height);
+        } catch (Throwable ex) {
+            return null;
+        }
+    }
+
+    private CaptureTarget safeDefault() {
+        try {
+            return settings != null ? settings.defaultTarget() : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static Rectangle screenBounds(int index) {
+        GraphicsDevice[] devices = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
+        if (index >= 0 && index < devices.length) {
+            return devices[index].getDefaultConfiguration().getBounds();
+        }
+        return primaryBounds();
+    }
+
+    private static Rectangle primaryBounds() {
+        return GraphicsEnvironment.getLocalGraphicsEnvironment()
+                .getDefaultScreenDevice().getDefaultConfiguration().getBounds();
     }
 
     private static GenericWindow resolveWindow(String titleSubstring) {
@@ -264,6 +324,11 @@ public final class TelemetryDashboardServer {
               #stage{flex:1;position:relative;background:#000;overflow:hidden}
               canvas{position:absolute;inset:0;width:100%;height:100%}
               #hint{padding:8px 12px;color:#8b93a1;border-top:1px solid #23262d}
+              #ctl{display:flex;gap:6px;padding:6px 12px;background:#151821;border-bottom:1px solid #23262d}
+              #ctl button{background:#222634;color:#e8eaed;border:1px solid #2c3140;border-radius:6px;
+                padding:4px 11px;cursor:pointer;font-size:14px;line-height:1}
+              #ctl button:hover{background:#2b3040}
+              #ctl button.on{background:#2f6fed;border-color:#2f6fed;color:#fff}
             </style></head><body>
             <div id="left">
               <header>Telemetry <span id="status">connecting…</span></header>
@@ -271,22 +336,45 @@ public final class TelemetryDashboardServer {
             </div>
             <div id="right">
               <header>Live target + overlays</header>
+              <div id="ctl">
+                <button id="zout" title="Zoom out">－</button>
+                <button id="zin" title="Zoom in">＋</button>
+                <button id="fit" title="Fit">⤢</button>
+                <button id="follow" title="Follow found object">⌖</button>
+              </div>
               <div id="stage"><canvas id="cv"></canvas></div>
-              <div id="hint">Frames are captured non-intrusively while a bot runs. Window targets need no permission; whole-screen capture may be limited on Wayland.</div>
+              <div id="hint">Frames are captured non-intrusively and show the project's default target. Window targets need no permission; whole-screen capture may be limited on Wayland.</div>
             </div>
             <script>
               const rows=document.getElementById('rows'),status=document.getElementById('status');
               const cv=document.getElementById('cv'),ctx=cv.getContext('2d');
               let frame=null,overlays=[];
+              // View state: zoom multiplier over fit, pan offset (canvas px), follow-last-match toggle.
+              let zoom=1,panx=0,pany=0,follow=false,lastRect=null;
+              const MAXZOOM=12;
               const es=new EventSource('/events');
               es.onopen=()=>status.textContent='connected';
               es.onerror=()=>status.textContent='disconnected';
               es.addEventListener('telemetry',ev=>{
                 const d=JSON.parse(ev.data);
                 addRow(d); pushOverlay(d);
+                if(d.kind==='Match'&&d.found&&d.rect) lastRect=d.rect;
               });
               es.addEventListener('frame',ev=>{ const d=JSON.parse(ev.data); const im=new Image();
                 im.onload=()=>{frame={im,sx:d.sx,sy:d.sy,sw:d.sw,sh:d.sh};draw();}; im.src='data:image/jpeg;base64,'+d.img; });
+              // View controls (mirror the Studio preview: zoom out / in / fit / follow).
+              const zoutB=document.getElementById('zout'),zinB=document.getElementById('zin'),
+                    fitB=document.getElementById('fit'),followB=document.getElementById('follow');
+              zoutB.onclick=()=>{zoom=Math.max(1,zoom*0.8);if(zoom===1){panx=0;pany=0;}draw();};
+              zinB.onclick=()=>{zoom=Math.min(MAXZOOM,zoom*1.25);draw();};
+              fitB.onclick=()=>{zoom=1;panx=0;pany=0;follow=false;followB.classList.remove('on');draw();};
+              followB.onclick=()=>{follow=!follow;followB.classList.toggle('on',follow);
+                if(!follow){zoom=1;panx=0;pany=0;}draw();};
+              // Drag to pan when zoomed in.
+              let drag=null;
+              cv.addEventListener('mousedown',e=>{if(zoom>1)drag={x:e.clientX,y:e.clientY,px:panx,py:pany};});
+              addEventListener('mouseup',()=>drag=null);
+              addEventListener('mousemove',e=>{if(!drag)return;panx=drag.px+(e.clientX-drag.x);pany=drag.py+(e.clientY-drag.y);draw();});
               function addRow(d){
                 const tr=document.createElement('tr');
                 const cls='k-'+d.kind+(d.kind==='Match'&&!d.found?' miss':'');
@@ -300,8 +388,14 @@ public final class TelemetryDashboardServer {
                 const r=cv.getBoundingClientRect(); cv.width=r.width; cv.height=r.height;
                 ctx.clearRect(0,0,cv.width,cv.height);
                 if(!frame)return;
-                const s=Math.min(cv.width/frame.sw,cv.height/frame.sh);
-                const dw=frame.sw*s,dh=frame.sh*s,ox=(cv.width-dw)/2,oy=(cv.height-dh)/2;
+                const base=Math.min(cv.width/frame.sw,cv.height/frame.sh),s=base*zoom;
+                const dw=frame.sw*s,dh=frame.sh*s;
+                let ox=(cv.width-dw)/2+panx,oy=(cv.height-dh)/2+pany;
+                // Follow mode: center the last found rect in the view.
+                if(follow&&lastRect){
+                  const cx=(lastRect.x-frame.sx+lastRect.w/2)*s,cy=(lastRect.y-frame.sy+lastRect.h/2)*s;
+                  ox=cv.width/2-cx; oy=cv.height/2-cy;
+                }
                 ctx.drawImage(frame.im,ox,oy,dw,dh);
                 const now=Date.now();
                 overlays=overlays.filter(o=>o._exp>now);

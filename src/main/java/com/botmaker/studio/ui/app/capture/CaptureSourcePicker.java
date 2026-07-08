@@ -5,6 +5,7 @@ import com.botmaker.shared.capture.NativeControllerFactory;
 import com.botmaker.studio.project.capture.CaptureRegion;
 import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.services.capture.DesktopGrab;
+import com.botmaker.studio.project.capture.CaptureTarget.DesktopTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.ScreenTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.WindowTarget;
 import javafx.application.Platform;
@@ -92,8 +93,9 @@ public final class CaptureSourcePicker {
         stage.initModality(Modality.APPLICATION_MODAL);
         stage.setTitle("Choose capture source");
 
-        FlowPane screens = category();
         FlowPane windows = category();
+        FlowPane monitors = category();
+        FlowPane desktop = category();
 
         VBox content = new VBox(10);
         content.setPadding(new Insets(14));
@@ -101,8 +103,9 @@ public final class CaptureSourcePicker {
             content.getChildren().add(projectDefaultTile());
         }
         content.getChildren().addAll(
-                sectionLabel("Screens"), screens,
-                sectionLabel("Windows"), windows);
+                sectionLabel("Windows"), windows,
+                sectionLabel("Monitors"), monitors,
+                sectionLabel("Desktop"), desktop);
 
         ScrollPane scroll = new ScrollPane(content);
         scroll.setFitToWidth(true);
@@ -135,8 +138,9 @@ public final class CaptureSourcePicker {
         VBox rootBox = new VBox(scroll, bar);
         VBox.setVgrow(scroll, Priority.ALWAYS);
 
-        loadScreens(screens);
         loadWindows(windows);
+        loadScreens(monitors);
+        loadDesktop(desktop);
 
         stage.setScene(new Scene(rootBox, 760, 560));
         stage.setOnHidden(e -> stopThumbs());
@@ -239,6 +243,21 @@ public final class CaptureSourcePicker {
                 VBox tile = tiles.get(i);
                 if (img != null) Platform.runLater(() -> setThumb(tile, img));
             }
+        });
+    }
+
+    /** A single "Whole desktop" tile (all monitors combined) → {@link DesktopTarget}, with a live thumbnail. */
+    private void loadDesktop(FlowPane into) {
+        VBox tile = tile("Whole desktop", "All monitors combined");
+        CaptureTarget target = new DesktopTarget();
+        tile.setOnMouseClicked(e -> {
+            select(tile, new Selection.Concrete(target));
+            if (e.getClickCount() == 2) close();
+        });
+        into.getChildren().add(tile);
+        thumbs().submit(() -> {
+            Image img = toFxImage(DesktopGrab.grabVirtualDesktop());
+            if (img != null) Platform.runLater(() -> setThumb(tile, img));
         });
     }
 

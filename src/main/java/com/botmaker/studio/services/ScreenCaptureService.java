@@ -6,11 +6,14 @@ import com.botmaker.shared.capture.NativeControllerFactory;
 import com.botmaker.studio.services.capture.DesktopGrab;
 import com.botmaker.studio.project.ProjectPreferences;
 import com.botmaker.studio.project.capture.CaptureTarget;
+import com.botmaker.studio.project.capture.CaptureTarget.DesktopTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.ScreenTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.WindowTarget;
+import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Rectangle2D;
 import javafx.scene.Scene;
+import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Dialog;
@@ -96,36 +99,64 @@ public final class ScreenCaptureService {
      * image, or does nothing if the user cancels (Esc / empty selection / chooser) or capture is unavailable.
      */
     public void captureRegion(Window owner, Consumer<BufferedImage> onCaptured) {
-        ScreenShot shot = prepareScreenshot(owner);
-        if (shot != null) showOverlay(owner, shot, onCaptured);
+        grabAsync(owner, shot -> showOverlay(owner, shot, onCaptured));
     }
 
     /**
      * A captured frame ready to overlay: the pixels, the logical {@link Rectangle2D} bounds to place the
-     * overlay over (a whole screen, or a window's rectangle) and map coordinates against, and whether the
-     * overlay should go true-fullscreen (screen targets) or be positioned at those bounds (window targets).
+     * overlay over (a whole screen/desktop, or a window's rectangle) and map coordinates against, whether
+     * the overlay should go true-fullscreen (single-screen targets) or be positioned at those bounds (window
+     * / whole-desktop targets), and whether the grab looked blank (a Wayland black-frame — don't overlay it).
      */
-    private record ScreenShot(BufferedImage image, Rectangle2D bounds, boolean fullScreen) {}
+    private record ScreenShot(BufferedImage image, Rectangle2D bounds, boolean fullScreen, boolean blank) {}
 
     /**
-     * Resolves the capture target and grabs its pixels. Returns {@code null} if capture fails or the user
-     * cancels. Shared by the image-crop, region-select and point-pick flows.
+     * Grabs the target's pixels <b>off the FX thread</b> (native focus + {@code Thread.sleep} + Robot/CLI
+     * grab all block), then hops back to the FX thread to (optionally) show the screen chooser and hand the
+     * finished {@link ScreenShot} to {@code onShot}. Running the grab on the FX thread is what froze the whole
+     * machine (the modal overlay was shown before the slow grab returned); this keeps the UI responsive.
+     */
+    private void grabAsync(Window owner, Consumer<ScreenShot> onShot) {
+        Thread t = new Thread(() -> {
+            Grab grab;
+            try {
+                grab = grabOffThread(owner);
+            } catch (Throwable ex) {
+                System.err.println("Screen capture failed: " + ex.getMessage());
+                grab = new Grab(null, null);
+            }
+            Grab result = grab;
+            Platform.runLater(() -> finishGrab(owner, result, onShot));
+        }, "screen-capture-grab");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /**
+     * Off-thread grab result: either a finished {@code shot}, or a raw {@code desktopForChooser} image that
+     * still needs the FX-thread screen chooser (no default + multiple monitors). Both null means failed.
+     */
+    private record Grab(ScreenShot shot, BufferedImage desktopForChooser) {}
+
+    /**
+     * Resolves the capture target and grabs its pixels (blocking — call off the FX thread only).
      *
      * <ul>
      *   <li>default is a window → focus + capture that window ({@link #captureWindow});</li>
      *   <li>default is a screen → grab the desktop and crop to that monitor (no dialog);</li>
-     *   <li>no default → grab the desktop and, with multiple monitors, show the screen chooser.</li>
+     *   <li>default is the whole desktop (or unset on a single monitor) → the whole virtual desktop;</li>
+     *   <li>unset default + multiple monitors → return the desktop image for the FX-thread chooser.</li>
      * </ul>
      */
-    private ScreenShot prepareScreenshot(Window owner) {
+    private Grab grabOffThread(Window owner) {
         CaptureTarget target = (settings != null) ? settings.defaultTarget() : null;
 
         if (target instanceof WindowTarget wt) {
             WindowShot ws = captureWindow(wt);
-            if (ws == null) return null;
+            if (ws == null) return new Grab(null, null);
             java.awt.Rectangle b = ws.bounds();
             Rectangle2D bounds = new Rectangle2D(b.x, b.y, b.width, b.height);
-            return new ScreenShot(ws.image(), bounds, false);
+            return new Grab(new ScreenShot(ws.image(), bounds, false, false), null);
         }
 
         BufferedImage desktop;
@@ -133,24 +164,71 @@ public final class ScreenCaptureService {
             desktop = grabVirtualDesktop();
         } catch (Exception e) {
             System.err.println("Screen capture failed: " + e.getMessage());
-            return null;
+            return new Grab(null, null);
         }
-        if (desktop == null) return null;
-        if (looksBlank(desktop)) {
-            System.err.println("Screen capture looks blank — on Linux this usually means a Wayland session; "
-                    + "X11 is required for Robot capture.");
-        }
+        if (desktop == null) return new Grab(null, null);
+        boolean blank = looksBlank(desktop);
+
         List<Screen> screens = Screen.getScreens();
-        Screen screen;
         if (target instanceof ScreenTarget st && st.index() >= 0 && st.index() < screens.size()) {
-            screen = screens.get(st.index()); // remembered default → no dialog
-        } else if (screens.size() > 1) {
-            screen = chooseScreen(owner, screens, desktop);
-            if (screen == null) return null; // chooser cancelled
-        } else {
-            screen = Screen.getPrimary();
+            Screen screen = screens.get(st.index()); // remembered default → no dialog
+            return new Grab(new ScreenShot(cropToScreen(desktop, screens, screen), screen.getBounds(), true, blank), null);
         }
-        return new ScreenShot(cropToScreen(desktop, screens, screen), screen.getBounds(), true);
+        if (target instanceof DesktopTarget) {
+            // Whole virtual desktop: overlay spans every monitor (positioned, not single-screen fullscreen).
+            return new Grab(new ScreenShot(desktop, virtualScreenBounds(screens), false, blank), null);
+        }
+        if (screens.size() > 1) {
+            return new Grab(null, desktop); // unset default → FX-thread chooser
+        }
+        Screen screen = Screen.getPrimary();
+        return new Grab(new ScreenShot(cropToScreen(desktop, screens, screen), screen.getBounds(), true, blank), null);
+    }
+
+    /**
+     * FX-thread completion of {@link #grabAsync}: runs the screen chooser if one is pending, guards against a
+     * blank (Wayland) grab so the user is never trapped behind a black full-screen overlay, and finally hands
+     * the finished shot to {@code onShot}.
+     */
+    private void finishGrab(Window owner, Grab grab, Consumer<ScreenShot> onShot) {
+        ScreenShot shot = grab.shot();
+        if (shot == null && grab.desktopForChooser() != null) {
+            BufferedImage desktop = grab.desktopForChooser();
+            List<Screen> screens = Screen.getScreens();
+            Screen screen = chooseScreen(owner, screens, desktop);
+            if (screen == null) return; // chooser cancelled
+            shot = new ScreenShot(cropToScreen(desktop, screens, screen), screen.getBounds(), true, looksBlank(desktop));
+        }
+        if (shot == null) return;
+        if (shot.blank()) {
+            showBlankWarning(owner);
+            return;
+        }
+        onShot.accept(shot);
+    }
+
+    /** The whole virtual-desktop bounds in JavaFX logical coordinates (union of every screen). */
+    private static Rectangle2D virtualScreenBounds(List<Screen> screens) {
+        double minX = screens.stream().mapToDouble(s -> s.getBounds().getMinX()).min().orElse(0);
+        double minY = screens.stream().mapToDouble(s -> s.getBounds().getMinY()).min().orElse(0);
+        double maxX = screens.stream().mapToDouble(s -> s.getBounds().getMaxX()).max().orElse(0);
+        double maxY = screens.stream().mapToDouble(s -> s.getBounds().getMaxY()).max().orElse(0);
+        return new Rectangle2D(minX, minY, Math.max(1, maxX - minX), Math.max(1, maxY - minY));
+    }
+
+    /**
+     * Shown (instead of a black full-screen overlay) when the grab came back blank — almost always a Wayland
+     * session, where {@code Robot} capture is blocked. Dismissible; ties into the force-X11 guidance.
+     */
+    private void showBlankWarning(Window owner) {
+        Alert alert = new Alert(Alert.AlertType.WARNING);
+        if (owner != null) alert.initOwner(owner);
+        alert.setTitle("Screen capture unavailable");
+        alert.setHeaderText("Couldn't capture the screen");
+        alert.setContentText("The capture came back blank. On Linux this almost always means a Wayland "
+                + "session — BotMaker needs an X11 (Xorg) session to capture and control the screen. Log out "
+                + "and choose the \"Xorg\" / X11 session at the login screen, then try again.");
+        alert.showAndWait();
     }
 
     /**
@@ -159,8 +237,7 @@ public final class ScreenCaptureService {
      * cancels (Esc / empty selection) or capture is unavailable.
      */
     public void selectRegion(Window owner, Consumer<int[]> onSelected) {
-        ScreenShot shot = prepareScreenshot(owner);
-        if (shot != null) showRegionOverlay(owner, shot, onSelected);
+        grabAsync(owner, shot -> showRegionOverlay(owner, shot, onSelected));
     }
 
     /**
@@ -169,8 +246,7 @@ public final class ScreenCaptureService {
      * coordinates. Does nothing if the user cancels (Esc) or capture is unavailable.
      */
     public void pickPoint(Window owner, Consumer<int[]> onPicked) {
-        ScreenShot shot = prepareScreenshot(owner);
-        if (shot != null) showPointOverlay(owner, shot, onPicked);
+        grabAsync(owner, shot -> showPointOverlay(owner, shot, onPicked));
     }
 
     /**
@@ -580,8 +656,7 @@ public final class ScreenCaptureService {
      */
     public void runSession(Window owner, List<PickStep> steps, Runnable onDone) {
         if (steps == null || steps.isEmpty()) return;
-        ScreenShot shot = prepareScreenshot(owner);
-        if (shot != null) new SessionOverlay(owner, shot, steps, onDone).start();
+        grabAsync(owner, shot -> new SessionOverlay(owner, shot, steps, onDone).start());
     }
 
     /** Height of the top instruction/Quit band; presses inside it don't start a selection. */

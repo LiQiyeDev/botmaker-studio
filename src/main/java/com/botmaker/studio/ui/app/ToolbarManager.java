@@ -2,6 +2,9 @@ package com.botmaker.studio.ui.app;
 
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
+import com.botmaker.studio.project.capture.CaptureTarget;
+import com.botmaker.studio.project.capture.CaptureTargetNames;
+import com.botmaker.studio.services.ProjectSettingsService;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
@@ -10,24 +13,37 @@ import javafx.scene.layout.HBox;
 
 public class ToolbarManager {
 
+    /** Longest window title shown on the Capture button before it's ellipsized. */
+    private static final int CAPTURE_LABEL_MAX = 26;
+
     private final EventBus eventBus;
+    private final ProjectSettingsService settings;
     // Controls
     private Button undoButton, redoButton;
     private Button runButton, debugButton, followButton, unifiedStopButton;
     private Button stepOverButton, continueButton;
+    /** The Capture Targets button, whose text tracks the current project default. */
+    private Button captureButton;
 
     /** Opens the Manage Capture Targets dialog; wired by {@link UIManager}. */
     private Runnable onManageCaptureTargets;
+    /** Opens the debug dashboard; wired by {@link UIManager}. */
+    private Runnable onOpenDebugDashboard;
 
     private enum AppState { IDLE, RUNNING, DEBUGGING }
     private AppState currentAppState = AppState.IDLE;
 
-    public ToolbarManager(EventBus eventBus) {
+    public ToolbarManager(EventBus eventBus, ProjectSettingsService settings) {
         this.eventBus = eventBus;
+        this.settings = settings;
         setupEventHandlers();
     }
 
     private void setupEventHandlers() {
+        // Keep the Capture button's text in sync with the project's default target.
+        eventBus.subscribe(CoreApplicationEvents.SettingsChangedEvent.class, e -> {
+            if (captureButton != null) captureButton.setText(captureButtonText());
+        }, true);
         eventBus.subscribe(CoreApplicationEvents.ProgramStartedEvent.class, e -> setAppState(AppState.RUNNING), true);
         eventBus.subscribe(CoreApplicationEvents.ProgramStoppedEvent.class, e -> setAppState(AppState.IDLE), true);
         eventBus.subscribe(CoreApplicationEvents.DebugSessionEvent.class, e -> {
@@ -73,20 +89,46 @@ public class ToolbarManager {
         this.onManageCaptureTargets = callback;
     }
 
+    /** Sets the callback invoked when the toolbar's Debug Dashboard button is clicked. */
+    public void setOnOpenDebugDashboard(Runnable callback) {
+        this.onOpenDebugDashboard = callback;
+    }
+
     /**
-     * Creates the center group: the Capture Targets button (opens the manage dialog).
+     * Creates the center group: the Capture Targets button (opens the manage dialog; its text shows the
+     * current default target) next to the Debug Dashboard button (opens the live telemetry dashboard).
      */
     public HBox createCaptureGroup() {
-        Button captureButton = new Button("🎯 Capture Targets");
+        captureButton = new Button(captureButtonText());
         captureButton.getStyleClass().add("toolbar-btn");
-        captureButton.setTooltip(new Tooltip("Manage screen / window capture targets"));
+        captureButton.setTooltip(new Tooltip("Manage screen / window capture targets (current default shown)"));
         captureButton.setOnAction(e -> {
             if (onManageCaptureTargets != null) onManageCaptureTargets.run();
         });
 
-        HBox group = new HBox(5, captureButton);
+        Button debugDashboardButton = new Button("📊 Debug Dashboard");
+        debugDashboardButton.getStyleClass().add("toolbar-btn");
+        debugDashboardButton.setTooltip(new Tooltip("Open the live telemetry debug dashboard in your browser"));
+        debugDashboardButton.setOnAction(e -> {
+            if (onOpenDebugDashboard != null) onOpenDebugDashboard.run();
+        });
+
+        HBox group = new HBox(5, captureButton, debugDashboardButton);
         group.setAlignment(Pos.CENTER);
         return group;
+    }
+
+    /** "🎯 " + the current default target's short name, or "🎯 Capture Targets" when no default is set. */
+    private String captureButtonText() {
+        CaptureTarget def = null;
+        try {
+            def = (settings != null) ? settings.defaultTarget() : null;
+        } catch (Exception ignored) {
+        }
+        if (def == null) return "🎯 Capture Targets";
+        String name = CaptureTargetNames.shortLabel(def);
+        if (name.length() > CAPTURE_LABEL_MAX) name = name.substring(0, CAPTURE_LABEL_MAX - 1) + "…";
+        return "🎯 " + name;
     }
 
     /**

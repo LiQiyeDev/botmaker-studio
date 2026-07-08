@@ -75,7 +75,7 @@ public final class CaptureSourcePicker {
             int end = raw.indexOf('"', start);
             if (end > start) return "🎯 " + raw.substring(start, end) + suffix;
         }
-        if (raw.contains("desktop()")) return "🎯 Whole screen" + suffix;
+        if (raw.contains("desktop()")) return "🎯 Whole desktop" + suffix;
         return "🎯 " + raw;
     }
 }

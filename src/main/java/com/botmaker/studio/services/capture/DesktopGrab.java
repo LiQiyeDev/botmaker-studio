@@ -25,10 +25,9 @@ public final class DesktopGrab {
 
     private DesktopGrab() {}
 
-    /** True if we appear to be running under a Wayland session. */
+    /** True if we appear to be running under a Wayland session (delegates to {@link SessionEnvironment}). */
     public static boolean isWayland() {
-        return "wayland".equalsIgnoreCase(System.getenv("XDG_SESSION_TYPE"))
-                || System.getenv("WAYLAND_DISPLAY") != null;
+        return com.botmaker.studio.services.platform.SessionEnvironment.isWayland();
     }
 
     /**

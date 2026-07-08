@@ -11,6 +11,7 @@ import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.project.StudioProjectSettings;
 import com.botmaker.studio.project.capture.CaptureTarget;
+import com.botmaker.studio.project.capture.CaptureTarget.DesktopTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.ScreenTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.WindowTarget;
 import com.botmaker.studio.services.ProjectSettingsService;
@@ -341,6 +342,10 @@ public final class WindowPreviewManager {
             Rectangle b = screenBounds(st.index());
             return new Target(null, b.x, b.y, b.width, b.height, false);
         }
+        if (def instanceof DesktopTarget) {
+            Rectangle b = virtualBounds();
+            return new Target(null, b.x, b.y, b.width, b.height, false);
+        }
         if (tel != null) return tel; // a whole-screen telemetry target (null title)
         Rectangle b = primaryBounds();
         return new Target(null, b.x, b.y, b.width, b.height, false);
@@ -443,6 +448,15 @@ public final class WindowPreviewManager {
     private static Rectangle primaryBounds() {
         return GraphicsEnvironment.getLocalGraphicsEnvironment()
                 .getDefaultScreenDevice().getDefaultConfiguration().getBounds();
+    }
+
+    /** The whole virtual-desktop bounds (union of every AWT device) — matches Robot's coordinate space. */
+    private static Rectangle virtualBounds() {
+        Rectangle bounds = new Rectangle();
+        for (GraphicsDevice gd : GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices()) {
+            bounds = bounds.union(gd.getDefaultConfiguration().getBounds());
+        }
+        return bounds.isEmpty() ? primaryBounds() : bounds;
     }
 
     // --- Viewport (zoom / pan / follow) ---

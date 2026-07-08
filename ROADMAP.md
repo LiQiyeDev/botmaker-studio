@@ -6,6 +6,29 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-08 — Capture UX: unfroze capture, first-class Desktop target, preview parity, force-X11.**
+  - **Fixed the machine-freezing capture.** `ScreenCaptureService.prepareScreenshot` ran the whole grab
+    (native focus + `Thread.sleep` + Robot/CLI shell-out) on the FX thread *before* showing a modal
+    full-screen overlay — a slow/blank grab froze the desktop. The grab now runs off-thread
+    (`grabAsync` → `grabOffThread`), hops back for the FX-thread screen chooser, and a blank (Wayland) grab
+    shows a dismissible warning instead of a black full-screen trap.
+  - **`DesktopTarget` is now a first-class capture target** (`project/capture/CaptureTarget`), so "the whole
+    desktop" is an explicit, storable project default and a selectable tile — not an implicit `null`. Wired
+    through `CaptureExpr`, `ScreenCaptureService`, `WindowPreviewManager`, and the dashboard; persists as
+    `{"type":"desktop"}`.
+  - **Capture-source picker has three categories** — Windows / Monitors / Desktop (was Screens + Windows);
+    the in-block button now labels the whole desktop "Whole desktop" (was the ambiguous "Whole screen").
+  - **Toolbar Capture button shows the current default** (name only, e.g. "🎯 Screen 2" / a window title /
+    "🎯 Whole desktop"), refreshed on `SettingsChangedEvent`; shared `CaptureTargetNames.shortLabel`.
+  - **"📊 Debug Dashboard" toolbar button** next to Capture Targets (`ToolbarManager` + `UIManager`); the
+    dashboard now previews the **project default** target (not the whole current screen) via an
+    effective-target resolver mirroring the Studio preview, and gained zoom / fit / follow view controls.
+  - **Force-X11 on Wayland.** New `services/platform/SessionEnvironment` (single Wayland detector +
+    best-effort `pkexec` X11-session-package install command per distro/DE); a one-time-per-session
+    `ForceX11Notice` modal (`BotMakerStudio.finishOpen`) explains the re-login requirement, offers the
+    package install (streams output, always shows the exact command), and has a "don't show again" flag
+    (`ProjectPreferences`).
+
 - **2026-07-08 — CaptureSource picker: type-aware overloads, region-as-modifier, project-default seeding.**
   Follows the SDK's CaptureSource redesign (`../botmaker-sdk/ROADMAP.md`).
   - **Picker no longer mis-renders on same-arity overloads.** Overload selection was by argument *count* only

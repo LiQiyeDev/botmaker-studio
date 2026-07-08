@@ -50,6 +50,7 @@ public class UIManager {
     private final Stage primaryStage;
     private final ProjectConfig config;
     private final ScreenCaptureService screenCaptureService;
+    private final ProjectSettingsService projectSettingsService;
 
     private final ToolbarManager toolbarManager;
     private final EventLogManager eventLogManager;
@@ -88,10 +89,10 @@ public class UIManager {
 
         // Editor settings (capture targets + default). Stateless over (config, state, eventBus); the
         // capture service honors the default target so pickers stop re-asking which screen to use.
-        ProjectSettingsService projectSettingsService = new ProjectSettingsService(config, state, eventBus);
+        this.projectSettingsService = new ProjectSettingsService(config, state, eventBus);
         this.screenCaptureService = new ScreenCaptureService(projectSettingsService);
 
-        this.toolbarManager = new ToolbarManager(eventBus);
+        this.toolbarManager = new ToolbarManager(eventBus, projectSettingsService);
         this.eventLogManager = new EventLogManager(eventBus);
         this.menuBarManager = new MenuBarManager(primaryStage);
         this.menuBarManager.setEventBus(eventBus);
@@ -108,6 +109,7 @@ public class UIManager {
         this.menuBarManager.setOnManageResources(this::openResourceManager);
         this.toolbarManager.setOnManageCaptureTargets(() ->
                 new ManageCaptureTargetsDialog(primaryStage, projectSettingsService).show());
+        this.toolbarManager.setOnOpenDebugDashboard(this::openDebugDashboard);
         GitHubClient gitHubClient = new GitHubClient();
         GitHubGallery gallery = new GitHubGallery(gitHubClient);
         BotInstaller botInstaller = new BotInstaller(gitHubClient, gallery);
@@ -131,7 +133,8 @@ public class UIManager {
     private void openDebugDashboard() {
         try {
             if (dashboardServer == null) {
-                dashboardServer = new com.botmaker.studio.services.debug.TelemetryDashboardServer(eventBus);
+                dashboardServer = new com.botmaker.studio.services.debug.TelemetryDashboardServer(
+                        eventBus, projectSettingsService);
             }
             String url = dashboardServer.startAndGetUrl();
             com.botmaker.studio.util.BrowserLauncher.open(url);

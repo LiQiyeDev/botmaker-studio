@@ -33,6 +33,8 @@ public class ProjectPreferences {
     private WindowState windowState;
     /** xdg-desktop-portal ScreenCast restore token (global to Studio) → prompt once ever on Wayland. */
     private String screenCastRestoreToken;
+    /** True once the user ticked "don't show again" on the Wayland → X11 notice. */
+    private boolean hideWaylandNotice;
 
     public ProjectPreferences() {}
 
@@ -47,6 +49,8 @@ public class ProjectPreferences {
     public void setWindowState(WindowState windowState) { this.windowState = windowState; }
     public String getScreenCastRestoreToken() { return screenCastRestoreToken; }
     public void setScreenCastRestoreToken(String token) { this.screenCastRestoreToken = token; }
+    public boolean isHideWaylandNotice() { return hideWaylandNotice; }
+    public void setHideWaylandNotice(boolean hide) { this.hideWaylandNotice = hide; }
 
     public void addRecentProject(String projectName) {
         recentProjects.removeIf(p -> p.getName().equals(projectName));
@@ -110,6 +114,17 @@ public class ProjectPreferences {
     public static void updateScreenCastToken(String token) {
         ProjectPreferences prefs = load();
         prefs.setScreenCastRestoreToken(token);
+        prefs.save();
+    }
+
+    /** True if the user asked not to see the Wayland → X11 notice again. */
+    public static boolean isWaylandNoticeHidden() {
+        return load().isHideWaylandNotice();
+    }
+
+    public static void setWaylandNoticeHidden(boolean hide) {
+        ProjectPreferences prefs = load();
+        prefs.setHideWaylandNotice(hide);
         prefs.save();
     }
 

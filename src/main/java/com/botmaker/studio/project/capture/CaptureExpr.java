@@ -47,6 +47,7 @@ public final class CaptureExpr {
         if (target instanceof WindowTarget wt && wt.titleSubstring() != null && !wt.titleSubstring().isBlank()) {
             return PKG + "CaptureSource.window(\"" + escape(wt.titleSubstring()) + "\")";
         }
+        // DesktopTarget and null both map to the whole virtual desktop.
         return PKG + "CaptureSource.desktop()";
     }
 
