@@ -384,7 +384,7 @@ public class CodeEditor {
     }
 
     public void updateMethodInvocation(MethodInvocation mi, String newScope, String newMethodName, List<ResolvedType> newParamTypes) {
-        edit(true, (cu, code) -> MethodHandler.updateMethodInvocation(cu, code, mi, newScope, newMethodName, newParamTypes));
+        edit(true, (cu, code) -> MethodHandler.updateMethodInvocation(cu, code, mi, newScope, newMethodName, newParamTypes, state));
     }
 
     public void addArgumentToMethodInvocation(MethodInvocation mi, ExpressionType type) {
@@ -414,7 +414,7 @@ public class CodeEditor {
     }
 
     public void addMethodCallStatement(BodyBlock targetBody, ExpressionChoice.Method choice, int index) {
-        edit(false, (cu, code) -> MethodHandler.addMethodCallStatement(cu, code, targetBody, choice, index, analyzer));
+        edit(false, (cu, code) -> MethodHandler.addMethodCallStatement(cu, code, targetBody, choice, index, analyzer, state));
     }
 
     public void addMethodToClass(TypeDeclaration typeDecl, String methodName, String returnType, int index) {

@@ -10,7 +10,9 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Per-project editor settings, persisted as {@code settings.json} under the project's
@@ -22,10 +24,13 @@ import java.util.List;
  * @param defaultTargetIndex  index into {@code captureTargets} of the default, or {@code null} for none
  * @param knownWindowTitles   window titles seen/used before, remembered so a window can be picked as a
  *                            target without the app being currently open (backward-compatible; absent → empty)
+ * @param favoriteOverloads   per-method chosen overload: {@code methodKey → signatureKey} (see
+ *                            {@code ExpressionMenuFactory}); the favorite is created by default when clicking
+ *                            the method (backward-compatible; absent → empty)
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex,
-                                    List<String> knownWindowTitles) {
+                                    List<String> knownWindowTitles, Map<String, String> favoriteOverloads) {
 
     public static final String FILE_NAME = "settings.json";
 
@@ -36,19 +41,30 @@ public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer 
     public StudioProjectSettings {
         captureTargets = captureTargets == null ? List.of() : List.copyOf(captureTargets);
         knownWindowTitles = knownWindowTitles == null ? List.of() : List.copyOf(knownWindowTitles);
+        favoriteOverloads = favoriteOverloads == null ? Map.of() : Map.copyOf(favoriteOverloads);
         if (defaultTargetIndex != null
                 && (defaultTargetIndex < 0 || defaultTargetIndex >= captureTargets.size())) {
             defaultTargetIndex = null;
         }
     }
 
-    /** Convenience constructor for callers that don't manage the remembered window titles. */
-    public StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex) {
-        this(captureTargets, defaultTargetIndex, List.of());
+    /** Convenience constructor for callers that don't manage favorite overloads. */
+    public StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex,
+                                 List<String> knownWindowTitles) {
+        this(captureTargets, defaultTargetIndex, knownWindowTitles, Map.of());
     }
 
+    /** Convenience constructor for callers that don't manage the remembered window titles. */
+    public StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex) {
+        this(captureTargets, defaultTargetIndex, List.of(), Map.of());
+    }
+
+    /**
+     * A fresh project's settings: the whole desktop is seeded as the sole capture target and the default,
+     * so every picker/toolbar already shows "Whole desktop" instead of an empty "no default set" state.
+     */
     public static StudioProjectSettings empty() {
-        return new StudioProjectSettings(List.of(), null, List.of());
+        return new StudioProjectSettings(List.of(new CaptureTarget.DesktopTarget()), 0, List.of(), Map.of());
     }
 
     /** The default target, or {@code null} if none is set (pickers then show the chooser). */
@@ -59,17 +75,34 @@ public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer 
 
     /** This settings with the target list replaced (keeps the default if still in range). */
     public StudioProjectSettings withTargets(List<CaptureTarget> targets) {
-        return new StudioProjectSettings(targets, defaultTargetIndex, knownWindowTitles);
+        return new StudioProjectSettings(targets, defaultTargetIndex, knownWindowTitles, favoriteOverloads);
     }
 
     /** This settings with the default index replaced. */
     public StudioProjectSettings withDefaultIndex(Integer index) {
-        return new StudioProjectSettings(captureTargets, index, knownWindowTitles);
+        return new StudioProjectSettings(captureTargets, index, knownWindowTitles, favoriteOverloads);
     }
 
     /** This settings with the remembered window titles replaced. */
     public StudioProjectSettings withKnownWindowTitles(List<String> titles) {
-        return new StudioProjectSettings(captureTargets, defaultTargetIndex, titles);
+        return new StudioProjectSettings(captureTargets, defaultTargetIndex, titles, favoriteOverloads);
+    }
+
+    /**
+     * This settings with {@code methodKey}'s favorite overload set to {@code signatureKey} (or removed when
+     * {@code signatureKey} is {@code null}). Keys are opaque strings minted by {@code ExpressionMenuFactory}.
+     */
+    public StudioProjectSettings withFavoriteOverload(String methodKey, String signatureKey) {
+        Map<String, String> next = new LinkedHashMap<>(favoriteOverloads);
+        if (signatureKey == null) next.remove(methodKey);
+        else next.put(methodKey, signatureKey);
+        return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, next);
+    }
+
+    /** The chosen overload signature key for {@code methodKey}, or {@code null} if no favorite is set. */
+    @JsonIgnore
+    public String favoriteSignature(String methodKey) {
+        return favoriteOverloads.get(methodKey);
     }
 
     /** Reads {@code settings.json} from {@code resourcesDir}; returns {@link #empty()} if absent/invalid. */

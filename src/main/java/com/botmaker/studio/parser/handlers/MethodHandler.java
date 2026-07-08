@@ -28,17 +28,17 @@ public class MethodHandler {
         AST ast = cu.getAST();
         ASTRewrite rewriter = ASTRewrite.create(ast);
 
-        MethodInvocation mi = createMethodInvocation(ast, choice, cu, rewriter, analyzer);
+        MethodInvocation mi = createMethodInvocation(ast, choice, cu, rewriter, analyzer, state);
 
         rewriter.replace(toReplace, mi, null);
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
     }
 
-    public static String addMethodCallStatement(CompilationUnit cu, String originalCode, BodyBlock targetBody, ExpressionChoice.Method choice, int index, ProjectAnalyzer analyzer) {
+    public static String addMethodCallStatement(CompilationUnit cu, String originalCode, BodyBlock targetBody, ExpressionChoice.Method choice, int index, ProjectAnalyzer analyzer, ProjectState state) {
         AST ast = cu.getAST();
         ASTRewrite rewriter = ASTRewrite.create(ast);
 
-        MethodInvocation mi = createMethodInvocation(ast, choice, cu, rewriter, analyzer);
+        MethodInvocation mi = createMethodInvocation(ast, choice, cu, rewriter, analyzer, state);
         ExpressionStatement stmt = ast.newExpressionStatement(mi);
 
         // Insert into body
@@ -52,6 +52,16 @@ public class MethodHandler {
     public static MethodInvocation createMethodInvocation(AST ast, ExpressionChoice.Method choice,
                                                           CompilationUnit cu, ASTRewrite rewriter,
                                                           ProjectAnalyzer analyzer) {
+        return createMethodInvocation(ast, choice, cu, rewriter, analyzer, null);
+    }
+
+    /**
+     * State-aware variant: threads {@link ProjectState} so a {@code CaptureSource} argument default is seeded
+     * from the project's default capture target instead of the whole desktop (see {@code InitializerFactory}).
+     */
+    public static MethodInvocation createMethodInvocation(AST ast, ExpressionChoice.Method choice,
+                                                          CompilationUnit cu, ASTRewrite rewriter,
+                                                          ProjectAnalyzer analyzer, ProjectState state) {
         MethodInvocation mi = ast.newMethodInvocation();
 
         // Scope
@@ -68,7 +78,7 @@ public class MethodHandler {
 
         // Arguments (Defaults)
         for (ResolvedType paramType : choice.paramTypes()) {
-            mi.arguments().add(NodeCreator.createDefaultInitializer(ast, paramType));
+            mi.arguments().add(NodeCreator.createDefaultInitializer(ast, paramType, cu, state));
         }
         return mi;
     }
@@ -130,7 +140,7 @@ public class MethodHandler {
 
     public static String updateMethodInvocation(CompilationUnit cu, String originalCode,
                                          MethodInvocation mi, String newScope,
-                                         String newMethodName, List<ResolvedType> newParamTypes) {
+                                         String newMethodName, List<ResolvedType> newParamTypes, ProjectState state) {
         AST ast = cu.getAST();
         ASTRewrite rewriter = ASTRewrite.create(ast);
 
@@ -153,7 +163,7 @@ public class MethodHandler {
             rewriter.replace(mi.getName(), ast.newSimpleName(newMethodName), null);
         }
 
-        syncArguments(ast,rewriter, mi, newParamTypes);
+        syncArguments(ast, rewriter, mi, newParamTypes, cu, state);
 
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
     }
@@ -317,7 +327,8 @@ public class MethodHandler {
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
     }
 
-    private static void syncArguments(AST ast, ASTRewrite rewriter, MethodInvocation mi, List<ResolvedType> targetTypes) {
+    private static void syncArguments(AST ast, ASTRewrite rewriter, MethodInvocation mi, List<ResolvedType> targetTypes,
+                                      CompilationUnit cu, ProjectState state) {
         ListRewrite argsRewrite = rewriter.getListRewrite(mi, MethodInvocation.ARGUMENTS_PROPERTY);
         List<?> currentArgs = mi.arguments();
 
@@ -334,7 +345,7 @@ public class MethodHandler {
 
             // If types are NOT compatible, replace the argument
             if (!currentType.isAssignmentCompatible(targetType)) {
-                Expression defaultExpr = NodeCreator.createDefaultInitializer(ast, targetType);
+                Expression defaultExpr = NodeCreator.createDefaultInitializer(ast, targetType, cu, state);
                 argsRewrite.replace(currentArg, defaultExpr, null);
             }
         }
@@ -349,7 +360,7 @@ public class MethodHandler {
         else if (currentCount < targetCount) {
             for (int i = currentCount; i < targetCount; i++) {
                 ResolvedType type = targetTypes.get(i);
-                Expression defaultExpr = NodeCreator.createDefaultInitializer(ast, type);
+                Expression defaultExpr = NodeCreator.createDefaultInitializer(ast, type, cu, state);
                 argsRewrite.insertLast(defaultExpr, null);
             }
         }

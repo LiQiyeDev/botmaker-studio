@@ -96,6 +96,9 @@ public class UIManager {
         this.eventLogManager = new EventLogManager(eventBus);
         this.menuBarManager = new MenuBarManager(primaryStage);
         this.menuBarManager.setEventBus(eventBus);
+        this.menuBarManager.setProjectPath(config.projectPath());
+        // Startup banner: which local builds are actually running (distinct from the GitHub update check).
+        System.out.println(com.botmaker.studio.config.VersionInfo.banner(config.projectPath()));
         MavenCentralSearch mavenCentralSearch = new MavenCentralSearch();
         JitPackSearch jitPackSearch = new JitPackSearch();
         this.menuBarManager.setOnManageLibraries(() ->

@@ -95,6 +95,13 @@ public class CodeEditorService {
 
         eventBus.subscribe(CoreApplicationEvents.BlockDropRequestedEvent.class, e -> handleBlockDrop(e.info()), false);
         eventBus.subscribe(CoreApplicationEvents.BlockMoveRequestedEvent.class, e -> handleBlockMove(e.info()), false);
+
+        // Debug/trace Follow: DebuggingService publishes BlockHighlightEvent as the program advances (and to
+        // clear on stop). Apply it to ProjectState so the executing/paused block is highlighted live.
+        eventBus.subscribe(CoreApplicationEvents.BlockHighlightEvent.class, event -> {
+            if (event.block() != null) state.setHighlightedBlock(event.block());
+            else state.clearHighlight();
+        }, true);
     }
 
     /** Resolves a palette drop into the matching CodeEditor "add" call. */

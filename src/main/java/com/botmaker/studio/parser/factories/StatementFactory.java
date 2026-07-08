@@ -7,12 +7,14 @@ import com.botmaker.studio.parser.handlers.LambdaCallHandler;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.types.ResolvedType;
+import com.botmaker.studio.util.MethodSignature;
 import org.eclipse.jdt.core.dom.*;
 import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class StatementFactory {
 
@@ -27,7 +29,7 @@ public class StatementFactory {
             case BlockType.ControlFlow cf -> createControlFlow(ast, cf.kind(), cu, rewriter, state);
             case BlockType.VarDecl v -> buildVarDecl(ast, v, cu, rewriter, analyzer);
             case BlockType.ScannerRead r -> buildScannerRead(ast, r, cu, rewriter);
-            case BlockType.LibraryCall l -> buildLibraryCall(ast, l, cu, rewriter, analyzer);
+            case BlockType.LibraryCall l -> buildLibraryCall(ast, l, cu, rewriter, state, analyzer);
             case BlockType.LambdaCall l -> buildLambdaCall(ast, l, cu, rewriter, analyzer);
             case BlockType.EnumDecl ignored -> createEnumDeclaration(ast);
             case BlockType.MethodMember ignored -> null; // a method is a class member, not a body statement
@@ -82,17 +84,40 @@ public class StatementFactory {
     }
 
     private static Statement buildLibraryCall(AST ast, BlockType.LibraryCall l, CompilationUnit cu,
-                                              ASTRewrite rewriter, ProjectAnalyzer analyzer) {
+                                              ASTRewrite rewriter, ProjectState state, ProjectAnalyzer analyzer) {
         MethodInvocation mi = ast.newMethodInvocation();
         mi.setExpression(ast.newSimpleName(l.className()));
         mi.setName(ast.newSimpleName(l.method()));
         ImportManager.addImportForSimpleName(cu, rewriter, l.className(), analyzer, null);
-        if (l.args().isEmpty()) {
-            mi.arguments().add(ast.newNullLiteral());
-        } else {
+        if (!l.args().isEmpty()) {
             for (Initializer arg : l.args()) mi.arguments().add(buildExpression(ast, arg, cu, rewriter, analyzer));
+        } else {
+            // If the project pinned a favorite overload for this method, create it: seed a default value per
+            // parameter (a CaptureSource slot gets the project-default target — see InitializerFactory). Falls
+            // back to the single empty "+" slot when there's no favorite or it no longer resolves.
+            List<ResolvedType> favParams = favoriteOverloadParams(l, state, analyzer);
+            if (favParams != null && !favParams.isEmpty()) {
+                for (ResolvedType p : favParams) {
+                    mi.arguments().add(com.botmaker.studio.parser.NodeCreator.createDefaultInitializer(ast, p, cu, state));
+                }
+            } else {
+                mi.arguments().add(ast.newNullLiteral());
+            }
         }
         return ast.newExpressionStatement(mi);
+    }
+
+    /** Parameter types of the project's favorite overload for {@code l}, or {@code null} if none is set/resolves. */
+    private static List<ResolvedType> favoriteOverloadParams(BlockType.LibraryCall l, ProjectState state,
+                                                             ProjectAnalyzer analyzer) {
+        if (state == null || analyzer == null) return null;
+        String favKey = state.getSettings().favoriteSignature(l.className() + "#" + l.method());
+        if (favKey == null) return null;
+        List<MethodSignature> sigs = analyzer.getMethods(l.className(), true).stream()
+                .filter(s -> s.name().equals(l.method()))
+                .collect(Collectors.toList());
+        MethodSignature fav = MethodSignature.bestForKey(sigs, favKey);
+        return fav != null ? fav.paramTypes() : null;
     }
 
     private static Statement buildLambdaCall(AST ast, BlockType.LambdaCall l, CompilationUnit cu,

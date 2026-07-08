@@ -35,6 +35,8 @@ public class MenuBarManager {
     private MenuItem projectRepoItem;
     private Runnable onOpenDebugDashboard;
     private String projectRepoUrl;
+    /** The open project's directory, so the About dialog can report the SDK version it pins. May be null. */
+    private java.nio.file.Path projectPath;
 
     /** GitHub repo of the Studio itself (opened from Help → BotMaker Studio on GitHub). */
     private static final String STUDIO_REPO_URL = "https://github.com/LiQiyeDev/BotMaker-Studio";
@@ -44,6 +46,11 @@ public class MenuBarManager {
         this.primaryStage = primaryStage;
         this.menuBar = new MenuBar();
         createMenus();
+    }
+
+    /** Sets the open project's directory so the About dialog can report the project's SDK version. */
+    public void setProjectPath(java.nio.file.Path projectPath) {
+        this.projectPath = projectPath;
     }
 
     /**
@@ -433,9 +440,12 @@ public class MenuBarManager {
         alert.setTitle("About BotMaker");
         alert.setHeaderText("BotMaker Blocks");
         alert.setContentText(
-                "Version: " + com.botmaker.studio.config.AppVersion.get() + "\n\n" +
-                        "A visual block-based programming environment for Java.\n\n" +
-                        "Build Java applications using drag-and-drop blocks!"
+                "A visual block-based programming environment for Java.\n" +
+                        "Build Java applications using drag-and-drop blocks!\n\n" +
+                        "Builds in use (local — not the GitHub update check):\n" +
+                        "  Studio: " + com.botmaker.studio.config.VersionInfo.studio() + "\n" +
+                        "  shared: " + com.botmaker.studio.config.VersionInfo.shared() + "\n" +
+                        "  SDK (project): " + com.botmaker.studio.config.VersionInfo.sdkForProject(projectPath)
         );
         alert.showAndWait();
     }

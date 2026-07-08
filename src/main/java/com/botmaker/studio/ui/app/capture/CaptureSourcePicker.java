@@ -223,7 +223,6 @@ public final class CaptureSourcePicker {
                 select(tile, new Selection.Concrete(target));
                 if (e.getClickCount() == 2) close();
             });
-            if (!includeProjectDefault && selected == null) select(tile, new Selection.Concrete(target));
             into.getChildren().add(tile);
             tiles.add(tile);
         }
@@ -254,6 +253,9 @@ public final class CaptureSourcePicker {
             select(tile, new Selection.Concrete(target));
             if (e.getClickCount() == 2) close();
         });
+        // Whole desktop is the default preselection when nothing else claimed it: the project-default tile
+        // (when shown) already preselected, so this only fires in the "add source" flow — desktop over screen 1.
+        if (selected == null) select(tile, new Selection.Concrete(target));
         into.getChildren().add(tile);
         thumbs().submit(() -> {
             Image img = toFxImage(DesktopGrab.grabVirtualDesktop());

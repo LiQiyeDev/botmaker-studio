@@ -17,4 +17,15 @@ public final class AppVersion {
         String fromManifest = AppVersion.class.getPackage().getImplementationVersion();
         return (fromManifest != null && !fromManifest.isBlank()) ? fromManifest : FALLBACK;
     }
+
+    /**
+     * True when running from source (e.g. {@code mvn javafx:run}) rather than a packaged build. The shade
+     * plugin injects {@code Implementation-Version} into the shaded jar / jpackage app-image manifest, so its
+     * absence uniquely identifies a dev run. Used to gate developer-only affordances (e.g. listing locally
+     * dev-installed SDK snapshots) out of released builds.
+     */
+    public static boolean isDevBuild() {
+        String fromManifest = AppVersion.class.getPackage().getImplementationVersion();
+        return fromManifest == null || fromManifest.isBlank();
+    }
 }

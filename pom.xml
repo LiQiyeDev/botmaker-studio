@@ -16,7 +16,7 @@
         <!-- botmaker-shared version. Default 0.0.0-SNAPSHOT resolves the sibling module in the umbrella
              reactor; the umbrella release.sh bumps this to the released shared tag so a JitPack/standalone
              build resolves com.github.LiQiyeDev:botmaker-shared:<tag>. -->
-        <botmaker.shared.version>v0.0.4</botmaker.shared.version>
+        <botmaker.shared.version>0.0.0-SNAPSHOT</botmaker.shared.version>
         <!-- Numeric-only version for jpackage (rejects -SNAPSHOT / non-numeric versions). -->
         <app.version>1.0.5</app.version>
 
@@ -229,6 +229,12 @@
                  added in JavaFX 21-ea+17 → AbstractMethodError on stage.show() (TestFX/Monocle #97). -->
             <version>21.0.2</version>
             <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.github.LiQiyeDev</groupId>
+            <artifactId>botmaker-shared</artifactId>
+            <version>${botmaker.shared.version}</version>
+            <scope>compile</scope>
         </dependency>
     </dependencies>
 

@@ -86,6 +86,16 @@ public class NodeCreator {
         return InitializerFactory.createDefaultInitializer(ast, type);
     }
 
+    /**
+     * State-aware default initializer: passes the project's {@link ProjectState} through so a
+     * {@code CaptureSource} slot is seeded from the project's default capture target (see
+     * {@code InitializerFactory}) rather than falling back to the whole desktop. Used by the argument-sync
+     * and method-creation paths (overload switch, palette insert) where {@code state} is reachable.
+     */
+    public static Expression createDefaultInitializer(AST ast, ResolvedType type, CompilationUnit cu, ProjectState state) {
+        return InitializerFactory.createDefaultInitializer(ast, type, cu, state);
+    }
+
     public static Expression createRecursiveListInitializer(AST ast, String typeName, CompilationUnit cu,
                                                             ASTRewrite rewriter, List<Expression> leavesToPreserve, ProjectState state) {
         return InitializerFactory.createRecursiveListInitializer(ast, typeName, cu, rewriter, leavesToPreserve, state);

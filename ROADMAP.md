@@ -6,6 +6,49 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-08 — Fix batch: overload capture default, Follow highlight, preview cadence, version indicator, favorite overload, SNAPSHOT model.**
+  - **Overload switch now seeds the project-default CaptureSource** (was always "Whole Desktop"). `ProjectState`
+    is threaded through the argument-sync path (`NodeCreator.createDefaultInitializer(ast,type,cu,state)` →
+    `MethodHandler`/`InstantiationHandler`), so switching to a `(…, CaptureSource, …)` overload fills the slot
+    from the project default via the same `InitializerFactory`/`CaptureExpr.of` path as initial creation.
+  - **Debug/trace Follow now highlights the running block.** `CoreApplicationEvents.BlockHighlightEvent` (emitted
+    by `DebuggingService` on trace-advance, debug-pause, and clear) had no subscriber; added one in
+    `CodeEditorService` that applies it to `ProjectState` (`setHighlightedBlock`/`clearHighlight`, on the FX thread).
+  - **Preview capture is now two-cadence + event-driven** (fan-noise fix). `WindowPreviewManager` captures at
+    `IDLE_FPS`≈1 while idle and `RUN_FPS`≈6 while running, reschedules on run start/stop, grabs a fresh frame per
+    SDK feedback event, and throttles the Wayland/PipeWire portal feed to ~1 FPS idle / ~12 FPS running.
+  - **Local build version indicator** (distinct from the GitHub update check). New `config/VersionInfo` reports
+    Studio / shared / project-SDK versions with `dev build` / `(local)` / `(local build)` markers; shown in the
+    About dialog (`MenuBarManager`) and printed as a startup banner (`UIManager`).
+  - **Favorite overload per project.** `StudioProjectSettings` gains `favoriteOverloads` (methodKey→signatureKey,
+    persisted in `settings.json`); set/clear via the ⚙ picker's "★ Default overload" submenu
+    (`MethodInvocationBlock`), and applied when a fresh palette block is created (`StatementFactory.buildLibraryCall`
+    seeds the favorite overload's args). New `MethodSignature.signatureKey()`/`bestForKey(...)`.
+  - **`botmaker.shared.version` defaults to `0.0.0-SNAPSHOT` in the committed pom**; the real shared tag is
+    injected only at CI build time (`release.yml` resolves the newest shared tag and passes `-Dbotmaker.shared.version`).
+    `release.sh` no longer edits/commits the property.
+
+- **2026-07-08 — UX batch: dev-only SDK list, desktop default, minimized-window capture, telemetry stability.**
+  - **SDK version dropdown shows one local build, dev-only.** `MavenService.localSdkVersions()` now early-returns
+    when `AppVersion.isDevBuild()` is false (no manifest `Implementation-Version` → dev run only) and caps to the
+    single newest snapshot, so a released app-image never lists `~/.m2` dev builds and the stale
+    `0.0.0-SNAPSHOT`/`local-SNAPSHOT` duplication is gone. New `AppVersion.isDevBuild()`.
+  - **Whole desktop is the default capture target of a fresh project.** `StudioProjectSettings.empty()` seeds a
+    `DesktopTarget` at index 0 (was empty/`null`), and `CaptureSourcePicker` preselects the Desktop tile instead
+    of the first monitor — so the toolbar shows "Whole desktop" immediately and pickers stop starting empty.
+  - **Minimized window target: capture instead of blank/screen.** New "keep un-minimized" (▣) preview control
+    (off by default) restores a minimized target via shared `restoreWindow(...)` so its real content is captured;
+    when off, the preview shows a clear "window is minimized" hint (`WindowPreviewManager`) instead of silently
+    falling back to full-screen. Uses shared `getAllWindows(includeMinimized)`.
+  - **Telemetry "disconnected" flapping fixed + clearer errors.** `TelemetryDashboardServer` sends a 15s SSE
+    keepalive comment and the page shows `reconnecting…` (not a hard `disconnected`) on a transient `EventSource`
+    hiccup. When a bot's SDK speaks an incompatible telemetry wire version, Studio now appends a one-time notice
+    to the output ("pick a current SDK build") via the new `TelemetryServer` `onError` hook, instead of a silent
+    dead preview.
+  - **Benign X errors silenced at startup.** `BotMakerStudio.main` installs a no-op Xlib error handler
+    (`X11ErrorSilencer`, shared) *before* `launch()` so window-capture `BadMatch` noise stops without triggering
+    GDK's "error trap pushed" warning.
+
 - **2026-07-08 — Capture UX: unfroze capture, first-class Desktop target, preview parity, force-X11.**
   - **Fixed the machine-freezing capture.** `ScreenCaptureService.prepareScreenshot` ran the whole grab
     (native focus + `Thread.sleep` + Robot/CLI shell-out) on the FX thread *before* showing a modal

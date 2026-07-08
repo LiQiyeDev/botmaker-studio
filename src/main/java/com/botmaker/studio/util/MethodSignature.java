@@ -39,6 +39,33 @@ public record MethodSignature(String name, List<ResolvedType> paramTypes, List<S
     }
 
     /**
+     * A stable, human-readable key for this overload: its parameter type simple-names joined by {@code ,}
+     * (e.g. {@code ImageTemplate,CaptureSource,double}). Used to persist a project's favorite overload
+     * independently of parameter names / declaration order.
+     */
+    public String signatureKey() {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < paramTypes.size(); i++) {
+            if (i > 0) sb.append(',');
+            sb.append(paramTypes.get(i).simpleName());
+        }
+        return sb.toString();
+    }
+
+    /**
+     * The overload whose {@link #signatureKey()} equals {@code sigKey}, or {@code null} when {@code sigKey}
+     * is null/blank or no overload matches (e.g. the stored favorite no longer exists after an SDK change) —
+     * callers fall back to {@link #bestForArity}/first.
+     */
+    public static MethodSignature bestForKey(List<MethodSignature> sigs, String sigKey) {
+        if (sigs == null || sigKey == null || sigKey.isBlank()) return null;
+        for (MethodSignature sig : sigs) {
+            if (sig.signatureKey().equals(sigKey)) return sig;
+        }
+        return null;
+    }
+
+    /**
      * Picks the overload that best matches the <em>actual</em> argument types — not just their count. This is
      * what lets same-arity overloads that differ only in a parameter's type be told apart, e.g.
      * {@code find(template, CaptureSource)} vs {@code find(template, Rect)} vs {@code find(template, double)}

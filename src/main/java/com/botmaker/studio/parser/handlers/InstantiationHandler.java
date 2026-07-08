@@ -29,7 +29,7 @@ public class InstantiationHandler {
         }
 
         if (newParamTypes != null) {
-            syncArguments(ast, rewriter, node, newParamTypes);
+            syncArguments(ast, rewriter, node, newParamTypes, cu, state);
         }
 
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
@@ -50,7 +50,7 @@ public class InstantiationHandler {
 
         if (paramTypes != null) {
             for (ResolvedType pType : paramTypes) {
-                Expression arg = NodeCreator.createDefaultInitializer(ast, pType);
+                Expression arg = NodeCreator.createDefaultInitializer(ast, pType, cu, state);
                 creation.arguments().add(arg);
             }
         }
@@ -59,7 +59,8 @@ public class InstantiationHandler {
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
     }
 
-    private static void syncArguments(AST ast, ASTRewrite rewriter, ClassInstanceCreation node, List<ResolvedType> targetTypes) {
+    private static void syncArguments(AST ast, ASTRewrite rewriter, ClassInstanceCreation node, List<ResolvedType> targetTypes,
+                                      CompilationUnit cu, ProjectState state) {
         ListRewrite argsRewrite = rewriter.getListRewrite(node, ClassInstanceCreation.ARGUMENTS_PROPERTY);
         List<?> currentArgs = node.arguments();
         int currentCount = currentArgs.size();
@@ -72,7 +73,7 @@ public class InstantiationHandler {
         } else if (currentCount < targetCount) {
             for (int i = currentCount; i < targetCount; i++) {
                 ResolvedType type = targetTypes.get(i);
-                Expression defaultExpr = NodeCreator.createDefaultInitializer(ast, type);
+                Expression defaultExpr = NodeCreator.createDefaultInitializer(ast, type, cu, state);
                 argsRewrite.insertLast(defaultExpr, null);
             }
         }

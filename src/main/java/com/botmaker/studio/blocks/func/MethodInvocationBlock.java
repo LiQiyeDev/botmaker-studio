@@ -6,7 +6,9 @@ import com.botmaker.studio.core.StatementBlock;
 import com.botmaker.studio.palette.SdkApi;
 import com.botmaker.studio.palette.SdkDocs;
 import com.botmaker.studio.services.CodeEditorService;
+import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.project.ProjectFile;
+import com.botmaker.studio.project.StudioProjectSettings;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.ui.render.layout.BlockLayout;
 import com.botmaker.studio.ui.render.layout.SentenceLayoutBuilder;
@@ -423,14 +425,57 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
 
             List<MethodSignature> signatures = findSignatures(context, targetType, currentMethod);
 
+            // Overload selection: switch this call to the picked overload now (arg sync is automatic).
             MenuComponents.populate(signatureBtn.getItems(), signatures, MethodSignature::toString,
                     sig -> {
                         String scopeForAST = (fixedScopeName != null) ? fixedScopeName : (currentScope.equals(currentFileClass) && !isVariableScope(context, currentScope) ? "" : currentScope);
                         context.getCodeEditor().updateMethodInvocation((MethodInvocation) this.astNode, scopeForAST, currentMethod, sig.paramTypes());
                     },
                     "No signatures found");
+
+            // Favorite overload: the one created by default for this method in fresh palette blocks. Only
+            // meaningful when there's more than one overload to choose between.
+            if (signatures.size() > 1) {
+                addFavoriteOverloadMenu(signatureBtn.getItems(), context, targetType, currentMethod, signatures);
+            }
         });
         builder.addNode(signatureBtn);
+    }
+
+    /**
+     * The project-settings key for a method's favorite overload: {@code targetType#methodName}. Must match the
+     * key used at creation in {@code StatementFactory.buildLibraryCall} so the favorite set here is the one
+     * applied to fresh palette blocks.
+     */
+    static String favoriteMethodKey(String targetType, String methodName) {
+        return targetType + "#" + methodName;
+    }
+
+    /**
+     * Appends a "★ Default overload" submenu: a check-item per overload that marks/sets the project's favorite
+     * overload for this method (persisted in {@code settings.json}). The favorite is the overload created by
+     * default when a fresh block for this method is inserted; selecting the current favorite again clears it.
+     */
+    private void addFavoriteOverloadMenu(List<MenuItem> items, CodeEditorService context, String targetType,
+                                         String methodName, List<MethodSignature> signatures) {
+        ProjectSettingsService settingsService = ProjectSettingsService.forProject(context);
+        String methodKey = favoriteMethodKey(targetType, methodName);
+        String currentFavKey = settingsService.current().favoriteSignature(methodKey);
+
+        items.add(new SeparatorMenuItem());
+        Menu favMenu = new Menu("★ Default overload");
+        for (MethodSignature sig : signatures) {
+            String sigKey = sig.signatureKey();
+            CheckMenuItem item = new CheckMenuItem(sig.toString());
+            item.setSelected(sigKey.equals(currentFavKey));
+            item.setOnAction(ev -> {
+                // Toggle: clicking the current favorite clears it; otherwise set this overload as favorite.
+                String newFav = sigKey.equals(currentFavKey) ? null : sigKey;
+                settingsService.update(settingsService.current().withFavoriteOverload(methodKey, newFav));
+            });
+            favMenu.getItems().add(item);
+        }
+        items.add(favMenu);
     }
 
     /**

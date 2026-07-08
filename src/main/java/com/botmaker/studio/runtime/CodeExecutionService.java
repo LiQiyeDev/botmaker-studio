@@ -240,8 +240,12 @@ public class CodeExecutionService {
         stopTelemetry();
         try {
             String token = java.util.UUID.randomUUID().toString();
-            TelemetryServer server = new TelemetryServer(token, feedback ->
-                    Platform.runLater(() -> eventBus.publish(new CoreApplicationEvents.ViewFeedbackEvent(feedback))));
+            TelemetryServer server = new TelemetryServer(token,
+                    feedback -> Platform.runLater(() ->
+                            eventBus.publish(new CoreApplicationEvents.ViewFeedbackEvent(feedback))),
+                    reason -> Platform.runLater(() -> eventBus.publish(new CoreApplicationEvents.OutputAppendedEvent(
+                            "⚠ Live preview/overlays unavailable: the bot's SDK sends telemetry this Studio can't "
+                            + "read (" + reason + "). Pick a current SDK build in Project ▸ Manage Libraries and re-run.\n"))));
             this.telemetryServer = server;
             pb.environment().put(IpcEnv.PORT, String.valueOf(server.port()));
             pb.environment().put(IpcEnv.TOKEN, token);

@@ -66,7 +66,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public final class WindowPreviewManager {
 
-    private static final int CAPTURE_FPS = 10;
+    // Two capture cadences: a slow heartbeat while idle (just to keep the preview fresh) and a faster rate
+    // while a bot is running. While running, capture is also event-driven — a fresh grab is triggered on each
+    // SDK vision/interaction feedback so overlays land on a matching frame — so the running rate is only a
+    // ceiling/heartbeat between events, not a busy 10 FPS loop. This keeps CPU/fan noise down when idle.
+    private static final int IDLE_FPS = 1;
+    private static final int RUN_FPS = 6;
     private static final long OVERLAY_LINGER_NANOS = 1_200_000_000L; // ~1.2s
     private static final int MAX_OVERLAYS = 24;
     private static final double MAX_ZOOM = 12.0;
@@ -95,7 +100,13 @@ public final class WindowPreviewManager {
     private volatile CaptureTarget defaultTarget;
     /** True while a run/debug session is active (overlays are run-scoped). */
     private volatile boolean runActive;
+    /** When true, a minimized window target is un-minimized (restored) so its real content can be captured;
+     *  when false the preview shows a "minimized" hint instead of silently falling back to full-screen. */
+    private volatile boolean keepUnminimized;
     private final AtomicBoolean capturing = new AtomicBoolean(false);
+    /** The FPS the capture loop is currently scheduled at, so a run-state change can reschedule only on change. */
+    private int scheduledFps;
+    private java.util.concurrent.ScheduledFuture<?> captureFuture;
 
     // Source-image viewport (in frame-image pixels). null width means "fit whole image".
     private double vpX, vpY, vpW, vpH;      // current (rendered)
@@ -111,7 +122,11 @@ public final class WindowPreviewManager {
     private PreviewScreenFeed screenFeed;
     private volatile boolean waylandFeedFailed;
     private long lastPortalFrameNanos;
-    private static final long PORTAL_MIN_FRAME_GAP_NANOS = 55_000_000L; // ~18 FPS cap for the preview
+    // Portal/PipeWire decode is the biggest idle CPU cost: drop portal frames hard while idle (~1 FPS) and
+    // allow up to ~12 FPS while running. This gates delivery in appsink so the preview stays responsive during
+    // a run without decoding at full rate when nothing is happening.
+    private static final long PORTAL_IDLE_FRAME_GAP_NANOS = 1_000_000_000L; // ~1 FPS while idle
+    private static final long PORTAL_RUN_FRAME_GAP_NANOS = 83_000_000L;     // ~12 FPS while running
 
     private record Target(String title, int x, int y, int width, int height, boolean window) {}
     private record Frame(Image image, int sx, int sy, int sw, int sh) {}
@@ -194,7 +209,15 @@ public final class WindowPreviewManager {
             if (!followMode) resetViewport();
             else renderTimer.start();
         });
-        controls.getChildren().addAll(zoomOut, zoomIn, fit, followBtn, reload);
+        ToggleButton keepUp = new ToggleButton("▣");
+        keepUp.setTooltip(new Tooltip("Keep target window un-minimized\n(restores a minimized window so it can be captured)"));
+        keepUp.getStyleClass().add("preview-ctl");
+        keepUp.setFocusTraversable(false);
+        keepUp.setOnAction(e -> {
+            keepUnminimized = keepUp.isSelected();
+            this.frame = null; // drop any stale "minimized" hint / frame; next tick re-evaluates
+        });
+        controls.getChildren().addAll(zoomOut, zoomIn, fit, followBtn, keepUp, reload);
         controls.setAlignment(Pos.CENTER);
         controls.setPadding(new javafx.geometry.Insets(4));
         controls.getStyleClass().add("preview-controls");
@@ -230,6 +253,7 @@ public final class WindowPreviewManager {
         if (followMode && te instanceof TelemetryEvent.Match m && m.found() && m.rect() != null) {
             followRect(m.rect());
         }
+        requestCaptureNow(); // event-driven: grab a fresh frame now so overlays land on a matching capture
         renderTimer.start(); // idempotent
     }
 
@@ -287,19 +311,49 @@ public final class WindowPreviewManager {
         else stopCapture();
     }
 
+    /** The capture rate for the current state: faster while a run is active, a slow heartbeat while idle. */
+    private int desiredFps() {
+        return runActive ? RUN_FPS : IDLE_FPS;
+    }
+
     private void startCapture() {
-        if (!capturing.compareAndSet(false, true)) return;
+        int fps = desiredFps();
+        if (!capturing.compareAndSet(false, true)) {
+            reschedule(fps); // already capturing — only adjust the rate if the run state changed it
+            return;
+        }
         placeholder.setVisible(false);
         captureExec = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "preview-capture");
             t.setDaemon(true);
             return t;
         });
-        captureExec.scheduleAtFixedRate(this::captureTick, 0, 1000 / CAPTURE_FPS, TimeUnit.MILLISECONDS);
+        scheduleAt(fps);
+    }
+
+    private void scheduleAt(int fps) {
+        if (captureExec == null) return;
+        scheduledFps = fps;
+        captureFuture = captureExec.scheduleAtFixedRate(this::captureTick, 0, 1000L / fps, TimeUnit.MILLISECONDS);
+    }
+
+    /** Re-schedules the capture loop at {@code fps} if it differs from the current rate (run ⇄ idle switch). */
+    private void reschedule(int fps) {
+        if (!capturing.get() || captureExec == null || fps == scheduledFps) return;
+        if (captureFuture != null) captureFuture.cancel(false);
+        scheduleAt(fps);
+    }
+
+    /** One-off immediate grab, off the FX thread, so a run event refreshes the frame without waiting for the tick. */
+    private void requestCaptureNow() {
+        ScheduledExecutorService exec = captureExec;
+        if (capturing.get() && exec != null) exec.execute(this::captureTick);
     }
 
     private void stopCapture() {
         if (!capturing.compareAndSet(true, false)) return;
+        scheduledFps = 0;
+        captureFuture = null;
         if (captureExec != null) {
             captureExec.shutdownNow();
             captureExec = null;
@@ -353,7 +407,24 @@ public final class WindowPreviewManager {
 
     private Frame captureWindow(Target t) {
         GenericWindow win = resolveWindow(t.title());
-        if (win == null) return null;
+        if (win == null) {
+            // Not among viewable windows — it may be minimized (X11 drops unmapped windows). Look it up
+            // including minimized ones so we can either restore it or tell the user it's minimized.
+            GenericWindow minimized = resolveWindow(t.title(), true);
+            if (minimized != null) {
+                if (keepUnminimized) {
+                    try {
+                        NativeControllerFactory.get().restoreWindow(minimized); // intrusive: brings it forward
+                    } catch (Throwable ignored) {
+                    }
+                    win = resolveWindow(t.title()); // may still be null this tick; the WM maps it async
+                } else {
+                    Platform.runLater(() -> showMinimizedHint(t.title())); // no silent full-screen fallback
+                    return null;
+                }
+            }
+            if (win == null) return null;
+        }
         BufferedImage img;
         try {
             img = NativeControllerFactory.get().captureWindow(win); // NO focus — non-intrusive
@@ -400,7 +471,8 @@ public final class WindowPreviewManager {
     private void onPortalFrame(int[] argb, int w, int h, int ox, int oy) {
         if (w <= 0 || h <= 0) return;
         long now = System.nanoTime();
-        if (now - lastPortalFrameNanos < PORTAL_MIN_FRAME_GAP_NANOS) return; // throttle to the preview cap
+        long gap = runActive ? PORTAL_RUN_FRAME_GAP_NANOS : PORTAL_IDLE_FRAME_GAP_NANOS;
+        if (now - lastPortalFrameNanos < gap) return; // throttle to the current (idle/run) preview cap
         lastPortalFrameNanos = now;
         Platform.runLater(() -> {
             WritableImage wi = (imageView.getImage() instanceof WritableImage cur
@@ -424,16 +496,30 @@ public final class WindowPreviewManager {
     }
 
     private static GenericWindow resolveWindow(String titleSubstring) {
+        return resolveWindow(titleSubstring, false);
+    }
+
+    private static GenericWindow resolveWindow(String titleSubstring, boolean includeMinimized) {
         if (titleSubstring == null) return null;
         String needle = titleSubstring.toLowerCase();
         try {
-            for (GenericWindow w : NativeControllerFactory.get().getAllWindows()) {
+            for (GenericWindow w : NativeControllerFactory.get().getAllWindows(includeMinimized)) {
                 String title = w.getTitle();
                 if (title != null && title.toLowerCase().contains(needle)) return w;
             }
         } catch (Throwable ignored) {
         }
         return null;
+    }
+
+    /** Shown when the window target is minimized and the "keep un-minimized" toggle is off, so the panel
+     *  explains the blank instead of silently switching to a full-screen grab. FX thread. */
+    private void showMinimizedHint(String title) {
+        if (keepUnminimized || frame != null) return;
+        imageView.setImage(null);
+        placeholder.setText("Target window “" + title + "” is minimized. Restore it, or enable the "
+                + "“keep un-minimized” (▣) control to bring it forward for capture.");
+        placeholder.setVisible(true);
     }
 
     /** AWT device bounds for {@code index} (matches Robot's coordinate space), falling back to the primary. */

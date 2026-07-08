@@ -1,5 +1,6 @@
 package com.botmaker.studio;
 
+import com.botmaker.shared.capture.linux.X11ErrorSilencer;
 import com.botmaker.studio.project.BotProject;
 import com.botmaker.studio.project.ProjectPreferences;
 import com.botmaker.studio.ui.app.ForceX11Notice;
@@ -309,6 +310,12 @@ public class BotMakerStudio extends Application {
     }
 
     public static void main(String[] args) {
+        // Swallow benign Xlib protocol errors (BadMatch from window capture, etc.) at their source. Must run
+        // BEFORE launch(): installing an Xlib error handler after JavaFX's GTK backend is up triggers GDK's
+        // own "XSetErrorHandler() called with a GDK error trap pushed" warning. No-op off Linux.
+        if (System.getProperty("os.name", "").toLowerCase().contains("linux")) {
+            X11ErrorSilencer.install();
+        }
         launch(args);
     }
 }

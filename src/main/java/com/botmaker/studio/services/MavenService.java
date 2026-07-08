@@ -1,5 +1,6 @@
 package com.botmaker.studio.services;
 
+import com.botmaker.studio.config.AppVersion;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.UserLibrary;
 import org.apache.maven.model.Dependency;
@@ -76,6 +77,9 @@ public final class MavenService {
      * <p>Best-effort: returns an empty list on any IO error or when nothing is installed (the common user case).
      */
     public static List<String> localSdkVersions() {
+        // Developer-only affordance: never surface local snapshots in a packaged/released build (a
+        // maintainer running the shipped app would otherwise see their own ~/.m2 dev builds).
+        if (!AppVersion.isDevBuild()) return List.of();
         Path sdkDir = Path.of(System.getProperty("user.home"), ".m2", "repository",
                 SDK_GROUP_ID.replace('.', '/'), SDK_ARTIFACT_ID);
         if (!Files.isDirectory(sdkDir)) return List.of();
@@ -88,6 +92,9 @@ public final class MavenService {
                             SDK_ARTIFACT_ID + "-" + dir.getFileName() + ".jar")))
                     .sorted(Comparator.comparingLong(MavenService::lastModifiedMillis).reversed())
                     .map(dir -> dir.getFileName().toString())
+                    // One local build is enough — the newest wins (dev-install.sh writes local-SNAPSHOT);
+                    // this also hides a stale leftover like 0.0.0-SNAPSHOT from an earlier reactor install.
+                    .limit(1)
                     .collect(Collectors.toList());
         } catch (IOException e) {
             return List.of();

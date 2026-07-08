@@ -40,6 +40,8 @@ import java.util.concurrent.TimeUnit;
 public final class TelemetryDashboardServer {
 
     private static final int FRAME_FPS = 4;
+    /** SSE comment ping cadence — keeps the browser EventSource from erroring/flapping between telemetry events. */
+    private static final int KEEPALIVE_SECONDS = 15;
 
     private final EventBus eventBus;
     private final ProjectSettingsService settings;
@@ -112,6 +114,24 @@ public final class TelemetryDashboardServer {
             return t;
         });
         frameExec.scheduleAtFixedRate(this::pushFrame, 500, 1000 / FRAME_FPS, TimeUnit.MILLISECONDS);
+        // Independent of frames (which can stall, e.g. Wayland whole-screen capture), keep the SSE stream warm
+        // so the browser doesn't fire onerror and flip the dashboard to a spurious "disconnected".
+        frameExec.scheduleAtFixedRate(this::sendKeepalive, KEEPALIVE_SECONDS, KEEPALIVE_SECONDS, TimeUnit.SECONDS);
+    }
+
+    /** Writes an SSE comment to every open client so the connection stays alive between events. */
+    private void sendKeepalive() {
+        if (clients.isEmpty()) return;
+        byte[] ping = ": keepalive\n\n".getBytes(StandardCharsets.UTF_8);
+        for (OutputStream os : clients) {
+            try {
+                os.write(ping);
+                os.flush();
+            } catch (IOException e) {
+                clients.remove(os);
+                closeQuietly(os);
+            }
+        }
     }
 
     private void pushFrame() {
@@ -354,7 +374,8 @@ public final class TelemetryDashboardServer {
               const MAXZOOM=12;
               const es=new EventSource('/events');
               es.onopen=()=>status.textContent='connected';
-              es.onerror=()=>status.textContent='disconnected';
+              // EventSource auto-reconnects; a transient hiccup is 'reconnecting…', not a hard 'disconnected'.
+              es.onerror=()=>status.textContent=(es.readyState===2?'disconnected':'reconnecting…');
               es.addEventListener('telemetry',ev=>{
                 const d=JSON.parse(ev.data);
                 addRow(d); pushOverlay(d);

@@ -61,6 +61,16 @@ jobs:
           fi
           echo "appversion=${num}" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve botmaker-shared version
+        id: shared
+        shell: bash
+        run: |
+          # Studio's pom pins botmaker.shared.version=0.0.0-SNAPSHOT (the reactor/dev value). This standalone
+          # build has no reactor, so resolve the newest published shared release tag and inject it via -D on
+          # the build below — the committed pom is never edited.
+          SHARED=$(git ls-remote --tags --refs https://github.com/LiQiyeDev/botmaker-shared 'v*' | awk -F/ '{print $NF}' | sort -V | tail -1)
+          echo "version=${SHARED:-v0.0.4}" >> "$GITHUB_OUTPUT"
+
       - name: Build app-image
         # bash (Git Bash on Windows) keeps -D argument quoting consistent across both runners.
         # -Djavacpp.platform=<host> ships only this OS's OpenCV natives (much smaller image).
@@ -69,8 +79,10 @@ jobs:
         # always sees itself as the pom default 1.0.0 and re-prompts).
         # Tests are skipped here: the release pipeline only packages the artifact; the test
         # suite runs on push/PR CI. (Avoids gating releases on known-red tests.)
+        # -Dbotmaker.shared.version=<tag> resolves shared from JitPack (the SNAPSHOT pom default won't resolve
+        # on a clean runner without the reactor).
         shell: bash
-        run: mvn -B -Pdist package -DskipTests -Djavacpp.platform=${{ matrix.javacpp }} -Dapp.version=${{ steps.ver.outputs.appversion }}
+        run: mvn -B -Pdist package -DskipTests -Djavacpp.platform=${{ matrix.javacpp }} -Dapp.version=${{ steps.ver.outputs.appversion }} -Dbotmaker.shared.version=${{ steps.shared.outputs.version }}
 
       # The portable app-image (zipped) is kept as a no-install fallback; the native installers
       # (.deb/.rpm on Linux, .msi on Windows) are emitted by `-Pdist` into target/dist alongside it.
