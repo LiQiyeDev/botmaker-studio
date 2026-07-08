@@ -102,9 +102,11 @@ public final class PortalScreenCast implements AutoCloseable {
     }
 
     private Stream negotiate() throws Exception {
+        step("getRemoteObject");
         ScreenCast screenCast = connection.getRemoteObject(PORTAL_BUS, PORTAL_PATH, ScreenCast.class);
 
         // 1. CreateSession — reserve a session_handle.
+        step("CreateSession");
         String sessionToken = "bm_sess_" + UUID.randomUUID().toString().replace("-", "");
         Map<String, Variant<?>> createResults = awaitRequest(options -> {
             options.put("session_handle_token", new Variant<>(sessionToken));
@@ -115,13 +117,14 @@ public final class PortalScreenCast implements AutoCloseable {
         DBusPath session = new DBusPath(sessionHandle.toString());
 
         // 2. SelectSources — monitors, embedded cursor, persistent grant with any saved restore token.
+        step("SelectSources");
         awaitRequest(options -> {
             options.put("types", new Variant<>(new UInt32(1)));         // 1 = MONITOR
             options.put("multiple", new Variant<>(Boolean.FALSE));
             options.put("cursor_mode", new Variant<>(new UInt32(2)));   // 2 = embedded in the stream
             options.put("persist_mode", new Variant<>(new UInt32(2)));  // 2 = persist until explicitly revoked
             String saved = ProjectPreferences.getScreenCastToken();
-            if (saved != null && !saved.isBlank()) {
+            if (isValidToken(saved)) {
                 options.put("restore_token", new Variant<>(saved));
                 usedRestoreToken = true;
             }
@@ -129,6 +132,7 @@ public final class PortalScreenCast implements AutoCloseable {
         });
 
         // 3. Start — triggers the (one-time) picker; returns the stream node + the new restore token.
+        step("Start");
         Map<String, Variant<?>> startResults = awaitRequest(options ->
                 screenCast.Start(session, "", options));
 
@@ -138,11 +142,29 @@ public final class PortalScreenCast implements AutoCloseable {
         StreamInfo info = parseFirstStream(startResults);
         if (info == null) throw new PortalUnavailableException("Portal returned no PipeWire stream");
 
-        // 4. OpenPipeWireRemote — a live socket fd to feed pipewiresrc.
+        // 4. OpenPipeWireRemote — a live socket fd to feed pipewiresrc. This reply carries a unix fd, so the
+        // transport must support SCM_RIGHTS fd passing (the native-unixsocket transport does); a mismatch here
+        // is a prime suspect for the connection being dropped mid-handshake.
+        step("OpenPipeWireRemote");
         FileDescriptor fd = screenCast.OpenPipeWireRemote(session, new HashMap<>());
         if (fd == null) throw new PortalUnavailableException("Portal returned no PipeWire fd");
 
+        step("done nodeId=" + info.nodeId);
         return new Stream(fd.getIntFileDescriptor(), info.nodeId, info.originX, info.originY, info.width, info.height);
+    }
+
+    /** One-line progress marker so a live run shows exactly which handshake step precedes a disconnect. */
+    private static void step(String name) {
+        System.out.println("[preview-screencast] step=" + name);
+    }
+
+    /**
+     * A restore token is an opaque portal string; we only guard against sending an obviously-bad one (blank,
+     * or the literal {@code "null"} a prior bug could have persisted) that would make the portal reject and
+     * drop the session. A rejected token is also cleared on failure (see {@link #onNegotiationFailed()}).
+     */
+    private static boolean isValidToken(String token) {
+        return token != null && !token.isBlank() && !"null".equalsIgnoreCase(token.trim());
     }
 
     /**

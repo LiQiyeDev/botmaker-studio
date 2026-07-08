@@ -6,6 +6,20 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-08 — Wayland preview follow-up: window + screen capture.** The first regression batch (below)
+  didn't cover the two live capture pipelines; a run on Fedora/GNOME-Wayland still failed.
+  - **Window preview / bot window vision fixed in `shared`.** `LinuxController.captureWindow` used AWT
+    `Robot` → portal prompt + `SecurityException` per window on Wayland. Now reads the window pixmap directly
+    via `XGetImage` (prompt-free); see `botmaker-shared/ROADMAP.md`. Fixes the dashboard `WindowPreviewManager`
+    window preview *and* the SDK's `Window.capture()`.
+  - **ScreenCast handshake hardened + instrumented.** `PortalScreenCast.negotiate()` now logs each step
+    (`[preview-screencast] step=CreateSession/SelectSources/Start/OpenPipeWireRemote`) so a live run pinpoints
+    which request precedes the `FatalDBusException` EOF; guards against sending a malformed `restore_token`.
+    (Root-cause fix of the EOF still needs live iteration on the box.)
+  - **Portal retry spam stopped.** `PreviewScreenFeed` latched failure per-instance, but a fresh feed is built
+    every capture start/stop cycle, so the portal was re-hammered on every settings/run event. Failure is now
+    a process-wide latch → try once, then fall back to the hint until app restart.
+
 - **2026-07-08 — Regression fixes for the capture-source picker / Wayland-preview batch.** Six issues found
   running the 960d01d landing on Fedora/GNOME-Wayland:
   - **Drag crash fixed.** `CodeEditor.moveStatement` cast a block's AST node straight to `Statement`, but a

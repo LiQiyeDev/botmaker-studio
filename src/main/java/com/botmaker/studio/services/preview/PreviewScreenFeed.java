@@ -16,6 +16,15 @@ public final class PreviewScreenFeed implements AutoCloseable {
     /** Receives a live ARGB frame plus the captured monitor's top-left in virtual-screen (absolute) coords. */
     public interface FrameSink { void onFrame(int[] argb, int width, int height, int originX, int originY); }
 
+    /**
+     * Set once the portal/PipeWire path has failed <em>anywhere</em> this JVM run. A fresh
+     * {@code PreviewScreenFeed} is built on every capture start/stop cycle (settings change, run start/stop),
+     * so a per-instance flag would let each new feed re-hammer the portal — that is the repeated
+     * {@code FatalDBusException} spam in the logs. Latching it process-wide means we try once, then fall back
+     * to the hint until the app restarts.
+     */
+    private static volatile boolean feedPermanentlyFailed;
+
     private final FrameSink sink;
 
     private Thread negotiator;
@@ -35,15 +44,16 @@ public final class PreviewScreenFeed implements AutoCloseable {
         return System.getenv("WAYLAND_DISPLAY") != null;
     }
 
-    /** True once the portal + PipeWire attempt has permanently failed (caller should stop expecting frames). */
-    public boolean hasFailed() { return failed; }
+    /** True once the portal + PipeWire attempt has failed — for this feed, or anywhere earlier this JVM run. */
+    public boolean hasFailed() { return failed || feedPermanentlyFailed; }
 
     /**
      * Kicks off (once) the portal negotiation + live video on a background thread. Idempotent and
-     * non-blocking; frames arrive later via the {@link FrameSink}. No-op if already starting/active/failed.
+     * non-blocking; frames arrive later via the {@link FrameSink}. No-op if already starting/active/failed —
+     * including a process-wide failure from an earlier feed, so we don't re-prompt/re-hammer the portal.
      */
     public synchronized void ensureStarted() {
-        if (closed || starting || active || failed) return;
+        if (closed || starting || active || failed || feedPermanentlyFailed) return;
         starting = true;
         negotiator = new Thread(this::negotiate, "preview-screencast");
         negotiator.setDaemon(true);
@@ -66,9 +76,11 @@ public final class PreviewScreenFeed implements AutoCloseable {
                 this.starting = false;
             }
         } catch (Throwable t) {
-            // Single-line report; the portal/GStreamer stack simply isn't available and we fall back to Robot.
+            // Single-line report; the portal/GStreamer stack simply isn't available and we fall back to the
+            // hint. Latch process-wide so later feeds don't re-attempt (and re-prompt/re-spam) this run.
             System.err.println("[preview] Wayland live feed unavailable: " + t.getMessage());
             if (p != null) { try { p.close(); } catch (Throwable ignored) {} }
+            feedPermanentlyFailed = true;
             synchronized (this) { failed = true; starting = false; }
         }
     }
