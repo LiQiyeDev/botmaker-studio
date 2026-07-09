@@ -35,6 +35,9 @@ public class ProjectPreferences {
     private String screenCastRestoreToken;
     /** Remote-Pilot pairing token (global to Studio) → stable across restarts so paired phones don't rescan. */
     private String pilotToken;
+    /** Last Remote-Pilot local bind port (global to Studio) → reused when free so the tailnet-direct URL is
+     *  stable across restarts, completing the "don't rescan" story alongside {@link #pilotToken}. 0 = unset. */
+    private int pilotPort;
     /** True once the user ticked "don't show again" on the Wayland → X11 notice. */
     private boolean hideWaylandNotice;
 
@@ -53,6 +56,8 @@ public class ProjectPreferences {
     public void setScreenCastRestoreToken(String token) { this.screenCastRestoreToken = token; }
     public String getPilotToken() { return pilotToken; }
     public void setPilotToken(String token) { this.pilotToken = token; }
+    public int getPilotPort() { return pilotPort; }
+    public void setPilotPort(int port) { this.pilotPort = port; }
     public boolean isHideWaylandNotice() { return hideWaylandNotice; }
     public void setHideWaylandNotice(boolean hide) { this.hideWaylandNotice = hide; }
 
@@ -130,6 +135,18 @@ public class ProjectPreferences {
     public static void updatePilotToken(String token) {
         ProjectPreferences prefs = load();
         prefs.setPilotToken(token);
+        prefs.save();
+    }
+
+    /** The persisted Remote-Pilot local bind port, or {@code 0} if never bound. */
+    public static int loadPilotPort() {
+        return load().getPilotPort();
+    }
+
+    /** Persists the Remote-Pilot local bind port so the next start reuses it when it's free. */
+    public static void updatePilotPort(int port) {
+        ProjectPreferences prefs = load();
+        prefs.setPilotPort(port);
         prefs.save();
     }
 

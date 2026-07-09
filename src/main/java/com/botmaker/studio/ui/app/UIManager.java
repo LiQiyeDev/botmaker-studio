@@ -158,9 +158,11 @@ public class UIManager {
     private static final String APK_URL =
             "https://github.com/LiQiyeDev/botmaker-pilot/releases/latest/download/botpilot.apk";
 
-    /** Tailscale admin console where the one-time Funnel node-attribute is granted (computer/account side). */
+    /** Tailscale admin console where the one-time Funnel node-attribute is granted (computer/account side).
+     *  The attribute lives in the tailnet policy file on the Access Controls page (there is no
+     *  {@code /admin/settings/funnel} page — that 404s). */
     private static final String TAILSCALE_FUNNEL_ADMIN_URL =
-            "https://login.tailscale.com/admin/settings/funnel";
+            "https://login.tailscale.com/admin/acls";
     /** Tailscale admin DNS page where HTTPS certificates are enabled for the tailnet. */
     private static final String TAILSCALE_DNS_ADMIN_URL =
             "https://login.tailscale.com/admin/dns";
@@ -182,6 +184,10 @@ public class UIManager {
     /** Result of {@link #startRemotePilot()} — enough to render the pairing dialog on the FX thread. */
     private record PilotOutcome(String url, String token, PilotMode mode, String funnelError, FunnelDiag diag) {}
 
+    /** The last successful bring-up, so re-clicking the toolbar just re-shows the same dialog instead of
+     *  restarting the server on a fresh port (which would drop an already-paired phone). */
+    private PilotOutcome lastPilotOutcome;
+
     /**
      * Starts (once) the remote BotPilot server and shows a pairing dialog. Preferred path is <b>Tailscale
      * Funnel</b>: bind the server to loopback and let Tailscale front it as public HTTPS
@@ -194,6 +200,26 @@ public class UIManager {
      * freeze (and, if the CLI hangs, appear to crash) the UI.
      */
     private void openRemotePilot() {
+        openRemotePilot(false);
+    }
+
+    /**
+     * @param forceRestart when {@code false} (toolbar/menu click) and the server is already running, this is
+     *   idempotent — it just re-shows the existing pairing dialog, keeping the paired phone connected on the
+     *   same URL/port/token. When {@code true} (the wizard's "Re-check &amp; enable") it tears the server down
+     *   and re-runs the full Tailscale bring-up, deliberately rebinding to (re)attempt Funnel.
+     */
+    private void openRemotePilot(boolean forceRestart) {
+        // Already up and we're not deliberately restarting → re-show the same dialog, don't rebind the port.
+        if (!forceRestart && pilotServer != null && pilotServer.isRunning() && lastPilotOutcome != null) {
+            showRemotePilotDialog(lastPilotOutcome.url(), lastPilotOutcome.token(), lastPilotOutcome.mode(),
+                    lastPilotOutcome.funnelError(), lastPilotOutcome.diag());
+            return;
+        }
+        if (forceRestart && pilotServer != null) {
+            pilotServer.close();
+            lastPilotOutcome = null;
+        }
         if (pilotServer == null) {
             var control = new com.botmaker.studio.services.pilot.PilotControlService(codeExecutionService);
             pilotServer = new com.botmaker.studio.services.pilot.PilotServer(
@@ -216,6 +242,7 @@ public class UIManager {
                 progress.setResult(ButtonType.CANCEL); // let close() dismiss a button-less alert
                 progress.close();
                 if (outcome != null) {
+                    lastPilotOutcome = outcome;
                     eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(
                             (outcome.mode() == PilotMode.FUNNEL_HTTPS ? "Remote Pilot (HTTPS) at " : "Remote Pilot at ")
                                     + outcome.url()));
@@ -406,7 +433,7 @@ public class UIManager {
         // 3. Funnel node-attribute granted in the ACL
         HBox s3 = stepRow(false, "\"funnel\" attribute granted in your tailnet ACL",
                 issue == FunnelIssue.NOT_ENABLED);
-        s3.getChildren().addAll(linkBtn("Open Funnel settings ▸", TAILSCALE_FUNNEL_ADMIN_URL),
+        s3.getChildren().addAll(linkBtn("Open Access Controls ▸", TAILSCALE_FUNNEL_ADMIN_URL),
                 copyCmdBtn(FUNNEL_ACL_SNIPPET, "Copy ACL snippet"));
         box.getChildren().add(s3);
 
@@ -425,7 +452,7 @@ public class UIManager {
 
         Button recheck = new Button("Re-check & enable");
         recheck.setDefaultButton(true);
-        recheck.setOnAction(e -> { owner.close(); openRemotePilot(); });
+        recheck.setOnAction(e -> { owner.close(); openRemotePilot(true); });
         box.getChildren().add(recheck);
         return box;
     }

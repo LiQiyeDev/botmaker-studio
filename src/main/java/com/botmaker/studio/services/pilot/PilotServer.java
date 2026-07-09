@@ -117,7 +117,16 @@ public final class PilotServer implements AutoCloseable {
             ws.onClose(ctx -> clients.remove(ctx));
             ws.onError(ctx -> clients.remove(ctx));
         });
-        app.start(host, 0); // 0 → OS-assigned ephemeral port
+        // Reuse the last bound port when it's free so the tailnet-direct URL is stable across Studio restarts
+        // (mirrors the persisted token). Fall back to an OS-assigned ephemeral port if it's taken, then persist
+        // whatever we actually got.
+        int desired = com.botmaker.studio.project.ProjectPreferences.loadPilotPort();
+        try {
+            app.start(host, desired); // desired 0 → OS-assigned ephemeral port
+        } catch (Exception bindFailed) {
+            app.start(host, 0);
+        }
+        com.botmaker.studio.project.ProjectPreferences.updatePilotPort(app.port());
 
         // Subscribe once per instance — a stop()+start() (e.g. Funnel-fail rebind) must not double-register
         // these handlers, since the EventBus has no unsubscribe and close() can't remove them.

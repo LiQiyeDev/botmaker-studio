@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-09 — Remote Pilot: idempotent re-open, stable port, Funnel link fix (real-world bugfixes).**
+  - **Idempotent re-open (`UIManager.openRemotePilot`):** re-clicking the toolbar/menu button no longer tears
+    the server down and rebinds a fresh ephemeral port (which dropped an already-paired phone) — when the pilot
+    is running it just re-shows the same dialog. A new `openRemotePilot(true)` forces a real restart and is
+    wired to the wizard's "Re-check & enable" only.
+  - **Stable local port (`PilotServer.start` + `ProjectPreferences.pilotPort`):** the bound port is persisted
+    and reused when free (ephemeral fallback), so the tailnet-direct `http://<ip>:<port>` URL survives a Studio
+    restart — completing the "don't rescan" story alongside the stable token.
+  - **Funnel admin link fix:** `TAILSCALE_FUNNEL_ADMIN_URL` pointed at `/admin/settings/funnel` (404); now
+    `/admin/acls` (Access Controls, where the `funnel` node-attr lives), with the step relabeled to match.
+  - **BotPilot QR scanner** swapped to ZXing (`@zxing/browser`) with continuous autofocus — robust continuous
+    decode replacing the hand-rolled jsQR loop, fixing the move-toward-code lag. (See `botmaker-pilot`.)
+
 - **2026-07-09 — Funnel setup wizard + stable pairing token; BotPilot connection history & reconnect.**
   - **Stable pairing token (`PilotServer` + `ProjectPreferences.pilotToken`):** the pilot token is now persisted
     machine-globally and reused across restarts (was re-minted every `start()`), so the Funnel URL
