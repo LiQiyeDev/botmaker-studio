@@ -6,6 +6,24 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-09 — Funnel setup wizard + stable pairing token; BotPilot connection history & reconnect.**
+  - **Stable pairing token (`PilotServer` + `ProjectPreferences.pilotToken`):** the pilot token is now persisted
+    machine-globally and reused across restarts (was re-minted every `start()`), so the Funnel URL
+    `https://<machine>.ts.net/?token=…` stays valid — a paired phone reconnects without rescanning. New
+    `PilotServer.resetToken()` + a **Reset pairing token** button in the dialog revokes it.
+  - **Funnel setup wizard (`UIManager.showRemotePilotDialog`):** when the user wants Funnel (phone needs nothing)
+    but it isn't live, the dialog now leads with a guided, **Re-check**-able checklist — Tailscale installed &
+    signed in (✓/✗ from `TailscaleFunnelService.isLoggedIn()`, new), HTTPS certs, the `funnel` ACL attr (copyable
+    snippet + admin link), and `--operator=$USER` (copyable command) — with the active blocker highlighted
+    (`FunnelIssue` classified off the FX thread into the new `FunnelDiag` on `PilotOutcome`). The direct-bind
+    connection is offered below as a fallback.
+  - **QR dialog spacing:** the two QR codes are now bordered, titled cards (① Open on phone / ② Get the app) with
+    a wider gap and larger codes, so they no longer read as one.
+  - **BotPilot app:** connection **history** (Recent list, tap to reconnect, no rescan), a **Switch connection**
+    escape when a socket is stuck reconnecting, a **faster QR scanner** (downscaled + throttled decode), a
+    **landscape white-border fix** (cutout `shortEdges` + dark window bg + safe-area insets), and a visible
+    **Check for updates** button with the current version. (See `botmaker-pilot`.)
+
 - **2026-07-09 — Drop the in-Studio preview; promote Remote Pilot to the toolbar; clearer pairing dialog.**
   - **Removed the live window-preview panel** — the Debug Dashboard + BotPilot remote app supersede it. Deleted
     `ui/app/WindowPreviewManager` and the whole `services/preview/` package (`PortalScreenCast`,

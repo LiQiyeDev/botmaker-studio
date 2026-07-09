@@ -46,6 +46,21 @@ public final class TailscaleFunnelService {
     }
 
     /**
+     * {@code true} if the node is logged in and the tailscaled backend is up — i.e. {@code BackendState} is
+     * {@code "Running"} in {@code tailscale status --json}. {@code "NeedsLogin"}/{@code "Stopped"}/CLI-missing
+     * all return {@code false}. This is the "installed &amp; logged in" gate in the setup wizard.
+     */
+    public boolean isLoggedIn() {
+        Exec e = run(List.of("tailscale", "status", "--json"), 8);
+        if (e.exit != 0 || e.out.isBlank()) return false;
+        try {
+            return "Running".equals(JSON.readTree(e.out).path("BackendState").asText(null));
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    /**
      * The node's fully-qualified tailnet DNS name (e.g. {@code machine.tailnet-1234.ts.net}) parsed from
      * {@code tailscale status --json} → {@code Self.DNSName} (trailing dot trimmed), or empty if the CLI is
      * unavailable / the node is logged out / the field is missing.

@@ -33,6 +33,8 @@ public class ProjectPreferences {
     private WindowState windowState;
     /** xdg-desktop-portal ScreenCast restore token (global to Studio) → prompt once ever on Wayland. */
     private String screenCastRestoreToken;
+    /** Remote-Pilot pairing token (global to Studio) → stable across restarts so paired phones don't rescan. */
+    private String pilotToken;
     /** True once the user ticked "don't show again" on the Wayland → X11 notice. */
     private boolean hideWaylandNotice;
 
@@ -49,6 +51,8 @@ public class ProjectPreferences {
     public void setWindowState(WindowState windowState) { this.windowState = windowState; }
     public String getScreenCastRestoreToken() { return screenCastRestoreToken; }
     public void setScreenCastRestoreToken(String token) { this.screenCastRestoreToken = token; }
+    public String getPilotToken() { return pilotToken; }
+    public void setPilotToken(String token) { this.pilotToken = token; }
     public boolean isHideWaylandNotice() { return hideWaylandNotice; }
     public void setHideWaylandNotice(boolean hide) { this.hideWaylandNotice = hide; }
 
@@ -114,6 +118,18 @@ public class ProjectPreferences {
     public static void updateScreenCastToken(String token) {
         ProjectPreferences prefs = load();
         prefs.setScreenCastRestoreToken(token);
+        prefs.save();
+    }
+
+    /** The persisted Remote-Pilot pairing token (global), or {@code null} if never generated. */
+    public static String loadPilotToken() {
+        return load().getPilotToken();
+    }
+
+    /** Persists a new Remote-Pilot pairing token (pass {@code null} to clear/revoke). */
+    public static void updatePilotToken(String token) {
+        ProjectPreferences prefs = load();
+        prefs.setPilotToken(token);
         prefs.save();
     }
 

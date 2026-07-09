@@ -89,7 +89,13 @@ public final class PilotServer implements AutoCloseable {
     public synchronized Endpoint start(String host) {
         if (app != null) return new Endpoint(host, app.port(), token, null);
 
-        token = newToken();
+        // Reuse a persisted token so the pairing URL is stable across Studio restarts — a phone that paired
+        // once reconnects without rescanning. Only mint (and persist) a fresh one the very first time.
+        token = com.botmaker.studio.project.ProjectPreferences.loadPilotToken();
+        if (token == null || token.isBlank()) {
+            token = newToken();
+            com.botmaker.studio.project.ProjectPreferences.updatePilotToken(token);
+        }
         app = Javalin.create(cfg -> {
             cfg.showJavalinBanner = false;
             cfg.staticFiles.add(s -> {
@@ -189,6 +195,17 @@ public final class PilotServer implements AutoCloseable {
         byte[] b = new byte[24]; // 192 bits — the sole guard once Funnel exposes this publicly.
         new SecureRandom().nextBytes(b);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(b);
+    }
+
+    /**
+     * Revokes the current pairing token: generates + persists a fresh one so previously-paired phones can no
+     * longer authorize (they must rescan). Safe to call while running — new connections use the new token,
+     * and any in-flight client keeps its socket until it reconnects. Returns the new token.
+     */
+    public synchronized String resetToken() {
+        token = newToken();
+        com.botmaker.studio.project.ProjectPreferences.updatePilotToken(token);
+        return token;
     }
 
     // --- Inbound control commands ---

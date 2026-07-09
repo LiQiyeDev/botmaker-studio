@@ -161,12 +161,26 @@ public class UIManager {
     /** Tailscale admin console where the one-time Funnel node-attribute is granted (computer/account side). */
     private static final String TAILSCALE_FUNNEL_ADMIN_URL =
             "https://login.tailscale.com/admin/settings/funnel";
+    /** Tailscale admin DNS page where HTTPS certificates are enabled for the tailnet. */
+    private static final String TAILSCALE_DNS_ADMIN_URL =
+            "https://login.tailscale.com/admin/dns";
+    /** Where a user without Tailscale installs it. */
+    private static final String TAILSCALE_DOWNLOAD_URL = "https://tailscale.com/download";
+    /** The ACL policy snippet that grants the Funnel node-attribute (paste into the admin policy editor). */
+    private static final String FUNNEL_ACL_SNIPPET =
+            "\"nodeAttrs\": [{ \"target\": [\"autogroup:member\"], \"attr\": [\"funnel\"] }]";
 
     /** How the pilot ended up exposed — drives the dialog header, QR URL, and warning. */
     private enum PilotMode { FUNNEL_HTTPS, TAILNET_DIRECT, ALL_INTERFACES }
 
+    /** The specific reason Funnel isn't live, so the wizard can point at the exact one-time fix. */
+    private enum FunnelIssue { NONE, NOT_INSTALLED, LOGGED_OUT, NOT_ENABLED, NEEDS_OPERATOR, OTHER }
+
+    /** Snapshot of the Tailscale/Funnel state, computed off the FX thread, that drives the setup wizard. */
+    private record FunnelDiag(boolean cliPresent, boolean loggedIn, FunnelIssue issue) {}
+
     /** Result of {@link #startRemotePilot()} — enough to render the pairing dialog on the FX thread. */
-    private record PilotOutcome(String url, String token, PilotMode mode, String funnelError) {}
+    private record PilotOutcome(String url, String token, PilotMode mode, String funnelError, FunnelDiag diag) {}
 
     /**
      * Starts (once) the remote BotPilot server and shows a pairing dialog. Preferred path is <b>Tailscale
@@ -205,7 +219,8 @@ public class UIManager {
                     eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(
                             (outcome.mode() == PilotMode.FUNNEL_HTTPS ? "Remote Pilot (HTTPS) at " : "Remote Pilot at ")
                                     + outcome.url()));
-                    showRemotePilotDialog(outcome.url(), outcome.token(), outcome.mode(), outcome.funnelError());
+                    showRemotePilotDialog(outcome.url(), outcome.token(), outcome.mode(),
+                            outcome.funnelError(), outcome.diag());
                 } else {
                     eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(
                             "Could not start Remote Pilot: " + err));
@@ -236,18 +251,30 @@ public class UIManager {
     /** Blocking bring-up (Tailscale CLI + server bind); must run off the FX thread. */
     private PilotOutcome startRemotePilot() {
         var funnel = new com.botmaker.studio.services.pilot.TailscaleFunnelService();
+        boolean cli = funnel.isAvailable();
+        boolean loggedIn = cli && funnel.isLoggedIn();
         String funnelError = null;
-        if (funnel.isAvailable() && funnel.dnsName().isPresent()) {
+        FunnelIssue issue = FunnelIssue.NONE;
+        if (cli && loggedIn && funnel.dnsName().isPresent()) {
             var ep = pilotServer.start("127.0.0.1"); // loopback — only Funnel fronts it
             var result = funnel.enable(ep.port());
             if (result.ok()) {
                 var pub = pilotServer.attachFunnel(funnel, result.publicBase());
-                return new PilotOutcome(pub.url(), pub.token(), PilotMode.FUNNEL_HTTPS, null);
+                return new PilotOutcome(pub.url(), pub.token(), PilotMode.FUNNEL_HTTPS, null,
+                        new FunnelDiag(true, true, FunnelIssue.NONE));
             }
             // Funnel present but couldn't be enabled (e.g. not granted in the tailnet ACL): tear the
             // loopback server down and fall through to a directly-bound one, surfacing the reason.
             funnelError = result.error();
+            issue = classifyFunnel(result.error());
             pilotServer.close();
+        } else {
+            issue = !cli ? FunnelIssue.NOT_INSTALLED : (!loggedIn ? FunnelIssue.LOGGED_OUT : FunnelIssue.OTHER);
+            funnelError = switch (issue) {
+                case NOT_INSTALLED -> "Tailscale isn't installed on this computer.";
+                case LOGGED_OUT -> "Tailscale isn't signed in on this computer.";
+                default -> "Tailscale Funnel is unavailable.";
+            };
         }
 
         String tailscale = com.botmaker.studio.services.pilot.PilotServer.detectTailscaleHost();
@@ -257,7 +284,18 @@ public class UIManager {
         String displayHost = allInterfaces ? hostForUrl() : tailscale;
         String url = "http://" + displayHost + ":" + endpoint.port() + "/?token=" + endpoint.token();
         return new PilotOutcome(url, endpoint.token(),
-                allInterfaces ? PilotMode.ALL_INTERFACES : PilotMode.TAILNET_DIRECT, funnelError);
+                allInterfaces ? PilotMode.ALL_INTERFACES : PilotMode.TAILNET_DIRECT, funnelError,
+                new FunnelDiag(cli, loggedIn, issue));
+    }
+
+    /** Maps a {@code tailscale funnel} stderr line to the specific one-time fix the wizard should surface. */
+    private static FunnelIssue classifyFunnel(String err) {
+        if (err == null) return FunnelIssue.OTHER;
+        String e = err.toLowerCase();
+        if (e.contains("not enabled")) return FunnelIssue.NOT_ENABLED;
+        if (e.contains("operator")) return FunnelIssue.NEEDS_OPERATOR;
+        if (e.contains("not logged in") || e.contains("logged out")) return FunnelIssue.LOGGED_OUT;
+        return FunnelIssue.OTHER;
     }
 
     /** Best-effort local IPv4 for the displayed URL when binding all interfaces (no Tailscale). */
@@ -269,23 +307,41 @@ public class UIManager {
         }
     }
 
-    private void showRemotePilotDialog(String url, String token, PilotMode mode, String funnelError) {
+    private void showRemotePilotDialog(String url, String token, PilotMode mode, String funnelError,
+                                       FunnelDiag diag) {
+        boolean funnelLive = mode == PilotMode.FUNNEL_HTTPS;
         Alert alert = new Alert(Alert.AlertType.INFORMATION);
         alert.initOwner(primaryStage);
         alert.setTitle("Remote Pilot");
         alert.setHeaderText(switch (mode) {
-            case FUNNEL_HTTPS -> "Remote Pilot is live over HTTPS (Tailscale Funnel).";
+            case FUNNEL_HTTPS -> "Remote Pilot is live over HTTPS — your phone needs nothing installed.";
             case TAILNET_DIRECT -> "Remote Pilot is running on your tailnet.";
             case ALL_INTERFACES -> "Tailscale not detected — bound to ALL interfaces.";
         });
 
-        // The URL as a real clickable link (opens the system browser). Nothing to "register" on the phone —
-        // this addresses the common confusion that some pairing/registration step is needed there.
+        VBox content = new VBox(10);
+        content.setStyle("-fx-padding: 4;");
+
+        // Funnel not live but the user wanted the phone-needs-nothing experience → lead with the guided,
+        // re-checkable setup wizard rather than a dead-end error line.
+        if (!funnelLive && funnelError != null) {
+            content.getChildren().addAll(funnelWizardBox(diag, funnelError, alert), new Separator());
+            content.getChildren().add(wrapped("You can still connect right now with the link below — but this "
+                    + "way your phone must be signed in to the same Tailscale account (Funnel avoids that)."));
+        } else {
+            content.getChildren().add(wrapped(funnelLive
+                    ? "Scan the LEFT QR (or tap the link) to open Remote Pilot on your phone — no app, account "
+                      + "or VPN needed there. The RIGHT QR installs the optional BotPilot Android app."
+                    : "Open this link on your phone, or scan the LEFT QR with the BotPilot app. The RIGHT QR "
+                      + "installs the app."));
+        }
+
+        // The URL as a real clickable link (opens the system browser).
         Hyperlink link = new Hyperlink(url);
         link.setOnAction(e -> com.botmaker.studio.util.BrowserLauncher.open(url));
         link.setWrapText(true);
-        // Editable field kept as a selectable copy fallback, in case the clipboard write below is swallowed by
-        // the window system (e.g. some Wayland setups).
+        // Editable field kept as a selectable copy fallback, in case the clipboard write is swallowed by the
+        // window system (e.g. some Wayland setups).
         TextField urlField = new TextField(url);
         urlField.setPrefColumnCount(44);
         urlField.setEditable(false);
@@ -296,43 +352,22 @@ public class UIManager {
             copyToClipboard(url);
             copy.setText("Copied ✓");
         });
+        Button reset = new Button("Reset pairing token");
+        reset.setTooltip(new Tooltip(
+                "Revoke the current token so previously-paired phones must scan again."));
+        reset.setOnAction(e -> {
+            if (pilotServer == null) return;
+            String fresh = pilotServer.resetToken();
+            String newUrl = url.replaceFirst("token=[^&]*$", "token=" + fresh);
+            alert.close();
+            showRemotePilotDialog(newUrl, fresh, mode, funnelError, diag);
+        });
 
-        VBox content = new VBox(8,
-                new Label(mode == PilotMode.FUNNEL_HTTPS
-                        ? "Your phone needs nothing installed — no Tailscale, no VPN, no registration. Just "
-                          + "scan the LEFT QR (or tap the link) to open Remote Pilot. The RIGHT QR installs "
-                          + "the BotPilot Android app."
-                        : "Open this link on your phone, or scan the LEFT QR with the BotPilot app. "
-                          + "The RIGHT QR installs the app."),
-                link,
-                new Label("Token: " + token),
-                new HBox(8, copy),
-                qrRow(url));
-        content.setStyle("-fx-padding: 4;");
+        content.getChildren().addAll(link, new Label("Token: " + token), new HBox(8, copy, reset), qrRow(url));
 
-        if (funnelError != null) {
-            boolean notEnabled = funnelError.toLowerCase().contains("not enabled");
-            if (notEnabled) {
-                Label fe = new Label("Tailscale Funnel isn't enabled on your tailnet yet, so this is a direct "
-                        + "connection instead. Funnel is a one-time setup on THIS computer's Tailscale "
-                        + "account (nothing to do on the phone) — enable it here:");
-                fe.setWrapText(true);
-                fe.setStyle("-fx-text-fill: #e67e22;");
-                Hyperlink admin = new Hyperlink(TAILSCALE_FUNNEL_ADMIN_URL);
-                admin.setOnAction(e -> com.botmaker.studio.util.BrowserLauncher.open(TAILSCALE_FUNNEL_ADMIN_URL));
-                content.getChildren().addAll(fe, admin);
-            } else {
-                Label fe = new Label("Tailscale Funnel unavailable (" + funnelError.trim()
-                        + ") — using a direct connection instead.");
-                fe.setWrapText(true);
-                fe.setStyle("-fx-text-fill: #e67e22;");
-                content.getChildren().add(fe);
-            }
-        }
         if (mode == PilotMode.ALL_INTERFACES) {
-            Label warn = new Label("⚠ Anyone who can reach this machine's IP can view/control the bot with "
-                    + "this token. Prefer connecting over Tailscale.");
-            warn.setWrapText(true);
+            Label warn = wrapped("⚠ Anyone who can reach this machine's IP can view/control the bot with this "
+                    + "token. Prefer connecting over Tailscale.");
             warn.setStyle("-fx-text-fill: #e67e22;");
             content.getChildren().add(warn);
         }
@@ -341,34 +376,129 @@ public class UIManager {
         alert.show();
     }
 
+    /**
+     * The one-time "make Funnel work so the phone needs nothing" checklist. Rendered from the off-thread
+     * {@link FunnelDiag} snapshot (no blocking CLI calls here), with the current blocker highlighted and a
+     * Re-check button that re-runs the whole bring-up.
+     */
+    private Node funnelWizardBox(FunnelDiag diag, String funnelError, Alert owner) {
+        VBox box = new VBox(6);
+        Label title = wrapped("Set up Tailscale Funnel once on THIS computer's account — then any phone "
+                + "connects by just opening the link (no Tailscale, no VPN, nothing to install on the phone):");
+        title.setStyle("-fx-font-weight: bold;");
+        box.getChildren().add(title);
+
+        boolean step1ok = diag != null && diag.cliPresent() && diag.loggedIn();
+        FunnelIssue issue = diag == null ? FunnelIssue.OTHER : diag.issue();
+
+        // 1. Installed & signed in
+        HBox s1 = stepRow(step1ok, "Tailscale installed & signed in on this computer",
+                issue == FunnelIssue.NOT_INSTALLED || issue == FunnelIssue.LOGGED_OUT);
+        if (diag != null && !diag.cliPresent()) s1.getChildren().add(linkBtn("Install Tailscale ▸", TAILSCALE_DOWNLOAD_URL));
+        else if (diag != null && !diag.loggedIn()) s1.getChildren().add(copyCmdBtn("tailscale up"));
+        box.getChildren().add(s1);
+
+        // 2. HTTPS certificates (can't reliably probe → neutral, always show the link)
+        HBox s2 = stepRow(step1ok, "HTTPS certificates enabled for your tailnet", false);
+        s2.getChildren().add(linkBtn("Open DNS settings ▸", TAILSCALE_DNS_ADMIN_URL));
+        box.getChildren().add(s2);
+
+        // 3. Funnel node-attribute granted in the ACL
+        HBox s3 = stepRow(false, "\"funnel\" attribute granted in your tailnet ACL",
+                issue == FunnelIssue.NOT_ENABLED);
+        s3.getChildren().addAll(linkBtn("Open Funnel settings ▸", TAILSCALE_FUNNEL_ADMIN_URL),
+                copyCmdBtn(FUNNEL_ACL_SNIPPET, "Copy ACL snippet"));
+        box.getChildren().add(s3);
+
+        // 4. Operator (so Studio, running as you, can drive Funnel without sudo)
+        HBox s4 = stepRow(false, "Let Studio manage Funnel without root (run once)",
+                issue == FunnelIssue.NEEDS_OPERATOR);
+        String operatorCmd = "sudo tailscale set --operator=" + System.getProperty("user.name", "$USER");
+        s4.getChildren().add(copyCmdBtn(operatorCmd, "Copy command"));
+        box.getChildren().add(s4);
+
+        if (issue == FunnelIssue.OTHER && funnelError != null) {
+            Label raw = wrapped("Tailscale said: " + funnelError.trim());
+            raw.setStyle("-fx-text-fill: #e67e22;");
+            box.getChildren().add(raw);
+        }
+
+        Button recheck = new Button("Re-check & enable");
+        recheck.setDefaultButton(true);
+        recheck.setOnAction(e -> { owner.close(); openRemotePilot(); });
+        box.getChildren().add(recheck);
+        return box;
+    }
+
+    /** One wizard checklist row: a ✓/✗ status glyph + label; highlighted orange when it's the active blocker. */
+    private static HBox stepRow(boolean done, String text, boolean isBlocker) {
+        Label glyph = new Label(done ? "✓" : "✗");
+        glyph.setStyle("-fx-font-weight: bold; -fx-text-fill: " + (done ? "#27ae60" : "#e67e22") + ";");
+        Label label = new Label(text);
+        label.setWrapText(true);
+        if (isBlocker) label.setStyle("-fx-text-fill: #e67e22; -fx-font-weight: bold;");
+        HBox row = new HBox(8, glyph, label);
+        row.setAlignment(Pos.CENTER_LEFT);
+        return row;
+    }
+
+    private static Hyperlink linkBtn(String text, String url) {
+        Hyperlink h = new Hyperlink(text);
+        h.setOnAction(e -> com.botmaker.studio.util.BrowserLauncher.open(url));
+        return h;
+    }
+
+    private static Button copyCmdBtn(String command) { return copyCmdBtn(command, "Copy"); }
+
+    /** A small button that copies {@code command} to the clipboard (for shell commands / ACL snippets). */
+    private static Button copyCmdBtn(String command, String label) {
+        Button b = new Button(label);
+        b.setTooltip(new Tooltip(command));
+        b.setOnAction(e -> { copyToClipboard(command); b.setText("Copied ✓"); });
+        return b;
+    }
+
+    private static Label wrapped(String text) {
+        Label l = new Label(text);
+        l.setWrapText(true);
+        l.setMaxWidth(460);
+        return l;
+    }
+
     private static void copyToClipboard(String text) {
         var cc = new javafx.scene.input.ClipboardContent();
         cc.putString(text);
         javafx.scene.input.Clipboard.getSystemClipboard().setContent(cc);
     }
 
-    /** Side-by-side QR codes: left pairs the pilot URL, right downloads the Android APK. */
+    /** Side-by-side QR codes with clear separation: left pairs the pilot URL, right downloads the APK. */
     private static Node qrRow(String pairingUrl) {
-        HBox row = new HBox(24);
-        row.setAlignment(Pos.CENTER_LEFT);
-        Node pairing = qrCell(pairingUrl, "Scan to open on phone");
+        HBox row = new HBox(40);
+        row.setAlignment(Pos.TOP_CENTER);
+        row.setStyle("-fx-padding: 8 0 0 0;");
+        Node pairing = qrCell(pairingUrl, "① Open on phone", "Scan to control the bot");
         if (pairing != null) row.getChildren().add(pairing);
-        Node install = qrCell(APK_URL, "Or install the Android app");
+        Node install = qrCell(APK_URL, "② Get the app (optional)", "Installs BotPilot for Android");
         if (install != null) row.getChildren().add(install);
         return row;
     }
 
-    /** A captioned QR image, or {@code null} if the code couldn't be encoded. */
-    private static Node qrCell(String text, String caption) {
-        Image code = com.botmaker.studio.ui.util.QrCodes.qr(text, 200);
+    /** A titled, captioned QR image in its own bordered card, or {@code null} if the code couldn't encode. */
+    private static Node qrCell(String text, String title, String caption) {
+        Image code = com.botmaker.studio.ui.util.QrCodes.qr(text, 220);
         if (code == null) return null;
+        Label heading = new Label(title);
+        heading.setStyle("-fx-font-weight: bold;");
         ImageView iv = new ImageView(code);
-        iv.setFitWidth(160);
-        iv.setFitHeight(160);
+        iv.setFitWidth(190);
+        iv.setFitHeight(190);
         Label cap = new Label(caption);
         cap.setWrapText(true);
-        VBox cell = new VBox(4, iv, cap);
+        cap.setStyle("-fx-text-fill: #8b93a1;");
+        VBox cell = new VBox(6, heading, iv, cap);
         cell.setAlignment(Pos.CENTER);
+        cell.setMaxWidth(210);
+        cell.setStyle("-fx-padding: 10; -fx-border-color: #3a3f4b; -fx-border-radius: 8; -fx-border-width: 1;");
         return cell;
     }
 
