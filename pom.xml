@@ -184,6 +184,14 @@
             <version>2.17.0</version>
         </dependency>
 
+        <!-- Javalin: embedded Jetty serving static assets + HTTP + WebSocket on one port, for the
+             remote BotPilot client (services/pilot/PilotServer). Uses slf4j-api (already present). -->
+        <dependency>
+            <groupId>io.javalin</groupId>
+            <artifactId>javalin</artifactId>
+            <version>6.3.0</version>
+        </dependency>
+
         <!-- Test Dependencies -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
@@ -531,6 +539,88 @@
                 <installer.skip.msi>false</installer.skip.msi>
                 <installer.icon>${project.basedir}/src/main/resources/icons/icon.ico</installer.icon>
             </properties>
+        </profile>
+
+        <!--
+          `pilot` profile: rebuild the BotPilot web client (Vite + React + TS in the sibling
+          `botmaker-pilot` submodule) from source and stage its `dist` as the served assets.
+
+            mvn -Ppilot package
+
+          The normal build needs no Node: a prebuilt `dist` is committed under
+          src/main/resources/pilot/ and served as-is. This profile refreshes those assets from
+          source — it downloads a project-local Node/npm (nothing installed system-wide), runs
+          `npm ci` + `npm run build` in ../botmaker-pilot/web, then overwrites target/classes/pilot
+          with the fresh dist (after the default resource copy, so the fresh build wins).
+        -->
+        <profile>
+            <id>pilot</id>
+            <properties>
+                <pilot.web.dir>${project.basedir}/../botmaker-pilot/web</pilot.web.dir>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>com.github.eirslett</groupId>
+                        <artifactId>frontend-maven-plugin</artifactId>
+                        <version>1.15.1</version>
+                        <configuration>
+                            <workingDirectory>${pilot.web.dir}</workingDirectory>
+                            <installDirectory>${project.build.directory}/node</installDirectory>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>install-node-npm</id>
+                                <phase>generate-resources</phase>
+                                <goals><goal>install-node-and-npm</goal></goals>
+                                <configuration>
+                                    <nodeVersion>v24.18.0</nodeVersion>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>npm-ci</id>
+                                <phase>generate-resources</phase>
+                                <goals><goal>npm</goal></goals>
+                                <configuration>
+                                    <arguments>ci</arguments>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>npm-build</id>
+                                <phase>generate-resources</phase>
+                                <goals><goal>npm</goal></goals>
+                                <configuration>
+                                    <arguments>run build</arguments>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+
+                    <!-- Copy the freshly-built dist over the default-copied (committed) pilot
+                         assets in target/classes, so a -Ppilot build serves the current source. -->
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-resources-plugin</artifactId>
+                        <version>3.3.1</version>
+                        <executions>
+                            <execution>
+                                <id>copy-pilot-dist</id>
+                                <phase>process-classes</phase>
+                                <goals><goal>copy-resources</goal></goals>
+                                <configuration>
+                                    <outputDirectory>${project.build.outputDirectory}/pilot</outputDirectory>
+                                    <overwrite>true</overwrite>
+                                    <resources>
+                                        <resource>
+                                            <directory>${pilot.web.dir}/dist</directory>
+                                        </resource>
+                                    </resources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
         </profile>
     </profiles>
 

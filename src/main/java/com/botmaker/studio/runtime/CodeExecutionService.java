@@ -271,6 +271,16 @@ public class CodeExecutionService {
 
     public boolean isRunning() { return isRunning.get(); }
 
+    /**
+     * The OS pid of the running bot JVM, if one is alive. The bot is launched directly as
+     * {@code java -cp … <mainClass>} (no wrapper process), so the launched process <em>is</em> the bot —
+     * usable for out-of-band control such as the pilot's {@code SIGSTOP}/{@code SIGCONT} pause/resume.
+     */
+    public java.util.OptionalLong runningBotPid() {
+        Process p = currentRunningProcess;
+        return (p != null && p.isAlive()) ? java.util.OptionalLong.of(p.pid()) : java.util.OptionalLong.empty();
+    }
+
     /** Handle over the live output readers and a final synchronous flush of whatever they buffered. */
     private record OutputPump(List<Thread> readers, Runnable flushRemaining) {}
 

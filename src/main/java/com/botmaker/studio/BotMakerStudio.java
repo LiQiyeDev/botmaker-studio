@@ -187,7 +187,8 @@ public class BotMakerStudio extends Application {
                 currentProject.getState(),
                 currentProject.getProjectAnalyzer(),
                 currentProject.getLibraryService(),
-                currentProject.getActivityService()
+                currentProject.getActivityService(),
+                currentProject.getCodeExecutionService()
         );
         uiManager.setOnSelectProject(v -> switchToProjectSelector(primaryStage));
         return uiManager;

@@ -56,6 +56,8 @@ public class UIManager {
     private final EventLogManager eventLogManager;
     private final MenuBarManager menuBarManager;
     private com.botmaker.studio.services.debug.TelemetryDashboardServer dashboardServer;
+    private final com.botmaker.studio.runtime.CodeExecutionService codeExecutionService;
+    private com.botmaker.studio.services.pilot.PilotServer pilotServer;
     private final FileExplorerManager fileExplorerManager;
     private final WindowPreviewManager windowPreviewManager;
 
@@ -80,9 +82,11 @@ public class UIManager {
                      ProjectConfig config,
                      ProjectState state, ProjectAnalyzer projectAnalyzer,
                      LibraryService libraryService,
-                     ActivityService activityService) {
+                     ActivityService activityService,
+                     com.botmaker.studio.runtime.CodeExecutionService codeExecutionService) {
         this.eventBus = eventBus;
         this.codeEditorService = codeEditorService;
+        this.codeExecutionService = codeExecutionService;
         this.diagnosticsManager = diagnosticsManager;
         this.primaryStage = primaryStage;
         this.config = config;
@@ -126,6 +130,7 @@ public class UIManager {
         this.menuBarManager.setProjectRepoUrl(BotSource.read(config.projectPath())
                 .map(s -> "https://github.com/" + s.slug()).orElse(null));
         this.menuBarManager.setOnOpenDebugDashboard(this::openDebugDashboard);
+        this.menuBarManager.setOnEnableRemotePilot(this::openRemotePilot);
         this.fileExplorerManager = new FileExplorerManager(config, codeEditorService, state);
         this.windowPreviewManager = new WindowPreviewManager(eventBus, config, state);
 
@@ -146,6 +151,79 @@ public class UIManager {
             eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(
                     "Could not start debug dashboard: " + e.getMessage()));
         }
+    }
+
+    /**
+     * Starts (once) the remote BotPilot server, binding it to the Tailscale interface when the tunnel is up
+     * (else all interfaces, with a warning), and shows a dialog with the URL + token to open in a browser or
+     * pair with the phone app.
+     */
+    private void openRemotePilot() {
+        try {
+            if (pilotServer == null) {
+                var control = new com.botmaker.studio.services.pilot.PilotControlService(codeExecutionService);
+                pilotServer = new com.botmaker.studio.services.pilot.PilotServer(
+                        eventBus, projectSettingsService, control);
+            }
+            String tailscale = com.botmaker.studio.services.pilot.PilotServer.detectTailscaleHost();
+            boolean allInterfaces = tailscale == null;
+            var endpoint = pilotServer.start(allInterfaces ? "0.0.0.0" : tailscale);
+
+            String displayHost = allInterfaces ? hostForUrl() : tailscale;
+            String url = "http://" + displayHost + ":" + endpoint.port() + "/?token=" + endpoint.token();
+
+            eventBus.publish(new CoreApplicationEvents.StatusMessageEvent("Remote Pilot at " + url));
+            showRemotePilotDialog(url, endpoint.token(), allInterfaces);
+        } catch (Exception e) {
+            eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(
+                    "Could not start Remote Pilot: " + e.getMessage()));
+        }
+    }
+
+    /** Best-effort local IPv4 for the displayed URL when binding all interfaces (no Tailscale). */
+    private static String hostForUrl() {
+        try {
+            return java.net.InetAddress.getLocalHost().getHostAddress();
+        } catch (Exception e) {
+            return "127.0.0.1";
+        }
+    }
+
+    private void showRemotePilotDialog(String url, String token, boolean allInterfaces) {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.initOwner(primaryStage);
+        alert.setTitle("Remote Pilot");
+        alert.setHeaderText(allInterfaces
+                ? "Tailscale not detected — bound to ALL interfaces."
+                : "Remote Pilot is running on your tailnet.");
+
+        TextField urlField = new TextField(url);
+        urlField.setEditable(false);
+        urlField.setPrefColumnCount(44);
+        Button copy = new Button("Copy URL");
+        copy.setOnAction(e -> {
+            var cc = new javafx.scene.input.ClipboardContent();
+            cc.putString(url);
+            javafx.scene.input.Clipboard.getSystemClipboard().setContent(cc);
+        });
+        Button open = new Button("Open in browser");
+        open.setOnAction(e -> com.botmaker.studio.util.BrowserLauncher.open(url));
+
+        VBox content = new VBox(8,
+                new Label("Open this URL in a browser, or enter host/port + token in the BotPilot app:"),
+                urlField,
+                new Label("Token: " + token),
+                new HBox(8, copy, open));
+        content.setStyle("-fx-padding: 4;");
+        if (allInterfaces) {
+            Label warn = new Label("⚠ Anyone who can reach this machine's IP can view/control the bot with "
+                    + "this token. Prefer connecting over Tailscale.");
+            warn.setWrapText(true);
+            warn.setStyle("-fx-text-fill: #e67e22;");
+            content.getChildren().add(warn);
+        }
+        alert.getDialogPane().setContent(content);
+        alert.show();
     }
 
     /** Opens the Resource Manager dialog. Reused by the Project menu and the block image-picker shortcut. */

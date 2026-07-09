@@ -6,6 +6,24 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-09 — BotPilot: remote live-preview + control over WebSocket (browser + Android APK).**
+  - **New `services/pilot/PilotServer`** (Javalin 6.3.0, embedded Jetty) serves the BotPilot web client and a
+    `/ws` endpoint on one port: **binary** JPEG frames (16-byte `sx,sy,sw,sh` header) at ~12 FPS with per-client
+    in-flight backpressure (drop frame if the previous send is pending), **text** telemetry/state out, and
+    inbound `{cmd:start|stop|pause|resume}`. Token-gated handshake (`?token=`), Tailscale-iface (CGNAT
+    `100.64.0.0/10`) or `0.0.0.0` binding.
+  - **Capture/serialize extracted** from the loopback `TelemetryDashboardServer` into `services/pilot/TargetCapture`
+    (adds raw `byte[] jpegBytes`) + `TelemetrySerializer`; the SSE dashboard now delegates to them (unchanged behavior).
+  - **Controls:** start/stop via EventBus (`ExecutionRequestedEvent`/`StopRunRequestedEvent`); pause/resume via
+    `SIGSTOP`/`SIGCONT` on the bot JVM (`services/pilot/PilotControlService`, Unix-only — crash-free kernel freeze),
+    using new `CodeExecutionService.runningBotPid()`. Run state broadcast off `ProgramStarted/StoppedEvent`.
+  - **Studio UI:** View ▸ **Enable Remote Pilot…** (`MenuBarManager`/`UIManager`) starts the server and shows a
+    copyable URL + token dialog.
+  - **Client** lives in the new sibling **`botmaker-pilot`** submodule (Vite + React + TS PWA in `web/`, Capacitor
+    Android shell → APK). Studio serves a prebuilt `dist` committed under `src/main/resources/pilot/`; the new
+    **`-Ppilot`** Maven profile rebuilds it from source via a project-local Node (frontend-maven-plugin). Added
+    `io.javalin:javalin:6.3.0` dep.
+
 - **2026-07-08 — Fix batch: overload capture default, Follow highlight, preview cadence, version indicator, favorite overload, SNAPSHOT model.**
   - **Overload switch now seeds the project-default CaptureSource** (was always "Whole Desktop"). `ProjectState`
     is threaded through the argument-sync path (`NodeCreator.createDefaultInitializer(ast,type,cu,state)` →

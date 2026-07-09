@@ -1,0 +1,255 @@
+package com.botmaker.studio.services.pilot;
+
+import com.botmaker.shared.ipc.TelemetryEvent;
+import com.botmaker.studio.events.CoreApplicationEvents;
+import com.botmaker.studio.events.EventBus;
+import com.botmaker.studio.services.ProjectSettingsService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.javalin.Javalin;
+import io.javalin.http.staticfiles.Location;
+import io.javalin.websocket.WsContext;
+import javafx.application.Platform;
+import org.eclipse.jetty.websocket.api.WriteCallback;
+
+import java.nio.ByteBuffer;
+import java.security.SecureRandom;
+import java.util.Base64;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+/**
+ * The remote <b>BotPilot</b> server: one Javalin (embedded Jetty) instance that serves the pilot web app as
+ * static files and speaks a WebSocket protocol at {@code /ws?token=…} carrying, over a single connection:
+ *
+ * <ul>
+ *   <li><b>binary</b> server→client: a live JPEG frame of the bot's target surface, prefixed with a 16-byte
+ *       header ({@code sx,sy,sw,sh} as big-endian int32) so the client can map overlays. Loss-tolerant —
+ *       a frame is <em>dropped</em> for any client whose previous send is still in flight (backpressure).</li>
+ *   <li><b>text</b> server→client: telemetry events ({@code {"type":"telemetry",…}}) and run-state
+ *       ({@code {"type":"state","run":"running|stopped|paused"}}).</li>
+ *   <li><b>text</b> client→server: control commands ({@code {"cmd":"start|stop|pause|resume"}}).</li>
+ * </ul>
+ *
+ * <p>Unlike the loopback {@code TelemetryDashboardServer} (SSE + base64), this is meant to be reachable
+ * remotely over a Tailscale tunnel, so the WS handshake is token-gated. Capture and telemetry serialization
+ * are shared with the dashboard via {@link TargetCapture} / {@link TelemetrySerializer}.
+ */
+public final class PilotServer implements AutoCloseable {
+
+    private static final int FRAME_FPS = 12;
+
+    private final EventBus eventBus;
+    private final TargetCapture capture;
+    private final PilotControlService control;
+    private final ObjectMapper json = new ObjectMapper();
+
+    /** Connected, authorized clients and a per-client "send in flight" latch for frame backpressure. */
+    private final Map<WsContext, AtomicBoolean> clients = new ConcurrentHashMap<>();
+
+    private Javalin app;
+    private ScheduledExecutorService frameExec;
+    private volatile TelemetryEvent.Target lastTarget;
+    private volatile String token;
+    private volatile String runState = "stopped";
+
+    public PilotServer(EventBus eventBus, ProjectSettingsService settings, PilotControlService control) {
+        this.eventBus = eventBus;
+        this.capture = new TargetCapture(settings);
+        this.control = control;
+    }
+
+    /** Endpoint details to surface in the UI (URL to open / pair, plus the token). */
+    public record Endpoint(String host, int port, String token) {
+        public String url() {
+            return "http://" + host + ":" + port + "/?token=" + token;
+        }
+    }
+
+    /**
+     * Starts the server bound to {@code host} (e.g. {@code 127.0.0.1}, a Tailscale IP, or {@code 0.0.0.0}).
+     * Idempotent — returns the existing endpoint if already running.
+     */
+    public synchronized Endpoint start(String host) {
+        if (app != null) return new Endpoint(host, app.port(), token);
+
+        token = newToken();
+        app = Javalin.create(cfg -> {
+            cfg.showJavalinBanner = false;
+            cfg.staticFiles.add(s -> {
+                s.hostedPath = "/";
+                s.directory = "/pilot";
+                s.location = Location.CLASSPATH;
+            });
+        });
+        app.ws("/ws", ws -> {
+            ws.onConnect(ctx -> {
+                if (!authorized(ctx)) { ctx.closeSession(); return; }
+                clients.put(ctx, new AtomicBoolean(false));
+                ctx.enableAutomaticPings();
+                ctx.send(stateJson()); // let a fresh client render the current run state immediately
+            });
+            ws.onMessage(ctx -> {
+                if (clients.containsKey(ctx)) handleCommand(ctx.message());
+            });
+            ws.onClose(ctx -> clients.remove(ctx));
+            ws.onError(ctx -> clients.remove(ctx));
+        });
+        app.start(host, 0); // 0 → OS-assigned ephemeral port
+
+        eventBus.subscribe(CoreApplicationEvents.ViewFeedbackEvent.class, e -> onTelemetry(e.feedback()), false);
+        eventBus.subscribe(CoreApplicationEvents.ProgramStartedEvent.class, e -> setRunState("running"), false);
+        eventBus.subscribe(CoreApplicationEvents.ProgramStoppedEvent.class, e -> {
+            control.onRunStopped();
+            setRunState("stopped");
+        }, false);
+
+        startFrameLoop();
+        return new Endpoint(host, app.port(), token);
+    }
+
+    @Override
+    public synchronized void close() {
+        if (frameExec != null) { frameExec.shutdownNow(); frameExec = null; }
+        clients.clear();
+        if (app != null) { app.stop(); app = null; }
+    }
+
+    public synchronized boolean isRunning() {
+        return app != null;
+    }
+
+    /**
+     * The machine's Tailscale IPv4 (CGNAT {@code 100.64.0.0/10}) if the tunnel is up, so the pilot binds to
+     * the private tailnet rather than every interface. {@code null} if no Tailscale address is found — the
+     * caller then decides whether to bind {@code 0.0.0.0} with a warning.
+     */
+    public static String detectTailscaleHost() {
+        try {
+            var nics = java.net.NetworkInterface.getNetworkInterfaces();
+            while (nics.hasMoreElements()) {
+                for (var addr : java.util.Collections.list(nics.nextElement().getInetAddresses())) {
+                    if (addr instanceof java.net.Inet4Address) {
+                        byte[] b = addr.getAddress();
+                        // 100.64.0.0/10 → first octet 100, second octet 64–127.
+                        if ((b[0] & 0xFF) == 100 && (b[1] & 0xC0) == 64) return addr.getHostAddress();
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    // --- Auth ---
+
+    private boolean authorized(WsContext ctx) {
+        return token != null && token.equals(ctx.queryParam("token"));
+    }
+
+    private static String newToken() {
+        byte[] b = new byte[18];
+        new SecureRandom().nextBytes(b);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(b);
+    }
+
+    // --- Inbound control commands ---
+
+    private void handleCommand(String message) {
+        String cmd;
+        try {
+            JsonNode node = json.readTree(message);
+            cmd = node.path("cmd").asText(null);
+        } catch (Exception e) {
+            return;
+        }
+        if (cmd == null) return;
+        switch (cmd) {
+            case "start" -> Platform.runLater(() ->
+                    eventBus.publish(new CoreApplicationEvents.ExecutionRequestedEvent()));
+            case "stop" -> Platform.runLater(() ->
+                    eventBus.publish(new CoreApplicationEvents.StopRunRequestedEvent()));
+            case "pause" -> { control.pause(); refreshPausedState(); }
+            case "resume" -> { control.resume(); refreshPausedState(); }
+            default -> { /* ignore unknown */ }
+        }
+    }
+
+    /** After a pause/resume, reflect it in run-state (only meaningful while a run is active). */
+    private void refreshPausedState() {
+        if ("stopped".equals(runState)) return;
+        setRunState(control.isPaused() ? "paused" : "running");
+    }
+
+    // --- Telemetry + state fan-out (text messages) ---
+
+    private void onTelemetry(TelemetryEvent te) {
+        if (te == null) return;
+        lastTarget = te.target();
+        broadcastText("{\"type\":\"telemetry\",\"event\":" + TelemetrySerializer.eventJson(te) + "}");
+    }
+
+    private void setRunState(String state) {
+        runState = state;
+        broadcastText(stateJson());
+    }
+
+    private String stateJson() {
+        return "{\"type\":\"state\",\"run\":\"" + runState + "\"}";
+    }
+
+    private void broadcastText(String text) {
+        for (WsContext ctx : clients.keySet()) {
+            try {
+                ctx.send(text);
+            } catch (Exception e) {
+                clients.remove(ctx);
+            }
+        }
+    }
+
+    // --- Frame loop (binary messages, per-client backpressure) ---
+
+    private void startFrameLoop() {
+        frameExec = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "pilot-frame");
+            t.setDaemon(true);
+            return t;
+        });
+        frameExec.scheduleAtFixedRate(this::pushFrame, 300, 1000 / FRAME_FPS, TimeUnit.MILLISECONDS);
+    }
+
+    private void pushFrame() {
+        if (clients.isEmpty()) return;
+        TargetCapture.Capture cap = capture.resolve(lastTarget);
+        if (cap == null) return;
+        byte[] jpeg = TargetCapture.jpegBytes(cap.img());
+        if (jpeg == null) return;
+
+        byte[] payload = new byte[16 + jpeg.length];
+        ByteBuffer.wrap(payload)
+                .putInt(cap.sx()).putInt(cap.sy()).putInt(cap.sw()).putInt(cap.sh())
+                .put(jpeg);
+
+        for (Map.Entry<WsContext, AtomicBoolean> e : clients.entrySet()) {
+            WsContext ctx = e.getKey();
+            AtomicBoolean inFlight = e.getValue();
+            // Drop this frame for any client still flushing the previous one — keeps real-time feel and
+            // stops one slow client from stalling the whole loop.
+            if (!inFlight.compareAndSet(false, true)) continue;
+            try {
+                ctx.session.getRemote().sendBytes(ByteBuffer.wrap(payload), new WriteCallback() {
+                    @Override public void writeSuccess() { inFlight.set(false); }
+                    @Override public void writeFailed(Throwable x) { inFlight.set(false); clients.remove(ctx); }
+                });
+            } catch (Exception ex) {
+                inFlight.set(false);
+                clients.remove(ctx);
+            }
+        }
+    }
+}

@@ -1,26 +1,18 @@
 package com.botmaker.studio.services.debug;
 
-import com.botmaker.shared.capture.GenericWindow;
-import com.botmaker.shared.capture.NativeControllerFactory;
 import com.botmaker.shared.ipc.TelemetryEvent;
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
-import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.services.ProjectSettingsService;
+import com.botmaker.studio.services.pilot.TargetCapture;
+import com.botmaker.studio.services.pilot.TelemetrySerializer;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
-import javax.imageio.ImageIO;
-import java.awt.GraphicsDevice;
-import java.awt.GraphicsEnvironment;
-import java.awt.Rectangle;
-import java.awt.Robot;
-import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
@@ -44,7 +36,7 @@ public final class TelemetryDashboardServer {
     private static final int KEEPALIVE_SECONDS = 15;
 
     private final EventBus eventBus;
-    private final ProjectSettingsService settings;
+    private final TargetCapture capture;
     private final List<OutputStream> clients = new CopyOnWriteArrayList<>();
 
     private HttpServer server;
@@ -54,7 +46,7 @@ public final class TelemetryDashboardServer {
 
     public TelemetryDashboardServer(EventBus eventBus, ProjectSettingsService settings) {
         this.eventBus = eventBus;
-        this.settings = settings;
+        this.capture = new TargetCapture(settings);
     }
 
     /** Starts the server (idempotent) and returns the base URL to open. */
@@ -89,7 +81,7 @@ public final class TelemetryDashboardServer {
     private void onEvent(TelemetryEvent te) {
         if (te == null) return;
         this.lastTarget = te.target();
-        broadcast("telemetry", eventJson(te));
+        broadcast("telemetry", TelemetrySerializer.eventJson(te));
     }
 
     private void broadcast(String event, String data) {
@@ -136,104 +128,13 @@ public final class TelemetryDashboardServer {
 
     private void pushFrame() {
         if (clients.isEmpty()) return;
-        Capture cap = resolveCapture();
+        TargetCapture.Capture cap = capture.resolve(lastTarget);
         if (cap == null) return;
-        String b64 = toBase64Jpeg(cap.img());
+        String b64 = TargetCapture.base64Jpeg(cap.img());
         if (b64 == null) return;
         broadcast("frame", String.format(
                 "{\"img\":\"%s\",\"sx\":%d,\"sy\":%d,\"sw\":%d,\"sh\":%d}",
                 b64, cap.sx(), cap.sy(), cap.sw(), cap.sh()));
-    }
-
-    /** A captured frame plus the absolute surface origin/size its pixel (0,0) maps to. */
-    private record Capture(BufferedImage img, int sx, int sy, int sw, int sh) {}
-
-    /**
-     * Resolves what to preview this tick, mirroring {@code WindowPreviewManager.effectiveTarget()}: a live
-     * window from telemetry wins; else the project default (window / monitor / whole desktop); else a
-     * whole-screen telemetry target; else the primary screen. This is what makes the dashboard preview the
-     * <em>project default</em> target while idle instead of always grabbing the whole current screen.
-     */
-    private Capture resolveCapture() {
-        TelemetryEvent.Target t = lastTarget;
-        if (t != null && t.title() != null && t.width() > 0 && t.height() > 0) {
-            Capture c = captureWindowTarget(t.title());
-            if (c != null) return c;
-        }
-        CaptureTarget def = safeDefault();
-        if (def instanceof CaptureTarget.WindowTarget wt && wt.titleSubstring() != null) {
-            Capture c = captureWindowTarget(wt.titleSubstring());
-            if (c != null) return c;
-        } else if (def instanceof CaptureTarget.ScreenTarget st) {
-            return captureBounds(screenBounds(st.index()));
-        } else if (def instanceof CaptureTarget.DesktopTarget) {
-            return captureBounds(virtualBounds());
-        }
-        if (t != null) return captureBounds(virtualBounds()); // whole-screen telemetry target
-        return captureBounds(primaryBounds());                // idle, no default → current primary screen
-    }
-
-    private Capture captureWindowTarget(String title) {
-        try {
-            GenericWindow win = resolveWindow(title);
-            if (win == null) return null;
-            BufferedImage img = NativeControllerFactory.get().captureWindow(win); // no focus — non-intrusive
-            if (img == null) return null;
-            Rectangle b = win.getRect();
-            return new Capture(img, b.x, b.y, b.width, b.height);
-        } catch (Throwable ex) {
-            return null;
-        }
-    }
-
-    private Capture captureBounds(Rectangle b) {
-        try {
-            BufferedImage img = new Robot().createScreenCapture(b);
-            return img == null ? null : new Capture(img, b.x, b.y, b.width, b.height);
-        } catch (Throwable ex) {
-            return null;
-        }
-    }
-
-    private CaptureTarget safeDefault() {
-        try {
-            return settings != null ? settings.defaultTarget() : null;
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private static Rectangle screenBounds(int index) {
-        GraphicsDevice[] devices = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
-        if (index >= 0 && index < devices.length) {
-            return devices[index].getDefaultConfiguration().getBounds();
-        }
-        return primaryBounds();
-    }
-
-    private static Rectangle primaryBounds() {
-        return GraphicsEnvironment.getLocalGraphicsEnvironment()
-                .getDefaultScreenDevice().getDefaultConfiguration().getBounds();
-    }
-
-    private static GenericWindow resolveWindow(String titleSubstring) {
-        String needle = titleSubstring.toLowerCase();
-        try {
-            for (GenericWindow w : NativeControllerFactory.get().getAllWindows()) {
-                String title = w.getTitle();
-                if (title != null && title.toLowerCase().contains(needle)) return w;
-            }
-        } catch (Throwable ignored) {
-        }
-        return null;
-    }
-
-    private static Rectangle virtualBounds() {
-        Rectangle bounds = new Rectangle();
-        for (java.awt.GraphicsDevice gd : java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices()) {
-            bounds = bounds.union(gd.getDefaultConfiguration().getBounds());
-        }
-        return bounds.isEmpty() ? new Rectangle(0, 0, 1920, 1080) : bounds;
     }
 
     // --- HTTP handlers ---
@@ -256,69 +157,6 @@ public final class TelemetryDashboardServer {
         try (OutputStream os = ex.getResponseBody()) {
             os.write(body);
         }
-    }
-
-    // --- Encoding ---
-
-    private static String eventJson(TelemetryEvent te) {
-        StringBuilder sb = new StringBuilder("{");
-        sb.append("\"ts\":").append(System.currentTimeMillis());
-        TelemetryEvent.Target t = te.target();
-        sb.append(",\"target\":").append(targetJson(t));
-        switch (te) {
-            case TelemetryEvent.Match m -> {
-                sb.append(",\"kind\":\"Match\"")
-                  .append(",\"found\":").append(m.found())
-                  .append(",\"confidence\":").append(String.format(java.util.Locale.US, "%.4f", m.confidence()))
-                  .append(",\"region\":").append(rectJson(m.region()))
-                  .append(",\"rect\":").append(rectJson(m.rect()));
-            }
-            case TelemetryEvent.Click c -> sb.append(",\"kind\":\"Click\"")
-                  .append(",\"x\":").append(c.x()).append(",\"y\":").append(c.y())
-                  .append(",\"button\":").append(c.button());
-            case TelemetryEvent.Region r -> sb.append(",\"kind\":\"Region\"")
-                  .append(",\"rect\":").append(rectJson(r.rect()));
-        }
-        return sb.append("}").toString();
-    }
-
-    private static String targetJson(TelemetryEvent.Target t) {
-        if (t == null) return "null";
-        return String.format(java.util.Locale.US,
-                "{\"title\":%s,\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d}",
-                jsonStr(t.title()), t.x(), t.y(), t.width(), t.height());
-    }
-
-    private static String rectJson(TelemetryEvent.Rect r) {
-        if (r == null) return "null";
-        return String.format(java.util.Locale.US,
-                "{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d}", r.x(), r.y(), r.width(), r.height());
-    }
-
-    private static String jsonStr(String s) {
-        if (s == null) return "null";
-        return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
-    }
-
-    private static String toBase64Jpeg(BufferedImage img) {
-        try {
-            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-            // JPEG needs no alpha; RGB is fine for a debug preview and keeps payloads small.
-            BufferedImage rgb = img.getType() == BufferedImage.TYPE_INT_RGB ? img
-                    : toRgb(img);
-            ImageIO.write(rgb, "jpg", out);
-            return Base64.getEncoder().encodeToString(out.toByteArray());
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private static BufferedImage toRgb(BufferedImage src) {
-        BufferedImage rgb = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_RGB);
-        java.awt.Graphics2D g = rgb.createGraphics();
-        g.drawImage(src, 0, 0, null);
-        g.dispose();
-        return rgb;
     }
 
     private static void closeQuietly(OutputStream os) {

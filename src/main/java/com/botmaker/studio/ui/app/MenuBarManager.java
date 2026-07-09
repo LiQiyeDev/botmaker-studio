@@ -34,6 +34,7 @@ public class MenuBarManager {
     private MenuItem redoItem;
     private MenuItem projectRepoItem;
     private Runnable onOpenDebugDashboard;
+    private Runnable onEnableRemotePilot;
     private String projectRepoUrl;
     /** The open project's directory, so the About dialog can report the SDK version it pins. May be null. */
     private java.nio.file.Path projectPath;
@@ -253,12 +254,16 @@ public class MenuBarManager {
         MenuItem debugDashboardItem = new MenuItem("Open Debug Dashboard");
         debugDashboardItem.setOnAction(e -> { if (onOpenDebugDashboard != null) onOpenDebugDashboard.run(); });
 
+        MenuItem remotePilotItem = new MenuItem("Enable Remote Pilot…");
+        remotePilotItem.setOnAction(e -> { if (onEnableRemotePilot != null) onEnableRemotePilot.run(); });
+
         viewMenu.getItems().addAll(
                 zoomInItem,
                 zoomOutItem,
                 resetZoomItem,
                 new SeparatorMenuItem(),
-                debugDashboardItem
+                debugDashboardItem,
+                remotePilotItem
         );
 
         return viewMenu;
@@ -267,6 +272,11 @@ public class MenuBarManager {
     /** Sets the action for View ▸ Open Debug Dashboard (starts the local telemetry dashboard server). */
     public void setOnOpenDebugDashboard(Runnable callback) {
         this.onOpenDebugDashboard = callback;
+    }
+
+    /** Sets the action for View ▸ Enable Remote Pilot (starts the remote BotPilot server over Tailscale). */
+    public void setOnEnableRemotePilot(Runnable callback) {
+        this.onEnableRemotePilot = callback;
     }
 
 
