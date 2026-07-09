@@ -22,7 +22,7 @@ import java.util.Base64;
  * dashboard (base64-over-SSE) and the remote {@code PilotServer} (raw bytes over WebSocket) share one
  * capture pipeline.
  *
- * <p>Resolution mirrors {@code WindowPreviewManager.effectiveTarget()}: a live window from telemetry wins;
+ * <p>Target resolution: a live window from telemetry wins;
  * else the project default (window / monitor / whole desktop); else a whole-screen telemetry target; else the
  * primary screen. Window targets use shared JNA {@code captureWindow} (no focus, prompt-free on X11/XWayland);
  * screen targets fall back to AWT {@link Robot} (limited on Wayland — see the module ROADMAP).

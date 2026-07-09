@@ -17,50 +17,6 @@
 }
 
 /*
- * Live window-preview panel (WindowPreviewManager): a captured frame of the bot's target window/screen with
- * vision/interaction overlays drawn on top. Sits bottom-left, under the File Explorer.
- */
-.window-preview {
-    -fx-background-color: #1e1e1e;
-    -fx-border-color: #dcdcdc;
-    -fx-border-width: 1 0 0 0;
-}
-
-.preview-placeholder {
-    -fx-text-fill: #9aa0a6;
-    -fx-font-size: 11px;
-    -fx-padding: 8;
-    -fx-text-alignment: center;
-}
-
-/* Hover-revealed zoom / follow / reload controls, floated over the bottom of the preview. */
-.preview-controls {
-    -fx-background-color: rgba(20, 20, 20, 0.72);
-    -fx-background-radius: 8;
-    -fx-padding: 3 6 3 6;
-}
-
-.preview-ctl {
-    -fx-background-color: transparent;
-    -fx-text-fill: #e8eaed;
-    -fx-font-size: 13px;
-    -fx-min-width: 26;
-    -fx-min-height: 22;
-    -fx-padding: 1 6 1 6;
-    -fx-background-radius: 6;
-    -fx-cursor: hand;
-}
-
-.preview-ctl:hover {
-    -fx-background-color: rgba(255, 255, 255, 0.16);
-}
-
-.preview-ctl:selected {
-    -fx-background-color: #3498db;
-    -fx-text-fill: white;
-}
-
-/*
  * File explorer (FileExplorerManager): a header, a "new library" button, and a tree that fills the panel.
  * Row state (folder / library / active file) is set via style classes rather than inline styles.
  */

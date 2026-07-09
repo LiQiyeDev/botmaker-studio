@@ -29,6 +29,8 @@ public class ToolbarManager {
     private Runnable onManageCaptureTargets;
     /** Opens the debug dashboard; wired by {@link UIManager}. */
     private Runnable onOpenDebugDashboard;
+    /** Starts the remote pilot server and shows the pairing dialog; wired by {@link UIManager}. */
+    private Runnable onEnableRemotePilot;
 
     private enum AppState { IDLE, RUNNING, DEBUGGING }
     private AppState currentAppState = AppState.IDLE;
@@ -94,6 +96,11 @@ public class ToolbarManager {
         this.onOpenDebugDashboard = callback;
     }
 
+    /** Sets the callback invoked when the toolbar's Remote Pilot button is clicked. */
+    public void setOnEnableRemotePilot(Runnable callback) {
+        this.onEnableRemotePilot = callback;
+    }
+
     /**
      * Creates the center group: the Capture Targets button (opens the manage dialog; its text shows the
      * current default target) next to the Debug Dashboard button (opens the live telemetry dashboard).
@@ -113,7 +120,15 @@ public class ToolbarManager {
             if (onOpenDebugDashboard != null) onOpenDebugDashboard.run();
         });
 
-        HBox group = new HBox(5, captureButton, debugDashboardButton);
+        Button remotePilotButton = new Button("🎮 Remote Pilot");
+        remotePilotButton.getStyleClass().add("toolbar-btn");
+        remotePilotButton.setTooltip(new Tooltip(
+                "Control and watch the bot from your phone — shows a QR to scan (no VPN needed)"));
+        remotePilotButton.setOnAction(e -> {
+            if (onEnableRemotePilot != null) onEnableRemotePilot.run();
+        });
+
+        HBox group = new HBox(5, captureButton, debugDashboardButton, remotePilotButton);
         group.setAlignment(Pos.CENTER);
         return group;
     }

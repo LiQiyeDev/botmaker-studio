@@ -61,7 +61,6 @@ public class UIManager {
     private final com.botmaker.studio.runtime.CodeExecutionService codeExecutionService;
     private com.botmaker.studio.services.pilot.PilotServer pilotServer;
     private final FileExplorerManager fileExplorerManager;
-    private final WindowPreviewManager windowPreviewManager;
 
     private VBox blocksContainer;
     private Label statusLabel;
@@ -119,6 +118,7 @@ public class UIManager {
         this.toolbarManager.setOnManageCaptureTargets(() ->
                 new ManageCaptureTargetsDialog(primaryStage, projectSettingsService).show());
         this.toolbarManager.setOnOpenDebugDashboard(this::openDebugDashboard);
+        this.toolbarManager.setOnEnableRemotePilot(this::openRemotePilot);
         GitHubClient gitHubClient = new GitHubClient();
         GitHubGallery gallery = new GitHubGallery(gitHubClient);
         BotInstaller botInstaller = new BotInstaller(gitHubClient, gallery);
@@ -134,7 +134,6 @@ public class UIManager {
         this.menuBarManager.setOnOpenDebugDashboard(this::openDebugDashboard);
         this.menuBarManager.setOnEnableRemotePilot(this::openRemotePilot);
         this.fileExplorerManager = new FileExplorerManager(config, codeEditorService, state);
-        this.windowPreviewManager = new WindowPreviewManager(eventBus, config, state);
 
         setupEventHandlers();
     }
@@ -158,6 +157,10 @@ public class UIManager {
     /** Stable "latest release" permalink the install-app QR points at; the botmaker-pilot CI attaches this. */
     private static final String APK_URL =
             "https://github.com/LiQiyeDev/botmaker-pilot/releases/latest/download/botpilot.apk";
+
+    /** Tailscale admin console where the one-time Funnel node-attribute is granted (computer/account side). */
+    private static final String TAILSCALE_FUNNEL_ADMIN_URL =
+            "https://login.tailscale.com/admin/settings/funnel";
 
     /** How the pilot ended up exposed — drives the dialog header, QR URL, and warning. */
     private enum PilotMode { FUNNEL_HTTPS, TAILNET_DIRECT, ALL_INTERFACES }
@@ -276,10 +279,16 @@ public class UIManager {
             case ALL_INTERFACES -> "Tailscale not detected — bound to ALL interfaces.";
         });
 
-        // Editable so the URL is always selectable for a manual copy, even if the clipboard write below is
-        // swallowed by the window system (e.g. some Wayland setups).
+        // The URL as a real clickable link (opens the system browser). Nothing to "register" on the phone —
+        // this addresses the common confusion that some pairing/registration step is needed there.
+        Hyperlink link = new Hyperlink(url);
+        link.setOnAction(e -> com.botmaker.studio.util.BrowserLauncher.open(url));
+        link.setWrapText(true);
+        // Editable field kept as a selectable copy fallback, in case the clipboard write below is swallowed by
+        // the window system (e.g. some Wayland setups).
         TextField urlField = new TextField(url);
         urlField.setPrefColumnCount(44);
+        urlField.setEditable(false);
         Button copy = new Button("Copy URL");
         copy.setOnAction(e -> {
             urlField.requestFocus();
@@ -287,25 +296,38 @@ public class UIManager {
             copyToClipboard(url);
             copy.setText("Copied ✓");
         });
-        Button open = new Button("Open in browser");
-        open.setOnAction(e -> com.botmaker.studio.util.BrowserLauncher.open(url));
 
         VBox content = new VBox(8,
                 new Label(mode == PilotMode.FUNNEL_HTTPS
-                        ? "Scan the left QR (or open this URL) on your phone — any browser, no VPN needed:"
-                        : "Open this URL in a browser, or enter host/port + token in the BotPilot app:"),
-                urlField,
+                        ? "Your phone needs nothing installed — no Tailscale, no VPN, no registration. Just "
+                          + "scan the LEFT QR (or tap the link) to open Remote Pilot. The RIGHT QR installs "
+                          + "the BotPilot Android app."
+                        : "Open this link on your phone, or scan the LEFT QR with the BotPilot app. "
+                          + "The RIGHT QR installs the app."),
+                link,
                 new Label("Token: " + token),
-                new HBox(8, copy, open),
+                new HBox(8, copy),
                 qrRow(url));
         content.setStyle("-fx-padding: 4;");
 
         if (funnelError != null) {
-            Label fe = new Label("Tailscale Funnel unavailable (" + funnelError.trim()
-                    + ") — using a direct connection instead.");
-            fe.setWrapText(true);
-            fe.setStyle("-fx-text-fill: #e67e22;");
-            content.getChildren().add(fe);
+            boolean notEnabled = funnelError.toLowerCase().contains("not enabled");
+            if (notEnabled) {
+                Label fe = new Label("Tailscale Funnel isn't enabled on your tailnet yet, so this is a direct "
+                        + "connection instead. Funnel is a one-time setup on THIS computer's Tailscale "
+                        + "account (nothing to do on the phone) — enable it here:");
+                fe.setWrapText(true);
+                fe.setStyle("-fx-text-fill: #e67e22;");
+                Hyperlink admin = new Hyperlink(TAILSCALE_FUNNEL_ADMIN_URL);
+                admin.setOnAction(e -> com.botmaker.studio.util.BrowserLauncher.open(TAILSCALE_FUNNEL_ADMIN_URL));
+                content.getChildren().addAll(fe, admin);
+            } else {
+                Label fe = new Label("Tailscale Funnel unavailable (" + funnelError.trim()
+                        + ") — using a direct connection instead.");
+                fe.setWrapText(true);
+                fe.setStyle("-fx-text-fill: #e67e22;");
+                content.getChildren().add(fe);
+            }
         }
         if (mode == PilotMode.ALL_INTERFACES) {
             Label warn = new Label("⚠ Anyone who can reach this machine's IP can view/control the bot with "
@@ -434,21 +456,14 @@ public class UIManager {
         topBar.setMaxHeight(50);
         topBar.setStyle("-fx-border-color: #dcdcdc; -fx-border-width: 0 0 1 0; -fx-background-color: #f4f4f4;");
 
-        // --- 2. Left Panel: File Explorer (top) + live Window Preview (bottom) ---
+        // --- 2. Left Panel: File Explorer ---
         // Fill the column (no maxWidth cap) so the tree occupies the full width the divider gives it —
         // otherwise a capped explorer leaves dead space to its right when the divider is dragged out.
         VBox fileExplorer = fileExplorerManager.createView();
         fileExplorer.setMinWidth(150);
         fileExplorer.setMaxWidth(Double.MAX_VALUE);
-
-        // Preview sits directly under the explorer and to the left of the terminal tabs; collapsible.
-        Node previewPanel = windowPreviewManager.getView();
-        SplitPane leftColumn = new SplitPane();
-        leftColumn.setOrientation(Orientation.VERTICAL);
-        leftColumn.getItems().addAll(fileExplorer, previewPanel);
-        leftColumn.setDividerPositions(0.62);
         // Keep the left column's size on window resize (don't let it swallow the canvas).
-        SplitPane.setResizableWithParent(leftColumn, false);
+        SplitPane.setResizableWithParent(fileExplorer, false);
 
         // --- 3. Center: Code Canvas ---
         blocksContainer = new VBox(10);
@@ -494,7 +509,7 @@ public class UIManager {
 
         SplitPane mainSplit = new SplitPane();
         mainSplit.setOrientation(Orientation.HORIZONTAL);
-        mainSplit.getItems().addAll(leftColumn, verticalSplit);
+        mainSplit.getItems().addAll(fileExplorer, verticalSplit);
         mainSplit.setDividerPositions(0.25);
 
         statusLabel = new Label("Ready");

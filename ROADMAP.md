@@ -6,6 +6,22 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-09 — Drop the in-Studio preview; promote Remote Pilot to the toolbar; clearer pairing dialog.**
+  - **Removed the live window-preview panel** — the Debug Dashboard + BotPilot remote app supersede it. Deleted
+    `ui/app/WindowPreviewManager` and the whole `services/preview/` package (`PortalScreenCast`,
+    `PreviewScreenFeed`, `PipeWireVideoSource`) and its CSS; `UIManager`'s left column is now just the file
+    explorer. Pilot/dashboard capture (`services/pilot/TargetCapture`) was already independent.
+  - **`ToolbarManager` gains a 🎮 Remote Pilot button** (in the capture group, mirroring Debug Dashboard) wired
+    to the existing idempotent `UIManager.openRemotePilot`; the View-menu item stays too.
+  - **Pairing dialog UX (`showRemotePilotDialog`):** the URL is now a clickable `Hyperlink` (opens the browser);
+    reworded copy states plainly the phone needs **nothing** installed and there's **no registration** — just
+    scan the LEFT QR (link) / RIGHT QR (app). When Funnel isn't enabled, a clickable Tailscale admin-console
+    link (`login.tailscale.com/admin/settings/funnel`) explains it's a one-time computer-side setup.
+  - **Test fix:** `FunctionalInterfaceDefaultTest` now passes the new `ProjectState` arg to
+    `MethodHandler.updateMethodInvocation`.
+  - **BotPilot app:** in-app **QR scanner** (scan the pairing QR to auto-connect) + **GitHub-release auto-update**
+    banner. (See `botmaker-pilot`.)
+
 - **2026-07-09 — BotPilot: real HTTPS remote access via Tailscale Funnel + QR pairing + fast APK delivery.**
   - **New `services/pilot/TailscaleFunnelService`** wraps the `tailscale` CLI (best-effort, captured stderr):
     `isAvailable()`, `dnsName()` (from `status --json` → `Self.DNSName`), `enable(port)` = `funnel --bg <port>`
