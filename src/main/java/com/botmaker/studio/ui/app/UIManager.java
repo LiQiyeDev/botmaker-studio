@@ -28,6 +28,8 @@ import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
@@ -153,31 +155,106 @@ public class UIManager {
         }
     }
 
+    /** Stable "latest release" permalink the install-app QR points at; the botmaker-pilot CI attaches this. */
+    private static final String APK_URL =
+            "https://github.com/LiQiyeDev/botmaker-pilot/releases/latest/download/botpilot.apk";
+
+    /** How the pilot ended up exposed — drives the dialog header, QR URL, and warning. */
+    private enum PilotMode { FUNNEL_HTTPS, TAILNET_DIRECT, ALL_INTERFACES }
+
+    /** Result of {@link #startRemotePilot()} — enough to render the pairing dialog on the FX thread. */
+    private record PilotOutcome(String url, String token, PilotMode mode, String funnelError) {}
+
     /**
-     * Starts (once) the remote BotPilot server, binding it to the Tailscale interface when the tunnel is up
-     * (else all interfaces, with a warning), and shows a dialog with the URL + token to open in a browser or
-     * pair with the phone app.
+     * Starts (once) the remote BotPilot server and shows a pairing dialog. Preferred path is <b>Tailscale
+     * Funnel</b>: bind the server to loopback and let Tailscale front it as public HTTPS
+     * ({@code https://<machine>.ts.net}) with a valid cert, so the phone needs no Tailscale/VPN. If Funnel
+     * isn't available (or isn't enabled in the tailnet ACL) it falls back to a direct bind — the Tailscale
+     * interface when the tunnel is up, else all interfaces with a warning — over plain HTTP.
+     *
+     * <p>The bring-up runs the {@code tailscale} CLI (which can block for seconds), so it happens on a
+     * background thread; only the resulting dialog is marshalled back to the FX thread. Doing it inline would
+     * freeze (and, if the CLI hangs, appear to crash) the UI.
      */
     private void openRemotePilot() {
-        try {
-            if (pilotServer == null) {
-                var control = new com.botmaker.studio.services.pilot.PilotControlService(codeExecutionService);
-                pilotServer = new com.botmaker.studio.services.pilot.PilotServer(
-                        eventBus, projectSettingsService, control);
-            }
-            String tailscale = com.botmaker.studio.services.pilot.PilotServer.detectTailscaleHost();
-            boolean allInterfaces = tailscale == null;
-            var endpoint = pilotServer.start(allInterfaces ? "0.0.0.0" : tailscale);
-
-            String displayHost = allInterfaces ? hostForUrl() : tailscale;
-            String url = "http://" + displayHost + ":" + endpoint.port() + "/?token=" + endpoint.token();
-
-            eventBus.publish(new CoreApplicationEvents.StatusMessageEvent("Remote Pilot at " + url));
-            showRemotePilotDialog(url, endpoint.token(), allInterfaces);
-        } catch (Exception e) {
-            eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(
-                    "Could not start Remote Pilot: " + e.getMessage()));
+        if (pilotServer == null) {
+            var control = new com.botmaker.studio.services.pilot.PilotControlService(codeExecutionService);
+            pilotServer = new com.botmaker.studio.services.pilot.PilotServer(
+                    eventBus, projectSettingsService, control);
         }
+        eventBus.publish(new CoreApplicationEvents.StatusMessageEvent("Starting Remote Pilot…"));
+        Alert progress = buildPilotProgressDialog();
+        progress.show();
+        Thread t = new Thread(() -> {
+            PilotOutcome o = null;
+            String error = null;
+            try {
+                o = startRemotePilot();
+            } catch (Exception e) {
+                error = e.getMessage();
+            }
+            final PilotOutcome outcome = o;
+            final String err = error;
+            javafx.application.Platform.runLater(() -> {
+                progress.setResult(ButtonType.CANCEL); // let close() dismiss a button-less alert
+                progress.close();
+                if (outcome != null) {
+                    eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(
+                            (outcome.mode() == PilotMode.FUNNEL_HTTPS ? "Remote Pilot (HTTPS) at " : "Remote Pilot at ")
+                                    + outcome.url()));
+                    showRemotePilotDialog(outcome.url(), outcome.token(), outcome.mode(), outcome.funnelError());
+                } else {
+                    eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(
+                            "Could not start Remote Pilot: " + err));
+                }
+            });
+        }, "remote-pilot-start");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** Indeterminate spinner shown while the (possibly multi-second) Tailscale bring-up runs off-thread. */
+    private Alert buildPilotProgressDialog() {
+        Alert a = new Alert(Alert.AlertType.NONE);
+        a.initOwner(primaryStage);
+        a.setTitle("Remote Pilot");
+        ProgressIndicator spinner = new ProgressIndicator();
+        spinner.setPrefSize(30, 30);
+        Label msg = new Label("Starting Remote Pilot…\nContacting Tailscale (this can take a few seconds).");
+        msg.setWrapText(true);
+        HBox box = new HBox(12, spinner, msg);
+        box.setAlignment(Pos.CENTER_LEFT);
+        box.setStyle("-fx-padding: 10;");
+        a.getDialogPane().setContent(box);
+        a.getButtonTypes().setAll(ButtonType.CANCEL); // present so the pane is valid; we close it programmatically
+        return a;
+    }
+
+    /** Blocking bring-up (Tailscale CLI + server bind); must run off the FX thread. */
+    private PilotOutcome startRemotePilot() {
+        var funnel = new com.botmaker.studio.services.pilot.TailscaleFunnelService();
+        String funnelError = null;
+        if (funnel.isAvailable() && funnel.dnsName().isPresent()) {
+            var ep = pilotServer.start("127.0.0.1"); // loopback — only Funnel fronts it
+            var result = funnel.enable(ep.port());
+            if (result.ok()) {
+                var pub = pilotServer.attachFunnel(funnel, result.publicBase());
+                return new PilotOutcome(pub.url(), pub.token(), PilotMode.FUNNEL_HTTPS, null);
+            }
+            // Funnel present but couldn't be enabled (e.g. not granted in the tailnet ACL): tear the
+            // loopback server down and fall through to a directly-bound one, surfacing the reason.
+            funnelError = result.error();
+            pilotServer.close();
+        }
+
+        String tailscale = com.botmaker.studio.services.pilot.PilotServer.detectTailscaleHost();
+        boolean allInterfaces = tailscale == null;
+        var endpoint = pilotServer.start(allInterfaces ? "0.0.0.0" : tailscale);
+
+        String displayHost = allInterfaces ? hostForUrl() : tailscale;
+        String url = "http://" + displayHost + ":" + endpoint.port() + "/?token=" + endpoint.token();
+        return new PilotOutcome(url, endpoint.token(),
+                allInterfaces ? PilotMode.ALL_INTERFACES : PilotMode.TAILNET_DIRECT, funnelError);
     }
 
     /** Best-effort local IPv4 for the displayed URL when binding all interfaces (no Tailscale). */
@@ -189,33 +266,48 @@ public class UIManager {
         }
     }
 
-    private void showRemotePilotDialog(String url, String token, boolean allInterfaces) {
+    private void showRemotePilotDialog(String url, String token, PilotMode mode, String funnelError) {
         Alert alert = new Alert(Alert.AlertType.INFORMATION);
         alert.initOwner(primaryStage);
         alert.setTitle("Remote Pilot");
-        alert.setHeaderText(allInterfaces
-                ? "Tailscale not detected — bound to ALL interfaces."
-                : "Remote Pilot is running on your tailnet.");
+        alert.setHeaderText(switch (mode) {
+            case FUNNEL_HTTPS -> "Remote Pilot is live over HTTPS (Tailscale Funnel).";
+            case TAILNET_DIRECT -> "Remote Pilot is running on your tailnet.";
+            case ALL_INTERFACES -> "Tailscale not detected — bound to ALL interfaces.";
+        });
 
+        // Editable so the URL is always selectable for a manual copy, even if the clipboard write below is
+        // swallowed by the window system (e.g. some Wayland setups).
         TextField urlField = new TextField(url);
-        urlField.setEditable(false);
         urlField.setPrefColumnCount(44);
         Button copy = new Button("Copy URL");
         copy.setOnAction(e -> {
-            var cc = new javafx.scene.input.ClipboardContent();
-            cc.putString(url);
-            javafx.scene.input.Clipboard.getSystemClipboard().setContent(cc);
+            urlField.requestFocus();
+            urlField.selectAll();
+            copyToClipboard(url);
+            copy.setText("Copied ✓");
         });
         Button open = new Button("Open in browser");
         open.setOnAction(e -> com.botmaker.studio.util.BrowserLauncher.open(url));
 
         VBox content = new VBox(8,
-                new Label("Open this URL in a browser, or enter host/port + token in the BotPilot app:"),
+                new Label(mode == PilotMode.FUNNEL_HTTPS
+                        ? "Scan the left QR (or open this URL) on your phone — any browser, no VPN needed:"
+                        : "Open this URL in a browser, or enter host/port + token in the BotPilot app:"),
                 urlField,
                 new Label("Token: " + token),
-                new HBox(8, copy, open));
+                new HBox(8, copy, open),
+                qrRow(url));
         content.setStyle("-fx-padding: 4;");
-        if (allInterfaces) {
+
+        if (funnelError != null) {
+            Label fe = new Label("Tailscale Funnel unavailable (" + funnelError.trim()
+                    + ") — using a direct connection instead.");
+            fe.setWrapText(true);
+            fe.setStyle("-fx-text-fill: #e67e22;");
+            content.getChildren().add(fe);
+        }
+        if (mode == PilotMode.ALL_INTERFACES) {
             Label warn = new Label("⚠ Anyone who can reach this machine's IP can view/control the bot with "
                     + "this token. Prefer connecting over Tailscale.");
             warn.setWrapText(true);
@@ -223,7 +315,39 @@ public class UIManager {
             content.getChildren().add(warn);
         }
         alert.getDialogPane().setContent(content);
+        alert.setResizable(true); // let the user grow it if the QR codes crowd the buttons on small screens
         alert.show();
+    }
+
+    private static void copyToClipboard(String text) {
+        var cc = new javafx.scene.input.ClipboardContent();
+        cc.putString(text);
+        javafx.scene.input.Clipboard.getSystemClipboard().setContent(cc);
+    }
+
+    /** Side-by-side QR codes: left pairs the pilot URL, right downloads the Android APK. */
+    private static Node qrRow(String pairingUrl) {
+        HBox row = new HBox(24);
+        row.setAlignment(Pos.CENTER_LEFT);
+        Node pairing = qrCell(pairingUrl, "Scan to open on phone");
+        if (pairing != null) row.getChildren().add(pairing);
+        Node install = qrCell(APK_URL, "Or install the Android app");
+        if (install != null) row.getChildren().add(install);
+        return row;
+    }
+
+    /** A captioned QR image, or {@code null} if the code couldn't be encoded. */
+    private static Node qrCell(String text, String caption) {
+        Image code = com.botmaker.studio.ui.util.QrCodes.qr(text, 200);
+        if (code == null) return null;
+        ImageView iv = new ImageView(code);
+        iv.setFitWidth(160);
+        iv.setFitHeight(160);
+        Label cap = new Label(caption);
+        cap.setWrapText(true);
+        VBox cell = new VBox(4, iv, cap);
+        cell.setAlignment(Pos.CENTER);
+        return cell;
     }
 
     /** Opens the Resource Manager dialog. Reused by the Project menu and the block image-picker shortcut. */

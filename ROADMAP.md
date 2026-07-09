@@ -6,6 +6,27 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-09 — BotPilot: real HTTPS remote access via Tailscale Funnel + QR pairing + fast APK delivery.**
+  - **New `services/pilot/TailscaleFunnelService`** wraps the `tailscale` CLI (best-effort, captured stderr):
+    `isAvailable()`, `dnsName()` (from `status --json` → `Self.DNSName`), `enable(port)` = `funnel --bg <port>`
+    (443 → loopback, returns the public `https://<machine>.ts.net` base or the CLI error), `disable()`.
+  - **`PilotServer`** `Endpoint` gains `publicBaseUrl` (so `url()` emits `https://…/?token=` when funneled, else
+    the old `http://host:port`); new `attachFunnel(...)` + Funnel teardown in `close()`. Token hardened for public
+    exposure: 24-byte (192-bit) token + constant-time `MessageDigest.isEqual` compare in the WS handshake.
+  - **`UIManager` ▸ Enable Remote Pilot** now prefers Funnel — binds loopback, runs `funnel.enable`, shows an
+    **HTTPS** dialog with two **QR codes** (`ui/util/QrCodes` → ZXing `com.google.zxing:core`, rendered straight
+    into a JavaFX `WritableImage`): left pairs the pilot URL (scan → phone browser, no VPN), right downloads the
+    APK. Falls back to the tailnet/all-interfaces direct bind (surfacing the Funnel error) when Funnel is
+    unavailable/ungranted.
+  - **APK delivery:** `botmaker-pilot/.github/workflows/release-apk.yml` builds + attaches `botpilot.apk` on tag;
+    the install QR points at the stable `releases/latest/download/botpilot.apk` permalink. Added `npm run dist`
+    (web → sync → APK) in `botmaker-pilot/package.json`. Web client needed no change — it already derives `wss://`
+    from an `https:` origin.
+  - **Bring-up UX:** the Tailscale CLI runs off the FX thread behind an indeterminate progress dialog (inline
+    calls previously froze/"crashed" the UI); `enable` aborts the instant Funnel reports it's not enabled
+    (fail-fast markers) so the fallback is ~1s instead of a 12s timeout; Copy-URL gives "Copied ✓" feedback with
+    a selectable field + resizable dialog. Bumped Javalin 6.3.0 → 6.7.0 (Jetty 11.0.25).
+
 - **2026-07-09 — BotPilot: remote live-preview + control over WebSocket (browser + Android APK).**
   - **New `services/pilot/PilotServer`** (Javalin 6.3.0, embedded Jetty) serves the BotPilot web client and a
     `/ws` endpoint on one port: **binary** JPEG frames (16-byte `sx,sy,sw,sh` header) at ~12 FPS with per-client

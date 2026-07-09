@@ -63,19 +63,31 @@ public final class PilotServer implements AutoCloseable {
         this.control = control;
     }
 
-    /** Endpoint details to surface in the UI (URL to open / pair, plus the token). */
-    public record Endpoint(String host, int port, String token) {
+    /**
+     * Endpoint details to surface in the UI. When {@code publicBaseUrl} is non-null the server is fronted by
+     * Tailscale Funnel (public HTTPS), so {@link #url()} yields the {@code https://…ts.net} address; otherwise
+     * it falls back to the direct {@code http://host:port} bind.
+     */
+    public record Endpoint(String host, int port, String token, String publicBaseUrl) {
         public String url() {
-            return "http://" + host + ":" + port + "/?token=" + token;
+            return publicBaseUrl != null
+                    ? publicBaseUrl + "/?token=" + token
+                    : "http://" + host + ":" + port + "/?token=" + token;
         }
     }
+
+    /** Records the Funnel front (if any) so it's torn down together with the server in {@link #close()}. */
+    private volatile TailscaleFunnelService funnel;
+
+    /** Guards the one-time EventBus subscription so a stop()+start() doesn't double-register handlers. */
+    private boolean subscribed;
 
     /**
      * Starts the server bound to {@code host} (e.g. {@code 127.0.0.1}, a Tailscale IP, or {@code 0.0.0.0}).
      * Idempotent — returns the existing endpoint if already running.
      */
     public synchronized Endpoint start(String host) {
-        if (app != null) return new Endpoint(host, app.port(), token);
+        if (app != null) return new Endpoint(host, app.port(), token, null);
 
         token = newToken();
         app = Javalin.create(cfg -> {
@@ -101,15 +113,30 @@ public final class PilotServer implements AutoCloseable {
         });
         app.start(host, 0); // 0 → OS-assigned ephemeral port
 
-        eventBus.subscribe(CoreApplicationEvents.ViewFeedbackEvent.class, e -> onTelemetry(e.feedback()), false);
-        eventBus.subscribe(CoreApplicationEvents.ProgramStartedEvent.class, e -> setRunState("running"), false);
-        eventBus.subscribe(CoreApplicationEvents.ProgramStoppedEvent.class, e -> {
-            control.onRunStopped();
-            setRunState("stopped");
-        }, false);
+        // Subscribe once per instance — a stop()+start() (e.g. Funnel-fail rebind) must not double-register
+        // these handlers, since the EventBus has no unsubscribe and close() can't remove them.
+        if (!subscribed) {
+            subscribed = true;
+            eventBus.subscribe(CoreApplicationEvents.ViewFeedbackEvent.class, e -> onTelemetry(e.feedback()), false);
+            eventBus.subscribe(CoreApplicationEvents.ProgramStartedEvent.class, e -> setRunState("running"), false);
+            eventBus.subscribe(CoreApplicationEvents.ProgramStoppedEvent.class, e -> {
+                control.onRunStopped();
+                setRunState("stopped");
+            }, false);
+        }
 
         startFrameLoop();
-        return new Endpoint(host, app.port(), token);
+        return new Endpoint(host, app.port(), token, null);
+    }
+
+    /**
+     * Records that this (already-{@link #start(String) started}, loopback-bound) server is now fronted by
+     * Tailscale Funnel at {@code publicBaseUrl} and returns the public HTTPS endpoint. The {@code funnel} is
+     * kept so {@link #close()} tears the public exposure down with the server.
+     */
+    public synchronized Endpoint attachFunnel(TailscaleFunnelService funnel, String publicBaseUrl) {
+        this.funnel = funnel;
+        return new Endpoint("127.0.0.1", app != null ? app.port() : 0, token, publicBaseUrl);
     }
 
     @Override
@@ -117,6 +144,7 @@ public final class PilotServer implements AutoCloseable {
         if (frameExec != null) { frameExec.shutdownNow(); frameExec = null; }
         clients.clear();
         if (app != null) { app.stop(); app = null; }
+        if (funnel != null) { funnel.disable(); funnel = null; }
     }
 
     public synchronized boolean isRunning() {
@@ -148,11 +176,17 @@ public final class PilotServer implements AutoCloseable {
     // --- Auth ---
 
     private boolean authorized(WsContext ctx) {
-        return token != null && token.equals(ctx.queryParam("token"));
+        String provided = ctx.queryParam("token");
+        if (token == null || provided == null) return false;
+        // Constant-time compare: this handshake is reachable over the public internet via Funnel, so avoid
+        // leaking the token length/prefix through String.equals's early-out timing.
+        return java.security.MessageDigest.isEqual(
+                token.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                provided.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     private static String newToken() {
-        byte[] b = new byte[18];
+        byte[] b = new byte[24]; // 192 bits — the sole guard once Funnel exposes this publicly.
         new SecureRandom().nextBytes(b);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(b);
     }

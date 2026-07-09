@@ -189,7 +189,16 @@
         <dependency>
             <groupId>io.javalin</groupId>
             <artifactId>javalin</artifactId>
-            <version>6.3.0</version>
+            <version>6.7.0</version>
+        </dependency>
+
+        <!-- ZXing core: encode the Remote Pilot pairing URL + APK-download URL as QR codes for the dialog
+             (ui/util/QrCodes). Pure Java; core only — we render the BitMatrix straight into a JavaFX
+             WritableImage, so no zxing-javase / javafx-swing / AWT is pulled in. -->
+        <dependency>
+            <groupId>com.google.zxing</groupId>
+            <artifactId>core</artifactId>
+            <version>3.5.3</version>
         </dependency>
 
         <!-- Test Dependencies -->
