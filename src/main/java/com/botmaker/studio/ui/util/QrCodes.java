@@ -28,7 +28,9 @@ public final class QrCodes {
         try {
             BitMatrix matrix = new QRCodeWriter().encode(
                     text, BarcodeFormat.QR_CODE, size, size,
-                    Map.of(EncodeHintType.MARGIN, 1,
+                    // MARGIN 4 = the spec-mandated 4-module quiet zone. A tighter margin (we used 1) makes
+                    // phone-camera finder-pattern detection unreliable, especially against a busy/dark border.
+                    Map.of(EncodeHintType.MARGIN, 4,
                             EncodeHintType.ERROR_CORRECTION, ErrorCorrectionLevel.M));
             int w = matrix.getWidth();
             int h = matrix.getHeight();

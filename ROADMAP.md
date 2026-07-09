@@ -6,6 +6,22 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-09 — Remote Pilot: VPN is now the default path; Funnel demoted to Advanced; pairing-QR + camera fixes.**
+  - **VPN-default (`UIManager` bring-up split):** opening Remote Pilot now binds directly to the Tailscale
+    tailnet interface (phone runs Tailscale, same account) — instant, no CLI wait, more private, zero
+    computer-side setup. `startRemotePilot()` split into `startRemotePilotDirect()` (default) and
+    `startRemotePilotFunnel()` (opt-in). The dialog leads with the phone's 3 Tailscale steps.
+  - **Funnel → Advanced (`enableFunnelExposure()`):** exposing publicly over HTTPS (Funnel) is now an explicit
+    "Advanced: expose publicly…" link in the dialog; the setup wizard only appears after that opt-in fails
+    (default open never shows it). Wizard "Re-check & enable" re-runs the Funnel attempt.
+  - **Pairing QR now decodable (`QrCodes` + `UIManager.qrCell`):** quiet zone `MARGIN 1→4` and a crisp 1:1
+    render (encode at display px, `setSmooth(false)`, white backing frame) — the old 220→190 blurred, tight-margin
+    code failed to decode on phone cameras.
+  - **Funnel wizard diagnostics:** `NO_HTTPS_CERT` issue highlights the HTTPS-certificates step (the common
+    remaining blocker), and the raw `tailscale funnel` error is always shown.
+  - **BotPilot scanner survives background/resume:** re-initializes the camera on `visibilitychange`/resume
+    (was frozen/black after opening the native camera app). (See `botmaker-pilot`.)
+
 - **2026-07-09 — Remote Pilot: idempotent re-open, stable port, Funnel link fix (real-world bugfixes).**
   - **Idempotent re-open (`UIManager.openRemotePilot`):** re-clicking the toolbar/menu button no longer tears
     the server down and rebinds a fresh ephemeral port (which dropped an already-paired phone) — when the pilot

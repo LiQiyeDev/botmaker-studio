@@ -176,12 +176,13 @@ public class UIManager {
     private enum PilotMode { FUNNEL_HTTPS, TAILNET_DIRECT, ALL_INTERFACES }
 
     /** The specific reason Funnel isn't live, so the wizard can point at the exact one-time fix. */
-    private enum FunnelIssue { NONE, NOT_INSTALLED, LOGGED_OUT, NOT_ENABLED, NEEDS_OPERATOR, OTHER }
+    private enum FunnelIssue { NONE, NOT_INSTALLED, LOGGED_OUT, NOT_ENABLED, NO_HTTPS_CERT, NEEDS_OPERATOR, OTHER }
 
     /** Snapshot of the Tailscale/Funnel state, computed off the FX thread, that drives the setup wizard. */
     private record FunnelDiag(boolean cliPresent, boolean loggedIn, FunnelIssue issue) {}
 
-    /** Result of {@link #startRemotePilot()} — enough to render the pairing dialog on the FX thread. */
+    /** Result of a pilot bring-up ({@link #startRemotePilotDirect()} / {@link #startRemotePilotFunnel()}) —
+     *  enough to render the pairing dialog on the FX thread. */
     private record PilotOutcome(String url, String token, PilotMode mode, String funnelError, FunnelDiag diag) {}
 
     /** The last successful bring-up, so re-clicking the toolbar just re-shows the same dialog instead of
@@ -189,15 +190,16 @@ public class UIManager {
     private PilotOutcome lastPilotOutcome;
 
     /**
-     * Starts (once) the remote BotPilot server and shows a pairing dialog. Preferred path is <b>Tailscale
-     * Funnel</b>: bind the server to loopback and let Tailscale front it as public HTTPS
-     * ({@code https://<machine>.ts.net}) with a valid cert, so the phone needs no Tailscale/VPN. If Funnel
-     * isn't available (or isn't enabled in the tailnet ACL) it falls back to a direct bind — the Tailscale
-     * interface when the tunnel is up, else all interfaces with a warning — over plain HTTP.
+     * Starts (once) the remote BotPilot server and shows a pairing dialog. The <b>default</b> path is a direct
+     * bind on the Tailscale tailnet interface: the phone reaches it by running Tailscale signed into the same
+     * account (zero computer-side setup, no public URL, more private). Exposing the pilot publicly over
+     * <b>Tailscale Funnel</b> ({@code https://<machine>.ts.net}, so the phone needs nothing) is an opt-in
+     * "Advanced" action ({@link #enableFunnelExposure()}) because it requires one-time HTTPS-cert/ACL/operator
+     * setup on this machine's account.
      *
-     * <p>The bring-up runs the {@code tailscale} CLI (which can block for seconds), so it happens on a
-     * background thread; only the resulting dialog is marshalled back to the FX thread. Doing it inline would
-     * freeze (and, if the CLI hangs, appear to crash) the UI.
+     * <p>The tailnet bind is cheap, but the (opt-in) Funnel bring-up runs the {@code tailscale} CLI (which can
+     * block for seconds), so both go through a background thread; only the resulting dialog is marshalled back
+     * to the FX thread. Doing it inline would freeze (and, if the CLI hangs, appear to crash) the UI.
      */
     private void openRemotePilot() {
         openRemotePilot(false);
@@ -206,10 +208,29 @@ public class UIManager {
     /**
      * @param forceRestart when {@code false} (toolbar/menu click) and the server is already running, this is
      *   idempotent — it just re-shows the existing pairing dialog, keeping the paired phone connected on the
-     *   same URL/port/token. When {@code true} (the wizard's "Re-check &amp; enable") it tears the server down
-     *   and re-runs the full Tailscale bring-up, deliberately rebinding to (re)attempt Funnel.
+     *   same URL/port/token. When {@code true} it tears the server down and re-runs the bring-up, deliberately
+     *   rebinding. The default bring-up is the direct tailnet bind (no Funnel); {@link #enableFunnelExposure()}
+     *   is the opt-in path that attempts Funnel.
      */
     private void openRemotePilot(boolean forceRestart) {
+        bringUpRemotePilot(forceRestart, false);
+    }
+
+    /**
+     * Opt-in "Advanced" action: (re)bring up the pilot attempting <b>Tailscale Funnel</b> so the phone needs
+     * nothing installed. Always rebinds (Funnel fronts a loopback bind, unlike the default tailnet bind), then
+     * shows the pairing dialog — with the guided setup wizard if Funnel couldn't be enabled.
+     */
+    private void enableFunnelExposure() {
+        bringUpRemotePilot(true, true);
+    }
+
+    /**
+     * Shared bring-up scaffold: (optionally) tear down a running server, ensure one exists, then run the chosen
+     * bring-up ({@code funnel ? }{@link #startRemotePilotFunnel()}{@code : }{@link #startRemotePilotDirect()})
+     * off the FX thread and marshal the pairing dialog back.
+     */
+    private void bringUpRemotePilot(boolean forceRestart, boolean funnel) {
         // Already up and we're not deliberately restarting → re-show the same dialog, don't rebind the port.
         if (!forceRestart && pilotServer != null && pilotServer.isRunning() && lastPilotOutcome != null) {
             showRemotePilotDialog(lastPilotOutcome.url(), lastPilotOutcome.token(), lastPilotOutcome.mode(),
@@ -232,7 +253,7 @@ public class UIManager {
             PilotOutcome o = null;
             String error = null;
             try {
-                o = startRemotePilot();
+                o = funnel ? startRemotePilotFunnel() : startRemotePilotDirect();
             } catch (Exception e) {
                 error = e.getMessage();
             }
@@ -275,13 +296,34 @@ public class UIManager {
         return a;
     }
 
-    /** Blocking bring-up (Tailscale CLI + server bind); must run off the FX thread. */
-    private PilotOutcome startRemotePilot() {
+    /**
+     * Default bring-up: a direct bind on the Tailscale tailnet interface (phone runs Tailscale, same account),
+     * or all interfaces (LAN, with a warning) when Tailscale isn't up. No {@code tailscale} CLI call, so it's
+     * instant and never surfaces the Funnel wizard. Must run off the FX thread (server bind).
+     */
+    private PilotOutcome startRemotePilotDirect() {
+        String tailscale = com.botmaker.studio.services.pilot.PilotServer.detectTailscaleHost();
+        boolean allInterfaces = tailscale == null;
+        var endpoint = pilotServer.start(allInterfaces ? "0.0.0.0" : tailscale);
+
+        String displayHost = allInterfaces ? hostForUrl() : tailscale;
+        String url = "http://" + displayHost + ":" + endpoint.port() + "/?token=" + endpoint.token();
+        return new PilotOutcome(url, endpoint.token(),
+                allInterfaces ? PilotMode.ALL_INTERFACES : PilotMode.TAILNET_DIRECT, null, null);
+    }
+
+    /**
+     * Opt-in bring-up: attempt Tailscale Funnel (public HTTPS, phone needs nothing). On success →
+     * {@link PilotMode#FUNNEL_HTTPS}; on any failure fall back to a direct bind but carry the reason
+     * ({@code funnelError}/{@link FunnelDiag}) so {@link #showRemotePilotDialog} shows the setup wizard.
+     * Blocking (Tailscale CLI + server bind); must run off the FX thread.
+     */
+    private PilotOutcome startRemotePilotFunnel() {
         var funnel = new com.botmaker.studio.services.pilot.TailscaleFunnelService();
         boolean cli = funnel.isAvailable();
         boolean loggedIn = cli && funnel.isLoggedIn();
-        String funnelError = null;
-        FunnelIssue issue = FunnelIssue.NONE;
+        String funnelError;
+        FunnelIssue issue;
         if (cli && loggedIn && funnel.dnsName().isPresent()) {
             var ep = pilotServer.start("127.0.0.1"); // loopback — only Funnel fronts it
             var result = funnel.enable(ep.port());
@@ -290,8 +332,8 @@ public class UIManager {
                 return new PilotOutcome(pub.url(), pub.token(), PilotMode.FUNNEL_HTTPS, null,
                         new FunnelDiag(true, true, FunnelIssue.NONE));
             }
-            // Funnel present but couldn't be enabled (e.g. not granted in the tailnet ACL): tear the
-            // loopback server down and fall through to a directly-bound one, surfacing the reason.
+            // Funnel present but couldn't be enabled (e.g. HTTPS certs / ACL / operator): tear the loopback
+            // server down and fall through to a directly-bound one, surfacing the reason.
             funnelError = result.error();
             issue = classifyFunnel(result.error());
             pilotServer.close();
@@ -319,8 +361,9 @@ public class UIManager {
     private static FunnelIssue classifyFunnel(String err) {
         if (err == null) return FunnelIssue.OTHER;
         String e = err.toLowerCase();
-        if (e.contains("not enabled")) return FunnelIssue.NOT_ENABLED;
         if (e.contains("operator")) return FunnelIssue.NEEDS_OPERATOR;
+        if (e.contains("https") || e.contains("cert")) return FunnelIssue.NO_HTTPS_CERT;
+        if (e.contains("not enabled")) return FunnelIssue.NOT_ENABLED;
         if (e.contains("not logged in") || e.contains("logged out")) return FunnelIssue.LOGGED_OUT;
         return FunnelIssue.OTHER;
     }
@@ -349,18 +392,24 @@ public class UIManager {
         VBox content = new VBox(10);
         content.setStyle("-fx-padding: 4;");
 
-        // Funnel not live but the user wanted the phone-needs-nothing experience → lead with the guided,
-        // re-checkable setup wizard rather than a dead-end error line.
+        // The user explicitly tried "expose publicly" (Advanced) and Funnel couldn't be enabled → lead with
+        // the guided, re-checkable setup wizard rather than a dead-end error line. The default (VPN) open never
+        // sets funnelError, so this only appears after the Advanced action.
         if (!funnelLive && funnelError != null) {
             content.getChildren().addAll(funnelWizardBox(diag, funnelError, alert), new Separator());
-            content.getChildren().add(wrapped("You can still connect right now with the link below — but this "
-                    + "way your phone must be signed in to the same Tailscale account (Funnel avoids that)."));
+            content.getChildren().add(wrapped("Meanwhile you can connect right now over Tailscale with the link "
+                    + "below — the phone just needs Tailscale signed in to the same account."));
+        } else if (funnelLive) {
+            content.getChildren().add(wrapped(
+                    "Scan the LEFT QR (or tap the link) to open Remote Pilot on your phone — no app, account "
+                    + "or VPN needed there. The RIGHT QR installs the optional BotPilot Android app."));
         } else {
-            content.getChildren().add(wrapped(funnelLive
-                    ? "Scan the LEFT QR (or tap the link) to open Remote Pilot on your phone — no app, account "
-                      + "or VPN needed there. The RIGHT QR installs the optional BotPilot Android app."
-                    : "Open this link on your phone, or scan the LEFT QR with the BotPilot app. The RIGHT QR "
-                      + "installs the app."));
+            // Default path: VPN over the tailnet. Present the phone's 3 steps as the intended flow, not a
+            // fallback apology.
+            content.getChildren().add(wrapped("On your phone: ① install Tailscale, ② sign in to THIS same "
+                    + "account, ③ scan the LEFT QR (or open the link). The RIGHT QR installs the optional "
+                    + "BotPilot app."));
+            content.getChildren().add(linkBtn("Get Tailscale for your phone ▸", TAILSCALE_DOWNLOAD_URL));
         }
 
         // The URL as a real clickable link (opens the system browser).
@@ -398,6 +447,16 @@ public class UIManager {
             warn.setStyle("-fx-text-fill: #e67e22;");
             content.getChildren().add(warn);
         }
+
+        // Advanced, opt-in: expose publicly over HTTPS so the phone needs no Tailscale/VPN. Only offered when
+        // we're not already Funnel-live and the setup wizard isn't already on screen.
+        if (!funnelLive && funnelError == null) {
+            Hyperlink advanced = new Hyperlink("Advanced: expose publicly over HTTPS (no VPN needed on the phone)…");
+            advanced.setTooltip(new Tooltip("Uses Tailscale Funnel. Needs a one-time setup on this computer's "
+                    + "Tailscale account; Studio will guide you."));
+            advanced.setOnAction(e -> { alert.close(); enableFunnelExposure(); });
+            content.getChildren().addAll(new Separator(), advanced);
+        }
         alert.getDialogPane().setContent(content);
         alert.setResizable(true); // let the user grow it if the QR codes crowd the buttons on small screens
         alert.show();
@@ -425,8 +484,10 @@ public class UIManager {
         else if (diag != null && !diag.loggedIn()) s1.getChildren().add(copyCmdBtn("tailscale up"));
         box.getChildren().add(s1);
 
-        // 2. HTTPS certificates (can't reliably probe → neutral, always show the link)
-        HBox s2 = stepRow(step1ok, "HTTPS certificates enabled for your tailnet", false);
+        // 2. HTTPS certificates — can't reliably probe, but the CLI error names it (NO_HTTPS_CERT) when it's
+        // the blocker, so highlight it then. This is the most common blocker once the ACL grant is in place.
+        HBox s2 = stepRow(step1ok, "HTTPS certificates enabled for your tailnet",
+                issue == FunnelIssue.NO_HTTPS_CERT);
         s2.getChildren().add(linkBtn("Open DNS settings ▸", TAILSCALE_DNS_ADMIN_URL));
         box.getChildren().add(s2);
 
@@ -444,7 +505,9 @@ public class UIManager {
         s4.getChildren().add(copyCmdBtn(operatorCmd, "Copy command"));
         box.getChildren().add(s4);
 
-        if (issue == FunnelIssue.OTHER && funnelError != null) {
+        // Always surface the literal CLI reason (not just for OTHER) — it's the fastest way to tell HTTPS-cert
+        // vs ACL vs operator apart when the checklist guesses wrong.
+        if (funnelError != null && !funnelError.isBlank()) {
             Label raw = wrapped("Tailscale said: " + funnelError.trim());
             raw.setStyle("-fx-text-fill: #e67e22;");
             box.getChildren().add(raw);
@@ -452,7 +515,7 @@ public class UIManager {
 
         Button recheck = new Button("Re-check & enable");
         recheck.setDefaultButton(true);
-        recheck.setOnAction(e -> { owner.close(); openRemotePilot(true); });
+        recheck.setOnAction(e -> { owner.close(); enableFunnelExposure(); });
         box.getChildren().add(recheck);
         return box;
     }
@@ -510,21 +573,29 @@ public class UIManager {
         return row;
     }
 
+    /** On-screen QR edge in px. The bitmap is encoded at exactly this size and shown 1:1 (no resample) so the
+     *  modules stay crisp — a fractional downscale blurs the edges enough to defeat phone-camera decoding. */
+    private static final int QR_PX = 240;
+
     /** A titled, captioned QR image in its own bordered card, or {@code null} if the code couldn't encode. */
     private static Node qrCell(String text, String title, String caption) {
-        Image code = com.botmaker.studio.ui.util.QrCodes.qr(text, 220);
+        Image code = com.botmaker.studio.ui.util.QrCodes.qr(text, QR_PX);
         if (code == null) return null;
         Label heading = new Label(title);
         heading.setStyle("-fx-font-weight: bold;");
         ImageView iv = new ImageView(code);
-        iv.setFitWidth(190);
-        iv.setFitHeight(190);
+        iv.setFitWidth(QR_PX);
+        iv.setFitHeight(QR_PX);
+        iv.setSmooth(false); // keep module edges sharp if the platform ever scales it
+        // White backing so the encoded quiet zone survives against the dark card background/border.
+        StackPane qrFrame = new StackPane(iv);
+        qrFrame.setStyle("-fx-background-color: white; -fx-padding: 8; -fx-background-radius: 4;");
         Label cap = new Label(caption);
         cap.setWrapText(true);
         cap.setStyle("-fx-text-fill: #8b93a1;");
-        VBox cell = new VBox(6, heading, iv, cap);
+        VBox cell = new VBox(6, heading, qrFrame, cap);
         cell.setAlignment(Pos.CENTER);
-        cell.setMaxWidth(210);
+        cell.setMaxWidth(QR_PX + 40);
         cell.setStyle("-fx-padding: 10; -fx-border-color: #3a3f4b; -fx-border-radius: 8; -fx-border-width: 1;");
         return cell;
     }
