@@ -102,10 +102,12 @@ public final class CaptureSourcePicker {
         if (includeProjectDefault) {
             content.getChildren().add(projectDefaultTile());
         }
+        // Desktop and monitors first: they are the common picks and were previously buried below the long
+        // (100+) window list, forcing a scroll to the bottom to reach them.
         content.getChildren().addAll(
-                sectionLabel("Windows"), windows,
+                sectionLabel("Desktop"), desktop,
                 sectionLabel("Monitors"), monitors,
-                sectionLabel("Desktop"), desktop);
+                sectionLabel("Windows"), windows);
 
         ScrollPane scroll = new ScrollPane(content);
         scroll.setFitToWidth(true);

@@ -97,28 +97,41 @@ public class BotMakerStudio extends Application {
         // 3. Show the loading screen immediately so the window is never blank/frozen while the (slow,
         //    possibly download-heavy) open runs off the FX thread.
         Label statusLabel = new Label("Resolving dependencies…");
-        primaryStage.setScene(createLoadingScene(projectName, statusLabel));
+        ProgressBar progressBar = new ProgressBar();
+        progressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
+        progressBar.setPrefWidth(320);
+        primaryStage.setScene(createLoadingScene(projectName, statusLabel, progressBar));
         primaryStage.setTitle("BotMaker - Opening " + projectName + "…");
         primaryStage.show();
         requestSceneLayout(primaryStage);
 
-        // 4. Run BotProject.open() on a background thread; its progress messages feed the status label.
+        // 4. Run BotProject.open() on a background thread; its progress feeds the status label AND a real
+        //    percentage bar during the (download-heavy) dependency resolution. Non-download phases report a
+        //    negative fraction, which JavaFX renders as an indeterminate bar.
         Task<BotProject> openTask = new Task<>() {
             @Override
             protected BotProject call() {
-                return BotProject.open(projectName, PROJECTS_ROOT, false, this::updateMessage);
+                return BotProject.open(projectName, PROJECTS_ROOT, false, (fraction, message) -> {
+                    updateProgress(fraction, 1.0);
+                    updateMessage(fraction >= 0
+                            ? message + " — " + Math.round(fraction * 100) + "%"
+                            : message);
+                });
             }
         };
         statusLabel.textProperty().bind(openTask.messageProperty());
+        progressBar.progressProperty().bind(openTask.progressProperty());
 
         openTask.setOnSucceeded(e -> {
             statusLabel.textProperty().unbind();
+            progressBar.progressProperty().unbind();
             currentProject = openTask.getValue();
             finishOpen(primaryStage, projectName);
         });
 
         openTask.setOnFailed(e -> {
             statusLabel.textProperty().unbind();
+            progressBar.progressProperty().unbind();
             Throwable ex = openTask.getException();
             if (ex != null) ex.printStackTrace();
             showErrorDialog("Error opening project: " + (ex == null ? "unknown error" : ex.getMessage()));
@@ -160,14 +173,10 @@ public class BotMakerStudio extends Application {
         }
     }
 
-    /** A minimal loading scene: title, an indeterminate progress bar, and a live status line. */
-    private Scene createLoadingScene(String projectName, Label statusLabel) {
+    /** A minimal loading scene: title, a progress bar (bound to the open task), and a live status line. */
+    private Scene createLoadingScene(String projectName, Label statusLabel, ProgressBar progressBar) {
         Label title = new Label("Opening " + projectName + "…");
         title.setStyle("-fx-font-size: 18px; -fx-font-weight: bold;");
-
-        ProgressBar progressBar = new ProgressBar();
-        progressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
-        progressBar.setPrefWidth(320);
 
         statusLabel.setStyle("-fx-font-size: 12px; -fx-text-fill: gray;");
 

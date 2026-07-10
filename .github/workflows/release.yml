@@ -25,6 +25,10 @@ jobs:
             platform: windows-x64
             javacpp: windows-x86_64
     runs-on: ${{ matrix.os }}
+    # Exposed as an env var (not read straight from secrets) so step `if:` conditions can gate on it — the
+    # `secrets` context isn't available in `if`. Empty when the maintainer hasn't configured signing yet.
+    env:
+      GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
     steps:
       - uses: actions/checkout@v4
 
@@ -36,10 +40,30 @@ jobs:
           cache: maven
 
       # jpackage's RPM build shells out to rpmbuild (not on ubuntu-latest) and its DEB build needs fakeroot.
-      # Without these, `-Pdist package` fails on Linux and the whole release job (and thus the Release) aborts.
+      # wget + desktop-file-utils are for the AppImage build; dpkg-sig for signing the .deb.
+      # Without rpm/fakeroot, `-Pdist package` fails on Linux and the whole release job (and Release) aborts.
       - name: Install Linux packaging tools
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y rpm fakeroot
+        run: sudo apt-get update && sudo apt-get install -y rpm fakeroot wget desktop-file-utils dpkg-sig
+
+      # Imports the GPG secret key (base64-encoded) so the .rpm/.deb/AppImage can be signed under the
+      # "LiQiyeDev" identity. Skipped (leaving unsigned packages) when the signing secrets aren't set, so the
+      # pipeline works before the maintainer configures them. See ROADMAP for the one-time key setup.
+      - name: Import signing key (Linux)
+        if: runner.os == 'Linux' && env.GPG_KEY_ID != ''
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          mkdir -p ~/.gnupg && chmod 700 ~/.gnupg
+          echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+          gpgconf --reload gpg-agent || true
+          echo "$GPG_PRIVATE_KEY" | base64 -d | gpg --batch --import
+          cat > ~/.rpmmacros <<EOF
+          %_gpg_name ${GPG_KEY_ID}
+          %__gpg_sign_cmd %{__gpg} gpg --batch --no-verbose --no-armor --pinentry-mode loopback --passphrase "${GPG_PASSPHRASE}" --no-secmem-warning -u "%{_gpg_name}" -sbo %{__signature_filename} %{__plaintext_filename}
+          EOF
+          echo "BOTMAKER_SIGN=1" >> "$GITHUB_ENV"
 
       - name: Resolve version label
         id: ver
@@ -86,17 +110,51 @@ jobs:
 
       # The portable app-image (zipped) is kept as a no-install fallback; the native installers
       # (.deb/.rpm on Linux, .msi on Windows) are emitted by `-Pdist` into target/dist alongside it.
-      - name: Package zip + collect installers (Linux)
+      - name: Sign .rpm/.deb (Linux)
+        if: runner.os == 'Linux'
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        # Never let a signing hiccup abort the release — unsigned packages still ship.
+        continue-on-error: true
+        run: bash .github/scripts/sign-packages.sh
+
+      - name: Package zip + tarball + AppImage + collect installers (Linux)
         if: runner.os == 'Linux'
         run: |
+          base="BotMaker-Studio-${{ steps.ver.outputs.label }}-${{ matrix.platform }}"
+          # Portable zip + tarball of the app-image (extract-and-run, no installer, no password).
           cd "target/dist"
-          zip -r -q "${GITHUB_WORKSPACE}/BotMaker-Studio-${{ steps.ver.outputs.label }}-${{ matrix.platform }}.zip" "BotMaker Studio"
+          zip -r -q "${GITHUB_WORKSPACE}/${base}.zip" "BotMaker Studio"
+          tar -czf "${GITHUB_WORKSPACE}/${base}.tar.gz" "BotMaker Studio"
           cd "${GITHUB_WORKSPACE}"
-          # Rename installers to a versioned, platform-tagged name for the release assets.
+          # Rename native installers to a versioned, platform-tagged name for the release assets.
           for f in target/dist/*.deb target/dist/*.rpm; do
             [ -e "$f" ] || continue
-            cp "$f" "BotMaker-Studio-${{ steps.ver.outputs.label }}-${{ matrix.platform }}.${f##*.}"
+            cp "$f" "${base}.${f##*.}"
           done
+          # AppImage (recommended password-free channel; the in-app updater self-updates it).
+          bash .github/scripts/build-appimage.sh "${base}.AppImage"
+
+      - name: Build Flatpak (Linux, best-effort)
+        if: runner.os == 'Linux'
+        # Flatpak's sandbox constrains window capture / input injection (see the manifest caveat), and the
+        # build is heavy — so it must never block the release.
+        continue-on-error: true
+        run: |
+          sudo apt-get install -y flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y flathub org.freedesktop.Platform//23.08 org.freedesktop.Sdk//23.08
+          # Stage the app-image + icon + desktop next to the manifest, then build a single-file bundle.
+          stage="$(pwd)/flatpak-stage"
+          rm -rf "$stage"; mkdir -p "$stage"
+          cp -a "target/dist/BotMaker Studio" "$stage/"
+          cp src/main/resources/icons/icon.png "$stage/botmaker-studio.png"
+          sed 's/^Exec=AppRun/Exec=BotMaker Studio/' flatpak/*.desktop.tmpl > "$stage/com.liqiyedev.BotMakerStudio.desktop" 2>/dev/null || \
+          printf '[Desktop Entry]\nType=Application\nName=BotMaker Studio\nExec=BotMaker Studio\nIcon=com.liqiyedev.BotMakerStudio\nCategories=Development;\nTerminal=false\n' > "$stage/com.liqiyedev.BotMakerStudio.desktop"
+          cp flatpak/com.liqiyedev.BotMakerStudio.yml "$stage/"
+          cd "$stage"
+          flatpak-builder --user --force-clean --repo=repo build-dir com.liqiyedev.BotMakerStudio.yml
+          flatpak build-bundle repo "${GITHUB_WORKSPACE}/BotMaker-Studio-${{ steps.ver.outputs.label }}-${{ matrix.platform }}.flatpak" com.liqiyedev.BotMakerStudio
 
       - name: Package zip + collect installers (Windows)
         if: runner.os == 'Windows'
@@ -113,8 +171,11 @@ jobs:
           name: BotMaker-Studio-${{ matrix.platform }}
           path: |
             BotMaker-Studio-*-${{ matrix.platform }}.zip
+            BotMaker-Studio-*-${{ matrix.platform }}.tar.gz
             BotMaker-Studio-*-${{ matrix.platform }}.deb
             BotMaker-Studio-*-${{ matrix.platform }}.rpm
+            BotMaker-Studio-*-${{ matrix.platform }}.AppImage
+            BotMaker-Studio-*-${{ matrix.platform }}.flatpak
             BotMaker-Studio-*-${{ matrix.platform }}.msi
           if-no-files-found: error
 
@@ -135,8 +196,11 @@ jobs:
         with:
           files: |
             artifacts/*.zip
+            artifacts/*.tar.gz
             artifacts/*.deb
             artifacts/*.rpm
+            artifacts/*.AppImage
+            artifacts/*.flatpak
             artifacts/*.msi
           generate_release_notes: true
           # Tags containing a hyphen (e.g. v1.0.0-rc1) are treated as pre-releases.

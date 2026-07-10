@@ -471,6 +471,8 @@
                                     <destination>${project.build.directory}/dist</destination>
                                     <icon>${installer.icon}</icon>
                                     <linuxShortcut>true</linuxShortcut>
+                                    <linuxMenuGroup>Development</linuxMenuGroup>
+                                    <linuxAppCategory>Development</linuxAppCategory>
                                 </configuration>
                             </execution>
                             <execution>
@@ -495,6 +497,8 @@
                                     <destination>${project.build.directory}/dist</destination>
                                     <icon>${installer.icon}</icon>
                                     <linuxShortcut>true</linuxShortcut>
+                                    <linuxMenuGroup>Development</linuxMenuGroup>
+                                    <linuxAppCategory>Development</linuxAppCategory>
                                     <linuxRpmLicenseType>MIT</linuxRpmLicenseType>
                                 </configuration>
                             </execution>

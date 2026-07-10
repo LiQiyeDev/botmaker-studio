@@ -111,19 +111,69 @@ public final class UpdateService {
         }
     }
 
-    /** Hands {@code installer} to the OS so its native installer UI runs. Best-effort across platforms. */
+    /**
+     * Installs (not merely opens) {@code installer}, best-effort across platforms:
+     * <ul>
+     *   <li><b>Windows</b> — launches the {@code .msi} via {@code msiexec}.</li>
+     *   <li><b>Linux AppImage</b> — when the app is itself running as an AppImage ({@code $APPIMAGE} set),
+     *       the freshly downloaded {@code .AppImage} replaces the running file in place (no root, no
+     *       package DB, no stale desktop entry). The user restarts to run the new version.</li>
+     *   <li><b>Linux .rpm/.deb</b> — installs through the native package manager under a single {@code pkexec}
+     *       (polkit) prompt, so the user no longer has to finish the install manually in the software store.</li>
+     *   <li>Otherwise falls back to handing the file to the desktop's default handler.</li>
+     * </ul>
+     */
     public void launchInstaller(Path installer) throws IOException {
         String file = installer.toAbsolutePath().toString();
         if (isWindows()) {
             new ProcessBuilder("msiexec", "/i", file).start();
             return;
         }
-        // Linux/mac: let the desktop's default handler (software installer / archive tool) take it, with an
+        String lower = file.toLowerCase(Locale.ROOT);
+        String runningAppImage = System.getenv("APPIMAGE");
+        if (lower.endsWith(".appimage") && runningAppImage != null && !runningAppImage.isBlank()) {
+            applyAppImageUpdate(installer, Path.of(runningAppImage));
+            return;
+        }
+        if ((lower.endsWith(".rpm") || lower.endsWith(".deb")) && commandExists("pkexec")) {
+            installWithPackageManager(installer);
+            return;
+        }
+        // Fallback: let the desktop's default handler (software installer / archive tool) take it, with an
         // xdg-open fallback for headless AWT.
         if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
             Desktop.getDesktop().open(installer.toFile());
         } else {
             new ProcessBuilder("xdg-open", file).start();
+        }
+    }
+
+    /** Replaces the running AppImage file in place; the OS keeps the already-mapped copy running until restart. */
+    private static void applyAppImageUpdate(Path downloaded, Path current) throws IOException {
+        Files.copy(downloaded, current, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        current.toFile().setExecutable(true, false);
+    }
+
+    /**
+     * Installs a {@code .rpm}/{@code .deb} through the native package manager under one polkit prompt, falling
+     * back to the low-level tool. This runs the actual system install (previously the user had to complete it
+     * by hand in the software store). Blocks until the install finishes.
+     */
+    private static void installWithPackageManager(Path installer) throws IOException {
+        String file = installer.toAbsolutePath().toString();
+        boolean rpm = file.toLowerCase(Locale.ROOT).endsWith(".rpm");
+        String cmd = rpm
+                ? "dnf install -y '" + file + "' || rpm -U --replacepkgs '" + file + "'"
+                : "apt-get install -y '" + file + "' || dpkg -i '" + file + "'";
+        try {
+            Process p = new ProcessBuilder("pkexec", "sh", "-c", cmd).inheritIO().start();
+            int code = p.waitFor();
+            if (code != 0) {
+                throw new IOException("Package install exited with code " + code);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Install was interrupted", e);
         }
     }
 
@@ -146,13 +196,16 @@ public final class UpdateService {
         return Optional.empty();
     }
 
-    /** Installer extensions acceptable for this OS, in order of preference. */
+    /** Installer extensions acceptable for this OS, in order of preference (lower-case; matched case-insensitively). */
     private static String[] preferredExtensions() {
         if (isWindows()) return new String[]{".msi", ".exe"};
-        // Linux: prefer the format whose tooling is installed; fall back to the other.
-        if (commandExists("dpkg")) return new String[]{".deb", ".rpm"};
-        if (commandExists("rpm")) return new String[]{".rpm", ".deb"};
-        return new String[]{".deb", ".rpm"};
+        // Running as an AppImage → self-update by swapping the AppImage file (no root, no package DB).
+        String appImage = System.getenv("APPIMAGE");
+        if (appImage != null && !appImage.isBlank()) return new String[]{".appimage"};
+        // Otherwise prefer the format whose tooling is installed; fall back to the other, then AppImage.
+        if (commandExists("dpkg")) return new String[]{".deb", ".rpm", ".appimage"};
+        if (commandExists("rpm")) return new String[]{".rpm", ".deb", ".appimage"};
+        return new String[]{".appimage", ".deb", ".rpm"};
     }
 
     private static boolean isWindows() {

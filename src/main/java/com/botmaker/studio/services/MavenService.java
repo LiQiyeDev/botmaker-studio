@@ -40,7 +40,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
-import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
@@ -199,16 +198,17 @@ public final class MavenService {
      * <p>Resolution is best-effort: if some artifacts fail, the ones that did resolve are still returned.
      */
     public static List<String> resolveClasspath(Path projectDir) {
-        return resolveClasspath(projectDir, msg -> {});
+        return resolveClasspath(projectDir, ProgressReporter.NONE);
     }
 
     /**
-     * As {@link #resolveClasspath(Path)}, but reports per-artifact download progress via {@code progress}
-     * (invoked with a short human-readable message, e.g. {@code "Downloading opencv-4.9.0.jar"}). The
-     * consumer only fires for actual network transfers, so already-cached opens stay quiet. It may be
-     * called from Aether's worker threads — callers that touch the UI must marshal onto the FX thread.
+     * As {@link #resolveClasspath(Path)}, but reports download progress via {@code progress}: a real
+     * fraction (aggregated across all concurrent transfers by bytes) plus a short message, e.g.
+     * {@code "Downloading opencv-4.9.0.jar"}. It only fires for actual network transfers, so already-cached
+     * opens stay quiet. It may be called from Aether's worker threads — callers that touch the UI must
+     * marshal onto the FX thread.
      */
-    public static List<String> resolveClasspath(Path projectDir, Consumer<String> progress) {
+    public static List<String> resolveClasspath(Path projectDir, ProgressReporter progress) {
         Path pomPath = projectDir.resolve("pom.xml");
         if (!Files.exists(pomPath)) {
             System.err.println("No pom.xml found at " + pomPath);
@@ -234,10 +234,25 @@ public final class MavenService {
         // the descriptor read is silently ignored, and the whole opencv subtree — including the opencv main
         // jar that carries org.opencv.core.Mat — is dropped from the bot's runtime classpath.
         session.setSystemProperties(System.getProperties());
+        DownloadAggregator downloads = new DownloadAggregator();
         session.setTransferListener(new AbstractTransferListener() {
             @Override
             public void transferInitiated(TransferEvent event) {
-                progress.accept("Downloading " + fileName(event.getResource()));
+                progress.report(downloads.fraction(), "Downloading " + fileName(event.getResource()));
+            }
+            @Override
+            public void transferProgressed(TransferEvent event) {
+                downloads.progressed(event.getResource(), event.getTransferredBytes());
+                progress.report(downloads.fraction(), "Downloading " + fileName(event.getResource()));
+            }
+            @Override
+            public void transferSucceeded(TransferEvent event) {
+                downloads.finished(event.getResource(), event.getTransferredBytes());
+                progress.report(downloads.fraction(), "Downloaded " + fileName(event.getResource()));
+            }
+            @Override
+            public void transferFailed(TransferEvent event) {
+                downloads.finished(event.getResource(), event.getTransferredBytes());
             }
         });
 
@@ -267,6 +282,39 @@ public final class MavenService {
             }
         }
         return jars;
+    }
+
+    /**
+     * Aggregates bytes across all concurrent Aether transfers into a single overall fraction. New artifacts
+     * are discovered mid-resolve, so the denominator grows as downloads start — the fraction is honest (real
+     * bytes) but may briefly step back when a new large jar appears. Thread-safe: Aether fires transfer
+     * callbacks from worker threads.
+     */
+    private static final class DownloadAggregator {
+        /** resource identity → {transferredBytes, contentLength (-1 if unknown)} for in-flight transfers. */
+        private final Map<TransferResource, long[]> active = new java.util.IdentityHashMap<>();
+        private long completedBytes = 0;
+
+        synchronized void progressed(TransferResource resource, long transferred) {
+            active.put(resource, new long[]{transferred, resource.getContentLength()});
+        }
+
+        synchronized void finished(TransferResource resource, long transferred) {
+            long[] prev = active.remove(resource);
+            long bytes = transferred > 0 ? transferred : (prev != null ? prev[0] : 0);
+            completedBytes += Math.max(0, bytes);
+        }
+
+        /** Overall completed-fraction in [0,1], or -1 when nothing with a known size is in flight yet. */
+        synchronized double fraction() {
+            long transferred = completedBytes;
+            long total = completedBytes;
+            for (long[] v : active.values()) {
+                transferred += v[0];
+                total += Math.max(v[1], v[0]); // unknown length → count its own transferred bytes as the total
+            }
+            return total > 0 ? Math.min(1.0, (double) transferred / total) : -1;
+        }
     }
 
     /** The trailing file name of a transfer resource (e.g. {@code opencv-4.9.0.jar}), for progress text. */

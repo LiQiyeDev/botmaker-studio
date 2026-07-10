@@ -312,11 +312,14 @@ public class MenuBarManager {
         MenuItem checkUpdatesItem = new MenuItem("Check for Updates…");
         checkUpdatesItem.setOnAction(e -> checkForUpdates(false));
 
+        MenuItem reportIssueItem = new MenuItem("Report Issue…");
+        reportIssueItem.setOnAction(e -> new ReportIssueDialog(primaryStage).show());
+
         MenuItem aboutItem = new MenuItem("About BotMaker");
         aboutItem.setOnAction(e -> showAboutDialog());
 
         helpMenu.getItems().addAll(studioRepoItem, sdkRepoItem, new SeparatorMenuItem(),
-                checkUpdatesItem, aboutItem);
+                reportIssueItem, checkUpdatesItem, aboutItem);
 
         return helpMenu;
     }

@@ -10,6 +10,7 @@ import com.botmaker.studio.services.SdkDocsService;
 import com.botmaker.studio.services.DebuggingService;
 import com.botmaker.studio.services.LibraryService;
 import com.botmaker.studio.services.MavenService;
+import com.botmaker.studio.services.ProgressReporter;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
@@ -17,7 +18,6 @@ import com.botmaker.studio.validation.DiagnosticsManager;
 
 import java.nio.file.Path;
 import java.util.List;
-import java.util.function.Consumer;
 
 /**
  * Represents a single open project with all its services.
@@ -86,18 +86,18 @@ public class BotProject {
     public static BotProject open(String projectName,
                                   Path projectsRoot,
                                   boolean enableEventLogging) {
-        return open(projectName, projectsRoot, enableEventLogging, msg -> {});
+        return open(projectName, projectsRoot, enableEventLogging, ProgressReporter.NONE);
     }
 
     /**
-     * As {@link #open(String, Path, boolean)}, but reports coarse-grained progress via {@code progress}
-     * (e.g. {@code "Resolving dependencies…"}, per-jar download messages, {@code "Loading project…"}).
-     * The consumer may be invoked from background/worker threads.
+     * As {@link #open(String, Path, boolean)}, but reports progress via {@code progress}: real download
+     * percentages during dependency resolution, and indeterminate status messages for the other phases
+     * ({@code "Resolving dependencies…"}, {@code "Loading project…"}). May be invoked from worker threads.
      */
     public static BotProject open(String projectName,
                                   Path projectsRoot,
                                   boolean enableEventLogging,
-                                  Consumer<String> progress) {
+                                  ProgressReporter progress) {
         // 1. Create config
         ProjectConfig config = ProjectConfig.forProject(projectName, projectsRoot);
 
@@ -113,7 +113,7 @@ public class BotProject {
         BlockDragAndDropManager dragAndDropManager = new BlockDragAndDropManager(eventBus);
 
         // 5. Resolve dependencies (Maven Resolver, reads pom.xml)
-        progress.accept("Resolving dependencies…");
+        progress.message("Resolving dependencies…");
         List<String> classpath;
         try {
             classpath = MavenService.resolveClasspath(config.projectPath(), progress);
@@ -124,7 +124,7 @@ public class BotProject {
         }
 
         // 6. Build or load the type index for external libraries
-        progress.accept("Indexing libraries…");
+        progress.message("Indexing libraries…");
         TypeSummaryManager typeSummaryManager = TypeSummaryManager.buildOrLoad(classpath);
 
         // 7. Create the unified ProjectAnalyzer
@@ -152,7 +152,7 @@ public class BotProject {
         projectSettingsService.load();
 
         // 8. Create code editing pipeline
-        progress.accept("Loading project…");
+        progress.message("Loading project…");
         BlockConverter blockConverter = new BlockConverter(state);
 
         // 9. Assemble the project

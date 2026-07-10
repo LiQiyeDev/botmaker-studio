@@ -25,6 +25,10 @@ public final class GitHubConfig {
     /** The Studio's own repo, whose GitHub Releases host the app installers (used by the in-app updater). */
     public static final String STUDIO_OWNER = "LiQiyeDev";
     public static final String STUDIO_REPO = "BotMaker-Studio";
+
+    /** Umbrella repo that receives in-app bug reports (Help ▸ Report Issue…). */
+    public static final String ISSUE_OWNER = "LiQiyeDev";
+    public static final String ISSUE_REPO = "botmaker";
     public static final String INDEX_BRANCH = "main";
     public static final String INDEX_PATH = "index.json";
 
@@ -45,6 +49,16 @@ public final class GitHubConfig {
     /** {@code https://codeload.github.com/{owner}/{repo}/zip/refs/tags/{tag}} (public, unauthenticated). */
     public static String archiveUrl(String owner, String repo, String tag) {
         return "https://codeload.github.com/" + owner + "/" + repo + "/zip/refs/tags/" + tag;
+    }
+
+    /** REST endpoint for creating an issue on the umbrella repo (used with an authenticated token). */
+    public static String issuesApiUrl() {
+        return API_BASE + "/repos/" + ISSUE_OWNER + "/" + ISSUE_REPO + "/issues";
+    }
+
+    /** Browser URL of the umbrella repo's "New Issue" page (no auth handled by the app; the browser session is). */
+    public static String newIssueBrowserUrl() {
+        return "https://github.com/" + ISSUE_OWNER + "/" + ISSUE_REPO + "/issues/new";
     }
 
     public static boolean isPublishingConfigured() {

@@ -6,6 +6,30 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-11 — Windows-testing fixes: progress bar, capture-source order, Report Issue, packaging.**
+  - **Real-percentage dependency progress** on first project open. New `services/ProgressReporter` (fraction
+    + message) replaces the `Consumer<String>` progress sink through `MavenService.resolveClasspath` →
+    `BotProject.open` → the `BotMakerStudio` loading screen (bar bound to the open `Task`). `MavenService`'s
+    Aether `TransferListener` now aggregates bytes across concurrent transfers (`DownloadAggregator`) into a
+    real fraction; the status line shows `… — NN%`.
+  - **Capture-source picker reordered** (`ui/app/capture/CaptureSourcePicker`): Desktop → Monitors → Windows,
+    so the common picks aren't buried below the (long) window list.
+  - **Help ▸ Report Issue…** (`ui/app/ReportIssueDialog`, wired in `MenuBarManager`): title + description +
+    optional screenshots → files a GitHub issue on the umbrella repo `LiQiyeDev/botmaker`. No token stored:
+    reuses the existing `GitHubAuth` sign-in to POST directly, else opens a prefilled browser New-Issue page
+    (browser session authenticates). Screenshots → opens the issue in the browser to drag them in (GitHub's
+    issue API has no attachment upload). New `GitHubConfig.ISSUE_OWNER/ISSUE_REPO` + `issuesApiUrl`/`newIssueBrowserUrl`.
+  - **Auto-update actually installs** (`services/UpdateService`): AppImage self-update (swap `$APPIMAGE` in
+    place, no root) when running as one; `.rpm`/`.deb` installed under one `pkexec` prompt via the native
+    package manager (was: only downloaded, user finished manually in the store). `preferredExtensions` now
+    knows `.AppImage` (preferred when running as an AppImage).
+  - **Packaging** (`pom.xml`, `.github/workflows/release.yml`, `.github/scripts/*`, `flatpak/`): CI now also
+    emits **AppImage** (recommended password-free channel; solves the Fedora "missing from search after
+    install/update" issue), **tarball**, and a best-effort **Flatpak** (sandbox limits capture/input — see
+    the manifest caveat). `.rpm`/`.deb` get **GPG signing** under the "LiQiyeDev" identity (gated on
+    `GPG_KEY_ID`/`GPG_PRIVATE_KEY`/`GPG_PASSPHRASE` secrets — unsigned until configured) and a Development
+    menu category. **Needs a validation release to confirm the CI wiring.**
+
 - **2026-07-10 — Dedupe v-prefixed SDK versions in the version dropdowns.** `JitPackSearch.parseVersions`
   now collapses tags that differ only by a leading `v` (`services/JitPackSearch.dedupeVPrefix`), so the SDK
   repo's historical bare `1.0.x` tags and `release.sh`'s new `v1.0.x` tags no longer show as duplicate
