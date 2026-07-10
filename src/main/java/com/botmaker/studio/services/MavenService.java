@@ -69,10 +69,11 @@ public final class MavenService {
     public static final String SDK_FALLBACK_VERSION = "1.0.12";
 
     /**
-     * Locally-installed SDK dev builds found in {@code ~/.m2} (e.g. {@code local-SNAPSHOT} produced by
-     * {@code botmaker-sdk/dev-install.sh}), newest first. These never appear in JitPack's tag list, so the
-     * version pickers surface them from here — a developer picks the local build instead of typing it. A bot
-     * pinned to such a version resolves it from {@code ~/.m2} ahead of JitPack (see {@link #resolveClasspath}).
+     * Locally-installed SDK dev builds found in {@code ~/.m2} (typically {@code 0.0.0-SNAPSHOT}, produced by
+     * {@code mvn -pl botmaker-sdk -am install} from the umbrella root), newest first. These never appear in
+     * JitPack's tag list, so the version pickers surface them from here — a developer picks the local build
+     * instead of typing it. A bot pinned to such a version resolves it from {@code ~/.m2} ahead of JitPack
+     * (see {@link #resolveClasspath}).
      *
      * <p>Best-effort: returns an empty list on any IO error or when nothing is installed (the common user case).
      */
@@ -92,8 +93,8 @@ public final class MavenService {
                             SDK_ARTIFACT_ID + "-" + dir.getFileName() + ".jar")))
                     .sorted(Comparator.comparingLong(MavenService::lastModifiedMillis).reversed())
                     .map(dir -> dir.getFileName().toString())
-                    // One local build is enough — the newest wins (dev-install.sh writes local-SNAPSHOT);
-                    // this also hides a stale leftover like 0.0.0-SNAPSHOT from an earlier reactor install.
+                    // One local build is enough — the newest wins (a plain `mvn install` writes
+                    // 0.0.0-SNAPSHOT); this also hides a stale leftover like an old local-SNAPSHOT.
                     .limit(1)
                     .collect(Collectors.toList());
         } catch (IOException e) {
