@@ -87,7 +87,29 @@ public final class JitPackSearch {
             if (!v.isEmpty()) versions.add(v);
         }
         Collections.reverse(versions);
-        return versions;
+        return dedupeVPrefix(versions);
+    }
+
+    /**
+     * Collapses tags that differ only by a leading {@code v} into a single entry — the SDK repo carries both
+     * historical bare {@code 1.0.x} tags and the {@code v1.0.x} tags {@code release.sh} now cuts, and JitPack
+     * lists both, so {@code v1.0.7} and {@code 1.0.7} would otherwise appear as two identical choices. Keeps
+     * the first-seen entry (newest-first order is preserved) and prefers the {@code v}-prefixed form, which is
+     * the current release convention; both forms resolve to the same JitPack build.
+     */
+    static List<String> dedupeVPrefix(List<String> versions) {
+        java.util.Map<String, String> byKey = new java.util.LinkedHashMap<>();
+        for (String v : versions) {
+            String key = (v.startsWith("v") || v.startsWith("V")) ? v.substring(1) : v;
+            String existing = byKey.get(key);
+            if (existing == null) {
+                byKey.put(key, v);
+            } else if (!existing.startsWith("v") && !existing.startsWith("V")
+                    && (v.startsWith("v") || v.startsWith("V"))) {
+                byKey.put(key, v); // upgrade the kept entry to the v-prefixed form
+            }
+        }
+        return new ArrayList<>(byKey.values());
     }
 
     /** Parses the latest version: the {@code <release>} value, else the newest {@code <version>}, else "". */

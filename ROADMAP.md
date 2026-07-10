@@ -6,6 +6,22 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-10 — Dedupe v-prefixed SDK versions in the version dropdowns.** `JitPackSearch.parseVersions`
+  now collapses tags that differ only by a leading `v` (`services/JitPackSearch.dedupeVPrefix`), so the SDK
+  repo's historical bare `1.0.x` tags and `release.sh`'s new `v1.0.x` tags no longer show as duplicate
+  choices (v-prefixed preferred) in New Project + Manage Libraries.
+
+- **2026-07-10 — Live overlay template capture + resolution sidecars.** New toolbar button "✂ Capture
+  Templates" opens `ui/app/capture/OverlayTemplateCapture`: a transparent, always-on-top overlay over the
+  default **window** target (not a screenshot) with a Draw region / Finish button; rubber-band a rect over the
+  live window and it re-captures fresh window pixels (occlusion-safe), crops (HiDPI-correct by ratio), prompts
+  a unique non-blank name, and saves. Multi-capture until Esc/Finish. Every capture now writes a `<name>.json`
+  resolution sidecar (`ImageTemplateLibrary.TemplateMetadata` + `saveTemplate`/`exists`/`sidecarFor`), consumed
+  by the SDK for per-template rescaling. Retrofitted the two existing capture paths (block `ImageTemplatePicker`
+  + `ResourceManagerDialog`): empty default name, duplicate-name blocking (re-prompt via
+  `ImageTemplatePicker.promptTemplateName`), sidecar written, and rename/delete keep the sidecar in sync.
+  `ScreenCaptureService.captureRegion` now also reports the capture source's physical resolution.
+
 - **2026-07-10 — Phase 5: Activity generation is startup-safe.** The generated `Activities` class no longer
   rethrows as `ExceptionInInitializerError` when `activities.json` is malformed/unreadable — it logs and keeps
   type defaults. `ActivityType.TIME`/`DATE` now emit defensive `parseTime`/`parseDate` helpers (generated only

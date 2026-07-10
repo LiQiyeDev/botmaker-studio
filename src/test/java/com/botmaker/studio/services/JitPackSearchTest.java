@@ -44,6 +44,20 @@ class JitPackSearchTest {
     }
 
     @Test
+    void collapsesBareAndVPrefixedTagsOfTheSameVersion() {
+        String mixed = """
+                <metadata><versioning><versions>
+                    <version>1.0.6</version>
+                    <version>1.0.7</version>
+                    <version>v1.0.7</version>
+                    <version>v1.0.8</version>
+                </versions></versioning></metadata>
+                """;
+        // 1.0.7 / v1.0.7 collapse to one (v-prefixed preferred); newest-first order preserved.
+        assertEquals(List.of("v1.0.8", "v1.0.7", "1.0.6"), JitPackSearch.parseVersions(mixed));
+    }
+
+    @Test
     void emptyOrNullInputsAreSafe() {
         assertTrue(JitPackSearch.parseVersions(null).isEmpty());
         assertEquals("", JitPackSearch.parseLatest(null));

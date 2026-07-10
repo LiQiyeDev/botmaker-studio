@@ -99,7 +99,22 @@ public final class ScreenCaptureService {
      * image, or does nothing if the user cancels (Esc / empty selection / chooser) or capture is unavailable.
      */
     public void captureRegion(Window owner, Consumer<BufferedImage> onCaptured) {
+        captureRegion(owner, (img, w, h) -> onCaptured.accept(img));
+    }
+
+    /**
+     * As {@link #captureRegion(Window, Consumer)} but also reports the capture source's physical resolution
+     * (the full window/screen pixel size the region was cropped from) so the caller can record it as the
+     * template's authored resolution.
+     */
+    public void captureRegion(Window owner, RegionCapture onCaptured) {
         grabAsync(owner, shot -> showOverlay(owner, shot, onCaptured));
+    }
+
+    /** Receives a cropped region plus the physical resolution of the source it was cropped from. */
+    @FunctionalInterface
+    public interface RegionCapture {
+        void onRegion(BufferedImage cropped, int sourceWidth, int sourceHeight);
     }
 
     /**
@@ -443,7 +458,7 @@ public final class ScreenCaptureService {
         return DesktopGrab.looksBlank(img);
     }
 
-    private void showOverlay(Window owner, ScreenShot shot, Consumer<BufferedImage> onCaptured) {
+    private void showOverlay(Window owner, ScreenShot shot, RegionCapture onCaptured) {
         BufferedImage screenshot = shot.image();
         Image fxImage = toFxImage(screenshot);
 
@@ -483,7 +498,7 @@ public final class ScreenCaptureService {
         pane.setOnMouseReleased(e -> {
             BufferedImage cropped = crop(screenshot, pane, selection);
             stage.close();
-            if (cropped != null) onCaptured.accept(cropped);
+            if (cropped != null) onCaptured.onRegion(cropped, screenshot.getWidth(), screenshot.getHeight());
         });
 
         Scene scene = new Scene(pane);

@@ -5,6 +5,7 @@ import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.ScreenCaptureService;
+import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -14,7 +15,6 @@ import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListView;
-import javafx.scene.control.TextInputDialog;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.HBox;
@@ -118,13 +118,12 @@ public class ResourceManagerDialog {
 
     private void captureNew() {
         stage.setIconified(true); // get the dialog out of the way of the capture overlay
-        capture.captureRegion(owner, img -> Platform.runLater(() -> {
+        capture.captureRegion(owner, (img, sourceW, sourceH) -> Platform.runLater(() -> {
             stage.setIconified(false);
-            Optional<String> name = promptName("accept_button");
+            Optional<String> name = ImageTemplatePicker.promptTemplateName(stage, config, null);
             if (name.isEmpty()) return;
-            Path target = config.imagesRoot().resolve(name.get() + ".png");
             try {
-                capture.savePng(img, target);
+                ImageTemplateLibrary.saveTemplate(config, img, name.get(), sourceW, sourceH, null);
                 published();
                 reload();
             } catch (IOException e) {
@@ -139,11 +138,16 @@ public class ResourceManagerDialog {
             statusLabel.setText("The default template can't be renamed.");
             return;
         }
-        Optional<String> name = promptName(ImageTemplateLibrary.baseName(file));
+        Optional<String> name = ImageTemplatePicker.promptTemplateName(stage, config, ImageTemplateLibrary.baseName(file));
         if (name.isEmpty()) return;
         Path target = config.imagesRoot().resolve(name.get() + ".png");
         try {
             Files.move(file, target, StandardCopyOption.REPLACE_EXISTING);
+            // Keep the resolution sidecar alongside its renamed PNG.
+            Path oldSidecar = ImageTemplateLibrary.sidecarFor(file);
+            if (Files.exists(oldSidecar)) {
+                Files.move(oldSidecar, ImageTemplateLibrary.sidecarFor(target), StandardCopyOption.REPLACE_EXISTING);
+            }
             published();
             reload();
         } catch (IOException e) {
@@ -159,23 +163,12 @@ public class ResourceManagerDialog {
         }
         try {
             Files.deleteIfExists(file);
+            Files.deleteIfExists(ImageTemplateLibrary.sidecarFor(file));
             published();
             reload();
         } catch (IOException e) {
             statusLabel.setText("Failed to delete: " + e.getMessage());
         }
-    }
-
-    /** Prompts for a sanitized base name (letters/digits/_/-), defaulting to {@code suggested}. */
-    private Optional<String> promptName(String suggested) {
-        TextInputDialog dialog = new TextInputDialog(suggested);
-        dialog.initOwner(stage);
-        dialog.setTitle("Template name");
-        dialog.setHeaderText(null);
-        dialog.setContentText("Name:");
-        return dialog.showAndWait()
-                .map(s -> s.trim().replaceAll("[^A-Za-z0-9_-]", "_"))
-                .filter(s -> !s.isBlank());
     }
 
     private void published() {

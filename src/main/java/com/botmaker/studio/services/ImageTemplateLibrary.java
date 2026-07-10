@@ -1,12 +1,17 @@
 package com.botmaker.studio.services;
 
 import com.botmaker.studio.project.ProjectConfig;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Stream;
 
 /**
@@ -20,6 +25,19 @@ import java.util.stream.Stream;
 public final class ImageTemplateLibrary {
 
     private ImageTemplateLibrary() {}
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    /**
+     * The resolution metadata written alongside every captured template as a {@code <name>.json} sidecar.
+     * {@code width}/{@code height} are the template's own pixel size; {@code captureWidth}/{@code
+     * captureHeight} are the resolution (physical pixels) of the capture source (window/screen) the template
+     * was authored against — the SDK reads these to rescale the template when the target runs at a different
+     * resolution (see {@code ImageTemplate.captureResolution()}). {@code captureWidth}/{@code captureHeight}
+     * of {@code 0} mean "unknown" (the SDK then falls back to the project-wide default resolution).
+     */
+    public record TemplateMetadata(int width, int height, int captureWidth, int captureHeight,
+                                   String target, String createdAt) {}
 
     /** File name of the built-in default template shipped in every new project (see {@code ProjectCreator}). */
     public static final String DEFAULT_TEMPLATE_FILE = "default_template.png";
@@ -66,5 +84,45 @@ public final class ImageTemplateLibrary {
         String name = templateFile.getFileName().toString();
         int dot = name.lastIndexOf('.');
         return dot < 0 ? name : name.substring(0, dot);
+    }
+
+    /** The metadata sidecar ({@code <name>.json}) that lives next to a template PNG. */
+    public static Path sidecarFor(Path templateFile) {
+        return templateFile.resolveSibling(baseName(templateFile) + ".json");
+    }
+
+    /**
+     * Whether a template PNG named {@code baseName} already exists (case-insensitive) — used to block
+     * duplicate names so a new capture never silently overwrites an existing template.
+     */
+    public static boolean exists(ProjectConfig config, String baseName) {
+        if (baseName == null || baseName.isBlank()) return false;
+        String wanted = (baseName + ".png").toLowerCase(Locale.ROOT);
+        Path dir = config.imagesRoot();
+        if (!Files.isDirectory(dir)) return false;
+        try (Stream<Path> files = Files.list(dir)) {
+            return files.anyMatch(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).equals(wanted));
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Saves {@code img} as {@code <imagesRoot>/<baseName>.png} plus a {@code <baseName>.json} resolution
+     * sidecar, and returns the template's project-root-relative path (the string for
+     * {@code new ImageTemplate("…")}). {@code captureWidth}/{@code captureHeight} are the capture source's
+     * physical resolution (pass {@code 0} when unknown); {@code targetTitle} may be {@code null}.
+     * {@code baseName} must already be sanitized. Does not check for an existing file — callers gate that
+     * via {@link #exists}.
+     */
+    public static String saveTemplate(ProjectConfig config, BufferedImage img, String baseName,
+                                      int captureWidth, int captureHeight, String targetTitle) throws IOException {
+        Path png = config.imagesRoot().resolve(baseName + ".png");
+        Files.createDirectories(png.getParent());
+        ImageIO.write(img, "png", png.toFile());
+        TemplateMetadata meta = new TemplateMetadata(img.getWidth(), img.getHeight(),
+                Math.max(0, captureWidth), Math.max(0, captureHeight), targetTitle, Instant.now().toString());
+        MAPPER.writerWithDefaultPrettyPrinter().writeValue(sidecarFor(png).toFile(), meta);
+        return pathFor(config, png);
     }
 }

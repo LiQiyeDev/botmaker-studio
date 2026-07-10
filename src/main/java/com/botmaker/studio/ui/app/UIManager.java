@@ -119,6 +119,7 @@ public class UIManager {
                 new ManageCaptureTargetsDialog(primaryStage, projectSettingsService).show());
         this.toolbarManager.setOnOpenDebugDashboard(this::openDebugDashboard);
         this.toolbarManager.setOnEnableRemotePilot(this::openRemotePilot);
+        this.toolbarManager.setOnCaptureTemplates(this::openOverlayTemplateCapture);
         GitHubClient gitHubClient = new GitHubClient();
         GitHubGallery gallery = new GitHubGallery(gitHubClient);
         BotInstaller botInstaller = new BotInstaller(gitHubClient, gallery);
@@ -605,6 +606,12 @@ public class UIManager {
     /** Opens the Resource Manager dialog. Reused by the Project menu and the block image-picker shortcut. */
     private void openResourceManager() {
         new ResourceManagerDialog(primaryStage, config, eventBus, screenCaptureService).show();
+    }
+
+    /** Opens the live overlay template-capture over the project's default window target. */
+    private void openOverlayTemplateCapture() {
+        com.botmaker.studio.ui.app.capture.OverlayTemplateCapture.open(
+                primaryStage, config, projectSettingsService, screenCaptureService, eventBus);
     }
 
     private void setupEventHandlers() {

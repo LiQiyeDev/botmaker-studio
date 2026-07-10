@@ -113,18 +113,12 @@ public final class ImageTemplatePicker {
                                       java.util.function.Consumer<String> onSaved) {
         ProjectConfig config = context.getConfig();
         Window owner = anchor.getScene() != null ? anchor.getScene().getWindow() : null;
-        screenCapture(context).captureRegion(owner, img -> Platform.runLater(() -> {
-            TextInputDialog dialog = new TextInputDialog("accept_button");
-            dialog.initOwner(owner);
-            dialog.setTitle("Template name");
-            dialog.setHeaderText(null);
-            dialog.setContentText("Name:");
-            Optional<String> name = dialog.showAndWait()
-                    .map(s -> s.trim().replaceAll("[^A-Za-z0-9_-]", "_"))
-                    .filter(s -> !s.isBlank());
+        String targetTitle = defaultWindowTitle(context);
+        screenCapture(context).captureRegion(owner, (img, sourceW, sourceH) -> Platform.runLater(() -> {
+            Optional<String> name = promptTemplateName(owner, config, null);
             if (name.isEmpty()) return;
             try {
-                onSaved.accept(saveTemplate(config, img, name.get()));
+                onSaved.accept(ImageTemplateLibrary.saveTemplate(config, img, name.get(), sourceW, sourceH, targetTitle));
             } catch (IOException ex) {
                 Alert error = new Alert(Alert.AlertType.ERROR, "Failed to save template: " + ex.getMessage());
                 error.initOwner(owner);
@@ -134,16 +128,48 @@ public final class ImageTemplatePicker {
     }
 
     /**
-     * Saves {@code img} as {@code <imagesRoot>/<name>.png} and returns its project-root-relative path
-     * (the string that goes inside {@code new ImageTemplate("…")}). Shared by "Capture new…" and the
-     * multi-argument "Pick all on screen" session. {@code name} must already be sanitized.
+     * Prompts for a template name, re-prompting until it is non-blank <em>and</em> unique (case-insensitive),
+     * or the user cancels. The name field starts empty (no default). {@code allowExisting} — when non-null —
+     * is the current name a rename may keep; pass {@code null} for a fresh capture. The returned name is
+     * already sanitized to {@code [A-Za-z0-9_-]}. Shared by both capture paths and the overlay capture.
+     */
+    public static Optional<String> promptTemplateName(Window owner, ProjectConfig config, String allowExisting) {
+        while (true) {
+            TextInputDialog dialog = new TextInputDialog();
+            dialog.initOwner(owner);
+            dialog.setTitle("Template name");
+            dialog.setHeaderText(null);
+            dialog.setContentText("Name:");
+            Optional<String> raw = dialog.showAndWait();
+            if (raw.isEmpty()) return Optional.empty(); // cancelled
+            String name = raw.get().trim().replaceAll("[^A-Za-z0-9_-]", "_");
+            if (name.isBlank()) {
+                warn(owner, "Please enter a name for the template.");
+                continue;
+            }
+            if (!name.equalsIgnoreCase(allowExisting) && ImageTemplateLibrary.exists(config, name)) {
+                warn(owner, "A template named \"" + name + "\" already exists. Choose a different name.");
+                continue;
+            }
+            return Optional.of(name);
+        }
+    }
+
+    private static void warn(Window owner, String message) {
+        Alert alert = new Alert(Alert.AlertType.WARNING, message);
+        alert.initOwner(owner);
+        alert.showAndWait();
+    }
+
+    /**
+     * Saves {@code img} as {@code <imagesRoot>/<name>.png} (+ its metadata sidecar) and returns its
+     * project-root-relative path (the string inside {@code new ImageTemplate("…")}). Used by the multi-argument
+     * "Pick all on screen" session, which doesn't know the capture source resolution — the sidecar records it
+     * as unknown ({@code 0}). {@code name} must already be sanitized.
      */
     public static String saveTemplate(ProjectConfig config, java.awt.image.BufferedImage img, String name)
             throws IOException {
-        Path target = config.imagesRoot().resolve(name + ".png");
-        Files.createDirectories(target.getParent());
-        new ScreenCaptureService().savePng(img, target);
-        return ImageTemplateLibrary.pathFor(config, target);
+        return ImageTemplateLibrary.saveTemplate(config, img, name, 0, 0, null);
     }
 
     /** A capture service bound to this project's settings, so it honors the default capture target. */

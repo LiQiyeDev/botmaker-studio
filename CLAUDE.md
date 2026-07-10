@@ -51,15 +51,6 @@ launching, event publishing) at the edges in the service layer.
 
 ## Setup
 
-The JDT Language Server must be installed at `tools/jdt-language-server/`:
-
-```bash
-mkdir -p tools
-wget https://download.eclipse.org/jdtls/milestones/1.40.0/jdt-language-server-1.40.0-202410171240.tar.gz
-mkdir tools/jdt-language-server
-tar -xzf jdt-language-server-*.tar.gz -C tools/jdt-language-server
-```
-
 User projects live in `~/BotMakerProjects/` (not inside this repo). Each project is a standard **Maven** project with the layout `src/main/java/com/<projectnamelowercase>/<ProjectName>.java`. The BotMaker-Studio app itself is also a Maven project (`pom.xml`): build with `mvn compile`, run with `mvn javafx:run`, test with `mvn test`.
 
 ### Relationship to the SDK and shared

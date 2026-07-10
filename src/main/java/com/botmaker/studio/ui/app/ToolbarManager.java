@@ -31,6 +31,8 @@ public class ToolbarManager {
     private Runnable onOpenDebugDashboard;
     /** Starts the remote pilot server and shows the pairing dialog; wired by {@link UIManager}. */
     private Runnable onEnableRemotePilot;
+    /** Opens the live overlay template-capture over the default window; wired by {@link UIManager}. */
+    private Runnable onCaptureTemplates;
 
     private enum AppState { IDLE, RUNNING, DEBUGGING }
     private AppState currentAppState = AppState.IDLE;
@@ -101,6 +103,11 @@ public class ToolbarManager {
         this.onEnableRemotePilot = callback;
     }
 
+    /** Sets the callback invoked when the toolbar's Capture Templates button is clicked. */
+    public void setOnCaptureTemplates(Runnable callback) {
+        this.onCaptureTemplates = callback;
+    }
+
     /**
      * Creates the center group: the Capture Targets button (opens the manage dialog; its text shows the
      * current default target) next to the Debug Dashboard button (opens the live telemetry dashboard).
@@ -128,7 +135,15 @@ public class ToolbarManager {
             if (onEnableRemotePilot != null) onEnableRemotePilot.run();
         });
 
-        HBox group = new HBox(5, captureButton, debugDashboardButton, remotePilotButton);
+        Button captureTemplatesButton = new Button("✂ Capture Templates");
+        captureTemplatesButton.getStyleClass().add("toolbar-btn");
+        captureTemplatesButton.setTooltip(new Tooltip(
+                "Draw a live overlay over the default window to quickly grab image templates"));
+        captureTemplatesButton.setOnAction(e -> {
+            if (onCaptureTemplates != null) onCaptureTemplates.run();
+        });
+
+        HBox group = new HBox(5, captureButton, captureTemplatesButton, debugDashboardButton, remotePilotButton);
         group.setAlignment(Pos.CENTER);
         return group;
     }
