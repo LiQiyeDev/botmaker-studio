@@ -129,6 +129,8 @@ public class UIManager {
         this.menuBarManager.setOnPublishGallery(() ->
                 new PublishDialog(primaryStage, gitHubAuth, gitHubClient, gallery, botPublisher,
                         config.projectName(), config.projectPath()).show());
+        this.menuBarManager.setOnShowHistory(() ->
+                new VcsDialog(primaryStage, config.projectName(), config.projectPath(), botPublisher).show());
         this.menuBarManager.setProjectRepoUrl(BotSource.read(config.projectPath())
                 .map(s -> "https://github.com/" + s.slug()).orElse(null));
         this.menuBarManager.setOnOpenDebugDashboard(this::openDebugDashboard);

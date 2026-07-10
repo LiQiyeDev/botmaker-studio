@@ -9,7 +9,7 @@ import java.util.List;
  */
 public sealed interface Initializer
         permits Initializer.IntLit, Initializer.DoubleLit, Initializer.BoolLit, Initializer.StrLit,
-                Initializer.NullLit, Initializer.NewInstance, Initializer.EnumConst {
+                Initializer.NullLit, Initializer.NewInstance, Initializer.EnumConst, Initializer.StaticCall {
 
     /** Numeric literal rendered as an integer, e.g. {@code 0}. */
     record IntLit(String value) implements Initializer {}
@@ -34,4 +34,13 @@ public sealed interface Initializer
 
     /** Qualified enum reference, e.g. {@code Direction.NORTH}. */
     record EnumConst(String typeName, String constant) implements Initializer {}
+
+    /** Static method invocation, e.g. {@code VisionContext.getLastMatch()}. */
+    record StaticCall(String typeName, String methodName, List<Initializer> args) implements Initializer {
+        public StaticCall(String typeName, String methodName, List<Initializer> args) {
+            this.typeName = typeName;
+            this.methodName = methodName;
+            this.args = List.copyOf(args);
+        }
+    }
 }

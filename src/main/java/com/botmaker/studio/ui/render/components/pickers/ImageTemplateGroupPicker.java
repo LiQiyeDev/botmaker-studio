@@ -96,10 +96,13 @@ public final class ImageTemplateGroupPicker {
                 add.getItems().add(item);
             }
             if (!add.getItems().isEmpty()) add.getItems().add(new SeparatorMenuItem());
+            MenuItem capture = new MenuItem("Capture new…");
+            capture.setOnAction(a -> ImageTemplatePicker.captureAndSave(context, add,
+                    path -> apply(context, node, append(paths, path))));
             MenuItem openManager = new MenuItem("Open Resource Manager…");
             openManager.setOnAction(a ->
                     context.getEventBus().publish(new CoreApplicationEvents.OpenResourceManagerEvent()));
-            add.getItems().add(openManager);
+            add.getItems().addAll(capture, openManager);
         });
         return add;
     }

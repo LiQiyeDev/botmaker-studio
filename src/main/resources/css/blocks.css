@@ -119,23 +119,32 @@
  * InstantiationBlock.createUINode so block appearance lives with the rest of the block styling.
  */
 .instantiation-block {
-    -fx-background-color: #E8F6F3;
+    -fx-background-color: linear-gradient(to bottom, #ecfaf7, #dff5ef);
     -fx-background-radius: 12;
     -fx-border-color: #1ABC9C;
+    -fx-border-width: 1.5;
     -fx-border-radius: 12;
-    -fx-padding: 4 8 4 8;
+    -fx-padding: 4 10 4 10;
+    -fx-effect: dropshadow(gaussian, rgba(26, 188, 156, 0.18), 4, 0, 0, 1);
 }
 
 .instantiation-block .class-selector {
     -fx-font-weight: bold;
-    -fx-text-fill: #2c3e50;
+    -fx-text-fill: #148f77;
     -fx-background-color: transparent;
+    -fx-padding: 0 2 0 0;
 }
 
 .instantiation-block .constructor-button {
     -fx-font-size: 9px;
-    -fx-padding: 2 4 2 4;
+    -fx-padding: 2 5 2 5;
     -fx-background-radius: 10;
+    -fx-background-color: rgba(26, 188, 156, 0.15);
+    -fx-text-fill: #148f77;
+}
+
+.instantiation-block .constructor-button:hover {
+    -fx-background-color: rgba(26, 188, 156, 0.30);
 }
 
 .instantiation-block .param-name-label {
@@ -190,6 +199,17 @@
 
 .sdk-call-block .sdk-class-selector {
     -fx-font-weight: bold;
+}
+
+/* "→ ReturnType" badge on an SDK call: tells the user whether the call yields a boolean guard,
+   an int count, or a MatchResult. Muted (informational, not interactive). */
+.return-type-badge {
+    -fx-background-color: #e7dcf5;
+    -fx-text-fill: #6c3fa0;
+    -fx-font-size: 9px;
+    -fx-font-family: monospace;
+    -fx-background-radius: 6;
+    -fx-padding: 1 5 1 5;
 }
 
 /*

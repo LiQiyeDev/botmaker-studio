@@ -135,6 +135,10 @@ public class ResourceManagerDialog {
 
     private void rename(Path file) {
         if (file == null) return;
+        if (ImageTemplateLibrary.isDefaultTemplate(file)) {
+            statusLabel.setText("The default template can't be renamed.");
+            return;
+        }
         Optional<String> name = promptName(ImageTemplateLibrary.baseName(file));
         if (name.isEmpty()) return;
         Path target = config.imagesRoot().resolve(name.get() + ".png");
@@ -149,6 +153,10 @@ public class ResourceManagerDialog {
 
     private void delete(Path file) {
         if (file == null) return;
+        if (ImageTemplateLibrary.isDefaultTemplate(file)) {
+            statusLabel.setText("The default template can't be deleted.");
+            return;
+        }
         try {
             Files.deleteIfExists(file);
             published();

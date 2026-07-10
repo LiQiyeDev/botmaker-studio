@@ -193,6 +193,10 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
                 .addLabel(".")
                 .addNode(methodSelector);
 
+        // Return-type badge (SDK calls): the vision API now returns boolean/int (find/click → boolean,
+        // findAll/clickAll → int, VisionContext.getLastMatch → MatchResult), so surface what the call yields.
+        addReturnTypeBadge(sentenceBuilder, context, currentScopeGetter);
+
         // "Learn about it" (ⓘ) — SDK method help sourced from the sources-jar Javadoc (SDK calls only).
         addInfoButton(sentenceBuilder, context, currentScopeGetter);
 
@@ -539,6 +543,25 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
             Label typeLabel = argLabel(argName != null ? argName : paramType.simpleName(), argDesc);
             builder.addNode(createArgumentPill(context, arg, paramType, typeLabel, true));
         }
+    }
+
+    /**
+     * Shows a small {@code → ReturnType} badge on SDK call blocks (skipped for {@code void} and non-SDK
+     * calls). Driven by the resolved current overload's return type, so it tracks method/overload switches —
+     * e.g. flips {@code → boolean} to {@code → int} when the user switches {@code find} to {@code findAll}.
+     */
+    private void addReturnTypeBadge(SentenceLayoutBuilder builder, CodeEditorService context,
+                                    java.util.function.Supplier<String> scopeGetter) {
+        if (fixedScopeName == null) return;
+        String currentScope = scopeGetter.get();
+        String targetType = (currentScope != null) ? resolveTargetType(currentScope, context) : fixedScopeName;
+        MethodSignature sig = determineCurrentSignature(context, targetType, methodName);
+        if (sig == null || sig.returnType() == null || sig.returnType().isVoid()) return;
+        String returnName = sig.returnType().simpleName();
+        Label badge = new Label("→ " + returnName);
+        badge.getStyleClass().add("return-type-badge");
+        badge.setTooltip(new Tooltip("This call returns " + returnName));
+        builder.addNode(badge);
     }
 
     /** A small arg-slot label (parameter name or type) carrying the {@code @param} description as a tooltip. */

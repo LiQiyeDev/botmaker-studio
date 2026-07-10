@@ -27,6 +27,15 @@ public final class EnumPicker {
      * ({@link com.botmaker.studio.suggestions.ProjectAnalyzer#findTypeByName}).
      */
     public static ResolvedType resolveEnum(CodeEditorService context, ResolvedType paramType) {
+        ResolvedType resolved = resolveEnumType(context, paramType);
+        // Only claim the arg when the enum actually resolved its constants. An enum whose constants can't be
+        // indexed (e.g. an SDK MouseButton not in the type index yet) would otherwise render an *empty*
+        // dropdown — picking nothing wipes the argument to empty parens. Returning null there lets the caller
+        // fall back to the generic pill, which preserves the existing value.
+        return (resolved != null && !resolved.enumConstants().isEmpty()) ? resolved : null;
+    }
+
+    private static ResolvedType resolveEnumType(CodeEditorService context, ResolvedType paramType) {
         if (paramType == null) return null;
         if (paramType.isEnum()) return paramType;
         if (context == null || context.getProjectAnalyzer() == null) return null;

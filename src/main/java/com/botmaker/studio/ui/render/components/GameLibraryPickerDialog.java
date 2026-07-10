@@ -126,7 +126,11 @@ public final class GameLibraryPickerDialog {
 
         Path art = game.artwork();
         if (art != null) {
-            ImageView iv = new ImageView(new Image(art.toUri().toString(), COVER_W, COVER_H, false, true, true));
+            // Preserve the cover's aspect ratio (portrait 600×900 vs landscape header) and letterbox it into
+            // the fixed tile rather than stretching: load + fit with preserveRatio=true, centered by the
+            // StackPane. Previously preserveRatio=false squashed landscape headers into the portrait tile.
+            ImageView iv = new ImageView(new Image(art.toUri().toString(), COVER_W, COVER_H, true, true, true));
+            iv.setPreserveRatio(true);
             iv.setFitWidth(COVER_W);
             iv.setFitHeight(COVER_H);
             cover.getChildren().add(iv);

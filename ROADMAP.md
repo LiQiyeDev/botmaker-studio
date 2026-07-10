@@ -6,6 +6,82 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-10 — Phase 5: Activity generation is startup-safe.** The generated `Activities` class no longer
+  rethrows as `ExceptionInInitializerError` when `activities.json` is malformed/unreadable — it logs and keeps
+  type defaults. `ActivityType.TIME`/`DATE` now emit defensive `parseTime`/`parseDate` helpers (generated only
+  when used) so a present-but-invalid or wrong-type node defaults instead of throwing `DateTimeParseException`
+  at bot launch. Missing file / missing key already defaulted via `MissingNode` + `asX(default)`. Tests:
+  `ActivityGenerationTest` compiles the generated source in-memory and loads it against missing-file /
+  missing-key / wrong-type / malformed-JSON fixtures, asserting defaults and no init crash.
+
+- **2026-07-10 — Phase 4: Community patching (fork + PR upstream).** `BotPublisher.submitPatch(projectDir,
+  origin, title, body)` forks the installed bot's origin repo (`BotSource` provenance), pushes the current
+  project snapshot onto a fresh `botmaker-patch-<ts>` branch via the same Git Data API tree-push as `publish`
+  (factored into a shared `buildTreeCommit`), and opens a PR against the origin's default branch — returning
+  the PR URL. `VcsDialog` shows a **"Submit patch…"** button only when the project has upstream provenance;
+  it prompts for a PR title, runs off the FX thread, and opens the resulting PR in the browser.
+
+- **2026-07-10 — Phase 4: Linear VCS via JGit.** New `project/vcs/ProjectVcs` — a JGit-backed, single-branch
+  (no branches) history facade per user project: `init`/`ensureInitialized` (writes `.gitignore`, initial
+  commit; lazy-migrates existing projects), `commit` (stages adds + tracked deletions, no-ops when clean),
+  `history` (newest-first, tags surfaced per commit), `tagPrivate`/`tagPublic`, and a **reflog-safe
+  `restoreTo`** (snapshots pending work, then re-lands the target commit's content as a new commit — nothing
+  lost). `ProjectCreator` inits the repo on create. UI: `ui/app/VcsDialog` (Project ▸ **Project History…**,
+  wired via `MenuBarManager.setOnShowHistory` → `UIManager`) with commit-message + Commit, Tag (private/public),
+  and Roll-back-to-selected, all off the FX thread. Dep: `org.eclipse.jgit:6.10`. Tests: `ProjectVcsTest`.
+
+- **2026-07-10 — Phase 4: Gallery listing is now opt-in.** `BotPublisher.publish(...)` takes a
+  `listInGallery` flag; when off it creates the repo + release but skips the discovery topic + index
+  submission (`galleryStatus` = "Published privately…"). `PublishDialog` adds a **"List in the public
+  gallery"** checkbox (default on) — so a private release no longer auto-lists; only an opted-in publish does.
+
+- **2026-07-10 — Phase 4: Unpublish UI.** `PublishDialog` gained an **Unpublish** button (enabled when
+  signed in; disabled while busy) that calls the already-implemented `BotPublisher.unpublish(repo)` off
+  the FX thread — delist-only (repo + releases left intact): maintainer commits the `index.json` removal
+  directly, others fork + PR it. Confirmation dialog + status surfaced from the returned outcome string.
+  Tests: `BotPublisherIndexTest` now covers `removeEntry` (drop/keep-others/no-op/case-insensitive).
+
+- **2026-07-10 — Phase 3: Pickers, palette/menus, block aesthetics & constraints.**
+  - **Declaration blocks now use the specialized pickers.** `VariableDeclarationBlock` routes a non-list
+    initializer through `PickerRegistry` keyed on the declared type — so `ImageTemplate`/`Rect`/`Point`/
+    enum declarations get their thumbnail/region/dropdown editor instead of a raw expression node (fixes
+    "ImageTemplate declaration missing picker"; the Rect region-select normalizes to the 4-int ctor so a
+    `Rect(Point,Point)` no longer sticks).
+  - **MouseButton empty-parens fix.** `EnumPicker.resolveEnum` now returns null when the resolved enum has
+    **no** constants, so an unindexable SDK enum falls back to the generic pill (preserving the value)
+    instead of rendering an empty dropdown that wipes the arg to `()`.
+  - **Menus:** the **Vision submenu is gone** (find/click/wait stay promoted flat at top; the lambda vision
+    blocks moved to Loops/Logic; `BlockCategory.VISION` retained but empty), and **Game now sits right after
+    Control** (so "Launch …" follows "Wait (ms)"). **"Add Constructor"** removed from `ClassBlock`.
+  - **ImageTemplateGroup picker** gained a **"Capture new…"** item (shared `ImageTemplatePicker.captureAndSave`).
+  - **Default non-deletable template.** `ProjectCreator` writes a generated `default_template.png` into every
+    new project's images root; `ImageTemplateLibrary.isDefaultTemplate`/`DEFAULT_TEMPLATE_PATH` guard it from
+    rename/delete in `ResourceManagerDialog`, and `BlockCatalog.DECLARE_TEMPLATE` now seeds that path so a
+    fresh `ImageTemplate` compiles immediately.
+  - **`Direction` de-duplicated:** dropped the hardcoded `DECLARE_DIRECTION` catalog block; a Direction var is
+    now declared via the generic type flow, seeded from the index-resolved first constant
+    (`InitializerFactory`) and edited with the `EnumPicker`.
+  - **break/continue placement validated.** `CodeEditorService` rejects dropping/moving a `break`/`continue`
+    outside an enclosing loop (`break` also allowed in `switch`), surfacing a `StatusMessageEvent`.
+  - **Prettier instantiation blocks** (`blocks.css`: gradient fill, soft shadow, tinted ⚙ constructor button).
+  - *Deferred (ambiguous UX, needs a design call):* per-statement-menu-element method submenus, and an
+    explicit `Rect(Point,Point)`↔`Rect(Point,Size)` overload-chooser widget (region-select already normalizes
+    to the 4-int form). "Pick all" still lives on the whole-call button only.
+
+- **2026-07-10 — Phase 2: Studio blocks aligned to the boolean/int + `VisionContext` SDK.** The SDK vision
+  API now returns `boolean`/`int` (find/click → boolean, findAll/clickAll → int) and stores the
+  `MatchResult` in `VisionContext`. Studio mirror updated:
+  - `palette/SdkApi.FACADE_CLASSES`: added **`VisionContext`** (so bots can read `getLastMatch()` etc.),
+    removed **`Screen`** (no longer a user-facing `CaptureSource` facade).
+  - New `Initializer.StaticCall` variant (+ `StatementFactory` builder) so seeded declarations can emit a
+    static call; `BlockCatalog.DECLARE_MATCH` now seeds **`VisionContext.getLastMatch()`** instead of `null`
+    (a `find(...)` seed no longer type-checks against a `MatchResult` variable).
+  - `MethodInvocationBlock`: a **`→ ReturnType` badge** on SDK call blocks (`return-type-badge` in
+    `blocks.css`), resolved from the current overload's return type so it flips `→ boolean`↔`→ int` when the
+    user switches `find`↔`findAll`. The method dropdown + class selector + ⚙ overload picker already provide
+    the find-family switching (with method-name preservation in `switchSdkClass`); `LambdaCallBlock` was
+    already on the `*Find*` names.
+
 - **2026-07-09 — Remote Pilot: VPN is now the default path; Funnel demoted to Advanced; pairing-QR + camera fixes.**
   - **VPN-default (`UIManager` bring-up split):** opening Remote Pilot now binds directly to the Tailscale
     tailnet interface (phone runs Tailscale, same account) — instant, no CLI wait, more private, zero

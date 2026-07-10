@@ -13,8 +13,9 @@ import com.botmaker.studio.palette.Initializer.DoubleLit;
 import com.botmaker.studio.palette.Initializer.EnumConst;
 import com.botmaker.studio.palette.Initializer.IntLit;
 import com.botmaker.studio.palette.Initializer.NewInstance;
-import com.botmaker.studio.palette.Initializer.NullLit;
+import com.botmaker.studio.palette.Initializer.StaticCall;
 import com.botmaker.studio.palette.Initializer.StrLit;
+import com.botmaker.studio.services.ImageTemplateLibrary;
 
 import java.util.List;
 import java.util.Optional;
@@ -88,24 +89,34 @@ public final class BlockCatalog {
             new LibraryCall("CLICK_IMAGE", "Click Image", VISION, "ImageClicker", "click", List.of());
     public static final BlockType WAIT_FOR_IMAGE =
             new LibraryCall("WAIT_FOR_IMAGE", "Wait For Image", VISION, "ImageWaiter", "waitFor", List.of());
+    // The lambda vision blocks are loop/branch constructs, so they live under Loops/Logic rather than a
+    // separate "Vision" submenu (which no longer exists — see BlockCategory.VISION).
     public static final BlockType WHILE_IMAGE_EXISTS = new LambdaCall("WHILE_IMAGE_EXISTS", "While Image Exists",
-            VISION, "ImageFinder", "whileFind", List.of(), "match");
+            LOOPS, "ImageFinder", "whileFind", List.of(), "match");
     public static final BlockType IF_IMAGE_EXISTS = new LambdaCall("IF_IMAGE_EXISTS", "If Image Exists",
-            VISION, "ImageFinder", "ifFind", List.of(), "match");
+            FLOW, "ImageFinder", "ifFind", List.of(), "match");
     public static final BlockType UNTIL_IMAGE_EXISTS = new LambdaCall("UNTIL_IMAGE_EXISTS", "Repeat Until Image Appears",
-            VISION, "ImageFinder", "untilFind", List.of(), null);
+            LOOPS, "ImageFinder", "untilFind", List.of(), null);
     public static final BlockType DECLARE_POINT = new VarDecl("DECLARE_POINT", "Point", BOT_VARIABLE, "Point", false, "p",
             new NewInstance("Point", List.of(new IntLit("0"), new IntLit("0"))));
     public static final BlockType DECLARE_RECT = new VarDecl("DECLARE_RECT", "Rect", BOT_VARIABLE, "Rect", false, "r",
             new NewInstance("Rect", List.of(new IntLit("0"), new IntLit("0"), new IntLit("0"), new IntLit("0"))));
     public static final BlockType DECLARE_SIZE = new VarDecl("DECLARE_SIZE", "Size", BOT_VARIABLE, "Size", false, "s",
             new NewInstance("Size", List.of(new IntLit("0"), new IntLit("0"))));
+    // Vision calls now return boolean/int; the MatchResult lives in VisionContext, so seed the
+    // declaration with VisionContext.getLastMatch() (always non-null) rather than a bare null.
     public static final BlockType DECLARE_MATCH =
-            new VarDecl("DECLARE_MATCH", "MatchResult", BOT_VARIABLE, "MatchResult", false, "match", new NullLit());
+            new VarDecl("DECLARE_MATCH", "MatchResult", BOT_VARIABLE, "MatchResult", false, "match",
+                    new StaticCall("VisionContext", "getLastMatch", List.of()));
+    // Seed with the built-in default template (shipped by ProjectCreator) so a freshly-declared ImageTemplate
+    // points at a real file and compiles immediately, rather than a missing "image.png".
     public static final BlockType DECLARE_TEMPLATE = new VarDecl("DECLARE_TEMPLATE", "ImageTemplate", BOT_VARIABLE,
-            "ImageTemplate", false, "template", new NewInstance("ImageTemplate", List.of(new StrLit("image.png"))));
-    public static final BlockType DECLARE_DIRECTION = new VarDecl("DECLARE_DIRECTION", "Direction", BOT_VARIABLE,
-            "Direction", false, "dir", new EnumConst("Direction", "NORTH"));
+            "ImageTemplate", false, "template",
+            new NewInstance("ImageTemplate", List.of(new StrLit(ImageTemplateLibrary.DEFAULT_TEMPLATE_PATH))));
+    // (No hardcoded DECLARE_DIRECTION block: a Direction variable is declared through the generic
+    // "declare variable → pick type Direction" flow, whose initializer is seeded dynamically from the
+    // index-resolved first enum constant (InitializerFactory) and edited via the EnumPicker — so there's a
+    // single, index-driven source of truth instead of a stale hardcoded `Direction.NORTH` duplicate.)
 
     // --- Game ---
     public static final BlockType LAUNCH_GAME = new LibraryCall("LAUNCH_GAME", "Launch Program", GAME,
@@ -126,7 +137,7 @@ public final class BlockCatalog {
             FUNCTION_CALL, METHOD_DECLARATION, DECLARE_ENUM,
             FIND_IMAGE, CLICK_IMAGE, WAIT_FOR_IMAGE,
             WHILE_IMAGE_EXISTS, IF_IMAGE_EXISTS, UNTIL_IMAGE_EXISTS,
-            DECLARE_POINT, DECLARE_RECT, DECLARE_SIZE, DECLARE_MATCH, DECLARE_TEMPLATE, DECLARE_DIRECTION,
+            DECLARE_POINT, DECLARE_RECT, DECLARE_SIZE, DECLARE_MATCH, DECLARE_TEMPLATE,
             LAUNCH_GAME, LAUNCH_STEAM_GAME,
             COMMENT);
 

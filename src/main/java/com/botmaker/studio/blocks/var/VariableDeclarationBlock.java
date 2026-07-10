@@ -9,6 +9,8 @@ import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.ui.render.layout.BlockLayout;
 import com.botmaker.studio.ui.render.components.LayoutComponents;
 import com.botmaker.studio.ui.render.components.TextFieldComponents;
+import com.botmaker.studio.ui.render.components.pickers.PickerContext;
+import com.botmaker.studio.ui.render.components.pickers.PickerRegistry;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import javafx.scene.Node;
@@ -57,7 +59,12 @@ public class VariableDeclarationBlock extends AbstractStatementBlock {
             } else if (initializer.getAstNode() instanceof ArrayInitializer) {
                 initNode = createListDisplay(context);
             } else {
-                initNode = initializer.getUINode(context);
+                // Route the initializer through the same specialized pickers used for call arguments, keyed on
+                // the declared variable type — so `ImageTemplate t = new ImageTemplate(...)`, `Rect r = ...`,
+                // `Point p = ...`, `Direction d = ...` get their thumbnail/region/enum editor instead of a raw
+                // expression node. Falls back to the generic node when no picker matches.
+                Node picker = PickerRegistry.pickerNodeFor(PickerContext.of(context, initializer, varType));
+                initNode = picker != null ? picker : initializer.getUINode(context);
             }
         } else {
             initNode = createExpressionDropZone(context);

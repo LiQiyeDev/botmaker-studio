@@ -17,7 +17,6 @@ import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
-import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 
@@ -50,14 +49,13 @@ public class ProjectSelectionScreen {
 
     private final Stage stage;
     private ListView<Row> projectListView;
-    private CheckBox showArchivedCheckbox;
     private CheckBox myProjectsCheckbox;
     private ComboBox<SortMode> sortCombo;
     private Button openButton;
     private Button createButton;
     private Button galleryButton;
     private Button archiveButton;
-    private Button restoreButton;
+    private Button archivedButton;
 
     /** Where a project came from, derived from its provenance + the signed-in login. */
     private enum Ownership { LOCAL, MINE, IMPORTED }
@@ -125,9 +123,9 @@ public class ProjectSelectionScreen {
         archiveButton.setPrefWidth(110);
         archiveButton.setOnAction(e -> archiveSelectedProject());
 
-        restoreButton = new Button("Restore");
-        restoreButton.setPrefWidth(110);
-        restoreButton.setOnAction(e -> restoreSelectedProject());
+        archivedButton = new Button("View Archived…");
+        archivedButton.setPrefWidth(130);
+        archivedButton.setOnAction(e -> showArchivedProjects());
 
         sortCombo = new ComboBox<>();
         sortCombo.getItems().setAll(SortMode.values());
@@ -140,20 +138,16 @@ public class ProjectSelectionScreen {
         myProjectsCheckbox.setDisable(!gitHubAuth.isAuthenticated());
         myProjectsCheckbox.selectedProperty().addListener((o, was, now) -> rebuildRows());
 
-        showArchivedCheckbox = new CheckBox("Show archived projects");
-        showArchivedCheckbox.setStyle("-fx-text-fill: #666; -fx-font-size: 11px;");
-        showArchivedCheckbox.selectedProperty().addListener((o, was, now) -> updateMode());
-
         projectListView.setOnMouseClicked(e -> {
-            if (e.getClickCount() == 2 && !showArchivedCheckbox.isSelected()) {
+            if (e.getClickCount() == 2) {
                 openSelectedProject();
             }
         });
 
-        HBox sortRow = new HBox(10, new Label("Sort:"), sortCombo, myProjectsCheckbox, showArchivedCheckbox);
+        HBox sortRow = new HBox(10, new Label("Sort:"), sortCombo, myProjectsCheckbox);
         sortRow.setAlignment(Pos.CENTER_LEFT);
 
-        HBox buttonBox = new HBox(10, openButton, createButton, galleryButton, archiveButton, restoreButton);
+        HBox buttonBox = new HBox(10, openButton, createButton, galleryButton, archiveButton, archivedButton);
         buttonBox.setAlignment(Pos.CENTER);
 
         VBox footer = new VBox(15, sortRow, buttonBox);
@@ -164,7 +158,7 @@ public class ProjectSelectionScreen {
         root.setTop(header);
         root.setCenter(center);
 
-        updateMode();
+        rebuildRows();
 
         return new Scene(root, 620, 600);
     }
@@ -277,10 +271,7 @@ public class ProjectSelectionScreen {
      */
     private void rebuildRows() {
         if (projectListView == null) return;
-        boolean archived = showArchivedCheckbox != null && showArchivedCheckbox.isSelected();
-        List<ProjectInfo> projects = archived
-                ? projectManager.listArchivedProjects()
-                : projectManager.listProjects();
+        List<ProjectInfo> projects = projectManager.listProjects();
 
         boolean mineOnly = myProjectsCheckbox != null && myProjectsCheckbox.isSelected();
         List<ProjectRow> local = new ArrayList<>();
@@ -329,23 +320,12 @@ public class ProjectSelectionScreen {
         rebuildRows();
     }
 
-    /** Swaps which actions are available depending on whether the archived view is showing. */
-    private void updateMode() {
-        boolean archived = showArchivedCheckbox.isSelected();
-        setShown(openButton, !archived);
-        setShown(createButton, !archived);
-        setShown(galleryButton, !archived);
-        setShown(archiveButton, !archived);
-        setShown(restoreButton, archived);
-        rebuildRows();
-    }
-
     private void archiveSelectedProject() {
         ProjectInfo selected = selectedProject();
         if (selected == null) return;
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
                 "Archive “" + selected.name() + "”?\n\nIt will be moved to the archive and hidden from "
-                        + "the project list. You can restore it later via “Show archived projects”.",
+                        + "the project list. You can restore or permanently delete it later via “View Archived…”.",
                 ButtonType.OK, ButtonType.CANCEL);
         confirm.initOwner(stage);
         confirm.setHeaderText("Archive this project?");
@@ -359,15 +339,9 @@ public class ProjectSelectionScreen {
         }
     }
 
-    private void restoreSelectedProject() {
-        ProjectInfo selected = selectedProject();
-        if (selected == null) return;
-        try {
-            projectManager.restoreProject(selected.name());
-            rebuildRows();
-        } catch (Exception ex) {
-            error("Failed to restore project", ex.getMessage());
-        }
+    /** Opens the dedicated archived-projects page (restore / permanent delete), refreshing on any change. */
+    private void showArchivedProjects() {
+        new ArchivedProjectsDialog(stage, projectManager, this::rebuildRows).show();
     }
 
     // -------------------------------------------------------------------------
@@ -556,11 +530,6 @@ public class ProjectSelectionScreen {
         } catch (Exception e) {
             error("Failed to create project", e.getMessage());
         }
-    }
-
-    private static void setShown(Region node, boolean shown) {
-        node.setVisible(shown);
-        node.setManaged(shown);
     }
 
     private void error(String header, String body) {

@@ -62,6 +62,13 @@ public final class SteamLibraryScanner implements GameLibraryProvider {
         return games;
     }
 
+    /** The installed game with this appId (name + local cover art), or empty if it isn't installed. */
+    public java.util.Optional<InstalledGame> findById(String appId) {
+        if (appId == null || appId.isBlank()) return java.util.Optional.empty();
+        String id = appId.trim();
+        return installedGames().stream().filter(g -> id.equals(g.id())).findFirst();
+    }
+
     private static boolean isAppManifest(Path p) {
         String n = p.getFileName().toString();
         return n.startsWith("appmanifest_") && n.endsWith(".acf");

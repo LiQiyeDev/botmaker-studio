@@ -21,6 +21,20 @@ public final class ImageTemplateLibrary {
 
     private ImageTemplateLibrary() {}
 
+    /** File name of the built-in default template shipped in every new project (see {@code ProjectCreator}). */
+    public static final String DEFAULT_TEMPLATE_FILE = "default_template.png";
+
+    /**
+     * Project-root-relative path a fresh {@code new ImageTemplate(...)} references so a newly-dropped vision
+     * block compiles immediately against a real (if placeholder) template rather than a missing file.
+     */
+    public static final String DEFAULT_TEMPLATE_PATH = "src/main/resources/images/" + DEFAULT_TEMPLATE_FILE;
+
+    /** True when {@code file} is the project's built-in default template (protected from rename/delete). */
+    public static boolean isDefaultTemplate(Path file) {
+        return file != null && file.getFileName().toString().equalsIgnoreCase(DEFAULT_TEMPLATE_FILE);
+    }
+
     /** All saved template PNGs, sorted by file name. */
     public static List<Path> list(ProjectConfig config) {
         Path dir = config.imagesRoot();

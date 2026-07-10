@@ -1,5 +1,7 @@
 package com.botmaker.studio.project;
 
+import com.botmaker.studio.project.vcs.ProjectVcs;
+import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.MavenService;
 
 import java.io.IOException;
@@ -55,6 +57,12 @@ public class ProjectCreator {
             Files.createDirectories(srcPath);
             createMainJavaFile(srcPath, projectName, cfg.packageName());
 
+            // 4. Built-in default image template so freshly-dropped vision blocks reference a real file.
+            createDefaultTemplate(cfg.imagesRoot());
+
+            // 5. Initialize local project history (linear VCS) with an initial commit.
+            new ProjectVcs(projectPath).init();
+
             System.out.println("------------------------------------------------");
             System.out.println("SUCCESS: Project created at " + projectPath);
             System.out.println("------------------------------------------------");
@@ -78,6 +86,27 @@ public class ProjectCreator {
             """, packageName, projectName, projectName);
 
         Files.writeString(srcPath.resolve(projectName + ".java"), content);
+    }
+
+    /**
+     * Writes a small placeholder PNG at {@code <imagesRoot>/default_template.png}. It is intentionally a
+     * generated checker pattern (not a bundled asset) so there's nothing to ship; the Resource Manager marks
+     * it undeletable and new vision blocks default to it, guaranteeing a fresh project compiles.
+     */
+    private void createDefaultTemplate(Path imagesRoot) throws IOException {
+        Files.createDirectories(imagesRoot);
+        Path target = imagesRoot.resolve(ImageTemplateLibrary.DEFAULT_TEMPLATE_FILE);
+        if (Files.exists(target)) return;
+        int size = 32;
+        java.awt.image.BufferedImage img =
+                new java.awt.image.BufferedImage(size, size, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        for (int y = 0; y < size; y++) {
+            for (int x = 0; x < size; x++) {
+                boolean on = ((x / 8) + (y / 8)) % 2 == 0;
+                img.setRGB(x, y, on ? 0xFF1ABC9C : 0xFFECF0F1);
+            }
+        }
+        javax.imageio.ImageIO.write(img, "png", target.toFile());
     }
 
     public boolean projectExists(String projectName) {

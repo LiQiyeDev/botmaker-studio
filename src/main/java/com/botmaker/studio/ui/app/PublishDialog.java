@@ -13,11 +13,14 @@ import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
+import javafx.scene.control.ButtonType;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressIndicator;
 import javafx.scene.control.TextField;
+import javafx.scene.control.Tooltip;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -31,6 +34,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
@@ -53,6 +57,7 @@ public class PublishDialog {
     private Stage stage;
     private GitHubAccountBar accountBar;
     private final Button publishButton = new Button("Publish");
+    private final Button unpublishButton = new Button("Unpublish");
     private final Label statusLabel = new Label();
     private final ProgressIndicator progress = new ProgressIndicator();
 
@@ -60,6 +65,7 @@ public class PublishDialog {
     private final TextField descriptionField = new TextField();
     private final ComboBox<String> versionCombo = new ComboBox<>();
     private final TextField tagsField = new TextField();
+    private final CheckBox listInGalleryCheck = new CheckBox("List in the public gallery");
 
     /** The repo's latest published release tag (""=none); each new version must be strictly greater. */
     private volatile String latestTag = "";
@@ -98,6 +104,9 @@ public class PublishDialog {
         repoField.setText(projectName);
         descriptionField.setPromptText("Short description shown in the gallery");
         tagsField.setPromptText("Comma-separated tags (e.g. clicker, farming)");
+        listInGalleryCheck.setSelected(true);
+        listInGalleryCheck.setTooltip(new Tooltip(
+                "When off, the release is published to your GitHub repo but not listed for others to discover."));
         versionCombo.setEditable(true);
         versionCombo.setValue(SemVer.FIRST);
         versionCombo.setMaxWidth(Double.MAX_VALUE);
@@ -132,6 +141,8 @@ public class PublishDialog {
 
     /** Publish is enabled only when signed in AND the chosen version is valid and beats the last release. */
     private void refreshPublishEnabled() {
+        // Unpublish only needs a signed-in account (it operates on the repo name, not the version).
+        unpublishButton.setDisable(!auth.isAuthenticated());
         if (!auth.isAuthenticated()) {
             publishButton.setDisable(true);
             return;
@@ -202,6 +213,7 @@ public class PublishDialog {
         g.addRow(1, new Label("Description:"), descriptionField);
         g.addRow(2, new Label("Version (tag):"), versionCombo);
         g.addRow(3, new Label("Tags:"), tagsField);
+        g.add(listInGalleryCheck, 1, 4);
         GridPane.setHgrow(repoField, Priority.ALWAYS);
         GridPane.setHgrow(descriptionField, Priority.ALWAYS);
         GridPane.setHgrow(versionCombo, Priority.ALWAYS);
@@ -213,13 +225,15 @@ public class PublishDialog {
         statusLabel.setStyle("-fx-text-fill: #444;");
         publishButton.setDefaultButton(true);
         publishButton.setOnAction(e -> doPublish());
+        // Delist-only: leaves the author's repo + releases intact, removes the bot from gallery discovery.
+        unpublishButton.setOnAction(e -> doUnpublish());
 
         Button close = new Button("Close");
         close.setOnAction(e -> stage.close());
 
         HBox spacer = new HBox();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox bar = new HBox(10, progress, spacer, close, publishButton);
+        HBox bar = new HBox(10, progress, spacer, unpublishButton, close, publishButton);
         bar.setAlignment(Pos.CENTER_LEFT);
 
         return new VBox(8, statusLabel, bar);
@@ -230,6 +244,7 @@ public class PublishDialog {
         String version = currentVersion();
         String description = descriptionField.getText() == null ? "" : descriptionField.getText().trim();
         List<String> tags = parseTags(tagsField.getText());
+        boolean listInGallery = listInGalleryCheck.isSelected();
         if (repo.isBlank()) {
             statusLabel.setText("Repository name is required.");
             return;
@@ -244,7 +259,8 @@ public class PublishDialog {
         CompletableFuture
                 .supplyAsync(() -> {
                     try {
-                        return publisher.publish(projectDir, projectName, repo, description, version, tags);
+                        return publisher.publish(projectDir, projectName, repo, description, version, tags,
+                                listInGallery);
                     } catch (Exception ex) {
                         throw new RuntimeException(ex.getMessage(), ex);
                     }
@@ -258,6 +274,42 @@ public class PublishDialog {
                         showResult(result);
                         seedVersions(result.tag()); // the just-published tag becomes the new baseline
                     }
+                }));
+    }
+
+    /**
+     * Delists the current bot from the gallery index (reverse of publish's gallery submission). The author's
+     * GitHub repo + releases are left intact — this only removes it from discovery. Runs off the FX thread.
+     */
+    private void doUnpublish() {
+        String repo = repoField.getText() == null ? "" : repoField.getText().trim();
+        if (repo.isBlank()) {
+            statusLabel.setText("Repository name is required.");
+            return;
+        }
+
+        Alert confirm = new Alert(Alert.AlertType.WARNING,
+                "Remove “" + repo + "” from the gallery? Your GitHub repo and releases stay intact — "
+                        + "this only delists it from discovery.",
+                ButtonType.OK, ButtonType.CANCEL);
+        confirm.initOwner(stage);
+        confirm.setHeaderText("Unpublish from the gallery?");
+        Optional<ButtonType> choice = confirm.showAndWait();
+        if (choice.isEmpty() || choice.get() != ButtonType.OK) return;
+
+        setBusy(true);
+        statusLabel.setText("Unpublishing…");
+        CompletableFuture
+                .supplyAsync(() -> {
+                    try {
+                        return publisher.unpublish(repo);
+                    } catch (Exception ex) {
+                        throw new RuntimeException(ex.getMessage(), ex);
+                    }
+                })
+                .whenComplete((status, err) -> Platform.runLater(() -> {
+                    setBusy(false);
+                    statusLabel.setText(err != null ? "Unpublish failed: " + rootMessage(err) : status);
                 }));
     }
 
@@ -288,10 +340,12 @@ public class PublishDialog {
     private void setBusy(boolean busy) {
         progress.setVisible(busy);
         publishButton.setDisable(busy || !auth.isAuthenticated());
+        unpublishButton.setDisable(busy || !auth.isAuthenticated());
         repoField.setDisable(busy);
         descriptionField.setDisable(busy);
         versionCombo.setDisable(busy);
         tagsField.setDisable(busy);
+        listInGalleryCheck.setDisable(busy);
     }
 
     // -------------------------------------------------------------------------

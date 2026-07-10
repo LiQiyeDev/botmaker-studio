@@ -1,12 +1,14 @@
 package com.botmaker.studio.project;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -93,6 +95,29 @@ public class ProjectManager {
             throw new IOException("A project named '" + name + "' already exists.");
         }
         Files.move(source, dest);
+    }
+
+    /**
+     * Permanently deletes an archived project (recursively removes its directory under
+     * {@link com.botmaker.studio.config.Constants#ARCHIVE_ROOT ARCHIVE_ROOT}). Only archived projects can be
+     * hard-deleted; live projects must be archived first, keeping the destructive action one step removed.
+     */
+    public void deleteProject(String name) throws IOException {
+        Path dir = ARCHIVE_ROOT.resolve(name);
+        if (!Files.exists(dir)) {
+            throw new IOException("Archived project '" + name + "' does not exist.");
+        }
+        try (Stream<Path> walk = Files.walk(dir)) {
+            walk.sorted(Comparator.reverseOrder()).forEach(p -> {
+                try {
+                    Files.deleteIfExists(p);
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            });
+        } catch (UncheckedIOException e) {
+            throw e.getCause();
+        }
     }
 
     /**

@@ -16,15 +16,21 @@ public final class SdkApi {
 
     private SdkApi() {}
 
-    /** Ordered for the class dropdown: vision first (the common bot actions), then interaction/capture. */
+    /**
+     * Ordered for the class dropdown: vision first (the common bot actions), then interaction.
+     *
+     * <p>{@code VisionContext} exposes the {@code MatchResult} stored by the last find/click/wait call
+     * (the vision API returns {@code boolean}/{@code int} now, not {@code MatchResult}). {@code Screen}
+     * is intentionally absent — it is no longer a user-facing {@code CaptureSource} facade.
+     */
     public static final List<String> FACADE_CLASSES = List.of(
             "ImageFinder",
             "ImageClicker",
             "ImageWaiter",
+            "VisionContext",
             "ClickConfig",
             "Mouse",
             "Wait",
-            "Screen",
             "Game");
 
     private static final Set<String> FACADE_SET = Set.copyOf(FACADE_CLASSES);

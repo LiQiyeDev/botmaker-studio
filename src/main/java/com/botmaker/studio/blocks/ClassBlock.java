@@ -93,14 +93,8 @@ public class ClassBlock extends AbstractCodeBlock implements BlockWithChildren {
         javafx.scene.layout.HBox toolbar = new javafx.scene.layout.HBox(10);
         toolbar.setAlignment(Pos.CENTER_LEFT);
 
-        Button addConstructorBtn = new Button("+ Add Constructor");
-        addConstructorBtn.setStyle(
-                "-fx-background-color: #27AE60; -fx-text-fill: white; -fx-font-weight: bold; -fx-cursor: hand;"
-        );
-        addConstructorBtn.setOnAction(e -> {
-            context.getCodeEditor().addConstructorToClass((TypeDeclaration) this.astNode);
-        });
-
+        // "Add Constructor" is intentionally hidden — the bot's generated class has no user-authored
+        // constructors, and exposing one only invites broken generated code. Keep only "Add Function".
         Button addMethodBtn = new Button("+ Add Function");
         addMethodBtn.setStyle(
                 "-fx-background-color: #8E44AD; -fx-text-fill: white; -fx-font-weight: bold; -fx-cursor: hand;"
@@ -114,7 +108,7 @@ public class ClassBlock extends AbstractCodeBlock implements BlockWithChildren {
             );
         });
 
-        toolbar.getChildren().addAll(addConstructorBtn, addMethodBtn);
+        toolbar.getChildren().add(addMethodBtn);
         return toolbar;
     }
 

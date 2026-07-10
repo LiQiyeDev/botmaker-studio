@@ -57,4 +57,50 @@ class BotPublisherIndexTest {
         Map<String, Object>[] entries = mapper.readValue(out, Map[].class);
         assertEquals(2, entries.length);
     }
+
+    @Test
+    void removeEntryDropsTheMatchingSlug() throws Exception {
+        String existing = """
+                [ {"name":"Koala","owner":"alice","repo":"Koala","description":"k","tags":[]} ]
+                """;
+        byte[] out = BotPublisher.removeEntry(mapper, existing.getBytes(), "alice/Koala");
+
+        Map<String, Object>[] entries = mapper.readValue(out, Map[].class);
+        assertEquals(0, entries.length);
+    }
+
+    @Test
+    void removeEntryKeepsOtherEntries() throws Exception {
+        String existing = """
+                [ {"name":"Farmer","owner":"bob","repo":"Farmer","description":"f","tags":[]},
+                  {"name":"Koala","owner":"alice","repo":"Koala","description":"k","tags":[]} ]
+                """;
+        byte[] out = BotPublisher.removeEntry(mapper, existing.getBytes(), "alice/Koala");
+
+        Map<String, Object>[] entries = mapper.readValue(out, Map[].class);
+        assertEquals(1, entries.length);
+        assertEquals("bob/Farmer", entries[0].get("owner") + "/" + entries[0].get("repo"));
+    }
+
+    @Test
+    void removeEntryIsNoOpWhenSlugAbsent() throws Exception {
+        String existing = """
+                [ {"name":"Farmer","owner":"bob","repo":"Farmer","description":"f","tags":[]} ]
+                """;
+        byte[] out = BotPublisher.removeEntry(mapper, existing.getBytes(), "alice/Koala");
+
+        Map<String, Object>[] entries = mapper.readValue(out, Map[].class);
+        assertEquals(1, entries.length);
+    }
+
+    @Test
+    void removeEntryMatchesSlugCaseInsensitively() throws Exception {
+        String existing = """
+                [ {"name":"Koala","owner":"Alice","repo":"Koala","description":"k","tags":[]} ]
+                """;
+        byte[] out = BotPublisher.removeEntry(mapper, existing.getBytes(), "alice/koala");
+
+        Map<String, Object>[] entries = mapper.readValue(out, Map[].class);
+        assertEquals(0, entries.length);
+    }
 }

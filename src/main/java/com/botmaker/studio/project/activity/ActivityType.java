@@ -30,15 +30,13 @@ public enum ActivityType {
         public JsonNode defaultValue() { return FACTORY.textNode(""); }
     },
     TIME("Time of day", "java.time.LocalTime", ResolvedType.named("java.time.LocalTime")) {
-        public String loadExpression(String node) {
-            return "java.time.LocalTime.parse(" + node + ".asText(\"00:00\"))";
-        }
+        // Defensive: parse via a generated helper so a present-but-invalid/wrong-type node can't
+        // throw at bot startup (see ActivityService.generateSource → parseTime).
+        public String loadExpression(String node) { return "parseTime(" + node + ")"; }
         public JsonNode defaultValue() { return FACTORY.textNode("00:00"); }
     },
     DATE("Date", "java.time.LocalDate", ResolvedType.named("java.time.LocalDate")) {
-        public String loadExpression(String node) {
-            return "java.time.LocalDate.parse(" + node + ".asText(\"2000-01-01\"))";
-        }
+        public String loadExpression(String node) { return "parseDate(" + node + ")"; }
         public JsonNode defaultValue() { return FACTORY.textNode("2000-01-01"); }
     };
 

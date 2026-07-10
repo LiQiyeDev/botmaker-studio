@@ -157,6 +157,14 @@ public class StatementFactory {
                 ImportManager.addImportForSimpleName(cu, rewriter, e.typeName(), analyzer, null);
                 yield ast.newQualifiedName(ast.newSimpleName(e.typeName()), ast.newSimpleName(e.constant()));
             }
+            case Initializer.StaticCall c -> {
+                ImportManager.addImportForSimpleName(cu, rewriter, c.typeName(), analyzer, null);
+                MethodInvocation mi = ast.newMethodInvocation();
+                mi.setExpression(ast.newSimpleName(c.typeName()));
+                mi.setName(ast.newSimpleName(c.methodName()));
+                for (Initializer arg : c.args()) mi.arguments().add(buildExpression(ast, arg, cu, rewriter, analyzer));
+                yield mi;
+            }
         };
     }
 

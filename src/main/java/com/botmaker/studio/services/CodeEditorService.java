@@ -13,6 +13,7 @@ import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.state.HistoryManager;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
+import com.botmaker.studio.palette.BlockCatalog;
 import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.palette.SdkDocs;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
@@ -25,7 +26,14 @@ import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
 import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.jdt.core.dom.BodyDeclaration;
+import org.eclipse.jdt.core.dom.BreakStatement;
+import org.eclipse.jdt.core.dom.ContinueStatement;
+import org.eclipse.jdt.core.dom.DoStatement;
+import org.eclipse.jdt.core.dom.EnhancedForStatement;
+import org.eclipse.jdt.core.dom.ForStatement;
+import org.eclipse.jdt.core.dom.SwitchStatement;
 import org.eclipse.jdt.core.dom.TypeDeclaration;
+import org.eclipse.jdt.core.dom.WhileStatement;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -108,6 +116,12 @@ public class CodeEditorService {
     private void handleBlockDrop(DropInfo info) {
         BlockType type = info.type();
         if (info.targetBody() != null && type.isStatement()) {
+            boolean isBreak = type == BlockCatalog.BREAK;
+            boolean isContinue = type == BlockCatalog.CONTINUE;
+            if ((isBreak || isContinue) && !placementAllowsJump(info.targetBody(), isBreak)) {
+                rejectJumpPlacement(isBreak);
+                return;
+            }
             codeEditor.addStatement(info.targetBody(), type, info.insertionIndex());
         } else if (info.targetClass() != null && type.isClassMember()) {
             TypeDeclaration typeDecl = (TypeDeclaration) info.targetClass().getAstNode();
@@ -121,6 +135,29 @@ public class CodeEditorService {
         }
     }
 
+    /**
+     * A {@code break}/{@code continue} may only live inside the body of an enclosing loop (and {@code break}
+     * additionally inside a {@code switch}). Walks the AST ancestry of the drop target's body to confirm an
+     * eligible enclosing statement exists — otherwise the generated bot wouldn't compile.
+     */
+    private static boolean placementAllowsJump(BodyBlock targetBody, boolean isBreak) {
+        for (ASTNode n = targetBody.getAstNode(); n != null; n = n.getParent()) {
+            if (n instanceof WhileStatement || n instanceof DoStatement
+                    || n instanceof ForStatement || n instanceof EnhancedForStatement) {
+                return true;
+            }
+            if (isBreak && n instanceof SwitchStatement) return true;
+        }
+        return false;
+    }
+
+    private void rejectJumpPlacement(boolean isBreak) {
+        String jump = isBreak ? "Break" : "Continue";
+        String where = isBreak ? "a loop or switch" : "a loop";
+        eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(
+                jump + " can only be placed inside " + where + "."));
+    }
+
     /** Resolves an existing-block drop (by id) into the matching CodeEditor "move" call. */
     private void handleBlockMove(MoveBlockInfo info) {
         CodeBlock block = findBlockById(info.blockId());
@@ -128,6 +165,13 @@ public class CodeEditorService {
 
         if (info.targetBody() != null) {
             if (block instanceof StatementBlock stmt) {
+                ASTNode moved = stmt.getAstNode();
+                boolean isBreak = moved instanceof BreakStatement;
+                boolean isContinue = moved instanceof ContinueStatement;
+                if ((isBreak || isContinue) && !placementAllowsJump(info.targetBody(), isBreak)) {
+                    rejectJumpPlacement(isBreak);
+                    return;
+                }
                 BodyBlock sourceBody = findParentBody(stmt, state.getNodeToBlockMap());
                 if (sourceBody != null) {
                     codeEditor.moveStatement(stmt, sourceBody, info.targetBody(), info.insertionIndex());

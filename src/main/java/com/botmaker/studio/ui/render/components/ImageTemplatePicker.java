@@ -101,6 +101,16 @@ public final class ImageTemplatePicker {
     }
 
     private static void captureNewTemplate(CodeEditorService context, ExpressionBlock arg, Node anchor) {
+        captureAndSave(context, anchor, path -> applyTemplate(context, arg, path));
+    }
+
+    /**
+     * Shared "Capture new…" flow: drag a screen region, prompt for a name, save it under the project's
+     * images root, then hand the project-relative path to {@code onSaved} (on the FX thread). Used by both
+     * the single {@link ImageTemplatePicker} and the multi-template group picker so both offer capture.
+     */
+    public static void captureAndSave(CodeEditorService context, Node anchor,
+                                      java.util.function.Consumer<String> onSaved) {
         ProjectConfig config = context.getConfig();
         Window owner = anchor.getScene() != null ? anchor.getScene().getWindow() : null;
         screenCapture(context).captureRegion(owner, img -> Platform.runLater(() -> {
@@ -114,7 +124,7 @@ public final class ImageTemplatePicker {
                     .filter(s -> !s.isBlank());
             if (name.isEmpty()) return;
             try {
-                applyTemplate(context, arg, saveTemplate(config, img, name.get()));
+                onSaved.accept(saveTemplate(config, img, name.get()));
             } catch (IOException ex) {
                 Alert error = new Alert(Alert.AlertType.ERROR, "Failed to save template: " + ex.getMessage());
                 error.initOwner(owner);

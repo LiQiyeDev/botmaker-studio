@@ -29,6 +29,7 @@ public class MenuBarManager {
     private Runnable onManageResources;
     private Runnable onBrowseGallery;
     private Runnable onPublishGallery;
+    private Runnable onShowHistory;
     private EventBus eventBus;
     private MenuItem undoItem;
     private MenuItem redoItem;
@@ -197,6 +198,11 @@ public class MenuBarManager {
             if (onManageResources != null) onManageResources.run();
         });
 
+        MenuItem historyItem = new MenuItem("Project History...");
+        historyItem.setOnAction(e -> {
+            if (onShowHistory != null) onShowHistory.run();
+        });
+
         MenuItem browseGalleryItem = new MenuItem("Browse Gallery...");
         browseGalleryItem.setOnAction(e -> {
             if (onBrowseGallery != null) onBrowseGallery.run();
@@ -218,6 +224,7 @@ public class MenuBarManager {
                 manageLibrariesItem, manageImportsItem, new SeparatorMenuItem(),
                 manageActivitiesItem, setActivityValuesItem, manageResourcesItem,
                 new SeparatorMenuItem(),
+                historyItem, new SeparatorMenuItem(),
                 browseGalleryItem, publishGalleryItem, new SeparatorMenuItem(),
                 projectRepoItem);
         return projectMenu;
@@ -524,5 +531,12 @@ public class MenuBarManager {
      */
     public void setOnPublishGallery(Runnable callback) {
         this.onPublishGallery = callback;
+    }
+
+    /**
+     * Sets the callback for when "Project History..." is clicked
+     */
+    public void setOnShowHistory(Runnable callback) {
+        this.onShowHistory = callback;
     }
 }
