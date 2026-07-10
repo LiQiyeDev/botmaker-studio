@@ -89,11 +89,11 @@ public final class BlockCatalog {
     public static final BlockType WAIT_FOR_IMAGE =
             new LibraryCall("WAIT_FOR_IMAGE", "Wait For Image", VISION, "ImageWaiter", "waitFor", List.of());
     public static final BlockType WHILE_IMAGE_EXISTS = new LambdaCall("WHILE_IMAGE_EXISTS", "While Image Exists",
-            VISION, "ImageFinder", "whileExists", List.of(), "match");
+            VISION, "ImageFinder", "whileFind", List.of(), "match");
     public static final BlockType IF_IMAGE_EXISTS = new LambdaCall("IF_IMAGE_EXISTS", "If Image Exists",
-            VISION, "ImageFinder", "ifExists", List.of(), "match");
+            VISION, "ImageFinder", "ifFind", List.of(), "match");
     public static final BlockType UNTIL_IMAGE_EXISTS = new LambdaCall("UNTIL_IMAGE_EXISTS", "Repeat Until Image Appears",
-            VISION, "ImageFinder", "untilExists", List.of(), null);
+            VISION, "ImageFinder", "untilFind", List.of(), null);
     public static final BlockType DECLARE_POINT = new VarDecl("DECLARE_POINT", "Point", BOT_VARIABLE, "Point", false, "p",
             new NewInstance("Point", List.of(new IntLit("0"), new IntLit("0"))));
     public static final BlockType DECLARE_RECT = new VarDecl("DECLARE_RECT", "Rect", BOT_VARIABLE, "Rect", false, "r",

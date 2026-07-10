@@ -27,7 +27,7 @@ import java.util.List;
 /**
  * A body-carrying block for a facade "lambda call" — {@code Class.method(image, m -> { … })}. It renders like a
  * loop: a plain-English header with a fillable image slot plus an indented, droppable body (the lambda body).
- * Backs the {@code ImageFinder.whileExists/ifExists/untilExists} vision helpers <em>and their {@code …Any}/
+ * Backs the {@code ImageFinder.whileFind/ifFind/untilFind} vision helpers <em>and their {@code …Any}/
  * {@code …All} group variants</em>. A ⚙ overload picker switches between the single / any / all forms — which
  * rewrites the method, swaps the image slot between a single {@code ImageTemplate} and an
  * {@code ImageTemplateGroup} (engaging the multi-image group picker), and fixes the lambda parameter
@@ -40,15 +40,15 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
     private record Variant(String method, boolean group, boolean hasParam, String label) {}
 
     private static final List<Variant> VARIANTS = List.of(
-            new Variant("whileExists", false, true, "while image is visible"),
-            new Variant("whileExistsAny", true, true, "while ANY image is visible"),
-            new Variant("whileExistsAll", true, false, "while ALL images are visible"),
-            new Variant("ifExists", false, true, "if image is visible"),
-            new Variant("ifExistsAny", true, true, "if ANY image is visible"),
-            new Variant("ifExistsAll", true, false, "if ALL images are visible"),
-            new Variant("untilExists", false, false, "until image appears"),
-            new Variant("untilExistsAny", true, false, "until ANY image appears"),
-            new Variant("untilExistsAll", true, false, "until ALL images appear"));
+            new Variant("whileFind", false, true, "while image is visible"),
+            new Variant("whileFindAny", true, true, "while ANY image is visible"),
+            new Variant("whileFindAll", true, false, "while ALL images are visible"),
+            new Variant("ifFind", false, true, "if image is visible"),
+            new Variant("ifFindAny", true, true, "if ANY image is visible"),
+            new Variant("ifFindAll", true, false, "if ALL images are visible"),
+            new Variant("untilFind", false, false, "until image appears"),
+            new Variant("untilFindAny", true, false, "until ANY image appears"),
+            new Variant("untilFindAll", true, false, "until ALL images appear"));
 
     private final String method;
     private ExpressionBlock image;
@@ -161,29 +161,29 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
     }
 
     private static String familyOf(String method) {
-        if (method.startsWith("whileExists")) return "whileExists";
-        if (method.startsWith("ifExists")) return "ifExists";
-        if (method.startsWith("untilExists")) return "untilExists";
+        if (method.startsWith("whileFind")) return "whileFind";
+        if (method.startsWith("ifFind")) return "ifFind";
+        if (method.startsWith("untilFind")) return "untilFind";
         return method;
     }
 
     private static String prefixFor(String method) {
         return switch (familyOf(method)) {
-            case "whileExists" -> "while";
-            case "ifExists" -> "if";
-            case "untilExists" -> "repeat until";
+            case "whileFind" -> "while";
+            case "ifFind" -> "if";
+            case "untilFind" -> "repeat until";
             default -> method + " (";
         };
     }
 
     private static String suffixFor(String method) {
         return switch (method) {
-            case "whileExists", "ifExists" -> "is visible";
-            case "whileExistsAny", "ifExistsAny" -> "(any) is visible";
-            case "whileExistsAll", "ifExistsAll" -> "(all) are visible";
-            case "untilExists" -> "appears";
-            case "untilExistsAny" -> "(any) appears";
-            case "untilExistsAll" -> "(all) appear";
+            case "whileFind", "ifFind" -> "is visible";
+            case "whileFindAny", "ifFindAny" -> "(any) is visible";
+            case "whileFindAll", "ifFindAll" -> "(all) are visible";
+            case "untilFind" -> "appears";
+            case "untilFindAny" -> "(any) appears";
+            case "untilFindAll" -> "(all) appear";
             default -> ")";
         };
     }

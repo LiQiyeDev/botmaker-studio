@@ -12,7 +12,7 @@ import java.util.List;
  * {@code Class.method(leadingArgs…, param -> { … })}. This is the single place a
  * {@link LambdaExpression} argument is <em>constructed</em> (codegen) or <em>decoded</em>
  * (round-trip parse), so any facade method taking a functional-interface body (today the
- * {@code ImageFinder.whileExists/ifExists/untilExists} vision helpers) reuses it without new machinery.
+ * {@code ImageFinder.whileFind/ifFind/untilFind} vision helpers) reuses it without new machinery.
  *
  * <p>Stateless: every input is a parameter, matching the {@code OperatorReplacementHandler} /
  * {@code EnumManipulationHandler} convention.
@@ -66,7 +66,7 @@ public final class LambdaCallHandler {
 
     /**
      * Switches a lambda-call to a sibling overload/variant — the {@code ⚙} selector on
-     * {@code LambdaCallBlock} (e.g. {@code whileExists ↔ whileExistsAny ↔ whileExistsAll}). It renames the
+     * {@code LambdaCallBlock} (e.g. {@code whileFind ↔ whileFindAny ↔ whileFindAll}). It renames the
      * method, converts the leading image argument single↔group ({@code new ImageTemplate("x")} ↔
      * {@code ImageTemplateGroup.of(new ImageTemplate("x"))}), and adds/removes the lambda's {@code match}
      * parameter to match the target's {@code Consumer<MatchResult>} vs {@code Runnable} shape.

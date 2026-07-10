@@ -293,7 +293,7 @@ public class BlockConverter {
     }
 
     /**
-     * A facade call with a trailing body lambda ({@code ImageFinder.whileExists(img, m -> { … })}). Builds a
+     * A facade call with a trailing body lambda ({@code ImageFinder.whileFind(img, m -> { … })}). Builds a
      * {@link LambdaCallBlock} exposing the leading image argument as a fillable slot and the lambda body as a
      * droppable {@link BodyBlock} (recursed via {@link #parseBodyBlock}), so the block round-trips.
      */

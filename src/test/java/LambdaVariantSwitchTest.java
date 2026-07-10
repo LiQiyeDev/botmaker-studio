@@ -53,12 +53,12 @@ public class LambdaVariantSwitchTest {
                 package test;
                 public class Subject {
                     void run() {
-                        ImageFinder.whileExists(coin, m -> {});
+                        ImageFinder.whileFind(coin, m -> {});
                     }
                 }
                 """;
-        String result = switchTo(source, "whileExists", "whileExistsAny", true, true).replace(" ", "");
-        assertTrue(result.contains("whileExistsAny(ImageTemplateGroup.of(coin),m->{}"),
+        String result = switchTo(source, "whileFind", "whileFindAny", true, true).replace(" ", "");
+        assertTrue(result.contains("whileFindAny(ImageTemplateGroup.of(coin),m->{}"),
                 () -> "expected group-wrapped call keeping the match param: " + result);
     }
 
@@ -68,13 +68,13 @@ public class LambdaVariantSwitchTest {
                 package test;
                 public class Subject {
                     void run() {
-                        ImageFinder.whileExistsAny(ImageTemplateGroup.of(coin), m -> {});
+                        ImageFinder.whileFindAny(ImageTemplateGroup.of(coin), m -> {});
                     }
                 }
                 """;
-        String result = switchTo(source, "whileExistsAny", "whileExistsAll", true, false).replace(" ", "");
+        String result = switchTo(source, "whileFindAny", "whileFindAll", true, false).replace(" ", "");
         // still a group (All takes a group) but the lambda loses its parameter (Runnable target).
-        assertTrue(result.contains("whileExistsAll(ImageTemplateGroup.of(coin),()->{}"),
+        assertTrue(result.contains("whileFindAll(ImageTemplateGroup.of(coin),()->{}"),
                 () -> "expected group kept and a no-arg lambda: " + result);
     }
 
@@ -84,12 +84,12 @@ public class LambdaVariantSwitchTest {
                 package test;
                 public class Subject {
                     void run() {
-                        ImageFinder.whileExistsAny(ImageTemplateGroup.of(coin, gem), m -> {});
+                        ImageFinder.whileFindAny(ImageTemplateGroup.of(coin, gem), m -> {});
                     }
                 }
                 """;
-        String result = switchTo(source, "whileExistsAny", "whileExists", false, true).replace(" ", "");
-        assertTrue(result.contains("whileExists(coin,m->{}"),
+        String result = switchTo(source, "whileFindAny", "whileFind", false, true).replace(" ", "");
+        assertTrue(result.contains("whileFind(coin,m->{}"),
                 () -> "expected first template unwrapped from the group: " + result);
     }
 }

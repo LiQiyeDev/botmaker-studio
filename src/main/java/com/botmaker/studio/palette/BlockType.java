@@ -61,7 +61,7 @@ public sealed interface BlockType
      * A static call whose trailing argument is a body lambda:
      * {@code <className>.<method>(leadingArgs…, <lambdaParam> -> { <body> })}. The dropped statements become the
      * lambda body (a droppable {@code BodyBlock}). {@code lambdaParam} names the single lambda parameter, or is
-     * {@code null} for a no-arg {@code () -> {}} (a {@code Runnable} target, e.g. {@code ImageFinder.untilExists}).
+     * {@code null} for a no-arg {@code () -> {}} (a {@code Runnable} target, e.g. {@code ImageFinder.untilFind}).
      * Built and re-parsed by {@code parser.handlers.LambdaCallHandler}.
      */
     record LambdaCall(String id, String displayName, BlockCategory category,

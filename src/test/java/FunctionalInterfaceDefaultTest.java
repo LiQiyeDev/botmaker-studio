@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 
 /**
- * Regression coverage for the {@code whileExists}/lambda default-argument path: a parameterized type name must not
+ * Regression coverage for the {@code whileFind}/lambda default-argument path: a parameterized type name must not
  * crash {@code createTypeNode}, and a functional-interface parameter must default to a block-bodied lambda (so it
  * round-trips into an editable {@code LambdaCallBlock}) rather than an uncompilable {@code new Consumer<>()}.
  */
@@ -54,7 +54,7 @@ public class FunctionalInterfaceDefaultTest {
     }
 
     @Test
-    void switchingMethodToWhileExistsProducesBlockLambdaAndDoesNotThrow() {
+    void switchingMethodToWhileFindProducesBlockLambdaAndDoesNotThrow() {
         String source = """
                 package test;
                 public class Subject {
@@ -75,16 +75,16 @@ public class FunctionalInterfaceDefaultTest {
             }
         });
 
-        // Switch find(ImageTemplate) -> whileExists(ImageTemplate, Consumer<MatchResult>): the second arg is a
+        // Switch find(ImageTemplate) -> whileFind(ImageTemplate, Consumer<MatchResult>): the second arg is a
         // functional interface, exactly the shape that used to throw "Invalid identifier".
-        List<ResolvedType> whileExistsParams = List.of(
+        List<ResolvedType> whileFindParams = List.of(
                 ResolvedType.named("ImageTemplate"),
                 ResolvedType.named("java.util.function.Consumer<MatchResult>"));
 
         String result = assertDoesNotThrow(() -> MethodHandler.updateMethodInvocation(
-                cu, source, found.get(), "ImageFinder", "whileExists", whileExistsParams, null));
+                cu, source, found.get(), "ImageFinder", "whileFind", whileFindParams, null));
 
-        assertTrue(result.replace(" ", "").contains("whileExists(template,it->{}"),
+        assertTrue(result.replace(" ", "").contains("whileFind(template,it->{}"),
                 () -> "kept image arg and added a block-bodied lambda: " + result);
     }
 

@@ -43,7 +43,7 @@ public class SentenceLayoutBuilder {
                                                    com.botmaker.studio.types.ResolvedType expectedType) {
         if (expression != null) {
             // A typed slot gets its specialized picker (image/group/rect/point/enum), same as call-argument
-            // slots — so e.g. the whileExists/ifExists image slot is fillable, not just a raw expression node.
+            // slots — so e.g. the whileFind/ifFind image slot is fillable, not just a raw expression node.
             Node picker = com.botmaker.studio.ui.render.components.pickers.PickerRegistry.pickerNodeFor(
                     com.botmaker.studio.ui.render.components.pickers.PickerContext.of(context, expression, expectedType));
             nodes.add(picker != null ? picker : expression.getUINode(context));
