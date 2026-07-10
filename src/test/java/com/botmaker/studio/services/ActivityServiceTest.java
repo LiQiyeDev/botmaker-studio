@@ -25,7 +25,7 @@ public class ActivityServiceTest {
 
         assertEquals("v.asInt(0)", ActivityType.INT.loadExpression("v"));
         assertEquals("v.asBoolean(false)", ActivityType.BOOL.loadExpression("v"));
-        assertEquals("java.time.LocalTime.parse(v.asText(\"00:00\"))", ActivityType.TIME.loadExpression("v"));
+        assertEquals("parseTime(v)", ActivityType.TIME.loadExpression("v"));
 
         assertTrue(ActivityType.INT.resolvedType().isNumeric());
         assertTrue(ActivityType.BOOL.resolvedType().isBoolean());
@@ -67,7 +67,8 @@ public class ActivityServiceTest {
         assertTrue(src.contains("public static final int maxRetries;"), src);
         assertTrue(src.contains("public static final java.time.LocalTime startTime;"), src);
         assertTrue(src.contains("maxRetries = node(v, \"maxRetries\").asInt(0);"), src);
-        assertTrue(src.contains("startTime = java.time.LocalTime.parse(node(v, \"startTime\").asText(\"00:00\"));"), src);
+        assertTrue(src.contains("startTime = parseTime(node(v, \"startTime\"));"), src);
+        assertTrue(src.contains("private static java.time.LocalTime parseTime(JsonNode n)"), src);
         assertTrue(src.contains("getResourceAsStream(\"/activities.json\")"), src);
     }
 }

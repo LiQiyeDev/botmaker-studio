@@ -1,5 +1,7 @@
 package com.botmaker.studio.services.capture;
 
+import com.botmaker.studio.services.platform.SessionEnvironment;
+
 import javax.imageio.ImageIO;
 import java.awt.GraphicsDevice;
 import java.awt.GraphicsEnvironment;
@@ -27,7 +29,7 @@ public final class DesktopGrab {
 
     /** True if we appear to be running under a Wayland session (delegates to {@link SessionEnvironment}). */
     public static boolean isWayland() {
-        return com.botmaker.studio.services.platform.SessionEnvironment.isWayland();
+        return SessionEnvironment.isWayland();
     }
 
     /**
