@@ -6,6 +6,52 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-11 — Macro recorder v1 (Linux/X11): record real input → blocks.** New "⏺ Record Macro" toolbar
+  button (next to Capture Templates; disabled off-Linux) opens a floating mini-toolbar over the project's
+  default **window** target (Record / Pause / Stop & Insert + live action counter). Real clicks & keystrokes
+  are observed globally and passively via the new shared X11 XRecord listener (`botmaker-shared`
+  `input.InputListener` / `InputEvent`), buffered while recording, and on Stop translated by the pure,
+  unit-tested **`services/record/MacroTranslator`** into leaf blocks appended to the bot's main method:
+  left click → window-relative `Mouse.click(CaptureSource.window("…"), x, y)`, printable keys coalesced into
+  `Keyboard.type("…")` (Backspace edits), named keys → `Keyboard.tap(Key.X)`, wheel → `Mouse.scroll(±n)`,
+  idle gaps → `Wait.milliseconds(n)`. Clicks outside the window (incl. on the toolbar) are dropped; left
+  drags are suppressed. Blocks are inserted one per FX pulse (`services/record/MacroRecorder`) so each
+  re-parse lands before the next. **Deferred:** right/middle/double click & drag (no window-relative
+  overload), if/loop-from-template + nesting/step-cursor, live insertion, and the Windows
+  (`SetWindowsHookEx WH_*_LL`) listener. 7 new `MacroTranslatorTest` cases.
+- **2026-07-11 — Template capture reworked into a true overlay with single & batch modes.** The "✂ Capture
+  Templates" tool no longer covers the window with a mouse-grabbing pane (which blocked clicks to the app
+  underneath). It now shows a small always-on-top **mini-toolbar** (`Capture one` / `Capture many` / `Close`)
+  that never covers the window, so the target app stays fully clickable to navigate to the screen to capture.
+  The rubber-band **`CaptureSurface`** (new, `ui/app/capture`) is shown only *during* a draw, then dismissed:
+  `Capture one` → draw one region → name → save; `Capture many` → draw several (each numbered) → Done → a
+  single **`BatchTemplateNamingDialog`** (thumbnail + name + Discard per row) names/discards them all, saving
+  from one fresh window snapshot. Naming rule centralized as `ImageTemplateLibrary.sanitizeName`; batch
+  uniqueness checks against both disk and the other names in the batch. `ScreenCaptureService.toFxImage` is now
+  public for thumbnail reuse. `OverlayTemplateCapture` is now the toolbar orchestrator; still window-target only.
+- **2026-07-11 — SDK-alignment pass: find-blocks get SDK chrome, menu reorg, javadoc button, Game pickers, RPM identity.**
+  - **Find-lambda blocks now render like the SDK block** (`blocks/vision/LambdaCallBlock`): a `🤖 SDK` badge,
+    an `ImageFinder` class chip, a **method dropdown** (ifFind/whileFind/untilFind × single/any/all — replaces
+    the old ⚙ variant picker and the plain-English "while … is visible" wording), a `→ boolean` return badge
+    for the `if…` forms, and the `?` help button — plus the droppable action body. Switching method still goes
+    through `switchLambdaVariant` (rewrites in place, preserving the body); the generic overload path is
+    deliberately not reused for lambda calls (it syncs args positionally and would clobber the trailing lambda).
+  - **Statement-menu reorg** (`palette/BlockCatalog`, `BlockCategory`): Game launch blocks promoted to the
+    top-level bot actions (no "Game" submenu); the three "If/While Image Exists" / "Repeat Until…" entries
+    replaced by a single **"Find Image → Do Actions"** entry (its method dropdown covers the variants);
+    **"Wait"** is now a standard SDK `Wait.milliseconds` block with the overload picker instead of a raw
+    `Thread.sleep` (existing `Thread.sleep` bots still round-trip via `WaitBlock`).
+  - **Method block layout** (`MethodInvocationBlock` + `BlockUIComponents`): the return-type badge and the
+    explanation button moved to **after** the argument list (far right); the info icon changed `ⓘ` → `?`.
+  - **Game parameter pickers** (`pickers/PickerContext`, `PickerRegistry`): the Browse (executable) and Steam
+    cover-art (appId) pickers now also fire for `launchIfNotRunning`/`launchAndWait`/`launchSteamIfNotRunning`
+    at the new first-parameter positions; the new `CaptureSource` window-detection args pick up the existing
+    type-based capture-source picker automatically.
+  - **RPM/DEB identity** (`pom.xml`): pinned `<linuxPackageName>botmaker-studio</linuxPackageName>` on both
+    Linux packages so successive installs upgrade in place rather than co-installing. NOTE: the residual
+    "app disappears from the menu after an upgrade" is jpackage's known `%postun`-after-`%post` ordering bug;
+    the definitive fix needs a custom RPM spec resource + a real RPM upgrade test (CI/Linux host), not yet done.
+
 - **2026-07-11 — Local-dev fix: editor no longer serves a stale SDK from the per-jar type cache.**
   - **Root cause:** `index/TypeSummaryManager` keyed its ClassGraph `.json` cache purely by jar file *name*
     and reused it whenever the file existed. A reused `0.0.0-SNAPSHOT.jar` (overwritten in place on every

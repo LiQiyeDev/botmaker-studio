@@ -53,6 +53,16 @@ public final class ImageTemplateLibrary {
         return file != null && file.getFileName().toString().equalsIgnoreCase(DEFAULT_TEMPLATE_FILE);
     }
 
+    /**
+     * Normalizes a user-entered template name to the allowed character set: trims surrounding whitespace and
+     * replaces every character outside {@code [A-Za-z0-9_-]} with {@code _}. The result may still be blank
+     * (when the input was blank or all-whitespace) — callers must reject blanks and check {@link #exists}
+     * for uniqueness. Shared by every naming path (the single-capture prompt and the batch dialog).
+     */
+    public static String sanitizeName(String raw) {
+        return raw == null ? "" : raw.trim().replaceAll("[^A-Za-z0-9_-]", "_");
+    }
+
     /** All saved template PNGs, sorted by file name. */
     public static List<Path> list(ProjectConfig config) {
         Path dir = config.imagesRoot();

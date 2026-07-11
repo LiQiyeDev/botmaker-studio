@@ -11,12 +11,13 @@ public enum BlockCategory {
     FLOW("Logic"),
     LOOPS("Loops"),
     CONTROL("Control"),
-    // Game sits directly after Control so "Launch Program/Steam Game" follows "Wait (ms)" in the menu.
+    // Game launch blocks carry this category, but they're promoted to the top-level bot actions
+    // (BlockCatalog.BOT_ACTIONS), so no "Game" submenu is shown (empty categories are skipped).
     GAME("Game"),
     FUNCTIONS("Functions"),
     /**
-     * Retained only so the promoted find/click/wait bot actions have a home category; it has no submenu
-     * of its own (the former lambda vision blocks now live under Loops/Logic, so this group is empty).
+     * Home category for the promoted find/click/wait bot actions, plus the non-promoted "Find Image → Do
+     * Actions" body block — so a small "Vision" submenu holds that one entry.
      */
     VISION("Vision"),
     /** Vision/geometry variable declarations (Point, Rect, Size, MatchResult, …) — their own insert submenu. */

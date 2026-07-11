@@ -48,7 +48,11 @@ public final class BlockCatalog {
     public static final BlockType BREAK = cf("BREAK", "Break", CONTROL, Kind.BREAK);
     public static final BlockType CONTINUE = cf("CONTINUE", "Continue", CONTROL, Kind.CONTINUE);
     public static final BlockType RETURN = cf("RETURN", "Return", CONTROL, Kind.RETURN);
-    public static final BlockType WAIT = cf("WAIT", "Wait (ms)", CONTROL, Kind.WAIT);
+    // "Wait" is a standard SDK block on the Wait facade (Wait.milliseconds/seconds), so the user gets the
+    // class/method/overload chrome — not a raw Thread.sleep. (Existing Thread.sleep bots still round-trip via
+    // WaitBlock; this only changes what the menu inserts.)
+    public static final BlockType WAIT = new LibraryCall("WAIT", "Wait", CONTROL, "Wait", "milliseconds",
+            List.of(new IntLit("1000")));
 
     // --- Variables ---
     public static final BlockType DECLARE_INT =
@@ -89,14 +93,12 @@ public final class BlockCatalog {
             new LibraryCall("CLICK_IMAGE", "Click Image", VISION, "ImageClicker", "click", List.of());
     public static final BlockType WAIT_FOR_IMAGE =
             new LibraryCall("WAIT_FOR_IMAGE", "Wait For Image", VISION, "ImageWaiter", "waitFor", List.of());
-    // The lambda vision blocks are loop/branch constructs, so they live under Loops/Logic rather than a
-    // separate "Vision" submenu (which no longer exists — see BlockCategory.VISION).
-    public static final BlockType WHILE_IMAGE_EXISTS = new LambdaCall("WHILE_IMAGE_EXISTS", "While Image Exists",
-            LOOPS, "ImageFinder", "whileFind", List.of(), "match");
-    public static final BlockType IF_IMAGE_EXISTS = new LambdaCall("IF_IMAGE_EXISTS", "If Image Exists",
-            FLOW, "ImageFinder", "ifFind", List.of(), "match");
-    public static final BlockType UNTIL_IMAGE_EXISTS = new LambdaCall("UNTIL_IMAGE_EXISTS", "Repeat Until Image Appears",
-            LOOPS, "ImageFinder", "untilFind", List.of(), null);
+    // A single body-carrying find block: renders like an SDK ImageFinder call with a method dropdown
+    // (ifFind/whileFind/untilFind × single/any/all) plus a droppable action body — see LambdaCallBlock. It
+    // replaces the former per-variant "If/While Image Exists" / "Repeat Until…" menu entries (the method
+    // dropdown now selects among those forms). Defaults to ifFind.
+    public static final BlockType FIND_IMAGE_ACTIONS = new LambdaCall("FIND_IMAGE_ACTIONS", "Find Image → Do Actions",
+            VISION, "ImageFinder", "ifFind", List.of(), "match");
     public static final BlockType DECLARE_POINT = new VarDecl("DECLARE_POINT", "Point", BOT_VARIABLE, "Point", false, "p",
             new NewInstance("Point", List.of(new IntLit("0"), new IntLit("0"))));
     public static final BlockType DECLARE_RECT = new VarDecl("DECLARE_RECT", "Rect", BOT_VARIABLE, "Rect", false, "r",
@@ -135,8 +137,7 @@ public final class BlockCatalog {
             DECLARE_INT, DECLARE_DOUBLE, DECLARE_BOOLEAN, DECLARE_STRING, DECLARE_ARRAY, ASSIGNMENT,
             CLICK, TYPE_TEXT, PRESS_KEY, READ_LINE, READ_INT, READ_DOUBLE,
             FUNCTION_CALL, METHOD_DECLARATION, DECLARE_ENUM,
-            FIND_IMAGE, CLICK_IMAGE, WAIT_FOR_IMAGE,
-            WHILE_IMAGE_EXISTS, IF_IMAGE_EXISTS, UNTIL_IMAGE_EXISTS,
+            FIND_IMAGE, CLICK_IMAGE, WAIT_FOR_IMAGE, FIND_IMAGE_ACTIONS,
             DECLARE_POINT, DECLARE_RECT, DECLARE_SIZE, DECLARE_MATCH, DECLARE_TEMPLATE,
             LAUNCH_GAME, LAUNCH_STEAM_GAME,
             COMMENT);
@@ -148,10 +149,12 @@ public final class BlockCatalog {
 
     /**
      * The bot-first actions promoted to the very top of the insert menu (rendered flat, no submenu) so the most
-     * common automation building blocks — find / click / wait — are the first thing reached for.
+     * common automation building blocks are the first thing reached for. Game launch is promoted here (rather than
+     * a "Game" submenu) per its prominence; promoting a category's blocks empties its submenu, so no "Game" group
+     * is shown (see {@code ExpressionMenuFactory.addCategoryMenu}, which skips empty categories).
      */
     private static final List<BlockType> BOT_ACTIONS = List.of(
-            FIND_IMAGE, CLICK_IMAGE, WAIT_FOR_IMAGE, CLICK, WAIT);
+            FIND_IMAGE, CLICK_IMAGE, WAIT_FOR_IMAGE, CLICK, WAIT, LAUNCH_GAME, LAUNCH_STEAM_GAME);
 
     public static List<BlockType> botActions() {
         return BOT_ACTIONS;

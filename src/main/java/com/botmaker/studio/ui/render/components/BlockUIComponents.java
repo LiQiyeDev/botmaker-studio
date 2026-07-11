@@ -108,15 +108,15 @@ public final class BlockUIComponents {
     }
 
     /**
-     * A small "ⓘ" info button that opens a click-dismissable popover ({@code title} in bold over a
+     * A small "?" explanation button that opens a click-dismissable popover ({@code title} in bold over a
      * word-wrapped {@code body}). Used for the "learn about it" SDK method help on
      * {@code MethodInvocationBlock} / {@code LambdaCallBlock}; domain-free — callers assemble the text from
      * {@code palette.SdkDocs}.
      */
     public static Button createInfoButton(String title, String body) {
-        Button btn = new Button("ⓘ");
+        Button btn = new Button("?");
         btn.getStyleClass().add("icon-button");
-        btn.setTooltip(new Tooltip("Learn about this method"));
+        btn.setTooltip(new Tooltip("Explain this method"));
 
         VBox content = new VBox(4);
         content.setStyle("-fx-padding: 8 10 8 10;");

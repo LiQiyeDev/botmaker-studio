@@ -457,6 +457,10 @@
                                     <skip>${installer.skip.deb}</skip>
                                     <type>DEB</type>
                                     <name>BotMaker Studio</name>
+                                    <!-- Stable package identity so successive installs UPGRADE in place instead of
+                                         co-installing (the "two BotMaker Studios" symptom). Without this jpackage
+                                         derives the name from <name>, so any label tweak would fork the package. -->
+                                    <linuxPackageName>botmaker-studio</linuxPackageName>
                                     <appVersion>${app.version}</appVersion>
                                     <vendor>LiQiyeDev</vendor>
                                     <input>${project.build.directory}/jpackage-input</input>
@@ -483,6 +487,10 @@
                                     <skip>${installer.skip.rpm}</skip>
                                     <type>RPM</type>
                                     <name>BotMaker Studio</name>
+                                    <!-- Stable package identity so successive RPMs UPGRADE in place instead of
+                                         co-installing (the "two BotMaker Studios" symptom). Without this jpackage
+                                         derives the name from <name>, so any label tweak would fork the package. -->
+                                    <linuxPackageName>botmaker-studio</linuxPackageName>
                                     <appVersion>${app.version}</appVersion>
                                     <vendor>LiQiyeDev</vendor>
                                     <input>${project.build.directory}/jpackage-input</input>

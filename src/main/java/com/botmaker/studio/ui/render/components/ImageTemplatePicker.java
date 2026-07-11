@@ -142,7 +142,7 @@ public final class ImageTemplatePicker {
             dialog.setContentText("Name:");
             Optional<String> raw = dialog.showAndWait();
             if (raw.isEmpty()) return Optional.empty(); // cancelled
-            String name = raw.get().trim().replaceAll("[^A-Za-z0-9_-]", "_");
+            String name = ImageTemplateLibrary.sanitizeName(raw.get());
             if (name.isBlank()) {
                 warn(owner, "Please enter a name for the template.");
                 continue;

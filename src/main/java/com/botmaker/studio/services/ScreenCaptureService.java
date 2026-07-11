@@ -886,7 +886,7 @@ public final class ScreenCaptureService {
     }
 
     /** Converts a {@link BufferedImage} to a JavaFX {@link Image} via in-memory PNG (no javafx.swing dep). */
-    private static Image toFxImage(BufferedImage image) {
+    public static Image toFxImage(BufferedImage image) {
         try {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             ImageIO.write(image, "png", out);

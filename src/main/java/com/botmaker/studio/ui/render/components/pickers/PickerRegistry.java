@@ -25,11 +25,13 @@ public final class PickerRegistry {
     private PickerRegistry() {}
 
     private static final List<SpecialTypePicker> PICKERS = List.of(
-            // Method-specific (the class is a simple name on the SDK Game facade).
-            SpecialTypePicker.of(ctx -> ctx.isGameMethod("launchSteam"),
+            // Method-specific (the class is a simple name on the SDK Game facade). The appId of launchSteam /
+            // launchSteamIfNotRunning gets the cover-art picker; the program path of launch / launchIfNotRunning /
+            // launchAndWait gets the Browse picker; their trailing varargs are optional command-line launch
+            // options edited as plain text. (The window-detection CaptureSource args fall through to the
+            // type-based CaptureSource picker below.)
+            SpecialTypePicker.of(PickerContext::isGameSteamAppIdArg,
                     ctx -> SteamGamePicker.create(ctx.context(), ctx.arg())),
-            // Game.launch(path, args...): only the first argument is the program path; the trailing
-            // varargs are optional command-line launch options, edited as plain text.
             SpecialTypePicker.of(PickerContext::isGameLaunchProgramArg,
                     ctx -> ExecutablePicker.create(ctx.context(), ctx.arg())),
             SpecialTypePicker.of(PickerContext::isGameLaunchOptionArg,

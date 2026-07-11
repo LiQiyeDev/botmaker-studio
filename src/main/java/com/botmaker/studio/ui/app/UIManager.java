@@ -51,6 +51,7 @@ public class UIManager {
     private final DiagnosticsManager diagnosticsManager;
     private final Stage primaryStage;
     private final ProjectConfig config;
+    private final ProjectState state;
     private final ScreenCaptureService screenCaptureService;
     private final ProjectSettingsService projectSettingsService;
 
@@ -91,6 +92,7 @@ public class UIManager {
         this.diagnosticsManager = diagnosticsManager;
         this.primaryStage = primaryStage;
         this.config = config;
+        this.state = state;
 
         // Editor settings (capture targets + default). Stateless over (config, state, eventBus); the
         // capture service honors the default target so pickers stop re-asking which screen to use.
@@ -120,6 +122,7 @@ public class UIManager {
         this.toolbarManager.setOnOpenDebugDashboard(this::openDebugDashboard);
         this.toolbarManager.setOnEnableRemotePilot(this::openRemotePilot);
         this.toolbarManager.setOnCaptureTemplates(this::openOverlayTemplateCapture);
+        this.toolbarManager.setOnRecordMacro(this::openMacroRecorder);
         GitHubClient gitHubClient = new GitHubClient();
         GitHubGallery gallery = new GitHubGallery(gitHubClient);
         BotInstaller botInstaller = new BotInstaller(gitHubClient, gallery);
@@ -612,6 +615,13 @@ public class UIManager {
     private void openOverlayTemplateCapture() {
         com.botmaker.studio.ui.app.capture.OverlayTemplateCapture.open(
                 primaryStage, config, projectSettingsService, screenCaptureService, eventBus);
+    }
+
+    /** Opens the macro recorder over the project's default window target (records input → blocks). */
+    private void openMacroRecorder() {
+        com.botmaker.studio.services.record.MacroRecorder.open(
+                primaryStage, config, projectSettingsService, screenCaptureService, eventBus,
+                codeEditorService.getCodeEditor(), state);
     }
 
     private void setupEventHandlers() {

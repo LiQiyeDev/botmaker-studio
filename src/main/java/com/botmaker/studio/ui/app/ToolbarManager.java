@@ -33,6 +33,8 @@ public class ToolbarManager {
     private Runnable onEnableRemotePilot;
     /** Opens the live overlay template-capture over the default window; wired by {@link UIManager}. */
     private Runnable onCaptureTemplates;
+    /** Opens the macro recorder over the default window; wired by {@link UIManager}. */
+    private Runnable onRecordMacro;
 
     private enum AppState { IDLE, RUNNING, DEBUGGING }
     private AppState currentAppState = AppState.IDLE;
@@ -108,6 +110,11 @@ public class ToolbarManager {
         this.onCaptureTemplates = callback;
     }
 
+    /** Sets the callback invoked when the toolbar's Record Macro button is clicked. */
+    public void setOnRecordMacro(Runnable callback) {
+        this.onRecordMacro = callback;
+    }
+
     /**
      * Creates the center group: the Capture Targets button (opens the manage dialog; its text shows the
      * current default target) next to the Debug Dashboard button (opens the live telemetry dashboard).
@@ -143,7 +150,21 @@ public class ToolbarManager {
             if (onCaptureTemplates != null) onCaptureTemplates.run();
         });
 
-        HBox group = new HBox(5, captureButton, captureTemplatesButton, debugDashboardButton, remotePilotButton);
+        Button recordMacroButton = new Button("⏺ Record Macro");
+        recordMacroButton.getStyleClass().add("toolbar-btn");
+        if (com.botmaker.shared.input.InputListenerFactory.isSupported()) {
+            recordMacroButton.setTooltip(new Tooltip(
+                    "Record real clicks & keystrokes on the default window and turn them into blocks"));
+            recordMacroButton.setOnAction(e -> {
+                if (onRecordMacro != null) onRecordMacro.run();
+            });
+        } else {
+            recordMacroButton.setDisable(true);
+            recordMacroButton.setTooltip(new Tooltip("Macro recording is currently only available on Linux (X11)"));
+        }
+
+        HBox group = new HBox(5, captureButton, captureTemplatesButton, recordMacroButton,
+                debugDashboardButton, remotePilotButton);
         group.setAlignment(Pos.CENTER);
         return group;
     }

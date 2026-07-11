@@ -13,9 +13,10 @@ import com.botmaker.studio.ui.render.layout.BlockLayout;
 import com.botmaker.studio.ui.render.layout.SentenceLayoutBuilder;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
-import javafx.scene.control.MenuButton;
-import javafx.scene.control.MenuItem;
+import javafx.scene.control.ComboBox;
+import javafx.scene.control.Label;
 import javafx.scene.control.Tooltip;
+import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.jdt.core.dom.Expression;
@@ -25,30 +26,38 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * A body-carrying block for a facade "lambda call" — {@code Class.method(image, m -> { … })}. It renders like a
- * loop: a plain-English header with a fillable image slot plus an indented, droppable body (the lambda body).
- * Backs the {@code ImageFinder.whileFind/ifFind/untilFind} vision helpers <em>and their {@code …Any}/
- * {@code …All} group variants</em>. A ⚙ overload picker switches between the single / any / all forms — which
- * rewrites the method, swaps the image slot between a single {@code ImageTemplate} and an
- * {@code ImageTemplateGroup} (engaging the multi-image group picker), and fixes the lambda parameter
- * (see {@code parser.handlers.LambdaCallHandler#switchVariant}). Header wording is keyed on the method name so a
- * single class serves every variant.
+ * A body-carrying variant of the standard SDK call block for the {@code ImageFinder} vision helpers that take a
+ * trailing action lambda — {@code ImageFinder.ifFind/whileFind/untilFind(image, m -> { … })} and their
+ * {@code …Any}/{@code …All} group forms. It renders like the ordinary SDK block (a {@code 🤖 SDK} badge, the
+ * {@code ImageFinder} class chip, a <em>method dropdown</em>, a fillable image/group argument slot, and a
+ * {@code → return} badge) but — because these methods need a body — it also carries an indented, droppable
+ * {@link BodyBlock} (the lambda body).
+ *
+ * <p>Selecting a different method in the dropdown rewrites the call via
+ * {@code parser.handlers.LambdaCallHandler#switchVariant}: it renames the method, swaps the image slot between a
+ * single {@code ImageTemplate} and an {@code ImageTemplateGroup} (engaging the multi-image group picker), and
+ * fixes the lambda parameter ({@code Consumer<MatchResult>} vs {@code Runnable}) — rewriting <em>in place</em> so
+ * the user's body survives the switch. (The generic method-invocation overload path can't be reused here: it
+ * syncs arguments positionally and would clobber the trailing lambda.)
  */
 public class LambdaCallBlock extends AbstractStatementBlock implements BlockWithChildren {
 
     /** One selectable form of a vision loop: its method, whether it takes a group, and whether its lambda has a param. */
-    private record Variant(String method, boolean group, boolean hasParam, String label) {}
+    private record Variant(String method, boolean group, boolean hasParam) {}
 
     private static final List<Variant> VARIANTS = List.of(
-            new Variant("whileFind", false, true, "while image is visible"),
-            new Variant("whileFindAny", true, true, "while ANY image is visible"),
-            new Variant("whileFindAll", true, false, "while ALL images are visible"),
-            new Variant("ifFind", false, true, "if image is visible"),
-            new Variant("ifFindAny", true, true, "if ANY image is visible"),
-            new Variant("ifFindAll", true, false, "if ALL images are visible"),
-            new Variant("untilFind", false, false, "until image appears"),
-            new Variant("untilFindAny", true, false, "until ANY image appears"),
-            new Variant("untilFindAll", true, false, "until ALL images appear"));
+            new Variant("ifFind", false, true),
+            new Variant("ifFindAny", true, true),
+            new Variant("ifFindAll", true, false),
+            new Variant("whileFind", false, true),
+            new Variant("whileFindAny", true, true),
+            new Variant("whileFindAll", true, false),
+            new Variant("untilFind", false, false),
+            new Variant("untilFindAny", true, false),
+            new Variant("untilFindAll", true, false));
+
+    /** The vision loop helpers all live on the SDK's {@code ImageFinder} facade. */
+    private static final String SDK_CLASS = "ImageFinder";
 
     private final String method;
     private ExpressionBlock image;
@@ -84,16 +93,30 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
                 )
         );
 
-        // prefix · [image slot · +] · suffix · ⚙  — the change button sits next to the picker, and the ⚙
-        // overload picker switches single ↔ any ↔ all.
-        var sentence = BlockLayout.sentence()
-                .addKeyword(prefixFor(method))
+        // SDK-style header: 🤖 SDK  ImageFinder . [method ▾] ( [image · +] )  → ret  [?]
+        var sentence = BlockLayout.sentence();
+
+        Label sdkBadge = new Label("🤖 SDK");
+        sdkBadge.getStyleClass().add("sdk-badge");
+        sentence.addNode(sdkBadge);
+
+        Label classChip = new Label(SDK_CLASS);
+        classChip.getStyleClass().add("sdk-class-selector");
+        classChip.setStyle("-fx-font-size: 11px; -fx-font-weight: bold;");
+        sentence.addNode(classChip);
+
+        sentence.addLabel(".")
+                .addNode(createMethodSelector(context))
+                .addLabel("(")
                 .addExpressionSlot(image, context, slotType)
                 .addNode(changeBtn)
-                .addKeyword(suffixFor(method))
-                .addNode(createVariantSelector(context));
+                .addLabel(")");
+
+        addReturnBadge(sentence);
         addInfoButton(sentence, context);
-        Node headerContent = sentence.build();
+
+        HBox headerContent = sentence.build();
+        headerContent.getStyleClass().add("sdk-call-block");
 
         container.getChildren().add(BlockLayout.header()
                 .withCustomNode(headerContent)
@@ -105,13 +128,41 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
         return container;
     }
 
-    /** The vision loop helpers all live on the SDK's {@code ImageFinder} facade — the docs key for the ⓘ button. */
-    private static final String SDK_CLASS = "ImageFinder";
+    /**
+     * The method dropdown — the standard SDK-block affordance, here listing the nine {@code ImageFinder} lambda
+     * helpers. Picking one rewrites the call in place (preserving the body) via {@code switchLambdaVariant}.
+     */
+    private ComboBox<String> createMethodSelector(CodeEditorService context) {
+        ComboBox<String> selector = new ComboBox<>();
+        for (Variant v : VARIANTS) selector.getItems().add(v.method());
+        selector.setValue(method);
+        selector.setEditable(false);
+        selector.setStyle("-fx-font-size: 11px; -fx-pref-width: 130px; -fx-font-weight: bold;");
+        selector.setTooltip(new Tooltip(
+                "if / while / until  ×  a single image, ANY of a group, or ALL of a group"));
+        selector.setOnAction(e -> {
+            String picked = selector.getValue();
+            if (picked == null || picked.equals(method)) return;
+            VARIANTS.stream().filter(v -> v.method().equals(picked)).findFirst().ifPresent(v ->
+                    context.getCodeEditor()
+                            .switchLambdaVariant((Statement) this.astNode, v.method(), v.group(), v.hasParam()));
+        });
+        return selector;
+    }
+
+    /** {@code → boolean} badge for the {@code if…} variants (they return a boolean); the {@code while…}/{@code until…} forms are void. */
+    private void addReturnBadge(SentenceLayoutBuilder sentence) {
+        if (!method.startsWith("if")) return;
+        Label badge = new Label("→ boolean");
+        badge.getStyleClass().add("return-type-badge");
+        badge.setTooltip(new Tooltip("This call returns boolean"));
+        sentence.addNode(badge);
+    }
 
     /**
-     * Adds the "learn about it" (ⓘ) button when the sources-jar Javadoc documents this loop method — a
-     * click-open popover with the method summary and the image/action parameter descriptions. No-op when
-     * nothing is documented (sources unresolved / offline).
+     * Adds the explanation (?) button when the sources-jar Javadoc documents this method — a click-open popover
+     * with the method summary and the image/action parameter descriptions. No-op when nothing is documented
+     * (sources unresolved / offline).
      */
     private void addInfoButton(SentenceLayoutBuilder sentence, CodeEditorService context) {
         String slot = current().group() ? "ImageTemplateGroup" : "ImageTemplate";
@@ -132,59 +183,12 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
         sentence.addNode(BlockUIComponents.createInfoButton(method + "()", body.toString()));
     }
 
-    /** The ⚙ overload picker: lists the current family's single / any / all forms and rewrites on pick. */
-    private MenuButton createVariantSelector(CodeEditorService context) {
-        MenuButton selector = new MenuButton("⚙");
-        selector.setStyle("-fx-font-size: 9px; -fx-padding: 2 4 2 4; -fx-background-radius: 10;");
-        selector.setTooltip(new Tooltip("Match a single image, any of a group, or all of a group"));
-        for (Variant v : familyVariants()) {
-            MenuItem item = new MenuItem(v.label());
-            item.setOnAction(e -> context.getCodeEditor()
-                    .switchLambdaVariant((Statement) this.astNode, v.method(), v.group(), v.hasParam()));
-            selector.getItems().add(item);
-        }
-        return selector;
-    }
-
     private ResolvedType slotType() {
         return ResolvedType.named(current().group() ? "ImageTemplateGroup" : "ImageTemplate");
     }
 
     private Variant current() {
         return VARIANTS.stream().filter(v -> v.method().equals(method)).findFirst()
-                .orElse(new Variant(method, false, true, method));
-    }
-
-    private List<Variant> familyVariants() {
-        String family = familyOf(method);
-        return VARIANTS.stream().filter(v -> familyOf(v.method()).equals(family)).toList();
-    }
-
-    private static String familyOf(String method) {
-        if (method.startsWith("whileFind")) return "whileFind";
-        if (method.startsWith("ifFind")) return "ifFind";
-        if (method.startsWith("untilFind")) return "untilFind";
-        return method;
-    }
-
-    private static String prefixFor(String method) {
-        return switch (familyOf(method)) {
-            case "whileFind" -> "while";
-            case "ifFind" -> "if";
-            case "untilFind" -> "repeat until";
-            default -> method + " (";
-        };
-    }
-
-    private static String suffixFor(String method) {
-        return switch (method) {
-            case "whileFind", "ifFind" -> "is visible";
-            case "whileFindAny", "ifFindAny" -> "(any) is visible";
-            case "whileFindAll", "ifFindAll" -> "(all) are visible";
-            case "untilFind" -> "appears";
-            case "untilFindAny" -> "(any) appears";
-            case "untilFindAll" -> "(all) appear";
-            default -> ")";
-        };
+                .orElse(new Variant(method, false, true));
     }
 }

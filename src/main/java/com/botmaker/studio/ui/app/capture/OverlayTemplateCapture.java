@@ -8,6 +8,8 @@ import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.services.ScreenCaptureService.WindowShot;
+import com.botmaker.studio.ui.app.capture.BatchTemplateNamingDialog.NamedTemplate;
+import com.botmaker.studio.ui.app.capture.CaptureSurface.Region;
 import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -18,27 +20,34 @@ import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.input.KeyCode;
 import javafx.scene.layout.HBox;
-import javafx.scene.layout.Pane;
 import javafx.scene.paint.Color;
-import javafx.scene.shape.Rectangle;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import javafx.stage.Window;
 
 import java.awt.image.BufferedImage;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 /**
- * A live, transparent overlay drawn directly over the project's default <b>window</b> capture target (not a
- * screenshot of it) for quickly cropping image templates. The user clicks <em>Draw region</em> to enter
- * capture mode, rubber-bands a rectangle over the live window, names it (unique, non-blank), and it is saved
- * as a template with its resolution sidecar. Multiple templates can be captured in one session; pressing
- * Escape or the <em>Finish</em> button (where the Draw button was) closes the overlay.
+ * The "Capture Templates" tool for the project's default <b>window</b> target. It shows a small, always-on-top
+ * <em>mini-toolbar</em> that stays out of the way — crucially, it never covers the window, so the app underneath
+ * stays fully clickable (real OS clicks) and the user can navigate it to the screen they want to capture.
  *
- * <p>At save time the overlay is briefly hidden and the window's pixels are re-captured fresh via
- * {@link ScreenCaptureService#captureWindow} (occlusion-safe), so the overlay chrome never ends up in the
- * saved template. The selection (overlay-logical pixels) is scaled to the captured image (physical pixels)
- * by the width/height ratio, which keeps the crop correct under HiDPI scaling.
+ * <p>The rubber-band drawing surface ({@link CaptureSurface}) is shown only <em>during</em> an active capture
+ * and dismissed afterwards, so mouse events are grabbed only while actually drawing. Two modes:
+ * <ul>
+ *   <li><b>Capture one</b> — draw a single region, name it (unique, non-blank), save.</li>
+ *   <li><b>Capture many</b> — draw several regions in one pass, then name/discard them all at once
+ *       ({@link BatchTemplateNamingDialog}).</li>
+ * </ul>
+ *
+ * <p>At save time the window's pixels are re-captured fresh via {@link ScreenCaptureService#captureWindow}
+ * (occlusion-safe, off the FX thread), so the overlay chrome never ends up in a saved template; the drawn
+ * selection (overlay-logical pixels) is scaled onto the captured image (physical pixels) by the width/height
+ * ratio, which keeps the crop correct under HiDPI scaling.
  */
 public final class OverlayTemplateCapture {
 
@@ -48,13 +57,8 @@ public final class OverlayTemplateCapture {
     private final EventBus eventBus;
     private final CaptureTarget.WindowTarget target;
 
-    private Stage stage;
-    private Pane pane;
-    private Rectangle selection;
-    private Button actionButton;
-    private boolean capturing;
-    /** True while a grab/name round-trip is in flight, to ignore further draws until it settles. */
-    private boolean busy;
+    private Stage toolbarStage;
+    private CaptureSurface surface;
 
     private OverlayTemplateCapture(Window owner, ProjectConfig config, ScreenCaptureService capture,
                                    EventBus eventBus, CaptureTarget.WindowTarget target) {
@@ -66,7 +70,7 @@ public final class OverlayTemplateCapture {
     }
 
     /**
-     * Opens the overlay for the project's default window target. Shows an explanatory alert (and does nothing
+     * Opens the tool for the project's default window target. Shows an explanatory alert (and does nothing
      * else) when the default target isn't a window, or the window can't be found. Must be called on the FX thread.
      */
     public static void open(Window owner, ProjectConfig config, ProjectSettingsService settings,
@@ -86,160 +90,154 @@ public final class OverlayTemplateCapture {
     }
 
     private void start() {
-        // Resolve the live window once to get its on-screen bounds to place the overlay over.
+        // Probe the live window once up front so we can fail fast (and place the toolbar near it) before
+        // showing anything. Sessions re-resolve the bounds again so the surface tracks a moved window.
         WindowShot shot = capture.captureWindow(target);
         if (shot == null) {
             warn(owner, "Couldn't find the window \"" + target.titleSubstring() + "\". Is it open?");
             return;
         }
-        java.awt.Rectangle b = shot.bounds();
-
-        selection = new Rectangle();
-        selection.setFill(Color.color(0.3, 0.6, 1.0, 0.25));
-        selection.setStroke(Color.web("#2f80ed"));
-        selection.setStrokeWidth(1.5);
-        selection.setVisible(false);
-
-        pane = new Pane(selection);
-        // A faint tint gives the transparent overlay a pickable surface (so drags register) and signals
-        // capture mode, while keeping the live window clearly visible underneath.
-        pane.setStyle("-fx-background-color: rgba(20,110,220,0.06);");
-
-        HBox bar = buildControlBar();
-        pane.getChildren().add(bar);
-
-        installDrawHandlers();
-
-        stage = new Stage(StageStyle.TRANSPARENT);
-        if (owner != null) stage.initOwner(owner);
-        stage.setAlwaysOnTop(true);
-        stage.setX(b.x);
-        stage.setY(b.y);
-        stage.setWidth(b.width);
-        stage.setHeight(b.height);
-
-        Scene scene = new Scene(pane, b.width, b.height, Color.TRANSPARENT);
-        scene.setOnKeyPressed(e -> { if (e.getCode() == KeyCode.ESCAPE) stage.close(); });
-        stage.setScene(scene);
-        stage.show();
+        showToolbar(shot.bounds());
     }
 
-    private HBox buildControlBar() {
-        actionButton = new Button("▢ Draw region");
-        actionButton.setOnAction(e -> {
-            if (!capturing) {
-                capturing = true;
-                actionButton.setText("✓ Finish");
-            } else {
-                stage.close();
-            }
-        });
+    private void showToolbar(java.awt.Rectangle windowBounds) {
+        Button one = new Button("▢ Capture one");
+        one.setOnAction(e -> beginSingle());
+        Button many = new Button("▦ Capture many");
+        many.setOnAction(e -> beginMany());
+        Button close = new Button("✕ Close");
+        close.setOnAction(e -> toolbarStage.close());
 
-        Label hint = new Label("Draw rectangles over the window to save templates · Esc to finish");
-        hint.setTextFill(Color.WHITE);
+        Label hint = new Label("Capture Templates");
+        hint.setTextFill(Color.web("#c9d4e6"));
 
-        HBox bar = new HBox(10, actionButton, hint);
+        HBox bar = new HBox(8, hint, one, many, close);
         bar.setAlignment(Pos.CENTER_LEFT);
-        bar.setPadding(new Insets(8, 12, 8, 12));
-        bar.setStyle("-fx-background-color: rgba(0,0,0,0.72); -fx-background-radius: 6;");
-        bar.setLayoutX(12);
-        bar.setLayoutY(12);
-        // Keep the bar out of the way of drag-selection so clicking it never starts a rubber-band.
-        bar.setMouseTransparent(false);
-        return bar;
+        bar.setPadding(new Insets(8, 10, 8, 10));
+        bar.setStyle("-fx-background-color: rgba(20,24,33,0.92); -fx-background-radius: 8;");
+
+        Scene scene = new Scene(bar, Color.TRANSPARENT);
+        scene.setOnKeyPressed(e -> { if (e.getCode() == KeyCode.ESCAPE) toolbarStage.close(); });
+
+        toolbarStage = new Stage(StageStyle.TRANSPARENT);
+        if (owner != null) toolbarStage.initOwner(owner);
+        toolbarStage.setAlwaysOnTop(true);
+        toolbarStage.setScene(scene);
+        toolbarStage.show();
+        toolbarStage.sizeToScene();
+        // Sit just above the window's top edge, or tuck inside the top when there's no room above.
+        double barHeight = toolbarStage.getHeight();
+        toolbarStage.setX(windowBounds.x);
+        toolbarStage.setY(windowBounds.y - barHeight - 4 >= 0 ? windowBounds.y - barHeight - 4 : windowBounds.y + 4);
     }
 
-    private void installDrawHandlers() {
-        final double[] origin = new double[2];
-        pane.setOnMousePressed(e -> {
-            if (!capturing || busy || inControlBar(e.getX(), e.getY())) return;
-            origin[0] = e.getX();
-            origin[1] = e.getY();
-            selection.setX(e.getX());
-            selection.setY(e.getY());
-            selection.setWidth(0);
-            selection.setHeight(0);
-            selection.setVisible(true);
-        });
-        pane.setOnMouseDragged(e -> {
-            if (!capturing || busy || !selection.isVisible()) return;
-            double x = Math.min(origin[0], e.getX());
-            double y = Math.min(origin[1], e.getY());
-            selection.setX(x);
-            selection.setY(y);
-            selection.setWidth(Math.abs(e.getX() - origin[0]));
-            selection.setHeight(Math.abs(e.getY() - origin[1]));
-        });
-        pane.setOnMouseReleased(e -> {
-            if (!capturing || busy || !selection.isVisible()) return;
-            double selX = selection.getX(), selY = selection.getY();
-            double selW = selection.getWidth(), selH = selection.getHeight();
-            selection.setVisible(false);
-            if (selW < 3 || selH < 3) return;
-            captureRegion(selX, selY, selW, selH, pane.getWidth(), pane.getHeight());
+    // ── Capture one ────────────────────────────────────────────────────────────────────────────────────
+
+    private void beginSingle() {
+        toolbarStage.hide();
+        captureWindowAsync(shot -> {
+            if (shot == null) { warnClosed(); endSession(); return; }
+            surface = CaptureSurface.single(owner, shot.bounds(), this::onSingleRegion, this::endSession);
         });
     }
 
-    /** True when ({@code x},{@code y}) falls within the control bar so a click there isn't a rubber-band. */
-    private boolean inControlBar(double x, double y) {
-        for (var node : pane.getChildren()) {
-            if (node instanceof HBox bar) {
-                return bar.getBoundsInParent().contains(x, y);
+    private void onSingleRegion(Region region) {
+        surface.hide();
+        captureWindowAsync(shot -> {
+            try {
+                if (shot == null) { warnClosed(); return; }
+                BufferedImage full = shot.image();
+                BufferedImage cropped = cropToImage(full, region);
+                if (cropped == null) return;
+                Optional<String> name = ImageTemplatePicker.promptTemplateName(owner, config, null);
+                if (name.isEmpty()) return;
+                ImageTemplateLibrary.saveTemplate(config, cropped, name.get(),
+                        full.getWidth(), full.getHeight(), target.titleSubstring());
+                eventBus.publish(new ResourcesChangedEvent());
+            } catch (Exception ex) {
+                warn(owner, "Failed to save template: " + ex.getMessage());
+            } finally {
+                endSession();
             }
+        });
+    }
+
+    // ── Capture many ───────────────────────────────────────────────────────────────────────────────────
+
+    private void beginMany() {
+        toolbarStage.hide();
+        captureWindowAsync(shot -> {
+            if (shot == null) { warnClosed(); endSession(); return; }
+            surface = CaptureSurface.many(owner, shot.bounds(), this::onManyDone, this::endSession);
+        });
+    }
+
+    private void onManyDone(List<Region> regions) {
+        surface.hide();
+        if (regions.isEmpty()) { endSession(); return; }
+        captureWindowAsync(shot -> {
+            try {
+                if (shot == null) { warnClosed(); return; }
+                BufferedImage full = shot.image();
+                List<BufferedImage> crops = new ArrayList<>();
+                for (Region r : regions) {
+                    BufferedImage c = cropToImage(full, r);
+                    if (c != null) crops.add(c);
+                }
+                if (crops.isEmpty()) return;
+                List<NamedTemplate> kept = BatchTemplateNamingDialog.show(owner, config, crops);
+                int saved = 0;
+                for (NamedTemplate t : kept) {
+                    ImageTemplateLibrary.saveTemplate(config, t.image(), t.name(),
+                            full.getWidth(), full.getHeight(), target.titleSubstring());
+                    saved++;
+                }
+                if (saved > 0) eventBus.publish(new ResourcesChangedEvent());
+            } catch (Exception ex) {
+                warn(owner, "Failed to save templates: " + ex.getMessage());
+            } finally {
+                endSession();
+            }
+        });
+    }
+
+    // ── Shared plumbing ────────────────────────────────────────────────────────────────────────────────
+
+    /** Disposes the active surface (if any) and returns to the mini-toolbar. */
+    private void endSession() {
+        if (surface != null) {
+            surface.close();
+            surface = null;
         }
-        return false;
+        toolbarStage.show();
     }
 
     /**
-     * Hides the overlay, re-captures the live window off the FX thread (so focus + settle don't freeze the
-     * UI), crops to the selection, then prompts for a unique name and saves on the FX thread.
+     * Re-captures the live window off the FX thread (so focus + settle don't freeze the UI), then delivers the
+     * shot (possibly {@code null} on failure) back on the FX thread.
      */
-    private void captureRegion(double selX, double selY, double selW, double selH,
-                               double paneW, double paneH) {
-        busy = true;
-        stage.hide();
+    private void captureWindowAsync(Consumer<WindowShot> onFx) {
         Thread t = new Thread(() -> {
             WindowShot shot = capture.captureWindow(target);
-            Platform.runLater(() -> {
-                if (shot == null) {
-                    busy = false;
-                    stage.show();
-                    warn(owner, "Capture failed — the window may have closed.");
-                    return;
-                }
-                BufferedImage full = shot.image();
-                BufferedImage cropped = cropToImage(full, selX, selY, selW, selH, paneW, paneH);
-                try {
-                    if (cropped != null) {
-                        Optional<String> name = ImageTemplatePicker.promptTemplateName(owner, config, null);
-                        if (name.isPresent()) {
-                            ImageTemplateLibrary.saveTemplate(config, cropped, name.get(),
-                                    full.getWidth(), full.getHeight(), target.titleSubstring());
-                            eventBus.publish(new ResourcesChangedEvent());
-                        }
-                    }
-                } catch (Exception ex) {
-                    warn(owner, "Failed to save template: " + ex.getMessage());
-                } finally {
-                    busy = false;
-                    stage.show();
-                }
-            });
+            Platform.runLater(() -> onFx.accept(shot));
         }, "overlay-template-capture");
         t.setDaemon(true);
         t.start();
     }
 
-    /** Maps a selection rectangle (overlay-logical pixels) onto {@code full} (physical pixels) and crops it. */
-    private static BufferedImage cropToImage(BufferedImage full, double selX, double selY, double selW,
-                                             double selH, double paneW, double paneH) {
-        if (paneW <= 0 || paneH <= 0) return null;
-        double scaleX = full.getWidth() / paneW;
-        double scaleY = full.getHeight() / paneH;
-        int x = (int) Math.round(selX * scaleX);
-        int y = (int) Math.round(selY * scaleY);
-        int w = (int) Math.round(selW * scaleX);
-        int h = (int) Math.round(selH * scaleY);
+    private void warnClosed() {
+        warn(owner, "Capture failed — the window may have closed.");
+    }
+
+    /** Maps a drawn {@link Region} (overlay-logical pixels) onto {@code full} (physical pixels) and crops it. */
+    private static BufferedImage cropToImage(BufferedImage full, Region r) {
+        if (r.paneW() <= 0 || r.paneH() <= 0) return null;
+        double scaleX = full.getWidth() / r.paneW();
+        double scaleY = full.getHeight() / r.paneH();
+        int x = (int) Math.round(r.x() * scaleX);
+        int y = (int) Math.round(r.y() * scaleY);
+        int w = (int) Math.round(r.w() * scaleX);
+        int h = (int) Math.round(r.h() * scaleY);
         x = Math.max(0, Math.min(x, full.getWidth() - 1));
         y = Math.max(0, Math.min(y, full.getHeight() - 1));
         w = Math.max(1, Math.min(w, full.getWidth() - x));

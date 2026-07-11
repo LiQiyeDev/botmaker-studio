@@ -193,13 +193,6 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
                 .addLabel(".")
                 .addNode(methodSelector);
 
-        // Return-type badge (SDK calls): the vision API now returns boolean/int (find/click → boolean,
-        // findAll/clickAll → int, VisionContext.getLastMatch → MatchResult), so surface what the call yields.
-        addReturnTypeBadge(sentenceBuilder, context, currentScopeGetter);
-
-        // "Learn about it" (ⓘ) — SDK method help sourced from the sources-jar Javadoc (SDK calls only).
-        addInfoButton(sentenceBuilder, context, currentScopeGetter);
-
         // Signature Button (explicit overload picker) — argument sync is automatic on method change.
         addSignatureButton(sentenceBuilder, context, currentScopeGetter, methodSelector, finalCurrentFileClass);
 
@@ -212,6 +205,14 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
         renderArguments(sentenceBuilder, context, currentScopeGetter, methodSelector);
 
         sentenceBuilder.addLabel(")");
+
+        // Return-type badge AFTER the arguments (SDK calls): the vision API returns boolean/int (find/click →
+        // boolean, findAll/clickAll → int, VisionContext.getLastMatch → MatchResult), so surface what the call
+        // yields — placed after the argument list per the block layout.
+        addReturnTypeBadge(sentenceBuilder, context, currentScopeGetter);
+
+        // Explanation (?) button — far right of all elements — SDK method help from the sources-jar Javadoc.
+        addInfoButton(sentenceBuilder, context, currentScopeGetter);
 
         HBox container = sentenceBuilder.build();
         styleContainer(container);

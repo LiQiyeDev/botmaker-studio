@@ -33,13 +33,32 @@ public record PickerContext(CodeEditorService context, ExpressionBlock arg, Reso
                 && className != null && (className.equals("Game") || className.endsWith(".Game"));
     }
 
-    /** The program-path argument of {@code Game.launch(path, args...)} — its first argument. */
+    /**
+     * The program-path argument (index 0) of a Game launch method: {@code launch(path, args...)},
+     * {@code launchIfNotRunning(path, source, args...)}, or {@code launchAndWait(path, source, timeout, args...)}.
+     */
     public boolean isGameLaunchProgramArg() {
-        return isGameMethod("launch") && argIndex == 0;
+        return argIndex == 0
+                && (isGameMethod("launch") || isGameMethod("launchIfNotRunning") || isGameMethod("launchAndWait"));
     }
 
-    /** A trailing command-line-argument (varargs) of {@code Game.launch(path, args...)}. */
+    /**
+     * A trailing command-line-argument (varargs) of a Game launch method. The varargs start after the fixed
+     * parameters, which differ per overload: {@code launch(path, …)} → index ≥ 1;
+     * {@code launchIfNotRunning(path, source, …)} → index ≥ 2; {@code launchAndWait(path, source, timeout, …)} → index ≥ 3.
+     */
     public boolean isGameLaunchOptionArg() {
-        return isGameMethod("launch") && argIndex >= 1;
+        if (isGameMethod("launch")) return argIndex >= 1;
+        if (isGameMethod("launchIfNotRunning")) return argIndex >= 2;
+        if (isGameMethod("launchAndWait")) return argIndex >= 3;
+        return false;
+    }
+
+    /**
+     * The Steam appId argument (index 0) of {@code Game.launchSteam(appId)} or
+     * {@code Game.launchSteamIfNotRunning(appId, source)} — offered the cover-art game picker.
+     */
+    public boolean isGameSteamAppIdArg() {
+        return argIndex == 0 && (isGameMethod("launchSteam") || isGameMethod("launchSteamIfNotRunning"));
     }
 }
