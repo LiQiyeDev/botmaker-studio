@@ -6,6 +6,43 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-12 — Overlay authoring system (Phase 2): program-shape editor + insertion cursor + method
+  palette.** New **"⧉ Overlay Editor"** toolbar button opens `ui/app/overlay/ProgramShapeOverlay` — a small,
+  always-on-top, independently-minimizable window that mirrors the program's shape as a compact,
+  clickable/scrollable list of one-line rows built by walking the live `CodeBlock` tree (no second renderer).
+  An **insertion cursor** (`project/InsertionCursor`, held on `ProjectState`) marks the focused block; the
+  two-row toolbar's **step / step-into / step-out** buttons move it (`services/CursorNavigator`, pure +
+  unit-tested in `CursorNavigatorTest`) and **＋ Add below** / the palette insert just beneath it. An
+  always-visible **searchable method palette** lists every insertable SDK method — curated bot-actions plus all
+  facade static methods (vision included, via `ProjectAnalyzer.getMethods`) — and inserts the pick as an ad-hoc
+  `BlockType.LibraryCall` below the cursor. Per-row **⚙ config** button opens the existing argument pickers
+  (`PickerRegistry`: draw-a-`Rect`, pick/capture `ImageTemplate`/`ImageTemplateGroup`, `CaptureSource`/`Window`
+  chooser) so args are filled without leaving the overlay. Supporting changes: `IfBlock` now implements
+  `BlockWithChildren` (so traversal/step-into reach its bodies — the only body-block that lacked it);
+  `CodeEditorService` caches + exposes the last rendered root (`getRootBlock()`); `MethodInvocationBlock` exposes
+  its arg blocks / scope / resolved param types for the config popover. **Deferred:** per-row overload toggle
+  (methods are switchable via palette re-insert / inline editor); context-filtering the palette by cursor-valid
+  types; config popover refresh after multi-arg edits (single-arg draw works).
+- **2026-07-12 — Capture-overlay & macro-recorder fixes + vision-menu cleanup (Phase 1).** Both floating
+  mini-toolbars (capture templates + record macro) are now **single-instance** (re-pressing the button focuses
+  the live one), **draggable**, and **ownerless** so Studio can be minimized without the overlay vanishing —
+  centralized in a new `ui/app/overlay/OverlayToolbars` helper (also drops `initOwner` on `CaptureSurface`).
+  The **target window is now raised/de-iconified** before capture and before recording: `ScreenCaptureService`
+  resolves minimized windows (`getAllWindows(true)`), calls `restoreWindow`, and shared `LinuxController` now
+  also sends an EWMH `_NET_ACTIVE_WINDOW` request (raises on WMs that ignore bare `XRaiseWindow`). **Keyboard
+  recording fixed:** keysyms are resolved on a dedicated X connection (not the one blocked inside
+  `XRecordEnableContext`), which had silently dropped every keystroke while mouse worked; numpad digits mapped.
+  The **"Vision" statement-menu category removed** (find/click/wait retargeted to Input as bot-actions;
+  `Find Image → Do Actions` unlisted but its `LambdaCallBlock` impl kept for the Phase-2 overlay palette).
+  **Lambda SDK block "englobes" its body** — the purple frame moved to the outer container so it wraps header +
+  action body (`blocks.css` `.sdk-call-block`/`.sdk-lambda-body`). **Main toolbar wraps to two rows** when the
+  window is narrow. **Capture resolution normalization:** a project `referenceResolution` (new
+  `StudioProjectSettings` field, seeded from the window's size on first capture) snaps the target window to a
+  canonical size before each capture (`ScreenCaptureService.resizeTarget`), avoiding lossy match-time scaling.
+  Committed to **X11 only**: removed dead xdg-desktop-portal ScreenCast token plumbing (kept the fail-fast
+  `ForceX11Notice` guard and the blank-frame CLI fallback). **Deferred → Phase 2:** the overlay program-shape
+  (compact clickable blocks), insertion cursor + step/step-into/step-out, block config buttons (rect pickers),
+  and the searchable context-aware SDK method palette.
 - **2026-07-11 — Macro recorder v1 (Linux/X11): record real input → blocks.** New "⏺ Record Macro" toolbar
   button (next to Capture Templates; disabled off-Linux) opens a floating mini-toolbar over the project's
   default **window** target (Record / Pause / Stop & Insert + live action counter). Real clicks & keystrokes

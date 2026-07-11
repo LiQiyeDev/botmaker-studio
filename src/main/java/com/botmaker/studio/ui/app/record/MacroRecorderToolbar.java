@@ -1,15 +1,14 @@
 package com.botmaker.studio.ui.app.record;
 
+import com.botmaker.studio.ui.app.overlay.OverlayToolbars;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
-import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.input.KeyCode;
 import javafx.scene.layout.HBox;
 import javafx.scene.paint.Color;
 import javafx.stage.Stage;
-import javafx.stage.StageStyle;
 import javafx.stage.Window;
 
 /**
@@ -42,19 +41,9 @@ public final class MacroRecorderToolbar {
         bar.setPadding(new Insets(8, 10, 8, 10));
         bar.setStyle("-fx-background-color: rgba(20,24,33,0.92); -fx-background-radius: 8;");
 
-        Scene scene = new Scene(bar, Color.TRANSPARENT);
-        scene.setOnKeyPressed(e -> { if (e.getCode() == KeyCode.ESCAPE) onClose.run(); });
-
-        stage = new Stage(StageStyle.TRANSPARENT);
-        if (owner != null) stage.initOwner(owner);
-        stage.setAlwaysOnTop(true);
-        stage.setScene(scene);
-        stage.show();
-        stage.sizeToScene();
-        // Sit just above the window's top edge, or tuck inside the top when there's no room above.
-        double barHeight = stage.getHeight();
-        stage.setX(windowBounds.x);
-        stage.setY(windowBounds.y - barHeight - 4 >= 0 ? windowBounds.y - barHeight - 4 : windowBounds.y + 4);
+        // Shared: draggable, always-on-top, ownerless (so Studio can be minimized without hiding this).
+        stage = OverlayToolbars.show(bar, windowBounds);
+        stage.getScene().setOnKeyPressed(e -> { if (e.getCode() == KeyCode.ESCAPE) onClose.run(); });
     }
 
     /** Updates the left-hand status text (e.g. {@code "Recording — 5 actions"}). */
@@ -70,6 +59,11 @@ public final class MacroRecorderToolbar {
     /** Enables the Stop button once a recording has started. */
     public void enableStop(boolean enabled) {
         stop.setDisable(!enabled);
+    }
+
+    /** Raises the toolbar to the front (used when a second open is requested). */
+    public void toFront() {
+        stage.toFront();
     }
 
     public void close() {

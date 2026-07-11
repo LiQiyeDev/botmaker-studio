@@ -38,6 +38,7 @@ import org.eclipse.jdt.core.dom.WhileStatement;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Stream;
 
 public class CodeEditorService {
@@ -52,6 +53,9 @@ public class CodeEditorService {
     private final HistoryManager historyManager;
     private final ProjectAnalyzer projectAnalyzer;
     private final SdkDocsService sdkDocsService;
+
+    /** Cache of the last rendered block-tree root, exposed via {@link #getRootBlock()} for the overlay editor. */
+    private AbstractCodeBlock lastRootBlock;
 
     public CodeEditorService(
             ProjectConfig config,
@@ -391,6 +395,7 @@ public class CodeEditorService {
                 markNewIdentifiersAsUnedited
         );
         AbstractCodeBlock rootBlock = result.root();
+        this.lastRootBlock = rootBlock;
 
         for (CodeBlock block : state.getNodeToBlockMap().values()) {
             if (state.hasBreakpoint(block.getId())) {
@@ -447,6 +452,9 @@ public class CodeEditorService {
             eventBus.publish(new CoreApplicationEvents.StatusMessageEvent("Select a block to paste after."));
         });
     }
+    /** The most recently rendered block tree root (published via {@code UIBlocksUpdatedEvent}), or empty. */
+    public Optional<CodeBlock> getRootBlock() { return Optional.ofNullable(lastRootBlock); }
+
     public CodeEditor getCodeEditor() { return codeEditor; }
     public ProjectState getState() { return state; }
     public EventBus getEventBus() { return eventBus; }

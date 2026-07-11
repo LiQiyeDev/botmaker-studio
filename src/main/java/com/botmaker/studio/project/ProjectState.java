@@ -32,6 +32,7 @@ public class ProjectState {
 
     // --- UI State ---
     private CodeBlock highlightedBlock;
+    private InsertionCursor insertionCursor;
     private boolean isDebugging;
     private final Set<String> breakpointIds = new HashSet<>();
     private final Set<String> collapsedMethods = new HashSet<>();
@@ -165,6 +166,18 @@ public class ProjectState {
 
     public void clearHighlight() {
         setHighlightedBlock(null);
+    }
+
+    /**
+     * The overlay authoring caret (where the next block is inserted), or empty when no overlay session is
+     * active. Distinct from {@link #getHighlightedBlock()} (a selected block) — see {@link InsertionCursor}.
+     */
+    public Optional<InsertionCursor> getInsertionCursor() {
+        return Optional.ofNullable(insertionCursor);
+    }
+
+    public void setInsertionCursor(InsertionCursor cursor) {
+        this.insertionCursor = cursor;
     }
 
     // =========================================================================

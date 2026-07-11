@@ -123,6 +123,7 @@ public class UIManager {
         this.toolbarManager.setOnEnableRemotePilot(this::openRemotePilot);
         this.toolbarManager.setOnCaptureTemplates(this::openOverlayTemplateCapture);
         this.toolbarManager.setOnRecordMacro(this::openMacroRecorder);
+        this.toolbarManager.setOnOverlayEditor(this::openOverlayEditor);
         GitHubClient gitHubClient = new GitHubClient();
         GitHubGallery gallery = new GitHubGallery(gitHubClient);
         BotInstaller botInstaller = new BotInstaller(gitHubClient, gallery);
@@ -617,6 +618,11 @@ public class UIManager {
                 primaryStage, config, projectSettingsService, screenCaptureService, eventBus);
     }
 
+    /** Opens the program-shape overlay authoring editor (compact clickable block tree + insertion cursor). */
+    private void openOverlayEditor() {
+        com.botmaker.studio.ui.app.overlay.ProgramShapeOverlay.open(primaryStage, codeEditorService);
+    }
+
     /** Opens the macro recorder over the project's default window target (records input → blocks). */
     private void openMacroRecorder() {
         com.botmaker.studio.services.record.MacroRecorder.open(
@@ -689,19 +695,46 @@ public class UIManager {
         rightContainer.setAlignment(Pos.CENTER_RIGHT);
 
         HBox captureControls = toolbarManager.createCaptureGroup();
-        HBox centerContainer = new HBox(captureControls);
-        centerContainer.setAlignment(Pos.CENTER);
 
         BorderPane topBar = new BorderPane();
         topBar.setPadding(new Insets(6));
         topBar.setLeft(leftContainer);
-        topBar.setCenter(centerContainer);
         topBar.setRight(rightContainer);
         topBar.getStyleClass().add("main-toolbar");
         topBar.setMinHeight(50);
         topBar.setPrefHeight(50);
         topBar.setMaxHeight(50);
         topBar.setStyle("-fx-border-color: #dcdcdc; -fx-border-width: 0 0 1 0; -fx-background-color: #f4f4f4;");
+
+        // Responsive: the middle capture group sits inline (centered) when the window is wide enough, and drops
+        // to its own second row when the toolbar gets too narrow to show every button — so nothing is clipped.
+        HBox centerWrap = new HBox(captureControls);
+        centerWrap.setAlignment(Pos.CENTER);
+        HBox secondRow = new HBox();
+        secondRow.setAlignment(Pos.CENTER);
+        secondRow.setPadding(new Insets(0, 6, 6, 6));
+        secondRow.getStyleClass().add("main-toolbar");
+        secondRow.setStyle("-fx-border-color: #dcdcdc; -fx-border-width: 0 0 1 0; -fx-background-color: #f4f4f4;");
+
+        VBox toolbarColumn = new VBox(topBar);
+        // Width below which the capture group wraps to a second row (edit + execution stay on row one).
+        final double TWO_ROW_THRESHOLD = 1080;
+        Runnable reflowToolbar = () -> {
+            double w = toolbarColumn.getWidth();
+            boolean narrow = w > 0 && w < TWO_ROW_THRESHOLD;
+            if (narrow) {
+                topBar.setCenter(null);
+                if (secondRow.getChildren().isEmpty()) secondRow.getChildren().setAll(captureControls);
+                if (!toolbarColumn.getChildren().contains(secondRow)) toolbarColumn.getChildren().add(secondRow);
+            } else {
+                toolbarColumn.getChildren().remove(secondRow);
+                secondRow.getChildren().clear();
+                if (centerWrap.getChildren().isEmpty()) centerWrap.getChildren().setAll(captureControls);
+                topBar.setCenter(centerWrap);
+            }
+        };
+        toolbarColumn.widthProperty().addListener((obs, ov, nv) -> reflowToolbar.run());
+        reflowToolbar.run();
 
         // --- 2. Left Panel: File Explorer ---
         // Fill the column (no maxWidth cap) so the tree occupies the full width the divider gives it —
@@ -763,7 +796,7 @@ public class UIManager {
         statusLabel.setId("status-label");
         statusLabel.setPadding(new Insets(2, 5, 2, 5));
 
-        VBox root = new VBox(menuBarManager.getMenuBar(), topBar, mainSplit, statusLabel);
+        VBox root = new VBox(menuBarManager.getMenuBar(), toolbarColumn, mainSplit, statusLabel);
         VBox.setVgrow(mainSplit, Priority.ALWAYS);
         root.getStyleClass().add("light-theme");
 

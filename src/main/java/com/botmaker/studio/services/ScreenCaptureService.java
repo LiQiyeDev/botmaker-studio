@@ -358,9 +358,9 @@ public final class ScreenCaptureService {
             return null;
         }
         NativeController controller = NativeControllerFactory.get();
-        // Raise + focus, then let the compositor settle before grabbing pixels.
+        // Restore (de-iconify if minimized) + raise + focus, then let the compositor settle before grabbing.
         try {
-            controller.focusWindow(win);
+            controller.restoreWindow(win);
             Thread.sleep(180);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -392,12 +392,15 @@ public final class ScreenCaptureService {
         return img == null ? null : new WindowShot(img, bounds);
     }
 
-    /** First window (case-insensitive) whose title contains {@code titleSubstring}, or {@code null}. */
+    /**
+     * First window (case-insensitive) whose title contains {@code titleSubstring}, or {@code null}. Includes
+     * currently-minimized windows so a minimized target can be found and then de-iconified/raised.
+     */
     private static GenericWindow resolveWindow(String titleSubstring) {
         if (titleSubstring == null) return null;
         String needle = titleSubstring.toLowerCase();
         try {
-            for (GenericWindow w : NativeControllerFactory.get().getAllWindows()) {
+            for (GenericWindow w : NativeControllerFactory.get().getAllWindows(true)) {
                 String t = w.getTitle();
                 if (t != null && t.toLowerCase().contains(needle)) return w;
             }
@@ -405,6 +408,42 @@ public final class ScreenCaptureService {
             System.err.println("Window enumeration failed: " + t.getMessage());
         }
         return null;
+    }
+
+    /**
+     * Brings the window matching {@code target} to the front (de-iconifying if minimized) without capturing.
+     * Best-effort; used by the macro recorder so the target is raised when recording begins.
+     */
+    public void raiseWindow(WindowTarget target) {
+        GenericWindow win = resolveWindow(target.titleSubstring());
+        if (win == null) return;
+        try {
+            NativeControllerFactory.get().restoreWindow(win);
+        } catch (Throwable t) {
+            System.err.println("Could not raise window: " + t.getMessage());
+        }
+    }
+
+    /**
+     * Resizes the window matching {@code target} to {@code width}×{@code height} (logical px) and lets the
+     * compositor settle, so a template is captured at the project's canonical resolution rather than whatever
+     * size the window happens to be. Best-effort no-op when the window can't be found or is already that size.
+     * Runs synchronously; call it off the FX thread (it sleeps briefly).
+     */
+    public void resizeTarget(WindowTarget target, int width, int height) {
+        if (width <= 0 || height <= 0) return;
+        GenericWindow win = resolveWindow(target.titleSubstring());
+        if (win == null) return;
+        java.awt.Rectangle r = win.getRect();
+        if (r != null && r.width == width && r.height == height) return; // already canonical
+        try {
+            NativeControllerFactory.get().resizeWindow(win, width, height);
+            Thread.sleep(180);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Throwable t) {
+            System.err.println("Could not resize window: " + t.getMessage());
+        }
     }
 
     /** Enumerates the titles of the currently open windows (for the target chooser). Best-effort. */

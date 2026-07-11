@@ -186,6 +186,17 @@
     -fx-border-color: #8E44AD;
     -fx-border-width: 1.5;
     -fx-border-radius: 6;
+    -fx-background-radius: 6;
+    -fx-padding: 4;
+}
+
+/* The lambda body of a body-carrying SDK call (LambdaCallBlock). It sits INSIDE the .sdk-call-block frame
+   with a left accent bar + faint tint, so the SDK header and its action body read as one enclosed block
+   rather than a framed header with a detached body underneath. */
+.sdk-call-block .sdk-lambda-body {
+    -fx-border-color: #8E44AD;
+    -fx-border-width: 0 0 0 3;
+    -fx-background-color: rgba(142, 68, 173, 0.06);
 }
 
 .sdk-call-block .sdk-badge {

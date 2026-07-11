@@ -86,19 +86,20 @@ public final class BlockCatalog {
             new MethodMember("METHOD_DECLARATION", "Declare Function", FUNCTIONS);
     public static final BlockType DECLARE_ENUM = new EnumDecl("DECLARE_ENUM", "Define Enum", VARIABLES);
 
-    // --- Vision ---
+    // --- Vision (find/click/wait promoted as bot actions; no dedicated "Vision" submenu) ---
     public static final BlockType FIND_IMAGE =
-            new LibraryCall("FIND_IMAGE", "Find Image", VISION, "ImageFinder", "find", List.of());
+            new LibraryCall("FIND_IMAGE", "Find Image", INPUT, "ImageFinder", "find", List.of());
     public static final BlockType CLICK_IMAGE =
-            new LibraryCall("CLICK_IMAGE", "Click Image", VISION, "ImageClicker", "click", List.of());
+            new LibraryCall("CLICK_IMAGE", "Click Image", INPUT, "ImageClicker", "click", List.of());
     public static final BlockType WAIT_FOR_IMAGE =
-            new LibraryCall("WAIT_FOR_IMAGE", "Wait For Image", VISION, "ImageWaiter", "waitFor", List.of());
+            new LibraryCall("WAIT_FOR_IMAGE", "Wait For Image", INPUT, "ImageWaiter", "waitFor", List.of());
     // A single body-carrying find block: renders like an SDK ImageFinder call with a method dropdown
-    // (ifFind/whileFind/untilFind × single/any/all) plus a droppable action body — see LambdaCallBlock. It
-    // replaces the former per-variant "If/While Image Exists" / "Repeat Until…" menu entries (the method
-    // dropdown now selects among those forms). Defaults to ifFind.
+    // (ifFind/whileFind/untilFind × single/any/all) plus a droppable action body — see LambdaCallBlock. The
+    // block implementation is retained (round-trips existing ImageFinder.ifFind lambdas, and is reused by the
+    // Phase 2 overlay method palette), but it is intentionally NOT listed in the statement menu — hence it is
+    // excluded from ALL below.
     public static final BlockType FIND_IMAGE_ACTIONS = new LambdaCall("FIND_IMAGE_ACTIONS", "Find Image → Do Actions",
-            VISION, "ImageFinder", "ifFind", List.of(), "match");
+            INPUT, "ImageFinder", "ifFind", List.of(), "match");
     public static final BlockType DECLARE_POINT = new VarDecl("DECLARE_POINT", "Point", BOT_VARIABLE, "Point", false, "p",
             new NewInstance("Point", List.of(new IntLit("0"), new IntLit("0"))));
     public static final BlockType DECLARE_RECT = new VarDecl("DECLARE_RECT", "Rect", BOT_VARIABLE, "Rect", false, "r",
@@ -137,7 +138,7 @@ public final class BlockCatalog {
             DECLARE_INT, DECLARE_DOUBLE, DECLARE_BOOLEAN, DECLARE_STRING, DECLARE_ARRAY, ASSIGNMENT,
             CLICK, TYPE_TEXT, PRESS_KEY, READ_LINE, READ_INT, READ_DOUBLE,
             FUNCTION_CALL, METHOD_DECLARATION, DECLARE_ENUM,
-            FIND_IMAGE, CLICK_IMAGE, WAIT_FOR_IMAGE, FIND_IMAGE_ACTIONS,
+            FIND_IMAGE, CLICK_IMAGE, WAIT_FOR_IMAGE,
             DECLARE_POINT, DECLARE_RECT, DECLARE_SIZE, DECLARE_MATCH, DECLARE_TEMPLATE,
             LAUNCH_GAME, LAUNCH_STEAM_GAME,
             COMMENT);

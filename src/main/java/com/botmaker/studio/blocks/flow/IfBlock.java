@@ -1,7 +1,9 @@
 package com.botmaker.studio.blocks.flow;
 
 import com.botmaker.studio.core.AbstractStatementBlock;
+import com.botmaker.studio.core.BlockWithChildren;
 import com.botmaker.studio.core.BodyBlock;
+import com.botmaker.studio.core.CodeBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.core.StatementBlock;
 import com.botmaker.studio.services.CodeEditorService;
@@ -18,7 +20,7 @@ import org.eclipse.jdt.core.dom.Expression;
 import org.eclipse.jdt.core.dom.IfStatement;
 import org.eclipse.jdt.core.dom.Statement;
 
-public class IfBlock extends AbstractStatementBlock {
+public class IfBlock extends AbstractStatementBlock implements BlockWithChildren {
 
     private ExpressionBlock condition;
     private BodyBlock thenBody;
@@ -37,6 +39,16 @@ public class IfBlock extends AbstractStatementBlock {
 
     public void setIsElseIf(boolean isElseIf) {
         this.isElseIf = isElseIf;
+    }
+
+    @Override
+    public java.util.List<CodeBlock> getChildren() {
+        java.util.List<CodeBlock> children = new java.util.ArrayList<>();
+        if (condition != null) children.add(condition);
+        if (thenBody != null) children.add(thenBody);
+        // The else branch is either a BodyBlock or a nested IfBlock (an else-if chain) — both are CodeBlocks.
+        if (elseStatement != null) children.add(elseStatement);
+        return children;
     }
 
     @Override

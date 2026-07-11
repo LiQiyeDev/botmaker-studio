@@ -41,6 +41,9 @@ import java.util.List;
  */
 public final class MacroRecorder {
 
+    /** The single live recorder, so pressing the toolbar button again focuses it instead of opening another. */
+    private static MacroRecorder active;
+
     private final Window owner;
     private final ScreenCaptureService capture;
     private final EventBus eventBus;
@@ -88,6 +91,11 @@ public final class MacroRecorder {
                     + "window as the default first.");
             return;
         }
+        // Single-instance: focus the live recorder toolbar instead of stacking another recorder/XRecord session.
+        if (active != null && active.toolbar != null) {
+            active.toolbar.toFront();
+            return;
+        }
         new MacroRecorder(owner, capture, eventBus, codeEditor, state, wt).start();
     }
 
@@ -99,6 +107,7 @@ public final class MacroRecorder {
         }
         windowBounds = shot.bounds();
         toolbar = new MacroRecorderToolbar(owner, windowBounds, this::togglePrimary, this::stopAndInsert, this::cancel);
+        active = this;
     }
 
     // ── Recording state machine ──────────────────────────────────────────────────────────────────────────
@@ -109,6 +118,8 @@ public final class MacroRecorder {
     }
 
     private void startRecording() {
+        // Bring the target window to the front so the user interacts with it (not whatever was focused).
+        capture.raiseWindow(target);
         try {
             listener = InputListenerFactory.create();
             listener.start(this::onEvent);
@@ -185,6 +196,7 @@ public final class MacroRecorder {
             toolbar.close();
             toolbar = null;
         }
+        if (active == this) active = null;
     }
 
     // ── Block insertion ──────────────────────────────────────────────────────────────────────────────────

@@ -116,14 +116,17 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
         addInfoButton(sentence, context);
 
         HBox headerContent = sentence.build();
-        headerContent.getStyleClass().add("sdk-call-block");
+
+        // The SDK frame (light-purple fill + border) now wraps the WHOLE block — header AND lambda body — so
+        // the action body reads as enclosed by the call, rather than a header-only frame with a detached body.
+        container.getStyleClass().add("sdk-call-block");
 
         container.getChildren().add(BlockLayout.header()
                 .withCustomNode(headerContent)
                 .withDeleteButton(() -> context.getCodeEditor().deleteStatement((Statement) this.astNode))
                 .build());
 
-        container.getChildren().add(createIndentedBody(body, context, "loop-body"));
+        container.getChildren().add(createIndentedBody(body, context, "sdk-lambda-body"));
 
         return container;
     }

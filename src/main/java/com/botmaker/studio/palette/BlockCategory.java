@@ -15,11 +15,6 @@ public enum BlockCategory {
     // (BlockCatalog.BOT_ACTIONS), so no "Game" submenu is shown (empty categories are skipped).
     GAME("Game"),
     FUNCTIONS("Functions"),
-    /**
-     * Home category for the promoted find/click/wait bot actions, plus the non-promoted "Find Image → Do
-     * Actions" body block — so a small "Vision" submenu holds that one entry.
-     */
-    VISION("Vision"),
     /** Vision/geometry variable declarations (Point, Rect, Size, MatchResult, …) — their own insert submenu. */
     BOT_VARIABLE("Declare Bot Variable"),
     UTILITY("Utility");

@@ -40,7 +40,7 @@ public class ColorPalette {
             case LOOPS -> loopsColor;
             case CONTROL -> controlColor;
             case FUNCTIONS -> functionsColor;
-            case VISION, BOT_VARIABLE -> visionColor;
+            case BOT_VARIABLE -> visionColor;
             case GAME -> gameColor;
             case UTILITY -> utilityColor;
         };

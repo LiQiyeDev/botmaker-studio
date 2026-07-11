@@ -246,6 +246,8 @@ public final class MacroTranslator {
         m.put(0xFF54L, "DOWN");
         // Function keys F1..F12 (XK_F1 = 0xFFBE).
         for (int i = 0; i < 12; i++) m.put(0xFFBEL + i, "F" + (i + 1));
+        // Keypad digits with NumLock on (XK_KP_0 = 0xFFB0) → the SDK's NUM0..NUM9 constants.
+        for (int i = 0; i < 10; i++) m.put(0xFFB0L + i, "NUM" + i);
         return Map.copyOf(m);
     }
 }

@@ -35,6 +35,8 @@ public class ToolbarManager {
     private Runnable onCaptureTemplates;
     /** Opens the macro recorder over the default window; wired by {@link UIManager}. */
     private Runnable onRecordMacro;
+    /** Opens the program-shape overlay authoring editor; wired by {@link UIManager}. */
+    private Runnable onOverlayEditor;
 
     private enum AppState { IDLE, RUNNING, DEBUGGING }
     private AppState currentAppState = AppState.IDLE;
@@ -115,6 +117,11 @@ public class ToolbarManager {
         this.onRecordMacro = callback;
     }
 
+    /** Sets the callback invoked when the toolbar's Overlay Editor button is clicked. */
+    public void setOnOverlayEditor(Runnable callback) {
+        this.onOverlayEditor = callback;
+    }
+
     /**
      * Creates the center group: the Capture Targets button (opens the manage dialog; its text shows the
      * current default target) next to the Debug Dashboard button (opens the live telemetry dashboard).
@@ -163,8 +170,16 @@ public class ToolbarManager {
             recordMacroButton.setTooltip(new Tooltip("Macro recording is currently only available on Linux (X11)"));
         }
 
+        Button overlayEditorButton = new Button("⧉ Overlay Editor");
+        overlayEditorButton.getStyleClass().add("toolbar-btn");
+        overlayEditorButton.setTooltip(new Tooltip(
+                "Show the program's shape in a small always-on-top panel and build it while watching the app"));
+        overlayEditorButton.setOnAction(e -> {
+            if (onOverlayEditor != null) onOverlayEditor.run();
+        });
+
         HBox group = new HBox(5, captureButton, captureTemplatesButton, recordMacroButton,
-                debugDashboardButton, remotePilotButton);
+                overlayEditorButton, debugDashboardButton, remotePilotButton);
         group.setAlignment(Pos.CENTER);
         return group;
     }

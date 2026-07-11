@@ -3,6 +3,7 @@ package com.botmaker.studio.ui.app.capture;
 import com.botmaker.studio.events.CoreApplicationEvents.ResourcesChangedEvent;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.ProjectConfig;
+import com.botmaker.studio.project.StudioProjectSettings;
 import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.ProjectSettingsService;
@@ -10,11 +11,11 @@ import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.services.ScreenCaptureService.WindowShot;
 import com.botmaker.studio.ui.app.capture.BatchTemplateNamingDialog.NamedTemplate;
 import com.botmaker.studio.ui.app.capture.CaptureSurface.Region;
+import com.botmaker.studio.ui.app.overlay.OverlayToolbars;
 import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
-import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
@@ -22,7 +23,6 @@ import javafx.scene.input.KeyCode;
 import javafx.scene.layout.HBox;
 import javafx.scene.paint.Color;
 import javafx.stage.Stage;
-import javafx.stage.StageStyle;
 import javafx.stage.Window;
 
 import java.awt.image.BufferedImage;
@@ -51,20 +51,28 @@ import java.util.function.Consumer;
  */
 public final class OverlayTemplateCapture {
 
+    /** The single live overlay instance, so pressing the toolbar button again focuses it instead of opening another. */
+    private static OverlayTemplateCapture active;
+
     private final Window owner;
     private final ProjectConfig config;
     private final ScreenCaptureService capture;
+    private final ProjectSettingsService settings;
     private final EventBus eventBus;
     private final CaptureTarget.WindowTarget target;
 
     private Stage toolbarStage;
     private CaptureSurface surface;
+    /** The canonical window size to snap to before each capture (project reference resolution), or null. */
+    private StudioProjectSettings.Resolution referenceResolution;
 
     private OverlayTemplateCapture(Window owner, ProjectConfig config, ScreenCaptureService capture,
-                                   EventBus eventBus, CaptureTarget.WindowTarget target) {
+                                   ProjectSettingsService settings, EventBus eventBus,
+                                   CaptureTarget.WindowTarget target) {
         this.owner = owner;
         this.config = config;
         this.capture = capture;
+        this.settings = settings;
         this.eventBus = eventBus;
         this.target = target;
     }
@@ -86,7 +94,12 @@ public final class OverlayTemplateCapture {
                     + "window as the default first.");
             return;
         }
-        new OverlayTemplateCapture(owner, config, capture, eventBus, wt).start();
+        // Single-instance: focus the live overlay instead of stacking another one.
+        if (active != null && active.toolbarStage != null && active.toolbarStage.isShowing()) {
+            active.toolbarStage.toFront();
+            return;
+        }
+        new OverlayTemplateCapture(owner, config, capture, settings, eventBus, wt).start();
     }
 
     private void start() {
@@ -97,6 +110,14 @@ public final class OverlayTemplateCapture {
             warn(owner, "Couldn't find the window \"" + target.titleSubstring() + "\". Is it open?");
             return;
         }
+        // The project reference resolution: the canonical window size every template is captured at. Seed it
+        // from the window's current size the first time (so later captures snap back to this exact size),
+        // avoiding lossy match-time scaling when the window is later at a different size.
+        referenceResolution = settings.current().referenceResolution();
+        if (referenceResolution == null) {
+            referenceResolution = new StudioProjectSettings.Resolution(shot.bounds().width, shot.bounds().height);
+            settings.update(settings.current().withReferenceResolution(referenceResolution));
+        }
         showToolbar(shot.bounds());
     }
 
@@ -106,7 +127,7 @@ public final class OverlayTemplateCapture {
         Button many = new Button("▦ Capture many");
         many.setOnAction(e -> beginMany());
         Button close = new Button("✕ Close");
-        close.setOnAction(e -> toolbarStage.close());
+        close.setOnAction(e -> closeTool());
 
         Label hint = new Label("Capture Templates");
         hint.setTextFill(Color.web("#c9d4e6"));
@@ -116,19 +137,21 @@ public final class OverlayTemplateCapture {
         bar.setPadding(new Insets(8, 10, 8, 10));
         bar.setStyle("-fx-background-color: rgba(20,24,33,0.92); -fx-background-radius: 8;");
 
-        Scene scene = new Scene(bar, Color.TRANSPARENT);
-        scene.setOnKeyPressed(e -> { if (e.getCode() == KeyCode.ESCAPE) toolbarStage.close(); });
+        // Shared: draggable, always-on-top, and deliberately NOT owned by the Studio window (so Studio can
+        // be minimized without hiding the overlay). Positioned just above the target window.
+        toolbarStage = OverlayToolbars.show(bar, windowBounds);
+        toolbarStage.getScene().setOnKeyPressed(e -> { if (e.getCode() == KeyCode.ESCAPE) closeTool(); });
+        active = this;
+    }
 
-        toolbarStage = new Stage(StageStyle.TRANSPARENT);
-        if (owner != null) toolbarStage.initOwner(owner);
-        toolbarStage.setAlwaysOnTop(true);
-        toolbarStage.setScene(scene);
-        toolbarStage.show();
-        toolbarStage.sizeToScene();
-        // Sit just above the window's top edge, or tuck inside the top when there's no room above.
-        double barHeight = toolbarStage.getHeight();
-        toolbarStage.setX(windowBounds.x);
-        toolbarStage.setY(windowBounds.y - barHeight - 4 >= 0 ? windowBounds.y - barHeight - 4 : windowBounds.y + 4);
+    /** Closes the toolbar (and any live surface) and clears the single-instance reference. */
+    private void closeTool() {
+        if (surface != null) {
+            surface.close();
+            surface = null;
+        }
+        if (toolbarStage != null) toolbarStage.close();
+        if (active == this) active = null;
     }
 
     // ── Capture one ────────────────────────────────────────────────────────────────────────────────────
@@ -218,6 +241,11 @@ public final class OverlayTemplateCapture {
      */
     private void captureWindowAsync(Consumer<WindowShot> onFx) {
         Thread t = new Thread(() -> {
+            // Snap the window to the project's canonical resolution first, so the drawn surface and the saved
+            // template share one resolution regardless of the window's current size.
+            if (referenceResolution != null) {
+                capture.resizeTarget(target, referenceResolution.width(), referenceResolution.height());
+            }
             WindowShot shot = capture.captureWindow(target);
             Platform.runLater(() -> onFx.accept(shot));
         }, "overlay-template-capture");

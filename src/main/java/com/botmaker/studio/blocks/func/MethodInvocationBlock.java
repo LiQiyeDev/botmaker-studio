@@ -75,6 +75,31 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
         arguments.add(arg);
     }
 
+    /** This call's argument expression blocks (read-only) — used by the overlay editor's per-arg config popover. */
+    public List<ExpressionBlock> getArgumentBlocks() {
+        return List.copyOf(arguments);
+    }
+
+    /** The call's scope: the SDK facade class for a fixed-scope SDK call, else the current dynamic scope name. */
+    public String getScope() {
+        return fixedScopeName != null ? fixedScopeName : scopeName;
+    }
+
+    public String getMethodName() {
+        return methodName;
+    }
+
+    /**
+     * The parameter types of the overload this call currently matches, aligned to {@link #getArgumentBlocks()}
+     * — so the overlay can hand each argument to {@code PickerRegistry} with the right expected type. Empty
+     * when the method can't be resolved (e.g. SDK jar not indexed).
+     */
+    public List<ResolvedType> resolveParamTypes(CodeEditorService context) {
+        String targetType = resolveTargetType(getScope(), context);
+        MethodSignature sig = determineCurrentSignature(context, targetType, methodName);
+        return sig != null ? sig.paramTypes() : List.of();
+    }
+
     @Override
     protected Node createUINode(CodeEditorService context) {
         String currentFileClass = "";

@@ -31,8 +31,6 @@ public class ProjectPreferences {
     private List<ProjectEntry> recentProjects = new ArrayList<>();
     private Integer captureScreenIndex;
     private WindowState windowState;
-    /** xdg-desktop-portal ScreenCast restore token (global to Studio) → prompt once ever on Wayland. */
-    private String screenCastRestoreToken;
     /** Remote-Pilot pairing token (global to Studio) → stable across restarts so paired phones don't rescan. */
     private String pilotToken;
     /** Last Remote-Pilot local bind port (global to Studio) → reused when free so the tailnet-direct URL is
@@ -52,8 +50,6 @@ public class ProjectPreferences {
     public void setCaptureScreenIndex(Integer index) { this.captureScreenIndex = index; }
     public WindowState getWindowState() { return windowState; }
     public void setWindowState(WindowState windowState) { this.windowState = windowState; }
-    public String getScreenCastRestoreToken() { return screenCastRestoreToken; }
-    public void setScreenCastRestoreToken(String token) { this.screenCastRestoreToken = token; }
     public String getPilotToken() { return pilotToken; }
     public void setPilotToken(String token) { this.pilotToken = token; }
     public int getPilotPort() { return pilotPort; }
@@ -112,17 +108,6 @@ public class ProjectPreferences {
     public static void updateCaptureScreen(int index) {
         ProjectPreferences prefs = load();
         prefs.setCaptureScreenIndex(index);
-        prefs.save();
-    }
-
-    /** The saved portal ScreenCast restore token (global), or {@code null} if consent was never granted. */
-    public static String getScreenCastToken() {
-        return load().getScreenCastRestoreToken();
-    }
-
-    public static void updateScreenCastToken(String token) {
-        ProjectPreferences prefs = load();
-        prefs.setScreenCastRestoreToken(token);
         prefs.save();
     }
 

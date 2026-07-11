@@ -76,7 +76,8 @@ public final class CaptureSurface {
         installDrawHandlers();
 
         stage = new Stage(StageStyle.TRANSPARENT);
-        if (owner != null) stage.initOwner(owner);
+        // Deliberately ownerless: an owned stage minimizes with the Studio window; the capture surface must
+        // stay put so the user can capture while Studio is out of the way.
         stage.setAlwaysOnTop(true);
         stage.setX(bounds.x);
         stage.setY(bounds.y);
