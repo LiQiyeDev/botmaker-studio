@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-11 — Local-dev fix: editor no longer serves a stale SDK from the per-jar type cache.**
+  - **Root cause:** `index/TypeSummaryManager` keyed its ClassGraph `.json` cache purely by jar file *name*
+    and reused it whenever the file existed. A reused `0.0.0-SNAPSHOT.jar` (overwritten in place on every
+    local SDK rebuild) kept the same name, so the cache was never regenerated — palette/autocomplete/menus
+    showed a days-old SDK API even though the pom and runtime jar were correct.
+  - **Fix:** new `isCacheFresh(jar, cacheFile)` mtime check gates both `buildOrLoad` and `refresh`; a cache
+    older than its jar is treated as missing and re-indexed. `refresh` also drops an in-memory entry whose
+    on-disk jar has changed (live-session correctness). Verified end-to-end: stale cache → re-index; fresh
+    cache → reused. Released (uniquely-named) versions are unaffected.
+  - **Hardening:** `services/MavenService.buildRemoteRepositories` now disables snapshot fetching on every
+    remote (jitpack/central/google) so a local SNAPSHOT SDK/shared can never be shadowed by a remote fetch.
+  - **Diagnostic:** `project/BotProject.open` logs the resolved SDK jar's `Build-Time`/`Implementation-Version`
+    manifest stamp (see the SDK ROADMAP) so "which SDK build did the editor index?" is answerable at a glance.
 - **2026-07-11 — Windows-testing fixes: progress bar, capture-source order, Report Issue, packaging.**
   - **Real-percentage dependency progress** on first project open. New `services/ProgressReporter` (fraction
     + message) replaces the `Consumer<String>` progress sink through `MavenService.resolveClasspath` →

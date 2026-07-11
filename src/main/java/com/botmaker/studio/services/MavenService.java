@@ -16,6 +16,7 @@ import org.eclipse.aether.artifact.DefaultArtifact;
 import org.eclipse.aether.collection.CollectRequest;
 import org.eclipse.aether.repository.LocalRepository;
 import org.eclipse.aether.repository.RemoteRepository;
+import org.eclipse.aether.repository.RepositoryPolicy;
 import org.eclipse.aether.resolution.ArtifactRequest;
 import org.eclipse.aether.resolution.ArtifactResolutionException;
 import org.eclipse.aether.resolution.ArtifactResult;
@@ -339,9 +340,17 @@ public final class MavenService {
         for (Repository r : model.getRepositories()) {
             if (r.getUrl() != null) repos.put(r.getId(), r.getUrl());
         }
+        // Disable snapshot fetching on every remote: in this project SNAPSHOT coordinates are always
+        // local-only dev builds (botmaker-sdk / botmaker-shared at 0.0.0-SNAPSHOT, installed to ~/.m2 by
+        // the umbrella reactor). Letting a remote (notably jitpack) answer for a SNAPSHOT could shadow the
+        // freshly reinstalled local jar. Releases are non-SNAPSHOT, so user libraries are unaffected.
+        RepositoryPolicy noSnapshots = new RepositoryPolicy(
+                false, RepositoryPolicy.UPDATE_POLICY_NEVER, RepositoryPolicy.CHECKSUM_POLICY_WARN);
         List<RemoteRepository> result = new ArrayList<>();
         repos.forEach((id, url) ->
-                result.add(new RemoteRepository.Builder(id, "default", url).build()));
+                result.add(new RemoteRepository.Builder(id, "default", url)
+                        .setSnapshotPolicy(noSnapshots)
+                        .build()));
         return result;
     }
 

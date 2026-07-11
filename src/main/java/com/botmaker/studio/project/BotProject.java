@@ -118,6 +118,7 @@ public class BotProject {
         try {
             classpath = MavenService.resolveClasspath(config.projectPath(), progress);
             state.setResolvedClasspath(classpath);
+            logSdkBuildStamp(classpath);
         } catch (Exception e) {
             System.err.println("Warning: Could not resolve classpath: " + e.getMessage());
             classpath = List.of();
@@ -169,6 +170,33 @@ public class BotProject {
                 dragAndDropManager, blockConverter);
 
         return project;
+    }
+
+    /**
+     * Logs which botmaker-sdk build the resolved classpath actually points at, reading the
+     * {@code Build-Time} / {@code Implementation-Version} manifest entries the SDK jar now stamps. Cheap
+     * diagnostic that makes "the editor is showing an old SDK" visible at a glance — especially for the
+     * reused {@code 0.0.0-SNAPSHOT.jar} name, where the version string alone can't distinguish rebuilds.
+     */
+    private static void logSdkBuildStamp(List<String> classpath) {
+        for (String entry : classpath) {
+            String name = java.nio.file.Path.of(entry).getFileName().toString();
+            if (!name.startsWith("botmaker-sdk-") || !name.endsWith(".jar")) continue;
+            try (java.util.jar.JarFile jar = new java.util.jar.JarFile(entry)) {
+                java.util.jar.Manifest mf = jar.getManifest();
+                String version = "?", buildTime = "?";
+                if (mf != null) {
+                    java.util.jar.Attributes a = mf.getMainAttributes();
+                    version = a.getValue("Implementation-Version") != null ? a.getValue("Implementation-Version") : version;
+                    buildTime = a.getValue("Build-Time") != null ? a.getValue("Build-Time") : buildTime;
+                }
+                System.out.println("SDK on classpath: " + name + " (version " + version
+                        + ", built " + buildTime + ") ← " + entry);
+            } catch (Exception e) {
+                System.err.println("Could not read SDK build stamp from " + entry + ": " + e.getMessage());
+            }
+            return;
+        }
     }
 
     private void initializeServices(ProjectConfig config,

@@ -89,7 +89,7 @@ public class TypeSummaryManager {
             if (ClassPathManager.isSystemJar(jar)) continue;
 
             Path cacheFile = getCacheFileForJar(jar);
-            if (Files.exists(cacheFile)) {
+            if (isCacheFresh(jar, cacheFile)) {
                 ScanResult cached = loadFromFile(cacheFile);
                 if (cached != null) {
                     manager.store(jar, cached);
@@ -133,10 +133,19 @@ public class TypeSummaryManager {
     public void refresh(List<String> jars) {
         for (String jar : jars) {
             if (ClassPathManager.isSystemJar(jar)) continue;
-            if (index.containsKey(jar)) continue;
 
             Path cacheFile = getCacheFileForJar(jar);
-            if (Files.exists(cacheFile)) {
+            // Already indexed in memory: keep it only if the on-disk jar hasn't changed since. A reused
+            // SNAPSHOT path (botmaker-sdk-0.0.0-SNAPSHOT.jar) keeps the same key across rebuilds, so without
+            // this a live session would never pick up a freshly reinstalled SDK.
+            if (index.containsKey(jar)) {
+                if (isCacheFresh(jar, cacheFile)) continue;
+                scans.remove(jar);
+                index.remove(jar);
+                cachesDirty = true;
+            }
+
+            if (isCacheFresh(jar, cacheFile)) {
                 ScanResult cached = loadFromFile(cacheFile);
                 if (cached != null) {
                     store(jar, cached);
@@ -252,6 +261,23 @@ public class TypeSummaryManager {
     public static Path getCacheFileForJar(String jarPath) {
         String jarFileName = Path.of(jarPath).getFileName().toString();
         return BotMakerDirs.getCacheDir().resolve("jars").resolve(jarFileName + ".json");
+    }
+
+    /**
+     * A cached scan is valid only if it exists and is at least as new as the jar it was built from. The
+     * cache file is keyed by jar file <em>name</em> ({@link #getCacheFileForJar}); a reused SNAPSHOT jar
+     * (e.g. {@code botmaker-sdk-0.0.0-SNAPSHOT.jar}) is overwritten in place on every local rebuild while
+     * keeping the same name, so without this mtime check its cache would never be regenerated and the
+     * editor would show a stale SDK API. On any stat failure we treat the cache as stale and re-index.
+     */
+    private static boolean isCacheFresh(String jarPath, Path cacheFile) {
+        try {
+            if (!Files.exists(cacheFile)) return false;
+            return Files.getLastModifiedTime(cacheFile).toMillis()
+                    >= Files.getLastModifiedTime(Path.of(jarPath)).toMillis();
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     /**
