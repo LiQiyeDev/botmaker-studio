@@ -40,11 +40,16 @@ jobs:
           cache: maven
 
       # jpackage's RPM build shells out to rpmbuild (not on ubuntu-latest) and its DEB build needs fakeroot.
-      # wget + desktop-file-utils are for the AppImage build; dpkg-sig for signing the .deb.
+      # wget + desktop-file-utils are for the AppImage build; dpkg-sig (best-effort) signs the .deb.
       # Without rpm/fakeroot, `-Pdist package` fails on Linux and the whole release job (and Release) aborts.
+      # dpkg-sig was dropped from the Ubuntu 24.04 (noble) repos, so it's installed separately and allowed to
+      # fail — sign-packages.sh already skips .deb signing gracefully when it's absent (unsigned .deb ships).
       - name: Install Linux packaging tools
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y rpm fakeroot wget desktop-file-utils dpkg-sig
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm fakeroot wget desktop-file-utils
+          sudo apt-get install -y dpkg-sig || echo "dpkg-sig unavailable — .deb will ship unsigned"
 
       # Imports the GPG secret key (base64-encoded) so the .rpm/.deb/AppImage can be signed under the
       # "LiQiyeDev" identity. Skipped (leaving unsigned packages) when the signing secrets aren't set, so the
@@ -135,27 +140,6 @@ jobs:
           # AppImage (recommended password-free channel; the in-app updater self-updates it).
           bash .github/scripts/build-appimage.sh "${base}.AppImage"
 
-      - name: Build Flatpak (Linux, best-effort)
-        if: runner.os == 'Linux'
-        # Flatpak's sandbox constrains window capture / input injection (see the manifest caveat), and the
-        # build is heavy — so it must never block the release.
-        continue-on-error: true
-        run: |
-          sudo apt-get install -y flatpak flatpak-builder
-          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          flatpak install --user -y flathub org.freedesktop.Platform//23.08 org.freedesktop.Sdk//23.08
-          # Stage the app-image + icon + desktop next to the manifest, then build a single-file bundle.
-          stage="$(pwd)/flatpak-stage"
-          rm -rf "$stage"; mkdir -p "$stage"
-          cp -a "target/dist/BotMaker Studio" "$stage/"
-          cp src/main/resources/icons/icon.png "$stage/botmaker-studio.png"
-          sed 's/^Exec=AppRun/Exec=BotMaker Studio/' flatpak/*.desktop.tmpl > "$stage/com.liqiyedev.BotMakerStudio.desktop" 2>/dev/null || \
-          printf '[Desktop Entry]\nType=Application\nName=BotMaker Studio\nExec=BotMaker Studio\nIcon=com.liqiyedev.BotMakerStudio\nCategories=Development;\nTerminal=false\n' > "$stage/com.liqiyedev.BotMakerStudio.desktop"
-          cp flatpak/com.liqiyedev.BotMakerStudio.yml "$stage/"
-          cd "$stage"
-          flatpak-builder --user --force-clean --repo=repo build-dir com.liqiyedev.BotMakerStudio.yml
-          flatpak build-bundle repo "${GITHUB_WORKSPACE}/BotMaker-Studio-${{ steps.ver.outputs.label }}-${{ matrix.platform }}.flatpak" com.liqiyedev.BotMakerStudio
-
       - name: Package zip + collect installers (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -175,7 +159,6 @@ jobs:
             BotMaker-Studio-*-${{ matrix.platform }}.deb
             BotMaker-Studio-*-${{ matrix.platform }}.rpm
             BotMaker-Studio-*-${{ matrix.platform }}.AppImage
-            BotMaker-Studio-*-${{ matrix.platform }}.flatpak
             BotMaker-Studio-*-${{ matrix.platform }}.msi
           if-no-files-found: error
 
@@ -200,7 +183,6 @@ jobs:
             artifacts/*.deb
             artifacts/*.rpm
             artifacts/*.AppImage
-            artifacts/*.flatpak
             artifacts/*.msi
           generate_release_notes: true
           # Tags containing a hyphen (e.g. v1.0.0-rc1) are treated as pre-releases.
