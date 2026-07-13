@@ -6,6 +6,69 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-14 — Run now validates blocks (empty slots) via `BlockValidator`, surfaced in the Errors panel with
+  click-to-scroll.** `CodeExecutionService.runCode` calls the new `DiagnosticsManager.validateBlocks()` (built on
+  `BlockValidator.emptySlots(nodeToBlockMap)`) before compiling; unfilled slots (a `NullLiteral`/`NullBlock`) now
+  publish `DiagnosticsUpdatedEvent` (previously never published — the Errors tab was dead), marking blocks red and
+  aborting the run with a friendly status instead of a raw `javac` error. Clicking an error now `scrollToBlock`s
+  the canvas to and highlights the offending block (`UIManager`, reusing `BlockHighlightEvent`), replacing the old
+  no-op `requestFocus`. Active-file scope, matching the existing diagnostics limitation.
+- **2026-07-14 — Overlay/capture/settings batch: invisible-on-capture, desktop targets, category palette,
+  overload nav, inline empty-slot validator, project settings + capture previews.** Broad UX/correctness pass.
+  **(A)** The Overlay Editor now hides itself (and its config popover) while any capture draw surface is up:
+  `ScreenCaptureService` fires a process-wide `CaptureOverlayListener` from `overlayStage(...)`;
+  `ProgramShapeOverlay` subscribes and `hide()`s the HUD (guarded so its close handler doesn't tear down) /
+  dims the modal-owning config popover to opacity 0. **(B)** Removed the **⏺ Record Macro** toolbar button
+  (recording still lives inside the overlay); dropped `ToolbarManager.onRecordMacro` + `UIManager.openMacroRecorder`.
+  **(C)** Capture Templates + Overlay Editor now accept **desktop/monitor** targets, not just windows — new
+  `ScreenCaptureService.captureDefaultTargetAsync` (target-agnostic grab); window keeps raise+resize, screen/
+  desktop uses native bounds; recording stays window-only (disabled otherwise). **(D)** `ManageCaptureTargetsDialog`
+  rows now show a **live thumbnail + exists/not-found badge** (new `ui/app/capture/TargetThumbnail`, off-thread,
+  cached); a newly added source becomes default and **double-click** sets default; `apply()` now derives from
+  `current()` so it no longer clobbers favourite overloads/methods/resolution. **(E)** `ActivityVariable` gains a
+  **description** (4th record component, back-compat ctor); Manage Activities has an editable Description column
+  emitted as a field Javadoc. **(F)** New **Project → Project Settings…** (`ui/app/ProjectSettingsDialog`):
+  reference resolution, favourite overloads (view/remove), and a new `favoriteMethods` (class→methods) field on
+  `StudioProjectSettings`. **(G)** The overlay palette is now a **hover-expanding SDK category bar**
+  (`buildPaletteBar`/`facadeMenuButton`): each facade chip fans out methods → overloads (favourites first); fresh
+  calls default to the **fewest-argument overload** (`MethodSignature.fewestParams`, applied in
+  `StatementFactory`) or the project favourite; a picked overload is applied post-insert via `pendingOverload`.
+  **(H)** The ⚙ config popover gained an **overload selector** and now edits **every** parameter (generic
+  expression menu when no special picker applies) via `MethodInvocationBlock.{overloadSignatures,currentSignature,
+  switchToOverload}` and the shared `ExpressionMenuFactory.applySelection`. **(I)** **Arrow-key navigation** of the
+  compact rows (→ step in, ← step out, ↑/↓ move, Enter configure). **(J)** New pre-compile `validation/BlockValidator`
+  flags **empty required slots** (`NullLiteral`); empty args now render **red** in the overlay rows and in
+  `NullBlock` on the canvas. (`ErrorTranslator` kept — it is actively used by the Errors panel and block-error
+  tooltips, not a dead relic.)
+- **2026-07-12 — Overlay Editor v2: Basic/Advanced modes, translucent HUD, merged macro recorder.** Extended
+  `ui/app/overlay/ProgramShapeOverlay`. **(1)** Palette now has a **Basic/Advanced** toggle — Basic keeps the six
+  `BlockCatalog.botActions()` buttons; Advanced adds an "＋ Add block" button opening the full categorized
+  `ExpressionMenuFactory.createStatementMenu` (control flow, variables, print, functions, comments). **(2)** The
+  window is now a **translucent HUD**: `StageStyle.TRANSPARENT` stage + `Color.TRANSPARENT` scene with rounded
+  semi-opaque panels (header/controls/tree) and gaps that show the app beneath; borderless, dragged by the header
+  via `OverlayToolbars.installDrag`; rows restyled for the dark panel. **(3)** **Merged the macro recorder in**:
+  a new headless `services/record/RecordingSession` (extracted from the retired `MacroRecorder`) drives a ●
+  Record / ⏸ Pause / ■ Stop control set; Stop translates via `MacroTranslator` and inserts the blocks **at the
+  cursor** progressively (reusing the `pendingInsert`/`onBlocksUpdated` re-home path), with the auto-fill popover
+  suppressed for the batch. Clicks on the overlay itself are excluded from a recording (screen-bounds exclusion
+  rect). Record is disabled with a tooltip off Linux/X11. Deleted the standalone `MacroRecorder` +
+  `ui/app/record/MacroRecorderToolbar`; `UIManager.openMacroRecorder` now opens the overlay in record mode
+  (`open(..., startRecording=true)`). `MacroTranslator` + its test unchanged.
+- **2026-07-12 — Overlay Editor rework: true window overlay, non-empty program list, top action palette,
+  auto-fill toggle.** Reworked `ui/app/overlay/ProgramShapeOverlay` per user feedback. **(1)** Fixed the
+  always-"Program is empty" bug — `render()` filtered bodies with `!isNested()` (child of *any* block), which
+  every body is; now uses `isNestedInBody()` (nested inside *another* `BodyBlock`) so method bodies become
+  render roots and control-flow bodies are still drawn by the recursion. **(2)** It's now a **true overlay**:
+  `open(...)` gates on a default **window** target (warns like Capture/Record otherwise) and, off the FX thread,
+  raises the window + snaps it to the reference resolution (reusing `ScreenCaptureService.raiseWindow` /
+  `resizeTarget`, seeding the resolution like `OverlayTemplateCapture`), then positions itself inside the
+  window's top-left. **(3)** The insert palette moved to the **top** and is restricted to the six core bot
+  actions (`BlockCatalog.botActions()`) as a wrapping button row — the free-text SDK-method search was removed.
+  **(4)** New **"Fill arguments after adding"** checkbox (on by default): after a re-parse the just-inserted
+  block is located by stable DFS body-ordinal + slot, the cursor re-homes onto it, and — when the toggle is on
+  and it's a `MethodInvocationBlock` — its `openConfig` argument popover opens automatically. Wiring:
+  `UIManager.openOverlayEditor` now passes `projectSettingsService` + `screenCaptureService`.
+
 - **2026-07-12 — Overlay authoring system (Phase 2): program-shape editor + insertion cursor + method
   palette.** New **"⧉ Overlay Editor"** toolbar button opens `ui/app/overlay/ProgramShapeOverlay` — a small,
   always-on-top, independently-minimizable window that mirrors the program's shape as a compact,
@@ -621,6 +684,15 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 - [ ] **A5 — Refresh CLAUDE.md.** It still references the removed `BlockFactory` / `BlockParser` and the old
   `AddableBlock`; document `BlockType` / `BlockCatalog` and the event-driven drag-and-drop.
+
+## Overlay Editor backlog
+
+- [ ] **Edit-in-place in the tree** — move-up/move-down and delete for the focused block (currently add-only).
+- [ ] **Run / run-to-cursor from the overlay** so a bot can be tested without switching back to Studio.
+- [ ] **Live match preview** — draw the last vision match rect over the target window.
+- [ ] **Richer recorded gestures** — right/middle/double-click and drag (deferred in `MacroTranslator` v1).
+- [ ] **Collapse/expand** control-flow bodies in the tree for long programs.
+- [ ] **Global hotkey** to toggle record without reaching for the overlay.
 
 ## PC-game feature backlog (SDK + Studio)
 

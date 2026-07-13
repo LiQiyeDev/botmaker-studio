@@ -5,6 +5,7 @@ import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.StudioProjectSettings;
 import com.botmaker.studio.project.capture.CaptureTarget;
+import com.botmaker.studio.project.capture.CaptureTargetNames;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
@@ -59,16 +60,18 @@ public final class OverlayTemplateCapture {
     private final ScreenCaptureService capture;
     private final ProjectSettingsService settings;
     private final EventBus eventBus;
-    private final CaptureTarget.WindowTarget target;
+    /** The default capture target: a window, a monitor, or the whole desktop. */
+    private final CaptureTarget target;
 
     private Stage toolbarStage;
     private CaptureSurface surface;
-    /** The canonical window size to snap to before each capture (project reference resolution), or null. */
+    /** The canonical window size to snap to before each capture (project reference resolution), or null.
+     *  Only used for a window target — a screen/desktop is never resized. */
     private StudioProjectSettings.Resolution referenceResolution;
 
     private OverlayTemplateCapture(Window owner, ProjectConfig config, ScreenCaptureService capture,
                                    ProjectSettingsService settings, EventBus eventBus,
-                                   CaptureTarget.WindowTarget target) {
+                                   CaptureTarget target) {
         this.owner = owner;
         this.config = config;
         this.capture = capture;
@@ -89,9 +92,9 @@ public final class OverlayTemplateCapture {
         } catch (Exception ignored) {
             // no default configured
         }
-        if (!(target instanceof CaptureTarget.WindowTarget wt)) {
-            warn(owner, "Overlay capture needs a window capture target.\n\nOpen \"Capture Targets\" and set a "
-                    + "window as the default first.");
+        if (target == null) {
+            warn(owner, "Capture templates needs a capture target.\n\nOpen \"Capture Targets\" and set a window, "
+                    + "monitor or the desktop as the default first.");
             return;
         }
         // Single-instance: focus the live overlay instead of stacking another one.
@@ -99,26 +102,30 @@ public final class OverlayTemplateCapture {
             active.toolbarStage.toFront();
             return;
         }
-        new OverlayTemplateCapture(owner, config, capture, settings, eventBus, wt).start();
+        new OverlayTemplateCapture(owner, config, capture, settings, eventBus, target).start();
     }
 
     private void start() {
-        // Probe the live window once up front so we can fail fast (and place the toolbar near it) before
-        // showing anything. Sessions re-resolve the bounds again so the surface tracks a moved window.
-        WindowShot shot = capture.captureWindow(target);
-        if (shot == null) {
-            warn(owner, "Couldn't find the window \"" + target.titleSubstring() + "\". Is it open?");
-            return;
-        }
-        // The project reference resolution: the canonical window size every template is captured at. Seed it
-        // from the window's current size the first time (so later captures snap back to this exact size),
-        // avoiding lossy match-time scaling when the window is later at a different size.
-        referenceResolution = settings.current().referenceResolution();
-        if (referenceResolution == null) {
-            referenceResolution = new StudioProjectSettings.Resolution(shot.bounds().width, shot.bounds().height);
-            settings.update(settings.current().withReferenceResolution(referenceResolution));
-        }
-        showToolbar(shot.bounds());
+        // The project reference resolution: the canonical window size every template is captured at (window
+        // targets only — a screen/desktop is captured at its native size). Seed it from the window's current
+        // size the first time so later captures snap back to this exact size.
+        referenceResolution = (target instanceof CaptureTarget.WindowTarget)
+                ? settings.current().referenceResolution() : null;
+        // Probe the target once up front so we can fail fast (and place the toolbar near it) before showing
+        // anything. Sessions re-resolve the bounds again so the surface tracks a moved window.
+        captureTargetAsync(shot -> {
+            if (shot == null) {
+                warn(owner, "Couldn't capture the target \"" + CaptureTargetNames.shortLabel(target) + "\". "
+                        + "Is it open / on screen?");
+                if (active == this) active = null;
+                return;
+            }
+            if (target instanceof CaptureTarget.WindowTarget && referenceResolution == null) {
+                referenceResolution = new StudioProjectSettings.Resolution(shot.bounds().width, shot.bounds().height);
+                settings.update(settings.current().withReferenceResolution(referenceResolution));
+            }
+            showToolbar(shot.bounds());
+        });
     }
 
     private void showToolbar(java.awt.Rectangle windowBounds) {
@@ -158,7 +165,7 @@ public final class OverlayTemplateCapture {
 
     private void beginSingle() {
         toolbarStage.hide();
-        captureWindowAsync(shot -> {
+        captureTargetAsync(shot -> {
             if (shot == null) { warnClosed(); endSession(); return; }
             surface = CaptureSurface.single(owner, shot.bounds(), this::onSingleRegion, this::endSession);
         });
@@ -166,7 +173,7 @@ public final class OverlayTemplateCapture {
 
     private void onSingleRegion(Region region) {
         surface.hide();
-        captureWindowAsync(shot -> {
+        captureTargetAsync(shot -> {
             try {
                 if (shot == null) { warnClosed(); return; }
                 BufferedImage full = shot.image();
@@ -175,7 +182,7 @@ public final class OverlayTemplateCapture {
                 Optional<String> name = ImageTemplatePicker.promptTemplateName(owner, config, null);
                 if (name.isEmpty()) return;
                 ImageTemplateLibrary.saveTemplate(config, cropped, name.get(),
-                        full.getWidth(), full.getHeight(), target.titleSubstring());
+                        full.getWidth(), full.getHeight(), windowTitleOrNull());
                 eventBus.publish(new ResourcesChangedEvent());
             } catch (Exception ex) {
                 warn(owner, "Failed to save template: " + ex.getMessage());
@@ -189,7 +196,7 @@ public final class OverlayTemplateCapture {
 
     private void beginMany() {
         toolbarStage.hide();
-        captureWindowAsync(shot -> {
+        captureTargetAsync(shot -> {
             if (shot == null) { warnClosed(); endSession(); return; }
             surface = CaptureSurface.many(owner, shot.bounds(), this::onManyDone, this::endSession);
         });
@@ -198,7 +205,7 @@ public final class OverlayTemplateCapture {
     private void onManyDone(List<Region> regions) {
         surface.hide();
         if (regions.isEmpty()) { endSession(); return; }
-        captureWindowAsync(shot -> {
+        captureTargetAsync(shot -> {
             try {
                 if (shot == null) { warnClosed(); return; }
                 BufferedImage full = shot.image();
@@ -212,7 +219,7 @@ public final class OverlayTemplateCapture {
                 int saved = 0;
                 for (NamedTemplate t : kept) {
                     ImageTemplateLibrary.saveTemplate(config, t.image(), t.name(),
-                            full.getWidth(), full.getHeight(), target.titleSubstring());
+                            full.getWidth(), full.getHeight(), windowTitleOrNull());
                     saved++;
                 }
                 if (saved > 0) eventBus.publish(new ResourcesChangedEvent());
@@ -236,25 +243,39 @@ public final class OverlayTemplateCapture {
     }
 
     /**
-     * Re-captures the live window off the FX thread (so focus + settle don't freeze the UI), then delivers the
-     * shot (possibly {@code null} on failure) back on the FX thread.
+     * Re-captures the live target off the FX thread (so focus + settle don't freeze the UI), then delivers the
+     * shot (possibly {@code null} on failure) back on the FX thread. A window target is snapped to the project's
+     * canonical resolution first and grabbed occlusion-safe via {@link ScreenCaptureService#captureWindow}; a
+     * screen/desktop target is grabbed at its native size via {@link ScreenCaptureService#captureDefaultTargetAsync}.
      */
-    private void captureWindowAsync(Consumer<WindowShot> onFx) {
-        Thread t = new Thread(() -> {
-            // Snap the window to the project's canonical resolution first, so the drawn surface and the saved
-            // template share one resolution regardless of the window's current size.
-            if (referenceResolution != null) {
-                capture.resizeTarget(target, referenceResolution.width(), referenceResolution.height());
-            }
-            WindowShot shot = capture.captureWindow(target);
-            Platform.runLater(() -> onFx.accept(shot));
-        }, "overlay-template-capture");
-        t.setDaemon(true);
-        t.start();
+    private void captureTargetAsync(Consumer<ScreenCaptureService.TargetShot> onFx) {
+        if (target instanceof CaptureTarget.WindowTarget wt) {
+            Thread t = new Thread(() -> {
+                // Snap the window to the project's canonical resolution first, so the drawn surface and the saved
+                // template share one resolution regardless of the window's current size.
+                if (referenceResolution != null) {
+                    capture.resizeTarget(wt, referenceResolution.width(), referenceResolution.height());
+                }
+                WindowShot shot = capture.captureWindow(wt);
+                ScreenCaptureService.TargetShot ts = (shot == null) ? null
+                        : new ScreenCaptureService.TargetShot(shot.image(), shot.bounds(),
+                        CaptureTargetNames.shortLabel(wt), true);
+                Platform.runLater(() -> onFx.accept(ts));
+            }, "overlay-template-capture");
+            t.setDaemon(true);
+            t.start();
+        } else {
+            capture.captureDefaultTargetAsync(owner, onFx);
+        }
+    }
+
+    /** The associated window title for saved templates, or {@code null} for a screen/desktop target. */
+    private String windowTitleOrNull() {
+        return (target instanceof CaptureTarget.WindowTarget wt) ? wt.titleSubstring() : null;
     }
 
     private void warnClosed() {
-        warn(owner, "Capture failed — the window may have closed.");
+        warn(owner, "Capture failed — the target may have closed.");
     }
 
     /** Maps a drawn {@link Region} (overlay-logical pixels) onto {@code full} (physical pixels) and crops it. */

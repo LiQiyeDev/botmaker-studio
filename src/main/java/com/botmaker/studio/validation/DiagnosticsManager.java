@@ -4,6 +4,8 @@ import com.botmaker.studio.core.CodeBlock;
 import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.lsp4j.Diagnostic;
 import org.eclipse.lsp4j.DiagnosticSeverity;
+import org.eclipse.lsp4j.Position;
+import org.eclipse.lsp4j.Range;
 
 import java.util.*;
 
@@ -62,6 +64,46 @@ public class DiagnosticsManager {
                 lineToBlocksMap.computeIfAbsent(line, k -> new HashSet<>()).add(block);
             }
         }
+    }
+
+    /**
+     * Pre-compile validation of the current block tree (active file). Walks the live {@code nodeToBlockMap} for
+     * empty required slots ({@link com.botmaker.studio.validation.BlockValidator#emptySlots}) — an unfilled
+     * argument/condition left as a {@code NullLiteral} — and returns one Error {@link Diagnostic} per slot, its
+     * {@link Range} taken from the placeholder's AST-node span so it round-trips through
+     * {@link #findBlockByASTNode} back to the offending block (red mark + click-to-scroll). Empty when the tree
+     * is complete. Called by the Run path before handing anything to {@code javac}.
+     */
+    public List<Diagnostic> validateBlocks() {
+        List<Diagnostic> issues = new ArrayList<>();
+        if (nodeToBlockMap == null || sourceCode == null) return issues;
+        for (CodeBlock block : com.botmaker.studio.validation.BlockValidator.emptySlots(nodeToBlockMap)) {
+            ASTNode node = block.getAstNode();
+            if (node == null) continue;
+            int start = node.getStartPosition();
+            int end = start + node.getLength();
+            Diagnostic d = new Diagnostic();
+            d.setSeverity(DiagnosticSeverity.Error);
+            d.setRange(new Range(positionOf(start), positionOf(end)));
+            d.setMessage("This value is empty — choose an expression to fill it in before running.");
+            issues.add(d);
+        }
+        return issues;
+    }
+
+    /** Inverse of {@link #getOffsetFromPosition}: source character offset → LSP (line, character) position. */
+    private Position positionOf(int offset) {
+        if (sourceCode == null || offset < 0) return new Position(0, 0);
+        int cap = Math.min(offset, sourceCode.length());
+        int line = 0;
+        int lineStart = 0;
+        for (int i = 0; i < cap; i++) {
+            if (sourceCode.charAt(i) == '\n') {
+                line++;
+                lineStart = i + 1;
+            }
+        }
+        return new Position(line, cap - lineStart);
     }
 
     public void processDiagnostics(List<Diagnostic> diagnostics) {

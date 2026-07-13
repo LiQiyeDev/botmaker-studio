@@ -393,6 +393,46 @@ public final class ScreenCaptureService {
     }
 
     /**
+     * A target-agnostic captured frame: the pixels, the absolute logical {@code bounds} to place an overlay
+     * over and map coordinates against, a human {@code label}, and whether the source is a window (so callers
+     * can skip window-only steps like resize for a screen/desktop target).
+     */
+    public record TargetShot(BufferedImage image, java.awt.Rectangle bounds, String label, boolean isWindow) {}
+
+    /**
+     * Off-thread grab of the project's current <b>default</b> capture target — a window, a monitor, or the
+     * whole desktop — as a {@link TargetShot}, delivered back on the FX thread ({@code null} on failure or a
+     * blank Wayland grab). Unlike {@link #captureWindow}, this works for any target type, so overlay tools
+     * (Capture Templates / Overlay Editor) can operate over a screen/desktop and not only a window. Requires a
+     * default to be set (there is always one after project creation); it does not run the screen chooser.
+     */
+    public void captureDefaultTargetAsync(Window owner, Consumer<TargetShot> onFx) {
+        Thread t = new Thread(() -> {
+            TargetShot result = null;
+            try {
+                Grab grab = grabOffThread(owner);
+                ScreenShot shot = grab.shot();
+                if (shot != null && !shot.blank()) {
+                    Rectangle2D b = shot.bounds();
+                    java.awt.Rectangle awt = new java.awt.Rectangle(
+                            (int) Math.round(b.getMinX()), (int) Math.round(b.getMinY()),
+                            (int) Math.round(b.getWidth()), (int) Math.round(b.getHeight()));
+                    CaptureTarget def = (settings != null) ? settings.defaultTarget() : null;
+                    String label = (def != null)
+                            ? com.botmaker.studio.project.capture.CaptureTargetNames.shortLabel(def) : "Screen";
+                    result = new TargetShot(shot.image(), awt, label, def instanceof WindowTarget);
+                }
+            } catch (Throwable ex) {
+                System.err.println("Default-target capture failed: " + ex.getMessage());
+            }
+            TargetShot r = result;
+            Platform.runLater(() -> onFx.accept(r));
+        }, "capture-default-target");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /**
      * First window (case-insensitive) whose title contains {@code titleSubstring}, or {@code null}. Includes
      * currently-minimized windows so a minimized target can be found and then de-iconified/raised.
      */
@@ -894,6 +934,10 @@ public final class ScreenCaptureService {
         Stage stage = new Stage(StageStyle.UNDECORATED);
         if (owner != null) stage.initOwner(owner);
         stage.initModality(Modality.APPLICATION_MODAL);
+        // Let always-on-top HUDs (e.g. the Overlay Editor) hide themselves while this draw surface is up so
+        // they don't obscure it; restored when the overlay closes.
+        stage.setOnShowing(e -> fireCaptureOverlayShown());
+        stage.setOnHidden(e -> fireCaptureOverlayHidden());
         stage.setX(bounds.getMinX());
         stage.setY(bounds.getMinY());
         if (fullScreen) {
@@ -922,6 +966,34 @@ public final class ScreenCaptureService {
         w = Math.max(1, Math.min(w, source.getWidth() - x));
         h = Math.max(1, Math.min(h, source.getHeight() - y));
         return source.getSubimage(x, y, w, h);
+    }
+
+    // ── Capture-overlay visibility hooks ────────────────────────────────────────────────────────────────
+    // A single, process-wide notification when any interactive capture overlay (region / point / template
+    // draw surface, all built via overlayStage) is shown or hidden. Always-on-top HUDs like the Overlay
+    // Editor subscribe so they can hide themselves for the duration and not sit over the draw surface.
+
+    /** Notified when a capture overlay is shown / hidden. */
+    public interface CaptureOverlayListener {
+        void onShown();
+        void onHidden();
+    }
+
+    private static final java.util.List<CaptureOverlayListener> OVERLAY_LISTENERS =
+            new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    /** Registers {@code listener}; returns a handle that unregisters it when closed. */
+    public static AutoCloseable addCaptureOverlayListener(CaptureOverlayListener listener) {
+        OVERLAY_LISTENERS.add(listener);
+        return () -> OVERLAY_LISTENERS.remove(listener);
+    }
+
+    private static void fireCaptureOverlayShown() {
+        for (CaptureOverlayListener l : OVERLAY_LISTENERS) l.onShown();
+    }
+
+    private static void fireCaptureOverlayHidden() {
+        for (CaptureOverlayListener l : OVERLAY_LISTENERS) l.onHidden();
     }
 
     /** Converts a {@link BufferedImage} to a JavaFX {@link Image} via in-memory PNG (no javafx.swing dep). */

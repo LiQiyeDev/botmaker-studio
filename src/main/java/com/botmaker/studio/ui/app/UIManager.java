@@ -64,6 +64,7 @@ public class UIManager {
     private final FileExplorerManager fileExplorerManager;
 
     private VBox blocksContainer;
+    private ScrollPane blocksScrollPane;
     private Label statusLabel;
     private TextArea outputArea;
     private ListView<Diagnostic> errorListView;
@@ -117,12 +118,13 @@ public class UIManager {
         this.menuBarManager.setOnSetActivityValues(() ->
                 new SetActivityValuesDialog(primaryStage, activityService).show());
         this.menuBarManager.setOnManageResources(this::openResourceManager);
+        this.menuBarManager.setOnProjectSettings(() ->
+                new ProjectSettingsDialog(primaryStage, projectSettingsService).show());
         this.toolbarManager.setOnManageCaptureTargets(() ->
                 new ManageCaptureTargetsDialog(primaryStage, projectSettingsService).show());
         this.toolbarManager.setOnOpenDebugDashboard(this::openDebugDashboard);
         this.toolbarManager.setOnEnableRemotePilot(this::openRemotePilot);
         this.toolbarManager.setOnCaptureTemplates(this::openOverlayTemplateCapture);
-        this.toolbarManager.setOnRecordMacro(this::openMacroRecorder);
         this.toolbarManager.setOnOverlayEditor(this::openOverlayEditor);
         GitHubClient gitHubClient = new GitHubClient();
         GitHubGallery gallery = new GitHubGallery(gitHubClient);
@@ -620,14 +622,8 @@ public class UIManager {
 
     /** Opens the program-shape overlay authoring editor (compact clickable block tree + insertion cursor). */
     private void openOverlayEditor() {
-        com.botmaker.studio.ui.app.overlay.ProgramShapeOverlay.open(primaryStage, codeEditorService);
-    }
-
-    /** Opens the macro recorder over the project's default window target (records input → blocks). */
-    private void openMacroRecorder() {
-        com.botmaker.studio.services.record.MacroRecorder.open(
-                primaryStage, config, projectSettingsService, screenCaptureService, eventBus,
-                codeEditorService.getCodeEditor(), state);
+        com.botmaker.studio.ui.app.overlay.ProgramShapeOverlay.open(
+                primaryStage, codeEditorService, projectSettingsService, screenCaptureService, false);
     }
 
     private void setupEventHandlers() {
@@ -765,6 +761,7 @@ public class UIManager {
         canvasScroll.setFitToWidth(true);
         canvasScroll.setFitToHeight(true);
         canvasScroll.getStyleClass().add("code-scroll-pane");
+        blocksScrollPane = canvasScroll;
 
         // --- 4. Bottom Panel: Terminal/Errors ---
         outputArea = new TextArea();
@@ -939,14 +936,35 @@ public class UIManager {
 
                     setOnMouseClicked(event -> {
                         if (event.getClickCount() >= 1) {
-                            diagnosticsManager.findBlockForDiagnostic(diagnostic).ifPresent(block -> {
-                                Node uiNode = block.getUINode();
-                                if (uiNode != null) uiNode.requestFocus();
-                            });
+                            diagnosticsManager.findBlockForDiagnostic(diagnostic).ifPresent(UIManager.this::scrollToBlock);
                         }
                     });
                 }
             }
+        });
+    }
+
+    /**
+     * Brings {@code block} into view when its error is clicked in the Errors panel: highlights it (reusing the
+     * debugger's {@link CoreApplicationEvents.BlockHighlightEvent} path) and scrolls the canvas so the block is
+     * visible. Runs the scroll on the next pulse so the node's layout bounds are current.
+     */
+    private void scrollToBlock(com.botmaker.studio.core.CodeBlock block) {
+        if (block == null) return;
+        com.botmaker.studio.core.CodeBlock target = block.getHighlightTarget();
+        eventBus.publish(new CoreApplicationEvents.BlockHighlightEvent(target));
+        Node node = target != null ? target.getUINode() : null;
+        if (node == null || blocksScrollPane == null || blocksContainer == null) return;
+        javafx.application.Platform.runLater(() -> {
+            javafx.geometry.Bounds nodeInContent =
+                    blocksContainer.sceneToLocal(node.localToScene(node.getBoundsInLocal()));
+            double contentH = blocksContainer.getBoundsInLocal().getHeight();
+            double viewportH = blocksScrollPane.getViewportBounds().getHeight();
+            if (contentH > viewportH) {
+                double vvalue = (nodeInContent.getMinY() - 20) / (contentH - viewportH);
+                blocksScrollPane.setVvalue(Math.max(0, Math.min(1, vvalue)));
+            }
+            node.requestFocus();
         });
     }
 

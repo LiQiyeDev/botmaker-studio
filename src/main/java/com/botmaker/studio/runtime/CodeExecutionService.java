@@ -81,6 +81,15 @@ public class CodeExecutionService {
     }
 
     public void runCode(String currentEditorCode) {
+        // Pre-compile block validation: an unfilled argument/condition (a red "Select Expression…" slot) would
+        // only surface as a raw javac error. Detect it via BlockValidator, surface it in the Errors panel, and
+        // abort before compiling. Always publish (empty list clears any previously shown empty-slot errors).
+        List<org.eclipse.lsp4j.Diagnostic> emptySlotIssues = diagnosticsManager.validateBlocks();
+        eventBus.publish(new CoreApplicationEvents.DiagnosticsUpdatedEvent(emptySlotIssues));
+        if (!emptySlotIssues.isEmpty()) {
+            status("Run aborted: fill in the highlighted empty value(s) — see the Errors tab.");
+            return;
+        }
         if (diagnosticsManager.hasErrors()) {
             status("Run aborted due to errors.");
             return;

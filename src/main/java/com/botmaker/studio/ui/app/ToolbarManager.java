@@ -33,8 +33,6 @@ public class ToolbarManager {
     private Runnable onEnableRemotePilot;
     /** Opens the live overlay template-capture over the default window; wired by {@link UIManager}. */
     private Runnable onCaptureTemplates;
-    /** Opens the macro recorder over the default window; wired by {@link UIManager}. */
-    private Runnable onRecordMacro;
     /** Opens the program-shape overlay authoring editor; wired by {@link UIManager}. */
     private Runnable onOverlayEditor;
 
@@ -112,11 +110,6 @@ public class ToolbarManager {
         this.onCaptureTemplates = callback;
     }
 
-    /** Sets the callback invoked when the toolbar's Record Macro button is clicked. */
-    public void setOnRecordMacro(Runnable callback) {
-        this.onRecordMacro = callback;
-    }
-
     /** Sets the callback invoked when the toolbar's Overlay Editor button is clicked. */
     public void setOnOverlayEditor(Runnable callback) {
         this.onOverlayEditor = callback;
@@ -157,19 +150,6 @@ public class ToolbarManager {
             if (onCaptureTemplates != null) onCaptureTemplates.run();
         });
 
-        Button recordMacroButton = new Button("⏺ Record Macro");
-        recordMacroButton.getStyleClass().add("toolbar-btn");
-        if (com.botmaker.shared.input.InputListenerFactory.isSupported()) {
-            recordMacroButton.setTooltip(new Tooltip(
-                    "Record real clicks & keystrokes on the default window and turn them into blocks"));
-            recordMacroButton.setOnAction(e -> {
-                if (onRecordMacro != null) onRecordMacro.run();
-            });
-        } else {
-            recordMacroButton.setDisable(true);
-            recordMacroButton.setTooltip(new Tooltip("Macro recording is currently only available on Linux (X11)"));
-        }
-
         Button overlayEditorButton = new Button("⧉ Overlay Editor");
         overlayEditorButton.getStyleClass().add("toolbar-btn");
         overlayEditorButton.setTooltip(new Tooltip(
@@ -178,7 +158,7 @@ public class ToolbarManager {
             if (onOverlayEditor != null) onOverlayEditor.run();
         });
 
-        HBox group = new HBox(5, captureButton, captureTemplatesButton, recordMacroButton,
+        HBox group = new HBox(5, captureButton, captureTemplatesButton,
                 overlayEditorButton, debugDashboardButton, remotePilotButton);
         group.setAlignment(Pos.CENTER);
         return group;

@@ -39,6 +39,20 @@ public record MethodSignature(String name, List<ResolvedType> paramTypes, List<S
     }
 
     /**
+     * The overload with the fewest parameters (ties broken by declaration order), or {@code null} when
+     * {@code sigs} is empty. Used as the default overload when a fresh call is created and the project has no
+     * favorite for it — the least-argument form is the simplest starting point for the user.
+     */
+    public static MethodSignature fewestParams(List<MethodSignature> sigs) {
+        if (sigs == null || sigs.isEmpty()) return null;
+        MethodSignature best = sigs.getFirst();
+        for (MethodSignature sig : sigs) {
+            if (sig.paramTypes().size() < best.paramTypes().size()) best = sig;
+        }
+        return best;
+    }
+
+    /**
      * A stable, human-readable key for this overload: its parameter type simple-names joined by {@code ,}
      * (e.g. {@code ImageTemplate,CaptureSource,double}). Used to persist a project's favorite overload
      * independently of parameter names / declaration order.

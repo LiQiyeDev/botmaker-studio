@@ -79,7 +79,11 @@ public class ManageActivitiesDialog {
         typeCol.setCellValueFactory(c -> new javafx.beans.property.SimpleStringProperty(c.getValue().type().displayName()));
         typeCol.setCellFactory(col -> new TypeCell());
 
-        table.getColumns().addAll(List.of(nameCol, typeCol));
+        TableColumn<ActivityVariable, String> descCol = new TableColumn<>("Description");
+        descCol.setCellValueFactory(c -> new javafx.beans.property.SimpleStringProperty(c.getValue().description()));
+        descCol.setCellFactory(col -> new DescCell());
+
+        table.getColumns().addAll(List.of(nameCol, typeCol, descCol));
 
         Button removeBtn = new Button("Remove");
         removeBtn.setDisable(true);
@@ -116,7 +120,7 @@ public class ManageActivitiesDialog {
             String name = field.getText() == null ? "" : field.getText().trim();
             if (idx >= 0 && idx < rows.size() && !name.isEmpty()) {
                 ActivityVariable r = rows.get(idx);
-                if (!name.equals(r.name())) rows.set(idx, new ActivityVariable(name, r.type(), r.value()));
+                if (!name.equals(r.name())) rows.set(idx, new ActivityVariable(name, r.type(), r.value(), r.description()));
             }
             cancelEdit();
         }
@@ -125,6 +129,41 @@ public class ManageActivitiesDialog {
             super.startEdit();
             if (!isEditing()) return;
             field.setText(getItem());
+            setText(null); setGraphic(field);
+            field.requestFocus(); field.selectAll();
+        }
+        @Override public void cancelEdit() { super.cancelEdit(); setText(getItem()); setGraphic(null); }
+        @Override protected void updateItem(String item, boolean empty) {
+            super.updateItem(item, empty);
+            if (empty) { setText(null); setGraphic(null); }
+            else if (isEditing()) { field.setText(item); setText(null); setGraphic(field); }
+            else { setText(item); setGraphic(null); }
+        }
+    }
+
+    /** Editable description cell; commits replace the immutable row, keeping name, type and value. */
+    private final class DescCell extends TableCell<ActivityVariable, String> {
+        private final TextField field = new TextField();
+
+        DescCell() {
+            field.setOnAction(e -> commit());
+            field.focusedProperty().addListener((o, was, is) -> { if (!is && isEditing()) commit(); });
+        }
+
+        private void commit() {
+            int idx = getIndex();
+            String desc = field.getText() == null ? "" : field.getText().trim();
+            if (idx >= 0 && idx < rows.size()) {
+                ActivityVariable r = rows.get(idx);
+                if (!desc.equals(r.description())) rows.set(idx, r.withDescription(desc));
+            }
+            cancelEdit();
+        }
+
+        @Override public void startEdit() {
+            super.startEdit();
+            if (!isEditing()) return;
+            field.setText(getItem() == null ? "" : getItem());
             setText(null); setGraphic(field);
             field.requestFocus(); field.selectAll();
         }
@@ -152,7 +191,7 @@ public class ManageActivitiesDialog {
             int idx = getIndex();
             if (idx >= 0 && idx < rows.size()) {
                 ActivityVariable r = rows.get(idx);
-                if (type != r.type()) rows.set(idx, ActivityVariable.create(r.name(), type));
+                if (type != r.type()) rows.set(idx, ActivityVariable.create(r.name(), type, r.description()));
             }
             cancelEdit();
         }
@@ -184,18 +223,23 @@ public class ManageActivitiesDialog {
         HBox.setHgrow(nameField, Priority.ALWAYS);
         ComboBox<ActivityType> typeCombo = new ComboBox<>(FXCollections.observableArrayList(ActivityType.values()));
         typeCombo.setValue(ActivityType.TEXT);
+        TextField descField = new TextField();
+        descField.setPromptText("description (optional)");
+        HBox.setHgrow(descField, Priority.ALWAYS);
 
         Button addBtn = new Button("Add");
         addBtn.setOnAction(e -> {
             String name = nameField.getText() == null ? "" : nameField.getText().trim();
             if (!isValidIdentifier(name)) { error("Enter a valid name (letters, digits, _; not starting with a digit)."); return; }
             if (rows.stream().anyMatch(r -> r.name().equals(name))) { error("'" + name + "' already exists."); return; }
-            rows.add(ActivityVariable.create(name, typeCombo.getValue()));
+            String desc = descField.getText() == null ? "" : descField.getText().trim();
+            rows.add(ActivityVariable.create(name, typeCombo.getValue(), desc));
             nameField.clear();
+            descField.clear();
             statusLabel.setText("");
         });
 
-        HBox row = new HBox(8, nameField, typeCombo, addBtn);
+        HBox row = new HBox(8, nameField, typeCombo, descField, addBtn);
         row.setAlignment(Pos.CENTER_LEFT);
         return row;
     }

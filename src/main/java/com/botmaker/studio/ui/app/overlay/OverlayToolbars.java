@@ -9,7 +9,8 @@ import javafx.stage.StageStyle;
 
 /**
  * Shared factory for the small floating "mini-toolbars" used by the capture-template overlay
- * ({@code capture.OverlayTemplateCapture}) and the macro recorder ({@code record.MacroRecorderToolbar}).
+ * ({@code capture.OverlayTemplateCapture}); its {@link #installDrag} is also reused to drag the borderless
+ * {@link ProgramShapeOverlay} HUD.
  *
  * <p>Centralises three behaviours that both toolbars need identically:
  * <ul>

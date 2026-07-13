@@ -8,6 +8,7 @@ import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.parser.ExpressionChoice;
 import com.botmaker.studio.ui.dnd.BlockEvent;
 import com.botmaker.studio.palette.ExpressionType;
+import com.botmaker.studio.ui.render.menu.ExpressionMenuFactory;
 import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.SimpleBooleanProperty;
 import javafx.css.PseudoClass;
@@ -170,28 +171,6 @@ public abstract class AbstractCodeBlock implements CodeBlock {
      * variable reference). Shared by statement and expression blocks.
      */
     protected void applyExpressionSelection(CodeEditorService context, Expression toReplace, Object selection) {
-        if (toReplace == null || selection == null) return;
-        if (selection instanceof ExpressionType expr) {
-            context.getCodeEditor().replaceExpression(toReplace, expr);
-            return;
-        }
-        if (selection instanceof ExpressionChoice choice) {
-            switch (choice) {
-                case ExpressionChoice.Method m ->
-                        context.getCodeEditor().replaceWithMethodCall(toReplace, m);
-                case ExpressionChoice.Constructor c ->
-                        context.getCodeEditor().replaceWithInstantiation(toReplace, c.typeName(), c.paramTypes());
-                case ExpressionChoice.EnumConstant en ->
-                        context.getCodeEditor().replaceWithEnumConstant(toReplace, en.typeName(), en.constantName());
-                case ExpressionChoice.Variable v ->
-                        context.getCodeEditor().replaceWithVariable(toReplace, v.variableName());
-                case ExpressionChoice.Field f ->
-                        context.getCodeEditor().replaceWithFieldReference(toReplace, f.scope(), f.fieldName());
-                case ExpressionChoice.NewVariable nv ->
-                        context.getCodeEditor().declareVariableBeforeAndReference(toReplace, nv.type(), nv.name());
-                case ExpressionChoice.RawExpression rx ->
-                        context.getCodeEditor().replaceWithRawExpression(toReplace, rx.code());
-            }
-        }
+        ExpressionMenuFactory.applySelection(context, toReplace, selection);
     }
 }

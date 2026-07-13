@@ -4,7 +4,9 @@ import com.botmaker.studio.project.StudioProjectSettings;
 import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.WindowTarget;
 import com.botmaker.studio.services.ProjectSettingsService;
+import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.ui.app.capture.CaptureSourcePicker;
+import com.botmaker.studio.ui.app.capture.TargetThumbnail;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -17,15 +19,23 @@ import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.ProgressIndicator;
 import javafx.scene.control.SelectionMode;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
+import javafx.scene.input.MouseButton;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Editor-side dialog to manage the project's {@link CaptureTarget}s (monitors and application windows)
@@ -51,6 +61,18 @@ public class ManageCaptureTargetsDialog {
     private CaptureTarget defaultTarget;
     private ListView<CaptureTarget> list;
     private Stage stage;
+
+    /** Cached live-preview probes per target, so cell recycling doesn't re-grab. */
+    private final Map<CaptureTarget, ThumbEntry> thumbs = new HashMap<>();
+    /** Single background thread for the (blocking) native/desktop grabs. */
+    private final ExecutorService thumbExec = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "target-thumb");
+        t.setDaemon(true);
+        return t;
+    });
+
+    /** A cached probe: the FX preview image (may be null) and whether the target currently exists. */
+    private record ThumbEntry(Image image, boolean exists) {}
 
     public ManageCaptureTargetsDialog(Window owner, ProjectSettingsService settingsService) {
         this.owner = owner;
@@ -78,7 +100,8 @@ public class ManageCaptureTargetsDialog {
         root.setPadding(new Insets(16));
         root.getChildren().addAll(buildList(), buildAddRow(), buildButtonBar());
 
-        stage.setScene(new Scene(root, 520, 460));
+        stage.setScene(new Scene(root, 560, 520));
+        stage.setOnHidden(e -> thumbExec.shutdownNow());
         stage.show();
     }
 
@@ -87,6 +110,13 @@ public class ManageCaptureTargetsDialog {
         list.getSelectionModel().setSelectionMode(SelectionMode.SINGLE);
         list.setPlaceholder(new Label("No capture targets yet. Add a screen or window below."));
         list.setCellFactory(v -> new TargetCell());
+        // Double-click a row to make it the default (mirrors "Set as default").
+        list.setOnMouseClicked(e -> {
+            if (e.getButton() == MouseButton.PRIMARY && e.getClickCount() == 2) {
+                CaptureTarget sel = list.getSelectionModel().getSelectedItem();
+                if (sel != null) { defaultTarget = sel; list.refresh(); }
+            }
+        });
 
         Button setDefaultBtn = new Button("Set as default");
         setDefaultBtn.setDisable(true);
@@ -122,12 +152,61 @@ public class ManageCaptureTargetsDialog {
         return box;
     }
 
-    /** Renders a target's label, tagging the one currently marked default. */
+    /**
+     * Renders a target as a live-preview thumbnail + label, an "exists / not found" badge, and a default
+     * marker. The (blocking) preview grab runs off the FX thread and is cached per target, so scrolling /
+     * cell recycling doesn't re-probe.
+     */
     private final class TargetCell extends ListCell<CaptureTarget> {
+        private final ImageView thumb = new ImageView();
+        private final Label name = new Label();
+        private final Label status = new Label();
+        private final HBox box;
+
+        TargetCell() {
+            thumb.setFitWidth(128);
+            thumb.setFitHeight(76);
+            thumb.setPreserveRatio(true);
+            name.setStyle("-fx-font-weight: bold;");
+            status.setStyle("-fx-font-size: 11px;");
+            Region pad = new Region();
+            pad.setMinSize(128, 76);
+            pad.setStyle("-fx-background-color: rgba(0,0,0,0.08); -fx-background-radius: 4;");
+            javafx.scene.layout.StackPane holder = new javafx.scene.layout.StackPane(pad, thumb);
+            box = new HBox(10, holder, new VBox(3, name, status));
+            box.setAlignment(Pos.CENTER_LEFT);
+        }
+
         @Override protected void updateItem(CaptureTarget item, boolean empty) {
             super.updateItem(item, empty);
-            if (empty || item == null) { setText(null); return; }
-            setText(item.equals(defaultTarget) ? item.label() + "   ✓ default" : item.label());
+            if (empty || item == null) { setText(null); setGraphic(null); return; }
+            setText(null);
+            setGraphic(box);
+            name.setText(item.equals(defaultTarget) ? item.label() + "   ✓ default" : item.label());
+            renderThumb(item);
+        }
+
+        private void renderThumb(CaptureTarget item) {
+            ThumbEntry cached = thumbs.get(item);
+            if (cached != null) {
+                thumb.setImage(cached.image());
+                if (cached.exists()) { status.setText("● available"); status.setTextFill(javafx.scene.paint.Color.web("#2e7d32")); }
+                else { status.setText("○ not found"); status.setTextFill(javafx.scene.paint.Color.web("#b00020")); }
+                return;
+            }
+            // Not probed yet: show a loading state and grab off-thread, then cache + refresh.
+            thumb.setImage(null);
+            status.setText("probing…");
+            status.setTextFill(javafx.scene.paint.Color.GRAY);
+            thumbs.put(item, new ThumbEntry(null, false));   // sentinel to avoid duplicate submits
+            thumbExec.submit(() -> {
+                TargetThumbnail.Result r = TargetThumbnail.grab(item);
+                Image fx = (r.image() != null) ? ScreenCaptureService.toFxImage(r.image()) : null;
+                Platform.runLater(() -> {
+                    thumbs.put(item, new ThumbEntry(fx, r.exists()));
+                    if (stage != null && stage.isShowing()) list.refresh();
+                });
+            });
         }
     }
 
@@ -155,7 +234,7 @@ public class ManageCaptureTargetsDialog {
 
     private void addTarget(CaptureTarget target) {
         if (!rows.contains(target)) rows.add(target);
-        if (defaultTarget == null) defaultTarget = target; // first target becomes default
+        defaultTarget = target; // a newly added source becomes the default
         statusLabel.setText("");
         list.refresh();
         list.getSelectionModel().select(target);
@@ -183,8 +262,15 @@ public class ManageCaptureTargetsDialog {
         Integer defaultIndex = (defaultTarget == null) ? null : result.indexOf(defaultTarget);
         if (defaultIndex != null && defaultIndex < 0) defaultIndex = null;
 
+        // Preserve the settings this dialog doesn't own (favorite overloads / methods, reference resolution)
+        // by deriving from the current settings rather than constructing a bare record.
+        StudioProjectSettings updated = settingsService.current()
+                .withTargets(result)
+                .withKnownWindowTitles(new ArrayList<>(knownWindowTitles))
+                .withDefaultIndex(defaultIndex);
+
         setBusy(apply, cancel, true);
-        settingsService.update(new StudioProjectSettings(result, defaultIndex, new ArrayList<>(knownWindowTitles)))
+        settingsService.update(updated)
                 .whenComplete((ok, err) -> Platform.runLater(() -> {
                     setBusy(apply, cancel, false);
                     if (err != null) error(rootMessage(err));

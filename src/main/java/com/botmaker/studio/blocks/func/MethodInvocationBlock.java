@@ -100,6 +100,28 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
         return sig != null ? sig.paramTypes() : List.of();
     }
 
+    /** The overloads available for this call's current scope + method (for the overlay config popover). */
+    public List<MethodSignature> overloadSignatures(CodeEditorService context) {
+        return findSignatures(context, resolveTargetType(getScope(), context), getMethodName());
+    }
+
+    /** The overload this call currently matches by its actual argument types, or {@code null}. */
+    public MethodSignature currentSignature(CodeEditorService context) {
+        return determineCurrentSignature(context, resolveTargetType(getScope(), context), getMethodName());
+    }
+
+    /** Rewrites this call to {@code sig}'s parameter list (arguments are smart-merged by the AST rewrite). */
+    public void switchToOverload(CodeEditorService context, MethodSignature sig) {
+        if (sig == null) return;
+        String scope = getScope();
+        String currentFileClass = (context.getState() != null && context.getState().getActiveFile() != null)
+                ? context.getState().getActiveFile().getClassName() : "";
+        String scopeForAST = (fixedScopeName != null) ? fixedScopeName
+                : (scope.equals(currentFileClass) && !isVariableScope(context, scope) ? "" : scope);
+        context.getCodeEditor().updateMethodInvocation(
+                (MethodInvocation) this.astNode, scopeForAST, getMethodName(), sig.paramTypes());
+    }
+
     @Override
     protected Node createUINode(CodeEditorService context) {
         String currentFileClass = "";

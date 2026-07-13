@@ -92,12 +92,13 @@ public class StatementFactory {
         if (!l.args().isEmpty()) {
             for (Initializer arg : l.args()) mi.arguments().add(buildExpression(ast, arg, cu, rewriter, analyzer));
         } else {
-            // If the project pinned a favorite overload for this method, create it: seed a default value per
-            // parameter (a CaptureSource slot gets the project-default target — see InitializerFactory). Falls
-            // back to the single empty "+" slot when there's no favorite or it no longer resolves.
-            List<ResolvedType> favParams = favoriteOverloadParams(l, state, analyzer);
-            if (favParams != null && !favParams.isEmpty()) {
-                for (ResolvedType p : favParams) {
+            // Choose the default overload: the project's pinned favorite if any, else the overload with the
+            // fewest arguments (the simplest starting point). Seed a default value per parameter (a
+            // CaptureSource slot gets the project-default target — see InitializerFactory). When no overload
+            // resolves at all (unknown method), fall back to a single empty "+" slot the user fills.
+            List<ResolvedType> params = defaultOverloadParams(l, state, analyzer);
+            if (params != null) {
+                for (ResolvedType p : params) {
                     mi.arguments().add(com.botmaker.studio.parser.NodeCreator.createDefaultInitializer(ast, p, cu, state));
                 }
             } else {
@@ -107,17 +108,23 @@ public class StatementFactory {
         return ast.newExpressionStatement(mi);
     }
 
-    /** Parameter types of the project's favorite overload for {@code l}, or {@code null} if none is set/resolves. */
-    private static List<ResolvedType> favoriteOverloadParams(BlockType.LibraryCall l, ProjectState state,
-                                                             ProjectAnalyzer analyzer) {
-        if (state == null || analyzer == null) return null;
-        String favKey = state.getSettings().favoriteSignature(l.className() + "#" + l.method());
-        if (favKey == null) return null;
+    /**
+     * Parameter types of the default overload for {@code l}: the project's favorite overload when set and it
+     * still resolves, otherwise the overload with the fewest parameters. {@code null} only when no overload of
+     * the method resolves at all (an unknown method) — callers then use a single empty slot.
+     */
+    private static List<ResolvedType> defaultOverloadParams(BlockType.LibraryCall l, ProjectState state,
+                                                            ProjectAnalyzer analyzer) {
+        if (analyzer == null) return null;
         List<MethodSignature> sigs = analyzer.getMethods(l.className(), true).stream()
                 .filter(s -> s.name().equals(l.method()))
                 .collect(Collectors.toList());
-        MethodSignature fav = MethodSignature.bestForKey(sigs, favKey);
-        return fav != null ? fav.paramTypes() : null;
+        if (sigs.isEmpty()) return null;
+        String favKey = (state != null && state.getSettings() != null)
+                ? state.getSettings().favoriteSignature(l.className() + "#" + l.method()) : null;
+        MethodSignature chosen = MethodSignature.bestForKey(sigs, favKey);
+        if (chosen == null) chosen = MethodSignature.fewestParams(sigs);
+        return chosen != null ? chosen.paramTypes() : null;
     }
 
     private static Statement buildLambdaCall(AST ast, BlockType.LambdaCall l, CompilationUnit cu,

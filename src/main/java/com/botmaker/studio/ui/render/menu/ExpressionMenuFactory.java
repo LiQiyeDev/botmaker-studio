@@ -205,6 +205,37 @@ public final class ExpressionMenuFactory {
         return header;
     }
 
+    /**
+     * Applies a pick from {@link #createExpressionTypeMenu} to {@code toReplace}: a plain {@link ExpressionType}
+     * swaps in a fresh expression block, an {@link ExpressionChoice} drives the richer rewrite (method call,
+     * instantiation, enum constant, variable/field reference, new-variable, raw expression). Shared by every
+     * block ({@code AbstractCodeBlock.applyExpressionSelection}) and the overlay config popover so the rewrite
+     * path is identical everywhere.
+     */
+    public static void applySelection(CodeEditorService context, org.eclipse.jdt.core.dom.Expression toReplace, Object selection) {
+        if (toReplace == null || selection == null) return;
+        if (selection instanceof com.botmaker.studio.palette.ExpressionType expr) {
+            context.getCodeEditor().replaceExpression(toReplace, expr);
+            return;
+        }
+        if (selection instanceof ExpressionChoice choice) {
+            switch (choice) {
+                case ExpressionChoice.Method m -> context.getCodeEditor().replaceWithMethodCall(toReplace, m);
+                case ExpressionChoice.Constructor c ->
+                        context.getCodeEditor().replaceWithInstantiation(toReplace, c.typeName(), c.paramTypes());
+                case ExpressionChoice.EnumConstant en ->
+                        context.getCodeEditor().replaceWithEnumConstant(toReplace, en.typeName(), en.constantName());
+                case ExpressionChoice.Variable v -> context.getCodeEditor().replaceWithVariable(toReplace, v.variableName());
+                case ExpressionChoice.Field f ->
+                        context.getCodeEditor().replaceWithFieldReference(toReplace, f.scope(), f.fieldName());
+                case ExpressionChoice.NewVariable nv ->
+                        context.getCodeEditor().declareVariableBeforeAndReference(toReplace, nv.type(), nv.name());
+                case ExpressionChoice.RawExpression rx ->
+                        context.getCodeEditor().replaceWithRawExpression(toReplace, rx.code());
+            }
+        }
+    }
+
     public static ContextMenu createExpressionTypeMenu(
             ResolvedType expectedType,
             boolean constantOnly,

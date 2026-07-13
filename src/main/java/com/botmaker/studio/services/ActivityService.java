@@ -86,6 +86,9 @@ public final class ActivityService {
         boolean needsDate = false;
         for (ActivityVariable a : cfg.activities()) {
             String nodeExpr = "node(v, \"" + a.name() + "\")";
+            if (a.description() != null && !a.description().isBlank()) {
+                fields.append("    /** ").append(a.description().replace("*/", "*\\/")).append(" */\n");
+            }
             fields.append("    public static final ").append(a.type().javaType())
                     .append(' ').append(a.name()).append(";\n");
             inits.append("        ").append(a.name()).append(" = ")
