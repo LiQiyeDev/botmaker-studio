@@ -66,7 +66,7 @@ public final class MavenService {
     public static final String SDK_GROUP_ID = "com.github.LiQiyeDev";
     public static final String SDK_ARTIFACT_ID = "botmaker-sdk";
     /** Version used for the SDK when none is supplied / JitPack is unreachable. */
-    public static final String SDK_FALLBACK_VERSION = "1.0.14";
+    public static final String SDK_FALLBACK_VERSION = "1.0.17";
 
     /**
      * Locally-installed SDK dev builds found in {@code ~/.m2} (typically {@code 0.0.0-SNAPSHOT}, produced by
