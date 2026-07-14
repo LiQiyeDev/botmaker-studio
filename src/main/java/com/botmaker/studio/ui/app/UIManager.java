@@ -54,6 +54,7 @@ public class UIManager {
     private final ProjectState state;
     private final ScreenCaptureService screenCaptureService;
     private final ProjectSettingsService projectSettingsService;
+    private final ProjectAnalyzer projectAnalyzer;
 
     private final ToolbarManager toolbarManager;
     private final EventLogManager eventLogManager;
@@ -94,6 +95,7 @@ public class UIManager {
         this.primaryStage = primaryStage;
         this.config = config;
         this.state = state;
+        this.projectAnalyzer = projectAnalyzer;
 
         // Editor settings (capture targets + default). Stateless over (config, state, eventBus); the
         // capture service honors the default target so pickers stop re-asking which screen to use.
@@ -119,13 +121,14 @@ public class UIManager {
                 new SetActivityValuesDialog(primaryStage, activityService).show());
         this.menuBarManager.setOnManageResources(this::openResourceManager);
         this.menuBarManager.setOnProjectSettings(() ->
-                new ProjectSettingsDialog(primaryStage, projectSettingsService).show());
+                new ProjectSettingsDialog(primaryStage, projectSettingsService, projectAnalyzer).show());
         this.toolbarManager.setOnManageCaptureTargets(() ->
                 new ManageCaptureTargetsDialog(primaryStage, projectSettingsService).show());
         this.toolbarManager.setOnOpenDebugDashboard(this::openDebugDashboard);
         this.toolbarManager.setOnEnableRemotePilot(this::openRemotePilot);
         this.toolbarManager.setOnCaptureTemplates(this::openOverlayTemplateCapture);
         this.toolbarManager.setOnOverlayEditor(this::openOverlayEditor);
+        this.toolbarManager.setOnAccessResources(this::openResourceManager);
         GitHubClient gitHubClient = new GitHubClient();
         GitHubGallery gallery = new GitHubGallery(gitHubClient);
         BotInstaller botInstaller = new BotInstaller(gitHubClient, gallery);

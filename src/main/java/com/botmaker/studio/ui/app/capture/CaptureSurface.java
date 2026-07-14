@@ -94,6 +94,7 @@ public final class CaptureSurface {
                                         Consumer<Region> onRegion, Runnable onCancel) {
         CaptureSurface s = new CaptureSurface(owner, bounds, Mode.SINGLE, onRegion, null, onCancel);
         s.stage.show();
+        com.botmaker.studio.ui.app.overlay.OverlayToolbars.promoteAboveFullscreen(s.stage);
         return s;
     }
 
@@ -102,6 +103,7 @@ public final class CaptureSurface {
                                       Consumer<List<Region>> onDone, Runnable onCancel) {
         CaptureSurface s = new CaptureSurface(owner, bounds, Mode.MANY, null, onDone, onCancel);
         s.stage.show();
+        com.botmaker.studio.ui.app.overlay.OverlayToolbars.promoteAboveFullscreen(s.stage);
         return s;
     }
 

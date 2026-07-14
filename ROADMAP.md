@@ -6,6 +6,23 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-14 — Feature batch: overlays-above-fullscreen, Resources toolbar button, dropdown-driven favourites,
+  "Capture object" transparent extraction, resolution dropdown + readouts.**
+  **(1)** Overlays now stay above fullscreen games: `OverlayToolbars.promoteAboveFullscreen(Stage)` tags each
+  ownerless always-on-top stage (Overlay Editor, capture toolbar, `CaptureSurface`, `ObjectCaptureSurface`) with a
+  unique title and calls the new shared `NativeController.promoteOverlayAboveFullscreen` (X11 EWMH; best-effort).
+  **(2)** New **🗂 Resources** toolbar button (`ToolbarManager` + `UIManager.openResourceManager`).
+  **(3)** `ProjectSettingsDialog` favourite-methods/overloads are now **dropdown-driven** (no manual typing):
+  class from `SdkApi.FACADE_CLASSES`, methods/overloads from `ProjectAnalyzer.getMethods` keyed by
+  `MethodSignature.signatureKey()`; disabled with a hint until the SDK jar is indexed. `UIManager` now stores
+  `ProjectAnalyzer` and passes it in. **(4)** New **◎ Capture object** mode: `ObjectCaptureSurface` shows a frozen
+  window snapshot; hovering runs a pure-Java `MagicWand` flood-fill (bounded), the mouse wheel steers colour
+  tolerance (bigger/smaller object), click extracts the region onto a transparent background and saves it as a
+  template. **(5)** Standard resolution is now a **dropdown + landscape/portrait toggle** (`ResolutionChoices`) in
+  Project Settings and the new-project dialog (default 1920×1080 landscape, seeded into `settings.json` +
+  `botmaker-project.properties` by `ProjectCreator`/`ProjectSettingsService` so runtime scaling matches). Current
+  window/screen resolution readouts added to the Overlay Editor header, capture toolbar, IDE toolbar, and the Debug
+  Dashboard page.
 - **2026-07-14 — Run now validates blocks (empty slots) via `BlockValidator`, surfaced in the Errors panel with
   click-to-scroll.** `CodeExecutionService.runCode` calls the new `DiagnosticsManager.validateBlocks()` (built on
   `BlockValidator.emptySlots(nodeToBlockMap)`) before compiling; unfilled slots (a `NullLiteral`/`NullBlock`) now

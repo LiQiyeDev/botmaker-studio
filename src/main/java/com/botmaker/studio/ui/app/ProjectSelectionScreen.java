@@ -422,6 +422,28 @@ public class ProjectSelectionScreen {
         }
         loadSdkVersions(sdkVersionCombo, localVersions);
 
+        // Standard (reference) capture resolution — default Full-HD landscape. No manual typing: a dropdown of
+        // common sizes + a landscape/portrait toggle (portrait just swaps width/height).
+        ComboBox<com.botmaker.studio.project.StudioProjectSettings.Resolution> resolutionCombo = new ComboBox<>();
+        resolutionCombo.getItems().addAll(ResolutionChoices.LANDSCAPE);
+        resolutionCombo.setConverter(new javafx.util.StringConverter<>() {
+            @Override public String toString(com.botmaker.studio.project.StudioProjectSettings.Resolution r) {
+                return ResolutionChoices.label(r);
+            }
+            @Override public com.botmaker.studio.project.StudioProjectSettings.Resolution fromString(String s) {
+                return null;
+            }
+        });
+        resolutionCombo.setValue(ResolutionChoices.DEFAULT);
+        resolutionCombo.setMaxWidth(Double.MAX_VALUE);
+        javafx.scene.control.ToggleGroup orientation = new javafx.scene.control.ToggleGroup();
+        javafx.scene.control.ToggleButton landscapeBtn = new javafx.scene.control.ToggleButton("Landscape");
+        javafx.scene.control.ToggleButton portraitBtn = new javafx.scene.control.ToggleButton("Portrait");
+        landscapeBtn.setToggleGroup(orientation);
+        portraitBtn.setToggleGroup(orientation);
+        landscapeBtn.setSelected(true);
+        HBox orientationRow = new HBox(8, landscapeBtn, portraitBtn);
+
         content.getChildren().addAll(
                 new Label("Project Name:"),
                 projectNameField,
@@ -431,7 +453,10 @@ public class ProjectSelectionScreen {
                 rule3,
                 exampleLabel,
                 new Label("BotMaker SDK version:"),
-                sdkVersionCombo
+                sdkVersionCombo,
+                new Label("Standard resolution:"),
+                resolutionCombo,
+                orientationRow
         );
 
         dialog.getDialogPane().setContent(content);
@@ -460,13 +485,15 @@ public class ProjectSelectionScreen {
                             .findFirst()
                             .orElse(MavenService.SDK_FALLBACK_VERSION);
                 }
-                return new CreateRequest(projectNameField.getText(), version);
+                com.botmaker.studio.project.StudioProjectSettings.Resolution resolution =
+                        ResolutionChoices.oriented(resolutionCombo.getValue(), !portraitBtn.isSelected());
+                return new CreateRequest(projectNameField.getText(), version, resolution);
             }
             return null;
         });
 
         Optional<CreateRequest> result = dialog.showAndWait();
-        result.ifPresent(req -> createProject(req.projectName(), req.sdkVersion()));
+        result.ifPresent(req -> createProject(req.projectName(), req.sdkVersion(), req.resolution()));
     }
 
     /** Replaces the combo's items with the local dev builds (top) + JitPack versions. Preselects a local
@@ -499,7 +526,8 @@ public class ProjectSelectionScreen {
     }
 
     /** Result of the create-project dialog. */
-    private record CreateRequest(String projectName, String sdkVersion) {}
+    private record CreateRequest(String projectName, String sdkVersion,
+                                 com.botmaker.studio.project.StudioProjectSettings.Resolution resolution) {}
 
     private void showGallery() {
         GitHubGallery gallery = new GitHubGallery(gitHubClient);
@@ -517,9 +545,10 @@ public class ProjectSelectionScreen {
         return true;
     }
 
-    private void createProject(String projectName, String sdkVersion) {
+    private void createProject(String projectName, String sdkVersion,
+                               com.botmaker.studio.project.StudioProjectSettings.Resolution resolution) {
         try {
-            projectCreator.createProject(projectName, sdkVersion);
+            projectCreator.createProject(projectName, sdkVersion, resolution);
             rebuildRows();
             for (Row row : projectListView.getItems()) {
                 if (row instanceof ProjectRow projectRow && projectRow.info().name().equals(projectName)) {

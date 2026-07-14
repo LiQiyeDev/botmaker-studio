@@ -261,6 +261,7 @@ public final class ProgramShapeOverlay {
 
         stage.show();
         OverlayToolbars.installDrag(header, stage);   // borderless: drag by the header bar
+        OverlayToolbars.promoteAboveFullscreen(stage); // stay above fullscreen games (X11)
 
         // Hide the HUD (and any open config popover) while a capture draw surface is up, so it doesn't sit
         // over the region/point/template selection — restored when the overlay closes.
@@ -295,12 +296,15 @@ public final class ProgramShapeOverlay {
     private HBox buildHeader() {
         Label title = new Label("Overlay Editor");
         title.setStyle("-fx-text-fill: #c9d4e6; -fx-font-weight: bold;");
+        // Current window/screen resolution so the author knows the size they're building against.
+        Label res = new Label(com.botmaker.studio.ui.app.ResolutionChoices.readout(windowBounds));
+        res.setStyle("-fx-text-fill: #8fa3bf; -fx-font-size: 11px;");
         Region spring = new Region();
         HBox.setHgrow(spring, Priority.ALWAYS);
         Button close = new Button("✕");
         close.setTooltip(new Tooltip("Close overlay"));
         close.setOnAction(e -> { if (stage != null) stage.close(); });
-        header = new HBox(8, title, spring, close);
+        header = new HBox(8, title, res, spring, close);
         header.setAlignment(Pos.CENTER_LEFT);
         header.setPadding(new Insets(6, 8, 6, 10));
         header.setStyle(PANEL);

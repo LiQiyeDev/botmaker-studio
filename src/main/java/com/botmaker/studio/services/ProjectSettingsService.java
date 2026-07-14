@@ -62,6 +62,12 @@ public final class ProjectSettingsService {
         return CompletableFuture.runAsync(() -> {
             try {
                 newSettings.write(config.resourcesRoot());
+                // Mirror the standard resolution into botmaker-project.properties so the generated bot's runtime
+                // scaling default (ProjectDefaults/ResolutionScaler) tracks the editor's standard resolution.
+                if (newSettings.referenceResolution() != null) {
+                    com.botmaker.studio.project.ProjectCreator.writeCaptureProperties(
+                            config.resourcesRoot(), newSettings.referenceResolution());
+                }
             } catch (IOException e) {
                 throw new RuntimeException("Failed to save settings: " + e.getMessage(), e);
             }

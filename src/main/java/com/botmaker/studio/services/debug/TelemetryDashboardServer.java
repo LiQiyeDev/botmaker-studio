@@ -193,7 +193,7 @@ public final class TelemetryDashboardServer {
               <div id="log"><table><thead><tr><th>time</th><th>kind</th><th>target</th><th>rect</th><th>conf</th></tr></thead><tbody id="rows"></tbody></table></div>
             </div>
             <div id="right">
-              <header>Live target + overlays</header>
+              <header>Live target + overlays <span id="res" style="font-weight:400;color:#8b93a1;margin-left:8px"></span></header>
               <div id="ctl">
                 <button id="zout" title="Zoom out">－</button>
                 <button id="zin" title="Zoom in">＋</button>
@@ -220,7 +220,8 @@ public final class TelemetryDashboardServer {
                 if(d.kind==='Match'&&d.found&&d.rect) lastRect=d.rect;
               });
               es.addEventListener('frame',ev=>{ const d=JSON.parse(ev.data); const im=new Image();
-                im.onload=()=>{frame={im,sx:d.sx,sy:d.sy,sw:d.sw,sh:d.sh};draw();}; im.src='data:image/jpeg;base64,'+d.img; });
+                im.onload=()=>{frame={im,sx:d.sx,sy:d.sy,sw:d.sw,sh:d.sh};
+                  document.getElementById('res').textContent=d.sw+'×'+d.sh;draw();}; im.src='data:image/jpeg;base64,'+d.img; });
               // View controls (mirror the Studio preview: zoom out / in / fit / follow).
               const zoutB=document.getElementById('zout'),zinB=document.getElementById('zin'),
                     fitB=document.getElementById('fit'),followB=document.getElementById('follow');

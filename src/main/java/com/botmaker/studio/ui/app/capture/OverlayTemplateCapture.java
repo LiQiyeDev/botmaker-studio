@@ -65,6 +65,9 @@ public final class OverlayTemplateCapture {
 
     private Stage toolbarStage;
     private CaptureSurface surface;
+    private ObjectCaptureSurface objectSurface;
+    /** The full captured frame's size for the in-progress object capture (for the template's capture-resolution sidecar). */
+    private int objectFrameW, objectFrameH;
     /** The canonical window size to snap to before each capture (project reference resolution), or null.
      *  Only used for a window target — a screen/desktop is never resized. */
     private StudioProjectSettings.Resolution referenceResolution;
@@ -133,13 +136,23 @@ public final class OverlayTemplateCapture {
         one.setOnAction(e -> beginSingle());
         Button many = new Button("▦ Capture many");
         many.setOnAction(e -> beginMany());
+        Button object = new Button("◎ Capture object");
+        object.setTooltip(new javafx.scene.control.Tooltip(
+                "Point at an object to extract it with a transparent background (scroll to resize)"));
+        object.setOnAction(e -> beginObject());
         Button close = new Button("✕ Close");
         close.setOnAction(e -> closeTool());
 
         Label hint = new Label("Capture Templates");
         hint.setTextFill(Color.web("#c9d4e6"));
+        // Current resolution readout so the user always knows the window/screen size they're capturing at.
+        boolean isWindow = target instanceof CaptureTarget.WindowTarget;
+        Label resLabel = new Label(com.botmaker.studio.ui.app.ResolutionChoices.readout(
+                isWindow ? windowBounds : null));
+        resLabel.setTextFill(Color.web("#8fa3bf"));
+        resLabel.setStyle("-fx-font-size: 11px;");
 
-        HBox bar = new HBox(8, hint, one, many, close);
+        HBox bar = new HBox(8, hint, one, many, object, close, resLabel);
         bar.setAlignment(Pos.CENTER_LEFT);
         bar.setPadding(new Insets(8, 10, 8, 10));
         bar.setStyle("-fx-background-color: rgba(20,24,33,0.92); -fx-background-radius: 8;");
@@ -156,6 +169,10 @@ public final class OverlayTemplateCapture {
         if (surface != null) {
             surface.close();
             surface = null;
+        }
+        if (objectSurface != null) {
+            objectSurface.close();
+            objectSurface = null;
         }
         if (toolbarStage != null) toolbarStage.close();
         if (active == this) active = null;
@@ -231,6 +248,37 @@ public final class OverlayTemplateCapture {
         });
     }
 
+    // ── Capture object (transparent-background extraction) ───────────────────────────────────────────────
+
+    private void beginObject() {
+        toolbarStage.hide();
+        captureTargetAsync(shot -> {
+            if (shot == null) { warnClosed(); endSession(); return; }
+            objectFrameW = shot.image().getWidth();
+            objectFrameH = shot.image().getHeight();
+            objectSurface = ObjectCaptureSurface.open(owner, shot.bounds(), shot.image(),
+                    this::onObjectExtracted, this::endSession);
+        });
+    }
+
+    /** Saves the extracted transparent-background object as a template (named like the other modes). */
+    private void onObjectExtracted(BufferedImage cut) {
+        if (objectSurface != null) objectSurface.hide();
+        try {
+            Optional<String> name = ImageTemplatePicker.promptTemplateName(owner, config, null);
+            if (name.isEmpty()) { endSession(); return; }
+            // The sidecar's capture resolution is the full frame the object was cut from (drives runtime scaling),
+            // not the crop's own size.
+            ImageTemplateLibrary.saveTemplate(config, cut, name.get(),
+                    objectFrameW, objectFrameH, windowTitleOrNull());
+            eventBus.publish(new ResourcesChangedEvent());
+        } catch (Exception ex) {
+            warn(owner, "Failed to save object: " + ex.getMessage());
+        } finally {
+            endSession();
+        }
+    }
+
     // ── Shared plumbing ────────────────────────────────────────────────────────────────────────────────
 
     /** Disposes the active surface (if any) and returns to the mini-toolbar. */
@@ -238,6 +286,10 @@ public final class OverlayTemplateCapture {
         if (surface != null) {
             surface.close();
             surface = null;
+        }
+        if (objectSurface != null) {
+            objectSurface.close();
+            objectSurface = null;
         }
         toolbarStage.show();
     }

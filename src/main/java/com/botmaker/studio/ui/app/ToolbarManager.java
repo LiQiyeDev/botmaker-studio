@@ -8,6 +8,7 @@ import com.botmaker.studio.services.ProjectSettingsService;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
+import javafx.scene.control.Label;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
 
@@ -24,6 +25,7 @@ public class ToolbarManager {
     private Button stepOverButton, continueButton;
     /** The Capture Targets button, whose text tracks the current project default. */
     private Button captureButton;
+    private Label resolutionLabel;
 
     /** Opens the Manage Capture Targets dialog; wired by {@link UIManager}. */
     private Runnable onManageCaptureTargets;
@@ -35,6 +37,8 @@ public class ToolbarManager {
     private Runnable onCaptureTemplates;
     /** Opens the program-shape overlay authoring editor; wired by {@link UIManager}. */
     private Runnable onOverlayEditor;
+    /** Opens the Resource Manager (image templates); wired by {@link UIManager}. */
+    private Runnable onAccessResources;
 
     private enum AppState { IDLE, RUNNING, DEBUGGING }
     private AppState currentAppState = AppState.IDLE;
@@ -46,9 +50,10 @@ public class ToolbarManager {
     }
 
     private void setupEventHandlers() {
-        // Keep the Capture button's text in sync with the project's default target.
+        // Keep the Capture button's text + resolution readout in sync with the project's settings.
         eventBus.subscribe(CoreApplicationEvents.SettingsChangedEvent.class, e -> {
             if (captureButton != null) captureButton.setText(captureButtonText());
+            if (resolutionLabel != null) resolutionLabel.setText(resolutionText());
         }, true);
         eventBus.subscribe(CoreApplicationEvents.ProgramStartedEvent.class, e -> setAppState(AppState.RUNNING), true);
         eventBus.subscribe(CoreApplicationEvents.ProgramStoppedEvent.class, e -> setAppState(AppState.IDLE), true);
@@ -115,6 +120,11 @@ public class ToolbarManager {
         this.onOverlayEditor = callback;
     }
 
+    /** Sets the callback invoked when the toolbar's Resources button is clicked. */
+    public void setOnAccessResources(Runnable callback) {
+        this.onAccessResources = callback;
+    }
+
     /**
      * Creates the center group: the Capture Targets button (opens the manage dialog; its text shows the
      * current default target) next to the Debug Dashboard button (opens the live telemetry dashboard).
@@ -158,10 +168,33 @@ public class ToolbarManager {
             if (onOverlayEditor != null) onOverlayEditor.run();
         });
 
+        Button resourcesButton = new Button("🗂 Resources");
+        resourcesButton.getStyleClass().add("toolbar-btn");
+        resourcesButton.setTooltip(new Tooltip("Open the Resource Manager to browse and manage image templates"));
+        resourcesButton.setOnAction(e -> {
+            if (onAccessResources != null) onAccessResources.run();
+        });
+
+        resolutionLabel = new Label(resolutionText());
+        resolutionLabel.getStyleClass().add("toolbar-resolution");
+        resolutionLabel.setTooltip(new Tooltip("Project standard resolution · primary screen resolution"));
+
         HBox group = new HBox(5, captureButton, captureTemplatesButton,
-                overlayEditorButton, debugDashboardButton, remotePilotButton);
+                overlayEditorButton, resourcesButton, debugDashboardButton, remotePilotButton, resolutionLabel);
         group.setAlignment(Pos.CENTER);
         return group;
+    }
+
+    /** "Std W×H · 🖵 W×H": the project standard resolution (if set) and the primary screen resolution. */
+    private String resolutionText() {
+        javafx.geometry.Rectangle2D sb = javafx.stage.Screen.getPrimary().getBounds();
+        String screen = "🖵 " + (int) sb.getWidth() + "×" + (int) sb.getHeight();
+        com.botmaker.studio.project.StudioProjectSettings.Resolution ref = null;
+        try {
+            ref = (settings != null) ? settings.current().referenceResolution() : null;
+        } catch (Exception ignored) {
+        }
+        return (ref != null ? "Std " + ref.width() + "×" + ref.height() + "  ·  " : "") + screen;
     }
 
     /** "🎯 " + the current default target's short name, or "🎯 Capture Targets" when no default is set. */

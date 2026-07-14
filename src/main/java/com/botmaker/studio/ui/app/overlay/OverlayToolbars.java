@@ -1,5 +1,7 @@
 package com.botmaker.studio.ui.app.overlay;
 
+import com.botmaker.shared.capture.NativeControllerFactory;
+import javafx.application.Platform;
 import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.layout.HBox;
@@ -41,7 +43,35 @@ public final class OverlayToolbars {
         double barHeight = stage.getHeight();
         stage.setX(windowBounds.x);
         stage.setY(windowBounds.y - barHeight - 4 >= 0 ? windowBounds.y - barHeight - 4 : windowBounds.y + 4);
+        promoteAboveFullscreen(stage);
         return stage;
+    }
+
+    /**
+     * Ask the window manager to stack {@code stage} <em>above fullscreen</em> windows. A JavaFX
+     * {@code setAlwaysOnTop} stage still hides behind a fullscreen game (its {@code _NET_WM_STATE_ABOVE} loses
+     * to {@code _NET_WM_STATE_FULLSCREEN}); the native layer promotes it via notification window-type + raise.
+     *
+     * <p>Bridges JavaFX→native by a unique window <b>title</b> (invisible on a transparent stage): we tag the
+     * stage, then the native controller finds the matching X11 client window and applies the EWMH hints.
+     * Best-effort — a no-op on Windows/Wayland or a WM that ignores the hints. Re-asserted on focus so it
+     * survives a capture-surface toggle. Safe to call on any {@link Stage}.
+     */
+    public static void promoteAboveFullscreen(Stage stage) {
+        String existing = stage.getTitle();
+        final String title = (existing == null || existing.isEmpty())
+                ? "__bm_overlay_" + Long.toHexString(System.nanoTime()) : existing;
+        if (existing == null || existing.isEmpty()) stage.setTitle(title);
+        Runnable promote = () -> {
+            try {
+                NativeControllerFactory.get().promoteOverlayAboveFullscreen(title);
+            } catch (Throwable ignored) {
+                // best-effort; the overlay still shows (just possibly under a fullscreen window)
+            }
+        };
+        // Defer so the native window/title exists, and re-assert whenever the overlay regains focus.
+        Platform.runLater(promote);
+        stage.focusedProperty().addListener((o, was, now) -> { if (now) promote.run(); });
     }
 
     /** Makes dragging on {@code handle} move {@code stage} (tracks the press offset from the stage origin). */

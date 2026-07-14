@@ -21,11 +21,17 @@ public class ProjectCreator {
         createProject(projectName, "");
     }
 
+    public void createProject(String projectName, String sdkVersion) throws IOException {
+        createProject(projectName, sdkVersion, new StudioProjectSettings.Resolution(1920, 1080));
+    }
+
     /**
      * Creates a new project, pinning the BotMaker SDK to {@code sdkVersion}
-     * (blank → {@link MavenService#SDK_FALLBACK_VERSION}).
+     * (blank → {@link MavenService#SDK_FALLBACK_VERSION}) and seeding its standard capture resolution
+     * {@code referenceResolution} (null leaves it unseeded — auto-seeded from the window on first capture).
      */
-    public void createProject(String projectName, String sdkVersion) throws IOException {
+    public void createProject(String projectName, String sdkVersion,
+                              StudioProjectSettings.Resolution referenceResolution) throws IOException {
         validateProjectName(projectName);
 
         ProjectConfig cfg = ProjectConfig.forProject(projectName, PROJECTS_ROOT);
@@ -60,7 +66,11 @@ public class ProjectCreator {
             // 4. Built-in default image template so freshly-dropped vision blocks reference a real file.
             createDefaultTemplate(cfg.imagesRoot());
 
-            // 5. Initialize local project history (linear VCS) with an initial commit.
+            // 5. Seed the standard capture resolution into settings.json + botmaker-project.properties so the
+            //    editor snaps captures to it and the generated bot's runtime scaling defaults to it.
+            seedResolution(cfg, referenceResolution);
+
+            // 6. Initialize local project history (linear VCS) with an initial commit.
             new ProjectVcs(projectPath).init();
 
             System.out.println("------------------------------------------------");
@@ -70,6 +80,34 @@ public class ProjectCreator {
             System.err.println("!!! ERROR during project creation !!!");
             e.printStackTrace();
             throw new IOException("Failed to create project: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Writes {@code settings.json} (the editor's standard/reference resolution) and mirrors it into
+     * {@code botmaker-project.properties} ({@code capture.width}/{@code capture.height}) so the generated bot's
+     * runtime resolution scaling ({@code ProjectDefaults}/{@code ResolutionScaler}) defaults to the same size.
+     * No-op for a null resolution (left to auto-seed from the window on first capture).
+     */
+    static void seedResolution(ProjectConfig cfg, StudioProjectSettings.Resolution resolution) throws IOException {
+        if (resolution == null) return;
+        StudioProjectSettings.empty().withReferenceResolution(resolution).write(cfg.resourcesRoot());
+        writeCaptureProperties(cfg.resourcesRoot(), resolution);
+    }
+
+    /** Writes/updates {@code capture.width}/{@code capture.height} in {@code botmaker-project.properties}. */
+    public static void writeCaptureProperties(Path resourcesDir, StudioProjectSettings.Resolution resolution)
+            throws IOException {
+        Files.createDirectories(resourcesDir);
+        Path file = resourcesDir.resolve("botmaker-project.properties");
+        java.util.Properties props = new java.util.Properties();
+        if (Files.exists(file)) {
+            try (var in = Files.newInputStream(file)) { props.load(in); }
+        }
+        props.setProperty("capture.width", Integer.toString(resolution.width()));
+        props.setProperty("capture.height", Integer.toString(resolution.height()));
+        try (var out = Files.newOutputStream(file)) {
+            props.store(out, "BotMaker project defaults (standard capture resolution)");
         }
     }
 
