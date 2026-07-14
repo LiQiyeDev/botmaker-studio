@@ -498,7 +498,7 @@ public class ProjectAnalyzer {
      * scope. Used to populate the "Activities" expression submenu, which inserts {@code Activities.<name>}.
      */
     public List<com.botmaker.studio.project.activity.ActivityVariable> getActivityVariables(ResolvedType requiredType) {
-        return state.getActivities().activities().stream()
+        return state.getActivities().allVariables().stream()
                 .filter(a -> isCompatible(a.type().resolvedType(), requiredType))
                 .toList();
     }

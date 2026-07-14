@@ -6,6 +6,34 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-14 — Bot lifecycle scaffolding + two-tier Activities + "Game bot" template.**
+  **(1) New "Game bot" project template** (`ProjectTemplate` enum; picker in `ProjectSelectionScreen`;
+  `ProjectCreator.createGameBotFiles`): scaffolds a supervised entry point (`Bot.supervise(MacroLoop::run,
+  GoHome::run, Startup::run)`), a `MacroLoop` that dispatches over `ActivityRegistry.ALL` + calls
+  `Watchdog.checkpoint()`, editable `GoHome`/`Startup` recovery hooks, and an initial empty `ActivityRegistry`.
+  Relies on the new SDK `com.botmaker.sdk.api.bot` (`Bot`, `Watchdog`, `Activity`, `BotStuckException`) — see
+  `../botmaker-sdk/ROADMAP.md`. `SdkApi.FACADE_CLASSES` gains `Bot`, `Watchdog`.
+  **(2) Activities are now two-tier.** `ActivityDefinition` (name + enable flag + description + its own
+  `params`) alongside free-standing `globals`; `ActivitiesConfig` becomes `{activities, globals}` with
+  back-compat read of the old flat shape (migrates to `globals`) and `allVariables()` flattening
+  (enable-flag `Activities.<Name>`, params `Activities.<Name>_<param>`, then globals) consumed by the
+  generator and the expression menu (`ProjectAnalyzer.getActivityVariables`).
+  **(3) `ActivityService` generates a registry + stubs.** Besides `Activities.java` it now writes a
+  read-only `ActivityRegistry.java` (`List<Activity> ALL` of `new <Name>()` — replaces a hand if-chain) and
+  creates a once-only editable `activities/<Name>.java` `Activity` subclass per activity (never overwritten).
+  `CodeEditorService` marks `ActivityRegistry.java` generated/read-only. `ManageActivitiesDialog` (activities
+  + per-activity params + globals) and `SetActivityValuesDialog` (enable toggles + values) reworked.
+
+- **2026-07-14 — Fixes: overlays truly above fullscreen + contour-aware object capture.**
+  **(1)** `OverlayToolbars.promoteAboveFullscreen(Stage)` now re-asserts on a **~750 ms `Timeline`** (stopped when
+  the stage stops showing) in addition to the focus listener, so overlays stay above a fullscreen app that
+  re-raises/re-fullscreens itself. Paired with the shared-side remap fix (the WM only re-reads the notification
+  window type on remap), overlays now sit above fullscreen games (e.g. Firestone). **(2)** `MagicWand` rewritten
+  from a plain colour-distance BFS into a **shape-aware** pipeline: precomputed Sobel edge map (built once per
+  frozen frame in `ObjectCaptureSurface`) gates the flood so it stops at the object's contour instead of leaking
+  across gradients; neighbour-relative colour tolerance; interior-hole fill (background flood from the box border)
+  so textured objects come out solid; 1-px dilation to kill the transparent halo. New `MagicWandTest`.
+
 - **2026-07-14 — Feature batch: overlays-above-fullscreen, Resources toolbar button, dropdown-driven favourites,
   "Capture object" transparent extraction, resolution dropdown + readouts.**
   **(1)** Overlays now stay above fullscreen games: `OverlayToolbars.promoteAboveFullscreen(Stage)` tags each

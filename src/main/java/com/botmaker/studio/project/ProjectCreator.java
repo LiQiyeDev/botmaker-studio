@@ -25,13 +25,20 @@ public class ProjectCreator {
         createProject(projectName, sdkVersion, new StudioProjectSettings.Resolution(1920, 1080));
     }
 
+    public void createProject(String projectName, String sdkVersion,
+                              StudioProjectSettings.Resolution referenceResolution) throws IOException {
+        createProject(projectName, sdkVersion, referenceResolution, ProjectTemplate.EMPTY);
+    }
+
     /**
      * Creates a new project, pinning the BotMaker SDK to {@code sdkVersion}
      * (blank → {@link MavenService#SDK_FALLBACK_VERSION}) and seeding its standard capture resolution
      * {@code referenceResolution} (null leaves it unseeded — auto-seeded from the window on first capture).
+     * {@code template} chooses the starting source files.
      */
     public void createProject(String projectName, String sdkVersion,
-                              StudioProjectSettings.Resolution referenceResolution) throws IOException {
+                              StudioProjectSettings.Resolution referenceResolution,
+                              ProjectTemplate template) throws IOException {
         validateProjectName(projectName);
 
         ProjectConfig cfg = ProjectConfig.forProject(projectName, PROJECTS_ROOT);
@@ -57,11 +64,15 @@ public class ProjectCreator {
             System.out.println("1. Generating pom.xml...");
             MavenService.writePom(projectPath, cfg, sdkVersion);
 
-            // 3. Package + main class
+            // 3. Package + source files (per template)
             System.out.println("2. Creating source files...");
             Path srcPath = projectPath.resolve("src/main/java/com/" + cfg.packageName());
             Files.createDirectories(srcPath);
-            createMainJavaFile(srcPath, projectName, cfg.packageName());
+            if (template == ProjectTemplate.GAME_BOT) {
+                createGameBotFiles(srcPath, projectName, cfg.packageName());
+            } else {
+                createMainJavaFile(srcPath, projectName, cfg.packageName());
+            }
 
             // 4. Built-in default image template so freshly-dropped vision blocks reference a real file.
             createDefaultTemplate(cfg.imagesRoot());
@@ -124,6 +135,109 @@ public class ProjectCreator {
             """, packageName, projectName, projectName);
 
         Files.writeString(srcPath.resolve(projectName + ".java"), content);
+    }
+
+    /**
+     * Writes the full "Game bot" scaffold: a supervised entry point, the {@code MacroLoop} that dispatches
+     * over the (initially empty) activity registry, editable {@code GoHome}/{@code Startup} recovery hooks,
+     * and an initial empty {@code ActivityRegistry}. Adding activities in Project → Manage Activities fills
+     * the registry and generates a subclass stub per activity.
+     */
+    private void createGameBotFiles(Path srcPath, String projectName, String packageName) throws IOException {
+        // Entry point: supervise the macro loop, recovering via goHome → startGame on crash/stuck.
+        Files.writeString(srcPath.resolve(projectName + ".java"), String.format("""
+            package com.%s;
+
+            import com.botmaker.sdk.api.bot.Bot;
+
+            public class %s {
+                public static void main(String[] args) {
+                    // Runs MacroLoop forever; on a crash or a stuck screen it runs GoHome then Startup and restarts.
+                    Bot.supervise(MacroLoop::run, GoHome::run, Startup::run);
+                }
+            }
+            """, packageName, projectName));
+
+        // The macro loop: one pass runs every enabled activity, in registry order.
+        Files.writeString(srcPath.resolve("MacroLoop.java"), String.format("""
+            package com.%s;
+
+            import com.botmaker.sdk.api.bot.Activity;
+            import com.botmaker.sdk.api.bot.Watchdog;
+
+            /**
+             * One pass of the bot: run each enabled activity in turn. {@code Bot.supervise} re-runs this
+             * continuously. {@code Watchdog.checkpoint()} throws if the bot has made no progress for a while,
+             * so the supervisor can recover (GoHome + Startup).
+             */
+            public class MacroLoop {
+                public static void run() {
+                    for (Activity activity : ActivityRegistry.ALL) {
+                        if (activity.isEnabled()) {
+                            activity.execute();
+                            Watchdog.checkpoint();
+                        }
+                    }
+                }
+            }
+            """, packageName));
+
+        // Safe-point navigation (last resort before restarting; also a clean start point for activities).
+        Files.writeString(srcPath.resolve("GoHome.java"), String.format("""
+            package com.%s;
+
+            /**
+             * Navigate back to a known-good "home" screen. Called by the supervisor before Startup during
+             * recovery. Fill this in for your game, e.g.:
+             * <pre>
+             *   while (!ImageFinder.find(home)) {
+             *       ImageClicker.click(back);
+             *       Wait.seconds(1);
+             *   }
+             * </pre>
+             */
+            public class GoHome {
+                public static void run() {
+                    // TODO: navigate back to your game's home screen.
+                }
+            }
+            """, packageName));
+
+        // (Re)start the game from the home screen.
+        Files.writeString(srcPath.resolve("Startup.java"), String.format("""
+            package com.%s;
+
+            /**
+             * (Re)start the game from the home screen. Called by the supervisor after GoHome during recovery.
+             * Fill this in for your game, e.g. {@code Game.launchIfNotRunning("steam", "123456");}.
+             */
+            public class Startup {
+                public static void run() {
+                    // TODO: launch or restart the game.
+                }
+            }
+            """, packageName));
+
+        // Initial (empty) activity registry so MacroLoop compiles before any activity is added.
+        Files.writeString(srcPath.resolve("ActivityRegistry.java"), String.format("""
+            package com.%s;
+
+            import com.botmaker.sdk.api.bot.Activity;
+            import java.util.List;
+
+            /**
+             * The activities this bot can run. GENERATED by BotMaker Studio — do not edit by hand; manage via
+             * Project &rarr; Manage Activities. The macro loop iterates {@link #ALL} and runs each activity
+             * whose enable flag is set.
+             */
+            public final class ActivityRegistry {
+
+                public static final List<Activity> ALL = List.of(
+                );
+
+                private ActivityRegistry() {}
+            }
+            """, packageName));
     }
 
     /**

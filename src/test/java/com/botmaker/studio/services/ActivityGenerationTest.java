@@ -31,7 +31,8 @@ class ActivityGenerationTest {
     private static final JsonNodeFactory JSON = JsonNodeFactory.instance;
 
     private static ActivitiesConfig sample() {
-        return new ActivitiesConfig(List.of(
+        // Modeled as globals (free-standing config vars); the generated fields/loader are identical.
+        return new ActivitiesConfig(List.of(), List.of(
                 new ActivityVariable("count", ActivityType.INT, JSON.numberNode(0)),
                 new ActivityVariable("label", ActivityType.TEXT, JSON.textNode("")),
                 new ActivityVariable("startTime", ActivityType.TIME, JSON.textNode("00:00")),
@@ -47,7 +48,7 @@ class ActivityGenerationTest {
     void missingKeyAndWrongTypeFallBackToDefaults(@TempDir Path root) throws Exception {
         // "count" absent (missing key), "startTime" a number (wrong type), "label" valid, "startDate" valid.
         String json = """
-                { "activities": [
+                { "globals": [
                     { "name": "label", "value": "hello" },
                     { "name": "startTime", "value": 123 },
                     { "name": "startDate", "value": "2021-06-01" }

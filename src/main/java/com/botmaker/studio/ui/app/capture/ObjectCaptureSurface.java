@@ -44,6 +44,7 @@ public final class ObjectCaptureSurface {
 
     private final Stage stage;
     private final BufferedImage frame;      // the frozen window snapshot, physical pixels
+    private final int[] edges;              // Sobel gradient magnitude of frame, computed once (shape gate)
     private final double scaleX, scaleY;    // image px per surface-logical px
     private final Consumer<BufferedImage> onExtract;
     private final Runnable onCancel;
@@ -59,6 +60,7 @@ public final class ObjectCaptureSurface {
     private ObjectCaptureSurface(Window owner, java.awt.Rectangle bounds, BufferedImage frame,
                                  Consumer<BufferedImage> onExtract, Runnable onCancel) {
         this.frame = frame;
+        this.edges = MagicWand.sobel(frame);   // one-time edge map so hover/wheel stay responsive
         this.onExtract = onExtract;
         this.onCancel = onCancel;
         this.scaleX = frame.getWidth() / (double) bounds.width;
@@ -133,7 +135,7 @@ public final class ObjectCaptureSurface {
     /** Re-runs the flood from the last cursor position and refreshes the preview tint + HUD. */
     private void recompute() {
         if (lastImgX < 0) return;
-        lastResult = MagicWand.flood(frame, lastImgX, lastImgY, tolerance, MAX_PIXELS);
+        lastResult = MagicWand.flood(frame, edges, lastImgX, lastImgY, tolerance, MAX_PIXELS);
         if (lastResult == null) { preview.setImage(null); updateHud(); return; }
         preview.setImage(tintMask(lastResult));
         preview.setLayoutX(lastResult.minX() / scaleX);

@@ -59,4 +59,14 @@ public record ProjectConfig(
     public Path activitiesSourceFile() {
         return sourceRoot.resolve("com").resolve(packageName).resolve("Activities.java");
     }
+
+    /** The generated {@code ActivityRegistry.java} sidecar (sibling of the main class). */
+    public Path activityRegistrySourceFile() {
+        return sourceRoot.resolve("com").resolve(packageName).resolve("ActivityRegistry.java");
+    }
+
+    /** {@code src/main/java/com/<pkg>/activities} — where per-activity subclass stubs live. */
+    public Path activitiesPackageDir() {
+        return sourceRoot.resolve("com").resolve(packageName).resolve("activities");
+    }
 }

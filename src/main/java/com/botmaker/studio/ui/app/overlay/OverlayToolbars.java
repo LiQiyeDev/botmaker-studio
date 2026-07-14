@@ -1,6 +1,9 @@
 package com.botmaker.studio.ui.app.overlay;
 
 import com.botmaker.shared.capture.NativeControllerFactory;
+import javafx.animation.Animation;
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
 import javafx.application.Platform;
 import javafx.scene.Node;
 import javafx.scene.Scene;
@@ -54,8 +57,10 @@ public final class OverlayToolbars {
      *
      * <p>Bridges JavaFX→native by a unique window <b>title</b> (invisible on a transparent stage): we tag the
      * stage, then the native controller finds the matching X11 client window and applies the EWMH hints.
-     * Best-effort — a no-op on Windows/Wayland or a WM that ignores the hints. Re-asserted on focus so it
-     * survives a capture-surface toggle. Safe to call on any {@link Stage}.
+     * Best-effort — a no-op on Windows/Wayland or a WM that ignores the hints. Re-asserted on focus <em>and</em>
+     * on a low-frequency timer so it survives a capture-surface toggle or the game re-fullscreening/re-raising
+     * itself; the first promotion remaps the window once, later ticks are the cheap raise path (no flicker).
+     * Safe to call on any {@link Stage}.
      */
     public static void promoteAboveFullscreen(Stage stage) {
         String existing = stage.getTitle();
@@ -72,6 +77,12 @@ public final class OverlayToolbars {
         // Defer so the native window/title exists, and re-assert whenever the overlay regains focus.
         Platform.runLater(promote);
         stage.focusedProperty().addListener((o, was, now) -> { if (now) promote.run(); });
+        // Continuously re-assert while shown — defends against the fullscreen app re-raising itself.
+        Timeline keepOnTop = new Timeline(new KeyFrame(javafx.util.Duration.millis(750), e -> promote.run()));
+        keepOnTop.setCycleCount(Animation.INDEFINITE);
+        keepOnTop.play();
+        // Stop when the overlay is no longer showing (an additive listener — won't clobber a caller's onHidden).
+        stage.showingProperty().addListener((o, was, showing) -> { if (!showing) keepOnTop.stop(); });
     }
 
     /** Makes dragging on {@code handle} move {@code stage} (tracks the press offset from the stage origin). */

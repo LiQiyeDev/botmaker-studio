@@ -381,7 +381,8 @@ public class CodeEditorService {
             String path = activeFile.toString().replace("\\", "/");
             if (path.contains("com/botmaker/library")) {
                 isReadOnly = true;
-            } else if (activeFile.toAbsolutePath().equals(config.activitiesSourceFile().toAbsolutePath())) {
+            } else if (activeFile.toAbsolutePath().equals(config.activitiesSourceFile().toAbsolutePath())
+                    || activeFile.toAbsolutePath().equals(config.activityRegistrySourceFile().toAbsolutePath())) {
                 isReadOnly = true;
                 isGenerated = true;
             }

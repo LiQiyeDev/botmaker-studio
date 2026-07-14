@@ -5,6 +5,8 @@ import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
+import com.botmaker.studio.project.activity.ActivityDefinition;
+import com.botmaker.studio.project.activity.ActivityType;
 import com.botmaker.studio.project.activity.ActivityVariable;
 
 import java.io.IOException;
@@ -13,12 +15,17 @@ import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Orchestrates the project's <em>activities</em> — editor-defined global config variables. The editor
- * defines names + types; the user fills values. Persistence is split:
+ * Orchestrates the project's <em>activities</em> — a two-tier model of game tasks. Each
+ * {@link ActivityDefinition} owns an enable flag and its own config {@link ActivityVariable params};
+ * free-standing {@link ActivitiesConfig#globals() globals} may also exist. Persistence + generation:
  * <ul>
  *   <li>{@code src/main/resources/activities.json} — the schema + values (read at runtime)</li>
- *   <li>generated {@code Activities.java} — a class of {@code public static final} typed fields loaded
- *       from that JSON in a {@code static} initializer, so blocks can reference {@code Activities.<name>}</li>
+ *   <li>generated {@code Activities.java} — {@code public static final} typed fields (enable flags,
+ *       {@code <Activity>_<param>} params, globals) loaded from that JSON</li>
+ *   <li>generated {@code ActivityRegistry.java} — {@code List<Activity> ALL} of the per-activity subclass
+ *       instances the macro loop iterates (replaces a hand-maintained if-chain)</li>
+ *   <li>editable {@code activities/<Name>.java} — one {@code Activity} subclass stub per activity, created
+ *       once and never overwritten (the user's "how to do it" lives here)</li>
  * </ul>
  *
  * All I/O lives here at the service edge. {@link #update} runs off the calling thread and publishes
@@ -50,15 +57,18 @@ public final class ActivityService {
     }
 
     /**
-     * Persists {@code newConfig} (writes {@code activities.json} and regenerates {@code Activities.java}),
-     * refreshes project state and publishes {@link ActivitiesChangedEvent}. Runs asynchronously; the
-     * returned future completes exceptionally if writing fails.
+     * Persists {@code newConfig} (writes {@code activities.json}, regenerates {@code Activities.java} and
+     * {@code ActivityRegistry.java}, and creates any missing per-activity stub files), refreshes project
+     * state and publishes {@link ActivitiesChangedEvent}. Runs asynchronously; the returned future
+     * completes exceptionally if writing fails.
      */
     public CompletableFuture<Void> update(ActivitiesConfig newConfig) {
         return CompletableFuture.runAsync(() -> {
             try {
                 newConfig.write(config.resourcesRoot());
-                writeGeneratedClass(newConfig);
+                writeActivitiesClass(newConfig);
+                writeRegistryClass(newConfig);
+                ensureStubs(newConfig);
             } catch (IOException e) {
                 throw new RuntimeException("Failed to save activities: " + e.getMessage(), e);
             }
@@ -67,15 +77,35 @@ public final class ActivityService {
         });
     }
 
-    /** Writes (or deletes, when empty) the generated {@code Activities.java} sidecar. */
-    private void writeGeneratedClass(ActivitiesConfig cfg) throws IOException {
+    /** Writes (or deletes, when there are no referenceable fields) the generated {@code Activities.java}. */
+    private void writeActivitiesClass(ActivitiesConfig cfg) throws IOException {
         Path file = config.activitiesSourceFile();
-        if (cfg.activities().isEmpty()) {
+        if (cfg.allVariables().isEmpty()) {
             Files.deleteIfExists(file);
             return;
         }
         Files.createDirectories(file.getParent());
         Files.writeString(file, generateSource(cfg));
+    }
+
+    /** Writes the generated {@code ActivityRegistry.java} (empty {@code ALL} when there are no activities). */
+    private void writeRegistryClass(ActivitiesConfig cfg) throws IOException {
+        Path file = config.activityRegistrySourceFile();
+        Files.createDirectories(file.getParent());
+        Files.writeString(file, generateRegistrySource(cfg));
+    }
+
+    /** Creates a subclass stub for each activity if it does not already exist (never overwrites user edits). */
+    private void ensureStubs(ActivitiesConfig cfg) throws IOException {
+        if (cfg.activities().isEmpty()) return;
+        Path dir = config.activitiesPackageDir();
+        Files.createDirectories(dir);
+        for (ActivityDefinition a : cfg.activities()) {
+            Path stub = dir.resolve(a.name() + ".java");
+            if (!Files.exists(stub)) {
+                Files.writeString(stub, generateStubSource(a));
+            }
+        }
     }
 
     /** Builds the source of the generated {@code Activities} class. */
@@ -84,7 +114,7 @@ public final class ActivityService {
         StringBuilder inits = new StringBuilder();
         boolean needsTime = false;
         boolean needsDate = false;
-        for (ActivityVariable a : cfg.activities()) {
+        for (ActivityVariable a : cfg.allVariables()) {
             String nodeExpr = "node(v, \"" + a.name() + "\")";
             if (a.description() != null && !a.description().isBlank()) {
                 fields.append("    /** ").append(a.description().replace("*/", "*\\/")).append(" */\n");
@@ -93,8 +123,8 @@ public final class ActivityService {
                     .append(' ').append(a.name()).append(";\n");
             inits.append("        ").append(a.name()).append(" = ")
                     .append(a.type().loadExpression(nodeExpr)).append(";\n");
-            needsTime |= a.type() == com.botmaker.studio.project.activity.ActivityType.TIME;
-            needsDate |= a.type() == com.botmaker.studio.project.activity.ActivityType.DATE;
+            needsTime |= a.type() == ActivityType.TIME;
+            needsDate |= a.type() == ActivityType.DATE;
         }
         return String.format("""
                 package com.%s;
@@ -122,7 +152,14 @@ public final class ActivityService {
                             if (in != null) {
                                 JsonNode root = new ObjectMapper().readTree(in);
                                 for (JsonNode a : root.path("activities")) {
-                                    v.put(a.path("name").asText(), a.path("value"));
+                                    String an = a.path("name").asText();
+                                    v.put(an, a.path("enabled"));
+                                    for (JsonNode p : a.path("params")) {
+                                        v.put(an + "_" + p.path("name").asText(), p.path("value"));
+                                    }
+                                }
+                                for (JsonNode g : root.path("globals")) {
+                                    v.put(g.path("name").asText(), g.path("value"));
                                 }
                             }
                         } catch (Exception e) {
@@ -141,6 +178,69 @@ public final class ActivityService {
                 """, config.packageName(), fields.toString().stripTrailing(),
                 ActivitiesConfig.FILE_NAME, ActivitiesConfig.FILE_NAME, inits,
                 needsTime ? TIME_HELPER : "", needsDate ? DATE_HELPER : "");
+    }
+
+    /** Builds the source of the generated {@code ActivityRegistry} class. */
+    String generateRegistrySource(ActivitiesConfig cfg) {
+        StringBuilder entries = new StringBuilder();
+        for (int i = 0; i < cfg.activities().size(); i++) {
+            String name = cfg.activities().get(i).name();
+            entries.append("            new ").append(name).append("()");
+            entries.append(i < cfg.activities().size() - 1 ? ",\n" : "\n");
+        }
+        String activitiesImport = cfg.activities().isEmpty()
+                ? "" : "import com." + config.packageName() + ".activities.*;\n";
+        return String.format("""
+                package com.%s;
+
+                import com.botmaker.sdk.api.bot.Activity;
+                %simport java.util.List;
+
+                /**
+                 * The activities this bot can run. GENERATED by BotMaker Studio — do not edit by hand;
+                 * manage via Project &rarr; Manage Activities. The macro loop iterates {@link #ALL} and runs
+                 * each activity whose enable flag is set.
+                 */
+                public final class ActivityRegistry {
+
+                    public static final List<Activity> ALL = List.of(
+                %s    );
+
+                    private ActivityRegistry() {}
+                }
+                """, config.packageName(), activitiesImport, entries.toString().stripTrailing());
+    }
+
+    /** Builds the initial editable stub for one activity's {@code Activity} subclass. */
+    String generateStubSource(ActivityDefinition a) {
+        return String.format("""
+                package com.%1$s.activities;
+
+                import com.%1$s.Activities;
+                import com.botmaker.sdk.api.bot.Activity;
+
+                /**
+                 * Activity: %2$s. Fill in {@link #run()} with how to do it. This file is yours to edit —
+                 * BotMaker Studio creates it once and never overwrites it. The enable flag is
+                 * {@code Activities.%2$s}; any config params are {@code Activities.%2$s_<param>}.
+                 */
+                public class %2$s extends Activity {
+
+                    public %2$s() {
+                        super("%2$s");
+                    }
+
+                    @Override
+                    public boolean isEnabled() {
+                        return Activities.%2$s;
+                    }
+
+                    @Override
+                    public void run() {
+                        // TODO: how to do %2$s
+                    }
+                }
+                """, config.packageName(), a.name());
     }
 
     /** Generated helper: parse a {@code LocalTime}, defaulting on a missing/invalid/wrong-type node. */

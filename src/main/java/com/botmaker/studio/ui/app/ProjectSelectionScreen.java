@@ -444,6 +444,18 @@ public class ProjectSelectionScreen {
         landscapeBtn.setSelected(true);
         HBox orientationRow = new HBox(8, landscapeBtn, portraitBtn);
 
+        ComboBox<com.botmaker.studio.project.ProjectTemplate> templateCombo = new ComboBox<>(
+                javafx.collections.FXCollections.observableArrayList(
+                        com.botmaker.studio.project.ProjectTemplate.values()));
+        templateCombo.setValue(com.botmaker.studio.project.ProjectTemplate.EMPTY);
+        templateCombo.setMaxWidth(Double.MAX_VALUE);
+        templateCombo.setConverter(new javafx.util.StringConverter<>() {
+            @Override public String toString(com.botmaker.studio.project.ProjectTemplate t) {
+                return t == null ? "" : t.displayName() + " — " + t.description();
+            }
+            @Override public com.botmaker.studio.project.ProjectTemplate fromString(String s) { return null; }
+        });
+
         content.getChildren().addAll(
                 new Label("Project Name:"),
                 projectNameField,
@@ -452,6 +464,8 @@ public class ProjectSelectionScreen {
                 rule2,
                 rule3,
                 exampleLabel,
+                new Label("Template:"),
+                templateCombo,
                 new Label("BotMaker SDK version:"),
                 sdkVersionCombo,
                 new Label("Standard resolution:"),
@@ -487,13 +501,15 @@ public class ProjectSelectionScreen {
                 }
                 com.botmaker.studio.project.StudioProjectSettings.Resolution resolution =
                         ResolutionChoices.oriented(resolutionCombo.getValue(), !portraitBtn.isSelected());
-                return new CreateRequest(projectNameField.getText(), version, resolution);
+                com.botmaker.studio.project.ProjectTemplate template = templateCombo.getValue() == null
+                        ? com.botmaker.studio.project.ProjectTemplate.EMPTY : templateCombo.getValue();
+                return new CreateRequest(projectNameField.getText(), version, resolution, template);
             }
             return null;
         });
 
         Optional<CreateRequest> result = dialog.showAndWait();
-        result.ifPresent(req -> createProject(req.projectName(), req.sdkVersion(), req.resolution()));
+        result.ifPresent(req -> createProject(req.projectName(), req.sdkVersion(), req.resolution(), req.template()));
     }
 
     /** Replaces the combo's items with the local dev builds (top) + JitPack versions. Preselects a local
@@ -527,7 +543,8 @@ public class ProjectSelectionScreen {
 
     /** Result of the create-project dialog. */
     private record CreateRequest(String projectName, String sdkVersion,
-                                 com.botmaker.studio.project.StudioProjectSettings.Resolution resolution) {}
+                                 com.botmaker.studio.project.StudioProjectSettings.Resolution resolution,
+                                 com.botmaker.studio.project.ProjectTemplate template) {}
 
     private void showGallery() {
         GitHubGallery gallery = new GitHubGallery(gitHubClient);
@@ -546,9 +563,10 @@ public class ProjectSelectionScreen {
     }
 
     private void createProject(String projectName, String sdkVersion,
-                               com.botmaker.studio.project.StudioProjectSettings.Resolution resolution) {
+                               com.botmaker.studio.project.StudioProjectSettings.Resolution resolution,
+                               com.botmaker.studio.project.ProjectTemplate template) {
         try {
-            projectCreator.createProject(projectName, sdkVersion, resolution);
+            projectCreator.createProject(projectName, sdkVersion, resolution, template);
             rebuildRows();
             for (Row row : projectListView.getItems()) {
                 if (row instanceof ProjectRow projectRow && projectRow.info().name().equals(projectName)) {
