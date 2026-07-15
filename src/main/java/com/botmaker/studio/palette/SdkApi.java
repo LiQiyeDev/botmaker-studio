@@ -20,13 +20,19 @@ public final class SdkApi {
      * Ordered for the class dropdown: vision first (the common bot actions), then interaction.
      *
      * <p>{@code VisionContext} exposes the {@code MatchResult} stored by the last find/click/wait call
-     * (the vision API returns {@code boolean}/{@code int} now, not {@code MatchResult}). {@code Screen}
-     * is intentionally absent — it is no longer a user-facing {@code CaptureSource} facade.
+     * (the vision API returns {@code boolean}/{@code int} now, not {@code MatchResult}) and, likewise, the
+     * {@code ColorMatch} stored by the last {@code Pixel} call. {@code Screen} is intentionally absent — it
+     * is no longer a user-facing {@code CaptureSource} facade.
+     *
+     * <p>Only <em>facade classes</em> belong here. Adding a new <em>method</em> to an existing facade needs
+     * no change: method-level knowledge is discovered at runtime by {@code ProjectAnalyzer} scanning the
+     * resolved SDK jar with ClassGraph.
      */
     public static final List<String> FACADE_CLASSES = List.of(
             "ImageFinder",
             "ImageClicker",
             "ImageWaiter",
+            "Pixel",
             "VisionContext",
             "ClickConfig",
             "Mouse",

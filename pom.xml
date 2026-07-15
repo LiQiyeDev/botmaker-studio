@@ -62,6 +62,15 @@
             <version>${botmaker.shared.version}</version>
         </dependency>
 
+        <!-- OpenCV (native bindings). Drives the GrabCut object-capture wand in ui/app/capture.
+             Same artifact + version the SDK pins (see ../botmaker-sdk/pom.xml) so the two modules
+             never disagree on the native library they extract and load. -->
+        <dependency>
+            <groupId>org.openpnp</groupId>
+            <artifactId>opencv</artifactId>
+            <version>4.9.0-0</version>
+        </dependency>
+
         <!-- JavaFX -->
         <dependency>
             <groupId>org.openjfx</groupId>

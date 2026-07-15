@@ -1,207 +1,189 @@
 package com.botmaker.studio.ui.app.capture;
 
+import org.opencv.core.Core;
+import org.opencv.core.CvType;
+import org.opencv.core.Mat;
+import org.opencv.core.Point;
+import org.opencv.core.Rect;
+import org.opencv.core.Scalar;
+import org.opencv.core.Size;
+import org.opencv.imgproc.Imgproc;
+
+import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
-import java.util.ArrayDeque;
-import java.util.Deque;
+import java.awt.image.DataBufferByte;
 
 /**
- * A dependency-free "magic wand" with light shape awareness: it flood-fills the region around the clicked
- * pixel, but is <em>gated by object edges</em> so the fill stays inside a contour instead of leaking across
- * soft gradients into the background, then fills interior holes so a textured/multi-colour object comes out
- * as one solid shape. Studio has no OpenCV, so this pure-Java pipeline is the pragmatic "point at an object →
- * extract it with a transparent background" engine behind {@link ObjectCaptureSurface}.
+ * The object-extraction engine behind {@link ObjectCaptureSurface}, backed by OpenCV's <b>GrabCut</b>
+ * (iterated graph-cut segmentation seeded from a rectangle, then refined with foreground/background strokes).
+ * No training, no model files — GrabCut estimates its own colour models per image.
  *
- * <p>Pipeline (all steps deterministic, {@code maxPixels}-bounded):
+ * <p>Usage is a {@link Session} over one frozen frame:
  * <ol>
- *   <li><b>Edge map</b> — a Sobel gradient magnitude ({@link #sobel}), precomputed once per frozen frame and
- *       passed back in so hover/wheel don't re-run it every mouse move.</li>
- *   <li><b>Edge-gated BFS</b> — grow to a 4-neighbour only when its colour is within {@code tolerance} of the
- *       pixel it grew from (neighbour-relative, so it follows gradients) <em>and</em> that neighbour isn't on a
- *       strong edge (magnitude below a threshold derived from {@code tolerance}). A contour blocks the fill.</li>
- *   <li><b>Hole fill</b> — any not-selected pixel the background can't reach from the box border is an interior
- *       hole and is added to the mask, turning the outline into a filled shape.</li>
- *   <li><b>1-px dilation</b> — recovers the anti-aliased boundary so the cut has no 1-px transparent halo.</li>
+ *   <li>{@link Session#initFromRect} — the user drags a box around the object; GrabCut labels everything
+ *       outside it definite-background and iterates.</li>
+ *   <li>{@link Session#paint} + {@link Session#refine} — optional correction strokes mark definite
+ *       foreground/background where GrabCut guessed wrong; the retained GMM models mean each refinement
+ *       <em>continues</em> the previous solve rather than restarting it.</li>
+ *   <li>{@link #extract} — cuts the result out as a bbox-cropped ARGB image with a transparent background.</li>
  * </ol>
+ *
+ * <p><b>Output contract (unchanged):</b> {@link #extract} returns a {@code TYPE_INT_ARGB} crop whose alpha
+ * channel is the object mask. That alpha is what the SDK later turns into an OpenCV {@code matchTemplate}
+ * mask, so the shape of what this class emits is load-bearing for runtime matching — see the SDK's
+ * {@code OpencvManager.extractAlphaMask}. Unlike the previous flood-fill implementation, the boundary alpha
+ * is <em>feathered</em> rather than forced opaque: a hard rim would bake background-blended pixels into the
+ * template and guarantee a mismatch exactly where correlation matters most.
+ *
+ * <p>GrabCut is far too slow to run per mouse-move; callers must drive it off the FX thread on
+ * drag-release / stroke-release only.
  */
 public final class MagicWand {
 
+    static { OpenCvNative.ensureLoaded(); }
+
+    /** Default GrabCut iterations per solve. 5 is the canonical value — more buys little on UI-sized frames. */
+    public static final int DEFAULT_ITERATIONS = 5;
+
     private MagicWand() {}
 
-    /** The filled region: a boolean {@code mask} over the whole image plus its tight bounding box. */
-    public record Result(boolean[] mask, int imgWidth, int imgHeight,
+    /**
+     * The extracted region: a boolean {@code mask} over the whole image, a parallel per-pixel {@code alpha}
+     * (0–255, feathered at the boundary), and the tight bounding box of the selection.
+     */
+    public record Result(boolean[] mask, byte[] alpha, int imgWidth, int imgHeight,
                          int minX, int minY, int maxX, int maxY, int count) {
         public int boxWidth() { return maxX - minX + 1; }
         public int boxHeight() { return maxY - minY + 1; }
+        public boolean isEmpty() { return count == 0; }
     }
 
     /**
-     * Precomputed Sobel gradient magnitude of an image (one {@code int} per pixel, {@code |Gx|+|Gy|} of
-     * luminance). Cheap to build once per frozen frame; reused across every hover/wheel flood.
+     * A GrabCut segmentation over one frozen frame. Retains the image, the label mask and the background /
+     * foreground GMM models across calls so refinement is incremental. Native memory — {@link #close()} it.
      */
-    public static int[] sobel(BufferedImage img) {
-        int w = img.getWidth(), h = img.getHeight();
-        int[] lum = new int[w * h];
-        for (int y = 0; y < h; y++) {
-            for (int x = 0; x < w; x++) {
-                int rgb = img.getRGB(x, y);
-                int r = (rgb >> 16) & 0xFF, g = (rgb >> 8) & 0xFF, b = rgb & 0xFF;
-                lum[y * w + x] = (r * 77 + g * 150 + b * 29) >> 8;   // ~0.299/0.587/0.114
-            }
-        }
-        int[] mag = new int[w * h];
-        for (int y = 1; y < h - 1; y++) {
-            for (int x = 1; x < w - 1; x++) {
-                int tl = lum[(y - 1) * w + (x - 1)], tc = lum[(y - 1) * w + x], tr = lum[(y - 1) * w + (x + 1)];
-                int ml = lum[y * w + (x - 1)],                                 mr = lum[y * w + (x + 1)];
-                int bl = lum[(y + 1) * w + (x - 1)], bc = lum[(y + 1) * w + x], br = lum[(y + 1) * w + (x + 1)];
-                int gx = (tr + 2 * mr + br) - (tl + 2 * ml + bl);
-                int gy = (bl + 2 * bc + br) - (tl + 2 * tc + tr);
-                mag[y * w + x] = Math.abs(gx) + Math.abs(gy);
-            }
-        }
-        return mag;
-    }
+    public static final class Session implements AutoCloseable {
 
-    /** Convenience overload that computes the Sobel map inline (used by tests / one-off calls). */
-    public static Result flood(BufferedImage img, int seedX, int seedY, int tolerance, int maxPixels) {
-        return flood(img, sobel(img), seedX, seedY, tolerance, maxPixels);
+        // Session is a *nested* class: instantiating it does not run MagicWand's static initializer, and it is
+        // the first thing to touch a Mat. The loader must be triggered here or every ctor dies on
+        // UnsatisfiedLinkError.
+        static { OpenCvNative.ensureLoaded(); }
+
+        private final Mat image;      // CV_8UC3, BGR
+        private final Mat mask;       // CV_8UC1 of GC_* labels
+        private final Mat bgModel = new Mat();
+        private final Mat fgModel = new Mat();
+        private final int width, height;
+        private boolean initialised = false;
+
+        public Session(BufferedImage frame) {
+            this.image = toMat(frame);
+            this.width = frame.getWidth();
+            this.height = frame.getHeight();
+            this.mask = new Mat(height, width, CvType.CV_8UC1, new Scalar(Imgproc.GC_BGD));
+        }
+
+        /**
+         * Seeds the segmentation from {@code box} (surface coordinates already mapped to image pixels):
+         * everything outside is definite background, everything inside is probable foreground. Returns
+         * {@code null} for a degenerate box.
+         */
+        public Result initFromRect(int x, int y, int w, int h, int iterations) {
+            Rect rect = clampRect(x, y, w, h);
+            if (rect == null) return null;
+            Imgproc.grabCut(image, mask, rect, bgModel, fgModel, iterations, Imgproc.GC_INIT_WITH_RECT);
+            initialised = true;
+            return current();
+        }
+
+        /**
+         * Marks a disc of radius {@code radius} around ({@code x},{@code y}) as definite foreground or
+         * definite background. Takes effect on the next {@link #refine}.
+         */
+        public void paint(int x, int y, int radius, boolean foreground) {
+            double label = foreground ? Imgproc.GC_FGD : Imgproc.GC_BGD;
+            Imgproc.circle(mask, new Point(x, y), Math.max(1, radius), new Scalar(label), -1);
+        }
+
+        /** Re-solves from the current label mask, continuing from the retained models. */
+        public Result refine(int iterations) {
+            if (!initialised) return null;
+            Imgproc.grabCut(image, mask, new Rect(), bgModel, fgModel, iterations, Imgproc.GC_INIT_WITH_MASK);
+            return current();
+        }
+
+        /** Reads the current label mask out as a {@link Result} without re-solving. */
+        public Result current() {
+            if (!initialised) return null;
+            return readResult(mask, width, height);
+        }
+
+        private Rect clampRect(int x, int y, int w, int h) {
+            int x0 = Math.max(0, Math.min(x, width - 1));
+            int y0 = Math.max(0, Math.min(y, height - 1));
+            int x1 = Math.max(0, Math.min(x + w, width));
+            int y1 = Math.max(0, Math.min(y + h, height));
+            // GrabCut needs real area inside the box, and a 1px box is a user mis-drag, not a selection.
+            if (x1 - x0 < 3 || y1 - y0 < 3) return null;
+            return new Rect(x0, y0, x1 - x0, y1 - y0);
+        }
+
+        @Override
+        public void close() {
+            image.release();
+            mask.release();
+            bgModel.release();
+            fgModel.release();
+        }
     }
 
     /**
-     * Edge-gated flood from {@code (seedX, seedY)} against the precomputed {@code edges} (Sobel magnitude),
-     * then interior-hole fill and a 1-px dilation. Returns {@code null} for an out-of-bounds seed.
+     * Turns a GrabCut label mask into a {@link Result}: foreground is {@code GC_FGD}/{@code GC_PR_FGD}, and
+     * the alpha channel is that binary mask blurred slightly so anti-aliased object edges ramp out instead of
+     * ending on a hard, background-contaminated rim.
      */
-    public static Result flood(BufferedImage img, int[] edges, int seedX, int seedY, int tolerance, int maxPixels) {
-        int w = img.getWidth();
-        int h = img.getHeight();
-        if (seedX < 0 || seedY < 0 || seedX >= w || seedY >= h) return null;
+    private static Result readResult(Mat labels, int width, int height) {
+        // foreground <=> label is odd (GC_FGD=1, GC_PR_FGD=3; GC_BGD=0, GC_PR_BGD=2)
+        Mat ones = new Mat(labels.size(), labels.type(), new Scalar(1));
+        Mat fg = new Mat();
+        Core.bitwise_and(labels, ones, fg);
+        ones.release();
+        Mat alphaMat = new Mat();
+        fg.convertTo(alphaMat, CvType.CV_8UC1, 255.0);
 
-        // Edge threshold scales with tolerance: a looser wand tolerates weaker edges before it stops.
-        int edgeThreshold = 60 + tolerance * 3;
+        Mat feathered = new Mat();
+        Imgproc.GaussianBlur(alphaMat, feathered, new Size(3, 3), 0);
 
-        boolean[] mask = new boolean[w * h];
-        Deque<int[]> stack = new ArrayDeque<>();   // {x, y, fromRgb}
-        stack.push(new int[]{seedX, seedY, img.getRGB(seedX, seedY)});
-        mask[seedY * w + seedX] = true;
-        int count = 0;
-        int minX = seedX, minY = seedY, maxX = seedX, maxY = seedY;
+        byte[] fgBytes = new byte[width * height];
+        byte[] alphaBytes = new byte[width * height];
+        fg.get(0, 0, fgBytes);
+        feathered.get(0, 0, alphaBytes);
 
-        while (!stack.isEmpty() && count < maxPixels) {
-            int[] p = stack.pop();
-            int x = p[0], y = p[1], fromRgb = p[2];
-            count++;
-            if (x < minX) minX = x; if (x > maxX) maxX = x;
-            if (y < minY) minY = y; if (y > maxY) maxY = y;
+        fg.release();
+        alphaMat.release();
+        feathered.release();
 
-            pushIf(img, edges, mask, stack, x - 1, y, w, h, fromRgb, tolerance, edgeThreshold);
-            pushIf(img, edges, mask, stack, x + 1, y, w, h, fromRgb, tolerance, edgeThreshold);
-            pushIf(img, edges, mask, stack, x, y - 1, w, h, fromRgb, tolerance, edgeThreshold);
-            pushIf(img, edges, mask, stack, x, y + 1, w, h, fromRgb, tolerance, edgeThreshold);
+        boolean[] mask = new boolean[width * height];
+        int count = 0, minX = width, minY = height, maxX = -1, maxY = -1;
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                int i = y * width + x;
+                if (fgBytes[i] == 0) continue;
+                mask[i] = true;
+                count++;
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+            }
         }
-
-        fillHoles(mask, w, minX, minY, maxX, maxY);
-        int[] box = {minX, minY, maxX, maxY};
-        count = dilate(mask, w, h, box);
-        return new Result(mask, w, h, box[0], box[1], box[2], box[3], count);
-    }
-
-    private static void pushIf(BufferedImage img, int[] edges, boolean[] mask, Deque<int[]> stack,
-                               int x, int y, int w, int h, int fromRgb, int tol, int edgeThreshold) {
-        if (x < 0 || y < 0 || x >= w || y >= h) return;
-        int idx = y * w + x;
-        if (mask[idx]) return;
-        if (edges[idx] > edgeThreshold) return;   // a strong contour blocks the fill (shape boundary)
-        int rgb = img.getRGB(x, y);
-        int dr = Math.abs(((rgb >> 16) & 0xFF) - ((fromRgb >> 16) & 0xFF));
-        int dg = Math.abs(((rgb >> 8) & 0xFF) - ((fromRgb >> 8) & 0xFF));
-        int db = Math.abs((rgb & 0xFF) - (fromRgb & 0xFF));
-        if (Math.max(dr, Math.max(dg, db)) <= tol) {
-            mask[idx] = true;
-            stack.push(new int[]{x, y, rgb});   // neighbour-relative: compare from this pixel next
-        }
+        if (count == 0) return new Result(mask, alphaBytes, width, height, 0, 0, 0, 0, 0);
+        return new Result(mask, alphaBytes, width, height, minX, minY, maxX, maxY, count);
     }
 
     /**
-     * Fills interior holes: flood the <em>background</em> inward from the bounding-box border over
-     * not-selected pixels; any not-selected pixel the background flood never reaches is enclosed by the
-     * selection, so it's an interior hole and gets added to the mask. Turns an outline into a solid shape.
-     */
-    private static void fillHoles(boolean[] mask, int w, int minX, int minY, int maxX, int maxY) {
-        int bw = maxX - minX + 1, bh = maxY - minY + 1;
-        if (bw <= 2 || bh <= 2) return;
-        boolean[] reachedBg = new boolean[bw * bh];   // background pixels reachable from the border
-        Deque<int[]> stack = new ArrayDeque<>();
-        // Seed from every border cell that isn't selected.
-        for (int lx = 0; lx < bw; lx++) {
-            seedBg(mask, reachedBg, stack, w, minX, minY, lx, 0, bw, bh);
-            seedBg(mask, reachedBg, stack, w, minX, minY, lx, bh - 1, bw, bh);
-        }
-        for (int ly = 0; ly < bh; ly++) {
-            seedBg(mask, reachedBg, stack, w, minX, minY, 0, ly, bw, bh);
-            seedBg(mask, reachedBg, stack, w, minX, minY, bw - 1, ly, bw, bh);
-        }
-        while (!stack.isEmpty()) {
-            int[] p = stack.pop();
-            int lx = p[0], ly = p[1];
-            seedBg(mask, reachedBg, stack, w, minX, minY, lx - 1, ly, bw, bh);
-            seedBg(mask, reachedBg, stack, w, minX, minY, lx + 1, ly, bw, bh);
-            seedBg(mask, reachedBg, stack, w, minX, minY, lx, ly - 1, bw, bh);
-            seedBg(mask, reachedBg, stack, w, minX, minY, lx, ly + 1, bw, bh);
-        }
-        // Any unselected pixel not reached by the background flood is enclosed → fill it.
-        for (int ly = 0; ly < bh; ly++) {
-            for (int lx = 0; lx < bw; lx++) {
-                int gi = (minY + ly) * w + (minX + lx);
-                if (!mask[gi] && !reachedBg[ly * bw + lx]) mask[gi] = true;
-            }
-        }
-    }
-
-    private static void seedBg(boolean[] mask, boolean[] reachedBg, Deque<int[]> stack,
-                               int w, int minX, int minY, int lx, int ly, int bw, int bh) {
-        if (lx < 0 || ly < 0 || lx >= bw || ly >= bh) return;
-        int li = ly * bw + lx;
-        if (reachedBg[li]) return;
-        if (mask[(minY + ly) * w + (minX + lx)]) return;   // selected pixels are walls, not background
-        reachedBg[li] = true;
-        stack.push(new int[]{lx, ly});
-    }
-
-    /**
-     * One-pixel dilation of {@code mask} within (and one px past) its bounding box, updating {@code box}
-     * ({@code {minX,minY,maxX,maxY}}) and returning the new selected-pixel count. Recovers the anti-aliased
-     * boundary so the extracted crop has no 1-px transparent halo.
-     */
-    private static int dilate(boolean[] mask, int w, int h, int[] box) {
-        int minX = Math.max(0, box[0] - 1), minY = Math.max(0, box[1] - 1);
-        int maxX = Math.min(w - 1, box[2] + 1), maxY = Math.min(h - 1, box[3] + 1);
-        boolean[] add = new boolean[w * h];
-        for (int y = minY; y <= maxY; y++) {
-            for (int x = minX; x <= maxX; x++) {
-                if (mask[y * w + x]) continue;
-                boolean near = (x > 0 && mask[y * w + x - 1]) || (x < w - 1 && mask[y * w + x + 1])
-                        || (y > 0 && mask[(y - 1) * w + x]) || (y < h - 1 && mask[(y + 1) * w + x]);
-                if (near) add[y * w + x] = true;
-            }
-        }
-        int count = 0, nMinX = w, nMinY = h, nMaxX = 0, nMaxY = 0;
-        for (int y = minY; y <= maxY; y++) {
-            for (int x = minX; x <= maxX; x++) {
-                if (add[y * w + x]) mask[y * w + x] = true;
-                if (mask[y * w + x]) {
-                    count++;
-                    if (x < nMinX) nMinX = x; if (x > nMaxX) nMaxX = x;
-                    if (y < nMinY) nMinY = y; if (y > nMaxY) nMaxY = y;
-                }
-            }
-        }
-        box[0] = nMinX; box[1] = nMinY; box[2] = nMaxX; box[3] = nMaxY;
-        return count;
-    }
-
-    /**
-     * Cuts {@code result}'s masked region out of {@code img} into a new ARGB image the size of the bounding
-     * box: masked pixels keep their colour (opaque), everything else is fully transparent.
+     * Cuts {@code result}'s region out of {@code img} into a new ARGB image the size of the bounding box:
+     * selected pixels keep their colour at the result's (feathered) alpha, everything else is transparent.
      */
     public static BufferedImage extract(BufferedImage img, Result result) {
         int bw = result.boxWidth();
@@ -211,11 +193,28 @@ public final class MagicWand {
         for (int y = 0; y < bh; y++) {
             for (int x = 0; x < bw; x++) {
                 int ix = result.minX() + x, iy = result.minY() + y;
-                if (result.mask()[iy * w + ix]) {
-                    out.setRGB(x, y, 0xFF000000 | (img.getRGB(ix, iy) & 0x00FFFFFF));
-                }
+                int i = iy * w + ix;
+                int a = result.alpha()[i] & 0xFF;
+                if (a == 0) continue;
+                out.setRGB(x, y, (a << 24) | (img.getRGB(ix, iy) & 0x00FFFFFF));
             }
         }
         return out;
+    }
+
+    /** Converts to the {@code CV_8UC3} BGR Mat GrabCut expects, redrawing when the source type differs. */
+    private static Mat toMat(BufferedImage src) {
+        BufferedImage img = src;
+        if (img.getType() != BufferedImage.TYPE_3BYTE_BGR) {
+            BufferedImage conv = new BufferedImage(img.getWidth(), img.getHeight(), BufferedImage.TYPE_3BYTE_BGR);
+            Graphics2D g = conv.createGraphics();
+            g.drawImage(img, 0, 0, null);
+            g.dispose();
+            img = conv;
+        }
+        byte[] data = ((DataBufferByte) img.getRaster().getDataBuffer()).getData();
+        Mat mat = new Mat(img.getHeight(), img.getWidth(), CvType.CV_8UC3);
+        mat.put(0, 0, data);
+        return mat;
     }
 }

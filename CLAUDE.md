@@ -64,8 +64,11 @@ enters the picture two other ways, neither of which is a Studio dependency:
   user-selectable in the project screen from JitPack's version list). The generated bot — not the Studio —
   is the SDK's consumer.
 - **Studio knows the SDK's public API surface** for the palette/autocomplete. `palette/SdkApi` hard-codes the
-  facade class names (`ImageFinder`, `Mouse`, …) as strings; it does not import SDK types. Keep it in sync
-  with the SDK's `api.*` facades by hand.
+  facade **class** names (`ImageFinder`, `Pixel`, `Mouse`, …) as strings; it does not import SDK types. Keep
+  the *class list* in sync with the SDK's `api.*` facades by hand — but note **methods are not mirrored**:
+  method-level knowledge is discovered at runtime by `ProjectAnalyzer` scanning the resolved SDK jar with
+  ClassGraph, so adding a method to an existing facade needs no Studio change. Only a **new facade class**
+  does.
 
 This Studio repo is a submodule of the **`botmaker` umbrella repo** (sibling submodules `botmaker-shared/`,
 `botmaker-sdk/`, `botmaker-studio/` + an aggregator `pom.xml`; see `../CLAUDE.md`). From the umbrella root

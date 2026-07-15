@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-15 — Object-capture wand rebuilt on OpenCV GrabCut.**
+  The pure-Java flood-fill wand (`ui/app/capture/MagicWand`) is replaced by OpenCV **GrabCut**: drag a box →
+  solve, then left/right-drag to paint definite foreground/background and re-solve from retained GMM models
+  (`MagicWand.Session`). Studio gains its first OpenCV dependency — `org.openpnp:opencv:4.9.0-0`, the same
+  artifact/version the SDK pins — plus a Studio-local `OpenCvNative.ensureLoaded()` mirroring the SDK's loader.
+  The old flood had unbounded neighbour-relative colour drift, an edge gate coupled to the tolerance slider,
+  and a `maxPixels` truncation bug that marked pixels outside the reported bbox. Output contract is unchanged
+  (bbox-cropped ARGB whose alpha becomes the runtime `matchTemplate` mask) except the boundary is now
+  **feathered** instead of forced opaque — a hard rim baked background-blended pixels into the template.
+  `ObjectCaptureSurface` moves from hover+wheel to drag→refine→accept, solving off the FX thread.
+  Note: the loader must sit on the nested `Session` class — instantiating a nested class does not run the
+  outer class's static initializer.
+
 - **2026-07-14 — Bot lifecycle scaffolding + two-tier Activities + "Game bot" template.**
   **(1) New "Game bot" project template** (`ProjectTemplate` enum; picker in `ProjectSelectionScreen`;
   `ProjectCreator.createGameBotFiles`): scaffolds a supervised entry point (`Bot.supervise(MacroLoop::run,
@@ -16,7 +29,7 @@ whenever work lands here (see CLAUDE.md → Roadmap).
   **(2) Activities are now two-tier.** `ActivityDefinition` (name + enable flag + description + its own
   `params`) alongside free-standing `globals`; `ActivitiesConfig` becomes `{activities, globals}` with
   back-compat read of the old flat shape (migrates to `globals`) and `allVariables()` flattening
-  (enable-flag `Activities.<Name>`, params `Activities.<Name>_<param>`, then globals) consumed by the
+  (enable-flag `Activities.<Name>`, params `Activities.<Name>_<param>`, then globals) consumed by thext
   generator and the expression menu (`ProjectAnalyzer.getActivityVariables`).
   **(3) `ActivityService` generates a registry + stubs.** Besides `Activities.java` it now writes a
   read-only `ActivityRegistry.java` (`List<Activity> ALL` of `new <Name>()` — replaces a hand if-chain) and

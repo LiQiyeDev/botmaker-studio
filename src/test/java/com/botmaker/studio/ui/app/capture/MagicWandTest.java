@@ -8,9 +8,11 @@ import java.util.Random;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Exercises the edge-gated, hole-filling flood: a textured solid rectangle on random noise must be extracted
- * whole (interior holes filled, none of the surrounding noise leaked in), and the fill must stop at the
- * object's edge.
+ * Exercises the GrabCut object extraction: a textured solid rectangle on random noise, boxed with a generous
+ * margin, must come back as (approximately) the rectangle.
+ *
+ * <p>GrabCut is iterative and seeded from estimated colour models, so it is <em>not</em> bit-exact and the
+ * assertions here are deliberately IoU-based rather than exact pixel counts.
  */
 class MagicWandTest {
 
@@ -25,37 +27,74 @@ class MagicWandTest {
             for (int x = 0; x < W; x++) img.setRGB(x, y, rnd.nextInt(0xFFFFFF));
         for (int y = OY; y < OY + OH; y++)
             for (int x = OX; x < OX + OW; x++) {
-                // Gentle two-tone texture inside the object (within the wand's tolerance, no internal edges).
                 int v = ((x + y) % 8 < 4) ? 0x808080 : 0x888888;
                 img.setRGB(x, y, v);
             }
         return img;
     }
 
+    private static boolean inObject(int x, int y) {
+        return x >= OX && x < OX + OW && y >= OY && y < OY + OH;
+    }
+
     @Test
-    void extractsWholeObjectAndStopsAtEdge() {
+    void segmentsObjectFromBoxWithHighIoU() {
         BufferedImage scene = sceneWithObject();
-        int[] edges = MagicWand.sobel(scene);
-        // Seed in the object centre; tolerance small enough that the noise edge blocks the fill.
-        MagicWand.Result r = MagicWand.flood(scene, edges, OX + OW / 2, OY + OH / 2, 24, 400_000);
-        assertNotNull(r);
+        try (MagicWand.Session session = new MagicWand.Session(scene)) {
+            // Box the object with a margin, the way a user drags a rough rectangle around it.
+            MagicWand.Result r = session.initFromRect(OX - 12, OY - 12, OW + 24, OH + 24,
+                    MagicWand.DEFAULT_ITERATIONS);
+            assertNotNull(r);
+            assertFalse(r.isEmpty(), "GrabCut returned an empty selection");
 
-        // The whole object (both tones + any interior gaps) is selected: count ≈ object area (± the 1px halo).
-        int area = OW * OH;
-        assertTrue(r.count() >= area, "expected the full object filled, got " + r.count() + " of " + area);
-        assertTrue(r.count() < area * 3, "fill leaked far past the object: " + r.count());
+            int intersection = 0, union = 0;
+            for (int y = 0; y < H; y++) {
+                for (int x = 0; x < W; x++) {
+                    boolean sel = r.mask()[y * W + x];
+                    boolean truth = inObject(x, y);
+                    if (sel && truth) intersection++;
+                    if (sel || truth) union++;
+                }
+            }
+            double iou = intersection / (double) union;
+            assertTrue(iou >= 0.9, "IoU against the known object was only " + iou);
 
-        // Centre is in; a point well outside the object (in the noise) is not.
-        assertTrue(r.mask()[(OY + OH / 2) * W + (OX + OW / 2)], "object centre must be selected");
-        assertFalse(r.mask()[10 * W + 10], "far background must not be selected");
+            // The reported bbox must be tight around what the mask actually contains.
+            for (int y = 0; y < H; y++) {
+                for (int x = 0; x < W; x++) {
+                    if (!r.mask()[y * W + x]) continue;
+                    assertTrue(x >= r.minX() && x <= r.maxX() && y >= r.minY() && y <= r.maxY(),
+                            "selected pixel (" + x + "," + y + ") lies outside the reported bbox");
+                }
+            }
+        }
+    }
 
-        // Almost every selected pixel lies inside the object (allowing the 1px dilation border) — the edge
-        // gate kept the fill from leaking into the surrounding noise.
-        int leaked = 0;
-        for (int y = 0; y < H; y++)
-            for (int x = 0; x < W; x++)
-                if (r.mask()[y * W + x]
-                        && (x < OX - 1 || x > OX + OW || y < OY - 1 || y > OY + OH)) leaked++;
-        assertTrue(leaked < area * 0.05, "fill leaked " + leaked + " px into the background (area " + area + ")");
+    @Test
+    void extractCropsToBoxAndKeepsBackgroundTransparent() {
+        BufferedImage scene = sceneWithObject();
+        try (MagicWand.Session session = new MagicWand.Session(scene)) {
+            MagicWand.Result r = session.initFromRect(OX - 12, OY - 12, OW + 24, OH + 24,
+                    MagicWand.DEFAULT_ITERATIONS);
+            assertNotNull(r);
+
+            BufferedImage cut = MagicWand.extract(scene, r);
+            assertEquals(r.boxWidth(), cut.getWidth());
+            assertEquals(r.boxHeight(), cut.getHeight());
+
+            // The centre of the object must be opaque; unselected pixels must be fully transparent.
+            int cx = OX + OW / 2 - r.minX(), cy = OY + OH / 2 - r.minY();
+            assertTrue(((cut.getRGB(cx, cy) >>> 24) & 0xFF) > 200, "object centre should be (near) opaque");
+
+            for (int y = 0; y < cut.getHeight(); y++) {
+                for (int x = 0; x < cut.getWidth(); x++) {
+                    boolean sel = r.mask()[(r.minY() + y) * W + (r.minX() + x)];
+                    int alpha = (cut.getRGB(x, y) >>> 24) & 0xFF;
+                    if (!sel) continue;
+                    // Selected pixels carry real (feathered) alpha rather than a forced-opaque rim.
+                    assertTrue(alpha > 0, "selected pixel lost its alpha at (" + x + "," + y + ")");
+                }
+            }
+        }
     }
 }
