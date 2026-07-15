@@ -148,13 +148,14 @@ public class BotProject {
         ActivityService activityService = new ActivityService(config, state, eventBus);
         activityService.load();
 
-        // 7d. Editor settings (capture targets, etc.); load existing settings into state
+        // 7d. Editor settings (capture targets, etc.); load existing settings into state. This also resolves
+        //     the project's template, which FileRole/MethodLock read to tell scaffolding from user code.
         ProjectSettingsService projectSettingsService = new ProjectSettingsService(config, state, eventBus);
         projectSettingsService.load();
 
         // 8. Create code editing pipeline
         progress.message("Loading project…");
-        BlockConverter blockConverter = new BlockConverter(state);
+        BlockConverter blockConverter = new BlockConverter(config, state);
 
         // 9. Assemble the project
         BotProject project = new BotProject(

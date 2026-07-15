@@ -27,6 +27,10 @@ public class ProjectState {
     // --- Editor settings (capture targets, etc.) ---
     private StudioProjectSettings settings = StudioProjectSettings.empty();
 
+    // --- The template this project was created from, resolved once at open (see BotProject.open). Drives
+    //     FileRole/MethodLock, so it is read on every tree cell and block — resolved eagerly, never re-derived.
+    private ProjectTemplate template;
+
     // --- AST Block Mapping (for active file) ---
     private Map<ASTNode, CodeBlock> nodeToBlockMap = new HashMap<>();
 
@@ -112,6 +116,18 @@ public class ProjectState {
 
     public StudioProjectSettings getSettings() {
         return settings;
+    }
+
+    /**
+     * The template this project was created from, or {@code null} for a legacy project whose template couldn't
+     * be determined. Callers ({@link FileRole}, {@link MethodLock}) treat null as "not a game bot".
+     */
+    public ProjectTemplate getTemplate() {
+        return template;
+    }
+
+    public void setTemplate(ProjectTemplate template) {
+        this.template = template;
     }
 
     public void setSettings(StudioProjectSettings settings) {

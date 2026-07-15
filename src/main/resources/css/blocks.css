@@ -74,6 +74,39 @@
 }
 
 /*
+ * Method header badge (MethodDeclarationBlock.setLockBadge), saying what the user may do with this method.
+ * Two meanings, one control: :locked is a restriction ("Generated - Read Only", "Name and parameters required
+ * by BotMaker") and reads as muted/neutral; unlocked is an invitation ("Your code goes here") and reads as the
+ * accent colour, so the one method the user is meant to fill in is the one that draws the eye.
+ */
+.method-lock-badge {
+    -fx-font-size: 10px;
+    -fx-font-weight: bold;
+    -fx-padding: 1 6 1 6;
+    -fx-background-radius: 8px;
+    -fx-text-fill: #16a085;
+    -fx-background-color: rgba(26, 188, 156, 0.15);
+}
+
+.method-lock-badge:locked {
+    -fx-text-fill: #7f8c8d;
+    -fx-background-color: rgba(127, 140, 141, 0.15);
+}
+
+/* The "runs once when the bot starts" note beside a static { } header — see InitializerBlock. */
+.initializer-hint-label {
+    -fx-font-size: 11px;
+    -fx-text-fill: #7f8c8d;
+    -fx-font-style: italic;
+}
+
+/* A read-only method's parameter name, which would otherwise be an editable TextField. */
+.param-name-label {
+    -fx-font-size: 12px;
+    -fx-text-fill: #2c3e50;
+}
+
+/*
  * Drag-and-drop drop-zone feedback, toggled from BlockDragAndDropManager via pseudo-classes.
  * Background-fill only (no border, no size change): the separator already reserves a fixed 12px gap, so filling
  * it reads as an insertion line WITHOUT reflowing the blocks below. -fx-background-insets centres it as a thin
@@ -470,4 +503,53 @@
 .game-picker-name {
     -fx-font-size: 11px;
     -fx-text-alignment: center;
+}
+
+/* ---------------------------------------------------------------------------
+ * Method references (MethodReferenceBlock) — `GameLoop::run` as a call argument.
+ * Rendered as a compact, code-ish pill; navigable ones get a hand cursor.
+ * --------------------------------------------------------------------------- */
+.method-ref-block {
+    -fx-background-color: rgba(52, 73, 94, 0.08);
+    -fx-background-radius: 4px;
+    -fx-border-color: rgba(52, 73, 94, 0.25);
+    -fx-border-radius: 4px;
+    -fx-padding: 1 5 1 5;
+}
+.method-ref-navigable {
+    -fx-cursor: hand;
+}
+.method-ref-navigable:hover {
+    -fx-background-color: rgba(41, 128, 185, 0.18);
+    -fx-border-color: #2980b9;
+}
+.method-ref-target {
+    -fx-font-family: "monospace";
+    -fx-font-weight: bold;
+    -fx-text-fill: #2c3e50;
+}
+.method-ref-name {
+    -fx-font-family: "monospace";
+    -fx-text-fill: #2980b9;
+}
+
+/* ---------------------------------------------------------------------------
+ * Unmodelled expressions (UnknownExpressionBlock) — shown verbatim rather than
+ * silently dropped. Deliberately plain-but-visible: it marks a gap in the block
+ * model, so it should look inert without looking like an error.
+ * --------------------------------------------------------------------------- */
+.unknown-expression-block {
+    -fx-font-family: "monospace";
+    -fx-text-fill: #7f8c8d;
+    -fx-background-color: rgba(127, 140, 141, 0.10);
+    -fx-background-radius: 3px;
+    -fx-border-color: rgba(127, 140, 141, 0.35);
+    -fx-border-radius: 3px;
+    -fx-border-style: dashed;
+    -fx-padding: 1 4 1 4;
+}
+
+/* Class header inheritance clause (`extends Activity`) — ClassBlock.createHeader. */
+.class-inheritance {
+    -fx-text-fill: #5d6d7e;
 }

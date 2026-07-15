@@ -7,6 +7,8 @@ import com.botmaker.studio.services.MavenService;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 import static com.botmaker.studio.config.Constants.PROJECTS_ROOT;
 
@@ -68,18 +70,15 @@ public class ProjectCreator {
             System.out.println("2. Creating source files...");
             Path srcPath = projectPath.resolve("src/main/java/com/" + cfg.packageName());
             Files.createDirectories(srcPath);
-            if (template == ProjectTemplate.GAME_BOT) {
-                createGameBotFiles(srcPath, projectName, cfg.packageName());
-            } else {
-                createMainJavaFile(srcPath, projectName, cfg.packageName());
-            }
+            writeSources(srcPath, sourcesFor(template, projectName, cfg.packageName()));
 
             // 4. Built-in default image template so freshly-dropped vision blocks reference a real file.
             createDefaultTemplate(cfg.imagesRoot());
 
-            // 5. Seed the standard capture resolution into settings.json + botmaker-project.properties so the
-            //    editor snaps captures to it and the generated bot's runtime scaling defaults to it.
-            seedResolution(cfg, referenceResolution);
+            // 5. Seed settings.json (the chosen template + the standard capture resolution) and mirror the
+            //    resolution into botmaker-project.properties, so the editor snaps captures to it and the
+            //    generated bot's runtime scaling defaults to it.
+            seedSettings(cfg, referenceResolution, template);
 
             // 6. Initialize local project history (linear VCS) with an initial commit.
             new ProjectVcs(projectPath).init();
@@ -95,15 +94,24 @@ public class ProjectCreator {
     }
 
     /**
-     * Writes {@code settings.json} (the editor's standard/reference resolution) and mirrors it into
-     * {@code botmaker-project.properties} ({@code capture.width}/{@code capture.height}) so the generated bot's
-     * runtime resolution scaling ({@code ProjectDefaults}/{@code ResolutionScaler}) defaults to the same size.
-     * No-op for a null resolution (left to auto-seed from the window on first capture).
+     * Writes {@code settings.json} — the originating {@code template} (which {@link FileRole} and
+     * {@code ProjectRepair} read to tell scaffolding from user code) plus the editor's standard/reference
+     * resolution — and mirrors the resolution into {@code botmaker-project.properties}
+     * ({@code capture.width}/{@code capture.height}) so the generated bot's runtime resolution scaling
+     * ({@code ProjectDefaults}/{@code ResolutionScaler}) defaults to the same size.
+     *
+     * <p>Settings are written even for a null resolution (left to auto-seed from the window on first capture) —
+     * the template must be recorded regardless, or the project is indistinguishable from a legacy one.
      */
-    static void seedResolution(ProjectConfig cfg, StudioProjectSettings.Resolution resolution) throws IOException {
-        if (resolution == null) return;
-        StudioProjectSettings.empty().withReferenceResolution(resolution).write(cfg.resourcesRoot());
-        writeCaptureProperties(cfg.resourcesRoot(), resolution);
+    static void seedSettings(ProjectConfig cfg, StudioProjectSettings.Resolution resolution,
+                             ProjectTemplate template) throws IOException {
+        StudioProjectSettings.empty()
+                .withTemplate(template)
+                .withReferenceResolution(resolution)
+                .write(cfg.resourcesRoot());
+        if (resolution != null) {
+            writeCaptureProperties(cfg.resourcesRoot(), resolution);
+        }
     }
 
     /** Writes/updates {@code capture.width}/{@code capture.height} in {@code botmaker-project.properties}. */
@@ -122,8 +130,27 @@ public class ProjectCreator {
         }
     }
 
-    private void createMainJavaFile(Path srcPath, String projectName, String packageName) throws IOException {
-        String content = String.format("""
+    /**
+     * The starting sources for {@code template} as {@code fileName -> source}. The single source of truth for
+     * both creation and {@link ProjectRepair} — a template's files are defined exactly once, here.
+     */
+    public static Map<String, String> sourcesFor(ProjectTemplate template, String projectName, String packageName) {
+        return template == ProjectTemplate.GAME_BOT
+                ? gameBotSources(projectName, packageName)
+                : emptySources(projectName, packageName);
+    }
+
+    /** Writes each {@code fileName -> source} of a template into {@code srcPath}. */
+    private static void writeSources(Path srcPath, Map<String, String> sources) throws IOException {
+        for (Map.Entry<String, String> e : sources.entrySet()) {
+            Files.writeString(srcPath.resolve(e.getKey()), e.getValue());
+        }
+    }
+
+    /** The {@link ProjectTemplate#EMPTY} scaffold: a bare {@code main} that prints a greeting. */
+    public static Map<String, String> emptySources(String projectName, String packageName) {
+        Map<String, String> sources = new LinkedHashMap<>();
+        sources.put(projectName + ".java", String.format("""
             package com.%s;
             import com.botmaker.sdk.api.BotMaker;
 
@@ -132,34 +159,38 @@ public class ProjectCreator {
                     BotMaker.print("Hello from %s!");
                 }
             }
-            """, packageName, projectName, projectName);
-
-        Files.writeString(srcPath.resolve(projectName + ".java"), content);
+            """, packageName, projectName, projectName));
+        return sources;
     }
 
     /**
-     * Writes the full "Game bot" scaffold: a supervised entry point, the {@code MacroLoop} that dispatches
-     * over the (initially empty) activity registry, editable {@code GoHome}/{@code Startup} recovery hooks,
-     * and an initial empty {@code ActivityRegistry}. Adding activities in Project → Manage Activities fills
-     * the registry and generates a subclass stub per activity.
+     * The full "Game bot" scaffold as {@code fileName -> source}: a supervised entry point, the
+     * {@code GameLoop} that dispatches over the (initially empty) activity registry, editable
+     * {@code GoHome}/{@code Startup} recovery hooks, and an initial empty {@code ActivityRegistry}.
+     *
+     * <p>Exposed as data rather than written inline so {@link ProjectRepair} can regenerate an individual
+     * missing file from the same source of truth — the templates must not be duplicated. Reached via
+     * {@link #sourcesFor}.
      */
-    private void createGameBotFiles(Path srcPath, String projectName, String packageName) throws IOException {
-        // Entry point: supervise the macro loop, recovering via goHome → startGame on crash/stuck.
-        Files.writeString(srcPath.resolve(projectName + ".java"), String.format("""
+    public static Map<String, String> gameBotSources(String projectName, String packageName) {
+        Map<String, String> sources = new LinkedHashMap<>();
+
+        // Entry point: supervise the game loop, recovering via goHome → startGame on crash/stuck.
+        sources.put(projectName + ".java", String.format("""
             package com.%s;
 
             import com.botmaker.sdk.api.bot.Bot;
 
             public class %s {
                 public static void main(String[] args) {
-                    // Runs MacroLoop forever; on a crash or a stuck screen it runs GoHome then Startup and restarts.
-                    Bot.supervise(MacroLoop::run, GoHome::run, Startup::run);
+                    // Runs GameLoop forever; on a crash or a stuck screen it runs GoHome then Startup and restarts.
+                    Bot.supervise(GameLoop::run, GoHome::run, Startup::run);
                 }
             }
             """, packageName, projectName));
 
-        // The macro loop: one pass runs every enabled activity, in registry order.
-        Files.writeString(srcPath.resolve("MacroLoop.java"), String.format("""
+        // The game loop: one pass runs every enabled activity, in registry order.
+        sources.put("GameLoop.java", String.format("""
             package com.%s;
 
             import com.botmaker.sdk.api.bot.Activity;
@@ -170,7 +201,7 @@ public class ProjectCreator {
              * continuously. {@code Watchdog.checkpoint()} throws if the bot has made no progress for a while,
              * so the supervisor can recover (GoHome + Startup).
              */
-            public class MacroLoop {
+            public class GameLoop {
                 public static void run() {
                     for (Activity activity : ActivityRegistry.ALL) {
                         if (activity.isEnabled()) {
@@ -183,7 +214,7 @@ public class ProjectCreator {
             """, packageName));
 
         // Safe-point navigation (last resort before restarting; also a clean start point for activities).
-        Files.writeString(srcPath.resolve("GoHome.java"), String.format("""
+        sources.put("GoHome.java", String.format("""
             package com.%s;
 
             /**
@@ -204,7 +235,7 @@ public class ProjectCreator {
             """, packageName));
 
         // (Re)start the game from the home screen.
-        Files.writeString(srcPath.resolve("Startup.java"), String.format("""
+        sources.put("Startup.java", String.format("""
             package com.%s;
 
             /**
@@ -218,8 +249,8 @@ public class ProjectCreator {
             }
             """, packageName));
 
-        // Initial (empty) activity registry so MacroLoop compiles before any activity is added.
-        Files.writeString(srcPath.resolve("ActivityRegistry.java"), String.format("""
+        // Initial (empty) activity registry so GameLoop compiles before any activity is added.
+        sources.put("ActivityRegistry.java", String.format("""
             package com.%s;
 
             import com.botmaker.sdk.api.bot.Activity;
@@ -227,7 +258,7 @@ public class ProjectCreator {
 
             /**
              * The activities this bot can run. GENERATED by BotMaker Studio — do not edit by hand; manage via
-             * Project &rarr; Manage Activities. The macro loop iterates {@link #ALL} and runs each activity
+             * Project &rarr; Manage Activities. The game loop iterates {@link #ALL} and runs each activity
              * whose enable flag is set.
              */
             public final class ActivityRegistry {
@@ -238,6 +269,8 @@ public class ProjectCreator {
                 private ActivityRegistry() {}
             }
             """, packageName));
+
+        return sources;
     }
 
     /**

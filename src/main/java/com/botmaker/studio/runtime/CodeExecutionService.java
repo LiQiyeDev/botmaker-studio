@@ -5,6 +5,7 @@ import com.botmaker.shared.ipc.TelemetryServer;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
+import com.botmaker.studio.project.FileRole;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.util.ClassPathManager;
@@ -186,12 +187,16 @@ public class CodeExecutionService {
     public boolean compileAndWait(String currentActiveCode, Path compiledOutputPath) throws IOException, InterruptedException {
         state.setCurrentCode(currentActiveCode);
 
+        // This loop is the ONLY place edited source reaches disk — the editor keeps every change in memory
+        // (ProjectFile.setContent) and never writes as you type. That makes it the enforcement point for
+        // read-only roles: a GENERATED/LIBRARY file's in-memory edits are deliberately NOT flushed, so the
+        // scaffolding on disk stays canonical and the user's visual changes revert on the next reload.
         for (ProjectFile file : state.getAllFiles()) {
             Path path = file.getPath();
-            if (path != null) {
-                Files.createDirectories(path.getParent());
-                Files.writeString(path, file.getContent());
-            }
+            if (path == null) continue;
+            if (FileRole.of(config, state.getTemplate(), path).blocksPersistence()) continue;
+            Files.createDirectories(path.getParent());
+            Files.writeString(path, file.getContent());
         }
 
         Files.createDirectories(compiledOutputPath);

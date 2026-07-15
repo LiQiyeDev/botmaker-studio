@@ -1,18 +1,22 @@
 package com.botmaker.studio.project;
 
 /**
- * The starting content of a new project.
+ * The starting content of a new project. Chosen once in the New Project dialog and then <b>persisted</b> in
+ * {@code settings.json} ({@link StudioProjectSettings#template()}), because which files are scaffolding depends
+ * on it: {@link FileRole} locks the entry point only for {@link #GAME_BOT}, and {@code ProjectRepair} regenerates
+ * a different file set per template. Declaration order is the dropdown order, so {@link #GAME_BOT} — the default
+ * — comes first.
  *
  * <ul>
- *   <li>{@link #EMPTY} — a bare {@code main} that prints a greeting (the historical default).</li>
  *   <li>{@link #GAME_BOT} — a full game-bot scaffold: a supervised entry point ({@code Bot.supervise}),
- *       a {@code MacroLoop} that dispatches over the activity registry, and editable {@code GoHome} /
+ *       a {@code GameLoop} that dispatches over the activity registry, and editable {@code GoHome} /
  *       {@code Startup} recovery hooks, plus an initial (empty) {@code ActivityRegistry}.</li>
+ *   <li>{@link #EMPTY} — a bare {@code main} that prints a greeting.</li>
  * </ul>
  */
 public enum ProjectTemplate {
-    EMPTY("Empty", "A bare main() — start from scratch."),
-    GAME_BOT("Game bot", "Supervised loop, activity dispatch, go-home + startup recovery hooks.");
+    GAME_BOT("Game bot", "Supervised loop, activity dispatch, go-home + startup recovery hooks."),
+    EMPTY("Empty", "A bare main() — start from scratch.");
 
     private final String displayName;
     private final String description;

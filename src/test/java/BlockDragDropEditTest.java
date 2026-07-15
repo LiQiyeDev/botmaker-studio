@@ -66,7 +66,7 @@ public class BlockDragDropEditTest {
         EventBus bus = new EventBus(false);
         bus.subscribe(CoreApplicationEvents.CodeUpdatedEvent.class, e -> lastCode = e.newCode());
 
-        BlockConverter converter = new BlockConverter(state);
+        BlockConverter converter = new BlockConverter(null, state);
         BlockConverter.ConvertResult result = converter.convert(
                 SOURCE, state.getMutableNodeToBlockMap(),
                 new BlockDragAndDropManager(bus), false, false);
@@ -157,7 +157,7 @@ public class BlockDragDropEditTest {
         String[] captured = new String[1];
         bus.subscribe(CoreApplicationEvents.CodeUpdatedEvent.class, e -> captured[0] = e.newCode());
 
-        BlockConverter converter = new BlockConverter(s);
+        BlockConverter converter = new BlockConverter(null, s);
         BlockConverter.ConvertResult result = converter.convert(
                 source, s.getMutableNodeToBlockMap(), new BlockDragAndDropManager(bus), false, false);
         s.setCompilationUnit(result.cu());

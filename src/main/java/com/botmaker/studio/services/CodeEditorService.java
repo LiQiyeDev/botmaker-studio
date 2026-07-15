@@ -9,6 +9,7 @@ import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.parser.BlockConverter;
 import com.botmaker.studio.parser.CodeEditor;
+import com.botmaker.studio.project.FileRole;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.state.HistoryManager;
@@ -91,6 +92,11 @@ public class CodeEditorService {
 
         eventBus.subscribe(CoreApplicationEvents.BreakpointToggledEvent.class,
                 this::handleBreakpointToggle, false);
+
+        // ActivityService rewrites Activities.java / ActivityRegistry.java on disk behind our back; forget the
+        // cached copies so the next open reads the regenerated source instead of a stale snapshot.
+        eventBus.subscribe(CoreApplicationEvents.ActivitiesChangedEvent.class,
+                event -> evictGeneratedActivityFiles(), false);
 
         eventBus.subscribe(CoreApplicationEvents.CodeUpdatedEvent.class, event -> {
             handleCodeUpdateForHistory(event);
@@ -302,20 +308,57 @@ public class CodeEditorService {
         }
     }
 
+    /**
+     * Makes {@code path} the active file and renders it.
+     *
+     * <p>{@code openFiles} is populated by {@link #loadInitialCode()} at project open, but files appear on disk
+     * afterwards too — {@code ActivityService} writes activity stubs, {@code ProjectRepair} restores deleted
+     * scaffolding — and neither goes through this service. Such a file showed in the explorer (which reads the
+     * real filesystem) but silently refused to open until the next restart re-walked the tree. So a miss here
+     * means "not loaded yet", not "doesn't exist": load it from disk and carry on. Only a path that isn't a
+     * readable file is an actual error.
+     */
     public void switchToFile(Path path) {
         ProjectFile file = state.getAllFiles().stream()
                 .filter(f -> f.getPath().equals(path))
-                .findFirst().orElse(null);
+                .findFirst().orElseGet(() -> loadFromDisk(path));
 
-        if (file == null) {
-            System.err.println("File not found in state: " + path);
-            return;
-        }
+        if (file == null) return;
 
         state.setActiveFile(path);
         state.setDocUri(file.getUri());
 
         refreshUI(file.getContent(), false);
+    }
+
+    /**
+     * Reads {@code path} into {@code openFiles} and returns it, or {@code null} when it isn't a readable file.
+     * The lazy counterpart to {@link #loadFilesRecursively}, for files created after project open.
+     */
+    private ProjectFile loadFromDisk(Path path) {
+        if (path == null || !Files.isRegularFile(path)) {
+            System.err.println("File not found: " + path);
+            return null;
+        }
+        try {
+            ProjectFile loaded = new ProjectFile(path, Files.readString(path));
+            state.addFile(loaded);
+            return loaded;
+        } catch (Exception e) {
+            System.err.println("Error loading file: " + path + " (" + e.getMessage() + ")");
+            return null;
+        }
+    }
+
+    /**
+     * Drops the cached copies of the files {@code ActivityService} regenerates, so the next open re-reads them.
+     * Without this the {@code ProjectFile} kept the content captured at project open while the real file was
+     * rewritten underneath it, and the editor showed a stale {@code Activities}/{@code ActivityRegistry} —
+     * missing exactly the activity that was just added — until Studio restarted.
+     */
+    private void evictGeneratedActivityFiles() {
+        state.removeFile(config.activitiesSourceFile());
+        state.removeFile(config.activityRegistrySourceFile());
     }
 
     public void createFile(String className) {
@@ -373,26 +416,17 @@ public class CodeEditorService {
             diagnosticsManager.updateSource(state.getMutableNodeToBlockMap(), javaCode);
         }
 
-        // Determine if file is Read-Only (a library, or the generated Activities sidecar).
-        boolean isReadOnly = false;
-        boolean isGenerated = false;
-        if (state.getActiveFile() != null) {
-            Path activeFile = state.getActiveFile().getPath();
-            String path = activeFile.toString().replace("\\", "/");
-            if (path.contains("com/botmaker/library")) {
-                isReadOnly = true;
-            } else if (activeFile.toAbsolutePath().equals(config.activitiesSourceFile().toAbsolutePath())
-                    || activeFile.toAbsolutePath().equals(config.activityRegistrySourceFile().toAbsolutePath())) {
-                isReadOnly = true;
-                isGenerated = true;
-            }
-        }
+        // What the user may do with this file — see project/FileRole (the single source of these rules).
+        // GENERATED and LIBRARY are both inert: if an edit can't be saved, it must not be offered.
+        FileRole role = state.getActiveFile() == null
+                ? FileRole.EDITABLE
+                : FileRole.of(config, state.getTemplate(), state.getActiveFile().getPath());
 
         BlockConverter.ConvertResult result = blockConverter.convert(
                 javaCode,
                 state.getMutableNodeToBlockMap(),
                 dragAndDropManager,
-                isReadOnly,
+                role.suppressesInteraction(),
                 markNewIdentifiersAsUnedited
         );
         AbstractCodeBlock rootBlock = result.root();
@@ -409,12 +443,8 @@ public class CodeEditorService {
 
         if (state.getActiveFile() != null) {
             String fileName = state.getActiveFile().getPath().getFileName().toString();
-            // Add a read-only indicator for library / generated files
-            if (isGenerated) {
-                fileName += " [Generated - Read Only]";
-            } else if (isReadOnly) {
-                fileName += " [Library - Read Only]";
-            }
+            String badge = role.badge();
+            if (badge != null) fileName += " [" + badge + "]";
             eventBus.publish(new CoreApplicationEvents.StatusMessageEvent("Loaded: " + fileName));
         }
     }

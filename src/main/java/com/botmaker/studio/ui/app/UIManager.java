@@ -18,6 +18,7 @@ import com.botmaker.studio.sharing.BotSource;
 import com.botmaker.studio.sharing.GitHubAuth;
 import com.botmaker.studio.sharing.GitHubClient;
 import com.botmaker.studio.sharing.GitHubGallery;
+import com.botmaker.studio.project.ProjectRepair;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.validation.DiagnosticsManager;
@@ -45,6 +46,11 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 public class UIManager {
+
+    /** Narrowest the file explorer may be dragged. */
+    private static final double EXPLORER_MIN_WIDTH = 150;
+    /** Widest the file explorer may be dragged — without this the divider has no upper bound at all. */
+    private static final double EXPLORER_MAX_WIDTH = 460;
 
     private final EventBus eventBus;
     private final CodeEditorService codeEditorService;
@@ -119,6 +125,7 @@ public class UIManager {
                 new ManageActivitiesDialog(primaryStage, activityService).show());
         this.menuBarManager.setOnSetActivityValues(() ->
                 new SetActivityValuesDialog(primaryStage, activityService).show());
+        this.menuBarManager.setOnRecoverProjectFiles(() -> recoverProjectFiles(activityService));
         this.menuBarManager.setOnManageResources(this::openResourceManager);
         this.menuBarManager.setOnProjectSettings(() ->
                 new ProjectSettingsDialog(primaryStage, projectSettingsService, projectAnalyzer).show());
@@ -145,12 +152,93 @@ public class UIManager {
                 .map(s -> "https://github.com/" + s.slug()).orElse(null));
         this.menuBarManager.setOnOpenDebugDashboard(this::openDebugDashboard);
         this.menuBarManager.setOnEnableRemotePilot(this::openRemotePilot);
-        this.fileExplorerManager = new FileExplorerManager(config, codeEditorService, state);
+        this.fileExplorerManager = new FileExplorerManager(config, codeEditorService, state, activityService, eventBus);
 
         setupEventHandlers();
     }
 
     /** Starts (once) the local telemetry debug dashboard server and opens it in the browser. */
+    /**
+     * Project ▸ Recover Project Files — regenerates scaffolding that has gone missing (deleted outside the
+     * Studio, or from the explorer). Shows exactly what will be created and asks first; nothing that exists is
+     * ever overwritten (see {@link ProjectRepair}).
+     */
+    private void recoverProjectFiles(ActivityService activityService) {
+        List<ProjectRepair.Missing> missing =
+                ProjectRepair.findMissing(config, state.getTemplate(), activityService.current());
+
+        if (missing.isEmpty()) {
+            Alert ok = new Alert(Alert.AlertType.INFORMATION);
+            ok.setTitle("Recover Project Files");
+            ok.setHeaderText("Nothing to recover.");
+            ok.setContentText("Every file this project needs is present.");
+            ok.showAndWait();
+            return;
+        }
+
+        StringBuilder detail = new StringBuilder();
+        ProjectRepair.summarise(missing).forEach((reason, names) ->
+                detail.append(reason).append(":\n  ").append(String.join("\n  ", names)).append("\n\n"));
+
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+        confirm.setTitle("Recover Project Files");
+        confirm.setHeaderText(missing.size() + " file(s) are missing and will be regenerated.");
+        confirm.setContentText(detail.toString().trim()
+                + "\n\nExisting files are never overwritten.");
+        if (confirm.showAndWait().filter(b -> b == ButtonType.OK).isEmpty()) return;
+
+        try {
+            ProjectRepair.recover(config, missing);
+
+            // Activity stubs, activities.json, and the generated Activities/ActivityRegistry are
+            // ActivityService's to write — re-running update() with the current config restores them all.
+            // It writes off-thread, so refresh the tree once it's done rather than racing it.
+            if (ProjectRepair.needsActivityRegeneration(missing)) {
+                activityService.update(activityService.current())
+                        .thenRun(() -> javafx.application.Platform.runLater(fileExplorerManager::refreshTree));
+            }
+
+            eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(
+                    "Recovered " + missing.size() + " file(s)."));
+            fileExplorerManager.refreshTree();
+        } catch (java.io.IOException ex) {
+            Alert err = new Alert(Alert.AlertType.ERROR);
+            err.setTitle("Recover Project Files");
+            err.setHeaderText("Could not recover the project files.");
+            err.setContentText(ex.getMessage());
+            err.showAndWait();
+        }
+    }
+
+    /**
+     * Bounds how far the explorer/canvas divider can be dragged, in pixels.
+     *
+     * <p>A {@code SplitPane} divider is otherwise unbounded: because the explorer intentionally has no
+     * {@code maxWidth} (a cap there leaves dead space beside the tree), it could be dragged across the entire
+     * window and squash the code canvas to nothing. Clamping the divider keeps the drag range sane while the
+     * explorer still fills whatever column width it is given.
+     *
+     * <p>Re-clamped on width changes too, so shrinking the window can't leave the divider out of range.
+     */
+    private static void clampExplorerWidth(SplitPane mainSplit) {
+        if (mainSplit.getDividers().isEmpty()) return;
+        SplitPane.Divider divider = mainSplit.getDividers().get(0);
+
+        Runnable clamp = () -> {
+            double width = mainSplit.getWidth();
+            if (width <= 0) return;                       // not laid out yet; the width listener re-runs this
+            double min = EXPLORER_MIN_WIDTH / width;
+            double max = EXPLORER_MAX_WIDTH / width;
+            if (min > max) return;                        // window narrower than the explorer's own minimum
+            double pos = divider.getPosition();
+            if (pos > max) divider.setPosition(max);
+            else if (pos < min) divider.setPosition(min);
+        };
+
+        divider.positionProperty().addListener((obs, ov, nv) -> clamp.run());
+        mainSplit.widthProperty().addListener((obs, ov, nv) -> clamp.run());
+    }
+
     private void openDebugDashboard() {
         try {
             if (dashboardServer == null) {
@@ -738,8 +826,10 @@ public class UIManager {
         // --- 2. Left Panel: File Explorer ---
         // Fill the column (no maxWidth cap) so the tree occupies the full width the divider gives it —
         // otherwise a capped explorer leaves dead space to its right when the divider is dragged out.
+        // The *drag range* is bounded separately, by clampExplorerWidth() on the split's divider: capping
+        // the node here (as this used to) is what reintroduces the dead space.
         VBox fileExplorer = fileExplorerManager.createView();
-        fileExplorer.setMinWidth(150);
+        fileExplorer.setMinWidth(EXPLORER_MIN_WIDTH);
         fileExplorer.setMaxWidth(Double.MAX_VALUE);
         // Keep the left column's size on window resize (don't let it swallow the canvas).
         SplitPane.setResizableWithParent(fileExplorer, false);
@@ -791,6 +881,7 @@ public class UIManager {
         mainSplit.setOrientation(Orientation.HORIZONTAL);
         mainSplit.getItems().addAll(fileExplorer, verticalSplit);
         mainSplit.setDividerPositions(0.25);
+        clampExplorerWidth(mainSplit);
 
         statusLabel = new Label("Ready");
         statusLabel.setId("status-label");

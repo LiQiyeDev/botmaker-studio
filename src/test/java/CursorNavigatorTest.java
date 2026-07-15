@@ -54,7 +54,7 @@ public class CursorNavigatorTest {
         state.setSourcePath(Paths.get("src", "main", "java").toAbsolutePath());
         state.setResolvedClasspath(TestSupport.runtimeClassPath());
 
-        BlockConverter converter = new BlockConverter(state);
+        BlockConverter converter = new BlockConverter(null, state);
         BlockConverter.ConvertResult result = converter.convert(
                 SOURCE, state.getMutableNodeToBlockMap(),
                 new BlockDragAndDropManager(new EventBus(false)), false, false);

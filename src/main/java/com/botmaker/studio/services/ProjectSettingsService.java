@@ -3,7 +3,9 @@ package com.botmaker.studio.services;
 import com.botmaker.studio.events.CoreApplicationEvents.SettingsChangedEvent;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.ProjectConfig;
+import com.botmaker.studio.project.ProjectRepair;
 import com.botmaker.studio.project.ProjectState;
+import com.botmaker.studio.project.ProjectTemplate;
 import com.botmaker.studio.project.StudioProjectSettings;
 import com.botmaker.studio.project.capture.CaptureTarget;
 
@@ -45,10 +47,20 @@ public final class ProjectSettingsService {
         return current().defaultTarget();
     }
 
-    /** Loads settings from disk into project state (called once at project open). */
+    /**
+     * Loads settings from disk into project state (called once at project open), and resolves the project's
+     * {@link ProjectTemplate} into state alongside them.
+     *
+     * <p>Projects created before the template was persisted have none recorded, so the template is inferred from
+     * the sources ({@link ProjectRepair#looksLikeGameBot}) — a guess, but only ever for legacy projects, and
+     * only once per open rather than on every {@code FileRole} lookup.
+     */
     public StudioProjectSettings load() {
         StudioProjectSettings loaded = StudioProjectSettings.read(config.resourcesRoot());
         state.setSettings(loaded);
+        state.setTemplate(loaded.template() != null
+                ? loaded.template()
+                : (ProjectRepair.looksLikeGameBot(config) ? ProjectTemplate.GAME_BOT : ProjectTemplate.EMPTY));
         return loaded;
     }
 

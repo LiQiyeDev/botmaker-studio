@@ -25,6 +25,7 @@ public class MenuBarManager {
     private Runnable onManageLibraries;
     private Runnable onManageImports;
     private Runnable onManageActivities;
+    private Runnable onRecoverProjectFiles;
     private Runnable onSetActivityValues;
     private Runnable onManageResources;
     private Runnable onProjectSettings;
@@ -204,6 +205,11 @@ public class MenuBarManager {
             if (onProjectSettings != null) onProjectSettings.run();
         });
 
+        MenuItem recoverFilesItem = new MenuItem("Recover Project Files...");
+        recoverFilesItem.setOnAction(e -> {
+            if (onRecoverProjectFiles != null) onRecoverProjectFiles.run();
+        });
+
         MenuItem historyItem = new MenuItem("Project History...");
         historyItem.setOnAction(e -> {
             if (onShowHistory != null) onShowHistory.run();
@@ -231,7 +237,7 @@ public class MenuBarManager {
                 manageActivitiesItem, setActivityValuesItem, manageResourcesItem,
                 new SeparatorMenuItem(),
                 projectSettingsItem, new SeparatorMenuItem(),
-                historyItem, new SeparatorMenuItem(),
+                recoverFilesItem, historyItem, new SeparatorMenuItem(),
                 browseGalleryItem, publishGalleryItem, new SeparatorMenuItem(),
                 projectRepoItem);
         return projectMenu;
@@ -503,6 +509,11 @@ public class MenuBarManager {
      */
     public void setOnManageImports(Runnable callback) {
         this.onManageImports = callback;
+    }
+
+    /** Sets the callback for when "Recover Project Files..." is clicked. */
+    public void setOnRecoverProjectFiles(Runnable callback) {
+        this.onRecoverProjectFiles = callback;
     }
 
     /** Sets the callback for when "Manage Activities..." is clicked. */

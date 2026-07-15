@@ -33,11 +33,17 @@ import java.util.Map;
  *                            capture seeds it from the window's current size (backward-compatible; absent → null)
  * @param favoriteMethods     per-class preferred methods: {@code className → [methodName, …]}, surfaced first in
  *                            the overlay palette and other pickers (backward-compatible; absent → empty)
+ * @param template            the {@link ProjectTemplate} the project was created from, recorded at creation so
+ *                            {@code FileRole}/{@code ProjectRepair} know which files are scaffolding instead of
+ *                            guessing from the sources. {@code null} for projects created before this was
+ *                            persisted — callers fall back to {@code ProjectRepair.looksLikeGameBot}
+ *                            (backward-compatible; absent → null)
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex,
                                     List<String> knownWindowTitles, Map<String, String> favoriteOverloads,
-                                    Resolution referenceResolution, Map<String, List<String>> favoriteMethods) {
+                                    Resolution referenceResolution, Map<String, List<String>> favoriteMethods,
+                                    ProjectTemplate template) {
 
     /** A target-window size in logical screen pixels. */
     public record Resolution(int width, int height) {}
@@ -65,28 +71,36 @@ public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer 
         return Map.copyOf(out);
     }
 
+    /** Convenience constructor for callers that manage favorite methods but not the template. */
+    public StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex,
+                                 List<String> knownWindowTitles, Map<String, String> favoriteOverloads,
+                                 Resolution referenceResolution, Map<String, List<String>> favoriteMethods) {
+        this(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads, referenceResolution,
+                favoriteMethods, null);
+    }
+
     /** Convenience constructor for callers that manage favorite overloads + resolution but not favorite methods. */
     public StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex,
                                  List<String> knownWindowTitles, Map<String, String> favoriteOverloads,
                                  Resolution referenceResolution) {
-        this(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads, referenceResolution, Map.of());
+        this(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads, referenceResolution, Map.of(), null);
     }
 
     /** Convenience constructor for callers that manage favorite overloads but not the reference resolution. */
     public StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex,
                                  List<String> knownWindowTitles, Map<String, String> favoriteOverloads) {
-        this(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads, null, Map.of());
+        this(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads, null, Map.of(), null);
     }
 
     /** Convenience constructor for callers that don't manage favorite overloads. */
     public StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex,
                                  List<String> knownWindowTitles) {
-        this(captureTargets, defaultTargetIndex, knownWindowTitles, Map.of(), null, Map.of());
+        this(captureTargets, defaultTargetIndex, knownWindowTitles, Map.of(), null, Map.of(), null);
     }
 
     /** Convenience constructor for callers that don't manage the remembered window titles. */
     public StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex) {
-        this(captureTargets, defaultTargetIndex, List.of(), Map.of(), null, Map.of());
+        this(captureTargets, defaultTargetIndex, List.of(), Map.of(), null, Map.of(), null);
     }
 
     /**
@@ -94,7 +108,8 @@ public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer 
      * so every picker/toolbar already shows "Whole desktop" instead of an empty "no default set" state.
      */
     public static StudioProjectSettings empty() {
-        return new StudioProjectSettings(List.of(new CaptureTarget.DesktopTarget()), 0, List.of(), Map.of(), null, Map.of());
+        return new StudioProjectSettings(List.of(new CaptureTarget.DesktopTarget()), 0, List.of(), Map.of(), null,
+                Map.of(), null);
     }
 
     /** The default target, or {@code null} if none is set (pickers then show the chooser). */
@@ -106,25 +121,31 @@ public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer 
     /** This settings with the target list replaced (keeps the default if still in range). */
     public StudioProjectSettings withTargets(List<CaptureTarget> targets) {
         return new StudioProjectSettings(targets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
-                referenceResolution, favoriteMethods);
+                referenceResolution, favoriteMethods, template);
     }
 
     /** This settings with the default index replaced. */
     public StudioProjectSettings withDefaultIndex(Integer index) {
         return new StudioProjectSettings(captureTargets, index, knownWindowTitles, favoriteOverloads,
-                referenceResolution, favoriteMethods);
+                referenceResolution, favoriteMethods, template);
     }
 
     /** This settings with the remembered window titles replaced. */
     public StudioProjectSettings withKnownWindowTitles(List<String> titles) {
         return new StudioProjectSettings(captureTargets, defaultTargetIndex, titles, favoriteOverloads,
-                referenceResolution, favoriteMethods);
+                referenceResolution, favoriteMethods, template);
     }
 
     /** This settings with the capture reference resolution replaced ({@code null} clears it). */
     public StudioProjectSettings withReferenceResolution(Resolution resolution) {
         return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
-                resolution, favoriteMethods);
+                resolution, favoriteMethods, template);
+    }
+
+    /** This settings with the originating template recorded ({@code null} clears it). */
+    public StudioProjectSettings withTemplate(ProjectTemplate template) {
+        return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
+                referenceResolution, favoriteMethods, template);
     }
 
     /**
@@ -136,7 +157,7 @@ public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer 
         if (signatureKey == null) next.remove(methodKey);
         else next.put(methodKey, signatureKey);
         return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, next,
-                referenceResolution, favoriteMethods);
+                referenceResolution, favoriteMethods, template);
     }
 
     /** The chosen overload signature key for {@code methodKey}, or {@code null} if no favorite is set. */
@@ -154,7 +175,7 @@ public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer 
         if (methods == null || methods.isEmpty()) next.remove(className);
         else next.put(className, List.copyOf(methods));
         return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
-                referenceResolution, next);
+                referenceResolution, next, template);
     }
 
     /** The favorite method names for {@code className} (preference order), or an empty list if none. */

@@ -120,6 +120,11 @@ public class ActivityServiceTest {
         String stub = service.generateStubSource(ActivityDefinition.create("Resources", ""));
         assertTrue(stub.contains("public class Resources extends Activity"), stub);
         assertTrue(stub.contains("return Activities.Resources;"), stub);
+
+        // No constructor: Activity's no-arg ctor names the activity after its class, so the stub asks the user
+        // for nothing but run(). `new Resources()` in the registry above binds that inherited constructor.
+        assertFalse(stub.contains("public Resources()"), stub);
+        assertFalse(stub.contains("super("), stub);
     }
 
     @Test

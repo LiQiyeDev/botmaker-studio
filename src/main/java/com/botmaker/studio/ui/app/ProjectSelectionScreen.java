@@ -447,7 +447,7 @@ public class ProjectSelectionScreen {
         ComboBox<com.botmaker.studio.project.ProjectTemplate> templateCombo = new ComboBox<>(
                 javafx.collections.FXCollections.observableArrayList(
                         com.botmaker.studio.project.ProjectTemplate.values()));
-        templateCombo.setValue(com.botmaker.studio.project.ProjectTemplate.EMPTY);
+        templateCombo.setValue(com.botmaker.studio.project.ProjectTemplate.GAME_BOT);
         templateCombo.setMaxWidth(Double.MAX_VALUE);
         templateCombo.setConverter(new javafx.util.StringConverter<>() {
             @Override public String toString(com.botmaker.studio.project.ProjectTemplate t) {

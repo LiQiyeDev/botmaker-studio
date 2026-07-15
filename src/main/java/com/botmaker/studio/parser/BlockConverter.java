@@ -12,6 +12,7 @@ import com.botmaker.studio.blocks.loop.DoWhileBlock;
 import com.botmaker.studio.blocks.loop.ForBlock;
 import com.botmaker.studio.blocks.loop.WhileBlock;
 import com.botmaker.studio.blocks.misc.CommentBlock;
+import com.botmaker.studio.blocks.misc.InitializerBlock;
 import com.botmaker.studio.blocks.misc.PrintBlock;
 import com.botmaker.studio.blocks.misc.ReadInputBlock;
 import com.botmaker.studio.blocks.vision.LambdaCallBlock;
@@ -21,10 +22,13 @@ import com.botmaker.studio.blocks.var.DeclareEnumBlock;
 import com.botmaker.studio.blocks.var.VariableDeclarationBlock;
 import com.botmaker.studio.core.*;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
+import com.botmaker.studio.project.MethodLock;
+import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
 import org.eclipse.jdt.core.dom.*;
 
+import java.nio.file.Path;
 import java.util.*;
 
 import static com.botmaker.studio.suggestions.ProjectAnalyzer.createCompilationUnit;
@@ -37,8 +41,10 @@ import static com.botmaker.studio.suggestions.ProjectAnalyzer.createCompilationU
 public class BlockConverter {
 
     private final ProjectState state;
+    private final ProjectConfig config;
 
-    public BlockConverter(ProjectState state) {
+    public BlockConverter(ProjectConfig config, ProjectState state) {
+        this.config = config;
         this.state = state;
     }
 
@@ -101,12 +107,34 @@ public class BlockConverter {
                                 BlockId.of(method), method, ctx.manager());
                     }
                     applyReadOnly(methodBlock, ctx);
+
+                    // Some methods are load-bearing even in a file the user owns: Bot.supervise binds
+                    // GoHome::run as a Runnable, and an activity's isEnabled() is generated wiring. A
+                    // SIGNATURE lock marks only the method block (killing its rename/params menu) and leaves
+                    // the body interactive; FULL locks the body too. See project/MethodLock.
+                    MethodLock lock = methodLockFor(method);
+                    if (lock.locksSignature()) methodBlock.setReadOnly(true);
+                    methodBlock.setLockBadge(lock.badge() != null
+                            ? lock.badge()
+                            : (isUsersEntryPoint(method) ? "Your code goes here" : null));
                     ctx.nodeToBlockMap().put(method, methodBlock);
 
                     if (method.getBody() != null) {
-                        methodBlock.setBody(parseBodyBlock(method.getBody(), ctx));
+                        methodBlock.setBody(parseBodyBlock(method.getBody(),
+                                lock.locksBody() ? ctx.readOnlySubtree() : ctx));
                     }
                     classBlock.addBodyDeclaration(methodBlock);
+                } else if (obj instanceof Initializer initializer) {
+                    // static { … } / { … }. Modelled by JDT as neither a method nor a field, so without this
+                    // branch the whole construct vanished from the tree — see blocks/misc/InitializerBlock.
+                    InitializerBlock initBlock = new InitializerBlock(BlockId.of(initializer), initializer);
+                    applyReadOnly(initBlock, ctx);
+                    ctx.nodeToBlockMap().put(initializer, initBlock);
+
+                    if (initializer.getBody() != null) {
+                        initBlock.setBody(parseBodyBlock(initializer.getBody(), ctx));
+                    }
+                    classBlock.addBodyDeclaration(initBlock);
                 } else if (obj instanceof EnumDeclaration enumDecl) {
                     DeclareEnumBlock enumBlock = new DeclareEnumBlock(
                             BlockId.of(enumDecl), enumDecl);
@@ -141,6 +169,22 @@ public class BlockConverter {
 
     private void applyReadOnly(CodeBlock block, ParseContext ctx) {
         if (ctx.readOnly()) block.setReadOnly(true);
+    }
+
+    /** The {@link MethodLock} for {@code method} in the file currently being parsed. */
+    private MethodLock methodLockFor(MethodDeclaration method) {
+        Path file = activeFilePath();
+        return file == null ? MethodLock.NONE : MethodLock.of(config, state.getTemplate(), file, method);
+    }
+
+    /** True when {@code method} is the one the user is meant to fill in (an activity's {@code run()}). */
+    private boolean isUsersEntryPoint(MethodDeclaration method) {
+        Path file = activeFilePath();
+        return file != null && MethodLock.isUsersEntryPoint(config, state.getTemplate(), file, method);
+    }
+
+    private Path activeFilePath() {
+        return state.getActiveFile() == null ? null : state.getActiveFile().getPath();
     }
 
     // =========================================================================
@@ -482,12 +526,23 @@ public class BlockConverter {
             map.put(expr, b);
             return Optional.of(b);
         }
-        if (expr instanceof QualifiedName qn && qn.resolveBinding() instanceof IVariableBinding vb) {
-            if (vb.isEnumConstant()) {
-                EnumConstantBlock b = new EnumConstantBlock(BlockId.of(expr), qn);
-                map.put(expr, b);
-                return Optional.of(b);
-            } else if (vb.isField()) {
+        if (expr instanceof QualifiedName qn) {
+            if (qn.resolveBinding() instanceof IVariableBinding vb) {
+                if (vb.isEnumConstant()) {
+                    EnumConstantBlock b = new EnumConstantBlock(BlockId.of(expr), qn);
+                    map.put(expr, b);
+                    return Optional.of(b);
+                } else if (vb.isField()) {
+                    FieldAccessBlock b = new FieldAccessBlock(BlockId.of(expr), qn, ctx.markNewIdentifiersAsUnedited());
+                    map.put(expr, b);
+                    return Optional.of(b);
+                }
+            } else if (qn.getQualifier() instanceof SimpleName) {
+                // Unresolved bindings are routine, not exceptional: a sibling generated file may not be on the
+                // classpath yet (Activities.java is rewritten and recompiled as activities change), and the
+                // fallback below would render `Activities.Mining` as inert plain text — the same as a construct
+                // we have no block for. `Qualifier.name` is unambiguously a field access syntactically, so
+                // build the real block and let it round-trip.
                 FieldAccessBlock b = new FieldAccessBlock(BlockId.of(expr), qn, ctx.markNewIdentifiersAsUnedited());
                 map.put(expr, b);
                 return Optional.of(b);
@@ -539,7 +594,18 @@ public class BlockConverter {
                 return Optional.of(b);
             }
         }
-        return Optional.empty();
+        if (expr instanceof MethodReference mr) {
+            MethodReferenceBlock b = new MethodReferenceBlock(BlockId.of(expr), mr);
+            map.put(expr, b);
+            return Optional.of(b);
+        }
+        // Fallback: never return empty. Callers use `.ifPresent(block::addArgument)`, so an empty Optional
+        // silently DROPS the argument — the block then shows fewer args than the source has, and a later
+        // rewrite from block state can delete them for real. Render it verbatim instead so it stays visible
+        // and round-trips. Add a real branch above if you want the node type to be editable.
+        UnknownExpressionBlock unknown = new UnknownExpressionBlock(BlockId.of(expr), expr);
+        map.put(expr, unknown);
+        return Optional.of(unknown);
     }
 
     // =========================================================================

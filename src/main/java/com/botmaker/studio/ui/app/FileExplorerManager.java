@@ -1,31 +1,94 @@
 package com.botmaker.studio.ui.app;
 
+import com.botmaker.studio.events.CoreApplicationEvents;
+import com.botmaker.studio.events.EventBus;
+import com.botmaker.studio.project.FileRole;
 import com.botmaker.studio.project.ProjectConfig;
-import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.project.ProjectState;
+import com.botmaker.studio.project.activity.ActivitiesConfig;
+import com.botmaker.studio.project.activity.ActivityDefinition;
+import com.botmaker.studio.services.ActivityService;
+import com.botmaker.studio.services.CodeEditorService;
+import javafx.application.Platform;
 import javafx.scene.control.*;
 import javafx.scene.layout.VBox;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
 
+/**
+ * The project file tree, split into two top-level groups:
+ *
+ * <ul>
+ *   <li><b>Your files</b> — {@link FileRole#EDITABLE} code, shown as a package tree. Yours to change; edits
+ *       persist.</li>
+ *   <li><b>Generated (read-only)</b> — {@link FileRole#GENERATED} scaffolding and {@link FileRole#LIBRARY}
+ *       source, shown flat. You can still open these and interact with their blocks, but edits are in-memory
+ *       only and revert on reload. Deleting is allowed (Project ▸ Recover Project Files brings them back).</li>
+ * </ul>
+ *
+ * <p>Roles come from {@link FileRole#of} — this class must not re-derive them from paths.
+ */
 public class FileExplorerManager {
+
+    private static final String GROUP_USER = "Your files";
+    private static final String GROUP_GENERATED = "Generated (read-only)";
 
     private final ProjectConfig config;
     private final CodeEditorService codeEditorService;
     private final ProjectState state;
-    private final TreeView<Path> fileTree;
+    private final ActivityService activityService;
+    private final TreeView<ExplorerNode> fileTree;
 
-    public FileExplorerManager(ProjectConfig config, CodeEditorService codeEditorService, ProjectState state) {
+    /**
+     * A tree row: either a synthetic group header or a real file/directory.
+     *
+     * <p>The tree used to be a {@code TreeView<Path>}, which left no room for a group header that isn't a
+     * path — and the cell factory / selection listener both branch on {@code Files.isDirectory(...)}, which a
+     * sentinel path would have to lie about.
+     */
+    public record ExplorerNode(String label, Path path, FileRole role, boolean group) {
+
+        static ExplorerNode group(String label) {
+            return new ExplorerNode(label, null, null, true);
+        }
+
+        static ExplorerNode of(Path path, FileRole role) {
+            return new ExplorerNode(path.getFileName().toString(), path, role, false);
+        }
+
+        boolean isDirectory() {
+            return path != null && Files.isDirectory(path);
+        }
+
+        /** Stable key for save/restore of expansion state. */
+        String key() {
+            return group ? "group:" + label : path.toAbsolutePath().toString();
+        }
+    }
+
+    public FileExplorerManager(ProjectConfig config, CodeEditorService codeEditorService, ProjectState state,
+                               ActivityService activityService, EventBus eventBus) {
         this.config = config;
         this.codeEditorService = codeEditorService;
         this.state = state;
+        this.activityService = activityService;
         this.fileTree = new TreeView<>();
+
+        // Manage Activities / New Activity write new files; without this the tree wouldn't show them until
+        // some unrelated refresh happened to run.
+        if (eventBus != null) {
+            eventBus.subscribe(CoreApplicationEvents.ActivitiesChangedEvent.class,
+                    e -> Platform.runLater(this::refreshTree), false);
+        }
     }
 
     public VBox createView() {
@@ -36,10 +99,10 @@ public class FileExplorerManager {
         header.getStyleClass().add("sidebar-header");
         header.setMaxWidth(Double.MAX_VALUE);
 
-        Button newFileBtn = new Button("New Function Library");
-        newFileBtn.getStyleClass().add("sidebar-button");
-        newFileBtn.setMaxWidth(Double.MAX_VALUE);
-        newFileBtn.setOnAction(e -> showCreateFileDialog());
+        Button newActivityBtn = new Button("New Activity");
+        newActivityBtn.getStyleClass().add("sidebar-button");
+        newActivityBtn.setMaxWidth(Double.MAX_VALUE);
+        newActivityBtn.setOnAction(e -> showCreateActivityDialog());
 
         configureTree();
         refreshTree();
@@ -50,7 +113,7 @@ public class FileExplorerManager {
         fileTree.setMaxHeight(Double.MAX_VALUE);
         VBox.setVgrow(fileTree, javafx.scene.layout.Priority.ALWAYS);
 
-        container.getChildren().addAll(header, newFileBtn, fileTree);
+        container.getChildren().addAll(header, newActivityBtn, fileTree);
         container.setFillWidth(true);
         return container;
     }
@@ -60,42 +123,42 @@ public class FileExplorerManager {
 
         fileTree.setCellFactory(tv -> new TreeCell<>() {
             @Override
-            protected void updateItem(Path item, boolean empty) {
+            protected void updateItem(ExplorerNode item, boolean empty) {
                 super.updateItem(item, empty);
                 // Reset cross-cutting state every render (cells are recycled).
-                getStyleClass().removeAll("tree-dir", "tree-lib", "tree-active");
+                getStyleClass().removeAll("tree-dir", "tree-lib", "tree-active", "tree-group", "tree-generated");
                 if (empty || item == null) {
                     setText(null);
                     setGraphic(null);
                     setContextMenu(null);
                     return;
                 }
-                String fileName = item.getFileName().toString();
-                boolean isDirectory = Files.isDirectory(item);
-                String pathStr = item.toString().replace("\\", "/");
-                boolean isLibrary = pathStr.contains("com/botmaker/library");
 
-                setText(fileName);
-                setGraphic(icon(isDirectory ? "📁" : isLibrary ? "📦" : "📄"));
+                if (item.group()) {
+                    setText(item.label());
+                    setGraphic(null);
+                    getStyleClass().add("tree-group");
+                    setContextMenu(null);
+                    return;
+                }
 
-                if (isDirectory) {
+                setText(item.label());
+                if (item.isDirectory()) {
+                    setGraphic(icon("📁"));
                     getStyleClass().add("tree-dir");
                     setContextMenu(null);
-                } else if (isLibrary) {
-                    setText(fileName + "  [Lib]");
-                    getStyleClass().add("tree-lib");
-                    setContextMenu(null);
-                } else {
-                    boolean active = state.getActiveFile() != null
-                            && item.equals(state.getActiveFile().getPath());
-                    if (active) getStyleClass().add("tree-active");
-
-                    ContextMenu cm = new ContextMenu();
-                    MenuItem deleteItem = new MenuItem("Delete File");
-                    deleteItem.setOnAction(e -> { codeEditorService.deleteFile(item); refreshTree(); });
-                    cm.getItems().add(deleteItem);
-                    setContextMenu(cm);
+                    return;
                 }
+
+                setGraphic(icon(glyphFor(item.role())));
+                if (item.role() == FileRole.LIBRARY) getStyleClass().add("tree-lib");
+                if (item.role() == FileRole.GENERATED) getStyleClass().add("tree-generated");
+
+                boolean active = state.getActiveFile() != null
+                        && item.path().equals(state.getActiveFile().getPath());
+                if (active) getStyleClass().add("tree-active");
+
+                setContextMenu(buildContextMenu(item));
             }
 
             private Label icon(String glyph) {
@@ -106,16 +169,139 @@ public class FileExplorerManager {
         });
 
         fileTree.getSelectionModel().selectedItemProperty().addListener((obs, oldVal, newVal) -> {
-            if (newVal != null && newVal.getValue() != null) {
-                Path selectedPath = newVal.getValue();
-                if (Files.isRegularFile(selectedPath)) {
-                    if (state.getActiveFile() == null || !state.getActiveFile().getPath().equals(selectedPath)) {
-                        codeEditorService.switchToFile(selectedPath);
-                        fileTree.refresh();
-                    }
-                }
+            if (newVal == null || newVal.getValue() == null) return;
+            ExplorerNode node = newVal.getValue();
+            if (node.group() || node.path() == null) return;
+            if (!Files.isRegularFile(node.path())) return;
+            if (state.getActiveFile() == null || !state.getActiveFile().getPath().equals(node.path())) {
+                codeEditorService.switchToFile(node.path());
+                fileTree.refresh();
             }
         });
+    }
+
+    private static String glyphFor(FileRole role) {
+        return switch (role) {
+            case LIBRARY -> "📦";
+            case GENERATED -> "🔒";
+            case EDITABLE -> "📄";
+        };
+    }
+
+    private ContextMenu buildContextMenu(ExplorerNode item) {
+        ContextMenu cm = new ContextMenu();
+        MenuItem deleteItem = new MenuItem("Delete File");
+        deleteItem.setOnAction(e -> {
+            if (confirmDelete(item)) {
+                codeEditorService.deleteFile(item.path());
+                refreshTree();
+            }
+        });
+        cm.getItems().add(deleteItem);
+        return cm;
+    }
+
+    /**
+     * Deleting generated scaffolding breaks the build, and there is no undo — so ask first, and say how to
+     * get it back. Ordinary user files delete without ceremony, as before.
+     */
+    private boolean confirmDelete(ExplorerNode item) {
+        if (item.role() == FileRole.EDITABLE) return true;
+
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("Delete generated file?");
+        alert.setHeaderText("Delete " + item.label() + "?");
+        alert.setContentText(item.label() + " is generated by BotMaker Studio and your bot may not compile "
+                + "without it.\n\nYou can bring it back with Project ▸ Recover Project Files.");
+        return alert.showAndWait().filter(b -> b == ButtonType.OK).isPresent();
+    }
+
+    // ------------------------------------------------------------------
+    // tree construction
+    // ------------------------------------------------------------------
+
+    public void refreshTree() {
+        Set<String> expandedState = saveExpansionState();
+
+        Path javaRoot = config.projectPath().resolve("src").resolve("main").resolve("java");
+        if (!Files.exists(javaRoot)) javaRoot = config.mainSourceFile().getParent();
+
+        TreeItem<ExplorerNode> root = new TreeItem<>(ExplorerNode.group("root"));
+        root.setExpanded(true);
+
+        TreeItem<ExplorerNode> userGroup = new TreeItem<>(ExplorerNode.group(GROUP_USER));
+        userGroup.setExpanded(true);
+        TreeItem<ExplorerNode> generatedGroup = new TreeItem<>(ExplorerNode.group(GROUP_GENERATED));
+
+        buildUserTree(userGroup, javaRoot);
+
+        List<Path> generated = new ArrayList<>();
+        collectByRole(javaRoot, generated);
+        generated.sort(Comparator.comparing(p -> p.getFileName().toString()));
+        for (Path p : generated) {
+            generatedGroup.getChildren().add(new TreeItem<>(ExplorerNode.of(p, FileRole.of(config, state.getTemplate(), p))));
+        }
+
+        root.getChildren().add(userGroup);
+        if (!generatedGroup.getChildren().isEmpty()) root.getChildren().add(generatedGroup);
+
+        restoreExpansionState(root, expandedState);
+        if (expandedState.isEmpty()) {
+            Path target = (state.getActiveFile() != null)
+                    ? state.getActiveFile().getPath()
+                    : config.mainSourceFile().getParent();
+            if (target != null) expandPathTo(userGroup, target);
+        }
+        fileTree.setRoot(root);
+    }
+
+    /**
+     * Adds the editable files under {@code dir} to {@code parentItem}, preserving the package structure.
+     * Directories containing no editable files are pruned rather than shown empty.
+     */
+    private boolean buildUserTree(TreeItem<ExplorerNode> parentItem, Path dir) {
+        boolean addedAnything = false;
+        try (Stream<Path> files = Files.list(dir)) {
+            List<Path> sorted = files.sorted(FileExplorerManager::dirsFirst).toList();
+            for (Path path : sorted) {
+                if (Files.isDirectory(path)) {
+                    TreeItem<ExplorerNode> dirItem = new TreeItem<>(ExplorerNode.of(path, FileRole.EDITABLE));
+                    if (buildUserTree(dirItem, path)) {
+                        parentItem.getChildren().add(dirItem);
+                        addedAnything = true;
+                    }
+                } else if (FileRole.of(config, state.getTemplate(), path) == FileRole.EDITABLE) {
+                    parentItem.getChildren().add(new TreeItem<>(ExplorerNode.of(path, FileRole.EDITABLE)));
+                    addedAnything = true;
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return addedAnything;
+    }
+
+    /** Collects every non-editable file under {@code dir}, recursively. */
+    private void collectByRole(Path dir, List<Path> out) {
+        try (Stream<Path> files = Files.list(dir)) {
+            for (Path path : files.toList()) {
+                if (Files.isDirectory(path)) {
+                    collectByRole(path, out);
+                } else if (FileRole.of(config, state.getTemplate(), path) != FileRole.EDITABLE) {
+                    out.add(path);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static int dirsFirst(Path p1, Path p2) {
+        boolean d1 = Files.isDirectory(p1);
+        boolean d2 = Files.isDirectory(p2);
+        if (d1 && !d2) return -1;
+        if (!d1 && d2) return 1;
+        return p1.getFileName().toString().compareTo(p2.getFileName().toString());
     }
 
     private Set<String> saveExpansionState() {
@@ -124,98 +310,81 @@ public class FileExplorerManager {
         return expanded;
     }
 
-    private void saveExpansionStateRecursive(TreeItem<Path> item, Set<String> expanded) {
-        if (item.isExpanded()) expanded.add(item.getValue().toAbsolutePath().toString());
-        for (TreeItem<Path> child : item.getChildren()) saveExpansionStateRecursive(child, expanded);
+    private void saveExpansionStateRecursive(TreeItem<ExplorerNode> item, Set<String> expanded) {
+        if (item.isExpanded() && item.getValue() != null) expanded.add(item.getValue().key());
+        for (TreeItem<ExplorerNode> child : item.getChildren()) saveExpansionStateRecursive(child, expanded);
     }
 
-    private void restoreExpansionState(TreeItem<Path> item, Set<String> expanded) {
-        if (expanded.contains(item.getValue().toAbsolutePath().toString())) item.setExpanded(true);
-        for (TreeItem<Path> child : item.getChildren()) restoreExpansionState(child, expanded);
+    private void restoreExpansionState(TreeItem<ExplorerNode> item, Set<String> expanded) {
+        if (item.getValue() != null && expanded.contains(item.getValue().key())) item.setExpanded(true);
+        for (TreeItem<ExplorerNode> child : item.getChildren()) restoreExpansionState(child, expanded);
     }
 
-    public void refreshTree() {
-        Set<String> expandedState = saveExpansionState();
-
-        // FIXED: Robust root finding
-        // Start from src/main/java
-        Path projectRoot = config.projectPath();
-        Path javaRoot = projectRoot.resolve("src").resolve("main").resolve("java");
-
-        if (!Files.exists(javaRoot)) {
-            // Fallback to source file parent's parent...
-            javaRoot = config.mainSourceFile().getParent();
-        }
-
-        TreeItem<Path> root = new TreeItem<>(javaRoot);
-        root.setExpanded(true);
-
-        buildFileTree(root, javaRoot);
-        restoreExpansionState(root, expandedState);
-
-        // Ensure the path to the active file is expanded by default if state is empty
-        if (expandedState.isEmpty()) {
-            Path target = (state.getActiveFile() != null)
-                    ? state.getActiveFile().getPath()
-                    : config.mainSourceFile().getParent(); // Default to package dir
-
-            if (target != null) {
-                expandPathTo(root, target);
-            }
-        }
-        fileTree.setRoot(root);
-    }
-
-    // Helper to auto-expand to a specific file
-    private boolean expandPathTo(TreeItem<Path> currentItem, Path target) {
-        if (currentItem.getValue().equals(target)) return true;
-        if (currentItem.getValue().toString().equals(target.toString())) return true; // Path equality check
+    /** Auto-expands the branch leading to {@code target}. */
+    private boolean expandPathTo(TreeItem<ExplorerNode> currentItem, Path target) {
+        ExplorerNode node = currentItem.getValue();
+        if (node != null && node.path() != null && node.path().equals(target)) return true;
 
         boolean found = false;
-        // If directory, check if target starts with this directory
-        if (target.startsWith(currentItem.getValue())) {
+        if (node == null || node.path() == null || target.startsWith(node.path())) {
             currentItem.setExpanded(true);
-            for(TreeItem<Path> child : currentItem.getChildren()) {
-                if (expandPathTo(child, target)) {
-                    found = true;
-                }
+            for (TreeItem<ExplorerNode> child : currentItem.getChildren()) {
+                if (expandPathTo(child, target)) found = true;
             }
         }
         return found;
     }
 
-    private void buildFileTree(TreeItem<Path> parentItem, Path parentPath) {
-        Path activitiesFile = config.activitiesSourceFile().toAbsolutePath();
-        try (Stream<Path> files = Files.list(parentPath)) {
-            files.filter(p -> !p.toAbsolutePath().equals(activitiesFile)) // generated; managed via Manage Activities
-                    .sorted((p1, p2) -> {
-                boolean d1 = Files.isDirectory(p1);
-                boolean d2 = Files.isDirectory(p2);
-                if (d1 && !d2) return -1;
-                if (!d1 && d2) return 1;
-                return p1.getFileName().toString().compareTo(p2.getFileName().toString());
-            }).forEach(path -> {
-                TreeItem<Path> item = new TreeItem<>(path);
-                parentItem.getChildren().add(item);
-                if (Files.isDirectory(path)) {
-                    buildFileTree(item, path);
-                }
-            });
-        } catch (IOException e) { e.printStackTrace(); }
+    // ------------------------------------------------------------------
+    // New Activity
+    // ------------------------------------------------------------------
+
+    /**
+     * Creates a new activity. Delegates to {@link ActivityService#update} — the same path Manage Activities
+     * drives — so the registry is regenerated and the {@code Activity} subclass stub is created for us.
+     * (This replaces the old "New Function Library", which wrote a bare {@code static void action()} class
+     * into the main package and registered nothing.)
+     */
+    private void showCreateActivityDialog() {
+        TextInputDialog dialog = new TextInputDialog();
+        dialog.setTitle("New Activity");
+        dialog.setHeaderText("Create a new activity");
+        dialog.setContentText("Name (e.g. Mining):");
+        Optional<String> result = dialog.showAndWait();
+
+        result.ifPresent(name -> {
+            String className = sanitizeActivityName(name);
+            if (className.isEmpty()) return;
+
+            ActivitiesConfig current = activityService.current();
+            boolean exists = current.activities().stream()
+                    .anyMatch(a -> a.name().equalsIgnoreCase(className));
+            if (exists) {
+                Alert alert = new Alert(Alert.AlertType.WARNING);
+                alert.setTitle("Activity exists");
+                alert.setHeaderText("There is already an activity called " + className + ".");
+                alert.showAndWait();
+                return;
+            }
+
+            List<ActivityDefinition> updated = new ArrayList<>(current.activities());
+            updated.add(new ActivityDefinition(className, true, "", List.of()));
+            activityService.update(new ActivitiesConfig(updated, current.globals()))
+                    .thenRun(() -> Platform.runLater(() -> {
+                        refreshTree();
+                        Path stub = config.activitiesPackageDir().resolve(className + ".java");
+                        if (Files.exists(stub)) codeEditorService.switchToFile(stub);
+                    }));
+        });
     }
 
-    private void showCreateFileDialog() {
-        TextInputDialog dialog = new TextInputDialog();
-        dialog.setTitle("New Function Library");
-        dialog.setHeaderText("Create a new library of functions");
-        dialog.setContentText("Name (e.g. Movement):");
-        Optional<String> result = dialog.showAndWait();
-        result.ifPresent(name -> {
-            String className = name.trim().replaceAll("[^a-zA-Z0-9]", "");
-            if (!className.isEmpty()) {
-                codeEditorService.createFile(className);
-                refreshTree();
-            }
-        });
+    /**
+     * An activity name becomes a Java class name and a field on the generated {@code Activities} class, so it
+     * must be a valid identifier: strip non-alphanumerics, then drop any leading digits.
+     */
+    static String sanitizeActivityName(String raw) {
+        if (raw == null) return "";
+        String cleaned = raw.trim().replaceAll("[^a-zA-Z0-9]", "");
+        return cleaned.replaceFirst("^[0-9]+", "");
     }
 }

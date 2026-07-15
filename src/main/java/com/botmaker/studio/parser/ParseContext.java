@@ -30,4 +30,15 @@ public record ParseContext(
         BlockDragAndDropManager manager,
         boolean readOnly,
         boolean markNewIdentifiersAsUnedited
-) {}
+) {
+    /**
+     * This context with {@code readOnly} forced on. Used to parse a subtree that is locked even though the file
+     * around it isn't — an activity's {@code isEnabled()} body inside a file the user otherwise owns (see
+     * {@code MethodLock.FULL}). Every block created under the returned context inherits the lock.
+     */
+    public ParseContext readOnlySubtree() {
+        return readOnly ? this
+                : new ParseContext(cu, sourceCode, comments, nodeToBlockMap, manager, true,
+                        markNewIdentifiersAsUnedited);
+    }
+}

@@ -30,12 +30,36 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
     /** Drives the collapsed-header corner radius via blocks.css (`.block-header:collapsed`). */
     protected static final PseudoClass COLLAPSED = PseudoClass.getPseudoClass("collapsed");
 
+    /** Distinguishes a "you can't touch this" badge from a "this one's yours" badge (`.method-lock-badge:locked`). */
+    protected static final PseudoClass LOCKED = PseudoClass.getPseudoClass("locked");
+
     private final String methodName;
     private final String returnType;
     private BodyBlock body;
 
     protected boolean isDeletable = true; // False for Main method
     private boolean isCollapsed = false;
+    private String lockBadge;
+
+    /**
+     * A short note rendered in the header saying what the user may do with this method — the {@code MethodLock}
+     * badge ("Generated - Read Only", "Name and parameters required by BotMaker"), or the nudge toward the
+     * method they <em>should</em> edit ("Your code goes here"). Null renders nothing.
+     */
+    public void setLockBadge(String lockBadge) {
+        this.lockBadge = lockBadge;
+    }
+
+    /**
+     * Whether the signature (name, return type, parameters, existence) may be changed. Read-only methods keep a
+     * fully rendered header — the user should still <em>see</em> the signature — but every control that would
+     * mutate it is replaced by a plain label. Without this the header's own TextFields and menus stayed live on
+     * read-only blocks, since {@code ReadOnlyDecorator} only styles the node and {@code InteractionDecorator}
+     * only suppresses the right-click menu.
+     */
+    private boolean canEditSignature() {
+        return isDeletable && !isReadOnly();
+    }
 
     public MethodDeclarationBlock(String id, MethodDeclaration astNode, BlockDragAndDropManager manager) {
         super(id, astNode);
@@ -113,7 +137,7 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
         funcLabel.getStyleClass().add("header-keyword-label");
 
         Node nameNode;
-        if (isDeletable) {
+        if (canEditSignature()) {
             TextField nameField = new TextField(methodName);
             nameField.getStyleClass().add("method-name-field");
             nameField.setPrefWidth(Math.max(80, methodName.length() * 8 + 20));
@@ -141,21 +165,30 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
         MethodDeclaration mdRet = (MethodDeclaration) this.astNode;
         Label returnTypeLabel = new Label(returnType);
         returnTypeLabel.getStyleClass().add("return-type-label");
-        ExpressionMenuFactory.installTypeSelector(returnTypeLabel, "Click to change return type",
-                () -> mdRet.getReturnType2() != null
-                        ? ProjectAnalyzer.resolveType(mdRet.getReturnType2()) : ResolvedType.primitive("void"),
-                context, null, true,
-                newType -> context.getCodeEditor().setMethodReturnType(mdRet, newType));
+        if (canEditSignature()) {
+            ExpressionMenuFactory.installTypeSelector(returnTypeLabel, "Click to change return type",
+                    () -> mdRet.getReturnType2() != null
+                            ? ProjectAnalyzer.resolveType(mdRet.getReturnType2()) : ResolvedType.primitive("void"),
+                    context, null, true,
+                    newType -> context.getCodeEditor().setMethodReturnType(mdRet, newType));
+        }
 
         var topRowBuilder = BlockLayout.sentence()
                 .addNode(collapseBtn)
                 .addNode(funcLabel)
                 .addNode(nameNode)
-                .addNode(BlockUIComponents.createSpacer())
-                .addNode(returnsLabel)
-                .addNode(returnTypeLabel);
+                .addNode(BlockUIComponents.createSpacer());
 
-        if (isDeletable) {
+        if (lockBadge != null) {
+            Label badge = new Label(lockBadge);
+            badge.getStyleClass().add("method-lock-badge");
+            badge.pseudoClassStateChanged(LOCKED, isReadOnly());
+            topRowBuilder.addNode(badge);
+        }
+
+        topRowBuilder.addNode(returnsLabel).addNode(returnTypeLabel);
+
+        if (canEditSignature()) {
             Button deleteBtn = new Button("×");
             deleteBtn.getStyleClass().add("header-delete-button");
             deleteBtn.setOnAction(e -> context.getCodeEditor().deleteMethod((MethodDeclaration) this.astNode));
@@ -181,7 +214,7 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
             }
         }
 
-        if (isDeletable) {
+        if (canEditSignature()) {
             Button addParamBtn = new Button("+");
             addParamBtn.getStyleClass().add("add-param-button");
             addParamBtn.setOnAction(e -> ExpressionMenuFactory.showTypeMenu(addParamBtn, null, context, null,
@@ -212,32 +245,39 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
         Label typeLabel = new Label(param.getType().toString());
         typeLabel.getStyleClass().add("param-type-label");
 
-        if (isDeletable) {
+        if (canEditSignature()) {
             ExpressionMenuFactory.installTypeSelector(typeLabel, "Click to change type",
                     () -> ProjectAnalyzer.resolveType(param.getType()), context, null,
                     newType -> context.getCodeEditor().changeMethodParameterType((MethodDeclaration) this.astNode, index, newType));
         }
 
         String currentName = param.getName().getIdentifier();
-        TextField nameField = new TextField(currentName);
+        Node nameNode;
+        if (canEditSignature()) {
+            TextField nameField = new TextField(currentName);
+            nameField.getStyleClass().add("param-name-field");
+            nameField.setPrefWidth(Math.max(30, currentName.length() * 7));
 
-        nameField.getStyleClass().add("param-name-field");
-        nameField.setPrefWidth(Math.max(30, currentName.length() * 7));
-
-        nameField.focusedProperty().addListener((obs, oldVal, newVal) -> {
-            if (!newVal) {
-                String val = nameField.getText().trim();
-                if (!val.isEmpty() && !val.equals(currentName)) {
-                    context.getCodeEditor().renameMethodParameter((MethodDeclaration) this.astNode, index, val);
-                } else {
-                    nameField.setText(currentName);
+            nameField.focusedProperty().addListener((obs, oldVal, newVal) -> {
+                if (!newVal) {
+                    String val = nameField.getText().trim();
+                    if (!val.isEmpty() && !val.equals(currentName)) {
+                        context.getCodeEditor().renameMethodParameter((MethodDeclaration) this.astNode, index, val);
+                    } else {
+                        nameField.setText(currentName);
+                    }
                 }
-            }
-        });
+            });
+            nameNode = nameField;
+        } else {
+            Label nameLabel = new Label(currentName);
+            nameLabel.getStyleClass().add("param-name-label");
+            nameNode = nameLabel;
+        }
 
-        box.getChildren().addAll(typeLabel, nameField);
+        box.getChildren().addAll(typeLabel, nameNode);
 
-        if (isDeletable) {
+        if (canEditSignature()) {
             Button deleteBtn = new Button("×");
             deleteBtn.getStyleClass().add("param-delete-button");
 

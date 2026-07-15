@@ -40,7 +40,7 @@ public class ImageTemplateWindowTargetTest {
         String[] lastCode = new String[1];
         bus.subscribe(CoreApplicationEvents.CodeUpdatedEvent.class, e -> lastCode[0] = e.newCode());
 
-        BlockConverter converter = new BlockConverter(state);
+        BlockConverter converter = new BlockConverter(null, state);
         BlockConverter.ConvertResult result = converter.convert(
                 source, state.getMutableNodeToBlockMap(), new BlockDragAndDropManager(bus), false, false);
         state.setCompilationUnit(result.cu());

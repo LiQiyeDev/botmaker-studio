@@ -138,8 +138,13 @@ GitHub" (OAuth device flow), "Sign out", "Switch account"; status label cycles a
   state-driven** via `ProgramStarted/Stopped`, `DebugSession*`, `HistoryStateChanged` events.
 
 **Left panel** (`FileExplorerManager`, `.file-explorer`): header "Project Files" (`.sidebar-header`);
-**"New Function Library"** button → `TextInputDialog` → `codeEditorService.createFile`; `TreeView<Path>`
-— select file → `switchToFile`; right-click a non-library file → context menu **"Delete File"**.
+
+**"New Activity"** button → `TextInputDialog` → `ActivityService.update` (regenerates the registry + creates
+the `Activity` subclass stub, then opens it). `TreeView<ExplorerNode>` with two synthetic groups —
+**"Your files"** (`FileRole.EDITABLE`) and **"Generated (read-only)"** (`GENERATED` + `LIBRARY`); select a
+file → `switchToFile`; right-click → **"Delete File"** (confirms first for generated files, pointing at
+Project ▸ Recover Project Files). Refreshes on `ActivitiesChangedEvent`. The explorer/canvas divider is
+clamped to 150–460px by `UIManager.clampExplorerWidth`.
 
 **Bottom `TabPane`** (3 non-closable tabs): **"Terminal"** (`.console-area`, read-only, right-click
 Copy/Clear), **"Errors"** (filter `ToggleButton`s "Errors/Warnings/Infos (n)"; click a `Diagnostic` row

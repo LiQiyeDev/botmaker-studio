@@ -6,6 +6,76 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-15 — Generated scaffolding is actually locked; method-level locks; new/recovered files open without a restart.**
+  Follow-up to the entry below, reversing one of its decisions after using it.
+  **(1) `GENERATED` is now as inert as `LIBRARY`** (`FileRole.suppressesInteraction`). Letting generated blocks
+  stay interactive while silently dropping the edits at the compile-time flush reads as data loss, not as a
+  lock: the edit appears to work, survives until the next reload, then vanishes. If it can't be saved, don't
+  offer it. `ClassBlock` also stops rendering "+ Add Function", member drop zones and drag-to-reorder when
+  read-only, and `MethodDeclarationBlock` swaps every signature control (name field, return-type selector,
+  param pills, delete button) for plain labels — `ReadOnlyDecorator` only styles a node, so the header's own
+  controls were leaking write access regardless. Covered by `ui/fx/LockedMethodRenderingTest` against the real
+  scene graph.
+  **(2) The template is persisted** (`StudioProjectSettings.template`, seeded by `ProjectCreator.seedSettings`,
+  resolved once at open into `ProjectState.getTemplate()`). Needed because `FileRole` locks the entry point
+  only for `GAME_BOT` — an `EMPTY` project's `main` is the user's only file. Also retires
+  `ProjectRepair.looksLikeGameBot` guesswork to a legacy-only fallback. **Game bot is now the default template.**
+  **(3) `project/MethodLock`** — the method-level counterpart to `FileRole`, for the case a file-level verdict
+  can't express: `Bot.supervise(GameLoop::run, GoHome::run, Startup::run)` binds those as `Runnable`s, so the
+  *signature* is scaffolding while the *body* is the whole point. `SIGNATURE` for those hooks, `FULL` for an
+  activity's `isEnabled()`, plus a header badge naming which method is the user's ("Your code goes here").
+  **(4) Activity stubs have no constructor** — the SDK's `Activity` gained a no-arg ctor naming the activity
+  after its class, so the stub asks for nothing but `run()`. **Needs an SDK release before bots on a released
+  SDK can use it.**
+  **(5) `static { }` renders** (`blocks/misc/InitializerBlock`): JDT models it as an `Initializer`, which
+  `parseRoot` handled nowhere, so `Activities.java`'s JSON loader was dropped from the tree entirely — and
+  since `ClassBlock` rewrites from block state, an edit could have deleted it for real.
+  **(6) `Activities.X` renders as a field access, not plain text.** The `QualifiedName` branch required
+  binding resolution; unresolved bindings are routine (a sibling generated file may not be compiled yet), and
+  the fallback rendered inert source text. Now falls back syntactically. `UnknownExpressionBlock` stays the
+  terminal fallback.
+  **(7) New/recovered files open immediately.** `CodeEditorService.switchToFile` resolved only against
+  `openFiles`, populated once at project open, while `ActivityService`/`ProjectRepair` write straight to disk —
+  so a new activity showed in the tree and refused to open until a restart. A map miss now means "not loaded
+  yet": load from disk. Regenerated `Activities`/`ActivityRegistry` are evicted on `ActivitiesChangedEvent` so
+  they don't render stale.
+  **(8) Recover closes its gaps** — `Activities.java`, `ActivityRegistry.java` and `activities.json` are now
+  checked (the explorer's delete dialog promised Recover could bring `Activities.java` back; it couldn't), and
+  `ProjectRepair`'s private copy of the empty-project entry point — which had drifted and lost an import, so a
+  recovered project didn't compile — is gone in favour of `ProjectCreator.sourcesFor`.
+
+- **2026-07-15 — File roles (user vs generated), New Activity, project recovery, explorer layout, `extends` + method refs.**
+  **(1) `project/FileRole`** is now the single source of "may the user change this?" — `EDITABLE` /
+  `GENERATED` / `LIBRARY`, replacing inline path checks in `CodeEditorService.refreshUI` that the explorer
+  didn't share (which is how `ActivityRegistry.java` was read-only in the editor but silently deletable from
+  the tree). ~~**`GENERATED` is deliberately not `LIBRARY`:** its blocks stay interactive and visually editable,
+  but the edits are in-memory only.~~ **Superseded by the entry above — generated files are now fully inert;
+  interactive-but-discarded edits read as data loss.** Persistence is still enforced in
+  **`CodeExecutionService.compileAndWait`**, the *only* place edited source reaches disk (the editor never
+  writes as you type). `GENERATED` = entry point (game-bot only, see above) + `ActivityRegistry` +
+  `Activities` + `GameLoop`; `GoHome`/`Startup`/activity stubs stay editable files.
+  **(2) `MacroLoop` → `GameLoop`** throughout the template.
+  **(3) Explorer reworked** (`FileExplorerManager`): `TreeView<Path>` → `TreeView<ExplorerNode>` (a path can't
+  model a synthetic group header), split into **"Your files"** / **"Generated (read-only)"**, delete now
+  confirms for generated files, and it subscribes to `ActivitiesChangedEvent` so new activities appear.
+  **(4) "New Function Library" → "New Activity"**, delegating to the existing `ActivityService.update` (which
+  regenerates the registry + stub) instead of the old hardcoded `static void action()` writer.
+  **(5) Explorer drag bounded** — `UIManager.clampExplorerWidth` clamps the `mainSplit` divider to
+  150–460px. The node keeps `maxWidth = MAX_VALUE` on purpose: capping *the node* (what `960d01d` removed) is
+  what leaves dead space beside the tree; the divider is the thing that needed a bound.
+  **(6) `Project ▸ Recover Project Files`** (`project/ProjectRepair`) regenerates scaffolding deleted outside
+  the Studio — only ever creating what's absent, never overwriting. `ProjectCreator.gameBotSources` now
+  returns `fileName -> source` so recovery reuses the templates rather than duplicating them. Note the chosen
+  `ProjectTemplate` is **not persisted**, so game-bot-ness is *inferred* (`Bot.supervise` in main, or any
+  scaffold file present).
+  **(7) `ClassBlock` shows inheritance** (`Class: Mining extends Activity`) — `getSuperclassType()` was never
+  read, so every generated activity stub hid its superclass.
+  **(8) `supervise()` empty-parens fixed.** `MethodReferenceBlock` models `GameLoop::run`; more importantly
+  `BlockConverter.dispatchExpression`'s bare `return Optional.empty()` fallback (fed through
+  `.ifPresent(block::addArgument)`) **silently dropped** unmodelled arguments — a rewrite from block state
+  could then delete them for real. It now emits an `UnknownExpressionBlock` rendering the source verbatim, so
+  no expression is ever invisibly dropped again.
+
 - **2026-07-15 — Object-capture wand rebuilt on OpenCV GrabCut.**
   The pure-Java flood-fill wand (`ui/app/capture/MagicWand`) is replaced by OpenCV **GrabCut**: drag a box →
   solve, then left/right-drag to paint definite foreground/background and re-solve from retained GMM models

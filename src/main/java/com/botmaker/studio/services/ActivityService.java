@@ -211,7 +211,13 @@ public final class ActivityService {
                 """, config.packageName(), activitiesImport, entries.toString().stripTrailing());
     }
 
-    /** Builds the initial editable stub for one activity's {@code Activity} subclass. */
+    /**
+     * Builds the initial editable stub for one activity's {@code Activity} subclass.
+     *
+     * <p>No constructor: {@code Activity}'s no-arg constructor names the activity after its own class, so the
+     * only thing the generated stub asks the user for is {@link #run()} — {@code isEnabled()} is wiring to the
+     * generated {@code Activities} flag and the Studio marks it read-only ({@code MethodLock.FULL}).
+     */
     String generateStubSource(ActivityDefinition a) {
         return String.format("""
                 package com.%1$s.activities;
@@ -220,15 +226,12 @@ public final class ActivityService {
                 import com.botmaker.sdk.api.bot.Activity;
 
                 /**
-                 * Activity: %2$s. Fill in {@link #run()} with how to do it. This file is yours to edit —
-                 * BotMaker Studio creates it once and never overwrites it. The enable flag is
-                 * {@code Activities.%2$s}; any config params are {@code Activities.%2$s_<param>}.
+                 * Activity: %2$s. Fill in {@link #run()} with how to do it — that method is the whole point of
+                 * this file, and this file is yours to edit (BotMaker Studio creates it once and never
+                 * overwrites it). {@link #isEnabled()} is wired to the enable flag {@code Activities.%2$s} and
+                 * is managed for you; any config params are {@code Activities.%2$s_<param>}.
                  */
                 public class %2$s extends Activity {
-
-                    public %2$s() {
-                        super("%2$s");
-                    }
 
                     @Override
                     public boolean isEnabled() {
