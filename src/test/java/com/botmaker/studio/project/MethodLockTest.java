@@ -16,6 +16,11 @@ import static org.junit.jupiter.api.Assertions.*;
  * Locks in which methods the user may change. The contract being protected is the SDK's:
  * {@code Bot.supervise(GameLoop::run, GoHome::run, Startup::run)} binds each as a {@code Runnable}, so those
  * signatures are not the user's to rename or re-parameterise — even though the bodies are the whole point.
+ *
+ * <p>Note the asymmetry these tests pin down: {@link MethodLock#NONE} <b>defers</b> to {@link FileRole}, while
+ * {@link MethodLock#SIGNATURE} <b>grants</b> the body regardless of the file. That is what lets
+ * {@code GameLoop.run} stay writable inside a generated file — and it is why a {@code SIGNATURE} verdict must
+ * never be handed out on file name alone.
  */
 class MethodLockTest {
 
@@ -90,12 +95,29 @@ class MethodLockTest {
     }
 
     @Test
-    void anActivitysRunIsTheUsers() {
+    void anActivitysRunHasALockedSignatureButAnEditableBody() {
+        // The body is the whole reason the file exists, but the signature is not the user's: the stub is
+        // generated as `@Override public void run()`, so a rename or an added parameter silently stops
+        // overriding Activity.run and the activity never executes.
         Path stub = CONFIG.activitiesPackageDir().resolve("Mining.java");
-        assertEquals(MethodLock.NONE,
-                MethodLock.of(CONFIG, ProjectTemplate.GAME_BOT, stub, methodNamed(ACTIVITY, "run")));
+        MethodLock lock = MethodLock.of(CONFIG, ProjectTemplate.GAME_BOT, stub, methodNamed(ACTIVITY, "run"));
+        assertEquals(MethodLock.SIGNATURE, lock);
+        assertTrue(lock.locksSignature(), "run() is an @Override of Activity.run");
+        assertFalse(lock.locksBody(), "the body is what the user came to write");
         assertTrue(MethodLock.isUsersEntryPoint(CONFIG, ProjectTemplate.GAME_BOT, stub,
                 methodNamed(ACTIVITY, "run")));
+    }
+
+    @Test
+    void aSuperviseHookNameOutsideTheMainPackageIsNotAHook() {
+        // SIGNATURE *grants* body edits, so matching on the bare file name would unlock a run() body inside a
+        // bundled library file — the one place nothing may be touched.
+        Path vendored = Paths.get("/tmp/projects/MyBot/src/main/java/com/botmaker/library/GameLoop.java");
+        Path userSubpackage = CONFIG.mainSourceFile().getParent().resolve("util").resolve("GameLoop.java");
+        assertEquals(MethodLock.NONE,
+                MethodLock.of(CONFIG, ProjectTemplate.GAME_BOT, vendored, methodNamed(GO_HOME, "run")));
+        assertEquals(MethodLock.NONE,
+                MethodLock.of(CONFIG, ProjectTemplate.GAME_BOT, userSubpackage, methodNamed(GO_HOME, "run")));
     }
 
     @Test

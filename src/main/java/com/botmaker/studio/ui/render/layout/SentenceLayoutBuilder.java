@@ -30,8 +30,17 @@ public class SentenceLayoutBuilder {
         return this;
     }
 
+    /**
+     * Adds {@code node}, or nothing at all when it is null.
+     *
+     * <p>Null is the "this affordance does not exist" signal, not an error: a read-only block's factories
+     * ({@code AbstractStatementBlock.createAddButton}, {@code createDeleteButton},
+     * {@code AbstractCodeBlock.createChangeButton}) return null, and the control is then simply never built.
+     * A locked block must offer no interaction — not a disabled or greyed one — so there is nothing to click,
+     * nothing to explain, and nothing for a future block to forget to guard.
+     */
     public SentenceLayoutBuilder addNode(Node node) {
-        nodes.add(node);
+        if (node != null) nodes.add(node);
         return this;
     }
 

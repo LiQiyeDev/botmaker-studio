@@ -1,5 +1,6 @@
 package com.botmaker.studio.blocks.misc;
 
+import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.core.AbstractStatementBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.services.CodeEditorService;
@@ -22,6 +23,11 @@ public class PrintBlock extends AbstractStatementBlock {
     }
 
     public void addArgument(ExpressionBlock argument) { this.arguments.add(argument); }
+
+    @Override
+    protected BlockCategory category() {
+        return BlockCategory.OUTPUT;
+    }
 
     @Override
     protected Node createUINode(CodeEditorService context) {
@@ -55,7 +61,7 @@ public class PrintBlock extends AbstractStatementBlock {
 
         return BlockLayout.header()
                 .withCustomNode(sentenceBuilder.build())
-                .withDeleteButton(() -> context.getCodeEditor().deleteStatement((org.eclipse.jdt.core.dom.Statement) this.astNode))
+                .withDeleteButton(deleteAction(context))
                 .build();
     }
 

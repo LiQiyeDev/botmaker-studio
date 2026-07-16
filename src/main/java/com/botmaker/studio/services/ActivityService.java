@@ -218,7 +218,9 @@ public final class ActivityService {
      * only thing the generated stub asks the user for is {@link #run()} — {@code isEnabled()} is wiring to the
      * generated {@code Activities} flag and the Studio marks it read-only ({@code MethodLock.FULL}).
      */
-    String generateStubSource(ActivityDefinition a) {
+    // Public because recovery needs it too: an activity's isEnabled() is generated against that activity's own
+    // flag, so this is the only thing that can say what the stub *should* look like when repairing a mangled one.
+    public String generateStubSource(ActivityDefinition a) {
         return String.format("""
                 package com.%1$s.activities;
 

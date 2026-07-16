@@ -121,14 +121,13 @@ public class ProjectManager {
     }
 
     /**
-     * Gets the source file path for a project
+     * Gets the entry-point source file path for a project.
+     *
+     * <p>Delegates to {@link ProjectConfig} rather than rebuilding the path: this used to derive the package
+     * and file name itself, which meant the rule lived in two places and only one of them learned that a
+     * project's class name is derived from its name rather than equal to it.
      */
     public Path getSourceFilePath(String projectName) {
-        String packageName = projectName.toLowerCase();
-        return PROJECTS_ROOT
-                .resolve(projectName)
-                .resolve("src/main/java/com")
-                .resolve(packageName)
-                .resolve(projectName + ".java");
+        return ProjectConfig.forProject(projectName, PROJECTS_ROOT).mainSourceFile();
     }
 }

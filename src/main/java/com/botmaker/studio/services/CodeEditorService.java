@@ -9,7 +9,7 @@ import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.parser.BlockConverter;
 import com.botmaker.studio.parser.CodeEditor;
-import com.botmaker.studio.project.FileRole;
+import com.botmaker.studio.project.LockResolver;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.state.HistoryManager;
@@ -75,7 +75,7 @@ public class CodeEditorService {
         this.projectAnalyzer = projectAnalyzer;
         this.sdkDocsService = sdkDocsService;
         this.historyManager = new HistoryManager();
-        this.codeEditor = new CodeEditor(state, eventBus, projectAnalyzer);
+        this.codeEditor = new CodeEditor(config, state, eventBus, projectAnalyzer);
         setupEventHandlers();
     }
 
@@ -416,17 +416,16 @@ public class CodeEditorService {
             diagnosticsManager.updateSource(state.getMutableNodeToBlockMap(), javaCode);
         }
 
-        // What the user may do with this file — see project/FileRole (the single source of these rules).
-        // GENERATED and LIBRARY are both inert: if an edit can't be saved, it must not be offered.
-        FileRole role = state.getActiveFile() == null
-                ? FileRole.EDITABLE
-                : FileRole.of(config, state.getTemplate(), state.getActiveFile().getPath());
+        // The file's default verdict — see project/LockResolver (the single source of these rules). It is only
+        // a default: a per-method lock can override it either way while parsing, which is how GameLoop.run's
+        // body stays writable inside a file that is otherwise inert scaffolding.
+        LockResolver resolver = LockResolver.forActiveFile(config, state);
 
         BlockConverter.ConvertResult result = blockConverter.convert(
                 javaCode,
                 state.getMutableNodeToBlockMap(),
                 dragAndDropManager,
-                role.suppressesInteraction(),
+                resolver.suppressesInteraction(),
                 markNewIdentifiersAsUnedited
         );
         AbstractCodeBlock rootBlock = result.root();
@@ -443,7 +442,7 @@ public class CodeEditorService {
 
         if (state.getActiveFile() != null) {
             String fileName = state.getActiveFile().getPath().getFileName().toString();
-            String badge = role.badge();
+            String badge = resolver.role().badge();
             if (badge != null) fileName += " [" + badge + "]";
             eventBus.publish(new CoreApplicationEvents.StatusMessageEvent("Loaded: " + fileName));
         }

@@ -505,6 +505,9 @@ public final class ProgramShapeOverlay {
     private void insertBelowCursor(BlockType type) {
         InsertionCursor c = cursor();
         if (c == null || type == null) return;
+        // The caret should never be parked in scaffolding (CursorNavigator skips read-only bodies), but the
+        // overlay reaches CodeEditor without going through a block, so don't rely on that alone.
+        if (c.body().isReadOnly()) return;
         int insertIndex = Math.min(c.index() + 1, c.body().getStatements().size());
         pendingInsert = new PendingInsert(bodyOrdinal(c.body()), insertIndex);
         context.getCodeEditor().addStatement(c.body(), type, insertIndex);

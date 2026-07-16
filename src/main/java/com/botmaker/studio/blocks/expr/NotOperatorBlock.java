@@ -29,7 +29,7 @@ public class NotOperatorBlock extends AbstractExpressionBlock {
         var sentence = BlockLayout.sentence()
                 .addLabel("!")
                 .addExpressionSlot(operand, context, ResolvedType.primitive("boolean"))
-                .addNode(BlockUIComponents.createChangeButton(e ->
+                .addNode(createChangeButton(e ->
                         showExpressionMenuAndReplace((Button)e.getSource(), context, ResolvedType.primitive("boolean"),
                                 operand != null ? (Expression) operand.getAstNode() : null)
                 ));

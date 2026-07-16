@@ -52,11 +52,14 @@ public class LayoutComponents {
     /**
      * Creates a horizontal row for building "sentences" (e.g., "for each [var] in [list]").
      */
+    /** A sentence row. Null entries are skipped — see {@code SentenceLayoutBuilder.addNode} for why. */
     public static HBox createSentenceRow(Node... nodes) {
         HBox row = new HBox(5);
         row.setAlignment(Pos.CENTER_LEFT);
         if (nodes != null) {
-            row.getChildren().addAll(nodes);
+            for (Node node : nodes) {
+                if (node != null) row.getChildren().add(node);
+            }
         }
         return row;
     }

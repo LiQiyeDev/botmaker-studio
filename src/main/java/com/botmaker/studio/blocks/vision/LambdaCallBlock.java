@@ -123,7 +123,7 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
 
         container.getChildren().add(BlockLayout.header()
                 .withCustomNode(headerContent)
-                .withDeleteButton(() -> context.getCodeEditor().deleteStatement((Statement) this.astNode))
+                .withDeleteButton(deleteAction(context))
                 .build());
 
         container.getChildren().add(createIndentedBody(body, context, "sdk-lambda-body"));

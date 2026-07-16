@@ -1,5 +1,6 @@
 package com.botmaker.studio.blocks.misc;
 
+import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.core.AbstractStatementBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.services.CodeEditorService;
@@ -22,6 +23,11 @@ public class ClickBlock extends AbstractStatementBlock {
     }
 
     @Override
+    protected BlockCategory category() {
+        return BlockCategory.GAME;
+    }
+
+    @Override
     protected Node createUINode(CodeEditorService context) {
         // Target the API Point class
         ResolvedType pointType = ResolvedType.named("com.botmaker.sdk.api.Point");
@@ -33,7 +39,7 @@ public class ClickBlock extends AbstractStatementBlock {
 
         return BlockLayout.header()
                 .withCustomNode(sentence)
-                .withDeleteButton(() -> context.getCodeEditor().deleteStatement((Statement) this.astNode))
+                .withDeleteButton(deleteAction(context))
                 .build();
     }
 }

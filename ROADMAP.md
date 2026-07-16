@@ -6,6 +6,47 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-16 — Locks are enforced where edits happen, not where controls are drawn; project-creation UX; block visual tokens.**
+  Fixes six reported bugs whose root causes were two.
+  **(1) The write layer is now the enforcement point** (`parser/CodeEditor`). Its `canModify()` tested for a
+  path (`com/botmaker/sdk`) that no longer existed, so it *always returned true* — read-only was enforced only
+  by not rendering a control, and every path that forgot (the expression menu, the method-call dropdown, the
+  separator "+") silently rewrote generated code and persisted it. `edit(...)` now takes the target node + an
+  `EditKind`; ~60 call sites route through it, and a refusal is reported to the user rather than being a mystery
+  no-op. Covered by `parser/CodeEditorLockTest`, which calls the editor exactly as a forgetful UI path would.
+  **(2) `MethodLock` outranks `FileRole` at method granularity, and may unlock as well as lock**
+  (`project/LockResolver`, the one place the two verdicts combine). They contradicted each other — `MethodLock`
+  documented `GameLoop.run`'s body as the user's while `FileRole` locked the whole file, and the file won,
+  which is why statements couldn't be added to the game loop. `NONE` now means "defer to the file"; `SIGNATURE`
+  grants the body unconditionally. `ParseContext.readOnlySubtree()` → `withReadOnly(boolean)` (two-way).
+  Also: `FileRole.of` ignored its `template` for `GameLoop`/`Activities`/`ActivityRegistry` (an independent
+  cause — a user's own `GameLoop.java` in an empty project went read-only), and `looksLikeGameBot` guessed
+  GAME_BOT from one stray file. `MethodLock`'s supervise hooks are now anchored to the main package: `SIGNATURE`
+  grants a body, so bare-filename matching would have unlocked a vendored `library/GameLoop.java`.
+  **(3) An activity's `run()` is `SIGNATURE`-locked** — it's an `@Override`, so a rename silently stops
+  overriding `Activity.run`. Its body stays the user's.
+  **(4) Persistence is method-aware** (`project/LockedRegions`). The whole-file skip would now discard the
+  user's game-loop body on every compile; only changes to *locked parts* are refused. `FileRole.blocksPersistence`
+  deleted so the concept can't drift back.
+  **(5) Recovery repairs damaged locked methods** (`ProjectRepair.findDamaged`/`repairDamaged`). It was
+  existence-only, so a renamed `GoHome.run` was "present, therefore fine" while the bot didn't compile. For a
+  `SIGNATURE` lock the signature is restored and **the user's body is kept**; their own methods are never touched.
+  **(6) A read-only block now offers no interaction at all** — absent, not disabled: no menus, dropdowns
+  (`ComboBox`→`Label`), delete buttons, type selectors, name fields, empty-body invitation or separator "+".
+  Driven by factories returning null + builders skipping null nodes, so blocks inherit the rule instead of each
+  remembering it. `ui/fx/LockedBlockRenderingTest` asserts on node *types*, so a new block that forgets fails.
+  **(7) Project creation:** a lowercase first letter is allowed — `ProjectConfig` derives `className`
+  (capitalized) instead of the name doubling as the class; the directory/artifactId keep what the user typed.
+  Default sort is newest-first (persisted in `ProjectPreferences`), and creating a project opens it.
+  **(8) Block visuals:** design tokens (`-bm-*`) in `blocks.css` as the single source of colour;
+  `BlockCategory#styleClass` drives a per-category accent; the "Your code goes here" badge is now the loudest
+  thing in the header (was 10px teal-on-purple, after a spacer) plus a block-level accent; read-only reads as
+  flat/desaturated. The comment block's text now fills the block — the cause was a broken hgrow chain in
+  `HeaderLayoutBuilder` (its unconditional greedy spacer starved the field), latent in *every* `withCustomNode`
+  + delete header. Dead theme code removed (`ColorPalette.forCategory` had no callers; `hexToRgb`/`adjustBrightness`
+  were stubs returning the literal `"..."`). The explorer group and `FileRole.GENERATED`'s badge no longer say
+  "read-only", which would contradict the editable `run()` body on screen.
+
 - **2026-07-15 — Generated scaffolding is actually locked; method-level locks; new/recovered files open without a restart.**
   Follow-up to the entry below, reversing one of its decisions after using it.
   **(1) `GENERATED` is now as inert as `LIBRARY`** (`FileRole.suppressesInteraction`). Letting generated blocks

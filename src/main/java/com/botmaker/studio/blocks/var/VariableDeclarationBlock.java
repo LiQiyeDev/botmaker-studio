@@ -1,6 +1,6 @@
+package com.botmaker.studio.blocks.var;
 
-        package com.botmaker.studio.blocks.var;
-
+import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.ui.render.menu.ExpressionMenuFactory;
 import com.botmaker.studio.blocks.expr.ListBlock;
 import com.botmaker.studio.core.AbstractStatementBlock;
@@ -37,14 +37,22 @@ public class VariableDeclarationBlock extends AbstractStatementBlock {
     public void setInitializer(ExpressionBlock initializer) { this.initializer = initializer; }
 
     @Override
+    protected BlockCategory category() {
+        return BlockCategory.VARIABLES;
+    }
+
+    @Override
     protected Node createUINode(CodeEditorService context) {
         Label typeLabel = createTypeLabel(varType.simpleName());
-        // PASS THE AST NODE TO ENABLE LOCAL TYPE DETECTION
-        ExpressionMenuFactory.installTypeSelector(typeLabel, "Click to change type", () -> varType,
-                context, this.astNode,
-                newTypeName -> context.getCodeEditor().replaceVariableType((VariableDeclarationStatement) this.astNode, newTypeName));
+        // The label always shows the type; only an editable block gets the click-to-change behaviour.
+        if (!isReadOnly()) {
+            // PASS THE AST NODE TO ENABLE LOCAL TYPE DETECTION
+            ExpressionMenuFactory.installTypeSelector(typeLabel, "Click to change type", () -> varType,
+                    context, this.astNode,
+                    newTypeName -> context.getCodeEditor().replaceVariableType((VariableDeclarationStatement) this.astNode, newTypeName));
+        }
 
-        TextField nameField = TextFieldComponents.createVariableNameField(variableName, newName -> {
+        Node nameField = TextFieldComponents.createVariableName(variableName, !isReadOnly(), newName -> {
             VariableDeclarationFragment fragment = (VariableDeclarationFragment)
                     ((VariableDeclarationStatement) this.astNode).fragments().getFirst();
             if (!newName.equals(variableName) && !newName.isEmpty()) {
@@ -96,8 +104,7 @@ public class VariableDeclarationBlock extends AbstractStatementBlock {
 
         return BlockLayout.header()
                 .withCustomNode(sentence)
-                .withDeleteButton(() -> context.getCodeEditor().deleteStatement(
-                        (Statement) this.astNode))
+                .withDeleteButton(deleteAction(context))
                 .build();
     }
 

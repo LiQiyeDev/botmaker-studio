@@ -117,6 +117,17 @@ public class BlockDragAndDropManager {
     // --- Smart Separator Implementation (Styled) ---
 
     public Pane createSeparator() {
+        return createSeparator(true);
+    }
+
+    /**
+     * A slot between two statements. With {@code withInsertButton} false it is a plain gap — no hover, no "+".
+     *
+     * <p>Read-only bodies pass false. Leaving the button out of the scene is the point: it is hidden until
+     * hover, so merely not wiring its action produced a "+" that appeared under the cursor and then did
+     * nothing — an invitation to insert into scaffolding that could never be accepted.
+     */
+    public Pane createSeparator(boolean withInsertButton) {
         // Changed to Pane to allow absolute positioning of the button
         Pane separator = new Pane();
         double height = 12.0;
@@ -124,6 +135,8 @@ public class BlockDragAndDropManager {
         separator.setMaxHeight(height);
         // No inline -fx-background-color here: it would override the :drag-over-* pseudo-class rules in
         // blocks.css (inline styles beat author stylesheets). A Pane is transparent by default anyway.
+
+        if (!withInsertButton) return separator;
 
         // 1. The Insert Button (+)
         Button insertBtn = new Button("+");

@@ -1,5 +1,6 @@
 package com.botmaker.studio.blocks.flow;
 
+import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.core.AbstractStatementBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.services.CodeEditorService;
@@ -21,6 +22,11 @@ public class WaitBlock extends AbstractStatementBlock {
     }
 
     @Override
+    protected BlockCategory category() {
+        return BlockCategory.UTILITY;
+    }
+
+    @Override
     protected Node createUINode(CodeEditorService context) {
         var sentence = BlockLayout.sentence()
                 .addKeyword("Wait")
@@ -30,7 +36,7 @@ public class WaitBlock extends AbstractStatementBlock {
 
         return BlockLayout.header()
                 .withCustomNode(sentence)
-                .withDeleteButton(() -> context.getCodeEditor().deleteStatement((Statement) this.astNode))
+                .withDeleteButton(deleteAction(context))
                 .build();
     }
 

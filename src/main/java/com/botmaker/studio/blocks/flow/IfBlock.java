@@ -1,5 +1,6 @@
 package com.botmaker.studio.blocks.flow;
 
+import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.core.AbstractStatementBlock;
 import com.botmaker.studio.core.BlockWithChildren;
 import com.botmaker.studio.core.BodyBlock;
@@ -52,6 +53,11 @@ public class IfBlock extends AbstractStatementBlock implements BlockWithChildren
     }
 
     @Override
+    protected BlockCategory category() {
+        return BlockCategory.FLOW;
+    }
+
+    @Override
     protected Node createUINode(CodeEditorService context) {
         VBox container = new VBox(5);
         container.getStyleClass().add("if-block");
@@ -73,7 +79,7 @@ public class IfBlock extends AbstractStatementBlock implements BlockWithChildren
 
         container.getChildren().add(BlockLayout.header()
                 .withCustomNode(headerContent)
-                .withDeleteButton(() -> context.getCodeEditor().deleteStatement((Statement) this.astNode))
+                .withDeleteButton(deleteAction(context))
                 .build());
 
         // Then Body

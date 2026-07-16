@@ -1,5 +1,6 @@
 package com.botmaker.studio.blocks.loop;
 
+import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.core.AbstractStatementBlock;
 import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.BlockWithChildren;
@@ -42,6 +43,11 @@ public class ForBlock extends AbstractStatementBlock implements BlockWithChildre
     }
 
     @Override
+    protected BlockCategory category() {
+        return BlockCategory.LOOPS;
+    }
+
+    @Override
     protected Node createUINode(CodeEditorService context) {
         // Extract variable name safely
         String varName = "";
@@ -50,7 +56,7 @@ public class ForBlock extends AbstractStatementBlock implements BlockWithChildre
         }
 
         // Create editable field for the loop variable
-        TextField nameField = TextFieldComponents.createVariableNameField(varName, newName -> {
+        Node nameField = TextFieldComponents.createVariableName(varName, !isReadOnly(), newName -> {
             if (variable != null && variable.getAstNode() instanceof SimpleName) {
                 // Reuse the generic replacement logic in CodeEditor
                 context.getCodeEditor().replaceSimpleName((SimpleName) variable.getAstNode(), newName);
@@ -70,7 +76,7 @@ public class ForBlock extends AbstractStatementBlock implements BlockWithChildre
         // Build full structure with header and body
         return BlockLayout.header()
                 .withCustomNode(sentence)
-                .withDeleteButton(() -> context.getCodeEditor().deleteStatement((org.eclipse.jdt.core.dom.Statement) this.astNode))
+                .withDeleteButton(deleteAction(context))
                 .andBody()
                 .withContent(body, context)
                 .withStyleClass("for-block")

@@ -7,12 +7,15 @@ import com.botmaker.studio.core.render.ReadOnlyDecorator;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.parser.ExpressionChoice;
 import com.botmaker.studio.ui.dnd.BlockEvent;
+import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.palette.ExpressionType;
+import com.botmaker.studio.ui.render.components.BlockUIComponents;
 import com.botmaker.studio.ui.render.menu.ExpressionMenuFactory;
 import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.SimpleBooleanProperty;
 import javafx.css.PseudoClass;
 import javafx.scene.Node;
+import javafx.scene.control.Button;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.Region;
 import org.eclipse.jdt.core.dom.ASTNode;
@@ -67,6 +70,19 @@ public abstract class AbstractCodeBlock implements CodeBlock {
         return isReadOnly;
     }
 
+    /**
+     * What kind of block this is, for styling. Null means "no opinion" — the block keeps whatever appearance
+     * its own rules give it.
+     *
+     * <p>Override this rather than writing a per-block colour: the category's colour is a {@code -bm-cat-*}
+     * token in {@code blocks.css}, so one rule styles every block that shares a purpose, and changing the
+     * palette is changing one line. A block that hard-codes its own hex is a block that will be missed the
+     * next time the palette moves.
+     */
+    protected BlockCategory category() {
+        return null;
+    }
+
     @Override
     public Node getUINode(CodeEditorService context) {
         if (uiNode == null) {
@@ -74,6 +90,9 @@ public abstract class AbstractCodeBlock implements CodeBlock {
             // Toggle the :breakpoint pseudo-class whenever the breakpoint state changes.
             uiNode.pseudoClassStateChanged(BREAKPOINT, breakpointActive.get());
             breakpointActive.addListener((obs, was, on) -> uiNode.pseudoClassStateChanged(BREAKPOINT, on));
+
+            BlockCategory category = category();
+            if (category != null) uiNode.getStyleClass().add(category.styleClass());
 
             for (BlockDecorator decorator : DECORATORS) {
                 decorator.decorate(uiNode, this, context);
@@ -165,12 +184,31 @@ public abstract class AbstractCodeBlock implements CodeBlock {
     protected abstract Node createUINode(CodeEditorService context);
 
     /**
+     * The "change this expression" button, or null when this block is read-only — the layout builders skip
+     * null nodes, so the affordance simply doesn't exist. Prefer this over
+     * {@code BlockUIComponents.createChangeButton}, which knows nothing about locks.
+     */
+    protected Button createChangeButton(javafx.event.EventHandler<javafx.event.ActionEvent> handler) {
+        if (isReadOnly) return null;
+        return BlockUIComponents.createChangeButton(handler);
+    }
+
+    /** {@code action}, or null when this block is read-only, for builders that omit a control given null. */
+    protected Runnable ifEditable(Runnable action) {
+        return isReadOnly ? null : action;
+    }
+
+    /**
      * Applies the user's pick from {@link com.botmaker.studio.ui.render.menu.ExpressionMenuFactory} to
      * {@code toReplace}: a plain {@link ExpressionType} swaps in a fresh expression block, while an
      * {@link ExpressionChoice} drives a richer rewrite (method call, instantiation, enum constant, or
      * variable reference). Shared by statement and expression blocks.
      */
     protected void applyExpressionSelection(CodeEditorService context, Expression toReplace, Object selection) {
+        // Mirrors createExpressionDropZone's guard: a read-only block offers no menu to pick from, so this is
+        // only reachable if a path forgot. CodeEditor would refuse the rewrite anyway — this keeps the refusal
+        // from being reported to the user as if they had done something wrong.
+        if (isReadOnly) return;
         ExpressionMenuFactory.applySelection(context, toReplace, selection);
     }
 }

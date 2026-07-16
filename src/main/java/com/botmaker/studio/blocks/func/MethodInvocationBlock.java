@@ -151,7 +151,9 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
             }
             classSelector.setValue(fixedScopeName);
             classSelector.setStyle("-fx-font-size: 11px; -fx-font-weight: bold;");
-            scopeNode = classSelector;
+            // Read-only: the selector still backs the value lookups below, but never reaches the scene — the
+            // user sees what the call says, with no control to change it.
+            scopeNode = isReadOnly() ? staticValueLabel(fixedScopeName) : classSelector;
 
             currentScopeGetter = classSelector::getValue;
 
@@ -165,7 +167,7 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
         } else {
             // --- DYNAMIC SCOPE MODE (Standard) ---
             ComboBox<String> fileSelector = createScopeSelector(context, currentFileClass);
-            scopeNode = fileSelector;
+            scopeNode = isReadOnly() ? staticValueLabel(fileSelector.getValue()) : fileSelector;
 
             currentScopeGetter = fileSelector::getValue;
 
@@ -238,13 +240,18 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
         sentenceBuilder
                 .addNode(scopeNode)
                 .addLabel(".")
-                .addNode(methodSelector);
+                .addNode(isReadOnly() ? staticValueLabel(methodName) : methodSelector);
 
-        // Signature Button (explicit overload picker) — argument sync is automatic on method change.
-        addSignatureButton(sentenceBuilder, context, currentScopeGetter, methodSelector, finalCurrentFileClass);
+        if (!isReadOnly()) {
+            // Both of these rewrite the call, so a locked block gets neither. The info button below stays: it
+            // explains the call rather than changing it, and reading is not editing.
 
-        // "Pick all on screen" — one overlay pass over every on-screen-pickable argument of this call.
-        addPickAllButton(sentenceBuilder, context, currentScopeGetter);
+            // Signature Button (explicit overload picker) — argument sync is automatic on method change.
+            addSignatureButton(sentenceBuilder, context, currentScopeGetter, methodSelector, finalCurrentFileClass);
+
+            // "Pick all on screen" — one overlay pass over every on-screen-pickable argument of this call.
+            addPickAllButton(sentenceBuilder, context, currentScopeGetter);
+        }
 
         sentenceBuilder.addLabel("(");
 
@@ -265,7 +272,7 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
         styleContainer(container);
 
         // Add delete button if statement
-        if (isStatementContext) {
+        if (isStatementContext && !isReadOnly()) {
             container.getChildren().addAll(
                     BlockUIComponents.createSpacer(),
                     BlockUIComponents.createDeleteButton(() ->
@@ -274,6 +281,18 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
         }
 
         return container;
+    }
+
+    /**
+     * A locked stand-in for a {@link ComboBox}: shows the value the call actually has, with nothing to click.
+     * The selector it replaces is still constructed — it backs the scope/method lookups — it just never
+     * reaches the scene, so there is no control for the user to change and no edit for the write layer to
+     * refuse.
+     */
+    private static Label staticValueLabel(String value) {
+        Label label = new Label(value == null ? "" : value);
+        label.getStyleClass().add("static-value-label");
+        return label;
     }
 
     // --- REFACTORED HELPER METHODS ---
@@ -582,7 +601,7 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
                 // "+" change button (open the expression menu to swap in a variable/other expression) — the
                 // control some SDK arg slots were missing — plus its parameter name/description.
                 Label pickerLabel = argName != null ? argLabel(argName, argDesc) : null;
-                Button changeBtn = BlockUIComponents.createChangeButton(e ->
+                Button changeBtn = createChangeButton(e ->
                         showExpressionMenuAndReplace((Button) e.getSource(), context, finalParamType, (Expression) arg.getAstNode()));
                 builder.addNode(BlockUIComponents.createArgumentPill(pickerLabel, editor, changeBtn, true));
                 continue;

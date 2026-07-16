@@ -38,6 +38,8 @@ public class ProjectPreferences {
     private int pilotPort;
     /** True once the user ticked "don't show again" on the Wayland → X11 notice. */
     private boolean hideWaylandNotice;
+    /** How the project list is sorted, by {@code ProjectSelectionScreen.SortMode} name. Null = the default. */
+    private String projectSortMode;
 
     public ProjectPreferences() {}
 
@@ -56,6 +58,8 @@ public class ProjectPreferences {
     public void setPilotPort(int port) { this.pilotPort = port; }
     public boolean isHideWaylandNotice() { return hideWaylandNotice; }
     public void setHideWaylandNotice(boolean hide) { this.hideWaylandNotice = hide; }
+    public String getProjectSortMode() { return projectSortMode; }
+    public void setProjectSortMode(String mode) { this.projectSortMode = mode; }
 
     public void addRecentProject(String projectName) {
         recentProjects.removeIf(p -> p.getName().equals(projectName));
@@ -143,6 +147,17 @@ public class ProjectPreferences {
     public static void setWaylandNoticeHidden(boolean hide) {
         ProjectPreferences prefs = load();
         prefs.setHideWaylandNotice(hide);
+        prefs.save();
+    }
+
+    /** The project list's sort order, or {@code null} to use the default. */
+    public static String getSortMode() {
+        return load().getProjectSortMode();
+    }
+
+    public static void updateSortMode(String mode) {
+        ProjectPreferences prefs = load();
+        prefs.setProjectSortMode(mode);
         prefs.save();
     }
 

@@ -6,10 +6,23 @@ import java.util.Locale;
 
 /**
  * Immutable configuration for a single project.
+ *
+ * <p>Three names, derived once here and never re-derived by callers:
+ * <ul>
+ *   <li>{@code projectName} — <b>what the user typed</b>. Names the project directory and the Maven artifactId,
+ *       and is what the project list shows. It is theirs, so it is kept verbatim.</li>
+ *   <li>{@code packageName} — {@code projectName} lowercased, because package names are lowercase.</li>
+ *   <li>{@code className} — {@code projectName} with its first letter capitalized, because Java classes are
+ *       capitalized. This used to be {@code projectName} itself, which is why the New Project dialog had to
+ *       refuse a lowercase first letter: the name doubled as a class name, so {@code myBot} would have
+ *       produced {@code class myBot}. Deriving the class name instead lets the user call their project
+ *       whatever they like.</li>
+ * </ul>
  */
 public record ProjectConfig(
         String projectName,
         String packageName,
+        String className,
         Path projectPath,
         Path sourceRoot,
         Path mainSourceFile,
@@ -23,6 +36,7 @@ public record ProjectConfig(
     public static ProjectConfig forProject(String projectName, Path projectsRoot) {
         String javaHome = System.getProperty("java.home");
         String packageName = projectName.toLowerCase();
+        String className = toClassName(projectName);
         Path projectPath = projectsRoot.resolve(projectName);
 
         boolean isWindows = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win");
@@ -32,17 +46,24 @@ public record ProjectConfig(
         return new ProjectConfig(
                 projectName,
                 packageName,
+                className,
                 projectPath,
                 projectPath.resolve("src").resolve("main").resolve("java"),
                 projectPath.resolve("src").resolve("main").resolve("java")
-                        .resolve("com").resolve(packageName).resolve(projectName + ".java"),
+                        .resolve("com").resolve(packageName).resolve(className + ".java"),
                 // Maven standard output directory
                 projectPath.resolve("target").resolve("classes"),
-                "com." + packageName + "." + projectName,
+                "com." + packageName + "." + className,
                 javaHome,
                 Paths.get(javaHome, "bin", javaBin).toString(),
                 Paths.get(javaHome, "bin", javacBin).toString()
         );
+    }
+
+    /** {@code projectName} as a Java class name: the same word, capitalized. */
+    public static String toClassName(String projectName) {
+        if (projectName == null || projectName.isEmpty()) return projectName;
+        return Character.toUpperCase(projectName.charAt(0)) + projectName.substring(1);
     }
 
     /** {@code src/main/resources} — where {@code activities.json} and image templates live. */

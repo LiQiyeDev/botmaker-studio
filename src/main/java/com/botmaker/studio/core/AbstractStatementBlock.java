@@ -25,8 +25,15 @@ public abstract class AbstractStatementBlock extends AbstractCodeBlock implement
     }
 
     // --- Helpers used by subclasses ---
+    //
+    // The factories below return null when this block is read-only, and the layout builders skip null nodes.
+    // That is the whole read-only rendering rule: a locked block does not get a disabled button, it gets no
+    // button. Every subclass inherits it without having to remember, which is the point — the previous design
+    // relied on ~20 block classes each checking isReadOnly(), and the ones that forgot were the bug.
 
+    /** The delete button, or null when this block may not be deleted. */
     protected Button createDeleteButton(CodeEditorService context) {
+        if (isReadOnly()) return null;
         return BlockUIComponents.createDeleteButton(() ->
                 context.getCodeEditor().deleteStatement((Statement) this.astNode)
         );
@@ -38,14 +45,22 @@ public abstract class AbstractStatementBlock extends AbstractCodeBlock implement
 
     protected HBox createStandardHeader(CodeEditorService context, Node... content) {
         HBox container = BlockUIComponents.createHeaderRow(
-                () -> context.getCodeEditor().deleteStatement((Statement) this.astNode),
+                deleteAction(context),
                 content
         );
         container.getStyleClass().add("statement-block-header");
         return container;
     }
 
+    /** What deleting this block does, or null when it may not be deleted (builders then omit the control). */
+    protected Runnable deleteAction(CodeEditorService context) {
+        if (isReadOnly()) return null;
+        return () -> context.getCodeEditor().deleteStatement((Statement) this.astNode);
+    }
+
+    /** The "+" button, or null when this block is read-only. */
     protected Button createAddButton(javafx.event.EventHandler<javafx.event.ActionEvent> handler) {
+        if (isReadOnly()) return null;
         return BlockUIComponents.createAddButton(handler);
     }
 
@@ -82,6 +97,9 @@ public abstract class AbstractStatementBlock extends AbstractCodeBlock implement
                                                 ResolvedType targetType,
                                                 Expression toReplace,
                                                 Predicate<ExpressionType> filter) {
+        // A read-only block builds no button to open this, so reaching here means some path forgot. Refuse
+        // rather than show a menu whose every pick the write layer will reject.
+        if (isReadOnly()) return;
 
         ContextMenu menu = ExpressionMenuFactory.createExpressionTypeMenu(
                 targetType,

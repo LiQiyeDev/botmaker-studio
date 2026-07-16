@@ -63,6 +63,29 @@ class ProjectRepairTest {
     }
 
     @Test
+    void aStrayScaffoldNameDoesNotMakeAnEmptyProjectAGameBot() throws IOException {
+        // One file named like scaffolding used to be enough to guess GAME_BOT. That guess feeds FileRole, so a
+        // user who wrote their own GameLoop.java in an empty project had their only file turned read-only.
+        for (String name : List.of("GameLoop.java", "GoHome.java", "Startup.java", "ActivityRegistry.java")) {
+            Files.delete(mainDir.resolve(name));
+        }
+        Files.writeString(config.mainSourceFile(), """
+                package com.mybot;
+                public class MyBot {
+                    public static void main(String[] args) {}
+                }
+                """);
+        Files.writeString(mainDir.resolve("GameLoop.java"), """
+                package com.mybot;
+                public class GameLoop {
+                    public static void run() {}
+                }
+                """);
+        assertFalse(ProjectRepair.looksLikeGameBot(config),
+                "a lone GameLoop.java is a file the user wrote, not a scaffold");
+    }
+
+    @Test
     void aFileDeletedOutsideStudioIsFoundAndRestored() throws IOException {
         Path gameLoop = mainDir.resolve("GameLoop.java");
         Files.delete(gameLoop);   // e.g. an `rm` outside the Studio

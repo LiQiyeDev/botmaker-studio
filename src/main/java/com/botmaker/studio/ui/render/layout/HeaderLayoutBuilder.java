@@ -19,6 +19,8 @@ public class HeaderLayoutBuilder {
     private Runnable onDelete;
     private double spacing = 5.0;
     private Pos alignment = Pos.CENTER_LEFT;
+    /** The one node that should absorb the header's spare width, if any. See {@link #withGrowingNode}. */
+    private Node growingNode;
 
     public HeaderLayoutBuilder withKeyword(String text) {
         Label label = new Label(text);
@@ -66,7 +68,24 @@ public class HeaderLayoutBuilder {
     }
 
     public HeaderLayoutBuilder withCustomNode(Node node) {
-        leftContent.add(node);
+        if (node != null) leftContent.add(node);
+        return this;
+    }
+
+    /**
+     * Like {@link #withCustomNode}, but {@code node} absorbs the header's spare width instead of the spacer.
+     *
+     * <p>Use this whenever {@code node} contains something that should stretch — a text field, most obviously.
+     * An {@code Hgrow} only distributes space its <em>direct</em> parent has: a growing field inside a sentence
+     * HBox added as a plain custom node never grows, because {@link #build()}'s spacer takes all the slack and
+     * the sentence is left at its preferred width. That is why a long comment scrolled inside a ~120px field —
+     * the field asked to grow, and the row it was in had nothing to give it.
+     */
+    public HeaderLayoutBuilder withGrowingNode(Node node) {
+        if (node != null) {
+            leftContent.add(node);
+            growingNode = node;
+        }
         return this;
     }
 
@@ -92,17 +111,26 @@ public class HeaderLayoutBuilder {
         container.getChildren().addAll(leftContent);
 
         if (onDelete != null || !rightContent.isEmpty()) {
-            Pane spacer = new Pane();
-            HBox.setHgrow(spacer, Priority.ALWAYS);
-            container.getChildren().add(spacer);
+            // A growing node already pushes the right-hand content over, and adding a spacer beside it would
+            // split the spare width between the two — the field would only ever get half of it.
+            if (growingNode != null) {
+                HBox.setHgrow(growingNode, Priority.ALWAYS);
+            } else {
+                Pane spacer = new Pane();
+                HBox.setHgrow(spacer, Priority.ALWAYS);
+                container.getChildren().add(spacer);
+            }
 
             container.getChildren().addAll(rightContent);
 
             if (onDelete != null) {
                 Button deleteBtn = new Button("X");
+                deleteBtn.getStyleClass().add("icon-button");
                 deleteBtn.setOnAction(e -> onDelete.run());
                 container.getChildren().add(deleteBtn);
             }
+        } else if (growingNode != null) {
+            HBox.setHgrow(growingNode, Priority.ALWAYS);
         }
 
         return container;

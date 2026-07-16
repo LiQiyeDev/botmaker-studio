@@ -1,5 +1,6 @@
 package com.botmaker.studio.blocks.var;
 
+import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.core.AbstractStatementBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.services.CodeEditorService;
@@ -43,6 +44,11 @@ public class AssignmentBlock extends AbstractStatementBlock {
     public void setRightHandSide(ExpressionBlock rightHandSide) { this.rightHandSide = rightHandSide; }
 
     @Override
+    protected BlockCategory category() {
+        return BlockCategory.VARIABLES;
+    }
+
+    @Override
     protected Node createUINode(CodeEditorService context) {
         var sentenceBuilder = BlockLayout.sentence()
                 .addNode(leftHandSide != null ? leftHandSide.getUINode(context) : createExpressionDropZone(context))
@@ -68,7 +74,7 @@ public class AssignmentBlock extends AbstractStatementBlock {
 
         return BlockLayout.header()
                 .withCustomNode(sentenceBuilder.build())
-                .withDeleteButton(() -> context.getCodeEditor().deleteStatement((Statement) this.astNode))
+                .withDeleteButton(deleteAction(context))
                 .build();
     }
 

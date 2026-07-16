@@ -38,25 +38,27 @@ public class EnumConstantBlock extends AbstractExpressionBlock {
         Label typeLabel = new Label(enumTypeName);
         typeLabel.setStyle("-fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 11px;");
 
-        // --- INTERACTIVITY START ---
-        ExpressionMenuFactory.installTypeSelector(typeLabel, "Click to change Enum type",
-                () -> context.getProjectAnalyzer().findTypeByName(enumTypeName),
-                context, this.astNode,
-                newType -> {
-                    // Logic to find a default constant for the new type
-                    String defaultConst = "VALUE";
-                    if (newType.isEnum()) {
-                        List<String> consts = newType.enumConstants();
-                        if (!consts.isEmpty()) {
-                            defaultConst = consts.getFirst();
+        // --- INTERACTIVITY START (editable blocks only) ---
+        if (!isReadOnly()) {
+            ExpressionMenuFactory.installTypeSelector(typeLabel, "Click to change Enum type",
+                    () -> context.getProjectAnalyzer().findTypeByName(enumTypeName),
+                    context, this.astNode,
+                    newType -> {
+                        // Logic to find a default constant for the new type
+                        String defaultConst = "VALUE";
+                        if (newType.isEnum()) {
+                            List<String> consts = newType.enumConstants();
+                            if (!consts.isEmpty()) {
+                                defaultConst = consts.getFirst();
+                            }
                         }
-                    }
-                    context.getCodeEditor().replaceWithEnumConstant(
-                            (Expression) this.astNode,
-                            newType.simpleName(),
-                            defaultConst
-                    );
-                });
+                        context.getCodeEditor().replaceWithEnumConstant(
+                                (Expression) this.astNode,
+                                newType.simpleName(),
+                                defaultConst
+                        );
+                    });
+        }
         // --- INTERACTIVITY END ---
 
         Label dot = new Label(".");
@@ -82,10 +84,19 @@ public class EnumConstantBlock extends AbstractExpressionBlock {
             }
         });
 
+        // Read-only: show which constant this is, with no dropdown to change it to another.
+        Node constantNode = constantSelector;
+        if (isReadOnly()) {
+            Label constantLabel = new Label(constantName);
+            constantLabel.getStyleClass().add("static-value-label");
+            constantLabel.setStyle("-fx-text-fill: white; -fx-font-size: 11px;");
+            constantNode = constantLabel;
+        }
+
         HBox container = BlockLayout.sentence()
                 .addNode(typeLabel)
                 .addNode(dot)
-                .addNode(constantSelector)
+                .addNode(constantNode)
                 .build();
 
         container.setStyle(

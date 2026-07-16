@@ -1,5 +1,6 @@
 package com.botmaker.studio.blocks.var;
 
+import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.core.AbstractStatementBlock;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.ui.render.layout.BlockLayout;
@@ -57,6 +58,11 @@ public class DeclareEnumBlock extends AbstractStatementBlock {
 
     // DeclareEnumBlock.java
     @Override
+    protected BlockCategory category() {
+        return BlockCategory.VARIABLES;
+    }
+
+    @Override
     protected Node createUINode(CodeEditorService context) {
         VBox container = new VBox(5);
         container.setStyle("-fx-background-color: #d35400; -fx-background-radius: 5; -fx-padding: 5;");
@@ -65,7 +71,7 @@ public class DeclareEnumBlock extends AbstractStatementBlock {
         Label label = BlockUIComponents.createKeywordLabel("Enum");
         label.setStyle("-fx-text-fill: white; -fx-font-weight: bold;");
 
-        TextField nameField = TextFieldComponents.createVariableNameField(enumName, newName -> {
+        Node nameField = TextFieldComponents.createVariableName(enumName, !isReadOnly(), newName -> {
             if (!newName.equals(enumName) && !newName.isEmpty()) {
                 context.getCodeEditor().renameEnum(enumDeclaration, newName);
             }

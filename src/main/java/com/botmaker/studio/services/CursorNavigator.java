@@ -20,11 +20,18 @@ public final class CursorNavigator {
 
     private CursorNavigator() {}
 
-    /** A sensible starting caret: the first body in the tree that has statements, else the first body, else null. */
+    /**
+     * A sensible starting caret: the first <em>editable</em> body in the tree that has statements, else the
+     * first editable body, else null.
+     *
+     * <p>Read-only bodies are skipped rather than merely refused later. A generated file's first body is its
+     * scaffolding, so without this the caret opens parked somewhere nothing can be inserted, and the authoring
+     * toolbar looks broken before the user has done anything.
+     */
     public static InsertionCursor defaultCursor(CodeBlock root) {
         BodyBlock firstNonEmpty = null, firstAny = null;
         for (CodeBlock b : collectAll(root)) {
-            if (b instanceof BodyBlock bb) {
+            if (b instanceof BodyBlock bb && !bb.isReadOnly()) {
                 if (firstAny == null) firstAny = bb;
                 if (firstNonEmpty == null && !bb.getStatements().isEmpty()) firstNonEmpty = bb;
             }

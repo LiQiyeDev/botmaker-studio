@@ -1,17 +1,60 @@
 /*
+ * ============================================================================================================
+ * DESIGN TOKENS — the single source of truth for block colour.
+ * ============================================================================================================
+ *
+ * Every colour below is a JavaFX *looked-up colour*: name it once here, refer to it by name everywhere else,
+ * and a change here reaches the whole editor. Add a colour here before using it, and never paste a hex literal
+ * into a rule below — that is how the same purple came to exist as four unrelated literals in this file plus a
+ * fifth copy in ColorPalette.java, none of which knew about the others.
+ *
+ * The -bm-cat-* tokens are per block *category* (palette/BlockCategory). They are what makes a block's
+ * appearance follow from what it does rather than from which class happened to draw it: AbstractCodeBlock puts
+ * a `category-<name>` style class on every block's root node, so styling a category is one rule, not twenty.
+ */
+.root {
+    /* Accents */
+    -bm-primary: #3498db;
+    -bm-danger: #e74c3c;
+    -bm-accent: #1abc9c;
+    -bm-accent-dark: #16a085;
+    -bm-muted: #7f8c8d;
+
+    /* Per-category block colours (palette/BlockCategory) */
+    -bm-cat-output: #3498db;
+    -bm-cat-input: #9b59b6;
+    -bm-cat-variables: #f39c12;
+    -bm-cat-flow: #e67e22;
+    -bm-cat-loops: #2ecc71;
+    -bm-cat-control: #e74c3c;
+    -bm-cat-functions: #8e44ad;
+    -bm-cat-vision: #1abc9c;
+    -bm-cat-game: #16a085;
+    -bm-cat-utility: #7f8c8d;
+
+    /* Block surfaces */
+    -bm-block-radius: 6px;
+    -bm-block-padding: 6px 10px 6px 10px;
+    -bm-text-on-color: white;
+    -bm-text-dim: rgba(255, 255, 255, 0.7);
+
+    /* Read-only: a lock reads as *flat and quiet*, never as a colour of its own — see :read-only below. */
+    -bm-locked-fill: rgba(127, 140, 141, 0.15);
+}
+
+/*
  * Cross-cutting block "state" styling, toggled from AbstractCodeBlock via JavaFX pseudo-classes
- * (set only on a block's root node, so children are unaffected). Base block appearance still comes
- * from the inline theme/StyleBuilder system.
+ * (set only on a block's root node, so children are unaffected).
  */
 
 *:highlighted {
-    -fx-border-color: #3498db;
+    -fx-border-color: -bm-primary;
     -fx-border-width: 2;
     -fx-border-style: solid;
 }
 
 *:error {
-    -fx-border-color: #e74c3c;
+    -fx-border-color: -bm-danger;
     -fx-border-width: 2;
     -fx-border-style: solid;
 }
@@ -63,40 +106,135 @@
 }
 
 *:breakpoint {
-    -fx-border-color: #e74c3c;
+    -fx-border-color: -bm-danger;
     -fx-border-width: 0 0 0 2;
     -fx-border-style: solid;
 }
 
+/*
+ * Read-only. A locked block already offers no controls at all (nothing is rendered — see
+ * AbstractStatementBlock's factories), so this only has to make the *state* legible: desaturated, flat, and
+ * visibly not a thing you act on. 0.8 opacity alone said nothing — it read as "slightly faded", which is what
+ * a disabled-but-clickable control looks like, so the honest signal was missing exactly where it mattered.
+ */
 *:read-only {
-    -fx-opacity: 0.8;
+    -fx-opacity: 0.75;
     -fx-cursor: default;
+    -fx-saturation: 0.4;
+}
+
+/* A read-only method's whole body: flat, dim, and set apart from the editable one above or below it. */
+.block-body:read-only {
+    -fx-border-color: transparent transparent transparent derive(-bm-muted, -10%);
+    -fx-border-width: 0 0 0 3;
+    -fx-background-color: rgba(127, 140, 141, 0.06);
 }
 
 /*
  * Method header badge (MethodDeclarationBlock.setLockBadge), saying what the user may do with this method.
- * Two meanings, one control: :locked is a restriction ("Generated - Read Only", "Name and parameters required
- * by BotMaker") and reads as muted/neutral; unlocked is an invitation ("Your code goes here") and reads as the
- * accent colour, so the one method the user is meant to fill in is the one that draws the eye.
+ *
+ * Two meanings, one control. :locked is a restriction ("Generated - Read Only") and must recede. Unlocked is
+ * an *invitation* ("Your code goes here") — the single most useful thing on screen for someone who has just
+ * opened a scaffolded file and doesn't yet know where they're meant to work — so it is the loudest thing in
+ * the header: solid accent fill, white text, not a 10px tint that lost a contrast fight with the purple
+ * header it sat on.
  */
 .method-lock-badge {
-    -fx-font-size: 10px;
+    -fx-font-size: 11px;
     -fx-font-weight: bold;
-    -fx-padding: 1 6 1 6;
+    -fx-padding: 2 8 2 8;
     -fx-background-radius: 8px;
-    -fx-text-fill: #16a085;
-    -fx-background-color: rgba(26, 188, 156, 0.15);
+    -fx-text-fill: -bm-text-on-color;
+    -fx-background-color: -bm-accent;
 }
 
 .method-lock-badge:locked {
-    -fx-text-fill: #7f8c8d;
-    -fx-background-color: rgba(127, 140, 141, 0.15);
+    -fx-font-size: 10px;
+    -fx-font-weight: normal;
+    -fx-text-fill: -bm-muted;
+    -fx-background-color: -bm-locked-fill;
+}
+
+/*
+ * The editable method in a scaffolded file — the counterpart to the badge, applied by
+ * MethodDeclarationBlock to the whole block. The badge names the place; this makes it findable without
+ * reading anything.
+ */
+.method-block--yours {
+    -fx-border-color: -bm-accent;
+    -fx-border-width: 0 0 0 4;
+    -fx-border-radius: 0;
+    -fx-background-color: rgba(26, 188, 156, 0.07);
+}
+
+/*
+ * ============================================================================================================
+ * CATEGORY STYLING — one rule per BlockCategory (palette/BlockCategory#styleClass), applied to every block's
+ * root node by AbstractCodeBlock. A block's colour follows from what it *does*.
+ * ============================================================================================================
+ *
+ * A block that overrides category() gets a left accent bar in its category's colour: enough to group blocks at
+ * a glance without repainting a working editor. The token is the single place the colour lives — do not put a
+ * hex literal in these rules.
+ */
+.category-output,
+.category-input,
+.category-variables,
+.category-flow,
+.category-loops,
+.category-control,
+.category-functions,
+.category-game,
+.category-utility,
+.category-bot-variable {
+    -fx-border-width: 0 0 0 3;
+    -fx-border-radius: 0;
+}
+
+.category-output        { -fx-border-color: -bm-cat-output; }
+.category-input         { -fx-border-color: -bm-cat-input; }
+.category-variables     { -fx-border-color: -bm-cat-variables; }
+.category-flow          { -fx-border-color: -bm-cat-flow; }
+.category-loops         { -fx-border-color: -bm-cat-loops; }
+.category-control       { -fx-border-color: -bm-cat-control; }
+.category-functions     { -fx-border-color: -bm-cat-functions; }
+.category-game          { -fx-border-color: -bm-cat-game; }
+.category-utility       { -fx-border-color: -bm-cat-utility; }
+.category-bot-variable  { -fx-border-color: -bm-cat-vision; }
+
+/* A read-only block's category is still true, but it must not shout it: grey the accent with everything else. */
+.category-output:read-only,
+.category-input:read-only,
+.category-variables:read-only,
+.category-flow:read-only,
+.category-loops:read-only,
+.category-control:read-only,
+.category-functions:read-only,
+.category-game:read-only,
+.category-utility:read-only,
+.category-bot-variable:read-only {
+    -fx-border-color: -bm-muted;
+}
+
+/*
+ * The comment block's text field. It grows to fill the block (HeaderLayoutBuilder.withGrowingNode), so it
+ * needs no fixed width — a long note stays readable instead of scrolling inside a ~120px box.
+ */
+.comment-text-field {
+    -fx-pref-column-count: 0;
+}
+
+/* A locked stand-in for a control (MethodInvocationBlock.staticValueLabel, read-only name fields). */
+.static-value-label {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-padding: 2 0 2 0;
 }
 
 /* The "runs once when the bot starts" note beside a static { } header — see InitializerBlock. */
 .initializer-hint-label {
     -fx-font-size: 11px;
-    -fx-text-fill: #7f8c8d;
+    -fx-text-fill: -bm-muted;
     -fx-font-style: italic;
 }
 
@@ -154,7 +292,7 @@
 .instantiation-block {
     -fx-background-color: linear-gradient(to bottom, #ecfaf7, #dff5ef);
     -fx-background-radius: 12;
-    -fx-border-color: #1ABC9C;
+    -fx-border-color: -bm-cat-vision;
     -fx-border-width: 1.5;
     -fx-border-radius: 12;
     -fx-padding: 4 10 4 10;
@@ -216,7 +354,7 @@
  */
 .sdk-call-block {
     -fx-background-color: #f3ecfb;
-    -fx-border-color: #8E44AD;
+    -fx-border-color: -bm-cat-functions;
     -fx-border-width: 1.5;
     -fx-border-radius: 6;
     -fx-background-radius: 6;
@@ -227,13 +365,13 @@
    with a left accent bar + faint tint, so the SDK header and its action body read as one enclosed block
    rather than a framed header with a detached body underneath. */
 .sdk-call-block .sdk-lambda-body {
-    -fx-border-color: #8E44AD;
+    -fx-border-color: -bm-cat-functions;
     -fx-border-width: 0 0 0 3;
     -fx-background-color: rgba(142, 68, 173, 0.06);
 }
 
 .sdk-call-block .sdk-badge {
-    -fx-background-color: #8E44AD;
+    -fx-background-color: -bm-cat-functions;
     -fx-text-fill: white;
     -fx-font-size: 9px;
     -fx-font-weight: bold;
@@ -262,7 +400,7 @@
  * recolours header + body-wrapper green. ":collapsed" squares off the header's bottom corners.
  */
 .block-header {
-    -fx-background-color: #8E44AD;
+    -fx-background-color: -bm-cat-functions;
     -fx-background-radius: 8 8 0 0;
     -fx-padding: 8 10 8 10;
 }
@@ -276,7 +414,7 @@
 }
 
 .block-body-wrapper {
-    -fx-border-color: #8E44AD;
+    -fx-border-color: -bm-cat-functions;
     -fx-border-width: 0 0 0 4;
     -fx-background-color: rgba(142, 68, 173, 0.05);
 }
@@ -313,7 +451,7 @@
 
 .header-delete-button {
     -fx-background-color: transparent;
-    -fx-text-fill: #E74C3C;
+    -fx-text-fill: -bm-danger;
     -fx-font-size: 16px;
     -fx-padding: 0;
     -fx-cursor: hand;
@@ -368,7 +506,7 @@
 }
 
 .param-type-label {
-    -fx-text-fill: #8E44AD;
+    -fx-text-fill: -bm-cat-functions;
     -fx-font-weight: bold;
     -fx-font-size: 11px;
 }
@@ -394,7 +532,7 @@
 }
 
 .param-delete-button:hover {
-    -fx-text-fill: #E74C3C;
+    -fx-text-fill: -bm-danger;
 }
 
 /*
@@ -540,7 +678,7 @@
  * --------------------------------------------------------------------------- */
 .unknown-expression-block {
     -fx-font-family: "monospace";
-    -fx-text-fill: #7f8c8d;
+    -fx-text-fill: -bm-muted;
     -fx-background-color: rgba(127, 140, 141, 0.10);
     -fx-background-radius: 3px;
     -fx-border-color: rgba(127, 140, 141, 0.35);

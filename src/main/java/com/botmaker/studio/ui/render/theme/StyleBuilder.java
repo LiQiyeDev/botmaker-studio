@@ -1,6 +1,5 @@
 package com.botmaker.studio.ui.render.theme;
 
-import com.botmaker.studio.palette.BlockCategory;
 import javafx.scene.Node;
 
 /**
@@ -138,15 +137,10 @@ public class StyleBuilder {
                 .fontSize(theme.typography().normal());
     }
 
-    public StyleBuilder asBlockHeader(BlockCategory category) {
-        String color = theme.colors().forCategory(category);
-        return this
-                .backgroundColor(color)
-                .textColor("#FFFFFF")
-                .fontWeight(theme.typography().boldWeight())
-                .padding(8, 10, 8, 10)
-                .backgroundRadius(theme.effects().normalRadius());
-    }
+    // asBlockHeader(BlockCategory) lived here and had no callers. Category styling is CSS now — a
+    // `category-*` class from BlockCategory#styleClass plus the -bm-cat-* tokens in blocks.css — and an
+    // inline style built here would beat any rule there, so reviving it would mean the category palette
+    // existing in two places again, one of which silently wins.
 
     public StyleBuilder asPill(String backgroundColor) {
         return this

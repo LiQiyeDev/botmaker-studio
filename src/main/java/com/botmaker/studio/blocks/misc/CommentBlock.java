@@ -1,5 +1,6 @@
 package com.botmaker.studio.blocks.misc;
 
+import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.core.AbstractStatementBlock;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.ui.render.layout.BlockLayout;
@@ -7,6 +8,8 @@ import com.botmaker.studio.ui.render.components.TextFieldComponents;
 import javafx.scene.Node;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextField;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
 import org.eclipse.jdt.core.dom.Comment;
 
 public class CommentBlock extends AbstractStatementBlock {
@@ -16,6 +19,11 @@ public class CommentBlock extends AbstractStatementBlock {
     public CommentBlock(String id, Comment astNode, String commentText) {
         super(id, astNode);
         this.commentText = commentText;
+    }
+
+    @Override
+    protected BlockCategory category() {
+        return BlockCategory.UTILITY;
     }
 
     @Override
@@ -40,10 +48,13 @@ public class CommentBlock extends AbstractStatementBlock {
                 .addNode(commentLabel)
                 .addNode(commentField)
                 .build();
+        // The field asks to grow, but only its direct parent can grant that — so the sentence has to be told
+        // to take the header's spare width, or a long note scrolls inside a ~120px box.
+        HBox.setHgrow(sentence, Priority.ALWAYS);
 
         return BlockLayout.header()
-                .withCustomNode(sentence)
-                .withDeleteButton(() -> context.getCodeEditor().deleteStatement((org.eclipse.jdt.core.dom.Statement) this.astNode))
+                .withGrowingNode(sentence)
+                .withDeleteButton(deleteAction(context))
                 .build();
     }
 

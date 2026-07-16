@@ -1,5 +1,6 @@
 package com.botmaker.studio.blocks.flow;
 
+import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.ui.render.menu.ExpressionMenuFactory;
 
 import com.botmaker.studio.core.AbstractStatementBlock;
@@ -45,6 +46,11 @@ public class SwitchBlock extends AbstractStatementBlock implements BlockWithChil
     }
 
     @Override
+    protected BlockCategory category() {
+        return BlockCategory.FLOW;
+    }
+
+    @Override
     protected Node createUINode(CodeEditorService context) {
         VBox mainContainer = new VBox(5);
 
@@ -59,7 +65,7 @@ public class SwitchBlock extends AbstractStatementBlock implements BlockWithChil
         }
 
         ResolvedType finalSwitchType = switchType;
-        Button changeSwitchExprBtn = BlockUIComponents.createChangeButton(e ->
+        Button changeSwitchExprBtn = createChangeButton(e ->
                 showExpressionMenuAndReplace((Button)e.getSource(), context, finalSwitchType,
                         expression != null ? (Expression) expression.getAstNode() : null)
         );
@@ -72,7 +78,7 @@ public class SwitchBlock extends AbstractStatementBlock implements BlockWithChil
 
         mainContainer.getChildren().add(BlockLayout.header()
                 .withCustomNode(headerSentence)
-                .withDeleteButton(() -> context.getCodeEditor().deleteStatement((org.eclipse.jdt.core.dom.Statement) this.astNode))
+                .withDeleteButton(deleteAction(context))
                 .build());
 
         VBox casesContainer = new VBox(5);
@@ -127,7 +133,7 @@ public class SwitchBlock extends AbstractStatementBlock implements BlockWithChil
                 caseHeaderBuilder.addKeyword("default:");
             } else {
                 // strict filtering for case values
-                Button changeBtn = BlockUIComponents.createChangeButton(e -> {
+                Button changeBtn = createChangeButton(e -> {
                     ContextMenu menu = ExpressionMenuFactory.createExpressionTypeMenu(
                             switchType,
                             true, // constantOnly = true (Critical for Switch)

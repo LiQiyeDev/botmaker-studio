@@ -17,15 +17,29 @@ import java.nio.file.Path;
  *
  * <p>Rules live here and nowhere else — like {@link FileRole}, callers ask {@link #of} rather than re-deriving
  * from names.
+ *
+ * <p><b>This enum outranks {@link FileRole} at method granularity, and may unlock as well as lock.</b> A
+ * {@link #SIGNATURE} verdict hands the body back to the user <em>even inside a {@link FileRole#GENERATED}
+ * file</em> — that is the whole point of {@code GameLoop.run}, which lives in a file the Studio owns but exists
+ * for the user to fill in. The two used to contradict each other here (this enum documented the body as the
+ * user's while {@code FileRole} locked the file around it, and the file won), which is how "I can't add a
+ * statement to my game loop" happened. {@code project/LockResolver} is where the two are combined; it is the
+ * only thing that should call this method, and nothing else should re-derive the rule.
  */
 public enum MethodLock {
 
-    /** Ordinary user method: rename it, retype it, delete it, fill it in. */
+    /**
+     * No opinion — <b>defer to {@link FileRole}</b>. An ordinary method in an editable file is the user's to
+     * rename, retype, delete and fill in; the same verdict in a generated or library file leaves it locked,
+     * because the file says so.
+     */
     NONE,
 
     /**
-     * The signature is fixed but the body is the user's: {@code run()} in {@code GoHome} / {@code Startup} /
-     * {@code GameLoop}, each bound as a {@code Runnable} by {@code Bot.supervise}.
+     * The signature is fixed but <b>the body is unconditionally the user's</b>: {@code run()} in {@code GoHome} /
+     * {@code Startup} / {@code GameLoop} (each bound as a {@code Runnable} by {@code Bot.supervise}), and an
+     * activity's {@code run()} (an {@code @Override} of {@code Activity.run}). Unlike {@link #NONE} this does not
+     * defer — it grants body edits however locked the surrounding file is.
      */
     SIGNATURE,
 
@@ -60,18 +74,22 @@ public enum MethodLock {
 
     /**
      * Classifies {@code method} of {@code file}. Never null; anything unrecognised is {@link #NONE}, so a method
-     * the Studio doesn't know about always belongs to the user.
+     * the Studio doesn't know about is left to {@link FileRole} to judge.
      */
     public static MethodLock of(ProjectConfig config, ProjectTemplate template, Path file, MethodDeclaration method) {
         if (config == null || file == null || method == null || method.getName() == null) return NONE;
         // Only the game-bot scaffold has a supervise contract to protect.
         if (template != ProjectTemplate.GAME_BOT) return NONE;
 
-        String fileName = file.getFileName() == null ? "" : file.getFileName().toString();
         String methodName = method.getName().getIdentifier();
 
-        if (isActivityStub(config, file) && "isEnabled".equals(methodName)) return FULL;
-        if (SUPERVISED_HOOKS.contains(fileName) && "run".equals(methodName)) return SIGNATURE;
+        if (isActivityStub(config, file)) {
+            if ("isEnabled".equals(methodName)) return FULL;
+            // @Override public void run() — renaming it or giving it a parameter de-wires the override.
+            if ("run".equals(methodName)) return SIGNATURE;
+            return NONE;
+        }
+        if (isSuperviseHook(config, file) && "run".equals(methodName)) return SIGNATURE;
         return NONE;
     }
 
@@ -80,8 +98,25 @@ public enum MethodLock {
      * package — the files {@code ActivityService.ensureStubs} creates.
      */
     private static boolean isActivityStub(ProjectConfig config, Path file) {
-        Path dir = file.toAbsolutePath().getParent();
-        return dir != null && dir.equals(config.activitiesPackageDir().toAbsolutePath());
+        return isChildOf(file, config.activitiesPackageDir());
+    }
+
+    /**
+     * True when {@code file} is a {@code Bot.supervise} hook <em>of this project</em> — i.e. it sits beside the
+     * entry point in the main package.
+     *
+     * <p>Matching on the bare file name is not enough. {@link #SIGNATURE} <em>grants</em> body edits, so a
+     * {@code GameLoop.java} vendored under {@code com/botmaker/library} (or any the user parks in a subpackage)
+     * would otherwise have its {@code run()} body unlocked inside a file nothing should be able to touch.
+     */
+    private static boolean isSuperviseHook(ProjectConfig config, Path file) {
+        String fileName = file.getFileName() == null ? "" : file.getFileName().toString();
+        return SUPERVISED_HOOKS.contains(fileName) && isChildOf(file, config.mainSourceFile().getParent());
+    }
+
+    private static boolean isChildOf(Path file, Path dir) {
+        Path parent = file.toAbsolutePath().getParent();
+        return parent != null && dir != null && parent.equals(dir.toAbsolutePath());
     }
 
     /**

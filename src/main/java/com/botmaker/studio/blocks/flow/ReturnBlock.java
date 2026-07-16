@@ -1,5 +1,6 @@
 package com.botmaker.studio.blocks.flow;
 
+import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.ui.render.menu.ExpressionMenuFactory;
 
 import com.botmaker.studio.core.AbstractStatementBlock;
@@ -29,6 +30,11 @@ public class ReturnBlock extends AbstractStatementBlock {
     }
 
     @Override
+    protected BlockCategory category() {
+        return BlockCategory.CONTROL;
+    }
+
+    @Override
     protected Node createUINode(CodeEditorService context) {
         String methodReturnType = findParentMethodReturnType();
         boolean isVoid = "void".equals(methodReturnType);
@@ -38,7 +44,7 @@ public class ReturnBlock extends AbstractStatementBlock {
         if (expression != null) {
             sentenceBuilder
                     .addNode(expression.getUINode(context))
-                    .addNode(BlockUIComponents.createChangeButton(e ->
+                    .addNode(createChangeButton(e ->
                             showExpressionMenuAndReplace((Button)e.getSource(), context, ResolvedType.named(methodReturnType),
                                     (org.eclipse.jdt.core.dom.Expression)expression.getAstNode())
                     ));
@@ -60,7 +66,7 @@ public class ReturnBlock extends AbstractStatementBlock {
 
         return BlockLayout.header()
                 .withCustomNode(sentenceBuilder.build())
-                .withDeleteButton(() -> context.getCodeEditor().deleteStatement((org.eclipse.jdt.core.dom.Statement) this.astNode))
+                .withDeleteButton(deleteAction(context))
                 .build();
     }
 

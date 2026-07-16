@@ -103,7 +103,11 @@ public final class BlockUIComponents {
         if (leadingLabel != null) {
             argBox.getChildren().add(leadingLabel);
         }
-        argBox.getChildren().addAll(argNode, changeButton);
+        argBox.getChildren().add(argNode);
+        // Null when the owning block is read-only: the argument shows, with no way to change it.
+        if (changeButton != null) {
+            argBox.getChildren().add(changeButton);
+        }
         return argBox;
     }
 
@@ -134,11 +138,21 @@ public final class BlockUIComponents {
         return btn;
     }
 
+    /**
+     * A header row. A null {@code onDelete} means this block may not be deleted, so no delete button — and no
+     * spacer to push one to, which would otherwise leave a stray gap on every read-only block.
+     */
     public static HBox createHeaderRow(Runnable onDelete, Node... content) {
         HBox container = new HBox(5);
         container.setAlignment(Pos.CENTER_LEFT);
-        if (content != null) container.getChildren().addAll(content);
-        container.getChildren().addAll(createSpacer(), createDeleteButton(onDelete));
+        if (content != null) {
+            for (Node node : content) {
+                if (node != null) container.getChildren().add(node);
+            }
+        }
+        if (onDelete != null) {
+            container.getChildren().addAll(createSpacer(), createDeleteButton(onDelete));
+        }
         return container;
     }
 }

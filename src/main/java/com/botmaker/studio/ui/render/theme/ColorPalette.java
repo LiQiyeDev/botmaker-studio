@@ -1,19 +1,22 @@
 package com.botmaker.studio.ui.render.theme;
 
-import com.botmaker.studio.palette.BlockCategory;
-
+/**
+ * Colours for the few places that still build a style string in Java rather than in CSS.
+ *
+ * <p><b>Prefer CSS.</b> The design tokens in {@code css/blocks.css} ({@code -bm-*}) are the source of truth for
+ * block colour; the values here are a mirror of them, kept only for code that has no stylesheet to reach for
+ * (the drag-and-drop separator's inline styling, for one). Any new colour belongs in {@code blocks.css} — an
+ * inline style also silently beats an author stylesheet in JavaFX, so a colour set here can't be overridden by
+ * a rule there, which is exactly how the two drifted apart in the first place.
+ *
+ * <p>The per-category getters are gone: a block's category colour is now
+ * {@code BlockCategory#styleClass()} + the {@code -bm-cat-*} tokens, so {@code forCategory} would be a second
+ * copy of a palette that already exists in CSS. (It had no callers regardless — every block hard-coded its own
+ * hex instead.) The {@code withOpacity}/{@code lighten}/{@code darken} helpers are gone too: they delegated to
+ * private stubs that returned the literal string {@code "..."}, so every caller would have produced invalid
+ * CSS. Use {@code derive(-bm-token, ±n%)} or an {@code rgba(...)} token in the stylesheet instead.
+ */
 public class ColorPalette {
-    // Category colors (matching your current palette)
-    private String outputColor = "#3498DB";
-    private String inputColor = "#9B59B6";
-    private String variablesColor = "#F39C12";
-    private String flowColor = "#E67E22";
-    private String loopsColor = "#2ECC71";
-    private String controlColor = "#E74C3C";
-    private String functionsColor = "#8E44AD";
-    private String visionColor = "#1ABC9C"; // Vision Color
-    private String gameColor = "#16A085"; // Game / launch actions
-    private String utilityColor = "#7F8C8D";
 
     // UI element colors
     private String backgroundColor = "#FFFFFF";
@@ -30,22 +33,6 @@ public class ColorPalette {
     private String secondaryAccent = "#95A5A6";
     private String hoverAccent = "#2980B9";
 
-    // Getters for each color category
-    public String forCategory(BlockCategory category) {
-        return switch (category) {
-            case OUTPUT -> outputColor;
-            case INPUT -> inputColor;
-            case VARIABLES -> variablesColor;
-            case FLOW -> flowColor;
-            case LOOPS -> loopsColor;
-            case CONTROL -> controlColor;
-            case FUNCTIONS -> functionsColor;
-            case BOT_VARIABLE -> visionColor;
-            case GAME -> gameColor;
-            case UTILITY -> utilityColor;
-        };
-    }
-
     public String background() { return backgroundColor; }
     public String text() { return textColor; }
     public String keyword() { return keywordColor; }
@@ -57,29 +44,4 @@ public class ColorPalette {
     public String primary() { return primaryAccent; }
     public String hover() { return hoverAccent; }
 
-    // Derived colors
-    public String withOpacity(String color, double opacity) {
-        // Convert hex to rgba
-        return String.format("rgba(%s, %.2f)", hexToRgb(color), opacity);
-    }
-
-    public String lighten(String color, double amount) {
-        // Lighten color by percentage
-        return adjustBrightness(color, amount);
-    }
-
-    public String darken(String color, double amount) {
-        // Darken color by percentage
-        return adjustBrightness(color, -amount);
-    }
-
-    private String hexToRgb(String hex) {
-        // Implementation
-        return "...";
-    }
-
-    private String adjustBrightness(String color, double amount) {
-        // Implementation
-        return "...";
-    }
 }

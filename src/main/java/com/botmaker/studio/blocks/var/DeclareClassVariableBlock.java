@@ -1,5 +1,6 @@
 package com.botmaker.studio.blocks.var;
 
+import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.ui.render.menu.ExpressionMenuFactory;
 
 import com.botmaker.studio.blocks.expr.ListBlock;
@@ -44,6 +45,11 @@ public class DeclareClassVariableBlock extends AbstractStatementBlock {
     }
 
     @Override
+    protected BlockCategory category() {
+        return BlockCategory.VARIABLES;
+    }
+
+    @Override
     protected Node createUINode(CodeEditorService context) {
         VBox container = new VBox(5);
         container.setStyle(
@@ -59,11 +65,13 @@ public class DeclareClassVariableBlock extends AbstractStatementBlock {
         modifiersLabel.setStyle("-fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 10px;");
 
         Label typeLabel = createTypeLabel(fieldType.simpleName());
-        ExpressionMenuFactory.installTypeSelector(typeLabel, "Click to change type", () -> fieldType,
-                context, this.astNode,
-                newTypeName -> context.getCodeEditor().replaceFieldType((FieldDeclaration) this.astNode, newTypeName.simpleName()));
+        if (!isReadOnly()) {
+            ExpressionMenuFactory.installTypeSelector(typeLabel, "Click to change type", () -> fieldType,
+                    context, this.astNode,
+                    newTypeName -> context.getCodeEditor().replaceFieldType((FieldDeclaration) this.astNode, newTypeName.simpleName()));
+        }
 
-        TextField nameField = TextFieldComponents.createVariableNameField(variableName, newName -> {
+        Node nameField = TextFieldComponents.createVariableName(variableName, !isReadOnly(), newName -> {
             FieldDeclaration fieldDecl = (FieldDeclaration) this.astNode;
             VariableDeclarationFragment fragment = (VariableDeclarationFragment) fieldDecl.fragments().getFirst();
             if (!newName.equals(variableName) && !newName.isEmpty()) {

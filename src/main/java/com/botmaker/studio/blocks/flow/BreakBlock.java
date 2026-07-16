@@ -1,5 +1,6 @@
 package com.botmaker.studio.blocks.flow;
 
+import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.core.AbstractStatementBlock;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.ui.render.layout.BlockLayout;
@@ -13,10 +14,15 @@ public class BreakBlock extends AbstractStatementBlock {
     }
 
     @Override
+    protected BlockCategory category() {
+        return BlockCategory.CONTROL;
+    }
+
+    @Override
     protected Node createUINode(CodeEditorService context) {
         return BlockLayout.header()
                 .withKeyword("break")
-                .withDeleteButton(() -> context.getCodeEditor().deleteStatement((org.eclipse.jdt.core.dom.Statement) this.astNode))
+                .withDeleteButton(deleteAction(context))
                 .build();
     }
 }

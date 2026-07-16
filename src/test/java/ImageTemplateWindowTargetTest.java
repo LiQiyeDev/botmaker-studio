@@ -45,7 +45,7 @@ public class ImageTemplateWindowTargetTest {
                 source, state.getMutableNodeToBlockMap(), new BlockDragAndDropManager(bus), false, false);
         state.setCompilationUnit(result.cu());
 
-        CodeEditor editor = new CodeEditor(state, bus, new ProjectAnalyzer(null, state));
+        CodeEditor editor = new CodeEditor(null, state, bus, new ProjectAnalyzer(null, state));
         Expression templateSlot = findTemplateArg(result.cu(), enclosingMethod);
         assertNotNull(templateSlot, "test setup: could not find the ImageTemplate argument of " + enclosingMethod);
 

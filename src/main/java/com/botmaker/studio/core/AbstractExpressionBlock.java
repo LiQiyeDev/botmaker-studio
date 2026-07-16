@@ -68,7 +68,8 @@ public abstract class AbstractExpressionBlock extends AbstractCodeBlock implemen
      */
     protected Node createArgumentPill(CodeEditorService context, ExpressionBlock arg, ResolvedType paramType,
                                       Node leadingLabel, boolean onDark) {
-        Button changeBtn = BlockUIComponents.createChangeButton(e ->
+        // Null when read-only: the pill renders as its argument alone, with nothing to change it by.
+        Button changeBtn = createChangeButton(e ->
                 showExpressionMenuAndReplace((Button) e.getSource(), context, paramType, (Expression) arg.getAstNode()));
         return BlockUIComponents.createArgumentPill(leadingLabel, arg.getUINode(context), changeBtn, onDark);
     }
@@ -78,6 +79,8 @@ public abstract class AbstractExpressionBlock extends AbstractCodeBlock implemen
                                                 ResolvedType targetType,
                                                 Expression toReplace,
                                                 Predicate<ExpressionType> filter) {
+        // See AbstractStatementBlock: a read-only block builds nothing that opens this.
+        if (isReadOnly()) return;
 
         // Use 'this.astNode' as context for scope resolution
         ContextMenu menu = ExpressionMenuFactory.createExpressionTypeMenu(

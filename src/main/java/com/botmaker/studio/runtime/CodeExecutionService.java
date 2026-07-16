@@ -6,6 +6,7 @@ import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.FileRole;
+import com.botmaker.studio.project.LockedRegions;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.util.ClassPathManager;
@@ -188,18 +189,49 @@ public class CodeExecutionService {
         state.setCurrentCode(currentActiveCode);
 
         // This loop is the ONLY place edited source reaches disk — the editor keeps every change in memory
-        // (ProjectFile.setContent) and never writes as you type. That makes it the enforcement point for
-        // read-only roles: a GENERATED/LIBRARY file's in-memory edits are deliberately NOT flushed, so the
-        // scaffolding on disk stays canonical and the user's visual changes revert on the next reload.
+        // (ProjectFile.setContent) and never writes as you type.
+        //
+        // It used to skip GENERATED files wholesale. That is now wrong in both directions: a generated file can
+        // hold an editable method (GameLoop.run is the file's whole reason to exist), so skipping it silently
+        // throws away the user's game-loop body on every compile. What must not reach disk is a change to the
+        // *locked parts* — so that, and only that, is what's checked. This is defense in depth: CodeEditor
+        // already refuses those edits, so a refusal here means something upstream let one through.
         for (ProjectFile file : state.getAllFiles()) {
             Path path = file.getPath();
             if (path == null) continue;
-            if (FileRole.of(config, state.getTemplate(), path).blocksPersistence()) continue;
+
+            FileRole role = FileRole.of(config, state.getTemplate(), path);
+            if (role == FileRole.LIBRARY) continue;   // never ours to write
+
+            if (role.isReadOnly() && !lockedPartsUnchanged(path, file)) {
+                eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(
+                        "Refused to save " + path.getFileName() + ": it changes code BotMaker generates."));
+                continue;
+            }
+
             Files.createDirectories(path.getParent());
             Files.writeString(path, file.getContent());
         }
 
         Files.createDirectories(compiledOutputPath);
+        return compileSources(compiledOutputPath);
+    }
+
+    /**
+     * True when {@code file}'s in-memory content changes nothing outside the methods the user owns, so it is
+     * safe to write over the scaffolding on disk. A file not yet on disk has no locked parts to protect.
+     */
+    private boolean lockedPartsUnchanged(Path path, ProjectFile file) {
+        try {
+            if (!Files.exists(path)) return true;
+            return LockedRegions.lockedPartsMatch(
+                    config, state.getTemplate(), path, Files.readString(path), file.getContent());
+        } catch (IOException e) {
+            return false;   // can't prove it's safe: don't write
+        }
+    }
+
+    private boolean compileSources(Path compiledOutputPath) throws IOException, InterruptedException {
 
         List<String> sourceFiles = ClassPathManager.findJavaFiles(config.sourceRoot());
         if (sourceFiles.isEmpty()) {

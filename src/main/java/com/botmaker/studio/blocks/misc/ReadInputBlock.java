@@ -1,5 +1,6 @@
 package com.botmaker.studio.blocks.misc;
 
+import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.core.AbstractStatementBlock;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.ui.render.layout.BlockLayout;
@@ -22,6 +23,11 @@ public class ReadInputBlock extends AbstractStatementBlock {
     }
 
     @Override
+    protected BlockCategory category() {
+        return BlockCategory.INPUT;
+    }
+
+    @Override
     protected Node createUINode(CodeEditorService context) {
         VariableDeclarationFragment fragment =
                 (VariableDeclarationFragment) ((VariableDeclarationStatement) this.astNode).fragments().getFirst();
@@ -29,7 +35,7 @@ public class ReadInputBlock extends AbstractStatementBlock {
 
         // Editable declared name — a read block *declares* a new variable, so it gets a free-text field
         // (not the existing-variable dropdown an IdentifierBlock would show).
-        TextField nameField = TextFieldComponents.createVariableNameField(currentName, newName -> {
+        Node nameField = TextFieldComponents.createVariableName(currentName, !isReadOnly(), newName -> {
             if (!newName.equals(currentName) && !newName.isEmpty()) {
                 context.getCodeEditor().replaceSimpleName(fragment.getName(), newName);
             }
@@ -48,7 +54,7 @@ public class ReadInputBlock extends AbstractStatementBlock {
 
         return BlockLayout.header()
                 .withCustomNode(sentence)
-                .withDeleteButton(() -> context.getCodeEditor().deleteStatement((Statement) this.astNode))
+                .withDeleteButton(deleteAction(context))
                 .build();
     }
 

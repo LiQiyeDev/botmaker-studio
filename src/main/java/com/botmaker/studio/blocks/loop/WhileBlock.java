@@ -1,5 +1,6 @@
 package com.botmaker.studio.blocks.loop;
 
+import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.core.AbstractStatementBlock;
 import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.BlockWithChildren;
@@ -40,6 +41,11 @@ public class WhileBlock extends AbstractStatementBlock implements BlockWithChild
     }
 
     @Override
+    protected BlockCategory category() {
+        return BlockCategory.LOOPS;
+    }
+
+    @Override
     protected Node createUINode(CodeEditorService context) {
         VBox container = new VBox(5);
 
@@ -63,7 +69,7 @@ public class WhileBlock extends AbstractStatementBlock implements BlockWithChild
 
         container.getChildren().add(BlockLayout.header()
                 .withCustomNode(headerContent)
-                .withDeleteButton(() -> context.getCodeEditor().deleteStatement((Statement) this.astNode))
+                .withDeleteButton(deleteAction(context))
                 .build());
 
         // 3. Body

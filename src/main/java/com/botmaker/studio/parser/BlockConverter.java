@@ -22,6 +22,7 @@ import com.botmaker.studio.blocks.var.DeclareEnumBlock;
 import com.botmaker.studio.blocks.var.VariableDeclarationBlock;
 import com.botmaker.studio.core.*;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
+import com.botmaker.studio.project.LockResolver;
 import com.botmaker.studio.project.MethodLock;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
@@ -71,7 +72,8 @@ public class BlockConverter {
             }
 
             ParseContext ctx = new ParseContext(
-                    ast, javaCode, comments, nodeToBlockMap, manager, isReadOnly, markNewIdentifiersAsUnedited);
+                    ast, javaCode, comments, nodeToBlockMap, manager, isReadOnly,
+                    LockResolver.forActiveFile(config, state), markNewIdentifiersAsUnedited);
 
             if (ast.types().isEmpty()) return new ConvertResult(null, ast);
 
@@ -106,22 +108,18 @@ public class BlockConverter {
                         methodBlock = new MethodDeclarationBlock(
                                 BlockId.of(method), method, ctx.manager());
                     }
-                    applyReadOnly(methodBlock, ctx);
-
-                    // Some methods are load-bearing even in a file the user owns: Bot.supervise binds
-                    // GoHome::run as a Runnable, and an activity's isEnabled() is generated wiring. A
-                    // SIGNATURE lock marks only the method block (killing its rename/params menu) and leaves
-                    // the body interactive; FULL locks the body too. See project/MethodLock.
-                    MethodLock lock = methodLockFor(method);
-                    if (lock.locksSignature()) methodBlock.setReadOnly(true);
-                    methodBlock.setLockBadge(lock.badge() != null
-                            ? lock.badge()
-                            : (isUsersEntryPoint(method) ? "Your code goes here" : null));
+                    // A method's lock is not its file's. Bot.supervise binds GameLoop::run as a Runnable, so
+                    // the signature is fixed — but the body is the whole reason the file exists, and stays
+                    // editable even though the file around it is generated scaffolding. Conversely an
+                    // activity's isEnabled() is generated wiring inside a file the user otherwise owns.
+                    // LockResolver combines the two verdicts; don't re-derive either here.
+                    methodBlock.setReadOnly(!signatureEditable(method, ctx));
+                    methodBlock.setLockBadge(lockBadgeFor(method, ctx));
                     ctx.nodeToBlockMap().put(method, methodBlock);
 
                     if (method.getBody() != null) {
                         methodBlock.setBody(parseBodyBlock(method.getBody(),
-                                lock.locksBody() ? ctx.readOnlySubtree() : ctx));
+                                ctx.withReadOnly(!bodyEditable(method, ctx))));
                     }
                     classBlock.addBodyDeclaration(methodBlock);
                 } else if (obj instanceof Initializer initializer) {
@@ -171,10 +169,25 @@ public class BlockConverter {
         if (ctx.readOnly()) block.setReadOnly(true);
     }
 
-    /** The {@link MethodLock} for {@code method} in the file currently being parsed. */
-    private MethodLock methodLockFor(MethodDeclaration method) {
+    /** True when {@code method}'s name/params/return type may be changed. */
+    private boolean signatureEditable(MethodDeclaration method, ParseContext ctx) {
+        return ctx.resolver() == null ? !ctx.readOnly() : ctx.resolver().signatureEditable(method);
+    }
+
+    /** True when statements inside {@code method} may be changed. */
+    private boolean bodyEditable(MethodDeclaration method, ParseContext ctx) {
+        return ctx.resolver() == null ? !ctx.readOnly() : ctx.resolver().bodyEditable(method);
+    }
+
+    /**
+     * The badge for {@code method}'s header. "Your code goes here" wins over the lock's own badge: an activity's
+     * {@code run()} is both signature-locked and the one method the user came to write, and telling them its
+     * parameters are fixed is not the point — telling them this is where they work is.
+     */
+    private String lockBadgeFor(MethodDeclaration method, ParseContext ctx) {
+        if (isUsersEntryPoint(method)) return "Your code goes here";
         Path file = activeFilePath();
-        return file == null ? MethodLock.NONE : MethodLock.of(config, state.getTemplate(), file, method);
+        return file == null ? null : MethodLock.of(config, state.getTemplate(), file, method).badge();
     }
 
     /** True when {@code method} is the one the user is meant to fill in (an activity's {@code run()}). */

@@ -1,5 +1,6 @@
 package com.botmaker.studio.blocks.loop;
 
+import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.core.AbstractStatementBlock;
 import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.BlockWithChildren;
@@ -41,13 +42,18 @@ public class DoWhileBlock extends AbstractStatementBlock implements BlockWithChi
     }
 
     @Override
+    protected BlockCategory category() {
+        return BlockCategory.LOOPS;
+    }
+
+    @Override
     protected Node createUINode(CodeEditorService context) {
         VBox container = new VBox(5);
 
         // 1. Header: "do"
         container.getChildren().add(BlockLayout.header()
                 .withKeyword("do")
-                .withDeleteButton(() -> context.getCodeEditor().deleteStatement((Statement) this.astNode))
+                .withDeleteButton(deleteAction(context))
                 .build());
 
         // 2. Body

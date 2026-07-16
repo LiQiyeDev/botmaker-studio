@@ -58,7 +58,7 @@ public class ComparisonExpressionBlock extends AbstractExpressionBlock {
 
         // Left Operand
         sentence.addExpressionSlot(leftOperand, context, targetType);
-        sentence.addNode(BlockUIComponents.createChangeButton(e ->
+        sentence.addNode(createChangeButton(e ->
                 showExpressionMenuAndReplace((Button)e.getSource(), context, targetType,
                         leftOperand != null ? (Expression) leftOperand.getAstNode() : null)
         ));
@@ -73,7 +73,7 @@ public class ComparisonExpressionBlock extends AbstractExpressionBlock {
 
         // Right Operand
         sentence.addExpressionSlot(rightOperand, context, targetType);
-        sentence.addNode(BlockUIComponents.createChangeButton(e ->
+        sentence.addNode(createChangeButton(e ->
                 showExpressionMenuAndReplace((Button)e.getSource(), context, targetType,
                         rightOperand != null ? (Expression) rightOperand.getAstNode() : null)
         ));

@@ -1,5 +1,6 @@
 package com.botmaker.studio.blocks.func;
 
+import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.ui.render.menu.ExpressionMenuFactory;
 import com.botmaker.studio.util.DefaultNames;
 
@@ -41,6 +42,9 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
     private boolean isCollapsed = false;
     private String lockBadge;
 
+    /** The badge text that marks the one method the user is meant to fill in. */
+    private static final String YOURS_BADGE = "Your code goes here";
+
     /**
      * A short note rendered in the header saying what the user may do with this method — the {@code MethodLock}
      * badge ("Generated - Read Only", "Name and parameters required by BotMaker"), or the nudge toward the
@@ -48,6 +52,16 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
      */
     public void setLockBadge(String lockBadge) {
         this.lockBadge = lockBadge;
+    }
+
+    /**
+     * True when this is the method the user is meant to write. Drives the block-level accent
+     * ({@code .method-block--yours}) that makes it findable at a glance: in a scaffolded file the badge alone
+     * was 10px of low-contrast text among a dozen identical-looking methods, so "which one do I edit?" was a
+     * question the screen didn't answer.
+     */
+    private boolean isUsersEntryPoint() {
+        return YOURS_BADGE.equals(lockBadge);
     }
 
     /**
@@ -86,8 +100,16 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
     }
 
     @Override
+    protected BlockCategory category() {
+        return BlockCategory.FUNCTIONS;
+    }
+
+    @Override
     protected Node createUINode(CodeEditorService context) {
         VBox container = new VBox(0);
+        container.getStyleClass().add("method-block");
+        // In a file full of scaffolding, this is the one method that should look touchable.
+        if (isUsersEntryPoint()) container.getStyleClass().add("method-block--yours");
 
         // --- STATE SYNC ---
         String parentName = "";
@@ -176,9 +198,11 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
         var topRowBuilder = BlockLayout.sentence()
                 .addNode(collapseBtn)
                 .addNode(funcLabel)
-                .addNode(nameNode)
-                .addNode(BlockUIComponents.createSpacer());
+                .addNode(nameNode);
 
+        // The badge goes *beside the method name*, not after a spacer out in the middle of the header where it
+        // floated next to the louder return-type chip. "Your code goes here" is the answer to the first
+        // question a scaffolded file raises, so it belongs where the eye already is.
         if (lockBadge != null) {
             Label badge = new Label(lockBadge);
             badge.getStyleClass().add("method-lock-badge");
@@ -186,7 +210,8 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
             topRowBuilder.addNode(badge);
         }
 
-        topRowBuilder.addNode(returnsLabel).addNode(returnTypeLabel);
+        topRowBuilder.addNode(BlockUIComponents.createSpacer())
+                .addNode(returnsLabel).addNode(returnTypeLabel);
 
         if (canEditSignature()) {
             Button deleteBtn = new Button("×");

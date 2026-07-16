@@ -70,7 +70,7 @@ public class ProjectCreator {
             System.out.println("2. Creating source files...");
             Path srcPath = projectPath.resolve("src/main/java/com/" + cfg.packageName());
             Files.createDirectories(srcPath);
-            writeSources(srcPath, sourcesFor(template, projectName, cfg.packageName()));
+            writeSources(srcPath, sourcesFor(template, cfg.className(), cfg.packageName()));
 
             // 4. Built-in default image template so freshly-dropped vision blocks reference a real file.
             createDefaultTemplate(cfg.imagesRoot());
@@ -134,10 +134,10 @@ public class ProjectCreator {
      * The starting sources for {@code template} as {@code fileName -> source}. The single source of truth for
      * both creation and {@link ProjectRepair} — a template's files are defined exactly once, here.
      */
-    public static Map<String, String> sourcesFor(ProjectTemplate template, String projectName, String packageName) {
+    public static Map<String, String> sourcesFor(ProjectTemplate template, String className, String packageName) {
         return template == ProjectTemplate.GAME_BOT
-                ? gameBotSources(projectName, packageName)
-                : emptySources(projectName, packageName);
+                ? gameBotSources(className, packageName)
+                : emptySources(className, packageName);
     }
 
     /** Writes each {@code fileName -> source} of a template into {@code srcPath}. */
@@ -148,9 +148,9 @@ public class ProjectCreator {
     }
 
     /** The {@link ProjectTemplate#EMPTY} scaffold: a bare {@code main} that prints a greeting. */
-    public static Map<String, String> emptySources(String projectName, String packageName) {
+    public static Map<String, String> emptySources(String className, String packageName) {
         Map<String, String> sources = new LinkedHashMap<>();
-        sources.put(projectName + ".java", String.format("""
+        sources.put(className + ".java", String.format("""
             package com.%s;
             import com.botmaker.sdk.api.BotMaker;
 
@@ -159,7 +159,7 @@ public class ProjectCreator {
                     BotMaker.print("Hello from %s!");
                 }
             }
-            """, packageName, projectName, projectName));
+            """, packageName, className, className));
         return sources;
     }
 
@@ -172,11 +172,11 @@ public class ProjectCreator {
      * missing file from the same source of truth — the templates must not be duplicated. Reached via
      * {@link #sourcesFor}.
      */
-    public static Map<String, String> gameBotSources(String projectName, String packageName) {
+    public static Map<String, String> gameBotSources(String className, String packageName) {
         Map<String, String> sources = new LinkedHashMap<>();
 
         // Entry point: supervise the game loop, recovering via goHome → startGame on crash/stuck.
-        sources.put(projectName + ".java", String.format("""
+        sources.put(className + ".java", String.format("""
             package com.%s;
 
             import com.botmaker.sdk.api.bot.Bot;
@@ -187,7 +187,7 @@ public class ProjectCreator {
                     Bot.supervise(GameLoop::run, GoHome::run, Startup::run);
                 }
             }
-            """, packageName, projectName));
+            """, packageName, className));
 
         // The game loop: one pass runs every enabled activity, in registry order.
         sources.put("GameLoop.java", String.format("""
@@ -299,8 +299,15 @@ public class ProjectCreator {
         return Files.exists(projectPath.resolve("pom.xml"));
     }
 
+    /**
+     * The project name must be a single word of letters and digits, starting with a letter.
+     *
+     * <p>The first letter no longer has to be uppercase: the name is the user's, and the Java class name is
+     * derived from it ({@link ProjectConfig#toClassName}) rather than being the same string. It still has to
+     * start with a letter, because it also becomes the package name — {@code com.7bot} is not a package.
+     */
     private void validateProjectName(String projectName) {
-        if (projectName == null || projectName.trim().isEmpty() || !projectName.matches("^[A-Z][a-zA-Z0-9]*$")) {
+        if (projectName == null || projectName.trim().isEmpty() || !projectName.matches("^[A-Za-z][a-zA-Z0-9]*$")) {
             throw new IllegalArgumentException("Invalid project name: " + projectName);
         }
     }

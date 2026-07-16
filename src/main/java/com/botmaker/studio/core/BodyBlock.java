@@ -56,24 +56,26 @@ public class BodyBlock extends AbstractStatementBlock implements BlockWithChildr
         VBox.setVgrow(container, Priority.ALWAYS);
 
         if (statements.isEmpty()) {
-            javafx.scene.control.Label placeholder = new javafx.scene.control.Label("Click to add a block");
+            // A locked empty body says what it is; it must not invite a click it will refuse.
+            javafx.scene.control.Label placeholder =
+                    new javafx.scene.control.Label(isReadOnly() ? "(generated)" : "Click to add a block");
             placeholder.getStyleClass().add("empty-body-placeholder");
-            // Enable interaction
-            placeholder.setMouseTransparent(false);
-            placeholder.setCursor(Cursor.HAND);
 
-            // Add Click Handler
-            placeholder.setOnMouseClicked(e -> {
-                ContextMenu menu = ExpressionMenuFactory.createStatementMenu(type -> {
-                    context.getCodeEditor().addStatement(this, type, 0);
+            if (!isReadOnly()) {
+                placeholder.setMouseTransparent(false);
+                placeholder.setCursor(Cursor.HAND);
+                placeholder.setOnMouseClicked(e -> {
+                    ContextMenu menu = ExpressionMenuFactory.createStatementMenu(type -> {
+                        context.getCodeEditor().addStatement(this, type, 0);
+                    });
+                    menu.show(placeholder, javafx.geometry.Side.BOTTOM, 0, 0);
                 });
-                menu.show(placeholder, javafx.geometry.Side.BOTTOM, 0, 0);
-            });
+                dragAndDropManager.addEmptyBodyDropHandlers(container, this);
+            }
 
             container.getChildren().add(placeholder);
             container.setAlignment(Pos.CENTER);
             container.setMinHeight(30);
-            dragAndDropManager.addEmptyBodyDropHandlers(container, this);
         } else {
             // Lay out as sep[0], stmt[0], sep[1], stmt[1], …, sep[n]; keep the separator Panes so each statement
             // node can light the one above/below it as its drop indicator.
@@ -113,9 +115,12 @@ public class BodyBlock extends AbstractStatementBlock implements BlockWithChildr
     }
 
     private Pane createSeparatorWithHandlers(BodyBlock targetBody, int insertionIndex, CodeEditorService context) {
-        // 1. Create the Smart Separator (StackPane)
-        Pane separator = dragAndDropManager.createSeparator();
+        // A read-only body gets a plain gap: no "+", no drop target. The click path used to be wired
+        // unconditionally while its drag sibling checked the lock, so "+" was a way straight past the lock
+        // into generated code.
+        Pane separator = dragAndDropManager.createSeparator(!isReadOnly());
         separator.getStyleClass().add("body-block-separator");
+        if (isReadOnly()) return separator;
 
         // 2. Setup Drag-and-Drop Handlers
         dragAndDropManager.addSeparatorDragHandlers(separator, targetBody, insertionIndex);
