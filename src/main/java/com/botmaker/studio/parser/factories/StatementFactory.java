@@ -47,6 +47,9 @@ public class StatementFactory {
             case SWITCH -> createSwitchStatement(ast);
             case BREAK -> ast.newBreakStatement();
             case CONTINUE -> ast.newContinueStatement();
+            case DISABLE_ACTIVITY -> createActivityToggleStatement(ast, cu, rewriter, state, "disable");
+            case ENABLE_ACTIVITY -> createActivityToggleStatement(ast, cu, rewriter, state, "enable");
+            case STOP_BOT -> createStopBotStatement(ast, cu, rewriter);
             case RETURN -> ast.newReturnStatement();
             case WAIT -> createWaitStatement(ast);
             case ASSIGNMENT -> createAssignmentStatement(ast);
@@ -310,5 +313,44 @@ public class StatementFactory {
         catchClause.setBody(catchBody);
         tryStmt.catchClauses().add(catchClause);
         return tryStmt;
+    }
+
+    /**
+     * A name-targeted activity toggle — {@code Activity.disable("Name")} / {@code Activity.enable("Name")} — a
+     * static call on {@code Activity} (so it is valid anywhere, and can target another activity), adding the
+     * {@code Activity} import. The name seeds to the project's first activity so the picker has a sensible
+     * default. Recognised back into an {@code ActivityToggleBlock} by {@code BlockConverter#parseExprStmt}.
+     */
+    private static Statement createActivityToggleStatement(AST ast, CompilationUnit cu, ASTRewrite rewriter,
+                                                           ProjectState state, String methodName) {
+        ImportManager.addImport(cu, rewriter, "com.botmaker.sdk.api.bot.Activity");
+        MethodInvocation call = ast.newMethodInvocation();
+        call.setExpression(ast.newSimpleName("Activity"));
+        call.setName(ast.newSimpleName(methodName));
+        StringLiteral arg = ast.newStringLiteral();
+        arg.setLiteralValue(defaultActivityName(state));
+        call.arguments().add(arg);
+        return ast.newExpressionStatement(call);
+    }
+
+    /** The project's first activity name (the picker's default), or "" when there are no activities yet. */
+    private static String defaultActivityName(ProjectState state) {
+        if (state != null && state.getActivities() != null && !state.getActivities().activities().isEmpty()) {
+            return state.getActivities().activities().get(0).name();
+        }
+        return "";
+    }
+
+    /**
+     * The {@code Bot.stop();} statement that ends the bot. A static-qualified call (unlike the bare inherited
+     * {@code disable()}/{@code enable()} self-calls), so it also adds the {@code Bot} import. Recognised back
+     * into a {@code StopBotBlock} by {@code BlockConverter#parseExprStmt}.
+     */
+    private static Statement createStopBotStatement(AST ast, CompilationUnit cu, ASTRewrite rewriter) {
+        ImportManager.addImport(cu, rewriter, "com.botmaker.sdk.api.bot.Bot");
+        MethodInvocation call = ast.newMethodInvocation();
+        call.setExpression(ast.newSimpleName("Bot"));
+        call.setName(ast.newSimpleName("stop"));
+        return ast.newExpressionStatement(call);
     }
 }

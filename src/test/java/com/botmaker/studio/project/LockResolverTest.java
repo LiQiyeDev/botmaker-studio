@@ -17,9 +17,11 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * The truth table for {@link FileRole} × {@link MethodLock} × {@link EditKind}.
  *
- * <p>The case that matters most is {@code GameLoop.run}: a {@link MethodLock#SIGNATURE} method inside a
- * {@link FileRole#GENERATED} file. The file says "locked", the method says "the body is the user's", and the
- * method must win — for two years' worth of one regression, the file won and the game loop couldn't be written.
+ * <p>The two cases that matter most are the ones where the method's verdict must beat the file's: an activity's
+ * {@code isEnabled()} ({@link MethodLock#FULL} inside an {@link FileRole#EDITABLE} file — locks), and an
+ * activity's / GoHome's {@code run()} ({@link MethodLock#SIGNATURE} — keeps its body editable however the
+ * signature is bound). {@code GameLoop.run} is deliberately <em>not</em> such a grant: it is the generated
+ * dispatch loop, {@link MethodLock#FULL}, locked with the rest of its file.
  */
 class LockResolverTest {
 
@@ -75,20 +77,14 @@ class LockResolverTest {
         return new LockResolver(CONFIG, ProjectTemplate.GAME_BOT, file);
     }
 
-    // --- the regression: a SIGNATURE method inside a GENERATED file ---------------------------------------
+    // --- the game loop: fully generated, fully locked ------------------------------------------------------
 
     @Test
-    void theGameLoopsRunBodyIsEditableEvenThoughItsFileIsGenerated() {
+    void theGameLoopsRunIsLockedBodyAndAll() {
         LockResolver r = resolver(GAME_LOOP);
         assertEquals(FileRole.GENERATED, r.role(), "precondition: the file really is scaffolding");
-        assertTrue(r.bodyEditable(statementIn("run")), "MethodLock.SIGNATURE grants the body");
-        assertTrue(r.permits(statementIn("run"), EditKind.BODY));
-    }
-
-    @Test
-    void theGameLoopsRunSignatureIsStillLocked() {
-        LockResolver r = resolver(GAME_LOOP);
-        assertFalse(r.signatureEditable(method("run")));
+        assertFalse(r.bodyEditable(statementIn("run")), "the dispatch loop is generated wiring");
+        assertFalse(r.permits(statementIn("run"), EditKind.BODY));
         assertFalse(r.permits(method("run"), EditKind.SIGNATURE), "Bot.supervise binds GameLoop::run");
     }
 

@@ -604,6 +604,14 @@ public class CodeEditor {
         edit(toReplace, EditKind.BODY, false, (cu, code) -> AstRewriteHelper.renameSimpleName(cu, code, toReplace, newName));
     }
 
+    /**
+     * Renames an enhanced-for loop variable, updating its references in the loop body too so the code still
+     * compiles. Plain {@link #replaceSimpleName} renames only the declaration, which broke compilation.
+     */
+    public void renameForEachVariable(SimpleName toRename, String newName) {
+        edit(toRename, EditKind.BODY, false, (cu, code) -> AstRewriteHelper.renameForEachVariable(cu, code, toRename, newName));
+    }
+
     // =================================================================================
     // STATEMENTS / FLOW
     // =================================================================================
@@ -964,7 +972,19 @@ public class CodeEditor {
     private static void insertIntoList(ListRewrite listRewrite, BodyBlock body, Statement newStatement, int relativeIndex) {
         ASTNode node = body.getAstNode();
         if (node instanceof Block) {
-            listRewrite.insertAt(newStatement, relativeIndex, null);
+            // relativeIndex counts BodyBlock children, which include CommentBlocks — a Comment is not a JDT
+            // Statement and so isn't in Block.statements(). Inserting at the raw index into a body whose only
+            // child is a comment asked to insert at index 1 of an empty statement list and threw. Translate to
+            // the statements() index by counting the children that DO occupy a statements() slot — i.e. all but
+            // the comments. (Checking `instanceof Statement` is wrong: an expression-backed statement block —
+            // e.g. a bare method call — has a MethodInvocation as its node, not the ExpressionStatement, yet it
+            // still occupies a slot.)
+            int astIndex = 0;
+            var children = body.getStatements();
+            for (int i = 0; i < relativeIndex && i < children.size(); i++) {
+                if (!(children.get(i).getAstNode() instanceof Comment)) astIndex++;
+            }
+            listRewrite.insertAt(newStatement, astIndex, null);
         } else if (node instanceof SwitchCase caseNode) {
             SwitchStatement parent = (SwitchStatement) caseNode.getParent();
             List<?> allStatements = parent.statements();

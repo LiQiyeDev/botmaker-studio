@@ -10,9 +10,11 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * What may be written over a generated file: everything except the parts BotMaker owns.
  *
- * <p>The pair of tests that matter are the two directions of the same file. An edit to {@code GameLoop.run}'s
- * body must reach disk — skipping the whole file (the old rule) silently discarded the user's game loop on
- * every compile. An edit to anything else in that file must not.
+ * <p>In {@code GameLoop.java} that is now <em>everything</em>: {@code run()} is the generated dispatch loop
+ * ({@link MethodLock#FULL}), so no edit to the file may reach disk. The "an editable body inside a locked file
+ * must be flushable" mechanism these tests once exercised through {@code GameLoop.run} survives via
+ * {@link MethodLock#SIGNATURE} generally — see {@code lockedPartsMatch}'s skeleton, which blanks any
+ * body-editable method.
  */
 class LockedRegionsTest {
 
@@ -38,17 +40,14 @@ class LockedRegionsTest {
     }
 
     @Test
-    void aGameLoopRunBodyEditIsPersistable() {
+    void aGameLoopRunBodyEditIsNotPersistable() {
+        // run() is the generated dispatch loop (MethodLock.FULL) — an edited one is damage, not user code.
         String edited = ORIGINAL.replace(
                 "ActivityRegistry.ALL.forEach(Activity::execute);",
                 "BotMaker.print(\"mine\");\n        ActivityRegistry.ALL.forEach(Activity::execute);");
-        assertTrue(matches(ORIGINAL, edited), "run()'s body is the user's — it has to reach disk");
-    }
-
-    @Test
-    void anEmptiedRunBodyIsStillPersistable() {
-        String edited = ORIGINAL.replace("ActivityRegistry.ALL.forEach(Activity::execute);", "");
-        assertTrue(matches(ORIGINAL, edited), "deleting your own statements is an edit like any other");
+        assertFalse(matches(ORIGINAL, edited), "the dispatch loop is BotMaker's — it must not be overwritten");
+        assertFalse(matches(ORIGINAL,
+                ORIGINAL.replace("ActivityRegistry.ALL.forEach(Activity::execute);", "")));
     }
 
     @Test

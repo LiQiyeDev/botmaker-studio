@@ -191,11 +191,11 @@ public class CodeExecutionService {
         // This loop is the ONLY place edited source reaches disk — the editor keeps every change in memory
         // (ProjectFile.setContent) and never writes as you type.
         //
-        // It used to skip GENERATED files wholesale. That is now wrong in both directions: a generated file can
-        // hold an editable method (GameLoop.run is the file's whole reason to exist), so skipping it silently
-        // throws away the user's game-loop body on every compile. What must not reach disk is a change to the
-        // *locked parts* — so that, and only that, is what's checked. This is defense in depth: CodeEditor
-        // already refuses those edits, so a refusal here means something upstream let one through.
+        // It used to skip GENERATED files wholesale. That is wrong in both directions: a generated file can
+        // hold an editable method (a MethodLock.SIGNATURE body), so skipping it silently throws away the
+        // user's work on every compile. What must not reach disk is a change to the *locked parts* — so that,
+        // and only that, is what's checked. This is defense in depth: CodeEditor already refuses those edits,
+        // so a refusal here means something upstream let one through.
         for (ProjectFile file : state.getAllFiles()) {
             Path path = file.getPath();
             if (path == null) continue;

@@ -39,11 +39,10 @@ public record ParseContext(
      * the file around it. Every block created under the returned context inherits the verdict.
      *
      * <p><b>This is two-way, and deliberately so.</b> It locks a subtree the file doesn't — an activity's
-     * {@code isEnabled()} inside a file the user otherwise owns ({@code MethodLock.FULL}) — and it also
-     * <em>unlocks</em> one: {@code GameLoop.run}'s body inside a generated file ({@code MethodLock.SIGNATURE}).
-     * It used to only ever lock, which is why a generated file's verdict was final and the game loop couldn't
-     * be written. The only thing allowed to widen a lock is a {@link LockResolver} verdict — do not call this
-     * with a hand-derived boolean.
+     * {@code isEnabled()} inside a file the user otherwise owns ({@code MethodLock.FULL}) — and it can also
+     * <em>unlock</em> one: a {@code MethodLock.SIGNATURE} body inside a locked file. It used to only ever
+     * lock, which made a generated file's verdict final. The only thing allowed to widen a lock is a
+     * {@link LockResolver} verdict — do not call this with a hand-derived boolean.
      */
     public ParseContext withReadOnly(boolean ro) {
         return ro == readOnly ? this

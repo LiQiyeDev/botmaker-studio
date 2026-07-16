@@ -35,9 +35,11 @@ import static org.junit.jupiter.api.Assertions.*;
  * separator "+" — silently rewrote generated code and persisted it. No block or JavaFX node appears below: these
  * call {@link CodeEditor} directly, exactly as a forgetful UI path would, and the guard still has to hold.
  *
- * <p>The mirror-image case matters just as much and is easier to get wrong: {@code GameLoop.run} lives in a
- * generated file but exists <em>for</em> the user to fill in. Locking its body is the regression that made the
- * game loop unwritable, so "this edit must land" is asserted as carefully as "this edit must not".
+ * <p>The mirror-image case matters just as much and is easier to get wrong: an activity's {@code run()} is
+ * signature-locked (an {@code @Override} of {@code Activity.run}) but its body is exactly what the user came to
+ * write, so "this edit must land" is asserted as carefully as "this edit must not". ({@code GameLoop.run} used
+ * to be the example here — it has since been reclassified as fully generated, and its body edits must now be
+ * refused like the rest of its file.)
  */
 class CodeEditorLockTest {
 
@@ -56,6 +58,29 @@ class CodeEditorLockTest {
                 }
                 public static void helper() {
                     int y = 2;
+                }
+            }
+            """;
+
+    private static final String ACTIVITY_WITH_COMMENT = """
+            package com.mybot.activities;
+            public class Mining extends Activity {
+                @Override public boolean isEnabled() { return Activities.Mining; }
+                @Override public void run() {
+                    // your code goes here
+                }
+            }
+            """;
+
+    private static final String ACTIVITY_WITH_FOREACH = """
+            package com.mybot.activities;
+            import java.util.List;
+            public class Mining extends Activity {
+                @Override public boolean isEnabled() { return Activities.Mining; }
+                @Override public void run() {
+                    for (String item : List.of("a", "b")) {
+                        String copy = item;
+                    }
                 }
             }
             """;
@@ -154,22 +179,49 @@ class CodeEditorLockTest {
     // --- the edit that must LAND (bug: "I can't add any statement, even in run methods") ------------------
 
     @Test
-    void aStatementCanBeAddedToAGeneratedFilesEditableRunBody() {
-        Fixture f = gameLoop();
-        f.editor.addStatement(f.body("run"), BlockCatalog.PRINT, 0);
-
-        assertNotNull(f.lastCode, "GameLoop.run's body is the user's — the whole point of the file");
-        assertTrue(f.lastCode.contains("BotMaker.print("), "the print should be in run():\n" + f.lastCode);
-    }
-
-    @Test
     void anActivitysRunBodyAcceptsEdits() {
         Fixture f = activity();
         f.editor.addStatement(f.body("run"), BlockCatalog.PRINT, 0);
         assertNotNull(f.lastCode, "this is what the user came to write");
+        assertTrue(f.lastCode.contains("BotMaker.print("), "the print should be in run():\n" + f.lastCode);
+    }
+
+    @Test
+    void aStatementCanBeAddedBelowACommentOnlyBody() {
+        // CommentBlock is a StatementBlock, so a body whose only child is a comment reports the "+" below it at
+        // child-index 1 — but a Comment isn't in JDT Block.statements(), so inserting at statements() index 1 of
+        // an empty list threw IndexOutOfBounds. This is why stub run() bodies with a comment placeholder
+        // refused every statement.
+        Fixture f = new Fixture(CONFIG.activitiesPackageDir().resolve("Mining.java"), ACTIVITY_WITH_COMMENT);
+        f.editor.addStatement(f.body("run"), BlockCatalog.PRINT, 1);
+
+        assertNotNull(f.lastCode, "adding a statement below a comment must not crash");
+        assertTrue(f.lastCode.contains("BotMaker.print("), "the print should land in run():\n" + f.lastCode);
+    }
+
+    @Test
+    void renamingAForEachVariableRewritesItsReferencesToo() {
+        // Renaming only the declaration left the body on the old name, so the file stopped compiling.
+        Fixture f = new Fixture(CONFIG.activitiesPackageDir().resolve("Mining.java"), ACTIVITY_WITH_FOREACH);
+        var loop = (org.eclipse.jdt.core.dom.EnhancedForStatement) f.method("run").getBody().statements().getFirst();
+        f.editor.renameForEachVariable(loop.getParameter().getName(), "element");
+
+        assertNotNull(f.lastCode, "renaming a loop variable in an editable run() body is allowed");
+        assertTrue(f.lastCode.contains("String element :"), "declaration should be renamed:\n" + f.lastCode);
+        assertTrue(f.lastCode.contains("copy = element"), "the reference should be renamed too:\n" + f.lastCode);
+        assertFalse(f.lastCode.contains("item"), "no stale reference to the old name may remain:\n" + f.lastCode);
     }
 
     // --- the edits that must NOT land ---------------------------------------------------------------------
+
+    @Test
+    void theGameLoopsRunBodyRejectsEdits() {
+        // GameLoop.run is the complete generated dispatch loop (MethodLock.FULL), not a stub to fill in —
+        // the user's code goes in the activities it dispatches.
+        Fixture f = gameLoop();
+        f.editor.addStatement(f.body("run"), BlockCatalog.PRINT, 0);
+        f.assertRefused("editing the generated dispatch loop");
+    }
 
     @Test
     void aLockedMethodsSignatureCannotBeRenamedEvenWithoutTheUi() {
@@ -228,10 +280,10 @@ class CodeEditorLockTest {
     }
 
     @Test
-    void aVendoredGameLoopDoesNotGetItsBodyUnlocked() {
-        // SIGNATURE *grants* a body. If the hook were matched on file name alone, this library file's run()
-        // would become writable — the one place nothing may be touched.
-        Fixture f = library();
+    void aVendoredSuperviseHookDoesNotGetItsBodyUnlocked() {
+        // SIGNATURE *grants* a body. If hooks were matched on file name alone, a GoHome.java vendored under
+        // the library would have a writable run() — the one place nothing may be touched.
+        Fixture f = new Fixture(CONFIG.sourceRoot().resolve("com/botmaker/library/GoHome.java"), GAME_LOOP);
         f.editor.addStatement(f.body("run"), BlockCatalog.PRINT, 0);
         assertNull(f.lastCode);
     }

@@ -62,6 +62,29 @@ class ProjectCreatorTest {
     }
 
     @Test
+    void theGameLoopChecksTheEffectiveActiveStateNotTheConfiguredDefault() {
+        Map<String, String> sources = ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "MyBot", "mybot");
+
+        String loop = sources.get("GameLoop.java");
+        // active() layers a runtime setEnabled/disable override on top of the configured isEnabled() default, so
+        // a mid-run disable() actually stops the activity next pass (otherwise the loop runs it forever).
+        assertTrue(loop.contains("activity.active()"), loop);
+        assertFalse(loop.contains("activity.isEnabled()"), loop);
+    }
+
+    @Test
+    void theGameLoopEndsTheBotWhenEveryActivityIsDisabled() {
+        Map<String, String> sources = ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "MyBot", "mybot");
+
+        String loop = sources.get("GameLoop.java");
+        // Without a stop path, supervise's while(true) spins forever once all activities are disabled. The loop
+        // calls Bot.stop() when nothing ran this pass (guarded on a non-empty registry) so the bot actually ends.
+        assertTrue(loop.contains("Bot.stop()"), loop);
+        assertTrue(loop.contains("!anyActive"), loop);
+        assertTrue(loop.contains("import com.botmaker.sdk.api.bot.Bot;"), loop);
+    }
+
+    @Test
     void theEmptyTemplateEntryPointCompilesAsWritten() {
         Map<String, String> sources = ProjectCreator.sourcesFor(ProjectTemplate.EMPTY, "MyBot", "mybot");
 

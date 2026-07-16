@@ -52,6 +52,46 @@ public class AstRewriteHelper {
     }
 
     /**
+     * Renames a variable declared by an enhanced-for loop, updating the declaration <em>and</em> every
+     * reference to it within the loop, so the result still compiles. {@link #renameSimpleName} replaces only
+     * the single node it is handed; a loop variable also appears in the loop body, and renaming just the
+     * declaration leaves those references dangling on the old name.
+     *
+     * <p>The walk is scoped to the enclosing {@link EnhancedForStatement} (the variable's whole scope), so a
+     * same-named variable elsewhere in the method is untouched, and matches by binding key rather than by text
+     * so shadowing can't misfire. Falls back to renaming the lone declaration node when the loop or the binding
+     * can't be resolved (routine while a sibling file is uncompiled) — never worse than the old behaviour.
+     */
+    public static String renameForEachVariable(CompilationUnit cu, String originalCode,
+                                               SimpleName declName, String newName) {
+        EnhancedForStatement loop = enclosingEnhancedFor(declName);
+        IVariableBinding target = declName.resolveBinding() instanceof IVariableBinding vb ? vb : null;
+        if (loop == null || target == null) {
+            return renameSimpleName(cu, originalCode, declName, newName);
+        }
+        AST ast = cu.getAST();
+        ASTRewrite rewriter = ASTRewrite.create(ast);
+        String targetKey = target.getKey();
+        loop.accept(new ASTVisitor() {
+            @Override
+            public boolean visit(SimpleName node) {
+                if (node.resolveBinding() instanceof IVariableBinding vb && targetKey.equals(vb.getKey())) {
+                    rewriter.replace(node, ast.newSimpleName(newName), null);
+                }
+                return true;
+            }
+        });
+        return applyRewrite(rewriter, originalCode);
+    }
+
+    private static EnhancedForStatement enclosingEnhancedFor(ASTNode node) {
+        for (ASTNode n = node; n != null; n = n.getParent()) {
+            if (n instanceof EnhancedForStatement efs) return efs;
+        }
+        return null;
+    }
+
+    /**
      * Returns the statement {@link ListRewrite} for a body block, whether it is backed by a
      * {@link Block} or a {@link SwitchCase}.
      */

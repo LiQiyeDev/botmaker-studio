@@ -194,6 +194,7 @@ public class ProjectCreator {
             package com.%s;
 
             import com.botmaker.sdk.api.bot.Activity;
+            import com.botmaker.sdk.api.bot.Bot;
             import com.botmaker.sdk.api.bot.Watchdog;
 
             /**
@@ -203,11 +204,16 @@ public class ProjectCreator {
              */
             public class GameLoop {
                 public static void run() {
+                    boolean anyActive = false;
                     for (Activity activity : ActivityRegistry.ALL) {
-                        if (activity.isEnabled()) {
+                        if (activity.active()) {
+                            anyActive = true;
                             activity.execute();
                             Watchdog.checkpoint();
                         }
+                    }
+                    if (!ActivityRegistry.ALL.isEmpty() && !anyActive) {
+                        Bot.stop();
                     }
                 }
             }

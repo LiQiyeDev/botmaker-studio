@@ -11,8 +11,6 @@ import org.eclipse.jdt.core.dom.ITypeBinding;
 import org.eclipse.jdt.core.dom.InfixExpression;
 import org.eclipse.jdt.core.dom.Expression;
 
-import static com.botmaker.studio.ui.render.components.BlockUIComponents.createChangeButton;
-
 public class BinaryExpressionBlock extends AbstractExpressionBlock {
 
     private ExpressionBlock leftOperand;
@@ -40,20 +38,21 @@ public class BinaryExpressionBlock extends AbstractExpressionBlock {
         HBox expressionBox = new HBox(5);
         expressionBox.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
 
-        // Left operand + Change Button
+        // Left operand + Change Button (null when read-only — nothing to change a locked operand by)
         if (leftOperand != null) {
             expressionBox.getChildren().add(leftOperand.getUINode(context));
-            // Unified button style handled in BlockUIComponents.createChangeButton
             javafx.scene.control.Button changeLeft = createChangeButton(e ->
                     showExpressionMenuAndReplace((Button)e.getSource(), context, ResolvedType.primitive("int"),
                             (Expression) leftOperand.getAstNode())
             );
-            changeLeft.getStyleClass().add("small-change-button");
-            expressionBox.getChildren().add(changeLeft);
+            if (changeLeft != null) {
+                changeLeft.getStyleClass().add("small-change-button");
+                expressionBox.getChildren().add(changeLeft);
+            }
         }
 
-        // Operator Selector
-        if (isMathOperator(operator)) {
+        // Operator Selector (a plain label when read-only: no live control on a locked block)
+        if (isMathOperator(operator) && !isReadOnly()) {
             javafx.scene.control.ComboBox<String> selector = createOperatorSelector(
                     MATH_OPERATOR_NAMES,
                     MATH_OPERATOR_SYMBOLS,
@@ -75,8 +74,10 @@ public class BinaryExpressionBlock extends AbstractExpressionBlock {
                     showExpressionMenuAndReplace((Button)e.getSource(), context, ResolvedType.primitive("int"),
                             (Expression) rightOperand.getAstNode())
             );
-            changeRight.getStyleClass().add("small-change-button");
-            expressionBox.getChildren().add(changeRight);
+            if (changeRight != null) {
+                changeRight.getStyleClass().add("small-change-button");
+                expressionBox.getChildren().add(changeRight);
+            }
         }
 
         container.getChildren().add(expressionBox);

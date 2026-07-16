@@ -58,8 +58,9 @@ public class ForBlock extends AbstractStatementBlock implements BlockWithChildre
         // Create editable field for the loop variable
         Node nameField = TextFieldComponents.createVariableName(varName, !isReadOnly(), newName -> {
             if (variable != null && variable.getAstNode() instanceof SimpleName) {
-                // Reuse the generic replacement logic in CodeEditor
-                context.getCodeEditor().replaceSimpleName((SimpleName) variable.getAstNode(), newName);
+                // Rename the declaration AND its references in the loop body — a plain replaceSimpleName renames
+                // only the declaration, leaving the body on the old name so the code stops compiling.
+                context.getCodeEditor().renameForEachVariable((SimpleName) variable.getAstNode(), newName);
             }
         });
 

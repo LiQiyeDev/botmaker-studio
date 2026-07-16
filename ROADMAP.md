@@ -6,6 +6,87 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-17 — Manage Activities: reorderable activity list (= run/priority order).** `ActivityRegistry.ALL`
+  is generated in `activities.json` list order and `GameLoop` runs that order, so an activity's list position
+  is its priority — but the dialog had no way to change it. Added **Move up / Move down** buttons to
+  `ui/app/ManageActivitiesDialog` (`buildActivitiesSection`) that swap the selected `ActRow` in `activityRows`
+  (boundary-aware disable, selection follows the moved row); Apply persists the new order through the existing
+  `ActivityService` path, so the regenerated `ActivityRegistry.ALL` — and thus the macro loop's run order —
+  reflects it. Hint updated to note "top runs first". No SDK/model change.
+- **2026-07-16 — Activity toggle is now a name picker (`Activity.disable("X")`); keyword blocks restyled.**
+  The old "disable/enable this activity" emitted a bare `disable()` self-call — only valid inside an Activity
+  and only self-targeting, and it compile-broke if dropped elsewhere. Reworked `blocks/flow/ActivityToggleBlock`
+  to render an **activity-name ComboBox** (populated from `ProjectState.getActivities()`) and emit the SDK's
+  static `Activity.disable("Name")` / `Activity.enable("Name")` (valid anywhere; one activity can toggle
+  another). `StatementFactory` seeds the name to the first activity + adds the `Activity` import;
+  `BlockConverter` recognises `Activity`-receiver `disable`/`enable` with a `StringLiteral` arg back to the
+  picker block (the old implicit-`this` recognition removed); picking rewrites the literal via
+  `CodeEditor.replaceLiteralValue`. Fixed the "keyword blocks render as plain text" bug — `withKeyword` tags
+  `keyword-label` but `blocks.css` only styled `.header-keyword-label`; added `.keyword-label` to that rule so
+  break/continue/return/wait/stop/toggle keywords are styled. Verified the activity **config wiring**
+  end-to-end (params + globals → generated `Activities.<field>` → ExpressionMenu "Activities" submenu; values
+  via *Set Activity Values*) — sound, no change needed. Tests: `BlockDragDropEditTest` (picker round-trip).
+- **2026-07-16 — GameLoop auto-ends when all activities are disabled; new "Stop This Bot" palette block.**
+  Paired with the SDK's `Bot.stop()` (see `../botmaker-sdk`). The generated `GameLoop.java` now tracks whether
+  any activity ran this pass and calls `Bot.stop()` when the registry is non-empty and none is active — so
+  disabling the last activity actually ends the bot instead of spinning `supervise`'s `while (true)` forever
+  (the bug: "the bot can't end even when all activities are false"). The `!ALL.isEmpty()` guard keeps a
+  not-yet-configured bot behaving as before. `GameLoop.run` is `MethodLock.FULL`, so existing projects pick it
+  up via *Recover Project Files* (`BODY_CHANGED` → restored). Added a fixed-label "Stop This Bot" **Control**
+  block → `Bot.stop();`: `Kind.STOP_BOT`, `StatementFactory.createStopBotStatement` (a static-qualified call
+  that also adds the `Bot` import via `ImportManager`, unlike the bare inherited toggle self-calls),
+  `BlockConverter` matches `Bot.stop()` back to the new `blocks/flow/StopBotBlock`. Tests: `ProjectCreatorTest`
+  (loop carries `Bot.stop()`/`!anyActive`/the import), `ProjectRepairAstTest` (old loop without the guard is
+  restored), `BlockDragDropEditTest` (drop → `Bot.stop();` + import → round-trips to `StopBotBlock`).
+- **2026-07-16 — GameLoop checks `activity.active()`; new "Disable/Enable This Activity" palette blocks.**
+  Paired with the SDK's runtime enable/disable (`Activity.active()`/`setEnabled()`, see `../botmaker-sdk`).
+  The generated `GameLoop.java` template guards each activity with `activity.active()` instead of
+  `activity.isEnabled()`, so a mid-run `disable()` actually stops it next pass (the bug: no way to turn an
+  activity off → the loop ran it forever). Since `GameLoop.run` is `MethodLock.FULL`, existing projects
+  self-heal via *Recover Project Files* — an old `isEnabled()` loop reports `BODY_CHANGED` and is restored to
+  the `active()` form (no `ProjectRepair` code change; it diffs against `ProjectCreator.sourcesFor`). Added two
+  fixed-label statement blocks in the **Control** category — "Disable This Activity" → `disable();` and
+  "Enable This Activity" → `enable();` — modelled like `Kind.BREAK`/`CONTINUE` (no scope/method dropdown, so
+  the implicit-`this` self-call never surfaces a scope pill). New `Kind.DISABLE_ACTIVITY`/`ENABLE_ACTIVITY`
+  emit via `StatementFactory.createSelfCallStatement`; `BlockConverter` matches an implicit-`this`, no-arg
+  `disable()`/`enable()` back to the new `blocks/flow/ActivityToggleBlock`. Tests: `ProjectCreatorTest`
+  (`active()` in the loop), `ProjectRepairAstTest` (old `isEnabled()` upgraded), `BlockDragDropEditTest`
+  (drop → `disable();` → round-trips to a toggle block). **Needs the matching SDK release** — the generated
+  loop calls `active()`.
+
+- **2026-07-16 — `GameLoop.run` reclassified as fully generated (`MethodLock.FULL`).**
+  It was `SIGNATURE` ("body is the user's"), so its call blocks legitimately kept live class/method selectors
+  and the ⚙ overload button, edits stuck, and Recover Project Files ignored an edited dispatch loop. But the
+  generator ships `run()` complete (iterate registry → run enabled activities → `Watchdog.checkpoint()`); the
+  user's workspace is the activities (plus GoHome/Startup, whose `run()` stays `SIGNATURE`). One change in
+  `MethodLock.of` propagates everywhere: blocks in GameLoop are now inert (`LockResolver`), stray edits can't
+  reach disk (`LockedRegions`), and an edited loop is `BODY_CHANGED` damage that Recover restores
+  (`ProjectRepair`). Tests moved off GameLoop.run as the "editable body" example onto activity `run()`.
+  *Follow-up sweep:* rendering the now-fully-locked GameLoop exposed blocks that never met the null-button
+  contract — `IfBlock`'s add-else NPE'd the whole render pass ("no blocks visible"), `SwitchBlock`'s case
+  delete would too, and `BinaryExpressionBlock` NPE'd styling its change buttons. Guarded those, and closed
+  the surviving read-only leaks: else-delete, switch add-case/move-case, list element add/change/move/delete,
+  and the operator ComboBoxes in `AssignmentBlock`/`BinaryExpressionBlock`/`ComparisonExpressionBlock` (now a
+  plain label when locked). `CodeEditorService.getSdkDocs()` degrades to `SdkDocs.EMPTY` without a docs
+  service. New tests render the *real* generated `GameLoop.java` end-to-end plus one locked method covering
+  every crash-prone block shape, asserting zero editing controls.
+
+- **2026-07-16 — Follow-up fixes to the lock refactor: render crash, comment-only bodies, foreach rename, generated-file delete.**
+  Four reported failures from the lock refactor's new null-returning button contract + a latent index bug.
+  **(1)** `DeclareClassVariableBlock` styled its delete button unconditionally, but `createDeleteButton` now
+  returns null for read-only blocks — so any read-only file with a field (e.g. `ActivityRegistry.java`) NPE'd in
+  `UIManager.handleBlocksUpdate` and rendered *no blocks at all*. Null-guarded.
+  **(2)** Adding a statement to a body whose only child is a comment threw `IndexOutOfBounds` — `CommentBlock`
+  is a `StatementBlock` so it counted toward the drop index, but a `Comment` isn't in JDT `Block.statements()`.
+  `CodeEditor.insertIntoList` now translates the body-child index to a `statements()` index (comments excluded).
+  This is why statements couldn't be added to generated `run()` bodies that ship with a comment placeholder.
+  **(3)** Renaming a `for-each` iterator renamed only the declaration, breaking compilation.
+  `AstRewriteHelper.renameForEachVariable` now renames the declaration + all binding-matched references within
+  the loop (falls back to the single-node rename when bindings are unresolved). `ForBlock` uses it.
+  **(4)** Generated files were deletable from the explorer behind a confirm dialog; their "Delete File" action
+  is now disabled with an explanatory label (recover via Project ▸ Recover Project Files).
+  *Follow-up:* `MethodHandler.renameMethodParameter` has the same single-node rename flaw — not yet fixed.
+
 - **2026-07-16 — Locks are enforced where edits happen, not where controls are drawn; project-creation UX; block visual tokens.**
   Fixes six reported bugs whose root causes were two.
   **(1) The write layer is now the enforcement point** (`parser/CodeEditor`). Its `canModify()` tested for a

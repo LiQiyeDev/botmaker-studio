@@ -67,10 +67,13 @@ public class ListBlock extends AbstractExpressionBlock {
         }
 
         // The "+" add button lives beneath the last element (append position), not above the list.
-        Button addButton = new Button("+");
-        addButton.getStyleClass().add("list-add-button");
-        addButton.setOnAction(e -> showAddElementMenu(addButton, context, elements.size(), itemType));
-        container.getChildren().add(addButton);
+        // Read-only: the list renders its elements with nothing to add by.
+        if (!isReadOnly()) {
+            Button addButton = new Button("+");
+            addButton.getStyleClass().add("list-add-button");
+            addButton.setOnAction(e -> showAddElementMenu(addButton, context, elements.size(), itemType));
+            container.getChildren().add(addButton);
+        }
 
         return container;
     }
@@ -90,6 +93,11 @@ public class ListBlock extends AbstractExpressionBlock {
         Node elementNode = hasSpecialEditor ? specialized : element.getUINode(context);
         if (element instanceof ListBlock) HBox.setHgrow(elementNode, javafx.scene.layout.Priority.ALWAYS);
 
+        row.getChildren().addAll(indexLabel, elementNode);
+
+        // Read-only: elements show as-is, with no change/reorder/delete controls.
+        if (isReadOnly()) return row;
+
         Button upButton = BlockUIComponents.createMoveUpButton(
                 () -> context.getCodeEditor().moveListElement(this.astNode, index, index - 1));
         upButton.setDisable(index == 0);
@@ -102,7 +110,6 @@ public class ListBlock extends AbstractExpressionBlock {
         deleteButton.getStyleClass().addAll("icon-button", "list-delete-button");
         deleteButton.setOnAction(e -> deleteElement(index, context));
 
-        row.getChildren().addAll(indexLabel, elementNode);
         if (!hasSpecialEditor) {
             Button changeButton = new Button("+");
             changeButton.getStyleClass().addAll("icon-button", "list-change-button");

@@ -114,7 +114,8 @@ public class IfBlock extends AbstractStatementBlock implements BlockWithChildren
                         .addNode(createAddButton(e ->
                                 context.getCodeEditor().convertElseToElseIf((IfStatement) this.astNode)))
                         .addNode(BlockUIComponents.createSpacer())
-                        .addNode(BlockUIComponents.createDeleteButton(() ->
+                        // Removing the else is an edit like any other: no control on a locked block.
+                        .addNode(isReadOnly() ? null : BlockUIComponents.createDeleteButton(() ->
                                 context.getCodeEditor().deleteElseFromIfStatement((IfStatement) this.astNode)))
                         .build();
 
@@ -123,10 +124,11 @@ public class IfBlock extends AbstractStatementBlock implements BlockWithChildren
                 container.getChildren().add(elseContainer);
             }
         } else {
-            // Add Else Button
+            // Add Else Button — null when read-only (a VBox rejects null children, unlike the layout
+            // builders, so the guard is on us here).
             Button addElseButton = createAddButton(e ->
                     context.getCodeEditor().addElseToIfStatement((IfStatement) this.astNode));
-            container.getChildren().add(addElseButton);
+            if (addElseButton != null) container.getChildren().add(addElseButton);
         }
 
         return container;

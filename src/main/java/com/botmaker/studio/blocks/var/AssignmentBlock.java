@@ -51,19 +51,25 @@ public class AssignmentBlock extends AbstractStatementBlock {
     @Override
     protected Node createUINode(CodeEditorService context) {
         var sentenceBuilder = BlockLayout.sentence()
-                .addNode(leftHandSide != null ? leftHandSide.getUINode(context) : createExpressionDropZone(context))
-                .addOperatorSelector(
-                        OPERATOR_NAMES,
-                        OPERATOR_SYMBOLS,
-                        operator,
-                        newOperator -> {
-                            this.operator = newOperator;
-                            if (this.astNode instanceof ExpressionStatement) {
-                                Expression expr = ((ExpressionStatement) this.astNode).getExpression();
-                                context.getCodeEditor().updateAssignmentOperator(expr, newOperator);
-                            }
+                .addNode(leftHandSide != null ? leftHandSide.getUINode(context) : createExpressionDropZone(context));
+
+        // Operator (a plain label when read-only: no live control on a locked block)
+        if (isReadOnly()) {
+            sentenceBuilder.addKeyword(operatorDisplayName());
+        } else {
+            sentenceBuilder.addOperatorSelector(
+                    OPERATOR_NAMES,
+                    OPERATOR_SYMBOLS,
+                    operator,
+                    newOperator -> {
+                        this.operator = newOperator;
+                        if (this.astNode instanceof ExpressionStatement) {
+                            Expression expr = ((ExpressionStatement) this.astNode).getExpression();
+                            context.getCodeEditor().updateAssignmentOperator(expr, newOperator);
                         }
-                );
+                    }
+            );
+        }
 
         // Right hand side (only for non-increment/decrement)
         if (!operator.equals("++") && !operator.equals("--")) {
@@ -76,6 +82,14 @@ public class AssignmentBlock extends AbstractStatementBlock {
                 .withCustomNode(sentenceBuilder.build())
                 .withDeleteButton(deleteAction(context))
                 .build();
+    }
+
+    /** The friendly name the selector would show for the current operator symbol ("=" → "set to"). */
+    private String operatorDisplayName() {
+        for (int i = 0; i < OPERATOR_SYMBOLS.length; i++) {
+            if (OPERATOR_SYMBOLS[i].equals(operator)) return OPERATOR_NAMES[i];
+        }
+        return operator;
     }
 
     private void showExpressionMenu(javafx.scene.control.Button button, CodeEditorService context) {

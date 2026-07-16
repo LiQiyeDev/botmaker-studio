@@ -130,6 +130,68 @@ class ProjectRepairAstTest {
     }
 
     @Test
+    void anEditedGameLoopBodyIsDamageAndIsRestored() throws IOException {
+        // GameLoop.run is MethodLock.FULL: the dispatch loop is BotMaker's, so an edited one (the reported
+        // "I renamed the foreach variable and Recover didn't notice") must be found and put back.
+        Path gameLoop = mainDir.resolve("GameLoop.java");
+        Files.writeString(gameLoop, Files.readString(gameLoop)
+                .replace("Activity activity", "Activity myActivity"));
+
+        List<ProjectRepair.Damage> damaged = findDamaged();
+        assertEquals(1, damaged.size(), "" + damaged);
+        assertEquals("run", damaged.getFirst().methodName());
+        assertEquals(ProjectRepair.Damage.Kind.BODY_CHANGED, damaged.getFirst().kind());
+
+        repair(damaged);
+        String repaired = Files.readString(gameLoop);
+        // The rewrite re-prints the replaced method, so compare tokens rather than exact whitespace.
+        assertTrue(repaired.contains("Activity activity"), "the canonical loop is back:\n" + repaired);
+        assertFalse(repaired.contains("myActivity"));
+        assertEquals(List.of(), findDamaged(), "sameBody compares printed forms, so the repair must read as clean");
+    }
+
+    @Test
+    void anOldIsEnabledGameLoopIsUpgradedToTheActiveForm() throws IOException {
+        // A project scaffolded before the runtime enable/disable change guards the loop with the old
+        // `activity.isEnabled()`. Because GameLoop.run is FULL-locked, Recover should report it as BODY_CHANGED
+        // and restore the canonical `activity.active()` form — so existing bots pick up mid-run disable().
+        Path gameLoop = mainDir.resolve("GameLoop.java");
+        Files.writeString(gameLoop, Files.readString(gameLoop)
+                .replace("activity.active()", "activity.isEnabled()"));
+
+        List<ProjectRepair.Damage> damaged = findDamaged();
+        assertEquals(1, damaged.size(), "" + damaged);
+        assertEquals("run", damaged.getFirst().methodName());
+        assertEquals(ProjectRepair.Damage.Kind.BODY_CHANGED, damaged.getFirst().kind());
+
+        repair(damaged);
+        String repaired = Files.readString(gameLoop);
+        assertTrue(repaired.contains("activity.active()"), "the loop must be upgraded:\n" + repaired);
+        assertFalse(repaired.contains("isEnabled()"));
+        assertEquals(List.of(), findDamaged());
+    }
+
+    @Test
+    void aGameLoopWithoutTheAutoStopGuardIsRestored() throws IOException {
+        // A project scaffolded before the end-the-bot change has no `if (!anyActive) Bot.stop();` tail. Because
+        // GameLoop.run is FULL-locked, Recover should report it BODY_CHANGED and restore the canonical form so
+        // existing bots pick up the auto-end-when-all-disabled behaviour.
+        Path gameLoop = mainDir.resolve("GameLoop.java");
+        Files.writeString(gameLoop, Files.readString(gameLoop)
+                .replaceAll("(?s)\\s*if \\(!ActivityRegistry\\.ALL\\.isEmpty\\(\\) && !anyActive\\) \\{\\s*Bot\\.stop\\(\\);\\s*\\}", ""));
+
+        List<ProjectRepair.Damage> damaged = findDamaged();
+        assertEquals(1, damaged.size(), "" + damaged);
+        assertEquals("run", damaged.getFirst().methodName());
+        assertEquals(ProjectRepair.Damage.Kind.BODY_CHANGED, damaged.getFirst().kind());
+
+        repair(damaged);
+        String repaired = Files.readString(gameLoop);
+        assertTrue(repaired.contains("Bot.stop()"), "the auto-stop guard must be back:\n" + repaired);
+        assertEquals(List.of(), findDamaged());
+    }
+
+    @Test
     void aMissingLockedMethodIsReinserted() throws IOException {
         String source = Files.readString(goHome);
         int start = source.indexOf("public static void run()");

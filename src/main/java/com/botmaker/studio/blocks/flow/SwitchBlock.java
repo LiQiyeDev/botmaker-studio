@@ -92,9 +92,11 @@ public class SwitchBlock extends AbstractStatementBlock implements BlockWithChil
 
         mainContainer.getChildren().add(casesContainer);
 
-        Button addCaseButton = new Button("+ Add Case");
-        addCaseButton.setOnAction(e -> context.getCodeEditor().addCaseToSwitch((SwitchStatement) this.astNode));
-        mainContainer.getChildren().add(addCaseButton);
+        if (!isReadOnly()) {
+            Button addCaseButton = new Button("+ Add Case");
+            addCaseButton.setOnAction(e -> context.getCodeEditor().addCaseToSwitch((SwitchStatement) this.astNode));
+            mainContainer.getChildren().add(addCaseButton);
+        }
 
         return mainContainer;
     }
@@ -152,7 +154,7 @@ public class SwitchBlock extends AbstractStatementBlock implements BlockWithChil
                         .addKeyword(":");
             }
 
-            if (index >= 0) {
+            if (index >= 0 && !isReadOnly()) {
                 Button upBtn = BlockUIComponents.createMoveUpButton(
                         () -> context.getCodeEditor().moveSwitchCase((SwitchCase) this.astNode, true));
                 upBtn.setDisable(index == 0);
@@ -168,7 +170,9 @@ public class SwitchBlock extends AbstractStatementBlock implements BlockWithChil
             }
 
             HBox caseHeader = caseHeaderBuilder.build();
-            caseHeader.getChildren().add(createDeleteButton(context));
+            // Null when read-only — an HBox rejects null children, unlike the layout builders.
+            Button deleteBtn = createDeleteButton(context);
+            if (deleteBtn != null) caseHeader.getChildren().add(deleteBtn);
 
             container.getChildren().add(caseHeader);
 

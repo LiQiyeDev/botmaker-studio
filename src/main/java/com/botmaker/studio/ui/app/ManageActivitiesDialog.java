@@ -153,6 +153,21 @@ public class ManageActivitiesDialog {
         HBox addRow = new HBox(8, actName, actDesc, addActivity);
         addRow.setAlignment(Pos.CENTER_LEFT);
 
+        // Reorder: the activities' order here is the run order (it drives ActivityRegistry.ALL).
+        Button moveUp = new Button("Move up");
+        Button moveDown = new Button("Move down");
+        moveUp.setDisable(true);
+        moveDown.setDisable(true);
+        Runnable refreshMoveButtons = () -> {
+            int i = table.getSelectionModel().getSelectedIndex();
+            moveUp.setDisable(i <= 0);
+            moveDown.setDisable(i < 0 || i >= activityRows.size() - 1);
+        };
+        table.getSelectionModel().selectedIndexProperty().addListener((o, was, is) -> refreshMoveButtons.run());
+        activityRows.addListener((javafx.collections.ListChangeListener<ActRow>) c -> refreshMoveButtons.run());
+        moveUp.setOnAction(e -> moveSelected(table, -1));
+        moveDown.setOnAction(e -> moveSelected(table, +1));
+
         Button removeActivity = new Button("Remove activity");
         removeActivity.setDisable(true);
         table.getSelectionModel().selectedItemProperty().addListener((o, was, is) -> removeActivity.setDisable(is == null));
@@ -160,7 +175,7 @@ public class ManageActivitiesDialog {
             ActRow sel = table.getSelectionModel().getSelectedItem();
             if (sel != null) activityRows.remove(sel);
         });
-        HBox actButtons = new HBox(removeActivity);
+        HBox actButtons = new HBox(8, moveUp, moveDown, removeActivity);
         actButtons.setAlignment(Pos.CENTER_RIGHT);
 
         HBox paramButtons = new HBox(removeParam);
@@ -168,11 +183,23 @@ public class ManageActivitiesDialog {
 
         Label heading = new Label("Activities");
         heading.setStyle("-fx-font-weight: bold;");
-        Label hint = new Label("Double-click a cell to edit. Enable flags are set in Project → Set Activity Values.");
+        Label hint = new Label("Double-click a cell to edit; drag order with Move up/down (top runs first). "
+                + "Enable flags are set in Project → Set Activity Values.");
         hint.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
 
         return new VBox(6, heading, table, addRow, actButtons, hint,
                 paramsHeading, paramsTable, paramAddRow, paramButtons);
+    }
+
+    /** Swaps the selected activity with its neighbour {@code delta} rows away (−1 up, +1 down), keeping it selected. */
+    private void moveSelected(TableView<ActRow> table, int delta) {
+        int i = table.getSelectionModel().getSelectedIndex();
+        int j = i + delta;
+        if (i < 0 || j < 0 || j >= activityRows.size()) return;
+        ActRow moved = activityRows.get(i);
+        activityRows.set(i, activityRows.get(j));
+        activityRows.set(j, moved);
+        table.getSelectionModel().select(j);
     }
 
     private VBox buildGlobalsSection() {

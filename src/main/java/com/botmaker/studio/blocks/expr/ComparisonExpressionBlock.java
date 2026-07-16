@@ -63,13 +63,17 @@ public class ComparisonExpressionBlock extends AbstractExpressionBlock {
                         leftOperand != null ? (Expression) leftOperand.getAstNode() : null)
         ));
 
-        // Operator
-        sentence.addOperatorSelector(OPERATOR_NAMES, OPERATOR_SYMBOLS, operator, newOp -> {
-            this.operator = newOp;
-            if (this.astNode instanceof InfixExpression) {
-                context.getCodeEditor().updateBinaryOperator((InfixExpression) this.astNode, newOp);
-            }
-        });
+        // Operator (a plain label when read-only: no live control on a locked block)
+        if (isReadOnly()) {
+            sentence.addKeyword(operator);
+        } else {
+            sentence.addOperatorSelector(OPERATOR_NAMES, OPERATOR_SYMBOLS, operator, newOp -> {
+                this.operator = newOp;
+                if (this.astNode instanceof InfixExpression) {
+                    context.getCodeEditor().updateBinaryOperator((InfixExpression) this.astNode, newOp);
+                }
+            });
+        }
 
         // Right Operand
         sentence.addExpressionSlot(rightOperand, context, targetType);

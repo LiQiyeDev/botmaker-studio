@@ -17,8 +17,8 @@ import java.util.List;
  *
  * <p><b>Why this is needed.</b> Persistence used to be all-or-nothing per file: a
  * {@link FileRole#GENERATED} file's in-memory edits were simply never flushed. Once a generated file can
- * contain an <em>editable</em> method — {@code GameLoop.run}, which the whole file exists to let the user
- * write — that rule is wrong in both directions. Skipping the file discards the user's game-loop body; writing
+ * contain an <em>editable</em> method ({@link MethodLock#SIGNATURE} grants the body back to the user, however
+ * locked the file) that rule is wrong in both directions: skipping the file discards the user's body; writing
  * it wholesale lets a corrupted scaffold reach disk. So the question stops being "may this file be saved?" and
  * becomes "does this edit touch anything but the parts the user owns?".
  *

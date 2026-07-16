@@ -199,7 +199,8 @@ public final class ProjectRepair {
             MISSING,
             /** Renamed, re-parameterised, or given a different return type — BotMaker can no longer call it. */
             SIGNATURE_CHANGED,
-            /** A fully generated method whose body has been edited (an activity's {@code isEnabled()}). */
+            /** A fully generated method whose body has been edited (an activity's {@code isEnabled()},
+             *  {@code GameLoop.run}). */
             BODY_CHANGED
         }
 

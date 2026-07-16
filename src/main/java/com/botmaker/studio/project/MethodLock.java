@@ -19,12 +19,10 @@ import java.nio.file.Path;
  * from names.
  *
  * <p><b>This enum outranks {@link FileRole} at method granularity, and may unlock as well as lock.</b> A
- * {@link #SIGNATURE} verdict hands the body back to the user <em>even inside a {@link FileRole#GENERATED}
- * file</em> — that is the whole point of {@code GameLoop.run}, which lives in a file the Studio owns but exists
- * for the user to fill in. The two used to contradict each other here (this enum documented the body as the
- * user's while {@code FileRole} locked the file around it, and the file won), which is how "I can't add a
- * statement to my game loop" happened. {@code project/LockResolver} is where the two are combined; it is the
- * only thing that should call this method, and nothing else should re-derive the rule.
+ * {@link #SIGNATURE} verdict hands the body back to the user even inside a locked file, and a {@link #FULL}
+ * verdict locks a method inside a file the user otherwise owns (an activity's {@code isEnabled()}).
+ * {@code project/LockResolver} is where the two verdicts are combined; it is the only thing that should call
+ * this method, and nothing else should re-derive the rule.
  */
 public enum MethodLock {
 
@@ -37,13 +35,19 @@ public enum MethodLock {
 
     /**
      * The signature is fixed but <b>the body is unconditionally the user's</b>: {@code run()} in {@code GoHome} /
-     * {@code Startup} / {@code GameLoop} (each bound as a {@code Runnable} by {@code Bot.supervise}), and an
-     * activity's {@code run()} (an {@code @Override} of {@code Activity.run}). Unlike {@link #NONE} this does not
-     * defer — it grants body edits however locked the surrounding file is.
+     * {@code Startup} (each bound as a {@code Runnable} by {@code Bot.supervise}, shipped as TODO stubs for the
+     * user to fill in), and an activity's {@code run()} (an {@code @Override} of {@code Activity.run}). Unlike
+     * {@link #NONE} this does not defer — it grants body edits however locked the surrounding file is.
      */
     SIGNATURE,
 
-    /** The whole method is generated wiring: an activity's {@code isEnabled()}. */
+    /**
+     * The whole method is generated wiring: an activity's {@code isEnabled()}, and {@code GameLoop.run} — the
+     * generated activity-dispatch loop. The latter was briefly {@link #SIGNATURE} on the theory that the game
+     * loop was the user's to fill in, but the generator ships it complete (iterate registry, run enabled
+     * activities, checkpoint the watchdog) and the user's workspace is the activities; an edited dispatch loop
+     * is damage for {@code ProjectRepair} to restore, not user code to preserve.
+     */
     FULL;
 
     /** True when the method's name/params/return type/existence must not change. */
@@ -89,7 +93,11 @@ public enum MethodLock {
             if ("run".equals(methodName)) return SIGNATURE;
             return NONE;
         }
-        if (isSuperviseHook(config, file) && "run".equals(methodName)) return SIGNATURE;
+        if (isSuperviseHook(config, file) && "run".equals(methodName)) {
+            // GameLoop.run is the generated dispatch loop — all of it is BotMaker's. GoHome/Startup ship as
+            // TODO stubs: their signature is bound by Bot.supervise but their body is the user's to write.
+            return "GameLoop.java".equals(file.getFileName().toString()) ? FULL : SIGNATURE;
+        }
         return NONE;
     }
 
@@ -106,7 +114,7 @@ public enum MethodLock {
      * entry point in the main package.
      *
      * <p>Matching on the bare file name is not enough. {@link #SIGNATURE} <em>grants</em> body edits, so a
-     * {@code GameLoop.java} vendored under {@code com/botmaker/library} (or any the user parks in a subpackage)
+     * {@code GoHome.java} vendored under {@code com/botmaker/library} (or any the user parks in a subpackage)
      * would otherwise have its {@code run()} body unlocked inside a file nothing should be able to touch.
      */
     private static boolean isSuperviseHook(ProjectConfig config, Path file) {

@@ -28,15 +28,17 @@ public enum FileRole {
      * lock — an edit that appears to work, survives until the next reload and then vanishes with no warning is
      * worse than one that was never offered. If it can't be saved, it must not be offered.
      *
-     * <p><b>But "the file is generated" does not mean "every method in it is".</b> {@code GameLoop.java} is
-     * scaffolding whose {@code run()} exists precisely for the user to fill in, and treating the file's verdict
-     * as final is what made the game loop unwritable. A {@link MethodLock#SIGNATURE} method inside a generated
-     * file keeps an editable body; only its signature and the code around it are locked. So the rule is
-     * <em>this file's locked parts can't be saved</em>, not <em>this file can't be saved</em> — see
-     * {@code LockedRegions}, which decides what may be flushed, and {@code LockResolver}, which combines this
-     * verdict with {@link MethodLock}'s. Do not reintroduce a whole-file skip.
+     * <p><b>But "the file is generated" does not mean "every method in it is".</b> A
+     * {@link MethodLock#SIGNATURE} method inside a generated file keeps an editable body; only its signature
+     * and the code around it are locked. (No game-bot scaffold file currently carries such a grant —
+     * {@code GameLoop.run} used to, wrongly, before the dispatch loop was recognised as generated wiring — but
+     * the rule is the mechanism, not today's file list.) So the rule is <em>this file's locked parts can't be
+     * saved</em>, not <em>this file can't be saved</em> — see {@code LockedRegions}, which decides what may be
+     * flushed, and {@code LockResolver}, which combines this verdict with {@link MethodLock}'s. Do not
+     * reintroduce a whole-file skip.
      *
-     * <p>Deleting them from the explorer is still allowed (Project ▸ Recover Project Files regenerates them).
+     * <p>They are not deletable from the explorer — the "Delete File" action is disabled for them, since
+     * removing scaffolding breaks the build (Project ▸ Recover Project Files regenerates them).
      */
     GENERATED,
 
@@ -56,9 +58,10 @@ public enum FileRole {
     /**
      * A short suffix for the editor status line / explorer label, or {@code null} for ordinary files.
      *
-     * <p>{@link #GENERATED} does not say "read-only": a generated file can contain a method that is entirely
-     * the user's ({@code GameLoop.run}), so a blanket claim on the status line contradicts the editable body
-     * right there on screen. The per-method truth is told per method, by {@code MethodLock}'s own badge.
+     * <p>{@link #GENERATED} does not say "read-only": a generated file can contain a method whose body is
+     * entirely the user's (a {@code MethodLock.SIGNATURE} grant), so a blanket claim on the status line could
+     * contradict an editable body right there on screen. The per-method truth is told per method, by
+     * {@code MethodLock}'s own badge.
      */
     public String badge() {
         return switch (this) {

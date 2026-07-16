@@ -48,7 +48,7 @@ class LockedBlockRenderingTest extends FxHeadlessTest {
     private static final List<String> RUNTIME_CLASSPATH =
             List.of(System.getProperty("java.class.path").split(java.io.File.pathSeparator));
 
-    /** A generated file: locked class, locked helper, but run()'s body is the user's. */
+    /** A generated file, locked wholesale: run() is the generated dispatch loop, helper defers to the file. */
     private static final String GAME_LOOP = """
             package com.mybot;
             public class GameLoop {
@@ -156,6 +156,22 @@ class LockedBlockRenderingTest extends FxHeadlessTest {
         return found;
     }
 
+    /**
+     * {@link #interactiveControls}, minus the method headers' collapse toggles — the one control a locked
+     * method legitimately keeps (it aids reading and edits nothing). Used for whole-file assertions.
+     */
+    private static List<String> editingControls(Node node) {
+        List<String> found = new ArrayList<>();
+        for (Node n : descendants(node)) {
+            if (n instanceof Button b && !b.getStyleClass().contains("collapse-button")) {
+                found.add("Button(" + b.getText() + ")");
+            } else if (n instanceof ComboBox<?> c) found.add("ComboBox(" + c.getValue() + ")");
+            else if (n instanceof MenuButton m) found.add("MenuButton(" + m.getText() + ")");
+            else if (n instanceof TextField t && t.isEditable()) found.add("TextField(" + t.getText() + ")");
+        }
+        return found;
+    }
+
     @Test
     void aGeneratedWiringMethodOffersNoControlsAtAll() {
         Rendered r = render(CONFIG.activitiesPackageDir().resolve("Mining.java"), ACTIVITY);
@@ -170,17 +186,32 @@ class LockedBlockRenderingTest extends FxHeadlessTest {
     }
 
     @Test
-    void theUsersRunBodyKeepsItsControls() {
+    void theUsersActivityRunBodyKeepsItsControls() {
         // The mirror image, and the more important half: locking this is the bug that started all of it.
-        Rendered r = render(CONFIG.mainSourceFile().getParent().resolve("GameLoop.java"), GAME_LOOP);
+        Rendered r = render(CONFIG.activitiesPackageDir().resolve("Mining.java"), ACTIVITY);
         BodyBlock run = bodyOf(r.root(), "run");
-        assertFalse(run.isReadOnly(), "GameLoop.run's body is the user's, generated file or not");
+        assertFalse(run.isReadOnly(), "an activity's run() body is exactly what the user came to write");
 
         Node[] node = new Node[1];
         interact(() -> node[0] = run.getUINode(r.context()));
 
         assertFalse(interactiveControls(node[0]).isEmpty(),
-                "the game loop body is where the user works — it must stay interactive");
+                "the activity body is where the user works — it must stay interactive");
+    }
+
+    @Test
+    void theGameLoopsRunBodyOffersNoControlsAtAll() {
+        // The reported bug: GameLoop.run's calls kept live class/method selectors and the ⚙ overload button.
+        // run() is the complete generated dispatch loop (MethodLock.FULL) — nothing in it is clickable.
+        Rendered r = render(CONFIG.mainSourceFile().getParent().resolve("GameLoop.java"), GAME_LOOP);
+        BodyBlock run = bodyOf(r.root(), "run");
+        assertTrue(run.isReadOnly(), "the dispatch loop is generated wiring, not a stub to fill in");
+
+        Node[] node = new Node[1];
+        interact(() -> node[0] = run.getUINode(r.context()));
+
+        assertEquals(List.of(), interactiveControls(node[0]),
+                "no selector, overload picker, add or delete on the generated game loop");
     }
 
     @Test
@@ -208,6 +239,102 @@ class LockedBlockRenderingTest extends FxHeadlessTest {
                 "no scope/method selector on a locked call");
         assertEquals(List.of(), controlsOfType(node[0], MenuButton.class),
                 "no signature/overload picker on a locked call");
+    }
+
+    @Test
+    void aReadOnlyFieldRendersWithoutCrashingAndOffersNoControls() {
+        // Regression: a read-only field's delete button is null (createDeleteButton returns null when locked),
+        // and DeclareClassVariableBlock styled it unconditionally — NPE aborted the whole render pass, so a
+        // generated file with a field (e.g. ActivityRegistry) showed no blocks at all. The "Set Value" button
+        // was also unguarded; both must be absent on a locked field.
+        String withField = """
+                package com.mybot;
+                public class GameLoop {
+                    private int ticks;
+                    public static void run() {
+                        BotMaker.print("mine");
+                    }
+                }
+                """;
+        Rendered r = render(CONFIG.mainSourceFile().getParent().resolve("GameLoop.java"), withField);
+
+        AbstractCodeBlock field = null;
+        for (CodeBlock b : flatten(r.root())) {
+            if (b instanceof com.botmaker.studio.blocks.var.DeclareClassVariableBlock d) { field = d; break; }
+        }
+        assertNotNull(field, "precondition: the field parsed to a DeclareClassVariableBlock");
+        assertTrue(field.isReadOnly(), "precondition: a field in a generated file is read-only");
+
+        AbstractCodeBlock finalField = field;
+        Node[] node = new Node[1];
+        assertDoesNotThrow(() -> interact(() -> node[0] = finalField.getUINode(r.context())),
+                "rendering a read-only field must not crash");
+        assertNotNull(node[0]);
+        assertEquals(List.of(), interactiveControls(node[0]),
+                "a locked field offers no delete / Set Value control");
+    }
+
+    @Test
+    void theRealGeneratedGameLoopRendersInertEndToEnd() {
+        // Not a synthetic snippet: the exact source ProjectCreator writes, rendered whole-file. This is the
+        // page the bug reports keep coming from — an unguarded null button in any block it contains aborts
+        // the entire render pass ("no blocks visible"), and any surviving control is an edit leak.
+        String source = com.botmaker.studio.project.ProjectCreator
+                .sourcesFor(com.botmaker.studio.project.ProjectTemplate.GAME_BOT,
+                        CONFIG.projectName(), CONFIG.packageName())
+                .get("GameLoop.java");
+        assertNotNull(source, "precondition: the game-bot template generates GameLoop.java");
+
+        Rendered r = render(CONFIG.mainSourceFile().getParent().resolve("GameLoop.java"), source);
+        Node[] node = new Node[1];
+        assertDoesNotThrow(() -> interact(() -> node[0] = r.root().getUINode(r.context())),
+                "the generated GameLoop must render, not crash the pass");
+        assertEquals(List.of(), editingControls(node[0]),
+                "nothing in the generated game loop may be editable");
+    }
+
+    @Test
+    void everyLockedBlockShapeRendersInertWithoutCrashing() {
+        // One locked method exercising the block shapes that have each crashed or leaked at least once:
+        // if-without-else (add-else button), else (its delete), switch cases (case delete / move / add-case),
+        // math + comparison operators (selectors), a foreach (name field), a List.of (element controls).
+        String source = """
+                package com.mybot;
+                import java.util.List;
+                public class GameLoop {
+                    public static void run() {}
+                    public static void helper(int n) {
+                        int x = n + 1;
+                        if (x > 2) {
+                            x = 3;
+                        }
+                        if (n < 0) {
+                            x = 4;
+                        } else {
+                            x = 5;
+                        }
+                        switch (n) {
+                            case 1:
+                                x = 6;
+                                break;
+                            default:
+                                break;
+                        }
+                        List<String> items = List.of("a", "b");
+                        for (String s : items) {
+                            System.out.println(s);
+                        }
+                    }
+                }
+                """;
+        Rendered r = render(CONFIG.mainSourceFile().getParent().resolve("GameLoop.java"), source);
+        BodyBlock helper = bodyOf(r.root(), "helper");
+        assertTrue(helper.isReadOnly(), "precondition: everything in the file is locked");
+
+        Node[] node = new Node[1];
+        assertDoesNotThrow(() -> interact(() -> node[0] = helper.getUINode(r.context())));
+        assertEquals(List.of(), interactiveControls(node[0]),
+                "no block shape may keep a control when locked");
     }
 
     @Test

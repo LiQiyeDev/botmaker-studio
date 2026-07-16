@@ -83,8 +83,9 @@ public class CodeEditorService {
     public ProjectConfig getConfig() { return config; }
     public ProjectAnalyzer getProjectAnalyzer() { return projectAnalyzer; }
 
-    /** SDK method documentation (summaries + param docs), parsed from the resolved SDK sources jar. */
-    public SdkDocs getSdkDocs() { return sdkDocsService.current(); }
+    /** SDK method documentation (summaries + param docs), parsed from the resolved SDK sources jar.
+     *  {@link SdkDocs#EMPTY} while loading or when no docs service is wired (headless tests). */
+    public SdkDocs getSdkDocs() { return sdkDocsService == null ? SdkDocs.EMPTY : sdkDocsService.current(); }
 
     private void setupEventHandlers() {
         eventBus.subscribe(CoreApplicationEvents.UIRefreshRequestedEvent.class, event ->
@@ -417,8 +418,8 @@ public class CodeEditorService {
         }
 
         // The file's default verdict — see project/LockResolver (the single source of these rules). It is only
-        // a default: a per-method lock can override it either way while parsing, which is how GameLoop.run's
-        // body stays writable inside a file that is otherwise inert scaffolding.
+        // a default: a per-method lock can override it either way while parsing — locking an activity's
+        // isEnabled() inside the user's own file, or unlocking a SIGNATURE body inside a locked one.
         LockResolver resolver = LockResolver.forActiveFile(config, state);
 
         BlockConverter.ConvertResult result = blockConverter.convert(

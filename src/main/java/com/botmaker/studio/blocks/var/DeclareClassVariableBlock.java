@@ -84,21 +84,26 @@ public class DeclareClassVariableBlock extends AbstractStatementBlock {
                 .addNode(nameField);
 
         if (initializer == null) {
-            Button setValueBtn = new Button("Set Value");
-            setValueBtn.setStyle(
-                    "-fx-background-color: rgba(255,255,255,0.3);" +
-                            "-fx-text-fill: white;" +
-                            "-fx-font-weight: bold;" +
-                            "-fx-font-size: 11px;" +
-                            "-fx-padding: 4 12 4 12;" +
-                            "-fx-background-radius: 4;" +
-                            "-fx-cursor: hand;"
-            );
-            setValueBtn.setOnAction(e -> {
-                context.getCodeEditor().setFieldInitializerToDefault(
-                        (FieldDeclaration) this.astNode, fieldType);
-            });
-            mainRowBuilder.addNode(setValueBtn);
+            // "Set Value" writes an initializer, so a locked field must not offer it — like the delete and add
+            // buttons, a read-only block gets no control at all rather than one that no-ops (or worse, an edit
+            // the write layer then refuses). A read-only field with no value simply shows "type name".
+            if (!isReadOnly()) {
+                Button setValueBtn = new Button("Set Value");
+                setValueBtn.setStyle(
+                        "-fx-background-color: rgba(255,255,255,0.3);" +
+                                "-fx-text-fill: white;" +
+                                "-fx-font-weight: bold;" +
+                                "-fx-font-size: 11px;" +
+                                "-fx-padding: 4 12 4 12;" +
+                                "-fx-background-radius: 4;" +
+                                "-fx-cursor: hand;"
+                );
+                setValueBtn.setOnAction(e -> {
+                    context.getCodeEditor().setFieldInitializerToDefault(
+                            (FieldDeclaration) this.astNode, fieldType);
+                });
+                mainRowBuilder.addNode(setValueBtn);
+            }
         } else {
             Node initNode = (initializer instanceof ListBlock) ?
                     initializer.getUINode(context) :
@@ -128,13 +133,18 @@ public class DeclareClassVariableBlock extends AbstractStatementBlock {
 
         HBox mainRow = mainRowBuilder.build();
 
-        // FIXED: Calls super class method explicitly/inherited
-        Button deleteBtn = createDeleteButton(context);
-        deleteBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: white; -fx-font-size: 14px; -fx-padding: 0; -fx-cursor: hand;");
-
         HBox headerRow = new HBox(10);
         headerRow.setAlignment(Pos.CENTER_LEFT);
-        headerRow.getChildren().addAll(modifiersLabel, BlockUIComponents.createSpacer(), deleteBtn);
+        headerRow.getChildren().addAll(modifiersLabel, BlockUIComponents.createSpacer());
+
+        // Null when this block is read-only: createDeleteButton returns null rather than a disabled button,
+        // so a locked field simply has no delete affordance. Styling it unconditionally NPE'd and aborted the
+        // whole render pass (a generated file with a field showed no blocks at all).
+        Button deleteBtn = createDeleteButton(context);
+        if (deleteBtn != null) {
+            deleteBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: white; -fx-font-size: 14px; -fx-padding: 0; -fx-cursor: hand;");
+            headerRow.getChildren().add(deleteBtn);
+        }
 
         container.getChildren().addAll(headerRow, mainRow);
 
