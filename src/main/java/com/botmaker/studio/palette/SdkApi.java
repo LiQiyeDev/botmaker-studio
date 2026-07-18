@@ -38,6 +38,7 @@ public final class SdkApi {
             "Mouse",
             "Wait",
             "Game",
+            "Emulators",
             "Bot",
             "Watchdog");
 

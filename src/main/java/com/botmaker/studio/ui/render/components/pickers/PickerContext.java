@@ -69,4 +69,18 @@ public record PickerContext(CodeEditorService context, ExpressionBlock arg, Reso
     public boolean isGameEpicAppIdArg() {
         return argIndex == 0 && (isGameMethod("launchEpic") || isGameMethod("launchEpicIfNotRunning"));
     }
+
+    /** True when the enclosing call is on the SDK {@code Emulators} facade and names {@code method}. */
+    public boolean isEmulatorMethod(String method) {
+        return method.equals(methodName)
+                && className != null && (className.equals("Emulators") || className.endsWith(".Emulators"));
+    }
+
+    /**
+     * The instance-name argument (index 0) of {@code Emulators.use(name)} or {@code Emulators.named(name)} —
+     * offered the discovered-instance dropdown ({@code EmulatorArgPicker}).
+     */
+    public boolean isEmulatorNameArg() {
+        return argIndex == 0 && (isEmulatorMethod("use") || isEmulatorMethod("named"));
+    }
 }

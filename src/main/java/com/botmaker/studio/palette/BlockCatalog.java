@@ -137,6 +137,17 @@ public final class BlockCatalog {
     public static final BlockType LAUNCH_EPIC_GAME = new LibraryCall("LAUNCH_EPIC_GAME", "Launch Epic Game", GAME,
             "Game", "launchEpic", List.of(new StrLit("")));
 
+    // --- Emulator (Android) ---
+    // "Use Emulator As Source" is the common one-block flow: Emulators.use("<instance>") connects to the
+    // running emulator and points the whole bot at it (Source.set), so every no-source vision/click/OCR call
+    // then targets the emulator. The instance-name arg gets the EmulatorArgPicker (discovered-instance dropdown).
+    public static final BlockType USE_EMULATOR = new LibraryCall("USE_EMULATOR", "Use Emulator As Source", GAME,
+            "Emulators", "use", List.of(new StrLit("")));
+    // "Connect Emulator" keeps a handle: Emulator emulator = Emulators.named("<instance>"); — for bots that
+    // want to call emulator-native verbs (tap/swipe/startApp) or pass it as an explicit CaptureSource.
+    public static final BlockType CONNECT_EMULATOR = new VarDecl("CONNECT_EMULATOR", "Connect Emulator", GAME,
+            "Emulator", false, "emulator", new StaticCall("Emulators", "named", List.of(new StrLit(""))));
+
     // --- Utility ---
     public static final BlockType COMMENT = cf("COMMENT", "Comment", UTILITY, Kind.COMMENT);
 
@@ -151,6 +162,7 @@ public final class BlockCatalog {
             FIND_IMAGE, CLICK_IMAGE, WAIT_FOR_IMAGE,
             DECLARE_POINT, DECLARE_RECT, DECLARE_SIZE, DECLARE_MATCH, DECLARE_TEMPLATE,
             LAUNCH_GAME, LAUNCH_STEAM_GAME, LAUNCH_EPIC_GAME,
+            USE_EMULATOR, CONNECT_EMULATOR,
             COMMENT);
 
     /** All insertable blocks in palette/menu display order. */
@@ -165,7 +177,8 @@ public final class BlockCatalog {
      * is shown (see {@code ExpressionMenuFactory.addCategoryMenu}, which skips empty categories).
      */
     private static final List<BlockType> BOT_ACTIONS = List.of(
-            FIND_IMAGE, CLICK_IMAGE, WAIT_FOR_IMAGE, CLICK, WAIT, LAUNCH_GAME, LAUNCH_STEAM_GAME, LAUNCH_EPIC_GAME);
+            FIND_IMAGE, CLICK_IMAGE, WAIT_FOR_IMAGE, CLICK, WAIT, LAUNCH_GAME, LAUNCH_STEAM_GAME, LAUNCH_EPIC_GAME,
+            USE_EMULATOR);
 
     public static List<BlockType> botActions() {
         return BOT_ACTIONS;

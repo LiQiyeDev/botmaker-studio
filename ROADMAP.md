@@ -6,6 +6,17 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-18 — Android emulator blocks + instance picker (Phase 3, Slice B).** New palette blocks
+  `USE_EMULATOR` (`Emulators.use("<instance>")` — connects **and** points the whole bot at the emulator via
+  `Source.set`, so every no-source vision/click/OCR call then targets it; promoted into `BOT_ACTIONS`) and
+  `CONNECT_EMULATOR` (`Emulator emulator = Emulators.named("<instance>")` — keeps a handle for native
+  `tap`/`swipe`/`startApp`). Registered the new `Emulators` facade in `palette/SdkApi`. The instance-name arg
+  gets a new `components/EmulatorArgPicker` (editable combo of discovered instances + free-text), wired via
+  `PickerContext.isEmulatorNameArg()` + a `PickerRegistry` entry — same shape as the Steam/Epic `GameArgPicker`.
+  Discovery reuses **shared**'s `com.botmaker.shared.emulator.Platforms` (no Studio-side config parsing): a thin
+  `emulator/EmulatorInstanceScanner` projects `discoverAll()` → distinct names off the FX thread. Pairs with the
+  SDK's `api.emulator` facade + the shared emulator capability (see `../botmaker-sdk`, `../botmaker-shared`).
+  Note: shared now pulls kotlin-stdlib transitively (dadb), so it rides into the Studio app-image.
 - **2026-07-18 — Epic Games launch integration (mirrors Steam).** New `game/EpicLibraryScanner implements
   GameLibraryProvider` discovers installed Epic games from `%ProgramData%\Epic\EpicGamesLauncher\Data\
   Manifests\*.item` (JSON via Jackson; `AppName`→id, `DisplayName`→name; no local cover art → placeholder

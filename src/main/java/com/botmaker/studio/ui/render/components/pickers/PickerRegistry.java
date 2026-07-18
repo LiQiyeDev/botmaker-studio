@@ -3,6 +3,7 @@ package com.botmaker.studio.ui.render.components.pickers;
 import com.botmaker.studio.game.EpicLibraryScanner;
 import com.botmaker.studio.game.SteamLibraryScanner;
 import com.botmaker.studio.ui.render.components.CaptureSourcePicker;
+import com.botmaker.studio.ui.render.components.EmulatorArgPicker;
 import com.botmaker.studio.ui.render.components.ExecutablePicker;
 import com.botmaker.studio.ui.render.components.GameArgPicker;
 import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
@@ -36,6 +37,8 @@ public final class PickerRegistry {
                     ctx -> GameArgPicker.create(ctx.context(), ctx.arg(), SteamLibraryScanner::new)),
             SpecialTypePicker.of(PickerContext::isGameEpicAppIdArg,
                     ctx -> GameArgPicker.create(ctx.context(), ctx.arg(), EpicLibraryScanner::new)),
+            SpecialTypePicker.of(PickerContext::isEmulatorNameArg,
+                    ctx -> EmulatorArgPicker.create(ctx.context(), ctx.arg())),
             SpecialTypePicker.of(PickerContext::isGameLaunchProgramArg,
                     ctx -> ExecutablePicker.create(ctx.context(), ctx.arg())),
             SpecialTypePicker.of(PickerContext::isGameLaunchOptionArg,
