@@ -170,7 +170,7 @@ located by style class:
 | Image template group | `components/pickers/ImageTemplateGroupPicker.java` | `image-template-group-picker`, `image-template-group-add` | per-index menu + "+" add |
 | Enum dropdown | `components/pickers/EnumPicker.java` | `enum-arg-dropdown` | select constant |
 | Executable picker | `components/ExecutablePicker.java` | `executable-picker` | "Browse for program…" (**file dialog**) / "Enter path…" |
-| Steam game picker | `components/SteamGamePicker.java` | `steam-game-picker` | opens `GameLibraryPickerDialog` (**Steam scan**) |
+| Store game picker | `components/GameArgPicker.java` | `game-arg-picker` | opens `GameLibraryPickerDialog` (**Steam / Epic scan**) |
 | Launch option | `components/LaunchOptionPicker.java` | `launch-option-picker` | `TextField`, Enter commits |
 | Comment field | `components/TextFieldComponents.java` | `comment-text-field` | Enter → commit |
 | Variable-name field | `components/TextFieldComponents.java` | `variable-name-field` | rename identifier |
@@ -193,7 +193,7 @@ Two more searchable popup menus mirror the statement menu — the **expression "
 | `ManageCaptureTargetsDialog` | "Capture Targets" | **native** window enumeration |
 | `ResourceManagerDialog` | "Resource Manager — Image Templates" | **native** capture |
 | `PublishDialog` | "Publish to Gallery" (form + `GitHubAccountBar`) | **GitHub network** |
-| `GameLibraryPickerDialog` | "Choose a … game" | **Steam library scan** |
+| `GameLibraryPickerDialog` | "Choose a … game" | **Steam / Epic library scan** |
 
 ---
 

@@ -134,6 +134,8 @@ public final class BlockCatalog {
             "Game", "launch", List.of(new StrLit("")));
     public static final BlockType LAUNCH_STEAM_GAME = new LibraryCall("LAUNCH_STEAM_GAME", "Launch Steam Game", GAME,
             "Game", "launchSteam", List.of(new StrLit("")));
+    public static final BlockType LAUNCH_EPIC_GAME = new LibraryCall("LAUNCH_EPIC_GAME", "Launch Epic Game", GAME,
+            "Game", "launchEpic", List.of(new StrLit("")));
 
     // --- Utility ---
     public static final BlockType COMMENT = cf("COMMENT", "Comment", UTILITY, Kind.COMMENT);
@@ -148,7 +150,7 @@ public final class BlockCatalog {
             FUNCTION_CALL, METHOD_DECLARATION, DECLARE_ENUM,
             FIND_IMAGE, CLICK_IMAGE, WAIT_FOR_IMAGE,
             DECLARE_POINT, DECLARE_RECT, DECLARE_SIZE, DECLARE_MATCH, DECLARE_TEMPLATE,
-            LAUNCH_GAME, LAUNCH_STEAM_GAME,
+            LAUNCH_GAME, LAUNCH_STEAM_GAME, LAUNCH_EPIC_GAME,
             COMMENT);
 
     /** All insertable blocks in palette/menu display order. */
@@ -163,7 +165,7 @@ public final class BlockCatalog {
      * is shown (see {@code ExpressionMenuFactory.addCategoryMenu}, which skips empty categories).
      */
     private static final List<BlockType> BOT_ACTIONS = List.of(
-            FIND_IMAGE, CLICK_IMAGE, WAIT_FOR_IMAGE, CLICK, WAIT, LAUNCH_GAME, LAUNCH_STEAM_GAME);
+            FIND_IMAGE, CLICK_IMAGE, WAIT_FOR_IMAGE, CLICK, WAIT, LAUNCH_GAME, LAUNCH_STEAM_GAME, LAUNCH_EPIC_GAME);
 
     public static List<BlockType> botActions() {
         return BOT_ACTIONS;

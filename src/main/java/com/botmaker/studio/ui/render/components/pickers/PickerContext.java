@@ -61,4 +61,12 @@ public record PickerContext(CodeEditorService context, ExpressionBlock arg, Reso
     public boolean isGameSteamAppIdArg() {
         return argIndex == 0 && (isGameMethod("launchSteam") || isGameMethod("launchSteamIfNotRunning"));
     }
+
+    /**
+     * The Epic app-name argument (index 0) of {@code Game.launchEpic(appName)} or
+     * {@code Game.launchEpicIfNotRunning(appName, source)} — offered the cover-art game picker.
+     */
+    public boolean isGameEpicAppIdArg() {
+        return argIndex == 0 && (isGameMethod("launchEpic") || isGameMethod("launchEpicIfNotRunning"));
+    }
 }

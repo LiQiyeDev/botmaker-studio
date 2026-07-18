@@ -6,6 +6,16 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-18 — Epic Games launch integration (mirrors Steam).** New `game/EpicLibraryScanner implements
+  GameLibraryProvider` discovers installed Epic games from `%ProgramData%\Epic\EpicGamesLauncher\Data\
+  Manifests\*.item` (JSON via Jackson; `AppName`→id, `DisplayName`→name; no local cover art → placeholder
+  tiles). Generalized the Steam-only `SteamGamePicker` into a provider-parameterized
+  `components/GameArgPicker` (takes a `Supplier<GameLibraryProvider>`; labels come from `displayName()`),
+  so one widget serves both stores — `PickerRegistry` maps `isGameSteamAppIdArg`→Steam and the new
+  `isGameEpicAppIdArg`→Epic through it. Added `GameLibraryProvider.findById` default (used by the picker to
+  resolve a saved id → name+art; removed Steam's duplicate). New palette block `LAUNCH_EPIC_GAME`
+  (`Game.launchEpic`) alongside `LAUNCH_STEAM_GAME`. Pairs with the SDK's `Game.launchEpic` (see
+  `../botmaker-sdk`).
 - **2026-07-17 — Manage Activities: reorderable activity list (= run/priority order).** `ActivityRegistry.ALL`
   is generated in `activities.json` list order and `GameLoop` runs that order, so an activity's list position
   is its priority — but the dialog had no way to change it. Added **Move up / Move down** buttons to

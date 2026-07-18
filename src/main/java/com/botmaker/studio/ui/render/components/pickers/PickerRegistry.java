@@ -1,12 +1,14 @@
 package com.botmaker.studio.ui.render.components.pickers;
 
+import com.botmaker.studio.game.EpicLibraryScanner;
+import com.botmaker.studio.game.SteamLibraryScanner;
 import com.botmaker.studio.ui.render.components.CaptureSourcePicker;
 import com.botmaker.studio.ui.render.components.ExecutablePicker;
+import com.botmaker.studio.ui.render.components.GameArgPicker;
 import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
 import com.botmaker.studio.ui.render.components.LaunchOptionPicker;
 import com.botmaker.studio.ui.render.components.PointPicker;
 import com.botmaker.studio.ui.render.components.RectPicker;
-import com.botmaker.studio.ui.render.components.SteamGamePicker;
 import javafx.scene.Node;
 
 import java.util.List;
@@ -25,13 +27,15 @@ public final class PickerRegistry {
     private PickerRegistry() {}
 
     private static final List<SpecialTypePicker> PICKERS = List.of(
-            // Method-specific (the class is a simple name on the SDK Game facade). The appId of launchSteam /
-            // launchSteamIfNotRunning gets the cover-art picker; the program path of launch / launchIfNotRunning /
-            // launchAndWait gets the Browse picker; their trailing varargs are optional command-line launch
-            // options edited as plain text. (The window-detection CaptureSource args fall through to the
-            // type-based CaptureSource picker below.)
+            // Method-specific (the class is a simple name on the SDK Game facade). The launch id of
+            // launchSteam / launchEpic (+ their IfNotRunning variants) gets the cover-art game picker; the
+            // program path of launch / launchIfNotRunning / launchAndWait gets the Browse picker; their
+            // trailing varargs are optional command-line launch options edited as plain text. (The
+            // window-detection CaptureSource args fall through to the type-based CaptureSource picker below.)
             SpecialTypePicker.of(PickerContext::isGameSteamAppIdArg,
-                    ctx -> SteamGamePicker.create(ctx.context(), ctx.arg())),
+                    ctx -> GameArgPicker.create(ctx.context(), ctx.arg(), SteamLibraryScanner::new)),
+            SpecialTypePicker.of(PickerContext::isGameEpicAppIdArg,
+                    ctx -> GameArgPicker.create(ctx.context(), ctx.arg(), EpicLibraryScanner::new)),
             SpecialTypePicker.of(PickerContext::isGameLaunchProgramArg,
                     ctx -> ExecutablePicker.create(ctx.context(), ctx.arg())),
             SpecialTypePicker.of(PickerContext::isGameLaunchOptionArg,
