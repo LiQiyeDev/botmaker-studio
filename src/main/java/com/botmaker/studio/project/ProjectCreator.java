@@ -232,7 +232,7 @@ public class ProjectCreator {
             public class %s {
                 public static void main(String[] args) {
                     // Runs GameLoop forever; on a crash or a stuck screen it runs GoHome then Startup and restarts.
-                    Bot.supervise(GameLoop::run, GoHome::run, Startup::run);
+                    Bot.start(GameLoop::run, GoHome::run, Startup::run);
                 }
             }
             """, packageName, className));
@@ -246,7 +246,7 @@ public class ProjectCreator {
             import com.botmaker.sdk.api.bot.Watchdog;
 
             /**
-             * One pass of the bot: run each enabled activity in turn. {@code Bot.supervise} re-runs this
+             * One pass of the bot: run each enabled activity in turn. {@code Bot.start} re-runs this
              * continuously. {@code Watchdog.checkpoint()} throws if the bot has made no progress for a while,
              * so the supervisor can recover (GoHome + Startup).
              */

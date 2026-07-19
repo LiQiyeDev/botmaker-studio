@@ -292,6 +292,10 @@ public final class ExpressionMenuFactory {
 
         if (captureSlot) menu.getItems().add(captureSourceItem(context, onSelect));
 
+        // Parity with the statement menu: lead with a submenu per SDK facade (in SdkApi order), each listing
+        // that facade's static members whose return type fits this slot (buildScopeMenu drops empty facades).
+        appendSdkFacadeExpressionSubmenus(menu, expectedType, context, onSelect);
+
         // Default: the categorized view (declaration order of ExpressionCategory is the display order).
         Map<ExpressionCategory, List<ExpressionType>> grouped = available.stream()
                 .collect(Collectors.groupingBy(ExpressionType::category));
@@ -337,7 +341,46 @@ public final class ExpressionMenuFactory {
                 leaves.add(createItem(expr, onSelect));
             }
         }
+        // Parity with the statement-menu search: flatten every SDK facade's slot-compatible members as
+        // "Facade.member" leaves so they are reachable from the flat search list too.
+        collectSdkFacadeLeaves(expectedType, context, onSelect, leaves);
         return leaves;
+    }
+
+    /**
+     * Appends, at the top level of the expression menu, one submenu per {@link SdkApi#MENU_FACADE_CLASSES}
+     * facade listing its static members whose return type is compatible with {@code expectedType} — the
+     * expression-slot analogue of the statement menu's per-facade submenus. Void-only methods naturally drop
+     * out (no return value fits an expression slot), and {@link #buildScopeMenu} returns {@code null} for a
+     * facade with nothing compatible, so empty submenus are skipped.
+     */
+    private static void appendSdkFacadeExpressionSubmenus(ContextMenu menu, ResolvedType expectedType,
+                                                          CodeEditorService context, Consumer<Object> onSelect) {
+        if (context == null) return;
+        ProjectAnalyzer analyzer = context.getProjectAnalyzer();
+        if (analyzer == null) return;
+        for (String facade : SdkApi.MENU_FACADE_CLASSES) {
+            Menu sub = buildScopeMenu(facade, facade, facade, true, expectedType, analyzer, onSelect);
+            if (sub != null) menu.getItems().add(sub);
+        }
+    }
+
+    /** Flattens the SDK-facade expression submenus into "Facade.member" leaves for the flat search view. */
+    private static void collectSdkFacadeLeaves(ResolvedType expectedType, CodeEditorService context,
+                                               Consumer<Object> onSelect, List<MenuItem> out) {
+        if (context == null) return;
+        ProjectAnalyzer analyzer = context.getProjectAnalyzer();
+        if (analyzer == null) return;
+        for (String facade : SdkApi.MENU_FACADE_CLASSES) {
+            Menu sub = buildScopeMenu(facade, facade, facade, true, expectedType, analyzer, onSelect);
+            if (sub == null) continue;
+            List<MenuItem> leaves = new ArrayList<>();
+            collectMenuLeaves(sub, leaves);
+            for (MenuItem mi : leaves) {
+                mi.setText(facade + "." + mi.getText());
+                out.add(mi);
+            }
+        }
     }
 
     /** Recursively collects the actionable (non-disabled) leaf {@link MenuItem}s under {@code menu}. */
@@ -661,7 +704,7 @@ public final class ExpressionMenuFactory {
         }
 
         // Default: one submenu per SDK facade class (in SdkApi order), enumerating that class's static methods.
-        for (String facade : SdkApi.FACADE_CLASSES) {
+        for (String facade : SdkApi.MENU_FACADE_CLASSES) {
             Menu sub = sdkFacadeSubmenu(facade, analyzer, onSelection);
             if (sub != null) menu.getItems().add(sub);
         }
@@ -712,7 +755,7 @@ public final class ExpressionMenuFactory {
     private static List<BlockType> sdkCallBlocks(ProjectAnalyzer analyzer) {
         List<BlockType> out = new ArrayList<>();
         if (analyzer == null) return out;
-        for (String facade : SdkApi.FACADE_CLASSES) {
+        for (String facade : SdkApi.MENU_FACADE_CLASSES) {
             for (String method : facadeMethodNames(facade, analyzer)) {
                 out.add(sdkCall(facade, method, facade + "." + method));
             }

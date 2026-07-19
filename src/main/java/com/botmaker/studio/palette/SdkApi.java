@@ -56,7 +56,23 @@ public final class SdkApi {
 
     private static final Set<String> FACADE_SET = Set.copyOf(FACADE_CLASSES);
 
-    /** True when {@code simpleClassName} is one of the SDK facade classes. */
+    /**
+     * Facades intentionally hidden from the insert menus while still being <em>recognized</em> as SDK calls
+     * (so existing calls to them render with the standard SDK-block chrome and are excluded from the generic
+     * "Library (static)" listings). {@code Bots}/{@code Window}/{@code Watchdog} are internal wiring the user
+     * shouldn't reach for directly: bot supervision is driven by {@code Bot.start}, capture by the
+     * capture-source picker, and the watchdog by the generated loop.
+     */
+    private static final Set<String> MENU_HIDDEN = Set.of("Bots", "Window", "Watchdog");
+
+    /**
+     * The facades shown as submenus in the statement/expression insert menus — {@link #FACADE_CLASSES} minus
+     * {@link #MENU_HIDDEN}, preserving order. Menu builders iterate this; recognition still uses the full set.
+     */
+    public static final List<String> MENU_FACADE_CLASSES =
+            FACADE_CLASSES.stream().filter(c -> !MENU_HIDDEN.contains(c)).toList();
+
+    /** True when {@code simpleClassName} is one of the SDK facade classes (recognition — the full set). */
     public static boolean isFacadeClass(String simpleClassName) {
         return simpleClassName != null && FACADE_SET.contains(simpleClassName);
     }

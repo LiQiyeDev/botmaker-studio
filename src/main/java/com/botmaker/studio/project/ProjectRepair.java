@@ -81,7 +81,9 @@ public final class ProjectRepair {
 
         if (Files.exists(config.mainSourceFile())) {
             try {
-                if (Files.readString(config.mainSourceFile()).contains("Bot.supervise")) return true;
+                // "Bot.start" is the current entry-point call; "Bot.supervise" recognises pre-rename projects.
+                String main = Files.readString(config.mainSourceFile());
+                if (main.contains("Bot.start") || main.contains("Bot.supervise")) return true;
             } catch (IOException ignored) {
                 // Unreadable main: fall through to the file-presence check.
             }

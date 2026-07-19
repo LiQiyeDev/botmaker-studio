@@ -6,6 +6,15 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-19 — Menu cleanup + expression-menu parity (Phase 1).** `SdkApi` now distinguishes recognition
+  (`FACADE_CLASSES`, unchanged) from menu visibility (`MENU_FACADE_CLASSES` = full set minus `Bots`/`Window`/
+  `Watchdog`), so those three internal-wiring facades no longer appear as insert-menu submenus while still
+  rendering with standard SDK-block chrome where already used. The **expression menu**
+  (`ExpressionMenuFactory.createExpressionTypeMenu`) now mirrors the statement menu: a submenu per SDK facade
+  listing its static members whose return type fits the slot (void-only methods drop out), plus "Facade.member"
+  leaves in the flat search view. `Bot.supervise` is gone from the palette (made package-private in the SDK);
+  the generated `main` calls `Bot.start`, and `ProjectRepair.looksLikeGameBot` recognises both `Bot.start` and
+  legacy `Bot.supervise`.
 - **2026-07-19 — Statement menu rebuilt from the SDK API + full emulator picker dialog (Phase 4).** The
   statement insert menu (`ExpressionMenuFactory.createStatementMenu`, now taking a `ProjectAnalyzer`) is
   generated from `palette/SdkApi.FACADE_CLASSES`: one submenu per facade class in that order, enumerating each
