@@ -6,6 +6,13 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-19 — Ellipse (circle/oval) template capture.** Capture Templates gained a **▢/⬭ shape toggle**
+  (`OverlayTemplateCapture.buildShapeToggle`) that applies to both *Capture one* and *Capture many*. In
+  ellipse mode the rubber-band draws an inscribed oval (hold **Shift** for a perfect circle) and the saved
+  crop is masked to that oval with a **transparent background** — `cropToImage` clips the bounding-box
+  subimage to an `Ellipse2D` into an ARGB image, reusing the object-cut PNG/preview path (no library/batch
+  change). `CaptureSurface` now carries a `Shape {RECT, ELLIPSE}` on its `Region` and factory methods and
+  renders the band/marks accordingly; Capture object is unchanged.
 - **2026-07-19 — Block rows wrap instead of ellipsizing (Phase 6).** New `WrappingSentencePane` (an `HBox`
   subclass overriding only the layout math) flows a block's children like words: an overflowing pill falls
   onto a hang-indented continuation line rather than being squeezed, so nothing is ever clipped or shown as

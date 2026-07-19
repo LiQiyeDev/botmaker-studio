@@ -9,6 +9,7 @@ import javafx.scene.input.KeyCode;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
 import javafx.scene.paint.Color;
+import javafx.scene.shape.Ellipse;
 import javafx.scene.shape.Rectangle;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
@@ -38,33 +39,45 @@ public final class CaptureSurface {
     public enum Mode { SINGLE, MANY }
 
     /**
-     * A drawn selection in the surface's own (overlay-logical) pixels, together with the surface size it was
-     * drawn on ({@code paneW}/{@code paneH}) so it can be scaled onto the captured physical image later.
+     * The geometry a drawn region describes: an axis-aligned {@link #RECT} box (a plain crop) or an
+     * {@link #ELLIPSE} inscribed in that box (a transparent-background oval/circle crop). Fixed per session
+     * by the toolbar's shape toggle; the drag maths (a bounding box) are identical either way.
      */
-    public record Region(double x, double y, double w, double h, double paneW, double paneH) {}
+    public enum Shape { RECT, ELLIPSE }
+
+    /**
+     * A drawn selection in the surface's own (overlay-logical) pixels, together with the surface size it was
+     * drawn on ({@code paneW}/{@code paneH}) so it can be scaled onto the captured physical image later. The
+     * {@code shape} decides whether the crop is rectangular or an ellipse inscribed in that box.
+     */
+    public record Region(double x, double y, double w, double h, double paneW, double paneH, Shape shape) {}
 
     private final Stage stage;
     private final Pane pane;
     private final Mode mode;
+    private final Shape shape;
     private final Consumer<Region> onRegion;
     private final Consumer<List<Region>> onDone;
     private final Runnable onCancel;
 
-    private final Rectangle rubberBand = new Rectangle();
+    /** The live rubber-band — a {@link Rectangle} or an {@link Ellipse} depending on {@link #shape}. */
+    private final javafx.scene.shape.Shape rubberBand;
+    /** The current band's bounding box {x, y, w, h} in overlay pixels, so a release is shape-agnostic. */
+    private final double[] box = new double[4];
     private final List<Region> regions = new ArrayList<>();
     private Button doneButton;
     private boolean finished;
 
-    private CaptureSurface(Window owner, java.awt.Rectangle bounds, Mode mode,
+    private CaptureSurface(Window owner, java.awt.Rectangle bounds, Mode mode, Shape shape,
                            Consumer<Region> onRegion, Consumer<List<Region>> onDone, Runnable onCancel) {
         this.mode = mode;
+        this.shape = shape;
         this.onRegion = onRegion;
         this.onDone = onDone;
         this.onCancel = onCancel;
 
-        rubberBand.setFill(Color.color(0.3, 0.6, 1.0, 0.25));
-        rubberBand.setStroke(Color.web("#2f80ed"));
-        rubberBand.setStrokeWidth(1.5);
+        rubberBand = (shape == Shape.ELLIPSE) ? new Ellipse() : new Rectangle();
+        styleBand(rubberBand, Color.color(0.3, 0.6, 1.0, 0.25), 1.5);
         rubberBand.setVisible(false);
         rubberBand.setMouseTransparent(true);
 
@@ -90,18 +103,18 @@ public final class CaptureSurface {
     }
 
     /** Opens a one-shot surface: the first drawn region fires {@code onRegion}; Esc/Cancel fires {@code onCancel}. */
-    public static CaptureSurface single(Window owner, java.awt.Rectangle bounds,
+    public static CaptureSurface single(Window owner, java.awt.Rectangle bounds, Shape shape,
                                         Consumer<Region> onRegion, Runnable onCancel) {
-        CaptureSurface s = new CaptureSurface(owner, bounds, Mode.SINGLE, onRegion, null, onCancel);
+        CaptureSurface s = new CaptureSurface(owner, bounds, Mode.SINGLE, shape, onRegion, null, onCancel);
         s.stage.show();
         com.botmaker.studio.ui.app.overlay.OverlayToolbars.promoteAboveFullscreen(s.stage);
         return s;
     }
 
     /** Opens a multi-region surface: draw several, then Done fires {@code onDone}; Esc/Cancel fires {@code onCancel}. */
-    public static CaptureSurface many(Window owner, java.awt.Rectangle bounds,
+    public static CaptureSurface many(Window owner, java.awt.Rectangle bounds, Shape shape,
                                       Consumer<List<Region>> onDone, Runnable onCancel) {
-        CaptureSurface s = new CaptureSurface(owner, bounds, Mode.MANY, null, onDone, onCancel);
+        CaptureSurface s = new CaptureSurface(owner, bounds, Mode.MANY, shape, null, onDone, onCancel);
         s.stage.show();
         com.botmaker.studio.ui.app.overlay.OverlayToolbars.promoteAboveFullscreen(s.stage);
         return s;
@@ -149,27 +162,26 @@ public final class CaptureSurface {
             if (finished || inControlBar(e.getX(), e.getY())) return;
             origin[0] = e.getX();
             origin[1] = e.getY();
-            rubberBand.setX(e.getX());
-            rubberBand.setY(e.getY());
-            rubberBand.setWidth(0);
-            rubberBand.setHeight(0);
+            updateBand(e.getX(), e.getY(), 0, 0);
             rubberBand.setVisible(true);
             rubberBand.toFront();
         });
         pane.setOnMouseDragged(e -> {
             if (finished || !rubberBand.isVisible()) return;
-            rubberBand.setX(Math.min(origin[0], e.getX()));
-            rubberBand.setY(Math.min(origin[1], e.getY()));
-            rubberBand.setWidth(Math.abs(e.getX() - origin[0]));
-            rubberBand.setHeight(Math.abs(e.getY() - origin[1]));
+            // Shift constrains to a square box, which for the ellipse shape means a perfect circle.
+            double w = Math.abs(e.getX() - origin[0]);
+            double h = Math.abs(e.getY() - origin[1]);
+            if (e.isShiftDown()) { double s = Math.min(w, h); w = s; h = s; }
+            double x = e.getX() >= origin[0] ? origin[0] : origin[0] - w;
+            double y = e.getY() >= origin[1] ? origin[1] : origin[1] - h;
+            updateBand(x, y, w, h);
         });
         pane.setOnMouseReleased(e -> {
             if (finished || !rubberBand.isVisible()) return;
-            double x = rubberBand.getX(), y = rubberBand.getY();
-            double w = rubberBand.getWidth(), h = rubberBand.getHeight();
+            double x = box[0], y = box[1], w = box[2], h = box[3];
             rubberBand.setVisible(false);
             if (w < 3 || h < 3) return;
-            Region region = new Region(x, y, w, h, pane.getWidth(), pane.getHeight());
+            Region region = new Region(x, y, w, h, pane.getWidth(), pane.getHeight(), shape);
             if (mode == Mode.SINGLE) {
                 finished = true;
                 onRegion.accept(region);
@@ -179,14 +191,39 @@ public final class CaptureSurface {
         });
     }
 
+    /** Common band/mark styling: translucent blue fill + a solid blue outline. */
+    private static void styleBand(javafx.scene.shape.Shape node, Color fill, double strokeWidth) {
+        node.setFill(fill);
+        node.setStroke(Color.web("#2f80ed"));
+        node.setStrokeWidth(strokeWidth);
+    }
+
+    /** Moves/sizes the live rubber-band to the bounding box {@code (x,y,w,h)}, whatever its {@link #shape}. */
+    private void updateBand(double x, double y, double w, double h) {
+        box[0] = x; box[1] = y; box[2] = w; box[3] = h;
+        if (rubberBand instanceof Rectangle rect) {
+            rect.setX(x); rect.setY(y); rect.setWidth(w); rect.setHeight(h);
+        } else if (rubberBand instanceof Ellipse el) {
+            el.setCenterX(x + w / 2); el.setCenterY(y + h / 2);
+            el.setRadiusX(w / 2); el.setRadiusY(h / 2);
+        }
+    }
+
+    /** A persistent outline of the region in this surface's shape (rectangle or ellipse), for MANY mode. */
+    private javafx.scene.shape.Shape markFor(Region region) {
+        if (shape == Shape.ELLIPSE) {
+            return new Ellipse(region.x() + region.w() / 2, region.y() + region.h() / 2,
+                    region.w() / 2, region.h() / 2);
+        }
+        return new Rectangle(region.x(), region.y(), region.w(), region.h());
+    }
+
     /** Records a region and marks it on the surface with a persistent outline + index badge (MANY mode). */
     private void addRegion(Region region) {
         regions.add(region);
 
-        Rectangle mark = new Rectangle(region.x(), region.y(), region.w(), region.h());
-        mark.setFill(Color.color(0.3, 0.6, 1.0, 0.15));
-        mark.setStroke(Color.web("#2f80ed"));
-        mark.setStrokeWidth(1.5);
+        javafx.scene.shape.Shape mark = markFor(region);
+        styleBand(mark, Color.color(0.3, 0.6, 1.0, 0.15), 1.5);
         mark.setMouseTransparent(true);
 
         Label badge = new Label(String.valueOf(regions.size()));

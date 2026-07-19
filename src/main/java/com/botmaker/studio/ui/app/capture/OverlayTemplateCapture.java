@@ -20,12 +20,18 @@ import javafx.geometry.Pos;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.ToggleButton;
+import javafx.scene.control.ToggleGroup;
+import javafx.scene.control.Tooltip;
 import javafx.scene.input.KeyCode;
 import javafx.scene.layout.HBox;
 import javafx.scene.paint.Color;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.geom.Ellipse2D;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
@@ -66,6 +72,8 @@ public final class OverlayTemplateCapture {
     private Stage toolbarStage;
     private CaptureSurface surface;
     private ObjectCaptureSurface objectSurface;
+    /** The shape the ▢/⬭ toggle currently selects for Capture one/many (object mode ignores it). */
+    private CaptureSurface.Shape shape = CaptureSurface.Shape.RECT;
     /** The full captured frame's size for the in-progress object capture (for the template's capture-resolution sidecar). */
     private int objectFrameW, objectFrameH;
     /** The canonical window size to snap to before each capture (project reference resolution), or null.
@@ -132,6 +140,8 @@ public final class OverlayTemplateCapture {
     }
 
     private void showToolbar(java.awt.Rectangle windowBounds) {
+        HBox shapeToggle = buildShapeToggle();
+
         Button one = new Button("▢ Capture one");
         one.setOnAction(e -> beginSingle());
         Button many = new Button("▦ Capture many");
@@ -152,7 +162,7 @@ public final class OverlayTemplateCapture {
         resLabel.setTextFill(Color.web("#8fa3bf"));
         resLabel.setStyle("-fx-font-size: 11px;");
 
-        HBox bar = new HBox(8, hint, one, many, object, close, resLabel);
+        HBox bar = new HBox(8, hint, shapeToggle, one, many, object, close, resLabel);
         bar.setAlignment(Pos.CENTER_LEFT);
         bar.setPadding(new Insets(8, 10, 8, 10));
         bar.setStyle("-fx-background-color: rgba(20,24,33,0.92); -fx-background-radius: 8;");
@@ -162,6 +172,29 @@ public final class OverlayTemplateCapture {
         toolbarStage = OverlayToolbars.show(bar, windowBounds);
         toolbarStage.getScene().setOnKeyPressed(e -> { if (e.getCode() == KeyCode.ESCAPE) closeTool(); });
         active = this;
+    }
+
+    /**
+     * The ▢/⬭ shape switch that sets {@link #shape} for Capture one/many. A rectangle captures a plain crop;
+     * an ellipse captures the inscribed oval/circle with a transparent background. Object capture ignores it.
+     */
+    private HBox buildShapeToggle() {
+        ToggleGroup group = new ToggleGroup();
+        ToggleButton rect = new ToggleButton("▢");
+        rect.setTooltip(new Tooltip("Rectangle crop"));
+        rect.setToggleGroup(group);
+        rect.setSelected(shape == CaptureSurface.Shape.RECT);
+        ToggleButton ellipse = new ToggleButton("⬭");
+        ellipse.setTooltip(new Tooltip("Ellipse crop (transparent background outside the oval/circle; hold Shift to draw a circle)"));
+        ellipse.setToggleGroup(group);
+        ellipse.setSelected(shape == CaptureSurface.Shape.ELLIPSE);
+
+        rect.setOnAction(e -> { rect.setSelected(true); shape = CaptureSurface.Shape.RECT; });
+        ellipse.setOnAction(e -> { ellipse.setSelected(true); shape = CaptureSurface.Shape.ELLIPSE; });
+
+        HBox box = new HBox(0, rect, ellipse);
+        box.setAlignment(Pos.CENTER_LEFT);
+        return box;
     }
 
     /** Closes the toolbar (and any live surface) and clears the single-instance reference. */
@@ -184,7 +217,7 @@ public final class OverlayTemplateCapture {
         toolbarStage.hide();
         captureTargetAsync(shot -> {
             if (shot == null) { warnClosed(); endSession(); return; }
-            surface = CaptureSurface.single(owner, shot.bounds(), this::onSingleRegion, this::endSession);
+            surface = CaptureSurface.single(owner, shot.bounds(), shape, this::onSingleRegion, this::endSession);
         });
     }
 
@@ -215,7 +248,7 @@ public final class OverlayTemplateCapture {
         toolbarStage.hide();
         captureTargetAsync(shot -> {
             if (shot == null) { warnClosed(); endSession(); return; }
-            surface = CaptureSurface.many(owner, shot.bounds(), this::onManyDone, this::endSession);
+            surface = CaptureSurface.many(owner, shot.bounds(), shape, this::onManyDone, this::endSession);
         });
     }
 
@@ -330,7 +363,11 @@ public final class OverlayTemplateCapture {
         warn(owner, "Capture failed — the target may have closed.");
     }
 
-    /** Maps a drawn {@link Region} (overlay-logical pixels) onto {@code full} (physical pixels) and crops it. */
+    /**
+     * Maps a drawn {@link Region} (overlay-logical pixels) onto {@code full} (physical pixels) and crops it.
+     * A {@link CaptureSurface.Shape#RECT} region is a plain subimage; an ellipse region is cropped to its
+     * bounding box and masked to the inscribed oval, transparent outside it (ARGB, like the object cut).
+     */
     private static BufferedImage cropToImage(BufferedImage full, Region r) {
         if (r.paneW() <= 0 || r.paneH() <= 0) return null;
         double scaleX = full.getWidth() / r.paneW();
@@ -343,7 +380,17 @@ public final class OverlayTemplateCapture {
         y = Math.max(0, Math.min(y, full.getHeight() - 1));
         w = Math.max(1, Math.min(w, full.getWidth() - x));
         h = Math.max(1, Math.min(h, full.getHeight() - y));
-        return full.getSubimage(x, y, w, h);
+        BufferedImage sub = full.getSubimage(x, y, w, h);
+        if (r.shape() != CaptureSurface.Shape.ELLIPSE) return sub;
+
+        // Clip the box to its inscribed ellipse: everything outside the oval stays fully transparent.
+        BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = out.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setClip(new Ellipse2D.Double(0, 0, w, h));
+        g.drawImage(sub, 0, 0, null);
+        g.dispose();
+        return out;
     }
 
     private static void warn(Window owner, String message) {
