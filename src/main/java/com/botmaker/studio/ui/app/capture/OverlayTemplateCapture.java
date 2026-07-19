@@ -148,7 +148,8 @@ public final class OverlayTemplateCapture {
         many.setOnAction(e -> beginMany());
         Button object = new Button("◎ Capture object");
         object.setTooltip(new javafx.scene.control.Tooltip(
-                "Point at an object to extract it with a transparent background (scroll to resize)"));
+                "Drag a box around an object to extract it with a transparent background; "
+                        + "drag to add, right-drag to remove, Ctrl+Z/Y to undo/redo"));
         object.setOnAction(e -> beginObject());
         Button close = new Button("✕ Close");
         close.setOnAction(e -> closeTool());
@@ -229,7 +230,7 @@ public final class OverlayTemplateCapture {
                 BufferedImage full = shot.image();
                 BufferedImage cropped = cropToImage(full, region);
                 if (cropped == null) return;
-                Optional<String> name = ImageTemplatePicker.promptTemplateName(owner, config, null);
+                Optional<String> name = ImageTemplatePicker.promptTemplateName(owner, config, null, cropped);
                 if (name.isEmpty()) return;
                 ImageTemplateLibrary.saveTemplate(config, cropped, name.get(),
                         full.getWidth(), full.getHeight(), windowTitleOrNull());
@@ -298,7 +299,7 @@ public final class OverlayTemplateCapture {
     private void onObjectExtracted(BufferedImage cut) {
         if (objectSurface != null) objectSurface.hide();
         try {
-            Optional<String> name = ImageTemplatePicker.promptTemplateName(owner, config, null);
+            Optional<String> name = ImageTemplatePicker.promptTemplateName(owner, config, null, cut);
             if (name.isEmpty()) { endSession(); return; }
             // The sidecar's capture resolution is the full frame the object was cut from (drives runtime scaling),
             // not the crop's own size.

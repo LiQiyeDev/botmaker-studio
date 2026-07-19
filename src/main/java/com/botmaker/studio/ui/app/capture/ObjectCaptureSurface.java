@@ -15,6 +15,7 @@ import javafx.scene.image.ImageView;
 import javafx.scene.image.PixelWriter;
 import javafx.scene.image.WritableImage;
 import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseButton;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
@@ -109,7 +110,7 @@ public final class ObjectCaptureSurface {
         stage.setWidth(bounds.width);
         stage.setHeight(bounds.height);
         Scene scene = new Scene(pane, bounds.width, bounds.height, Color.TRANSPARENT);
-        scene.setOnKeyPressed(e -> { if (e.getCode() == KeyCode.ESCAPE) cancel(); });
+        scene.setOnKeyPressed(this::onKeyPressed);
         stage.setScene(scene);
     }
 
@@ -280,7 +281,31 @@ public final class ObjectCaptureSurface {
         String size = (lastResult == null || lastResult.isEmpty()) ? "—"
                 : lastResult.boxWidth() + "×" + lastResult.boxHeight() + " (" + lastResult.count() + " px)";
         hud.setText("Capture object · " + size
-                + "   —   drag to add, right-drag to remove, ✓ to capture, Esc to cancel");
+                + "   —   drag to add, right-drag to remove, Ctrl+Z/Y to undo/redo, ✓ to capture, Esc to cancel");
+    }
+
+    /** Esc cancels; Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z) step the mask-snapshot history — ignored while solving. */
+    private void onKeyPressed(KeyEvent e) {
+        if (e.getCode() == KeyCode.ESCAPE) { cancel(); return; }
+        if (busy || !e.isControlDown()) return;
+        boolean redo = e.getCode() == KeyCode.Y || (e.getCode() == KeyCode.Z && e.isShiftDown());
+        if (redo) {
+            if (session.canRedo()) { applyHistory(session.redo()); e.consume(); }
+        } else if (e.getCode() == KeyCode.Z) {
+            if (session.canUndo()) { applyHistory(session.undo()); e.consume(); }
+        }
+    }
+
+    /** Republishes the preview after an undo/redo restored a mask state (an empty state clears the preview). */
+    private void applyHistory(MagicWand.Result r) {
+        lastResult = r;
+        if (r == null || r.isEmpty()) {
+            preview.setImage(null);
+        } else {
+            showPreview(r);
+        }
+        captureBtn.setDisable(r == null || r.isEmpty());
+        updateHud();
     }
 
     private void finalizeSelection() {

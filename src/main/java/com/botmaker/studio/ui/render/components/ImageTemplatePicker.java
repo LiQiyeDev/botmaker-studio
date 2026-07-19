@@ -11,15 +11,26 @@ import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.types.ResolvedType;
 import javafx.application.Platform;
+import javafx.geometry.Insets;
+import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Alert;
+import javafx.scene.control.ButtonBar;
+import javafx.scene.control.ButtonType;
+import javafx.scene.control.Dialog;
+import javafx.scene.control.Label;
 import javafx.scene.control.MenuButton;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.SeparatorMenuItem;
-import javafx.scene.control.TextInputDialog;
+import javafx.scene.control.TextField;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.VBox;
 import javafx.stage.Window;
+
+import java.awt.image.BufferedImage;
 import org.eclipse.jdt.core.dom.ClassInstanceCreation;
 import org.eclipse.jdt.core.dom.Expression;
 import org.eclipse.jdt.core.dom.StringLiteral;
@@ -115,7 +126,7 @@ public final class ImageTemplatePicker {
         Window owner = anchor.getScene() != null ? anchor.getScene().getWindow() : null;
         String targetTitle = defaultWindowTitle(context);
         screenCapture(context).captureRegion(owner, (img, sourceW, sourceH) -> Platform.runLater(() -> {
-            Optional<String> name = promptTemplateName(owner, config, null);
+            Optional<String> name = promptTemplateName(owner, config, null, img);
             if (name.isEmpty()) return;
             try {
                 onSaved.accept(ImageTemplateLibrary.saveTemplate(config, img, name.get(), sourceW, sourceH, targetTitle));
@@ -134,12 +145,48 @@ public final class ImageTemplatePicker {
      * already sanitized to {@code [A-Za-z0-9_-]}. Shared by both capture paths and the overlay capture.
      */
     public static Optional<String> promptTemplateName(Window owner, ProjectConfig config, String allowExisting) {
+        return promptTemplateName(owner, config, allowExisting, null);
+    }
+
+    /**
+     * As {@link #promptTemplateName(Window, ProjectConfig, String)}, but shows a thumbnail of {@code preview}
+     * (the crop about to be saved) above the name field so the user sees exactly what they are naming — the
+     * batch dialog already previews each row, this brings the single/object flows in line. A null
+     * {@code preview} falls back to a plain name prompt. ARGB (ellipse/object) crops preview with their
+     * transparency, via {@link ScreenCaptureService#toFxImage}.
+     */
+    public static Optional<String> promptTemplateName(Window owner, ProjectConfig config, String allowExisting,
+                                                      BufferedImage preview) {
         while (true) {
-            TextInputDialog dialog = new TextInputDialog();
-            dialog.initOwner(owner);
+            Dialog<String> dialog = new Dialog<>();
+            if (owner != null) dialog.initOwner(owner);
             dialog.setTitle("Template name");
             dialog.setHeaderText(null);
-            dialog.setContentText("Name:");
+            ButtonType ok = new ButtonType("OK", ButtonBar.ButtonData.OK_DONE);
+            dialog.getDialogPane().getButtonTypes().addAll(ok, ButtonType.CANCEL);
+
+            TextField field = new TextField();
+            field.setPromptText("template name");
+
+            VBox content = new VBox(10);
+            content.setPadding(new Insets(10));
+            if (preview != null) {
+                ImageView thumb = new ImageView(ScreenCaptureService.toFxImage(preview));
+                thumb.setPreserveRatio(true);
+                thumb.setFitWidth(180);
+                thumb.setFitHeight(140);
+                HBox thumbRow = new HBox(thumb);
+                thumbRow.setAlignment(Pos.CENTER);
+                content.getChildren().add(thumbRow);
+            }
+            HBox nameRow = new HBox(8, new Label("Name:"), field);
+            nameRow.setAlignment(Pos.CENTER_LEFT);
+            HBox.setHgrow(field, Priority.ALWAYS);
+            content.getChildren().add(nameRow);
+            dialog.getDialogPane().setContent(content);
+            Platform.runLater(field::requestFocus);
+            dialog.setResultConverter(bt -> bt == ok ? field.getText() : null);
+
             Optional<String> raw = dialog.showAndWait();
             if (raw.isEmpty()) return Optional.empty(); // cancelled
             String name = ImageTemplateLibrary.sanitizeName(raw.get());

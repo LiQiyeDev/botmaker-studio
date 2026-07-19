@@ -6,6 +6,18 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-19 — Capture-object polish (Phase 7).** Four fixes to the GrabCut "Capture object" flow.
+  **Perf:** `MagicWand.Session.refine` now solves on a **cropped ROI** around a working box (an OpenCV
+  sub-`Mat` shares the parent's pixels, so the solve writes back into the full mask while only paying for the
+  pixels that can change) instead of re-segmenting the whole frame each stroke. **Undo/redo:** a bounded
+  mask-snapshot history in `Session` (`undo`/`redo`/`canUndo`/`canRedo`, pushed before every solve, released
+  on `close`) wired to **Ctrl+Z / Ctrl+Y** (and Ctrl+Shift+Z) in `ObjectCaptureSurface` — previously
+  Esc-only. **No crop on refine:** `paint` grows the working box to cover every stroke, so foreground painted
+  outside the original box isn't dropped by the ROI (with the coordinate audit confirming `scaleX/scaleY` and
+  the physical-frame `objectFrameW/H` sidecar reference are already correct). **Naming preview:** a new
+  `ImageTemplatePicker.promptTemplateName(…, BufferedImage preview)` overload shows a thumbnail of the crop
+  above the name field (ARGB transparency and all), now used by the single, object, and picker capture flows
+  (batch already had per-row thumbnails). Stale "scroll to resize" object tooltip corrected.
 - **2026-07-19 — Ellipse (circle/oval) template capture.** Capture Templates gained a **▢/⬭ shape toggle**
   (`OverlayTemplateCapture.buildShapeToggle`) that applies to both *Capture one* and *Capture many*. In
   ellipse mode the rubber-band draws an inscribed oval (hold **Shift** for a perfect circle) and the saved

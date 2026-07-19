@@ -12,6 +12,8 @@ import org.opencv.imgproc.Imgproc;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferByte;
+import java.util.ArrayDeque;
+import java.util.Deque;
 
 /**
  * The object-extraction engine behind {@link ObjectCaptureSurface}, backed by OpenCV's <b>GrabCut</b>
@@ -69,12 +71,27 @@ public final class MagicWand {
         // UnsatisfiedLinkError.
         static { OpenCvNative.ensureLoaded(); }
 
+        /** Slack (image px) added around the working box when cropping the refine ROI. */
+        private static final int ROI_MARGIN = 16;
+        /** How many mask snapshots to retain for undo before dropping the oldest. */
+        private static final int MAX_HISTORY = 24;
+
         private final Mat image;      // CV_8UC3, BGR
         private final Mat mask;       // CV_8UC1 of GC_* labels
         private final Mat bgModel = new Mat();
         private final Mat fgModel = new Mat();
         private final int width, height;
         private boolean initialised = false;
+
+        // The tight working box (image px, x0/y0 inclusive, x1/y1 exclusive) that bounds the refine ROI: the
+        // initial rect, grown to cover every refinement stroke so ROI-cropped refinement never drops a
+        // stroke placed outside the original box.
+        private int wx0, wy0, wx1, wy1;
+
+        // Mask-snapshot undo/redo. Each entry is a clone of the label mask before a solve; undo swaps the
+        // current mask with the top of one stack onto the other. Native memory — released on close().
+        private final Deque<Mat> undoStack = new ArrayDeque<>();
+        private final Deque<Mat> redoStack = new ArrayDeque<>();
 
         public Session(BufferedImage frame) {
             this.image = toMat(frame);
@@ -91,8 +108,11 @@ public final class MagicWand {
         public Result initFromRect(int x, int y, int w, int h, int iterations) {
             Rect rect = clampRect(x, y, w, h);
             if (rect == null) return null;
+            pushHistory();
             Imgproc.grabCut(image, mask, rect, bgModel, fgModel, iterations, Imgproc.GC_INIT_WITH_RECT);
             initialised = true;
+            wx0 = rect.x; wy0 = rect.y;
+            wx1 = rect.x + rect.width; wy1 = rect.y + rect.height;
             return current();
         }
 
@@ -102,14 +122,82 @@ public final class MagicWand {
          */
         public void paint(int x, int y, int radius, boolean foreground) {
             double label = foreground ? Imgproc.GC_FGD : Imgproc.GC_BGD;
-            Imgproc.circle(mask, new Point(x, y), Math.max(1, radius), new Scalar(label), -1);
+            int r = Math.max(1, radius);
+            Imgproc.circle(mask, new Point(x, y), r, new Scalar(label), -1);
+            // Grow the working box so a stroke placed outside the original rect stays inside the refine ROI —
+            // otherwise ROI-cropped refinement would silently drop the newly-painted foreground/background.
+            if (initialised) {
+                wx0 = Math.min(wx0, Math.max(0, x - r));
+                wy0 = Math.min(wy0, Math.max(0, y - r));
+                wx1 = Math.max(wx1, Math.min(width, x + r + 1));
+                wy1 = Math.max(wy1, Math.min(height, y + r + 1));
+            }
         }
 
-        /** Re-solves from the current label mask, continuing from the retained models. */
+        /**
+         * Re-solves from the current label mask, continuing from the retained models. GrabCut runs on a
+         * <em>cropped ROI</em> around the working box (not the whole frame): {@code GC_INIT_WITH_MASK} ignores
+         * the rect argument, and an OpenCV sub-{@link Mat} shares its parent's pixels, so the solve writes
+         * straight back into the full mask while only paying for the pixels that can actually change.
+         */
         public Result refine(int iterations) {
             if (!initialised) return null;
-            Imgproc.grabCut(image, mask, new Rect(), bgModel, fgModel, iterations, Imgproc.GC_INIT_WITH_MASK);
+            pushHistory();
+            Rect roi = roiRect();
+            Mat imgRoi = new Mat(image, roi);
+            Mat maskRoi = new Mat(mask, roi);
+            Imgproc.grabCut(imgRoi, maskRoi, new Rect(), bgModel, fgModel, iterations, Imgproc.GC_INIT_WITH_MASK);
+            imgRoi.release();
+            maskRoi.release();
             return current();
+        }
+
+        /** The working box grown by {@link #ROI_MARGIN} and clamped to the frame (falls back to the full frame). */
+        private Rect roiRect() {
+            int x0 = Math.max(0, wx0 - ROI_MARGIN);
+            int y0 = Math.max(0, wy0 - ROI_MARGIN);
+            int x1 = Math.min(width, wx1 + ROI_MARGIN);
+            int y1 = Math.min(height, wy1 + ROI_MARGIN);
+            if (x1 - x0 < 3 || y1 - y0 < 3) return new Rect(0, 0, width, height);
+            return new Rect(x0, y0, x1 - x0, y1 - y0);
+        }
+
+        /** True when an earlier mask state is on the undo stack. */
+        public boolean canUndo() { return !undoStack.isEmpty(); }
+
+        /** True when an undone mask state can be re-applied. */
+        public boolean canRedo() { return !redoStack.isEmpty(); }
+
+        /** Reverts the mask to the state before the last solve; returns the restored selection (may be empty). */
+        public Result undo() {
+            if (undoStack.isEmpty()) return null;
+            redoStack.push(mask.clone());
+            Mat prev = undoStack.pop();
+            prev.copyTo(mask);
+            prev.release();
+            return current();
+        }
+
+        /** Re-applies a solve reverted by {@link #undo()}; returns the restored selection (may be empty). */
+        public Result redo() {
+            if (redoStack.isEmpty()) return null;
+            undoStack.push(mask.clone());
+            Mat next = redoStack.pop();
+            next.copyTo(mask);
+            next.release();
+            return current();
+        }
+
+        /** Snapshots the current mask onto the undo stack (bounded) and invalidates the redo history. */
+        private void pushHistory() {
+            undoStack.push(mask.clone());
+            while (undoStack.size() > MAX_HISTORY) undoStack.removeLast().release();
+            releaseAll(redoStack);
+        }
+
+        private static void releaseAll(Deque<Mat> stack) {
+            for (Mat m : stack) m.release();
+            stack.clear();
         }
 
         /** Reads the current label mask out as a {@link Result} without re-solving. */
@@ -134,6 +222,8 @@ public final class MagicWand {
             mask.release();
             bgModel.release();
             fgModel.release();
+            releaseAll(undoStack);
+            releaseAll(redoStack);
         }
     }
 
