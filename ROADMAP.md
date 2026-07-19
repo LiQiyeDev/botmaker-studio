@@ -6,6 +6,12 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-19 — Unified debug-output toggle (Phase 5).** Added `"Debug"` to `SdkApi.FACADE_CLASSES` so the
+  SDK's new `api.Debug` switch surfaces as a block submenu. New `ProjectCreator.writeDebug`/`readDebug`
+  persist the `debug` key in `botmaker-project.properties` (default on, mirroring the SDK's semantics). A new
+  **🐞 Debug: on/off** `ToggleButton` in the toolbar capture group (`ToolbarManager.setOnToggleDebugOutput`,
+  wired in `UIManager` from `config.resourcesRoot()`) reads the persisted state and writes each change — one
+  switch governs the bot's `[Bot]/[Game]/[Target]/[Activity]` + vision traces at runtime.
 - **2026-07-19 — Emulator capture category + live previews + Launch Target toolbar button (Phase 4).**
   Added a fourth `Emulators` category to `CaptureSourcePicker` (a tile per configured Android instance, with a
   live ADB `screencap` thumbnail when running) backed by a new `CaptureTarget.EmulatorTarget(instanceName)`

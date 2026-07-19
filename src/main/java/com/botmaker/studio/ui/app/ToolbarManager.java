@@ -9,8 +9,11 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.ToggleButton;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
+
+import java.util.function.Consumer;
 
 public class ToolbarManager {
 
@@ -31,6 +34,10 @@ public class ToolbarManager {
     private Runnable onManageCaptureTargets;
     /** Opens the Launch Target dialog (what the bot launches); wired by {@link UIManager}. */
     private Runnable onManageLaunchTarget;
+    /** Persists the debug-output toggle to the project; wired by {@link UIManager}. */
+    private Consumer<Boolean> onToggleDebugOutput;
+    /** The debug-output toggle's initial (persisted) state — read by {@link UIManager} before building the bar. */
+    private boolean debugOutputInitial = true;
     /** Opens the debug dashboard; wired by {@link UIManager}. */
     private Runnable onOpenDebugDashboard;
     /** Starts the remote pilot server and shows the pairing dialog; wired by {@link UIManager}. */
@@ -107,6 +114,15 @@ public class ToolbarManager {
         this.onManageLaunchTarget = callback;
     }
 
+    /**
+     * Wires the debug-output toggle: {@code initial} is the project's persisted {@code debug} state (shown as the
+     * toggle's starting position) and {@code onToggle} persists each change. Call before {@link #createCaptureGroup()}.
+     */
+    public void setOnToggleDebugOutput(boolean initial, Consumer<Boolean> onToggle) {
+        this.debugOutputInitial = initial;
+        this.onToggleDebugOutput = onToggle;
+    }
+
     /** Sets the callback invoked when the toolbar's Debug Dashboard button is clicked. */
     public void setOnOpenDebugDashboard(Runnable callback) {
         this.onOpenDebugDashboard = callback;
@@ -159,6 +175,17 @@ public class ToolbarManager {
             if (onOpenDebugDashboard != null) onOpenDebugDashboard.run();
         });
 
+        ToggleButton debugOutputButton = new ToggleButton(debugOutputText(debugOutputInitial));
+        debugOutputButton.getStyleClass().add("toolbar-btn");
+        debugOutputButton.setSelected(debugOutputInitial);
+        debugOutputButton.setTooltip(new Tooltip(
+                "Toggle the bot's debug output ([Bot]/[Game]/[Target]/[Activity] + vision traces). Saved with the project."));
+        debugOutputButton.setOnAction(e -> {
+            boolean on = debugOutputButton.isSelected();
+            debugOutputButton.setText(debugOutputText(on));
+            if (onToggleDebugOutput != null) onToggleDebugOutput.accept(on);
+        });
+
         Button remotePilotButton = new Button("🎮 Remote Pilot");
         remotePilotButton.getStyleClass().add("toolbar-btn");
         remotePilotButton.setTooltip(new Tooltip(
@@ -195,9 +222,15 @@ public class ToolbarManager {
         resolutionLabel.setTooltip(new Tooltip("Project standard resolution · primary screen resolution"));
 
         HBox group = new HBox(5, captureButton, launchTargetButton, captureTemplatesButton,
-                overlayEditorButton, resourcesButton, debugDashboardButton, remotePilotButton, resolutionLabel);
+                overlayEditorButton, resourcesButton, debugDashboardButton, remotePilotButton,
+                debugOutputButton, resolutionLabel);
         group.setAlignment(Pos.CENTER);
         return group;
+    }
+
+    /** The debug-output toggle's label for a given state. */
+    private static String debugOutputText(boolean on) {
+        return on ? "🐞 Debug: on" : "🐞 Debug: off";
     }
 
     /** "Std W×H · 🖵 W×H": the project standard resolution (if set) and the primary screen resolution. */

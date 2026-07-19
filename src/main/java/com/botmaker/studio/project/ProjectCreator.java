@@ -197,6 +197,51 @@ public class ProjectCreator {
     }
 
     /**
+     * Writes/updates the {@code debug} key in {@code botmaker-project.properties} — the initial state of the
+     * generated bot's global debug-output switch (the SDK's {@code api.Debug}, which all {@code [Bot]}/
+     * {@code [Game]}/{@code [Target]}/{@code [Activity]} and vision traces consult). {@code true}/{@code false};
+     * a {@code null} removes the key (bot falls back to its default, on). Preserves the other properties.
+     */
+    public static void writeDebug(Path resourcesDir, Boolean enabled) throws IOException {
+        Files.createDirectories(resourcesDir);
+        Path file = resourcesDir.resolve("botmaker-project.properties");
+        java.util.Properties props = new java.util.Properties();
+        if (Files.exists(file)) {
+            try (var in = Files.newInputStream(file)) { props.load(in); }
+        }
+        if (enabled == null) {
+            props.remove("debug");
+        } else {
+            props.setProperty("debug", Boolean.toString(enabled));
+        }
+        try (var out = Files.newOutputStream(file)) {
+            props.store(out, "BotMaker project defaults");
+        }
+    }
+
+    /**
+     * The current {@code debug} setting from {@code botmaker-project.properties}: {@code true} unless the key is
+     * explicitly {@code false}/{@code 0}/{@code no}/{@code off}. The inverse of {@link #writeDebug} — mirrors the
+     * SDK's default-on semantics ({@code api.Debug}) so the Studio toggle shows the state the bot will run with.
+     */
+    public static boolean readDebug(Path resourcesDir) {
+        Path file = resourcesDir.resolve("botmaker-project.properties");
+        if (!Files.exists(file)) return true;
+        java.util.Properties props = new java.util.Properties();
+        try (var in = Files.newInputStream(file)) {
+            props.load(in);
+        } catch (IOException e) {
+            return true;
+        }
+        String spec = props.getProperty("debug");
+        if (spec == null || spec.isBlank()) return true;
+        return switch (spec.trim().toLowerCase()) {
+            case "false", "0", "no", "off" -> false;
+            default -> true;
+        };
+    }
+
+    /**
      * The starting sources for {@code template} as {@code fileName -> source}. The single source of truth for
      * both creation and {@link ProjectRepair} — a template's files are defined exactly once, here.
      */

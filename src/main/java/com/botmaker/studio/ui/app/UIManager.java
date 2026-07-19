@@ -136,6 +136,15 @@ public class UIManager {
                 new ManageCaptureTargetsDialog(primaryStage, projectSettingsService).show());
         this.toolbarManager.setOnManageLaunchTarget(() ->
                 new LaunchTargetDialog(primaryStage, config.resourcesRoot(), spec -> { }).show());
+        this.toolbarManager.setOnToggleDebugOutput(
+                com.botmaker.studio.project.ProjectCreator.readDebug(config.resourcesRoot()),
+                on -> {
+                    try {
+                        com.botmaker.studio.project.ProjectCreator.writeDebug(config.resourcesRoot(), on);
+                    } catch (java.io.IOException ex) {
+                        System.err.println("Failed to save debug setting: " + ex.getMessage());
+                    }
+                });
         this.toolbarManager.setOnOpenDebugDashboard(this::openDebugDashboard);
         this.toolbarManager.setOnEnableRemotePilot(this::openRemotePilot);
         this.toolbarManager.setOnCaptureTemplates(this::openOverlayTemplateCapture);
