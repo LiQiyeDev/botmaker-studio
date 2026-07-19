@@ -155,6 +155,24 @@ public class ProjectCreator {
     }
 
     /**
+     * The current {@code launch.target} spec from {@code botmaker-project.properties}, or {@code null} when the
+     * key (or the file) is absent. The inverse of {@link #writeLaunchTarget} — used to seed the Launch Target
+     * editor with what's already configured.
+     */
+    public static String readLaunchTarget(Path resourcesDir) {
+        Path file = resourcesDir.resolve("botmaker-project.properties");
+        if (!Files.exists(file)) return null;
+        java.util.Properties props = new java.util.Properties();
+        try (var in = Files.newInputStream(file)) {
+            props.load(in);
+        } catch (IOException e) {
+            return null;
+        }
+        String spec = props.getProperty("launch.target");
+        return (spec == null || spec.isBlank()) ? null : spec.trim();
+    }
+
+    /**
      * Writes/updates the {@code capture.source} key in {@code botmaker-project.properties} — the default
      * {@code CaptureSource} the generated bot's no-argument vision/click/OCR calls target (read by the SDK's
      * {@code ProjectDefaults}/{@code Source}). Accepts a spec in the SDK's form, e.g. {@code emulator:<instance>}

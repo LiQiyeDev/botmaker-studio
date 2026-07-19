@@ -29,6 +29,8 @@ public class ToolbarManager {
 
     /** Opens the Manage Capture Targets dialog; wired by {@link UIManager}. */
     private Runnable onManageCaptureTargets;
+    /** Opens the Launch Target dialog (what the bot launches); wired by {@link UIManager}. */
+    private Runnable onManageLaunchTarget;
     /** Opens the debug dashboard; wired by {@link UIManager}. */
     private Runnable onOpenDebugDashboard;
     /** Starts the remote pilot server and shows the pairing dialog; wired by {@link UIManager}. */
@@ -100,6 +102,11 @@ public class ToolbarManager {
         this.onManageCaptureTargets = callback;
     }
 
+    /** Sets the callback invoked when the toolbar's Launch Target button is clicked. */
+    public void setOnManageLaunchTarget(Runnable callback) {
+        this.onManageLaunchTarget = callback;
+    }
+
     /** Sets the callback invoked when the toolbar's Debug Dashboard button is clicked. */
     public void setOnOpenDebugDashboard(Runnable callback) {
         this.onOpenDebugDashboard = callback;
@@ -135,6 +142,14 @@ public class ToolbarManager {
         captureButton.setTooltip(new Tooltip("Manage screen / window capture targets (current default shown)"));
         captureButton.setOnAction(e -> {
             if (onManageCaptureTargets != null) onManageCaptureTargets.run();
+        });
+
+        Button launchTargetButton = new Button("🚀 Launch Target");
+        launchTargetButton.getStyleClass().add("toolbar-btn");
+        launchTargetButton.setTooltip(new Tooltip(
+                "Choose what the bot launches at startup — a Steam/Epic game, an executable, or an emulator app"));
+        launchTargetButton.setOnAction(e -> {
+            if (onManageLaunchTarget != null) onManageLaunchTarget.run();
         });
 
         Button debugDashboardButton = new Button("📊 Debug Dashboard");
@@ -179,7 +194,7 @@ public class ToolbarManager {
         resolutionLabel.getStyleClass().add("toolbar-resolution");
         resolutionLabel.setTooltip(new Tooltip("Project standard resolution · primary screen resolution"));
 
-        HBox group = new HBox(5, captureButton, captureTemplatesButton,
+        HBox group = new HBox(5, captureButton, launchTargetButton, captureTemplatesButton,
                 overlayEditorButton, resourcesButton, debugDashboardButton, remotePilotButton, resolutionLabel);
         group.setAlignment(Pos.CENTER);
         return group;

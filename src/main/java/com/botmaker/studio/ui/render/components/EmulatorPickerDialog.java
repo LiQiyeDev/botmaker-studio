@@ -3,6 +3,7 @@ package com.botmaker.studio.ui.render.components;
 import com.botmaker.shared.emulator.AdbDevice;
 import com.botmaker.shared.emulator.EmulatorInstance;
 import com.botmaker.studio.emulator.EmulatorInstanceScanner;
+import com.botmaker.studio.services.ScreenCaptureService;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -11,14 +12,18 @@ import javafx.scene.control.ButtonType;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Circle;
 import javafx.stage.Window;
 
+import java.awt.image.BufferedImage;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.List;
@@ -89,8 +94,22 @@ public final class EmulatorPickerDialog {
         return Optional.ofNullable(dialog.showAndWait().orElse(null));
     }
 
-    /** One instance row: a clickable header (dot + brand + name) plus a lazily-filled installed-apps list. */
+    /** Thumbnail size for a row's live emulator screencap preview. */
+    private static final double THUMB_W = 64;
+    private static final double THUMB_H = 40;
+
+    /** One instance row: a clickable header (preview + dot + brand + name) plus a lazily-filled installed-apps list. */
     private static VBox buildRow(EmulatorInstance instance, Dialog<Selection> dialog) {
+        ImageView thumb = new ImageView();
+        thumb.setPreserveRatio(true);
+        thumb.setFitWidth(THUMB_W);
+        thumb.setFitHeight(THUMB_H);
+        StackPane thumbHolder = new StackPane(thumb);
+        thumbHolder.setMinSize(THUMB_W, THUMB_H);
+        thumbHolder.setPrefSize(THUMB_W, THUMB_H);
+        thumbHolder.setMaxSize(THUMB_W, THUMB_H);
+        thumbHolder.setStyle("-fx-background-color: #101216; -fx-background-radius: 4;");
+
         Circle dot = new Circle(5, Color.web("#9aa0a6")); // neutral until the liveness probe resolves
         Label brand = new Label(brandOf(instance.platformId()));
         brand.getStyleClass().add("emulator-picker-brand");
@@ -101,7 +120,7 @@ public final class EmulatorPickerDialog {
         Label state = new Label("checking…");
         state.getStyleClass().add("emulator-picker-state");
 
-        HBox header = new HBox(8, dot, brand, name, spacer, state);
+        HBox header = new HBox(8, thumbHolder, dot, brand, name, spacer, state);
         header.setAlignment(Pos.CENTER_LEFT);
         header.setPadding(new Insets(6, 8, 6, 8));
         header.getStyleClass().add("emulator-picker-row");
@@ -117,21 +136,27 @@ public final class EmulatorPickerDialog {
         VBox row = new VBox(2, header, apps);
 
         // Show any cached apps immediately (so a stopped instance still lists its last scan), then probe liveness
-        // and — if up — refresh the apps from the live device.
+        // and — if up — refresh the apps from the live device and fill in the preview thumbnail.
         renderApps(apps, instance, APP_CACHE.get(instance.name()), dialog);
-        probeAndLoad(instance, dot, state, apps, dialog);
+        probeAndLoad(instance, dot, state, apps, thumb, dialog);
         return row;
     }
 
-    /** Off-FX: TCP-probe the ADB port; if up, connect and list installed apps, caching + rendering the result. */
+    /**
+     * Off-FX: TCP-probe the ADB port; if up, connect and list installed apps + grab one screencap for the row
+     * preview, caching + rendering the result.
+     */
     private static void probeAndLoad(EmulatorInstance instance, Circle dot, Label state, VBox apps,
-                                     Dialog<Selection> dialog) {
+                                     ImageView thumb, Dialog<Selection> dialog) {
         new Thread(() -> {
             boolean running = isRunning(instance);
             List<String> live = running ? installedApps(instance) : null;
+            BufferedImage shot = running ? screencap(instance) : null;
+            Image preview = shot != null ? ScreenCaptureService.toFxImage(shot) : null;
             Platform.runLater(() -> {
                 dot.setFill(running ? Color.web("#34a853") : Color.web("#9aa0a6"));
                 state.setText(running ? "running" : "stopped");
+                if (preview != null) thumb.setImage(preview);
                 if (live != null) {
                     APP_CACHE.put(instance.name(), live);
                     renderApps(apps, instance, live, dialog);
@@ -176,6 +201,21 @@ public final class EmulatorPickerDialog {
             return device.installedApps();
         } catch (Exception e) {
             return List.of();
+        } finally {
+            if (device != null) {
+                try { device.close(); } catch (Exception ignored) { /* best-effort */ }
+            }
+        }
+    }
+
+    /** One ADB {@code screencap} of a running instance via a short-lived connection; null on any failure. */
+    private static BufferedImage screencap(EmulatorInstance instance) {
+        AdbDevice device = null;
+        try {
+            device = AdbDevice.connect(instance.host(), instance.adbPort());
+            return device.screencap();
+        } catch (Exception e) {
+            return null;
         } finally {
             if (device != null) {
                 try { device.close(); } catch (Exception ignored) { /* best-effort */ }

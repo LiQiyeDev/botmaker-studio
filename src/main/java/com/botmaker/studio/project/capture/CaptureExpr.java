@@ -1,5 +1,6 @@
 package com.botmaker.studio.project.capture;
 
+import com.botmaker.studio.project.capture.CaptureTarget.EmulatorTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.ScreenTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.WindowTarget;
 
@@ -19,6 +20,7 @@ public final class CaptureExpr {
 
     private static final String PKG = "com.botmaker.sdk.api.capture.";
     private static final String RECT = "com.botmaker.sdk.api.Rect";
+    private static final String EMULATOR_SOURCE = "com.botmaker.sdk.api.emulator.EmulatorSource";
 
     private CaptureExpr() {}
 
@@ -46,6 +48,9 @@ public final class CaptureExpr {
         }
         if (target instanceof WindowTarget wt && wt.titleSubstring() != null && !wt.titleSubstring().isBlank()) {
             return PKG + "CaptureSource.window(\"" + escape(wt.titleSubstring()) + "\")";
+        }
+        if (target instanceof EmulatorTarget et && et.instanceName() != null && !et.instanceName().isBlank()) {
+            return "new " + EMULATOR_SOURCE + "(\"" + escape(et.instanceName()) + "\")";
         }
         // DesktopTarget and null both map to the whole virtual desktop.
         return PKG + "CaptureSource.desktop()";

@@ -5,9 +5,10 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 
 /**
  * A saved destination for editor-time screen interaction (image capture, region/point picking): a whole
- * monitor ({@link ScreenTarget}), a specific application window ({@link WindowTarget}), or the whole
- * virtual desktop across every monitor ({@link DesktopTarget}). The project remembers a list of these
- * plus which one is the default, so pickers stop re-asking which screen to use and can target a window.
+ * monitor ({@link ScreenTarget}), a specific application window ({@link WindowTarget}), the whole
+ * virtual desktop across every monitor ({@link DesktopTarget}), or an Android emulator instance captured
+ * over ADB ({@link EmulatorTarget}). The project remembers a list of these plus which one is the default,
+ * so pickers stop re-asking which screen to use and can target a window or emulator.
  *
  * <p>Persisted polymorphically inside {@link com.botmaker.studio.project.StudioProjectSettings} via a
  * {@code "type"} discriminator. A screen is identified by its index into {@code Screen.getScreens()};
@@ -20,10 +21,12 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 @JsonSubTypes({
         @JsonSubTypes.Type(value = CaptureTarget.ScreenTarget.class, name = "screen"),
         @JsonSubTypes.Type(value = CaptureTarget.WindowTarget.class, name = "window"),
-        @JsonSubTypes.Type(value = CaptureTarget.DesktopTarget.class, name = "desktop")
+        @JsonSubTypes.Type(value = CaptureTarget.DesktopTarget.class, name = "desktop"),
+        @JsonSubTypes.Type(value = CaptureTarget.EmulatorTarget.class, name = "emulator")
 })
 public sealed interface CaptureTarget
-        permits CaptureTarget.ScreenTarget, CaptureTarget.WindowTarget, CaptureTarget.DesktopTarget {
+        permits CaptureTarget.ScreenTarget, CaptureTarget.WindowTarget, CaptureTarget.DesktopTarget,
+                CaptureTarget.EmulatorTarget {
 
     /** A short human-readable label for menus / settings rows. */
     String label();
@@ -49,6 +52,17 @@ public sealed interface CaptureTarget
         @Override
         public String label() {
             return "Whole desktop (all monitors)";
+        }
+    }
+
+    /**
+     * An Android emulator instance, captured over ADB by its instance name (matches the SDK's
+     * {@code EmulatorSource} / {@code emulator:<name>} capture-source spec).
+     */
+    record EmulatorTarget(String instanceName) implements CaptureTarget {
+        @Override
+        public String label() {
+            return "Emulator: " + (instanceName == null || instanceName.isBlank() ? "(any)" : instanceName);
         }
     }
 }

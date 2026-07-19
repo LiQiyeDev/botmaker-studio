@@ -1,6 +1,7 @@
 package com.botmaker.studio.project.capture;
 
 import com.botmaker.studio.project.capture.CaptureTarget.DesktopTarget;
+import com.botmaker.studio.project.capture.CaptureTarget.EmulatorTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.ScreenTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.WindowTarget;
 
@@ -21,6 +22,8 @@ public final class CaptureTargetNames {
             case ScreenTarget st -> "Screen " + (st.index() + 1);
             case WindowTarget wt -> (wt.titleSubstring() == null || wt.titleSubstring().isBlank())
                     ? "Window" : wt.titleSubstring();
+            case EmulatorTarget et -> (et.instanceName() == null || et.instanceName().isBlank())
+                    ? "Emulator" : et.instanceName();
             case DesktopTarget ignored -> "Whole desktop";
         };
     }

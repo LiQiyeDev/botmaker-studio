@@ -134,6 +134,8 @@ public class UIManager {
                 new ProjectSettingsDialog(primaryStage, projectSettingsService, projectAnalyzer).show());
         this.toolbarManager.setOnManageCaptureTargets(() ->
                 new ManageCaptureTargetsDialog(primaryStage, projectSettingsService).show());
+        this.toolbarManager.setOnManageLaunchTarget(() ->
+                new LaunchTargetDialog(primaryStage, config.resourcesRoot(), spec -> { }).show());
         this.toolbarManager.setOnOpenDebugDashboard(this::openDebugDashboard);
         this.toolbarManager.setOnEnableRemotePilot(this::openRemotePilot);
         this.toolbarManager.setOnCaptureTemplates(this::openOverlayTemplateCapture);

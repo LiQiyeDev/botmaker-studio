@@ -6,6 +6,15 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-19 — Emulator capture category + live previews + Launch Target toolbar button (Phase 4).**
+  Added a fourth `Emulators` category to `CaptureSourcePicker` (a tile per configured Android instance, with a
+  live ADB `screencap` thumbnail when running) backed by a new `CaptureTarget.EmulatorTarget(instanceName)`
+  sealed variant that `CaptureExpr` maps to `new EmulatorSource("<name>")` and `CaptureTargetNames`/
+  `TargetThumbnail` now handle (so an emulator target previews in the Capture Targets manager too). The
+  `EmulatorPickerDialog` rows gained the same live screencap preview. New **🚀 Launch Target** toolbar button
+  (sibling of 🎯 Capture Targets) opens `LaunchTargetDialog` — Steam/Epic/Exe/Emulator-app builder that bakes
+  the choice into `botmaker-project.properties` (`launch.target`, via `ProjectCreator.writeLaunchTarget`, plus
+  `capture.source=emulator:<instance>` for an emulator app), seeded from the new `ProjectCreator.readLaunchTarget`.
 - **2026-07-19 — Custom argument pickers for Color / ClickConfig / LaunchTarget / emulator launch-stop (Phase 3).**
   New `SpecialTypePicker`s registered in `PickerRegistry`, each replacing a plain constructor/number pill:
   `ColorArgPicker` (a `java.awt.Color` slot → JavaFX colour swatch → `new java.awt.Color(r,g,b)`),

@@ -2,8 +2,12 @@ package com.botmaker.studio.ui.app.capture;
 
 import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeControllerFactory;
+import com.botmaker.shared.emulator.AdbDevice;
+import com.botmaker.shared.emulator.EmulatorInstance;
+import com.botmaker.studio.emulator.EmulatorInstanceScanner;
 import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.DesktopTarget;
+import com.botmaker.studio.project.capture.CaptureTarget.EmulatorTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.ScreenTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.WindowTarget;
 import com.botmaker.studio.services.capture.DesktopGrab;
@@ -12,6 +16,8 @@ import javafx.stage.Screen;
 
 import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.util.List;
 
 /**
@@ -61,9 +67,47 @@ public final class TargetThumbnail {
                 BufferedImage desktop = DesktopGrab.grabVirtualDesktop();
                 return new Result(desktop, true);
             }
+            if (target instanceof EmulatorTarget(String instanceName)) {
+                return grabEmulator(instanceName);
+            }
         } catch (Throwable ignored) {
         }
         return new Result(null, false);
+    }
+
+    /**
+     * Resolves an emulator instance by name (existence = it is configured and its ADB port answers) and, when
+     * running, grabs one {@code screencap} over a short-lived ADB connection.
+     */
+    private static Result grabEmulator(String instanceName) {
+        if (instanceName == null || instanceName.isBlank()) return new Result(null, false);
+        EmulatorInstance instance = null;
+        for (EmulatorInstance i : new EmulatorInstanceScanner().instances()) {
+            if (instanceName.equals(i.name())) { instance = i; break; }
+        }
+        if (instance == null) return new Result(null, false);
+        if (!emulatorRunning(instance)) return new Result(null, false);
+        AdbDevice device = null;
+        try {
+            device = AdbDevice.connect(instance.host(), instance.adbPort());
+            return new Result(device.screencap(), true);
+        } catch (Throwable t) {
+            return new Result(null, true); // configured + running, but the grab failed
+        } finally {
+            if (device != null) {
+                try { device.close(); } catch (Exception ignored) { /* best-effort */ }
+            }
+        }
+    }
+
+    /** A quick TCP liveness probe of the instance's ADB port. */
+    private static boolean emulatorRunning(EmulatorInstance instance) {
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress(instance.host(), instance.adbPort()), 300);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /** First open window (case-insensitive) whose title contains {@code titleSubstring}, or {@code null}. */

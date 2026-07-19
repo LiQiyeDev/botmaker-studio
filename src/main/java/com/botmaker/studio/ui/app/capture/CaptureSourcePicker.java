@@ -2,10 +2,14 @@ package com.botmaker.studio.ui.app.capture;
 
 import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeControllerFactory;
+import com.botmaker.shared.emulator.AdbDevice;
+import com.botmaker.shared.emulator.EmulatorInstance;
+import com.botmaker.studio.emulator.EmulatorInstanceScanner;
 import com.botmaker.studio.project.capture.CaptureRegion;
 import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.services.capture.DesktopGrab;
 import com.botmaker.studio.project.capture.CaptureTarget.DesktopTarget;
+import com.botmaker.studio.project.capture.CaptureTarget.EmulatorTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.ScreenTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.WindowTarget;
 import javafx.application.Platform;
@@ -38,6 +42,8 @@ import java.awt.Robot;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executors;
@@ -96,6 +102,7 @@ public final class CaptureSourcePicker {
         FlowPane windows = category();
         FlowPane monitors = category();
         FlowPane desktop = category();
+        FlowPane emulators = category();
 
         VBox content = new VBox(10);
         content.setPadding(new Insets(14));
@@ -107,6 +114,7 @@ public final class CaptureSourcePicker {
         content.getChildren().addAll(
                 sectionLabel("Desktop"), desktop,
                 sectionLabel("Monitors"), monitors,
+                sectionLabel("Emulators"), emulators,
                 sectionLabel("Windows"), windows);
 
         ScrollPane scroll = new ScrollPane(content);
@@ -124,7 +132,12 @@ public final class CaptureSourcePicker {
         regionRow.setAlignment(Pos.CENTER_LEFT);
 
         Button refresh = new Button("↻ Refresh");
-        refresh.setOnAction(e -> { windows.getChildren().clear(); loadWindows(windows); });
+        refresh.setOnAction(e -> {
+            windows.getChildren().clear();
+            loadWindows(windows);
+            emulators.getChildren().clear();
+            loadEmulators(emulators);
+        });
         Button cancel = new Button("Cancel");
         cancel.setOnAction(e -> { selected = null; close(); });
         Button ok = new Button("Select");
@@ -143,6 +156,7 @@ public final class CaptureSourcePicker {
         loadWindows(windows);
         loadScreens(monitors);
         loadDesktop(desktop);
+        loadEmulators(emulators);
 
         stage.setScene(new Scene(rootBox, 760, 560));
         stage.setOnHidden(e -> stopThumbs());
@@ -263,6 +277,75 @@ public final class CaptureSourcePicker {
             Image img = toFxImage(DesktopGrab.grabVirtualDesktop());
             if (img != null) Platform.runLater(() -> setThumb(tile, img));
         });
+    }
+
+    /**
+     * One tile per configured Android emulator instance (across every product), each with a live ADB
+     * {@code screencap} thumbnail when the instance is running. Discovery + liveness probe + screencap all run
+     * off the FX thread; a stopped instance still gets a (placeholder) tile so it can be selected before boot.
+     */
+    private void loadEmulators(FlowPane into) {
+        thumbs().submit(() -> {
+            List<EmulatorInstance> instances;
+            try {
+                instances = new EmulatorInstanceScanner().instances();
+            } catch (Throwable t) {
+                instances = List.of();
+            }
+            if (instances.isEmpty()) {
+                Platform.runLater(() -> into.getChildren().add(emptyEmulatorsHint()));
+                return;
+            }
+            for (EmulatorInstance instance : instances) {
+                String name = instance.name();
+                boolean running = isEmulatorRunning(instance);
+                Image img = running ? toFxImage(emulatorScreencap(instance)) : null;
+                Platform.runLater(() -> {
+                    VBox tile = tile(name, running ? "Emulator · running" : "Emulator · stopped");
+                    CaptureTarget target = new EmulatorTarget(name);
+                    tile.setOnMouseClicked(e -> {
+                        select(tile, new Selection.Concrete(target));
+                        if (e.getClickCount() == 2) close();
+                    });
+                    if (img != null) setThumb(tile, img);
+                    into.getChildren().add(tile);
+                });
+            }
+        });
+    }
+
+    /** Shown when no emulators are configured/installed. */
+    private static Node emptyEmulatorsHint() {
+        Label l = new Label("No emulators found. Install/start BlueStacks, LDPlayer, MEmu, MuMu or Gameloop "
+                + "with ADB enabled, then press ↻ Refresh.");
+        l.setWrapText(true);
+        l.setStyle("-fx-text-fill: gray; -fx-font-size: 11px; -fx-padding: 6 2 2 2;");
+        return l;
+    }
+
+    /** A quick TCP liveness probe of the instance's ADB port (mirrors {@code EmulatorPickerDialog.isRunning}). */
+    private static boolean isEmulatorRunning(EmulatorInstance instance) {
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress(instance.host(), instance.adbPort()), 300);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** One ADB {@code screencap} of a running instance via a short-lived connection; null on any failure. */
+    private static BufferedImage emulatorScreencap(EmulatorInstance instance) {
+        AdbDevice device = null;
+        try {
+            device = AdbDevice.connect(instance.host(), instance.adbPort());
+            return device.screencap();
+        } catch (Throwable t) {
+            return null;
+        } finally {
+            if (device != null) {
+                try { device.close(); } catch (Exception ignored) { /* best-effort */ }
+            }
+        }
     }
 
     private void loadWindows(FlowPane into) {
