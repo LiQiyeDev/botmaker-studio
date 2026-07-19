@@ -22,7 +22,7 @@ public enum FileRole {
 
     /**
      * Scaffolding the Studio generates and owns: the game-bot entry point, {@code ActivityRegistry},
-     * {@code Activities}, and the game loop.
+     * {@code Activities}, the game loop, and {@code Startup} (generated {@code Target.start()}).
      *
      * <p>Locked by default: no menus, no drop targets, no edits. Interactivity is not a gentler contract than a
      * lock — an edit that appears to work, survives until the next reload and then vanishes with no warning is
@@ -73,6 +73,7 @@ public enum FileRole {
 
     /** The file names the game-bot template generates and owns, alongside the entry point. */
     private static final String GAME_LOOP_FILE = "GameLoop.java";
+    private static final String STARTUP_FILE = "Startup.java";
 
     /**
      * Classifies {@code file} for {@code config}, given the project's {@code template}. Never null; unknown
@@ -95,7 +96,8 @@ public enum FileRole {
         if (sameFile(abs, config.mainSourceFile())
                 || sameFile(abs, config.activitiesSourceFile())
                 || sameFile(abs, config.activityRegistrySourceFile())
-                || sameFile(abs, gameLoopSourceFile(config))) {
+                || sameFile(abs, gameLoopSourceFile(config))
+                || sameFile(abs, startupSourceFile(config))) {
             return GENERATED;
         }
         return EDITABLE;
@@ -105,6 +107,16 @@ public enum FileRole {
     public static Path gameLoopSourceFile(ProjectConfig config) {
         Path mainDir = config.mainSourceFile().getParent();
         return mainDir == null ? null : mainDir.resolve(GAME_LOOP_FILE);
+    }
+
+    /**
+     * {@code Startup.java}, which sits beside the entry point in the main package. It is generated wiring now —
+     * its {@code run()} is just {@code Target.start()} over the project's configured launch target — so it is
+     * locked like {@code GameLoop.java} rather than left as a user-editable stub.
+     */
+    public static Path startupSourceFile(ProjectConfig config) {
+        Path mainDir = config.mainSourceFile().getParent();
+        return mainDir == null ? null : mainDir.resolve(STARTUP_FILE);
     }
 
     private static boolean sameFile(Path abs, Path other) {

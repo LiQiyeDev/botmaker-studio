@@ -15,8 +15,10 @@ public enum BlockCategory {
     FLOW("Logic"),
     LOOPS("Loops"),
     CONTROL("Control"),
-    // Game launch blocks carry this category, but they're promoted to the top-level bot actions
-    // (BlockCatalog.BOT_ACTIONS), so no "Game" submenu is shown (empty categories are skipped).
+    // Game/emulator blocks. The SDK-facade launch calls (Game.*, Emulators.*) are now reached through the
+    // generated per-facade submenus in the statement menu, so this category submenu carries only the non-facade
+    // blocks (e.g. the "Connect Emulator" handle declaration). Still used flat by the overlay's Basic palette
+    // (BlockCatalog.BOT_ACTIONS).
     GAME("Game"),
     FUNCTIONS("Functions"),
     /** Vision/geometry variable declarations (Point, Rect, Size, MatchResult, …) — their own insert submenu. */

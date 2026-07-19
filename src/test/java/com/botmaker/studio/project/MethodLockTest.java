@@ -15,9 +15,10 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Locks in which methods the user may change. The contract being protected is the SDK's:
  * {@code Bot.supervise(GameLoop::run, GoHome::run, Startup::run)} binds each as a {@code Runnable}, so those
- * signatures are not the user's to rename or re-parameterise. The three hooks differ on the body:
- * GoHome/Startup are shipped as TODO stubs whose body is the whole point, while {@code GameLoop.run} is the
- * complete generated dispatch loop — all of it BotMaker's.
+ * signatures are not the user's to rename or re-parameterise. The three hooks differ on the body: {@code GoHome}
+ * is shipped as a TODO stub whose body is the whole point, while {@code GameLoop.run} (the dispatch loop) and
+ * {@code Startup.run} ({@code Target.start()} over the configured launch target) are complete generated wiring —
+ * all of it BotMaker's.
  *
  * <p>Note the asymmetry these tests pin down: {@link MethodLock#NONE} <b>defers</b> to {@link FileRole}, while
  * {@link MethodLock#SIGNATURE} <b>grants</b> the body regardless of the file — which is why a {@code SIGNATURE}
@@ -77,23 +78,26 @@ class MethodLockTest {
     }
 
     @Test
-    void everySuperviseHookIsCovered() {
-        for (String file : java.util.List.of("GoHome.java", "Startup.java")) {
-            assertEquals(MethodLock.SIGNATURE,
-                    MethodLock.of(CONFIG, ProjectTemplate.GAME_BOT, inMainPackage(file),
-                            methodNamed(GO_HOME, "run")),
-                    file + ".run is bound as a Runnable and must keep its signature");
-        }
+    void goHomeHasALockedSignatureButAnEditableBody() {
+        // GoHome is the one supervise hook still shipped as a TODO stub: its signature is bound as a Runnable,
+        // but its body is the whole point. (GameLoop and Startup are generated wiring — FULL, tested below.)
+        assertEquals(MethodLock.SIGNATURE,
+                MethodLock.of(CONFIG, ProjectTemplate.GAME_BOT, inMainPackage("GoHome.java"),
+                        methodNamed(GO_HOME, "run")),
+                "GoHome.run is bound as a Runnable and must keep its signature");
     }
 
     @Test
-    void theGameLoopsRunIsFullyLocked() {
-        // Unlike GoHome/Startup, GameLoop.run is not a stub: the generator ships the complete activity
-        // dispatch loop, and an edited one is damage for ProjectRepair to restore, not user code.
-        MethodLock lock = MethodLock.of(CONFIG, ProjectTemplate.GAME_BOT, inMainPackage("GameLoop.java"),
-                methodNamed(GO_HOME, "run"));
-        assertEquals(MethodLock.FULL, lock);
-        assertTrue(lock.locksBody(), "the dispatch loop is generated wiring — the user's code goes in activities");
+    void theGameLoopAndStartupRunsAreFullyLocked() {
+        // Unlike GoHome, GameLoop.run and Startup.run are not stubs: GameLoop ships the complete activity
+        // dispatch loop and Startup ships `Target.start()` over the configured launch target. An edited body is
+        // damage for ProjectRepair to restore, not user code.
+        for (String file : java.util.List.of("GameLoop.java", "Startup.java")) {
+            MethodLock lock = MethodLock.of(CONFIG, ProjectTemplate.GAME_BOT, inMainPackage(file),
+                    methodNamed(GO_HOME, "run"));
+            assertEquals(MethodLock.FULL, lock, file + ".run is generated wiring");
+            assertTrue(lock.locksBody(), file + " is generated — the user's code goes elsewhere");
+        }
     }
 
     @Test

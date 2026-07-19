@@ -603,11 +603,15 @@ public final class ExpressionMenuFactory {
     }
 
     /**
-     * Creates the bot-first insert menu for statement blocks. A search box filters every block by name; with no
-     * query the most common automation actions (find / click / wait, from {@link BlockCatalog#botActions()}) are
-     * promoted flat to the top, with the remaining blocks grouped by category below.
+     * Creates the statement insert menu. A search box filters a flat list across every insertable block — the
+     * language/structure blocks <em>and</em> every SDK facade method; with no query the menu leads with a submenu
+     * per class in {@link SdkApi#FACADE_CLASSES} order (methods discovered at runtime via {@code ProjectAnalyzer}),
+     * followed by the language-block category submenus, with the bot-{@code Control} group last.
+     *
+     * @param analyzer resolves each facade's static methods; may be {@code null} (headless / no project resolved),
+     *                 in which case only the language blocks are shown.
      */
-    public static ContextMenu createStatementMenu(Consumer<BlockType> onSelection) {
+    public static ContextMenu createStatementMenu(ProjectAnalyzer analyzer, Consumer<BlockType> onSelection) {
         ContextMenu menu = new ContextMenu();
 
         TextField search = new TextField();
@@ -616,49 +620,119 @@ public final class ExpressionMenuFactory {
         searchItem.setHideOnClick(false);
         menu.getItems().add(searchItem);
 
-        rebuildStatementItems(menu, "", onSelection);
-        search.textProperty().addListener((obs, old, query) -> rebuildStatementItems(menu, query, onSelection));
+        rebuildStatementItems(menu, "", analyzer, onSelection);
+        search.textProperty().addListener((obs, old, query) -> rebuildStatementItems(menu, query, analyzer, onSelection));
         menu.setOnShown(e -> search.requestFocus());
 
         return menu;
     }
 
+    /**
+     * Language/structure block categories in statement-menu display order — the SDK facade calls are pulled out
+     * into their own generated submenus (see {@link #rebuildStatementItems}), so what remains here is the general
+     * programming vocabulary. {@link BlockCategory#CONTROL} (enable/disable activity, stop bot, break/continue/
+     * return) is placed last as a clearly-separated group.
+     */
+    private static final List<BlockCategory> LANGUAGE_CATEGORY_ORDER = List.of(
+            BlockCategory.FLOW, BlockCategory.LOOPS, BlockCategory.VARIABLES, BlockCategory.BOT_VARIABLE,
+            BlockCategory.FUNCTIONS, BlockCategory.OUTPUT, BlockCategory.INPUT, BlockCategory.GAME,
+            BlockCategory.UTILITY, BlockCategory.CONTROL);
+
     /** Rebuilds the menu body (everything below the search box at index 0) for the current search {@code query}. */
-    private static void rebuildStatementItems(ContextMenu menu, String query, Consumer<BlockType> onSelection) {
+    private static void rebuildStatementItems(ContextMenu menu, String query, ProjectAnalyzer analyzer,
+                                              Consumer<BlockType> onSelection) {
         menu.getItems().remove(1, menu.getItems().size());
 
         String q = query == null ? "" : query.trim().toLowerCase();
 
-        // Active search: flat, filtered list across every block — no submenus to dig through.
+        // Active search: flat, filtered list across every block — the language/structure blocks and every SDK
+        // facade method — no submenus to dig through.
         if (!q.isEmpty()) {
-            List<MenuItem> matches = BlockCatalog.all().stream()
-                    .filter(b -> b.displayName().toLowerCase().contains(q))
-                    .map(b -> statementItem(b, onSelection))
-                    .collect(Collectors.toList());
+            List<MenuItem> matches = new ArrayList<>();
+            for (BlockType b : languageBlocks()) {
+                if (b.displayName().toLowerCase().contains(q)) matches.add(statementItem(b, onSelection));
+            }
+            for (BlockType b : sdkCallBlocks(analyzer)) {
+                if (b.displayName().toLowerCase().contains(q)) matches.add(statementItem(b, onSelection));
+            }
             if (matches.isEmpty()) menu.getItems().add(disabledItem("No matching blocks"));
             else menu.getItems().addAll(matches);
             return;
         }
 
-        // Default: bot actions promoted flat at the top.
-        List<BlockType> promoted = BlockCatalog.botActions();
-        for (BlockType block : promoted) menu.getItems().add(statementItem(block, onSelection));
-        menu.getItems().add(new SeparatorMenuItem());
+        // Default: one submenu per SDK facade class (in SdkApi order), enumerating that class's static methods.
+        for (String facade : SdkApi.FACADE_CLASSES) {
+            Menu sub = sdkFacadeSubmenu(facade, analyzer, onSelection);
+            if (sub != null) menu.getItems().add(sub);
+        }
 
-        // Remaining blocks grouped by category (promoted ones skipped to avoid duplicates).
-        Set<BlockType> promotedSet = new HashSet<>(promoted);
-        Map<BlockCategory, List<BlockType>> grouped = BlockCatalog.all().stream()
-                .filter(b -> !promotedSet.contains(b))
+        // Then the language/structure block categories (SDK-facade calls excluded — reached via the submenus above).
+        if (menu.getItems().size() > 1) menu.getItems().add(new SeparatorMenuItem());
+        Map<BlockCategory, List<BlockType>> grouped = languageBlocks().stream()
                 .collect(Collectors.groupingBy(BlockType::category, LinkedHashMap::new, Collectors.toList()));
-
-        // "Declare Bot Variable" (vision/geometry types) is promoted to the first submenu, right under
-        // the bot actions, since declaring a Point/Rect/MatchResult is a common next step.
-        addCategoryMenu(menu, BlockCategory.BOT_VARIABLE, grouped, onSelection);
-
-        for (BlockCategory category : BlockCategory.values()) {
-            if (category == BlockCategory.BOT_VARIABLE) continue; // already placed at the top
+        for (BlockCategory category : LANGUAGE_CATEGORY_ORDER) {
             addCategoryMenu(menu, category, grouped, onSelection);
         }
+
+        if (menu.getItems().size() == 1) menu.getItems().add(disabledItem("(No blocks available)"));
+    }
+
+    /**
+     * The insertable language/structure blocks: every {@link BlockCatalog#all()} entry except the SDK-facade
+     * calls (a {@link BlockType.LibraryCall} / {@link BlockType.LambdaCall} on a {@link SdkApi} facade), which are
+     * offered through the generated per-class submenus instead.
+     */
+    private static List<BlockType> languageBlocks() {
+        return BlockCatalog.all().stream().filter(b -> !isSdkFacadeCall(b)).collect(Collectors.toList());
+    }
+
+    private static boolean isSdkFacadeCall(BlockType block) {
+        return switch (block) {
+            case BlockType.LibraryCall l -> SdkApi.isFacadeClass(l.className());
+            case BlockType.LambdaCall l -> SdkApi.isFacadeClass(l.className());
+            default -> false;
+        };
+    }
+
+    /**
+     * A submenu of {@code facade}'s static methods (one entry per distinct method name — overloads collapse, and
+     * the default overload is chosen at insert time by {@code StatementFactory}). Returns {@code null} when the
+     * analyzer is absent or the facade resolves no static methods (e.g. the SDK jar isn't on the classpath yet).
+     */
+    private static Menu sdkFacadeSubmenu(String facade, ProjectAnalyzer analyzer, Consumer<BlockType> onSelection) {
+        if (analyzer == null) return null;
+        Menu sub = new Menu(facade);
+        for (String method : facadeMethodNames(facade, analyzer)) {
+            sub.getItems().add(statementItem(sdkCall(facade, method, method), onSelection));
+        }
+        return sub.getItems().isEmpty() ? null : sub;
+    }
+
+    /** Every SDK facade method as a flat list of class-qualified statement blocks, for the search view. */
+    private static List<BlockType> sdkCallBlocks(ProjectAnalyzer analyzer) {
+        List<BlockType> out = new ArrayList<>();
+        if (analyzer == null) return out;
+        for (String facade : SdkApi.FACADE_CLASSES) {
+            for (String method : facadeMethodNames(facade, analyzer)) {
+                out.add(sdkCall(facade, method, facade + "." + method));
+            }
+        }
+        return out;
+    }
+
+    /** Distinct static method names of {@code facade}, sorted — the entries of its statement submenu. */
+    private static List<String> facadeMethodNames(String facade, ProjectAnalyzer analyzer) {
+        return analyzer.getMethods(facade, true).stream()
+                .map(MethodSignature::name)
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
+    }
+
+    /** A synthetic {@code facade.method(<defaults>)} statement block; args are seeded from the resolved overload. */
+    private static BlockType sdkCall(String facade, String method, String displayName) {
+        return new BlockType.LibraryCall("SDK_" + facade + "_" + method, displayName, BlockCategory.INPUT,
+                facade, method, List.of());
     }
 
     private static void addCategoryMenu(ContextMenu menu, BlockCategory category,

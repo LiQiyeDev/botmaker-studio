@@ -17,30 +17,42 @@ public final class SdkApi {
     private SdkApi() {}
 
     /**
-     * Ordered for the class dropdown: vision first (the common bot actions), then interaction.
+     * The complete, ordered facade list — this is also the display order of the per-class submenus in the
+     * statement insert menu ({@code ExpressionMenuFactory.rebuildStatementItems}). The intent of the order:
+     * interaction (Mouse/Keyboard/Wait), then vision (find/click/wait/pixel/text + the last-match contexts and
+     * click config), then launch/emulator (Game/Target/Emulators), then bot lifecycle (Bot/Watchdog/Activity),
+     * then capture wiring (Source/Window) and observation (Bots).
      *
      * <p>{@code VisionContext} exposes the {@code MatchResult} stored by the last find/click/wait call
      * (the vision API returns {@code boolean}/{@code int} now, not {@code MatchResult}) and, likewise, the
-     * {@code ColorMatch} stored by the last {@code Pixel} call. {@code Screen} is intentionally absent — it
-     * is no longer a user-facing {@code CaptureSource} facade.
+     * {@code ColorMatch} stored by the last {@code Pixel} call. {@code Target} is the current launch target
+     * holder ({@code start()}/{@code restart()}). {@code Screen} is intentionally absent — it is no longer a
+     * user-facing {@code CaptureSource} facade.
      *
      * <p>Only <em>facade classes</em> belong here. Adding a new <em>method</em> to an existing facade needs
      * no change: method-level knowledge is discovered at runtime by {@code ProjectAnalyzer} scanning the
      * resolved SDK jar with ClassGraph.
      */
     public static final List<String> FACADE_CLASSES = List.of(
+            "Mouse",
+            "Keyboard",
+            "Wait",
             "ImageFinder",
             "ImageClicker",
             "ImageWaiter",
             "Pixel",
+            "Text",
             "VisionContext",
             "ClickConfig",
-            "Mouse",
-            "Wait",
             "Game",
+            "Target",
             "Emulators",
             "Bot",
-            "Watchdog");
+            "Watchdog",
+            "Activity",
+            "Source",
+            "Window",
+            "Bots");
 
     private static final Set<String> FACADE_SET = Set.copyOf(FACADE_CLASSES);
 

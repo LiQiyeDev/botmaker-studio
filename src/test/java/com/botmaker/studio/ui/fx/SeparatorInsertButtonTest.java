@@ -49,7 +49,7 @@ class SeparatorInsertButtonTest extends FxHeadlessTest {
     public void start(Stage stage) {
         BlockDragAndDropManager dnd = new BlockDragAndDropManager(new EventBus(false));
         separator = dnd.createSeparator();
-        dnd.enableSeparatorClick(separator, inserted::add);
+        dnd.enableSeparatorClick(separator, null, inserted::add);
         plusButton = plusButtonOf(separator);
 
         VBox root = new VBox(separator);

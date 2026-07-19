@@ -1,6 +1,7 @@
 package com.botmaker.studio.ui.fx;
 
 import com.botmaker.studio.palette.BlockCatalog;
+import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.ui.render.menu.ExpressionMenuFactory;
 import javafx.scene.control.ContextMenu;
@@ -40,20 +41,25 @@ class StatementMenuTest extends FxHeadlessTest {
     }
 
     @Test
-    void defaultMenuPromotesBotActionsThenCategorySubmenus() {
+    void defaultMenuShowsCategorySubmenusWithControlRelocatedLast() {
+        // Built with a null analyzer (no project resolved), so there are no generated SDK-facade submenus — only
+        // the language-block categories, rendered as submenus (no flat promoted bot-actions row anymore).
         ContextMenu menu = build(type -> {});
 
-        // With an empty query: search box (index 0), the promoted bot actions as flat leaves, a separator, then
-        // category submenus.
         List<MenuItem> items = menu.getItems();
         assertTrue(items.get(0) instanceof CustomMenuItem, "first item is the search box");
+        assertTrue(leafItems(menu).isEmpty(), "no flat leaf blocks promoted to the top level");
 
-        for (BlockType action : BlockCatalog.botActions()) {
-            assertTrue(leafTexts(menu).contains(action.displayName()),
-                    "bot action should be promoted flat: " + action.displayName());
-        }
-        assertTrue(items.stream().anyMatch(i -> i instanceof SeparatorMenuItem), "separator after bot actions");
-        assertTrue(items.stream().anyMatch(i -> i instanceof Menu), "category submenus below the separator");
+        List<Menu> submenus = items.stream().filter(i -> i instanceof Menu).map(i -> (Menu) i).toList();
+        assertFalse(submenus.isEmpty(), "language category submenus are shown");
+
+        // The bot Control statements (enable/disable activity, stop bot) are relocated into a clearly-labelled
+        // "Control" submenu, placed last.
+        assertEquals(BlockCategory.CONTROL.getLabel(), submenus.getLast().getText(), "Control group is placed last");
+        List<String> control = submenus.getLast().getItems().stream().map(MenuItem::getText).toList();
+        assertTrue(control.contains(BlockCatalog.STOP_BOT.displayName()), control.toString());
+        assertTrue(control.contains(BlockCatalog.DISABLE_ACTIVITY.displayName()), control.toString());
+        assertTrue(control.contains(BlockCatalog.ENABLE_ACTIVITY.displayName()), control.toString());
     }
 
     @Test
@@ -105,7 +111,8 @@ class StatementMenuTest extends FxHeadlessTest {
 
     private ContextMenu build(java.util.function.Consumer<BlockType> onSelection) {
         AtomicReference<ContextMenu> ref = new AtomicReference<>();
-        interact(() -> ref.set(ExpressionMenuFactory.createStatementMenu(onSelection)));
+        // Null analyzer: exercises the language-block path (no project/SDK jar resolved in a headless test).
+        interact(() -> ref.set(ExpressionMenuFactory.createStatementMenu(null, onSelection)));
         return ref.get();
     }
 

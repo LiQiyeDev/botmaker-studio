@@ -4,8 +4,10 @@ import com.botmaker.shared.emulator.EmulatorInstance;
 import com.botmaker.shared.emulator.Platforms;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -30,5 +32,22 @@ public final class EmulatorInstanceScanner {
             }
         }
         return new ArrayList<>(names);
+    }
+
+    /**
+     * Every configured instance across every supported product, in discovery order, de-duplicated by name (the
+     * first descriptor for a given name wins — it carries the brand + ADB port the picker dialog shows). Unlike
+     * {@link #instanceNames()} this keeps the full {@link EmulatorInstance} (brand/{@code platformId}, host +
+     * port) so a picker can render the product brand and probe liveness. Never throws; empty when nothing is
+     * installed. Call off the FX thread (registry + config reads).
+     */
+    public List<EmulatorInstance> instances() {
+        Map<String, EmulatorInstance> byName = new LinkedHashMap<>();
+        for (EmulatorInstance instance : Platforms.discoverAll()) {
+            if (instance.name() != null && !instance.name().isBlank()) {
+                byName.putIfAbsent(instance.name(), instance);
+            }
+        }
+        return new ArrayList<>(byName.values());
     }
 }

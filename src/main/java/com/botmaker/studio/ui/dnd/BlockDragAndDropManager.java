@@ -228,12 +228,13 @@ public class BlockDragAndDropManager {
         btn.setLayoutX(newX);
     }
 
-    public void enableSeparatorClick(Pane separator, Consumer<BlockType> onInsert) {
+    public void enableSeparatorClick(Pane separator, com.botmaker.studio.suggestions.ProjectAnalyzer analyzer,
+                                     Consumer<BlockType> onInsert) {
         for (Node child : separator.getChildren()) {
             if (child instanceof Button) {
                 Button btn = (Button) child;
                 btn.setOnAction(e -> {
-                    ContextMenu menu = ExpressionMenuFactory.createStatementMenu(onInsert);
+                    ContextMenu menu = ExpressionMenuFactory.createStatementMenu(analyzer, onInsert);
 
                     // Store reference to menu so MouseExited knows not to hide button
                     btn.setUserData(menu);

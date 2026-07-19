@@ -57,6 +57,9 @@ class FileRoleTest {
                 FileRole.of(CONFIG, ProjectTemplate.GAME_BOT, CONFIG.activitiesSourceFile()));
         assertEquals(FileRole.GENERATED,
                 FileRole.of(CONFIG, ProjectTemplate.GAME_BOT, inMainPackage("GameLoop.java")));
+        // Startup.java is generated wiring too now — its run() is just Target.start() over the configured target.
+        assertEquals(FileRole.GENERATED,
+                FileRole.of(CONFIG, ProjectTemplate.GAME_BOT, inMainPackage("Startup.java")));
     }
 
     @Test
@@ -68,16 +71,16 @@ class FileRoleTest {
             assertEquals(FileRole.EDITABLE, FileRole.of(CONFIG, t, CONFIG.activityRegistrySourceFile()));
             assertEquals(FileRole.EDITABLE, FileRole.of(CONFIG, t, CONFIG.activitiesSourceFile()));
             assertEquals(FileRole.EDITABLE, FileRole.of(CONFIG, t, inMainPackage("GameLoop.java")));
+            assertEquals(FileRole.EDITABLE, FileRole.of(CONFIG, t, inMainPackage("Startup.java")));
         }
         assertEquals(FileRole.EDITABLE, FileRole.of(CONFIG, null, inMainPackage("GameLoop.java")));
     }
 
     @Test
-    void userEditableTemplateFilesStayEditable() {
-        // GoHome/Startup are scaffolded but explicitly the user's to fill in. Their run() signature is
-        // protected by MethodLock, not by locking the whole file.
+    void goHomeStaysEditable() {
+        // GoHome is scaffolded but explicitly the user's to fill in: its run() signature is protected by
+        // MethodLock, not by locking the whole file. (Startup used to be here too, but it is generated now.)
         assertEquals(FileRole.EDITABLE, FileRole.of(CONFIG, ProjectTemplate.GAME_BOT, inMainPackage("GoHome.java")));
-        assertEquals(FileRole.EDITABLE, FileRole.of(CONFIG, ProjectTemplate.GAME_BOT, inMainPackage("Startup.java")));
     }
 
     @Test

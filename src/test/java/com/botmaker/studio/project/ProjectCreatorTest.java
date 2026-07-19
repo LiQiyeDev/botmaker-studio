@@ -59,6 +59,10 @@ class ProjectCreatorTest {
         // The method references above only bind if these stay static, no-arg and void.
         assertTrue(sources.get("GoHome.java").contains("public static void run()"));
         assertTrue(sources.get("Startup.java").contains("public static void run()"));
+        // Startup is generated wiring: its body launches the project's configured target, not a TODO stub.
+        String startup = sources.get("Startup.java");
+        assertTrue(startup.contains("Target.start()"), startup);
+        assertTrue(startup.contains("import com.botmaker.sdk.api.launch.Target;"), startup);
     }
 
     @Test

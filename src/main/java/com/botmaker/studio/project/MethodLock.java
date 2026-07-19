@@ -34,19 +34,21 @@ public enum MethodLock {
     NONE,
 
     /**
-     * The signature is fixed but <b>the body is unconditionally the user's</b>: {@code run()} in {@code GoHome} /
-     * {@code Startup} (each bound as a {@code Runnable} by {@code Bot.supervise}, shipped as TODO stubs for the
-     * user to fill in), and an activity's {@code run()} (an {@code @Override} of {@code Activity.run}). Unlike
-     * {@link #NONE} this does not defer — it grants body edits however locked the surrounding file is.
+     * The signature is fixed but <b>the body is unconditionally the user's</b>: {@code run()} in {@code GoHome}
+     * (bound as a {@code Runnable} by {@code Bot.supervise}, shipped as a TODO stub for the user to fill in), and
+     * an activity's {@code run()} (an {@code @Override} of {@code Activity.run}). Unlike {@link #NONE} this does
+     * not defer — it grants body edits however locked the surrounding file is.
      */
     SIGNATURE,
 
     /**
-     * The whole method is generated wiring: an activity's {@code isEnabled()}, and {@code GameLoop.run} — the
-     * generated activity-dispatch loop. The latter was briefly {@link #SIGNATURE} on the theory that the game
-     * loop was the user's to fill in, but the generator ships it complete (iterate registry, run enabled
-     * activities, checkpoint the watchdog) and the user's workspace is the activities; an edited dispatch loop
-     * is damage for {@code ProjectRepair} to restore, not user code to preserve.
+     * The whole method is generated wiring: an activity's {@code isEnabled()}, {@code GameLoop.run} (the
+     * generated activity-dispatch loop), and {@code Startup.run} (generated {@code Target.start()}, which
+     * launches the project's configured launch target). {@code GameLoop.run} was briefly {@link #SIGNATURE} on
+     * the theory that the game loop was the user's to fill in, but the generator ships it complete and the
+     * user's workspace is the activities. {@code Startup.run} likewise ships complete — the game/target is
+     * chosen in the Studio, not hand-coded — so an edited body is damage for {@code ProjectRepair} to restore,
+     * not user code to preserve.
      */
     FULL;
 
@@ -94,9 +96,11 @@ public enum MethodLock {
             return NONE;
         }
         if (isSuperviseHook(config, file) && "run".equals(methodName)) {
-            // GameLoop.run is the generated dispatch loop — all of it is BotMaker's. GoHome/Startup ship as
-            // TODO stubs: their signature is bound by Bot.supervise but their body is the user's to write.
-            return "GameLoop.java".equals(file.getFileName().toString()) ? FULL : SIGNATURE;
+            // GameLoop.run (the generated dispatch loop) and Startup.run (generated `Target.start()`, driven by
+            // the project's configured launch target) are both wholly BotMaker's. Only GoHome ships as a TODO
+            // stub whose body is the user's to write — its signature is bound by Bot.supervise, the body is not.
+            String fileName = file.getFileName().toString();
+            return ("GameLoop.java".equals(fileName) || "Startup.java".equals(fileName)) ? FULL : SIGNATURE;
         }
         return NONE;
     }
