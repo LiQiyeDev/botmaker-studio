@@ -30,6 +30,8 @@ public class ToolbarManager {
     private Button captureButton;
     private Label resolutionLabel;
 
+    /** Opens the Project Setup checklist hub; wired by {@link UIManager}. */
+    private Runnable onProjectSetup;
     /** Opens the Manage Capture Targets dialog; wired by {@link UIManager}. */
     private Runnable onManageCaptureTargets;
     /** Opens the Launch Target dialog (what the bot launches); wired by {@link UIManager}. */
@@ -104,6 +106,11 @@ public class ToolbarManager {
         return group;
     }
 
+    /** Sets the callback invoked when the toolbar's Project Setup button is clicked. */
+    public void setOnProjectSetup(Runnable callback) {
+        this.onProjectSetup = callback;
+    }
+
     /** Sets the callback invoked when the toolbar's Capture Targets button is clicked. */
     public void setOnManageCaptureTargets(Runnable callback) {
         this.onManageCaptureTargets = callback;
@@ -153,6 +160,14 @@ public class ToolbarManager {
      * current default target) next to the Debug Dashboard button (opens the live telemetry dashboard).
      */
     public HBox createCaptureGroup() {
+        Button projectSetupButton = new Button("🧭 Project Setup");
+        projectSetupButton.getStyleClass().add("toolbar-btn");
+        projectSetupButton.setTooltip(new Tooltip(
+                "Set the project up to run: launch target, capture target, resolution and templates in one checklist"));
+        projectSetupButton.setOnAction(e -> {
+            if (onProjectSetup != null) onProjectSetup.run();
+        });
+
         captureButton = new Button(captureButtonText());
         captureButton.getStyleClass().add("toolbar-btn");
         captureButton.setTooltip(new Tooltip("Manage screen / window capture targets (current default shown)"));
@@ -221,7 +236,7 @@ public class ToolbarManager {
         resolutionLabel.getStyleClass().add("toolbar-resolution");
         resolutionLabel.setTooltip(new Tooltip("Project standard resolution · primary screen resolution"));
 
-        HBox group = new HBox(5, captureButton, launchTargetButton, captureTemplatesButton,
+        HBox group = new HBox(5, projectSetupButton, captureButton, launchTargetButton, captureTemplatesButton,
                 overlayEditorButton, resourcesButton, debugDashboardButton, remotePilotButton,
                 debugOutputButton, resolutionLabel);
         group.setAlignment(Pos.CENTER);

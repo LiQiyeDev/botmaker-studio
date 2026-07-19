@@ -45,7 +45,7 @@ public class BotMakerStudio extends Application {
         configureWindow(primaryStage);
         String lastProject = ProjectPreferences.getLastOpened();
         if (lastProject != null && projectExists(lastProject)) {
-            openProject(primaryStage, lastProject);
+            openProject(primaryStage, lastProject, false);
         } else {
             showProjectSelection(primaryStage);
         }
@@ -58,7 +58,8 @@ public class BotMakerStudio extends Application {
     private void showProjectSelection(Stage primaryStage) {
         ProjectSelectionScreen selectionScreen = new ProjectSelectionScreen(
                 primaryStage,
-                (projectName, clearCache) -> openProject(primaryStage, projectName)
+                (projectName, clearCache, freshlyCreated) ->
+                        openProject(primaryStage, projectName, freshlyCreated)
         );
         primaryStage.setScene(selectionScreen.createScene());
         primaryStage.setTitle("BotMaker - Select Project");
@@ -84,7 +85,7 @@ public class BotMakerStudio extends Application {
     // PROJECT LIFECYCLE
     // =========================================================================
 
-    private void openProject(Stage primaryStage, String projectName) {
+    private void openProject(Stage primaryStage, String projectName, boolean freshlyCreated) {
         // 1. Close previous project
         if (currentProject != null) {
             currentProject.close();
@@ -126,7 +127,7 @@ public class BotMakerStudio extends Application {
             statusLabel.textProperty().unbind();
             progressBar.progressProperty().unbind();
             currentProject = openTask.getValue();
-            finishOpen(primaryStage, projectName);
+            finishOpen(primaryStage, projectName, freshlyCreated);
         });
 
         openTask.setOnFailed(e -> {
@@ -144,7 +145,7 @@ public class BotMakerStudio extends Application {
     }
 
     /** Post-open UI wiring that must run on the FX thread once {@link BotProject#open} has completed. */
-    private void finishOpen(Stage primaryStage, String projectName) {
+    private void finishOpen(Stage primaryStage, String projectName, boolean freshlyCreated) {
         try {
             UIManager uiManager = getUiManager(primaryStage);
 
@@ -165,6 +166,11 @@ public class BotMakerStudio extends Application {
             if (!waylandNoticeChecked) {
                 waylandNoticeChecked = true;
                 ForceX11Notice.maybeShow(primaryStage);
+            }
+
+            // A brand-new project has nothing configured yet — walk the user through setup right away.
+            if (freshlyCreated) {
+                uiManager.openProjectSetup();
             }
         } catch (Exception e) {
             e.printStackTrace();

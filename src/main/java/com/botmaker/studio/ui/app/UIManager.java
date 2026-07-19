@@ -83,6 +83,8 @@ public class UIManager {
 
     // --- NEW: Filter State ---
     private List<Diagnostic> allDiagnostics = new ArrayList<>();
+    /** Opens the Manage Libraries dialog; captured so the Getting Started guide can reuse it. */
+    private Runnable onManageLibraries;
     private ToggleButton errorFilterBtn;
     private ToggleButton warningFilterBtn;
     private ToggleButton infoFilterBtn;
@@ -120,8 +122,12 @@ public class UIManager {
         System.out.println(com.botmaker.studio.config.VersionInfo.banner(config.projectPath()));
         MavenCentralSearch mavenCentralSearch = new MavenCentralSearch();
         JitPackSearch jitPackSearch = new JitPackSearch();
-        this.menuBarManager.setOnManageLibraries(() ->
-                new ManageLibrariesDialog(primaryStage, libraryService, mavenCentralSearch, jitPackSearch).show());
+        this.onManageLibraries = () ->
+                new ManageLibrariesDialog(primaryStage, libraryService, mavenCentralSearch, jitPackSearch).show();
+        this.menuBarManager.setOnManageLibraries(onManageLibraries);
+        this.menuBarManager.setOnProjectSetup(this::openProjectSetup);
+        this.toolbarManager.setOnProjectSetup(this::openProjectSetup);
+        this.menuBarManager.setOnGettingStarted(this::openGettingStarted);
         this.menuBarManager.setOnManageImports(() ->
                 new ManageImportsDialog(primaryStage, codeEditorService).show());
         this.menuBarManager.setOnManageActivities(() ->
@@ -772,6 +778,30 @@ public class UIManager {
     /** Opens the Resource Manager dialog. Reused by the Project menu and the block image-picker shortcut. */
     private void openResourceManager() {
         new ResourceManagerDialog(primaryStage, config, eventBus, screenCaptureService).show();
+    }
+
+    /**
+     * Opens the Project Setup checklist hub — the toolbar/menu entry and the auto-open-on-creation target
+     * (called from {@code BotMakerStudio.finishOpen}), so it's public. Reuses the overlay template capture for
+     * its optional "Image templates" step.
+     */
+    public void openProjectSetup() {
+        new ProjectSetupDialog(primaryStage, config, projectSettingsService, projectAnalyzer, eventBus,
+                this::openOverlayTemplateCapture).show();
+    }
+
+    /** Opens the Help ▸ Getting Started guide, whose section jump-buttons reuse the toolbar/menu open actions. */
+    private void openGettingStarted() {
+        GettingStartedDialog.Actions actions = new GettingStartedDialog.Actions(
+                this::openProjectSetup,
+                () -> new ManageCaptureTargetsDialog(primaryStage, projectSettingsService).show(),
+                () -> new LaunchTargetDialog(primaryStage, config.resourcesRoot(), spec -> { }).show(),
+                this::openOverlayTemplateCapture,
+                this::openResourceManager,
+                this::openDebugDashboard,
+                this::openRemotePilot,
+                onManageLibraries);
+        new GettingStartedDialog(primaryStage, actions).show();
     }
 
     /** Opens the live overlay template-capture over the project's default window target. */

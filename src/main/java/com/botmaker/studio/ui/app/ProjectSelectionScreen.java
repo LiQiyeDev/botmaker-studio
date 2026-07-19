@@ -26,7 +26,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.BiConsumer;
 
 /**
  * Project selection screen shown on startup with project creation capability
@@ -45,8 +44,17 @@ public class ProjectSelectionScreen {
     /** The signed-in GitHub login, resolved lazily; used to tell "published by you" from "imported". */
     private volatile String myLogin;
 
-    // Changed to BiConsumer to pass (ProjectName, ShouldClearCache)
-    private final BiConsumer<String, Boolean> onProjectSelected;
+    /**
+     * Notified to open a project. {@code freshlyCreated} is true only for a brand-new project (from
+     * {@link #createProject}), so the caller can auto-open the Project Setup wizard on creation but not on a
+     * plain open.
+     */
+    @FunctionalInterface
+    public interface OpenHandler {
+        void open(String projectName, boolean clearCache, boolean freshlyCreated);
+    }
+
+    private final OpenHandler onProjectSelected;
 
     private final Stage stage;
     private ListView<Row> projectListView;
@@ -91,7 +99,7 @@ public class ProjectSelectionScreen {
         }
     }
 
-    public ProjectSelectionScreen(Stage stage, BiConsumer<String, Boolean> onProjectSelected) {
+    public ProjectSelectionScreen(Stage stage, OpenHandler onProjectSelected) {
         this.stage = stage;
         this.projectManager = new ProjectManager();
         this.projectCreator = new ProjectCreator();
@@ -282,7 +290,7 @@ public class ProjectSelectionScreen {
     private void openSelectedProject() {
         ProjectInfo selected = selectedProject();
         if (selected != null) {
-            onProjectSelected.accept(selected.name(), false);
+            onProjectSelected.open(selected.name(), false, false);
         }
     }
 
@@ -602,7 +610,7 @@ public class ProjectSelectionScreen {
                                com.botmaker.studio.project.ProjectTemplate template) {
         try {
             projectCreator.createProject(projectName, sdkVersion, resolution, template);
-            onProjectSelected.accept(projectName, false);
+            onProjectSelected.open(projectName, false, true);
         } catch (Exception e) {
             error("Failed to create project", e.getMessage());
         }

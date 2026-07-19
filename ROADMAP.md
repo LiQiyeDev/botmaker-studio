@@ -6,6 +6,16 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-19 — Project Setup hub + Getting Started guide.** New onboarding for a fresh project.
+  `ui/app/ProjectSetupDialog` is a checklist hub that reads each setup step's status live and opens the
+  existing editor for it: **Launch target** (`ProjectCreator.readLaunchTarget`), **Capture target** (non-seed
+  default in `StudioProjectSettings`), **Reference resolution**, and an optional **Image templates** row
+  (informational only — pixel/OCR/coords bots need none). It re-ticks on `SettingsChangedEvent` and on regaining
+  focus after a child dialog closes. `ui/app/GettingStartedDialog` (Help ▸ Getting Started) explains each
+  feature area with an "Open ▸" jump button reusing the toolbar/menu actions. Entry points: a 🧭 Project Setup
+  toolbar button (`ToolbarManager.createCaptureGroup`) + Project ▸ Project Setup…, wired in `UIManager`; the hub
+  **auto-opens once on project creation** via a `freshlyCreated` flag threaded from `ProjectSelectionScreen`
+  (new `OpenHandler` interface) through `BotMakerStudio.finishOpen`.
 - **2026-07-19 — Capture-object polish (Phase 7).** Four fixes to the GrabCut "Capture object" flow.
   **Perf:** `MagicWand.Session.refine` now solves on a **cropped ROI** around a working box (an OpenCV
   sub-`Mat` shares the parent's pixels, so the solve writes back into the full mask while only paying for the

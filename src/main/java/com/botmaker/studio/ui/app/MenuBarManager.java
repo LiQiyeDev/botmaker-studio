@@ -29,6 +29,8 @@ public class MenuBarManager {
     private Runnable onSetActivityValues;
     private Runnable onManageResources;
     private Runnable onProjectSettings;
+    private Runnable onProjectSetup;
+    private Runnable onGettingStarted;
     private Runnable onBrowseGallery;
     private Runnable onPublishGallery;
     private Runnable onShowHistory;
@@ -175,6 +177,11 @@ public class MenuBarManager {
     private Menu createProjectMenu() {
         Menu projectMenu = new Menu("Project");
 
+        MenuItem projectSetupItem = new MenuItem("Project Setup...");
+        projectSetupItem.setOnAction(e -> {
+            if (onProjectSetup != null) onProjectSetup.run();
+        });
+
         MenuItem manageLibrariesItem = new MenuItem("Manage Libraries...");
         manageLibrariesItem.setOnAction(e -> {
             if (onManageLibraries != null) onManageLibraries.run();
@@ -233,6 +240,7 @@ public class MenuBarManager {
         });
 
         projectMenu.getItems().addAll(
+                projectSetupItem, new SeparatorMenuItem(),
                 manageLibrariesItem, manageImportsItem, new SeparatorMenuItem(),
                 manageActivitiesItem, setActivityValuesItem, manageResourcesItem,
                 new SeparatorMenuItem(),
@@ -316,6 +324,11 @@ public class MenuBarManager {
     private Menu createHelpMenu() {
         Menu helpMenu = new Menu("Help");
 
+        MenuItem gettingStartedItem = new MenuItem("Getting Started");
+        gettingStartedItem.setOnAction(e -> {
+            if (onGettingStarted != null) onGettingStarted.run();
+        });
+
         MenuItem studioRepoItem = new MenuItem("BotMaker Studio on GitHub");
         studioRepoItem.setOnAction(e -> BrowserLauncher.open(STUDIO_REPO_URL));
 
@@ -331,7 +344,8 @@ public class MenuBarManager {
         MenuItem aboutItem = new MenuItem("About BotMaker");
         aboutItem.setOnAction(e -> showAboutDialog());
 
-        helpMenu.getItems().addAll(studioRepoItem, sdkRepoItem, new SeparatorMenuItem(),
+        helpMenu.getItems().addAll(gettingStartedItem, new SeparatorMenuItem(),
+                studioRepoItem, sdkRepoItem, new SeparatorMenuItem(),
                 reportIssueItem, checkUpdatesItem, aboutItem);
 
         return helpMenu;
@@ -534,6 +548,16 @@ public class MenuBarManager {
     /** Sets the callback for when "Project Settings..." is clicked. */
     public void setOnProjectSettings(Runnable callback) {
         this.onProjectSettings = callback;
+    }
+
+    /** Sets the callback for when Project ▸ "Project Setup..." is clicked. */
+    public void setOnProjectSetup(Runnable callback) {
+        this.onProjectSetup = callback;
+    }
+
+    /** Sets the callback for when Help ▸ "Getting Started" is clicked. */
+    public void setOnGettingStarted(Runnable callback) {
+        this.onGettingStarted = callback;
     }
 
     /**
