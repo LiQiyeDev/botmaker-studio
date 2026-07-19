@@ -6,6 +6,11 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-19 — fix: smoke test 3-arg `OpenHandler`, unblocks release.** `ProjectSelectionScreenSmokeTest`
+  still built the screen with the old 2-arg callback lambda; the Project Setup work made it 3-arg
+  (`open(name, clearCache, freshlyCreated)`). Release runs `-Pdist package -DskipTests`, which still compiles
+  test sources, so `testCompile` failed and aborted the last two tags. Fixed the lambda in `ui/fx/`.
+
 - **2026-07-19 — Project Setup hub + Getting Started guide.** New onboarding for a fresh project.
   `ui/app/ProjectSetupDialog` is a checklist hub that reads each setup step's status live and opens the
   existing editor for it: **Launch target** (`ProjectCreator.readLaunchTarget`), **Capture target** (non-seed

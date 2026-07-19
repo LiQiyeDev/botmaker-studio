@@ -21,8 +21,9 @@ class ProjectSelectionScreenSmokeTest extends FxHeadlessTest {
 
     @Override
     public void start(Stage stage) {
-        // The second arg is the "project selected" callback; a no-op is fine — we never open a project.
-        ProjectSelectionScreen screen = new ProjectSelectionScreen(stage, (name, clearCache) -> {});
+        // The second arg is the "project selected" callback (name, clearCache, freshlyCreated); a no-op is
+        // fine — we never open a project.
+        ProjectSelectionScreen screen = new ProjectSelectionScreen(stage, (name, clearCache, freshlyCreated) -> {});
         stage.setScene(screen.createScene());
         stage.show();
     }
