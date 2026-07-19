@@ -6,6 +6,14 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-19 — Block rows wrap instead of ellipsizing (Phase 6).** New `WrappingSentencePane` (an `HBox`
+  subclass overriding only the layout math) flows a block's children like words: an overflowing pill falls
+  onto a hang-indented continuation line rather than being squeezed, so nothing is ever clipped or shown as
+  "…" at any nesting depth. `SentenceLayoutBuilder.build()` and the nested `BlockUIComponents.createArgumentPill`
+  now build these panes (returned as `HBox`, so every caller/CSS is unchanged); a lone token wider than a whole
+  line is clamped so it wraps internally, an Hgrow spacer still pins a trailing delete button to the right, and
+  builder labels use `OverrunStyle.CLIP`. Wrap width comes from the existing `fitToWidth` canvas — no
+  `UIManager` change needed.
 - **2026-07-19 — Unified debug-output toggle (Phase 5).** Added `"Debug"` to `SdkApi.FACADE_CLASSES` so the
   SDK's new `api.Debug` switch surfaces as a block submenu. New `ProjectCreator.writeDebug`/`readDebug`
   persist the `debug` key in `botmaker-project.properties` (default on, mirroring the SDK's semantics). A new

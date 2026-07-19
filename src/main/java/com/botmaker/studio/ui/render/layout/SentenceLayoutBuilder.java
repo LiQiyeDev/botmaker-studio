@@ -7,6 +7,7 @@ import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.OverrunStyle;
 import javafx.scene.layout.HBox;
 
 import java.util.ArrayList;
@@ -21,13 +22,23 @@ public class SentenceLayoutBuilder {
     public SentenceLayoutBuilder addKeyword(String text) {
         Label label = new Label(text);
         label.getStyleClass().add("keyword-label");
-        nodes.add(label);
+        nodes.add(noEllipsis(label));
         return this;
     }
 
     public SentenceLayoutBuilder addLabel(String text) {
-        nodes.add(new Label(text));
+        nodes.add(noEllipsis(new Label(text)));
         return this;
+    }
+
+    /**
+     * The wrapping row ({@link WrappingSentencePane}) only ever clamps a token that is wider than a whole
+     * line, so a label should clip rather than ellipsize when that happens — an "…" would be the very
+     * "content hidden" symptom the wrapping layout exists to remove.
+     */
+    private static Label noEllipsis(Label label) {
+        label.setTextOverrun(OverrunStyle.CLIP);
+        return label;
     }
 
     /**
@@ -88,7 +99,10 @@ public class SentenceLayoutBuilder {
     }
 
     public HBox build() {
-        HBox container = new HBox(spacing);
+        // A wrapping row (not a plain HBox): overflowing pills fall onto indented continuation lines instead
+        // of being squeezed/ellipsized. Returned as HBox so every caller (styleContainer, getChildren, CSS)
+        // is unchanged — only the layout math differs.
+        WrappingSentencePane container = new WrappingSentencePane(spacing);
         container.setAlignment(alignment);
         container.getChildren().addAll(nodes);
         return container;

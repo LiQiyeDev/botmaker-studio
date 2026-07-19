@@ -14,6 +14,7 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
+import com.botmaker.studio.ui.render.layout.WrappingSentencePane;
 
 /**
  * Pure JavaFX widget factories for blocks (buttons, labels, spacers, header rows). No domain
@@ -94,7 +95,10 @@ public final class BlockUIComponents {
      * vs. light (translucent-black fill). {@code leadingLabel} may be null.
      */
     public static HBox createArgumentPill(Node leadingLabel, Node argNode, Button changeButton, boolean onDarkBackground) {
-        HBox argBox = new HBox(2);
+        // A wrapping pill (tight hgap, small hanging indent): when the parent row clamps this pill to the
+        // canvas width, its own contents (label / nested expression / change button) wrap internally rather
+        // than overflow — so a deeply-nested argument is still fully visible.
+        WrappingSentencePane argBox = new WrappingSentencePane(2, 2, 12);
         argBox.setAlignment(Pos.CENTER_LEFT);
         argBox.getStyleClass().add("argument-pill");
         if (onDarkBackground) {
