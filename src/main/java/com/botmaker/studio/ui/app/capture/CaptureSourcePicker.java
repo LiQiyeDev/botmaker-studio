@@ -4,6 +4,7 @@ import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeControllerFactory;
 import com.botmaker.shared.emulator.AdbDevice;
 import com.botmaker.shared.emulator.EmulatorInstance;
+import com.botmaker.shared.emulator.Platforms.PlatformStatus;
 import com.botmaker.studio.emulator.EmulatorInstanceScanner;
 import com.botmaker.studio.project.capture.CaptureRegion;
 import com.botmaker.studio.project.capture.CaptureTarget;
@@ -286,14 +287,16 @@ public final class CaptureSourcePicker {
      */
     private void loadEmulators(FlowPane into) {
         thumbs().submit(() -> {
-            List<EmulatorInstance> instances;
+            EmulatorInstanceScanner.Scan scan;
             try {
-                instances = new EmulatorInstanceScanner().instances();
+                scan = new EmulatorInstanceScanner().scan();
             } catch (Throwable t) {
-                instances = List.of();
+                scan = new EmulatorInstanceScanner.Scan(List.of(), List.of());
             }
+            List<EmulatorInstance> instances = scan.instances();
             if (instances.isEmpty()) {
-                Platform.runLater(() -> into.getChildren().add(emptyEmulatorsHint()));
+                List<PlatformStatus> statuses = scan.statuses();
+                Platform.runLater(() -> into.getChildren().add(emptyEmulatorsHint(statuses)));
                 return;
             }
             for (EmulatorInstance instance : instances) {
@@ -314,13 +317,35 @@ public final class CaptureSourcePicker {
         });
     }
 
-    /** Shown when no emulators are configured/installed. */
-    private static Node emptyEmulatorsHint() {
-        Label l = new Label("No emulators found. Install/start BlueStacks, LDPlayer, MEmu, MuMu or Gameloop "
-                + "with ADB enabled, then press ↻ Refresh.");
-        l.setWrapText(true);
-        l.setStyle("-fx-text-fill: gray; -fx-font-size: 11px; -fx-padding: 6 2 2 2;");
-        return l;
+    /**
+     * Shown when no emulator instance was found: a per-product detection summary ("MuMu: installed",
+     * "BlueStacks: not installed") so the user can tell an absent install from an installed-but-not-running
+     * product, instead of a single generic "nothing found" line.
+     */
+    private static Node emptyEmulatorsHint(List<PlatformStatus> statuses) {
+        VBox box = new VBox(2);
+        box.setStyle("-fx-padding: 6 2 2 2;");
+        Label title = new Label("No emulator instances found:");
+        title.setStyle("-fx-text-fill: gray; -fx-font-size: 11px;");
+        box.getChildren().add(title);
+        for (PlatformStatus s : statuses) {
+            Label l = new Label("• " + statusLine(s));
+            l.setStyle("-fx-text-fill: gray; -fx-font-size: 11px;");
+            box.getChildren().add(l);
+        }
+        Label hint = new Label("Start an instance with ADB enabled, then press ↻ Refresh.");
+        hint.setWrapText(true);
+        hint.setStyle("-fx-text-fill: gray; -fx-font-size: 11px;");
+        box.getChildren().add(hint);
+        return box;
+    }
+
+    /** A one-line detection summary for a product. */
+    private static String statusLine(PlatformStatus s) {
+        if (!s.ok()) return s.displayName() + ": scan error (" + s.error() + ")";
+        if (!s.installed()) return s.displayName() + ": not installed";
+        int n = s.instanceCount();
+        return s.displayName() + ": installed · " + n + (n == 1 ? " instance" : " instances") + " configured";
     }
 
     /** A quick TCP liveness probe of the instance's ADB port (mirrors {@code EmulatorPickerDialog.isRunning}). */

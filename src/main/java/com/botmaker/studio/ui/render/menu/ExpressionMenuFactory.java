@@ -27,6 +27,8 @@ import javafx.scene.control.TextField;
 import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.jdt.core.dom.ITypeBinding;
 import org.eclipse.jdt.core.dom.IVariableBinding;
+import org.eclipse.jdt.core.dom.MethodInvocation;
+import org.eclipse.jdt.core.dom.SimpleName;
 import org.eclipse.jdt.core.dom.TypeDeclaration;
 
 import java.util.ArrayList;
@@ -278,18 +280,28 @@ public final class ExpressionMenuFactory {
         // be offered a `new` constructor). Surface the picker at the top of both the search and categorized views.
         boolean captureSlot = isCaptureSourceType(expectedType);
 
+        // The name argument of Activity.enable("…")/disable("…"): offer the project's defined activity names as a
+        // dropdown instead of a free-typed string, so the name always matches a real activity.
+        boolean activitySlot = context != null && isActivityNameSlot(contextNode);
+
         // Active search: a flat, filtered list of the leaf quick picks — no submenus to dig through.
         if (!q.isEmpty()) {
             List<MenuItem> matches = collectSearchableLeaves(available, expectedType, context, contextNode, state, onSelect)
                     .stream()
                     .filter(mi -> mi.getText() != null && mi.getText().toLowerCase().contains(q))
                     .collect(Collectors.toList());
+            if (activitySlot) {
+                for (String name : context.getProjectAnalyzer().getActivityNames()) {
+                    if (name.toLowerCase().contains(q)) matches.add(0, activityNameItem(name, onSelect));
+                }
+            }
             if (captureSlot && "choose capture source".contains(q)) matches.add(0, captureSourceItem(context, onSelect));
             if (matches.isEmpty()) menu.getItems().add(disabledItem("No matches"));
             else menu.getItems().addAll(matches);
             return;
         }
 
+        if (activitySlot) menu.getItems().add(activityNameSubmenu(context, onSelect));
         if (captureSlot) menu.getItems().add(captureSourceItem(context, onSelect));
 
         // Parity with the statement menu: lead with a submenu per SDK facade (in SdkApi order), each listing
@@ -493,6 +505,49 @@ public final class ExpressionMenuFactory {
             }
         }
         return menu;
+    }
+
+    /**
+     * Whether {@code contextNode} is the first (name) argument of an {@code Activity.enable(...)} /
+     * {@code Activity.disable(...)} call — the slot the activity-name dropdown targets. Matches on the AST
+     * (receiver {@code Activity} + method name + arg position), independent of type resolution, so it works even
+     * before the SDK jar's parameter types resolve. Facades are referenced by simple name (not import), as
+     * elsewhere in the palette.
+     */
+    private static boolean isActivityNameSlot(ASTNode contextNode) {
+        if (contextNode == null || !(contextNode.getParent() instanceof MethodInvocation call)) {
+            return false;
+        }
+        String method = call.getName().getIdentifier();
+        if (!method.equals("enable") && !method.equals("disable")) {
+            return false;
+        }
+        if (!(call.getExpression() instanceof SimpleName receiver) || !receiver.getIdentifier().equals("Activity")) {
+            return false;
+        }
+        List<?> args = call.arguments();
+        return !args.isEmpty() && args.get(0) == contextNode;
+    }
+
+    /** "Activity name": the project's defined activity names, each inserted as a string literal. */
+    private static Menu activityNameSubmenu(CodeEditorService context, Consumer<Object> onSelect) {
+        Menu menu = new Menu("Activity name");
+        List<String> names = context.getProjectAnalyzer().getActivityNames();
+        if (names.isEmpty()) {
+            menu.getItems().add(disabledItem("(No activities defined)"));
+        } else {
+            for (String name : names) {
+                menu.getItems().add(activityNameItem(name, onSelect));
+            }
+        }
+        return menu;
+    }
+
+    /** A menu item that inserts {@code name} as a quoted string literal (activity names are valid identifiers). */
+    private static MenuItem activityNameItem(String name, Consumer<Object> onSelect) {
+        MenuItem item = new MenuItem(name);
+        item.setOnAction(e -> onSelect.accept(new ExpressionChoice.RawExpression("\"" + name + "\"")));
+        return item;
     }
 
     private static Menu specificEnumSubmenu(ResolvedType enumType, Consumer<Object> onSelect) {

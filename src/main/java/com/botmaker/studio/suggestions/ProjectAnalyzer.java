@@ -503,6 +503,17 @@ public class ProjectAnalyzer {
                 .toList();
     }
 
+    /**
+     * The names of the project's defined activities, in configured (run) order. Used by the enable/disable
+     * name picker to offer {@code Activity.enable("…")}/{@code disable("…")} the real activity names instead of
+     * a free-typed string. Sourced from project state (not the AST), so it's available regardless of scope.
+     */
+    public List<String> getActivityNames() {
+        return state.getActivities().activities().stream()
+                .map(com.botmaker.studio.project.activity.ActivityDefinition::name)
+                .toList();
+    }
+
     private static boolean isCompatible(ResolvedType actual, ResolvedType required) {
         if (required == null || required.isUnknown()) return true;
         if (actual.simpleName().equals(required.simpleName())) return true;

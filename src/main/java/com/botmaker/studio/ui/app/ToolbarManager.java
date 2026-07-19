@@ -9,6 +9,8 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.MenuButton;
+import javafx.scene.control.MenuItem;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
@@ -156,8 +158,11 @@ public class ToolbarManager {
     }
 
     /**
-     * Creates the center group: the Capture Targets button (opens the manage dialog; its text shows the
-     * current default target) next to the Debug Dashboard button (opens the live telemetry dashboard).
+     * Creates the center group. To keep the bar from crowding when the window narrows, only the
+     * high-frequency actions stay inline (Project Setup, Capture, Launch Target, Debug Dashboard, the Debug
+     * toggle); the secondary tooling actions (Capture Templates, Overlay Editor, Resources, Remote Pilot)
+     * collapse into a single "⋯ More" overflow menu so the group's inline width is fixed regardless of the
+     * window size.
      */
     public HBox createCaptureGroup() {
         Button projectSetupButton = new Button("🧭 Project Setup");
@@ -201,44 +206,40 @@ public class ToolbarManager {
             if (onToggleDebugOutput != null) onToggleDebugOutput.accept(on);
         });
 
-        Button remotePilotButton = new Button("🎮 Remote Pilot");
-        remotePilotButton.getStyleClass().add("toolbar-btn");
-        remotePilotButton.setTooltip(new Tooltip(
-                "Control and watch the bot from your phone — shows a QR to scan (no VPN needed)"));
-        remotePilotButton.setOnAction(e -> {
-            if (onEnableRemotePilot != null) onEnableRemotePilot.run();
-        });
-
-        Button captureTemplatesButton = new Button("✂ Capture Templates");
-        captureTemplatesButton.getStyleClass().add("toolbar-btn");
-        captureTemplatesButton.setTooltip(new Tooltip(
-                "Draw a live overlay over the default window to quickly grab image templates"));
-        captureTemplatesButton.setOnAction(e -> {
+        // Secondary tooling actions live in the "⋯ More" overflow so the inline bar stays compact. Each item
+        // fires the same wired handler its former toolbar button did.
+        MenuItem captureTemplatesItem = new MenuItem("✂ Capture Templates");
+        captureTemplatesItem.setOnAction(e -> {
             if (onCaptureTemplates != null) onCaptureTemplates.run();
         });
 
-        Button overlayEditorButton = new Button("⧉ Overlay Editor");
-        overlayEditorButton.getStyleClass().add("toolbar-btn");
-        overlayEditorButton.setTooltip(new Tooltip(
-                "Show the program's shape in a small always-on-top panel and build it while watching the app"));
-        overlayEditorButton.setOnAction(e -> {
+        MenuItem overlayEditorItem = new MenuItem("⧉ Overlay Editor");
+        overlayEditorItem.setOnAction(e -> {
             if (onOverlayEditor != null) onOverlayEditor.run();
         });
 
-        Button resourcesButton = new Button("🗂 Resources");
-        resourcesButton.getStyleClass().add("toolbar-btn");
-        resourcesButton.setTooltip(new Tooltip("Open the Resource Manager to browse and manage image templates"));
-        resourcesButton.setOnAction(e -> {
+        MenuItem resourcesItem = new MenuItem("🗂 Resources");
+        resourcesItem.setOnAction(e -> {
             if (onAccessResources != null) onAccessResources.run();
         });
+
+        MenuItem remotePilotItem = new MenuItem("🎮 Remote Pilot");
+        remotePilotItem.setOnAction(e -> {
+            if (onEnableRemotePilot != null) onEnableRemotePilot.run();
+        });
+
+        MenuButton moreButton = new MenuButton("⋯ More", null,
+                captureTemplatesItem, overlayEditorItem, resourcesItem, remotePilotItem);
+        moreButton.getStyleClass().add("toolbar-btn");
+        moreButton.setTooltip(new Tooltip(
+                "More tools: Capture Templates, Overlay Editor, Resources, Remote Pilot"));
 
         resolutionLabel = new Label(resolutionText());
         resolutionLabel.getStyleClass().add("toolbar-resolution");
         resolutionLabel.setTooltip(new Tooltip("Project standard resolution · primary screen resolution"));
 
-        HBox group = new HBox(5, projectSetupButton, captureButton, launchTargetButton, captureTemplatesButton,
-                overlayEditorButton, resourcesButton, debugDashboardButton, remotePilotButton,
-                debugOutputButton, resolutionLabel);
+        HBox group = new HBox(5, projectSetupButton, captureButton, launchTargetButton,
+                debugDashboardButton, debugOutputButton, moreButton, resolutionLabel);
         group.setAlignment(Pos.CENTER);
         return group;
     }

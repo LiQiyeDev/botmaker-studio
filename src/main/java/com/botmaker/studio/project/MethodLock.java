@@ -43,8 +43,8 @@ public enum MethodLock {
 
     /**
      * The whole method is generated wiring: an activity's {@code isEnabled()}, {@code GameLoop.run} (the
-     * generated activity-dispatch loop), and {@code Startup.run} (generated {@code Target.start()}, which
-     * launches the project's configured launch target). {@code GameLoop.run} was briefly {@link #SIGNATURE} on
+     * generated activity-dispatch loop), and {@code Startup.run} (generated {@code StartMode}-driven launch of
+     * the project's configured launch target). {@code GameLoop.run} was briefly {@link #SIGNATURE} on
      * the theory that the game loop was the user's to fill in, but the generator ships it complete and the
      * user's workspace is the activities. {@code Startup.run} likewise ships complete — the game/target is
      * chosen in the Studio, not hand-coded — so an edited body is damage for {@code ProjectRepair} to restore,
@@ -96,7 +96,7 @@ public enum MethodLock {
             return NONE;
         }
         if (isSuperviseHook(config, file) && "run".equals(methodName)) {
-            // GameLoop.run (the generated dispatch loop) and Startup.run (generated `Target.start()`, driven by
+            // GameLoop.run (the generated dispatch loop) and Startup.run (generated StartMode-driven launch of
             // the project's configured launch target) are both wholly BotMaker's. Only GoHome ships as a TODO
             // stub whose body is the user's to write — its signature is bound by Bot.supervise, the body is not.
             String fileName = file.getFileName().toString();

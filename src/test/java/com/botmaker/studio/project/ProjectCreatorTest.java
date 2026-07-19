@@ -55,14 +55,18 @@ class ProjectCreatorTest {
 
         assertEquals(java.util.List.of("MyBot.java", "GameLoop.java", "GoHome.java", "Startup.java",
                 "ActivityRegistry.java"), java.util.List.copyOf(sources.keySet()));
-        assertTrue(sources.get("MyBot.java").contains("Bot.supervise(GameLoop::run, GoHome::run, Startup::run)"));
-        // The method references above only bind if these stay static, no-arg and void.
+        assertTrue(sources.get("MyBot.java").contains("Bot.start(GameLoop::run, GoHome::run, Startup::run)"));
+        // GameLoop::run / GoHome::run bind as Runnables (static, no-arg, void); Startup::run binds as a
+        // Consumer<StartMode>, so it stays static+void but takes the StartMode the supervisor hands it.
         assertTrue(sources.get("GoHome.java").contains("public static void run()"));
-        assertTrue(sources.get("Startup.java").contains("public static void run()"));
-        // Startup is generated wiring: its body launches the project's configured target, not a TODO stub.
+        assertTrue(sources.get("Startup.java").contains("public static void run(StartMode mode)"));
+        // Startup is generated wiring: it launches the project's configured target, choosing skip-if-running on
+        // a cold start vs. force-stop-then-relaunch on a recovery restart — not a TODO stub.
         String startup = sources.get("Startup.java");
-        assertTrue(startup.contains("Target.start()"), startup);
+        assertTrue(startup.contains("Target.startIfNotRunning()"), startup);
+        assertTrue(startup.contains("Target.restart()"), startup);
         assertTrue(startup.contains("import com.botmaker.sdk.api.launch.Target;"), startup);
+        assertTrue(startup.contains("import com.botmaker.sdk.api.bot.StartMode;"), startup);
     }
 
     @Test

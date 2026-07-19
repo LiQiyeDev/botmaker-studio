@@ -2,6 +2,7 @@ package com.botmaker.studio.ui.render.components;
 
 import com.botmaker.shared.emulator.AdbDevice;
 import com.botmaker.shared.emulator.EmulatorInstance;
+import com.botmaker.shared.emulator.Platforms.PlatformStatus;
 import com.botmaker.studio.emulator.EmulatorInstanceScanner;
 import com.botmaker.studio.services.ScreenCaptureService;
 import javafx.application.Platform;
@@ -12,6 +13,7 @@ import javafx.scene.control.ButtonType;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.TextInputDialog;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.HBox;
@@ -78,15 +80,16 @@ public final class EmulatorPickerDialog {
 
         // Discover instances off the FX thread (registry + config reads), then build a row per instance.
         new Thread(() -> {
-            List<EmulatorInstance> instances = new EmulatorInstanceScanner().instances();
+            EmulatorInstanceScanner.Scan scan = new EmulatorInstanceScanner().scan();
             Platform.runLater(() -> {
                 rows.getChildren().clear();
-                if (instances.isEmpty()) {
-                    rows.getChildren().add(new Label("No emulators found. Install/start BlueStacks, LDPlayer, "
-                            + "MEmu, MuMu or Gameloop with ADB enabled."));
+                if (scan.instances().isEmpty()) {
+                    // No instances — show what each product's discovery actually saw so the user can tell
+                    // "not installed" from "installed but nothing running / ADB off".
+                    rows.getChildren().add(buildStatusSummary(scan.statuses()));
                     return;
                 }
-                for (EmulatorInstance instance : instances) rows.getChildren().add(buildRow(instance, dialog));
+                for (EmulatorInstance instance : scan.instances()) rows.getChildren().add(buildRow(instance, dialog));
             });
         }, "emulator-picker-scan").start();
 
@@ -137,7 +140,7 @@ public final class EmulatorPickerDialog {
 
         // Show any cached apps immediately (so a stopped instance still lists its last scan), then probe liveness
         // and — if up — refresh the apps from the live device and fill in the preview thumbnail.
-        renderApps(apps, instance, APP_CACHE.get(instance.name()), dialog);
+        renderApps(apps, instance, APP_CACHE.get(cacheKey(instance)), null, dialog);
         probeAndLoad(instance, dot, state, apps, thumb, dialog);
         return row;
     }
@@ -157,30 +160,100 @@ public final class EmulatorPickerDialog {
                 dot.setFill(running ? Color.web("#34a853") : Color.web("#9aa0a6"));
                 state.setText(running ? "running" : "stopped");
                 if (preview != null) thumb.setImage(preview);
-                if (live != null) {
-                    APP_CACHE.put(instance.name(), live);
-                    renderApps(apps, instance, live, dialog);
-                }
+                if (running && live != null) APP_CACHE.put(cacheKey(instance), live);
+                List<String> show = running ? live : APP_CACHE.get(cacheKey(instance));
+                String emptyNote = running
+                        ? "No third-party apps found on this instance."
+                        : "Instance stopped — start it to list apps, or enter a package below.";
+                renderApps(apps, instance, show, emptyNote, dialog);
             });
         }, "emulator-probe-" + instance.name()).start();
     }
 
-    /** Rebuilds the app-button list under an instance row (empty {@code packages} clears it). */
-    private static void renderApps(VBox apps, EmulatorInstance instance, List<String> packages,
+    /**
+     * Rebuilds the app list under an instance row: a button per discovered package, or {@code emptyNote} when
+     * there are none, and always a "＋ Enter app package…" manual-entry fallback so a launch target is
+     * achievable even when the live app list is empty (stopped instance, launcher-only app, or ADB blocked).
+     * {@code emptyNote} of {@code null} suppresses the note (used for the initial cached render, before probing).
+     */
+    private static void renderApps(VBox apps, EmulatorInstance instance, List<String> packages, String emptyNote,
                                    Dialog<Selection> dialog) {
         apps.getChildren().clear();
-        if (packages == null || packages.isEmpty()) return;
-        for (String pkg : packages) {
-            Button appButton = new Button(pkg);
-            appButton.getStyleClass().add("emulator-picker-app");
-            appButton.setMaxWidth(Double.MAX_VALUE);
-            appButton.setAlignment(Pos.CENTER_LEFT);
-            appButton.setOnAction(e -> {
-                dialog.setResult(new Selection(instance, pkg));
-                dialog.close();
-            });
-            apps.getChildren().add(appButton);
+        if (packages != null && !packages.isEmpty()) {
+            for (String pkg : packages) {
+                Button appButton = new Button(pkg);
+                appButton.getStyleClass().add("emulator-picker-app");
+                appButton.setMaxWidth(Double.MAX_VALUE);
+                appButton.setAlignment(Pos.CENTER_LEFT);
+                appButton.setOnAction(e -> {
+                    dialog.setResult(new Selection(instance, pkg));
+                    dialog.close();
+                });
+                apps.getChildren().add(appButton);
+            }
+        } else if (emptyNote != null) {
+            Label note = new Label(emptyNote);
+            note.getStyleClass().add("emulator-picker-state");
+            note.setWrapText(true);
+            apps.getChildren().add(note);
         }
+        Button manual = new Button("＋ Enter app package…");
+        manual.getStyleClass().add("emulator-picker-app");
+        manual.setMaxWidth(Double.MAX_VALUE);
+        manual.setAlignment(Pos.CENTER_LEFT);
+        manual.setOnAction(e -> promptForPackage(instance, dialog));
+        apps.getChildren().add(manual);
+    }
+
+    /** Prompts for a package name and, if given, resolves the dialog to {@code (instance, package)}. */
+    private static void promptForPackage(EmulatorInstance instance, Dialog<Selection> dialog) {
+        TextInputDialog input = new TextInputDialog();
+        input.setTitle("Enter app package");
+        input.setHeaderText("App package to launch on " + instance.name());
+        input.setContentText("Package (e.g. com.supercell.clashofclans):");
+        if (dialog.getDialogPane().getScene() != null) {
+            input.initOwner(dialog.getDialogPane().getScene().getWindow());
+        }
+        input.showAndWait().ifPresent(pkg -> {
+            String trimmed = pkg == null ? "" : pkg.trim();
+            if (!trimmed.isBlank()) {
+                dialog.setResult(new Selection(instance, trimmed));
+                dialog.close();
+            }
+        });
+    }
+
+    /**
+     * When no instance was found, a per-product summary so the user can see what discovery detected — "MuMu:
+     * installed", "BlueStacks: not installed", "LDPlayer: scan error" — rather than a bare "nothing found".
+     */
+    private static VBox buildStatusSummary(List<PlatformStatus> statuses) {
+        VBox box = new VBox(4);
+        box.setPadding(new Insets(8));
+        Label title = new Label("No emulator instances found.");
+        title.setStyle("-fx-font-weight: bold;");
+        box.getChildren().add(title);
+        for (PlatformStatus s : statuses) {
+            box.getChildren().add(new Label("• " + statusLine(s)));
+        }
+        Label hint = new Label("Start an instance with ADB enabled, then reopen this picker.");
+        hint.setWrapText(true);
+        hint.getStyleClass().add("emulator-picker-state");
+        box.getChildren().add(hint);
+        return box;
+    }
+
+    /** A one-line detection summary for a product. */
+    private static String statusLine(PlatformStatus s) {
+        if (!s.ok()) return s.displayName() + ": scan error (" + s.error() + ")";
+        if (!s.installed()) return s.displayName() + ": not installed";
+        int n = s.instanceCount();
+        return s.displayName() + ": installed · " + n + (n == 1 ? " instance" : " instances") + " configured";
+    }
+
+    /** App-cache key: the instance's identity (platform + endpoint), so two same-named instances don't collide. */
+    private static String cacheKey(EmulatorInstance instance) {
+        return instance.platformId() + "@" + instance.endpoint();
     }
 
     /** A quick TCP liveness probe of the instance's ADB port (mirrors the SDK's {@code EmulatorRef.running}). */

@@ -13,6 +13,7 @@ import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 import javafx.stage.Modality;
@@ -90,15 +91,19 @@ public final class LaunchTargetDialog {
 
         statusLabel = new Label();
         statusLabel.setStyle("-fx-font-size: 11px;");
+        // The status text is the flexible element: it grows to fill the row and ellipsizes when long, so it
+        // never squeezes the buttons below their label width (which is what truncated them to "…").
+        statusLabel.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(statusLabel, Priority.ALWAYS);
 
         Button clear = new Button("Clear target");
+        clear.setMinWidth(Region.USE_PREF_SIZE);
         clear.setOnAction(e -> apply(null, null));
         Button close = new Button("Close");
+        close.setMinWidth(Region.USE_PREF_SIZE);
         close.setDefaultButton(true);
         close.setOnAction(e -> stage.close());
-        HBox spacer = new HBox();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox bar = new HBox(8, statusLabel, spacer, clear, close);
+        HBox bar = new HBox(8, statusLabel, clear, close);
         bar.setAlignment(Pos.CENTER_LEFT);
 
         VBox root = new VBox(12, heading, hint, currentLabel, choices, bar);

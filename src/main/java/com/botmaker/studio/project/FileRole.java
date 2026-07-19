@@ -22,7 +22,7 @@ public enum FileRole {
 
     /**
      * Scaffolding the Studio generates and owns: the game-bot entry point, {@code ActivityRegistry},
-     * {@code Activities}, the game loop, and {@code Startup} (generated {@code Target.start()}).
+     * {@code Activities}, the game loop, and {@code Startup} (generated {@code StartMode}-driven target launch).
      *
      * <p>Locked by default: no menus, no drop targets, no edits. Interactivity is not a gentler contract than a
      * lock — an edit that appears to work, survives until the next reload and then vanishes with no warning is
@@ -111,8 +111,9 @@ public enum FileRole {
 
     /**
      * {@code Startup.java}, which sits beside the entry point in the main package. It is generated wiring now —
-     * its {@code run()} is just {@code Target.start()} over the project's configured launch target — so it is
-     * locked like {@code GameLoop.java} rather than left as a user-editable stub.
+     * its {@code run(StartMode)} drives the project's configured launch target (skip-if-running on a cold start,
+     * force-stop-then-relaunch on a restart) — so it is locked like {@code GameLoop.java} rather than left as a
+     * user-editable stub.
      */
     public static Path startupSourceFile(ProjectConfig config) {
         Path mainDir = config.mainSourceFile().getParent();

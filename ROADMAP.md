@@ -6,6 +6,20 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-20 — batch: toolbar declutter, activity-name picker, emulator chooser fixes, startup lifecycle.**
+  Five improvements. **(1)** `ToolbarManager.createCaptureGroup` moves secondary capture actions (Capture
+  Templates, Overlay Editor, Resources, Remote Pilot) into a "⋯ More" overflow `MenuButton` so the inline bar
+  stays compact. **(2)** `ExpressionMenuFactory` offers an "Activity name" dropdown (from
+  `ProjectAnalyzer.getActivityNames`) when editing the string arg of `Activity.enable/disable`, inserting the
+  name as a literal instead of free-typing. **(3)** `LaunchTargetDialog` Clear/Close buttons pinned to
+  `USE_PREF_SIZE` (were ellipsizing to "…"); status label now the flexible element. **(4)**
+  `EmulatorInstanceScanner` de-dups by identity `(platformId,host,adbPort)` not display name — fixes instances
+  collapsing and a MuMu instance rendering with the BlueStacks brand; both pickers (`EmulatorPickerDialog`,
+  `CaptureSourcePicker`) now show a per-product detection summary (via shared `Platforms.discoverDetailed`) and
+  the emulator chooser gained clearer app-state messaging + a manual package-name fallback. **(5)** Generated
+  `Startup` template is now `run(StartMode)` — `COLD → Target.startIfNotRunning()`, `RESTART → Target.restart()`
+  (matches the SDK `StartMode` change; skip-relaunch-if-open on cold start, force-stop-then-relaunch on recovery).
+
 - **2026-07-19 — fix: smoke test 3-arg `OpenHandler`, unblocks release.** `ProjectSelectionScreenSmokeTest`
   still built the screen with the old 2-arg callback lambda; the Project Setup work made it 3-arg
   (`open(name, clearCache, freshlyCreated)`). Release runs `-Pdist package -DskipTests`, which still compiles
