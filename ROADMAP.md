@@ -6,6 +6,15 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-19 — Custom argument pickers for Color / ClickConfig / LaunchTarget / emulator launch-stop (Phase 3).**
+  New `SpecialTypePicker`s registered in `PickerRegistry`, each replacing a plain constructor/number pill:
+  `ColorArgPicker` (a `java.awt.Color` slot → JavaFX colour swatch → `new java.awt.Color(r,g,b)`),
+  `ClickConfigArgPicker` (each bounded `ClickConfig` setter arg → a range-limited spinner dialog for delays/
+  retries/confidence and an inline checkbox for `enableRandomClicks`/`enableDebugMode`), and
+  `LaunchTargetArgPicker` (a `LaunchTarget` slot → Steam/Epic/Exe/Emulator-app builder emitting
+  `LaunchTarget.parse("<spec>")`). `PickerContext.isEmulatorNameArg` now also covers `Emulators.launch(name)`/
+  `stop(name)` (not just `use`/`named`), and gained `isClickConfigArg`. All commit via
+  `CodeEditor.replaceWithRawExpression`/`replaceLiteralValue` so the picker re-matches on the round-tripped value.
 - **2026-07-19 — Activity/stop blocks standardized as SDK facade calls (Phase 2).** Removed the bespoke
   `ActivityToggleBlock`/`StopBotBlock` (and the `DISABLE_ACTIVITY`/`ENABLE_ACTIVITY`/`STOP_BOT` catalog +
   `Kind` entries + `StatementFactory` creators + `BlockConverter` interceptions). `Activity.disable/enable("X")`

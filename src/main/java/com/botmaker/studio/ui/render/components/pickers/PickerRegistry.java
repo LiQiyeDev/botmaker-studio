@@ -3,11 +3,14 @@ package com.botmaker.studio.ui.render.components.pickers;
 import com.botmaker.studio.game.EpicLibraryScanner;
 import com.botmaker.studio.game.SteamLibraryScanner;
 import com.botmaker.studio.ui.render.components.CaptureSourcePicker;
+import com.botmaker.studio.ui.render.components.ClickConfigArgPicker;
+import com.botmaker.studio.ui.render.components.ColorArgPicker;
 import com.botmaker.studio.ui.render.components.EmulatorArgPicker;
 import com.botmaker.studio.ui.render.components.ExecutablePicker;
 import com.botmaker.studio.ui.render.components.GameArgPicker;
 import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
 import com.botmaker.studio.ui.render.components.LaunchOptionPicker;
+import com.botmaker.studio.ui.render.components.LaunchTargetArgPicker;
 import com.botmaker.studio.ui.render.components.PointPicker;
 import com.botmaker.studio.ui.render.components.RectPicker;
 import javafx.scene.Node;
@@ -43,8 +46,17 @@ public final class PickerRegistry {
                     ctx -> ExecutablePicker.create(ctx.context(), ctx.arg())),
             SpecialTypePicker.of(PickerContext::isGameLaunchOptionArg,
                     ctx -> LaunchOptionPicker.create(ctx.context(), ctx.arg())),
+            // ClickConfig setter args get a bounded spinner/slider/checkbox instead of a free-typed number.
+            SpecialTypePicker.of(PickerContext::isClickConfigArg,
+                    ctx -> ClickConfigArgPicker.create(ctx.context(), ctx.arg(), ctx.methodName())),
 
             // Type-based.
+            // LaunchTarget slot → the Steam/Epic/Exe/Emulator target builder (replaces the plain ctor pill).
+            SpecialTypePicker.of(ctx -> ctx.isType("LaunchTarget"),
+                    ctx -> LaunchTargetArgPicker.create(ctx.context(), ctx.arg())),
+            // A java.awt.Color arg → a colour swatch (replaces hand-writing new Color(r, g, b)).
+            SpecialTypePicker.of(ctx -> ctx.isType("Color"),
+                    ctx -> ColorArgPicker.create(ctx.context(), ctx.arg())),
             SpecialTypePicker.of(ctx -> ImageTemplatePicker.isImageTemplateType(ctx.paramType()),
                     ctx -> ImageTemplatePicker.create(ctx.context(), ctx.arg())),
             ImageTemplateGroupPicker.asSpecialType(),

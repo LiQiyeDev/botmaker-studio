@@ -77,10 +77,29 @@ public record PickerContext(CodeEditorService context, ExpressionBlock arg, Reso
     }
 
     /**
-     * The instance-name argument (index 0) of {@code Emulators.use(name)} or {@code Emulators.named(name)} —
-     * offered the discovered-instance dropdown ({@code EmulatorArgPicker}).
+     * The instance-name argument (index 0) of {@code Emulators.use(name)} / {@code named(name)} /
+     * {@code launch(name)} / {@code stop(name)} — offered the discovered-instance dropdown
+     * ({@code EmulatorArgPicker}).
      */
     public boolean isEmulatorNameArg() {
-        return argIndex == 0 && (isEmulatorMethod("use") || isEmulatorMethod("named"));
+        return argIndex == 0 && (isEmulatorMethod("use") || isEmulatorMethod("named")
+                || isEmulatorMethod("launch") || isEmulatorMethod("stop"));
+    }
+
+    /** True when the enclosing call is on the SDK {@code ClickConfig} facade and names {@code method}. */
+    public boolean isClickConfigMethod(String method) {
+        return method.equals(methodName)
+                && className != null && (className.equals("ClickConfig") || className.endsWith(".ClickConfig"));
+    }
+
+    /**
+     * The single (index-0) argument of a bounded {@code ClickConfig} setter — a delay/retry count, a 0–1
+     * confidence, or a boolean toggle. Offered the bounded {@code ClickConfigArgPicker} (spinner / slider /
+     * checkbox) instead of a free-typed number so the value stays in the setter's accepted range.
+     */
+    public boolean isClickConfigArg() {
+        return argIndex == 0 && (isClickConfigMethod("setFoundDelay") || isClickConfigMethod("setNotFoundDelay")
+                || isClickConfigMethod("setMaxRetryAttempts") || isClickConfigMethod("setDefaultConfidence")
+                || isClickConfigMethod("enableRandomClicks") || isClickConfigMethod("enableDebugMode"));
     }
 }
