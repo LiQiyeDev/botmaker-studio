@@ -6,6 +6,13 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-19 — Activity/stop blocks standardized as SDK facade calls (Phase 2).** Removed the bespoke
+  `ActivityToggleBlock`/`StopBotBlock` (and the `DISABLE_ACTIVITY`/`ENABLE_ACTIVITY`/`STOP_BOT` catalog +
+  `Kind` entries + `StatementFactory` creators + `BlockConverter` interceptions). `Activity.disable/enable("X")`
+  and `Bot.stop()` now render through the standard `LibraryCallBlock`/`MethodInvocationBlock` chrome like every
+  other SDK call, reached via the `Activity`/`Bot` facade submenus; the `Control` group keeps only
+  break/continue/return. Round-trip covered by `BlockDragDropEditTest`. (The activity-name combo will return as
+  a `SpecialTypePicker` on the `Activity.disable/enable` string arg in Phase 3.)
 - **2026-07-19 — Menu cleanup + expression-menu parity (Phase 1).** `SdkApi` now distinguishes recognition
   (`FACADE_CLASSES`, unchanged) from menu visibility (`MENU_FACADE_CLASSES` = full set minus `Bots`/`Window`/
   `Watchdog`), so those three internal-wiring facades no longer appear as insert-menu submenus while still

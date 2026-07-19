@@ -104,58 +104,49 @@ public class BlockDragDropEditTest {
     }
 
     @Test
-    void dropActivityToggle_emitsStaticNameCallAndRoundTripsToAToggleBlock() {
-        BodyBlock body = firstBodyWithStatements();
-
-        editor.addStatement(body, BlockCatalog.DISABLE_ACTIVITY, body.getStatements().size());
-        assertNotNull(lastCode, "Drop should have produced a code update");
-        // A static, name-targeted call on Activity (valid anywhere, can target another activity), plus its import.
-        assertTrue(lastCode.contains("Activity.disable("), "DISABLE_ACTIVITY should emit Activity.disable(...):\n" + lastCode);
-        assertTrue(lastCode.contains("import com.botmaker.sdk.api.bot.Activity;"),
-                "the static call must add the Activity import:\n" + lastCode);
-
-        // Re-parse: Activity.disable("...") must come back as the picker toggle block, not a generic call block.
-        ProjectState s = new ProjectState();
-        Path path = Paths.get("Subject.java").toAbsolutePath();
-        s.addFile(new ProjectFile(path, lastCode));
-        s.setActiveFile(path);
-        s.setSourcePath(Paths.get("src", "main", "java").toAbsolutePath());
-        s.setResolvedClasspath(TestSupport.runtimeClassPath());
-        BlockConverter converter = new BlockConverter(null, s);
-        BlockConverter.ConvertResult reparsed = converter.convert(
-                lastCode, s.getMutableNodeToBlockMap(), new BlockDragAndDropManager(new EventBus(false)), false, false);
-
-        boolean hasToggle = collect(reparsed.root(), BodyBlock.class).stream()
-                .flatMap(b -> b.getStatements().stream())
-                .anyMatch(st -> st instanceof com.botmaker.studio.blocks.flow.ActivityToggleBlock);
-        assertTrue(hasToggle, "Activity.disable(\"...\") must round-trip to an ActivityToggleBlock");
+    void activityDisable_roundTripsToAStandardizedLibraryCallBlock() {
+        // Activity.disable/enable("X") are ordinary SDK facade calls now — no bespoke toggle block. They must
+        // round-trip to the standardized LibraryCallBlock (same SDK chrome as every other facade call).
+        String code = """
+            import com.botmaker.sdk.api.bot.Activity;
+            public class Subject {
+                public static void main(String[] args) {
+                    Activity.disable("Mining");
+                }
+            }
+            """;
+        assertRoundTripsToLibraryCall(code, "Activity.disable(\"...\") must round-trip to a LibraryCallBlock");
     }
 
     @Test
-    void dropStopBot_emitsBotStopWithImportAndRoundTripsToAStopBotBlock() {
-        BodyBlock body = firstBodyWithStatements();
+    void botStop_roundTripsToAStandardizedLibraryCallBlock() {
+        String code = """
+            import com.botmaker.sdk.api.bot.Bot;
+            public class Subject {
+                public static void main(String[] args) {
+                    Bot.stop();
+                }
+            }
+            """;
+        assertRoundTripsToLibraryCall(code, "Bot.stop(); must round-trip to a LibraryCallBlock");
+    }
 
-        editor.addStatement(body, BlockCatalog.STOP_BOT, body.getStatements().size());
-        assertNotNull(lastCode, "Drop should have produced a code update");
-        assertTrue(lastCode.contains("Bot.stop();"), "STOP_BOT should emit Bot.stop();:\n" + lastCode);
-        assertTrue(lastCode.contains("import com.botmaker.sdk.api.bot.Bot;"),
-                "STOP_BOT is a static-qualified call, so it must add the Bot import:\n" + lastCode);
-
-        // Re-parse: Bot.stop() must come back as the fixed StopBotBlock, not a generic library-call block.
+    /** Parses {@code code} and asserts a standardized {@link com.botmaker.studio.blocks.func.LibraryCallBlock} is present. */
+    private void assertRoundTripsToLibraryCall(String code, String message) {
         ProjectState s = new ProjectState();
         Path path = Paths.get("Subject.java").toAbsolutePath();
-        s.addFile(new ProjectFile(path, lastCode));
+        s.addFile(new ProjectFile(path, code));
         s.setActiveFile(path);
         s.setSourcePath(Paths.get("src", "main", "java").toAbsolutePath());
         s.setResolvedClasspath(TestSupport.runtimeClassPath());
         BlockConverter converter = new BlockConverter(null, s);
         BlockConverter.ConvertResult reparsed = converter.convert(
-                lastCode, s.getMutableNodeToBlockMap(), new BlockDragAndDropManager(new EventBus(false)), false, false);
+                code, s.getMutableNodeToBlockMap(), new BlockDragAndDropManager(new EventBus(false)), false, false);
 
-        boolean hasStop = collect(reparsed.root(), BodyBlock.class).stream()
+        boolean hasLibraryCall = collect(reparsed.root(), BodyBlock.class).stream()
                 .flatMap(b -> b.getStatements().stream())
-                .anyMatch(st -> st instanceof com.botmaker.studio.blocks.flow.StopBotBlock);
-        assertTrue(hasStop, "Bot.stop(); must round-trip to a StopBotBlock");
+                .anyMatch(st -> st instanceof com.botmaker.studio.blocks.func.LibraryCallBlock);
+        assertTrue(hasLibraryCall, message);
     }
 
     @Test

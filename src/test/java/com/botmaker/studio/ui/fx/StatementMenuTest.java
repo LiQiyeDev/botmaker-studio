@@ -53,13 +53,14 @@ class StatementMenuTest extends FxHeadlessTest {
         List<Menu> submenus = items.stream().filter(i -> i instanceof Menu).map(i -> (Menu) i).toList();
         assertFalse(submenus.isEmpty(), "language category submenus are shown");
 
-        // The bot Control statements (enable/disable activity, stop bot) are relocated into a clearly-labelled
-        // "Control" submenu, placed last.
+        // The language Control statements (break/continue/return) are grouped into a clearly-labelled "Control"
+        // submenu, placed last. (Activity enable/disable and stop-the-bot are standard SDK facade calls now —
+        // Activity.enable/disable / Bot.stop from the facade submenus — so they are no longer bespoke here.)
         assertEquals(BlockCategory.CONTROL.getLabel(), submenus.getLast().getText(), "Control group is placed last");
         List<String> control = submenus.getLast().getItems().stream().map(MenuItem::getText).toList();
-        assertTrue(control.contains(BlockCatalog.STOP_BOT.displayName()), control.toString());
-        assertTrue(control.contains(BlockCatalog.DISABLE_ACTIVITY.displayName()), control.toString());
-        assertTrue(control.contains(BlockCatalog.ENABLE_ACTIVITY.displayName()), control.toString());
+        assertTrue(control.contains(BlockCatalog.RETURN.displayName()), control.toString());
+        assertTrue(control.contains(BlockCatalog.BREAK.displayName()), control.toString());
+        assertTrue(control.contains(BlockCatalog.CONTINUE.displayName()), control.toString());
     }
 
     @Test

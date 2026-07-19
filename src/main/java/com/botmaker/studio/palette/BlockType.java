@@ -31,8 +31,7 @@ public sealed interface BlockType
     record ControlFlow(String id, String displayName, BlockCategory category, Kind kind) implements BlockType {
         public enum Kind {
             PRINT, IF, WHILE, FOR, DO_WHILE, SWITCH,
-            BREAK, CONTINUE, RETURN, WAIT, ASSIGNMENT, FUNCTION_CALL, COMMENT, ARRAY,
-            DISABLE_ACTIVITY, ENABLE_ACTIVITY, STOP_BOT
+            BREAK, CONTINUE, RETURN, WAIT, ASSIGNMENT, FUNCTION_CALL, COMMENT, ARRAY
         }
     }
 

@@ -326,22 +326,9 @@ public class BlockConverter {
         if (expr instanceof MethodInvocation mi) {
             String scope = mi.getExpression() != null ? mi.getExpression().toString() : "";
 
-            // Runtime activity toggle: the static, name-targeted Activity.disable("X")/enable("X") the palette
-            // emits. Recognised back into the picker block instead of a generic method-call block with a scope pill.
-            if ("Activity".equals(scope) && mi.arguments().size() == 1
-                    && mi.arguments().get(0) instanceof StringLiteral) {
-                String name = mi.getName().getIdentifier();
-                if ("disable".equals(name) || "enable".equals(name)) {
-                    return Optional.of(new ActivityToggleBlock(BlockId.of(stmt), stmt, "enable".equals(name)));
-                }
-            }
-
-            // End-the-bot: the fixed Bot.stop() the palette emits — recognised back into its own fixed block
-            // rather than a generic Bot.stop() call block with a scope pill.
-            if ("Bot".equals(scope) && "stop".equals(mi.getName().getIdentifier()) && mi.arguments().isEmpty()) {
-                return Optional.of(new StopBotBlock(BlockId.of(stmt), stmt));
-            }
-
+            // Activity.disable/enable("X") and Bot.stop() are ordinary SDK facade calls — they fall through to
+            // the standardized LibraryCallBlock path below (same chrome as every other SDK block), rather than
+            // being special-cased into a bespoke fixed-label block.
             if (isLibraryClass(scope)) {
                 if (LambdaCallHandler.isLambdaCall(mi)) {
                     return parseLambdaCall(stmt, mi, ctx);

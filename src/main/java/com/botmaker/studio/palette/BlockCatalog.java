@@ -48,14 +48,9 @@ public final class BlockCatalog {
     public static final BlockType BREAK = cf("BREAK", "Break", CONTROL, Kind.BREAK);
     public static final BlockType CONTINUE = cf("CONTINUE", "Continue", CONTROL, Kind.CONTINUE);
     public static final BlockType RETURN = cf("RETURN", "Return", CONTROL, Kind.RETURN);
-    // Runtime activity toggles: no-arg self-calls (disable();/enable();) on the enclosing Activity, so the bot
-    // can stop/resume an activity mid-run ("do this once, then disable"). Fixed-label blocks (no scope dropdown).
-    public static final BlockType DISABLE_ACTIVITY =
-            cf("DISABLE_ACTIVITY", "Disable This Activity", CONTROL, Kind.DISABLE_ACTIVITY);
-    public static final BlockType ENABLE_ACTIVITY =
-            cf("ENABLE_ACTIVITY", "Enable This Activity", CONTROL, Kind.ENABLE_ACTIVITY);
-    public static final BlockType STOP_BOT =
-            cf("STOP_BOT", "Stop This Bot", CONTROL, Kind.STOP_BOT);
+    // Activity enable/disable and stop-the-bot are standard SDK facade calls now — Activity.enable/disable("X")
+    // and Bot.stop() come from the Activity/Bot facade submenus and render with the normal SDK-block chrome, so
+    // there are no bespoke CONTROL blocks for them (they used to be DISABLE_ACTIVITY/ENABLE_ACTIVITY/STOP_BOT).
     // "Wait" is a standard SDK block on the Wait facade (Wait.milliseconds/seconds), so the user gets the
     // class/method/overload chrome — not a raw Thread.sleep. (Existing Thread.sleep bots still round-trip via
     // WaitBlock; this only changes what the menu inserts.)
@@ -155,7 +150,7 @@ public final class BlockCatalog {
             PRINT,
             IF, SWITCH,
             WHILE, FOR, DO_WHILE,
-            BREAK, CONTINUE, RETURN, WAIT, DISABLE_ACTIVITY, ENABLE_ACTIVITY, STOP_BOT,
+            BREAK, CONTINUE, RETURN, WAIT,
             DECLARE_INT, DECLARE_DOUBLE, DECLARE_BOOLEAN, DECLARE_STRING, DECLARE_ARRAY, ASSIGNMENT,
             CLICK, TYPE_TEXT, PRESS_KEY, READ_LINE, READ_INT, READ_DOUBLE,
             FUNCTION_CALL, METHOD_DECLARATION, DECLARE_ENUM,
