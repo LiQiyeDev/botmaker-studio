@@ -6,6 +6,17 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-20 — warnings triage.** The IDE warnings came from an "enable all 467 inspections" IntelliJ
+  profile, not javac (no pom sets `-Xlint`/`-Werror`). Curated to ~222 on / ~245 off — style dogma, complexity
+  caps, mutually contradictory qualification/import rules, exception-style rules that fight the deliberate
+  best-effort `catch (Exception)` in discovery paths, and unused domains (JDBC/J2EE/serialization) are off;
+  defect-finding ones (unused symbols, nullability/DFA, resource leaks, equality, fall-through, concurrency,
+  JavaFX, `JavadocHtmlLint`) stay on. `.idea/` is gitignored so the profile isn't version controlled — the
+  policy is recorded in the umbrella `CLAUDE.md` § Code style. Real findings that survived were fixed:
+  `EmulatorProbe.withDevice` now uses try-with-resources (`AdbDevice` is `AutoCloseable`),
+  `ActivityValueWidgets` declares `Control` instead of casting `Node`, and `FlowCanvas` uses Java 21's
+  `Math.clamp` (deleting a hand-rolled helper) and drops an unused field.
+
 - **2026-07-20 — code quality: typed platform id + de-duplicated emulator/picker code.** Follows shared's
   `String platformId` → `PlatformId` enum. **Deleted** `EmulatorPickerDialog.brandOf` (a second id→name
   switch that had already drifted from shared's — it said "MuMu" where the platform said "MuMu Player") in

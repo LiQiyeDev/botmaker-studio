@@ -82,7 +82,7 @@ public final class FlowCanvas extends StackPane {
         scroller.addEventFilter(javafx.scene.input.ScrollEvent.SCROLL, e -> {
             if (!e.isControlDown()) return;
             double factor = e.getDeltaY() > 0 ? 1.1 : 1 / 1.1;
-            double next = clamp(zoom.getX() * factor, MIN_ZOOM, MAX_ZOOM);
+            double next = Math.clamp(zoom.getX() * factor, MIN_ZOOM, MAX_ZOOM);
             zoom.setX(next);
             zoom.setY(next);
             e.consume();
@@ -275,10 +275,6 @@ public final class FlowCanvas extends StackPane {
         return null;
     }
 
-    private static double clamp(double v, double lo, double hi) {
-        return Math.max(lo, Math.min(hi, v));
-    }
-
     // --- the node card ---
 
     /**
@@ -289,7 +285,6 @@ public final class FlowCanvas extends StackPane {
     private final class NodeCard extends HBox {
 
         private final ActivityDraft draft;
-        private final Circle inPort = port("#8a8a8a");
         private final Circle outPort = port("#4a7ebb");
         private final Label orphanNote = new Label("not wired — won't run");
         private final VBox body = new VBox(2);
@@ -331,7 +326,9 @@ public final class FlowCanvas extends StackPane {
             body.getChildren().addAll(header, params, orphanNote);
             body.setPadding(new javafx.geometry.Insets(8, 10, 8, 10));
 
-            getChildren().addAll(inPort, body, outPort);
+            // The input port is decoration only — a wire's endpoint is computed from the card's geometry
+            // (inPortCenter), so nothing needs to hold on to the circle.
+            getChildren().addAll(port("#8a8a8a"), body, outPort);
             setSelected(false);
             // Cards greyed out when disabled: the flow still passes through, the activity just doesn't run.
             draft.enabledProperty().addListener((o, was, is) -> restyle());

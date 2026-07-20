@@ -41,7 +41,7 @@ public final class ActivityValueWidgets {
     /** Builds the widget for {@code a}, seeded from its current value, registering its reader in {@code sink}. */
     public static Node build(ActivityVariable a, List<ValueEditor> sink) {
         JsonNode current = a.value();
-        Node widget;
+        Control widget; // every branch builds a Control, so the width tweak below needs no cast
         Supplier<JsonNode> reader;
         switch (a.type()) {
             case BOOL -> {
@@ -80,7 +80,7 @@ public final class ActivityValueWidgets {
             }
         }
         if (widget instanceof TextField || widget instanceof DatePicker) {
-            ((Control) widget).setMaxWidth(Double.MAX_VALUE);
+            widget.setMaxWidth(Double.MAX_VALUE);
         }
         sink.add(new ValueEditor(a, reader));
         return widget;

@@ -58,17 +58,11 @@ public final class EmulatorProbe {
      * propagating one.
      */
     private static <T> T withDevice(EmulatorInstance instance, DeviceQuery<T> query, T fallback) {
-        AdbDevice device = null;
-        try {
-            device = AdbDevice.connect(instance.host(), instance.adbPort());
+        try (AdbDevice device = AdbDevice.connect(instance.host(), instance.adbPort())) {
             T result = query.run(device);
             return result == null ? fallback : result;
         } catch (Throwable t) {
             return fallback;
-        } finally {
-            if (device != null) {
-                try { device.close(); } catch (Exception ignored) { /* best-effort */ }
-            }
         }
     }
 
