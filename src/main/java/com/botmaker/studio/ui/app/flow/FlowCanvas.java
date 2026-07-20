@@ -7,6 +7,7 @@ import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.geometry.Point2D;
 import javafx.scene.Group;
+import javafx.scene.Node;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.control.CheckBox;
@@ -22,6 +23,7 @@ import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Circle;
 import javafx.scene.shape.CubicCurve;
+import javafx.scene.shape.Polygon;
 import javafx.scene.transform.Scale;
 
 import java.util.ArrayList;
@@ -52,10 +54,19 @@ public final class FlowCanvas extends StackPane {
     private static final double CANVAS_H = 2000;
     private static final double MIN_ZOOM = 0.4;
     private static final double MAX_ZOOM = 2.0;
+    private static final double ARROW_LENGTH = 11;
+    private static final Color WIRE = Color.web("#4a7ebb");
+    private static final Color WIRE_HOVER = Color.web("#b00020");
+
+    /** Auto-arrange spacing: one card's pitch across the chain, and the gap down to the orphan row. */
+    private static final double ARRANGE_X = 260;
+    private static final double ARRANGE_Y = 120;
+    private static final double ARRANGE_ORIGIN = 60;
 
     private final Pane content = new Pane();
     private final Group wires = new Group();
     private final Scale zoom = new Scale(1, 1);
+    private final ScrollPane scroller;
 
     private final ObservableList<ActivityDraft> drafts = FXCollections.observableArrayList();
     private final ObservableList<FlowEdge> edges = FXCollections.observableArrayList();
@@ -77,7 +88,7 @@ public final class FlowCanvas extends StackPane {
         content.getTransforms().add(zoom);
         content.getChildren().addAll(gridBackground(), wires);
 
-        ScrollPane scroller = new ScrollPane(new Group(content));
+        scroller = new ScrollPane(new Group(content));
         scroller.setPannable(true);
         scroller.addEventFilter(javafx.scene.input.ScrollEvent.SCROLL, e -> {
             if (!e.isControlDown()) return;
@@ -173,6 +184,71 @@ public final class FlowCanvas extends StackPane {
         return names;
     }
 
+    /**
+     * Resets the zoom and scrolls back to the cards — the way out of "I panned into empty canvas and lost
+     * everything". The canvas is 3000×2000, so this is easy to do and impossible to undo by dragging.
+     */
+    public void recenter() {
+        zoom.setX(1);
+        zoom.setY(1);
+        if (cards.isEmpty()) {
+            scroller.setHvalue(0);
+            scroller.setVvalue(0);
+            return;
+        }
+        double minX = Double.MAX_VALUE;
+        double minY = Double.MAX_VALUE;
+        double maxX = 0;
+        double maxY = 0;
+        for (NodeCard c : cards.values()) {
+            minX = Math.min(minX, c.getLayoutX());
+            minY = Math.min(minY, c.getLayoutY());
+            maxX = Math.max(maxX, c.getLayoutX() + c.getWidth());
+            maxY = Math.max(maxY, c.getLayoutY() + c.getHeight());
+        }
+        // ScrollPane h/v values are fractions of the scrollable extent, so aim at the cards' midpoint.
+        scroller.setHvalue(Math.clamp((minX + maxX) / 2 / CANVAS_W, 0, 1));
+        scroller.setVvalue(Math.clamp((minY + maxY) / 2 / CANVAS_H, 0, 1));
+    }
+
+    /**
+     * Lays the cards out along the chain: run order left to right, orphans parked on their own row below.
+     *
+     * <p>The order comes from {@link ChainRules#chain} — the same walk the run-order preview and the code
+     * generator use — so the picture and the generated registry can't disagree. Positions are written back
+     * through the drafts, so an arrange survives a save like any other move.
+     */
+    public void autoArrange() {
+        List<String> chain = chain();
+        int column = 0;
+        for (String name : chain) {
+            NodeCard card = cards.get(name);
+            if (card != null) placeAt(card, ARRANGE_ORIGIN + column++ * ARRANGE_X, ARRANGE_ORIGIN);
+        }
+        int orphanColumn = 0;
+        for (String name : orphans()) {
+            NodeCard card = cards.get(name);
+            if (card != null) {
+                placeAt(card, ARRANGE_ORIGIN + orphanColumn++ * ARRANGE_X, ARRANGE_ORIGIN + ARRANGE_Y * 2);
+            }
+        }
+        // With nothing wired there is no chain to follow, so fall back to laying everything out in a row.
+        if (chain.isEmpty() && orphanColumn == 0) {
+            int i = 0;
+            for (NodeCard card : cards.values()) {
+                placeAt(card, ARRANGE_ORIGIN + i++ * ARRANGE_X, ARRANGE_ORIGIN);
+            }
+        }
+        refresh();
+        recenter();
+    }
+
+    private static void placeAt(NodeCard card, double x, double y) {
+        card.setLayoutX(x);
+        card.setLayoutY(y);
+        card.draft.moveTo(x, y);
+    }
+
     /** Redraws the wires and re-marks orphan cards. Call after any topology or naming change. */
     public void refresh() {
         redrawWires();
@@ -204,7 +280,7 @@ public final class FlowCanvas extends StackPane {
         }
     }
 
-    private CubicCurve buildWire(FlowEdge edge, NodeCard from, NodeCard to) {
+    private Node buildWire(FlowEdge edge, NodeCard from, NodeCard to) {
         Point2D start = from.outPortCenter();
         Point2D end = to.inPortCenter();
         CubicCurve curve = styledCurve();
@@ -219,20 +295,43 @@ public final class FlowCanvas extends StackPane {
         curve.setControlX2(end.getX() - bend);
         curve.setControlY2(end.getY());
 
-        Tooltip.install(curve, new Tooltip(edge.from() + " → " + edge.to() + "  (click to remove)"));
-        curve.setOnMouseEntered(e -> curve.setStroke(Color.web("#b00020")));
-        curve.setOnMouseExited(e -> curve.setStroke(Color.web("#4a7ebb")));
-        curve.setOnMouseClicked(e -> {
+        // A wire is symmetrical, so without a head you can't tell "A then B" from "B then A" — the direction
+        // is the entire meaning of the wire. The head is aimed along the curve's end tangent (control2 → end)
+        // rather than the straight start→end line, so it stays flush with the curve however the cards sit.
+        Polygon head = arrowHead(curve.getControlX2(), curve.getControlY2(), end.getX(), end.getY());
+
+        Group wire = new Group(curve, head);
+        Tooltip.install(wire, new Tooltip(edge.from() + " → " + edge.to() + "  (click to remove)"));
+        wire.setOnMouseEntered(e -> paintWire(curve, head, WIRE_HOVER));
+        wire.setOnMouseExited(e -> paintWire(curve, head, WIRE));
+        wire.setOnMouseClicked(e -> {
             edges.remove(edge);
             onMessage.accept("");
             refresh();
         });
-        return curve;
+        return wire;
+    }
+
+    /** A filled triangle at {@code (tipX, tipY)}, pointing away from {@code (fromX, fromY)}. */
+    private static Polygon arrowHead(double fromX, double fromY, double tipX, double tipY) {
+        double angle = Math.atan2(tipY - fromY, tipX - fromX);
+        double spread = Math.toRadians(22);
+        Polygon head = new Polygon(
+                tipX, tipY,
+                tipX - ARROW_LENGTH * Math.cos(angle - spread), tipY - ARROW_LENGTH * Math.sin(angle - spread),
+                tipX - ARROW_LENGTH * Math.cos(angle + spread), tipY - ARROW_LENGTH * Math.sin(angle + spread));
+        head.setFill(WIRE);
+        return head;
+    }
+
+    private static void paintWire(CubicCurve curve, Polygon head, Color color) {
+        curve.setStroke(color);
+        head.setFill(color);
     }
 
     private static CubicCurve styledCurve() {
         CubicCurve curve = new CubicCurve();
-        curve.setStroke(Color.web("#4a7ebb"));
+        curve.setStroke(WIRE);
         curve.setStrokeWidth(2.5);
         curve.setFill(null);
         return curve;

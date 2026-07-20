@@ -157,10 +157,20 @@ public class ActivityFlowDialog {
         addActivity.setOnAction(e -> addActivity(newName));
         newName.setOnAction(e -> addActivity(newName));
 
+        Button recenter = new Button("⌖ Recenter");
+        recenter.setTooltip(new javafx.scene.control.Tooltip("Reset the zoom and scroll back to the cards"));
+        recenter.setOnAction(e -> canvas.recenter());
+
+        Button arrange = new Button("⇄ Auto-arrange");
+        arrange.setTooltip(new javafx.scene.control.Tooltip(
+                "Lay the cards out along the chain, in run order, with anything unwired below"));
+        arrange.setOnAction(e -> canvas.autoArrange());
+
         HBox spacer = new HBox();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
         HBox bar = new HBox(8, new Label("Presets:"), presetCombo, applyPreset, savePreset,
+                new Separator(javafx.geometry.Orientation.VERTICAL), recenter, arrange,
                 spacer, newName, addActivity);
         bar.setAlignment(Pos.CENTER_LEFT);
         bar.setPadding(new Insets(10));
