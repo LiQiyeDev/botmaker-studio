@@ -53,8 +53,8 @@ class ProjectCreatorTest {
     void theGameBotTemplateScaffoldsTheSuperviseContract() {
         Map<String, String> sources = ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "MyBot", "mybot");
 
-        assertEquals(java.util.List.of("MyBot.java", "GameLoop.java", "GoHome.java", "Startup.java",
-                "ActivityRegistry.java"), java.util.List.copyOf(sources.keySet()));
+        assertEquals(java.util.List.of("MyBot.java", "GameLoop.java", "FlowDriver.java", "GoHome.java",
+                "Startup.java", "ActivityRegistry.java"), java.util.List.copyOf(sources.keySet()));
         assertTrue(sources.get("MyBot.java").contains("Bot.start(GameLoop::run, GoHome::run, Startup::run)"));
         // GameLoop::run / GoHome::run bind as Runnables (static, no-arg, void); Startup::run binds as a
         // Consumer<StartMode>, so it stays static+void but takes the StartMode the supervisor hands it.
@@ -70,37 +70,40 @@ class ProjectCreatorTest {
     }
 
     @Test
-    void theGameLoopChecksTheEffectiveActiveStateNotTheConfiguredDefault() {
+    void theGameLoopIsOnlyAHookIntoTheGeneratedFlowDriver() {
         Map<String, String> sources = ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "MyBot", "mybot");
 
         String loop = sources.get("GameLoop.java");
-        // active() layers a runtime setEnabled/disable override on top of the configured isEnabled() default, so
-        // a mid-run disable() actually stops the activity next pass (otherwise the loop runs it forever).
-        assertTrue(loop.contains("activity.active()"), loop);
-        assertFalse(loop.contains("activity.isEnabled()"), loop);
+        // GameLoop stays a file of its own only because the entry point binds GameLoop::run and the entry point
+        // is the user's to edit. All the dispatch moved to FlowDriver, which ActivityService regenerates on
+        // every save — so nothing here may know anything about activities.
+        assertTrue(loop.contains("FlowDriver.run();"), loop);
+        assertFalse(loop.contains("ActivityRegistry"), "the loop no longer iterates a list:\n" + loop);
     }
 
     @Test
-    void theGameLoopAutoDisablesEachActivityAfterItRuns() {
+    void theSeededFlowDriverStopsImmediatelyAndCompilesWithNoActivities() {
         Map<String, String> sources = ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "MyBot", "mybot");
 
-        String loop = sources.get("GameLoop.java");
-        // Each activity is one-shot: the loop disables it right after execute() so it runs a single time
-        // per (re)start (a disabled activity is skipped and the flow moves on).
-        assertTrue(loop.contains("activity.execute();"), loop);
-        assertTrue(loop.contains("activity.disable();"), loop);
+        String driver = sources.get("FlowDriver.java");
+        // A brand-new project has no flow yet, so there is no start node to go to. It must still be valid Java
+        // that ends cleanly — this is what GameLoop compiles against before the first activity is added.
+        assertTrue(driver.contains("String node = null;"), driver);
+        assertTrue(driver.contains("Bot.stop();"), driver);
+        assertTrue(driver.contains("import com.botmaker.sdk.api.bot.Bot;"), driver);
     }
 
     @Test
-    void theGameLoopEndsTheBotWhenEveryActivityIsDisabled() {
+    void nothingAutoDisablesAnActivityAnyMore() {
+        // Deliberate behaviour change. The old loop ran every enabled activity once and disable()d it right
+        // after, so the bot stopped when all of them had run. That makes a cycle impossible — an activity wired
+        // back to itself would be dead on its second visit — so the one-shot rule had to go. A run now ends by
+        // reaching Stop or an outcome with no wire, and MAX_STEPS is what bounds a loop with no exit.
         Map<String, String> sources = ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "MyBot", "mybot");
 
-        String loop = sources.get("GameLoop.java");
-        // Without a stop path, supervise's while(true) spins forever once all activities are disabled. The loop
-        // calls Bot.stop() when nothing ran this pass (guarded on a non-empty registry) so the bot actually ends.
-        assertTrue(loop.contains("Bot.stop()"), loop);
-        assertTrue(loop.contains("!anyActive"), loop);
-        assertTrue(loop.contains("import com.botmaker.sdk.api.bot.Bot;"), loop);
+        assertFalse(sources.get("GameLoop.java").contains("disable()"), sources.get("GameLoop.java"));
+        assertFalse(sources.get("FlowDriver.java").contains("disable()"), sources.get("FlowDriver.java"));
+        assertTrue(sources.get("FlowDriver.java").contains("MAX_STEPS"), sources.get("FlowDriver.java"));
     }
 
     @Test

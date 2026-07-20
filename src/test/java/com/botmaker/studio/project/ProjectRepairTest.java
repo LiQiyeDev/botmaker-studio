@@ -98,7 +98,7 @@ class ProjectRepairTest {
         assertEquals(List.of(gameLoop), written);
         assertTrue(Files.exists(gameLoop));
         assertTrue(Files.readString(gameLoop).contains("class GameLoop"));
-        assertTrue(Files.readString(gameLoop).contains("ActivityRegistry.ALL"));
+        assertTrue(Files.readString(gameLoop).contains("FlowDriver.run();"));
     }
 
     @Test

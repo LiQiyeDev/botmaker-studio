@@ -1,5 +1,6 @@
 package com.botmaker.studio.project;
 
+import com.botmaker.studio.parser.helpers.SourceParser;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityDefinition;
 import org.eclipse.jdt.core.dom.AST;
@@ -48,8 +49,13 @@ public final class ProjectRepair {
 
     private ProjectRepair() {}
 
-    /** {@code ActivityRegistry.java}, which both the game-bot scaffold and {@code ActivityService} can produce. */
+    /**
+     * The generated files both the game-bot scaffold and {@code ActivityService} can produce. When the project
+     * has activities, {@code ActivityService} is the authority (it knows the flow), so the scaffold's empty
+     * template must not be used to "restore" them over the top.
+     */
     private static final String REGISTRY_FILE = "ActivityRegistry.java";
+    private static final String DRIVER_FILE = "FlowDriver.java";
 
     /**
      * A file that should exist but doesn't, plus the source that would restore it — or a {@code null} source for
@@ -118,7 +124,7 @@ public final class ProjectRepair {
         String reason = resolved == ProjectTemplate.GAME_BOT ? "game-bot scaffold" : "entry point";
         for (Map.Entry<String, String> e :
                 ProjectCreator.sourcesFor(resolved, config.className(), config.packageName()).entrySet()) {
-            if (hasActivities && REGISTRY_FILE.equals(e.getKey())) continue;
+            if (hasActivities && (REGISTRY_FILE.equals(e.getKey()) || DRIVER_FILE.equals(e.getKey()))) continue;
             Path path = mainDir.resolve(e.getKey());
             if (!Files.exists(path)) {
                 missing.add(new Missing(path, e.getValue(), reason));
@@ -145,6 +151,9 @@ public final class ProjectRepair {
             }
             if (hasActivities && !Files.exists(config.activityRegistrySourceFile())) {
                 missing.add(new Missing(config.activityRegistrySourceFile(), null, "generated activity code"));
+            }
+            if (hasActivities && !Files.exists(config.flowDriverSourceFile())) {
+                missing.add(new Missing(config.flowDriverSourceFile(), null, "generated activity code"));
             }
 
             // Per-activity subclass stubs (the same set ActivityService.ensureStubs would create).
@@ -346,10 +355,15 @@ public final class ProjectRepair {
 
     // --- AST helpers -------------------------------------------------------------------------------------
 
+    /**
+     * Parses at the latest language level via {@link SourceParser}.
+     *
+     * <p>This used to build its own bare {@code ASTParser}, which defaults to source level 1.3 — so every
+     * {@code @Override} in a scaffold file was a syntax error and the recovered tree had no methods on it.
+     * Damage detection was reading that tree.
+     */
     private static CompilationUnit parse(String source) {
-        ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
-        parser.setSource(source.toCharArray());
-        return (CompilationUnit) parser.createAST(null);
+        return SourceParser.parse(source);
     }
 
     private static TypeDeclaration firstType(CompilationUnit cu) {

@@ -86,6 +86,11 @@ public record ProjectConfig(
         return sourceRoot.resolve("com").resolve(packageName).resolve("ActivityRegistry.java");
     }
 
+    /** The generated {@code FlowDriver.java} sidecar — the state machine over the drawn Activity Flow. */
+    public Path flowDriverSourceFile() {
+        return sourceRoot.resolve("com").resolve(packageName).resolve("FlowDriver.java");
+    }
+
     /** {@code src/main/java/com/<pkg>/activities} — where per-activity subclass stubs live. */
     public Path activitiesPackageDir() {
         return sourceRoot.resolve("com").resolve(packageName).resolve("activities");

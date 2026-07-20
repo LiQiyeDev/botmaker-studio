@@ -1,7 +1,6 @@
 package com.botmaker.studio.project;
 
-import org.eclipse.jdt.core.dom.AST;
-import org.eclipse.jdt.core.dom.ASTParser;
+import com.botmaker.studio.parser.helpers.SourceParser;
 import org.eclipse.jdt.core.dom.ASTVisitor;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jdt.core.dom.MethodDeclaration;
@@ -81,10 +80,9 @@ public final class LockedRegions {
         return skeletonA != null && skeletonA.equals(skeletonB);
     }
 
+    /** Parses at the latest language level via {@link SourceParser} — see there for why that matters. */
     private static CompilationUnit parse(String source) {
-        ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
-        parser.setSource(source.toCharArray());
-        return (CompilationUnit) parser.createAST(null);
+        return SourceParser.parse(source);
     }
 
     /** JDT's own printed form — the same code always prints the same way, however it was formatted. */

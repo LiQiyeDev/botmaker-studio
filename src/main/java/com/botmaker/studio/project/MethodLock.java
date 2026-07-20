@@ -91,7 +91,8 @@ public enum MethodLock {
 
         if (isActivityStub(config, file)) {
             if ("isEnabled".equals(methodName)) return FULL;
-            // @Override public void run() — renaming it or giving it a parameter de-wires the override.
+            // @Override public Outcome run() — renaming it, giving it a parameter or changing its return type
+            // de-wires the override. The return type is BotMaker's too: the flow routes on what it reports.
             if ("run".equals(methodName)) return SIGNATURE;
             return NONE;
         }

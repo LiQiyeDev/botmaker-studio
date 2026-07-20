@@ -96,6 +96,7 @@ public enum FileRole {
         if (sameFile(abs, config.mainSourceFile())
                 || sameFile(abs, config.activitiesSourceFile())
                 || sameFile(abs, config.activityRegistrySourceFile())
+                || sameFile(abs, config.flowDriverSourceFile())
                 || sameFile(abs, gameLoopSourceFile(config))
                 || sameFile(abs, startupSourceFile(config))) {
             return GENERATED;
