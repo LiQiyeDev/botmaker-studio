@@ -6,6 +6,21 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-20 — activity flow: one-shot activities + chain data model + flow-ordered registry.** Groundwork
+  for the Activity Flow canvas (the visual editor itself lands next). **Execution model:** an activity's
+  `execute()` is its whole job and runs **once** — the generated `GameLoop` (`ProjectCreator.gameBotSources`)
+  now calls `activity.disable()` right after it, so a disabled activity is skipped and the flow moves on; when
+  all have run, `!anyActive` stops the bot. Existing projects pick the new template up via **Project ▸ Recover
+  Project Files**. **Data model:** new `project/activity/` records `FlowNode` (canvas placement), `FlowEdge`
+  (a wire), `ActivityFlow` (topology + `order(...)` linearization from the chain root) and `ActivityPreset`
+  (a named on/off selection, wiring untouched); `ActivitiesConfig` grew `flow` + `presets` — a
+  back-compatible JSON addition — plus `orderedActivities()`/`applyPreset()`/`withFlow()`/`withPresets()`.
+  **Generation:** `ActivityService.generateRegistrySource` emits `ActivityRegistry.ALL` in flow order,
+  excluding orphans (unwired nodes still get a stub and their `Activities.<field>` flags, so the project
+  compiles — they just don't run); an un-wired flow falls back to plain definition order so legacy projects
+  are unchanged. New `applyPreset`/`updateFlow` service entry points route through the normal `update` write
+  path. Known v1 limitation: with no loops, a flow runs once top-to-bottom then the bot stops.
+
 - **2026-07-20 — batch: toolbar declutter, activity-name picker, emulator chooser fixes, startup lifecycle.**
   Five improvements. **(1)** `ToolbarManager.createCaptureGroup` moves secondary capture actions (Capture
   Templates, Overlay Editor, Resources, Remote Pilot) into a "⋯ More" overflow `MenuButton` so the inline bar

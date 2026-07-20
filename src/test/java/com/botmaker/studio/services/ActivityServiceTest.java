@@ -5,8 +5,12 @@ import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityDefinition;
+import com.botmaker.studio.project.activity.ActivityFlow;
+import com.botmaker.studio.project.activity.ActivityPreset;
 import com.botmaker.studio.project.activity.ActivityType;
 import com.botmaker.studio.project.activity.ActivityVariable;
+import com.botmaker.studio.project.activity.FlowEdge;
+import com.botmaker.studio.project.activity.FlowNode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -125,6 +129,82 @@ public class ActivityServiceTest {
         // for nothing but run(). `new Resources()` in the registry above binds that inherited constructor.
         assertFalse(stub.contains("public Resources()"), stub);
         assertFalse(stub.contains("super("), stub);
+    }
+
+    @Test
+    void generatedRegistryFollowsTheFlowChainAndDropsOrphans(@TempDir Path dir) {
+        ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
+        ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
+
+        // Definition order is Resources, Alchemy, Idle — the canvas wires Alchemy → Resources and leaves
+        // Idle unwired, so the registry must read Alchemy, Resources and Idle must not run at all.
+        ActivityFlow flow = new ActivityFlow(
+                List.of(new FlowNode("Alchemy", 0, 0), new FlowNode("Resources", 200, 0),
+                        new FlowNode("Idle", 0, 200)),
+                List.of(new FlowEdge("Alchemy", "Resources")));
+        ActivitiesConfig cfg = new ActivitiesConfig(List.of(
+                ActivityDefinition.create("Resources", ""),
+                ActivityDefinition.create("Alchemy", ""),
+                ActivityDefinition.create("Idle", "")), List.of()).withFlow(flow);
+
+        assertEquals(List.of("Alchemy", "Resources"),
+                cfg.orderedActivities().stream().map(ActivityDefinition::name).toList());
+
+        String reg = service.generateRegistrySource(cfg);
+        assertTrue(reg.indexOf("new Alchemy()") < reg.indexOf("new Resources()"), reg);
+        assertFalse(reg.contains("new Idle()"), reg);
+    }
+
+    @Test
+    void anUnwiredFlowKeepsPlainDefinitionOrder() {
+        // Legacy / not-yet-wired projects must keep running every activity in list order.
+        ActivitiesConfig cfg = new ActivitiesConfig(List.of(
+                ActivityDefinition.create("Resources", ""),
+                ActivityDefinition.create("Alchemy", "")), List.of());
+        assertEquals(List.of("Resources", "Alchemy"),
+                cfg.orderedActivities().stream().map(ActivityDefinition::name).toList());
+    }
+
+    @Test
+    void applyingAPresetFlipsEnableFlagsWithoutTouchingTheFlow() {
+        ActivityFlow flow = new ActivityFlow(List.of(new FlowNode("Resources", 0, 0)),
+                List.of(new FlowEdge("Resources", "Alchemy")));
+        ActivitiesConfig cfg = new ActivitiesConfig(List.of(
+                ActivityDefinition.create("Resources", ""),
+                ActivityDefinition.create("Alchemy", "")), List.of()).withFlow(flow);
+
+        ActivitiesConfig only = cfg.applyPreset(new ActivityPreset("Alchemy only", List.of("Alchemy")));
+        assertFalse(only.activities().get(0).enabled());
+        assertTrue(only.activities().get(1).enabled());
+        assertEquals(flow, only.flow(), "a preset says which activities run, never in what order");
+
+        assertTrue(cfg.applyPreset(ActivityPreset.nothing()).activities().stream()
+                .noneMatch(ActivityDefinition::enabled));
+    }
+
+    @Test
+    void configRoundTripCarriesFlowAndPresets(@TempDir Path dir) throws Exception {
+        ActivitiesConfig cfg = new ActivitiesConfig(List.of(ActivityDefinition.create("Resources", "")),
+                List.of(),
+                new ActivityFlow(List.of(new FlowNode("Resources", 12.5, 34)), List.of()),
+                List.of(new ActivityPreset("Quick", List.of("Resources"))));
+        cfg.write(dir);
+
+        ActivitiesConfig read = ActivitiesConfig.read(dir);
+        assertEquals(12.5, read.flow().node("Resources").orElseThrow().x());
+        assertEquals(List.of("Resources"), read.presets().get(0).enabledActivities());
+    }
+
+    @Test
+    void anActivitiesFileWithoutFlowOrPresetsStillLoads(@TempDir Path dir) throws Exception {
+        // Back-compat: files written before the Activity Flow canvas existed have neither field.
+        java.nio.file.Files.writeString(dir.resolve(ActivitiesConfig.FILE_NAME), """
+                { "activities": [ { "name": "Resources", "enabled": true, "description": "", "params": [] } ] }
+                """);
+        ActivitiesConfig read = ActivitiesConfig.read(dir);
+        assertEquals(1, read.activities().size());
+        assertTrue(read.flow().isEmpty());
+        assertTrue(read.presets().isEmpty());
     }
 
     @Test

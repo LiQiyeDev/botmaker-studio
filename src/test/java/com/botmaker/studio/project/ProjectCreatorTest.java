@@ -81,6 +81,17 @@ class ProjectCreatorTest {
     }
 
     @Test
+    void theGameLoopAutoDisablesEachActivityAfterItRuns() {
+        Map<String, String> sources = ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "MyBot", "mybot");
+
+        String loop = sources.get("GameLoop.java");
+        // Each activity is one-shot: the loop disables it right after execute() so it runs a single time
+        // per (re)start (a disabled activity is skipped and the flow moves on).
+        assertTrue(loop.contains("activity.execute();"), loop);
+        assertTrue(loop.contains("activity.disable();"), loop);
+    }
+
+    @Test
     void theGameLoopEndsTheBotWhenEveryActivityIsDisabled() {
         Map<String, String> sources = ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "MyBot", "mybot");
 
