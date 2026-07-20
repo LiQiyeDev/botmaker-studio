@@ -81,11 +81,13 @@ public record LockResolver(ProjectConfig config, ProjectTemplate template, Path 
 
     /** True when {@code node}'s method may be renamed/retyped/deleted, or its class-level structure changed. */
     public boolean signatureEditable(ASTNode node) {
+        if (isGeneratedMember(node)) return false;
         return !role().isReadOnly() && !lockAt(node).locksSignature();
     }
 
     /** True when statements inside {@code node}'s method may be changed. */
     public boolean bodyEditable(ASTNode node) {
+        if (isGeneratedMember(node)) return false;
         return switch (lockAt(node)) {
             case SIGNATURE -> true;                 // the body is the user's, whatever the file says
             case FULL -> false;
@@ -96,6 +98,37 @@ public record LockResolver(ProjectConfig config, ProjectTemplate template, Path 
     /** True when blocks in this file should default to refusing interaction. Per-method locks refine it. */
     public boolean suppressesInteraction() {
         return role().suppressesInteraction();
+    }
+
+    /**
+     * True for a member the Studio generates inside a file the user otherwise owns — today an activity's
+     * {@code Outcome} enum. It outranks both other verdicts in the locking direction only.
+     *
+     * <p>The pinned trailing {@code return} is deliberately <em>not</em> here: it must stay editable (choosing
+     * which outcome to report is the point of it), so it is guarded where the two things it forbids happen —
+     * see {@link #pinnedReturnOf} and {@link #isPinnedReturn}.
+     */
+    private boolean isGeneratedMember(ASTNode node) {
+        return GeneratedMembers.isOutcomeEnum(config, template, file, node);
+    }
+
+    /**
+     * The statement that must stay last in {@code body}, or null when {@code body} has no such rule. Nothing
+     * may be inserted after it.
+     */
+    public org.eclipse.jdt.core.dom.Statement pinnedReturnOf(ASTNode body) {
+        return GeneratedMembers.terminalReturn(config, template, file, body);
+    }
+
+    /** True when {@code node} is a pinned trailing {@code return} — the check a delete has to make. */
+    public boolean isPinnedReturn(ASTNode node) {
+        return GeneratedMembers.isTerminalReturn(config, template, file, node);
+    }
+
+    /** Why a pinned statement can't be removed or built on, phrased for the status bar. */
+    public static String pinnedReturnReason() {
+        return "Every activity has to report an outcome, so this return stays last. "
+                + "Change which outcome it reports, or add your code above it.";
     }
 
     /** Whether {@code kind} of edit is permitted at {@code node}. */
@@ -117,6 +150,10 @@ public record LockResolver(ProjectConfig config, ProjectTemplate template, Path 
     }
 
     private String reasonFor(ASTNode node, EditKind kind) {
+        if (isGeneratedMember(node)) {
+            return "An activity's outcomes are managed in Project ▸ Activity Flow — add or rename them there "
+                    + "and this enum follows.";
+        }
         FileRole role = role();
         if (role == FileRole.LIBRARY) return "This is bundled library code — it can't be edited.";
 

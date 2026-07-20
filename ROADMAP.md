@@ -6,6 +6,34 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-20 — conditional Activity Flow: outcome-routed edges + a generated `FlowDriver`.** An activity's
+  `run()` now returns its own nested `Outcome` enum and the canvas maps each outcome to a target, so the flow
+  branches and loops. The old generated `GameLoop` iterated `ActivityRegistry.ALL` and disabled each activity
+  after running it — the drawn flow only decided a *list order* and there was no current node to branch — so it
+  is replaced by a generated `FlowDriver` state machine with an explicit start node and a step budget
+  (`ActivityFlow.start`/`maxSteps`; a cycle means no root can be inferred). Editing an activity's outcomes
+  reconciles the stub's enum, superclass and `run()` signature through the new `services/ActivityStubSync`,
+  which also carries an old `void run()` across. Found and fixed on the way: `ASTParser` defaults to **source
+  level 1.3**, so `ProjectRepair` and `LockedRegions` had been reading recovered garbage trees for any file
+  containing `@Override` — all whole-file parsing now goes through `parser/helpers/SourceParser`.
+
+- **2026-07-20 — flow round 2: no Stop card, `NEXT`, GoHome, and canvas usability.** From using the above.
+  (1) The **Stop card is gone** — an outcome with no wire already ended the run, so the terminal node was a
+  second way to say the same thing; the implicit outcome is renamed `DEFAULT` → **`NEXT`** (edges store it as
+  blank, so no JSON migration) and `ActivityStubSync` rewrites stale `Outcome.DEFAULT` references.
+  (2) **GoHome is a per-activity tick**, on by default with a project-level default for new activities; the
+  driver calls `GoHome.run()` after the `active()` check. (3) `run()` always ends in a `return`, and that
+  statement is **pinned**: new `project/GeneratedMembers` (consulted through `LockResolver`) refuses to delete
+  it or insert after it, and locks the generated `Outcome` enum outright while leaving *which* outcome it
+  returns to the user. (4) Dialog: Enter in any field no longer reaches the default Save button and closes the
+  dialog — which is also what made outcome edits look like they never reached the `.java` — and outcome names
+  are normalised (`bag full` → `BAG_FULL`) instead of rejected. (5) Canvas: `recenter` did its arithmetic
+  against the content rather than the *scrollable extent* and ignored the zoom; auto-arrange layered by
+  breadth-first depth (so forward wires drew backwards) with a fixed row pitch — now longest-path layering over
+  the flow with back-edges removed, barycenter ordering and real card heights; self-wires loop over the card
+  instead of hiding behind it; left-drag rubber-band selects and moves a group, right/middle-drag pans, and
+  there is a minimap.
+
 - **2026-07-20 — flow/editor bug fixes + canvas and menu polish.** Five fixes from using the new canvas.
   (1) `ActivityFlow.linearize` took the *first* node with no incoming wire as the chain root; placement is
   canvas insertion order, so one un-wired card placed early became the whole "chain" and every wired activity

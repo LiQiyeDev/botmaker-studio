@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Keeping a hand-written activity stub in step with the flow editor — and carrying a project written against
+ * Keeping a hand-written activity stub in step with the flow editor â€” and carrying a project written against
  * the old {@code void run()} across to {@code Outcome run()}.
  *
  * <p>What every test here is really guarding is that the user's own code survives: the stub file is theirs,
@@ -48,17 +48,17 @@ class ActivityStubSyncTest {
         String synced = ActivityStubSync.syncSource(LEGACY_STUB, mining("BAG_FULL"));
 
         assertTrue(synced.contains("enum Outcome"), synced);
-        assertTrue(synced.contains("DEFAULT"), "the implicit outcome is always generated:\n" + synced);
+        assertTrue(synced.contains("NEXT"), "the implicit outcome is always generated:\n" + synced);
         assertTrue(synced.contains("BAG_FULL"), synced);
         assertTrue(synced.contains("extends Activity<Mining.Outcome>"), synced);
         assertTrue(synced.contains("public Outcome run()"), synced);
-        assertTrue(synced.contains("return Outcome.DEFAULT;"),
+        assertTrue(synced.contains("return Outcome.NEXT;"),
                 "a body written for void must actually return something now:\n" + synced);
         assertTrue(synced.contains("ImageClicker.click(ore);"), "the user's work survives:\n" + synced);
     }
 
     @Test
-    void aBareReturnBecomesAReturnOfTheDefaultOutcome() {
+    void aBareReturnBecomesAReturnOfTheImplicitOutcome() {
         String stub = LEGACY_STUB.replace("ImageClicker.click(ore);", """
                 if (!ready) {
                             return;
@@ -68,7 +68,7 @@ class ActivityStubSyncTest {
         String synced = ActivityStubSync.syncSource(stub, mining());
 
         assertFalse(synced.contains("return;"), "a bare return no longer compiles:\n" + synced);
-        assertEquals(2, synced.split("return Outcome.DEFAULT;", -1).length - 1,
+        assertEquals(2, synced.split("return Outcome.NEXT;", -1).length - 1,
                 "the early return and the fall-off-the-end both need one:\n" + synced);
     }
 
@@ -78,7 +78,7 @@ class ActivityStubSyncTest {
 
         String synced = ActivityStubSync.syncSource(stub, mining());
 
-        assertEquals(1, synced.split("return Outcome.DEFAULT;", -1).length - 1,
+        assertEquals(1, synced.split("return Outcome.NEXT;", -1).length - 1,
                 "an unreachable trailing return would be noise:\n" + synced);
     }
 
@@ -120,6 +120,44 @@ class ActivityStubSyncTest {
     }
 
     @Test
+    void aStubWrittenWhenTheImplicitOutcomeWasCalledDefaultStillCompiles() {
+        // syncOutcomeEnum replaces the constants as a set, so DEFAULT leaves the enum — and a body still
+        // saying "return Outcome.DEFAULT;" would then name a constant that doesn't exist.
+        String stub = ActivityStubSync.syncSource(LEGACY_STUB, mining("BAG_FULL"))
+                .replace("NEXT, BAG_FULL", "DEFAULT, BAG_FULL")
+                .replace("return Outcome.NEXT;", "return Outcome.DEFAULT;");
+
+        String synced = ActivityStubSync.syncSource(stub, mining("BAG_FULL"));
+
+        assertFalse(synced.contains("DEFAULT"), "nothing may still refer to the old spelling:\n" + synced);
+        assertTrue(synced.contains("return Outcome.NEXT;"), synced);
+    }
+
+    @Test
+    void anActivityThatReallyDeclaresDefaultKeepsIt() {
+        // Only a *legacy* DEFAULT is rewritten. If the user named an outcome DEFAULT it is theirs, and
+        // renaming its references would silently re-route their flow.
+        String stub = ActivityStubSync.syncSource(LEGACY_STUB, mining("DEFAULT"))
+                .replace("return Outcome.NEXT;", "return Outcome.DEFAULT;");
+
+        String synced = ActivityStubSync.syncSource(stub, mining("DEFAULT"));
+
+        assertTrue(synced.contains("return Outcome.DEFAULT;"), synced);
+    }
+
+    @Test
+    void aBodyWithNoReturnAtAllGainsTheTerminalOne() {
+        // Not just the void migration: an already-migrated stub whose user deleted the last return has to get
+        // it back, because the editor's contract is that run() always ends by reporting something.
+        String stub = ActivityStubSync.syncSource(LEGACY_STUB, mining())
+                .replace("        return Outcome.NEXT;\n", "");
+
+        String synced = ActivityStubSync.syncSource(stub, mining());
+
+        assertTrue(synced.contains("return Outcome.NEXT;"), synced);
+    }
+
+    @Test
     void aReturnInsideALambdaIsNotTheActivitysReturn() {
         String stub = LEGACY_STUB.replace("ImageClicker.click(ore);",
                 "ImageFinder.whileExists(ore, () -> { if (done) return; click(); });");
@@ -128,7 +166,8 @@ class ActivityStubSyncTest {
 
         assertTrue(synced.contains("if (done) return;"),
                 "the lambda's bare return is void and must stay untouched:\n" + synced);
-        assertEquals(1, synced.split("return Outcome.DEFAULT;", -1).length - 1,
+        assertEquals(1, synced.split("return Outcome.NEXT;", -1).length - 1,
                 "only run() itself gains one:\n" + synced);
     }
 }
+

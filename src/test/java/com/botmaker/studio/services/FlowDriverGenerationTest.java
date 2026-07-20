@@ -75,8 +75,8 @@ class FlowDriverGenerationTest {
     }
 
     /**
-     * Mining branches on two outcomes; Travel loops back to Mining; Smelt ends the run at the Stop card.
-     * Idle is placed but unreachable. That is every shape the driver has to emit, in one flow.
+     * Mining branches on two outcomes; Travel loops back to Mining; Smelt wires nothing, so reaching it ends
+     * the run. Idle is placed but unreachable. That is every shape the driver has to emit, in one flow.
      */
     private static ActivitiesConfig branchingFlow() {
         return new ActivitiesConfig(
@@ -86,11 +86,10 @@ class FlowDriverGenerationTest {
                         activity("Idle")),
                 List.of(),
                 new ActivityFlow(
-                        List.of(at("Mining"), at("Smelt"), at("Travel"), at("Idle"), FlowNode.stop(600, 40)),
+                        List.of(at("Mining"), at("Smelt"), at("Travel"), at("Idle")),
                         List.of(new FlowEdge("Mining", "Smelt", "BAG_FULL"),
                                 new FlowEdge("Mining", "Travel", "NO_ORE"),
-                                new FlowEdge("Travel", "Mining", ""),
-                                new FlowEdge("Smelt", ActivityFlow.STOP_ID, "")),
+                                new FlowEdge("Travel", "Mining", "")),
                         "Mining", 250),
                 List.of());
     }
@@ -113,21 +112,42 @@ class FlowDriverGenerationTest {
 
         assertTrue(source.contains("case BAG_FULL: return \"Smelt\";"), source);
         assertTrue(source.contains("case NO_ORE: return \"Travel\";"), source);
-        assertTrue(source.contains("case DEFAULT: return \"Mining\";"),
-                "Travel's default wire loops back — a cycle is a legal flow:\n" + source);
+        assertTrue(source.contains("case NEXT: return \"Mining\";"),
+                "Travel's implicit wire loops back — a cycle is a legal flow:\n" + source);
     }
 
     @Test
-    void anEdgeIntoStopEndsTheRun(@TempDir Path root) {
+    void anOutcomeWithNoWireEndsTheRun(@TempDir Path root) {
         String source = serviceFor(root).generateDriverSource(branchingFlow());
 
-        // Smelt's only wire goes to the Stop card. Ending is already "no next node", so the terminal needs no
-        // runtime representation of its own — it must not leak "@stop" into the generated source as a node id.
-        assertFalse(source.contains(ActivityFlow.STOP_ID), "the Stop card is not a node the driver visits");
+        // Smelt wires nothing. That is the only way a run ends now — there is no terminal node, so nothing
+        // like "@stop" should ever appear as a node id in generated source.
+        assertFalse(source.contains("@stop"), "there is no terminal node to visit");
         assertTrue(source.contains("if (!ActivityRegistry.SMELT.active()) return null;"), source);
-        // A drawn Stop wire and a forgotten one both end the run, but they must not read the same: the
-        // generated source has to show that Smelt was deliberately wired to Stop.
-        assertTrue(source.contains("case DEFAULT: return null;   // Stop"), source);
+        assertTrue(source.contains("default: return null;   // nothing wired — the run ends here"), source);
+    }
+
+    @Test
+    void goingHomeIsPerActivityAndOnlyWhenTheActivityWillRun(@TempDir Path root) {
+        ActivitiesConfig cfg = branchingFlow();
+        ActivitiesConfig mixed = new ActivitiesConfig(
+                List.of(cfg.activities().getFirst().withGoHome(false), cfg.activities().get(1),
+                        cfg.activities().get(2), cfg.activities().get(3)),
+                List.of(), cfg.flow(), List.of());
+
+        String source = serviceFor(root).generateDriverSource(mixed);
+
+        // Travel keeps the default tick; Mining has it off. And the call sits after the active() check: there
+        // is nothing to go home for if the activity isn't going to run.
+        assertTrue(source.contains(afterActiveCheck("TRAVEL", "\"Mining\"")), source);
+        assertFalse(source.contains(afterActiveCheck("MINING", "\"Smelt\"")), source);
+    }
+
+    /** The generated "skip if disabled, else go home" pair, at the driver's own indentation. */
+    private static String afterActiveCheck(String constant, String fallthrough) {
+        String indent = " ".repeat(16);
+        return indent + "if (!ActivityRegistry." + constant + ".active()) return " + fallthrough + ";\n"
+                + indent + "GoHome.run();";
     }
 
     @Test
@@ -170,6 +190,11 @@ class FlowDriverGenerationTest {
         for (String standIn : SDK_STAND_INS) {
             sources.add(write(config.sourceRoot().resolve(standInPath(standIn)), standIn));
         }
+        // The driver calls GoHome.run() for every activity with the tick on. It is scaffolded into the project
+        // by ProjectCreator rather than generated here, so the test supplies the same shape.
+        sources.add(write(config.mainSourceFile().getParent().resolve("GoHome.java"),
+                "package com." + config.packageName() + ";\n"
+                        + "public class GoHome { public static void run() {} }\n"));
 
         assertEquals("", compile(root, sources), "the generated project must compile");
     }

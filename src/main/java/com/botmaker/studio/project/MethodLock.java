@@ -108,9 +108,11 @@ public enum MethodLock {
 
     /**
      * True when {@code file} is one of the per-activity subclasses under the project's {@code activities}
-     * package — the files {@code ActivityService.ensureStubs} creates.
+     * package — the files {@code ActivityService.ensureStubs} creates. Public because
+     * {@link GeneratedMembers} asks the same question about the generated members <em>inside</em> such a file;
+     * the answer must not be worked out twice.
      */
-    private static boolean isActivityStub(ProjectConfig config, Path file) {
+    public static boolean isActivityStub(ProjectConfig config, Path file) {
         return isChildOf(file, config.activitiesPackageDir());
     }
 

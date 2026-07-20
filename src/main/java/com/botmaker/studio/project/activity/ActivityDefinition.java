@@ -25,27 +25,40 @@ import java.util.List;
  * <p>{@link #outcomes()} are the activity's <em>results</em> — what it can report having happened
  * ({@code BAG_FULL}, {@code NO_ORE}) — which the flow canvas maps to a next node each. They are generated as
  * a nested {@code Outcome} enum on the activity's class, always led by the implicit
- * {@link FlowEdge#DEFAULT_OUTCOME}, which is not stored here: every activity has it, so storing it would only
+ * {@link FlowEdge#NEXT_OUTCOME}, which is not stored here: every activity has it, so storing it would only
  * create a way for it to go missing.
+ *
+ * <p>{@link #goHome()} asks the generated driver to call the project's {@code GoHome.run()} immediately before
+ * this activity. Most activities start from the game's home screen, so it defaults to on — which is why it is
+ * a boxed {@code Boolean}: a primitive would read a missing JSON property as {@code false}, silently turning
+ * the default off for every project written before the field existed.
  *
  * @param name        activity name / generated class name (a valid Java identifier)
  * @param enabled     the default value of the enable flag
  * @param description optional human-readable note (may be empty)
  * @param params      the activity's config variables ("how to do it")
  * @param archived    retired: keeps its file and fields, but doesn't appear on the canvas or run
- * @param outcomes    the named results this activity can report, excluding the implicit DEFAULT
+ * @param outcomes    the named results this activity can report, excluding the implicit NEXT
+ * @param goHome      run {@code GoHome.run()} before this activity; null (absent) ⇒ true
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record ActivityDefinition(String name, boolean enabled, String description, List<ActivityVariable> params,
-                                 boolean archived, List<String> outcomes) {
+                                 boolean archived, List<String> outcomes, Boolean goHome) {
 
     public ActivityDefinition {
         if (description == null) description = "";
         params = params == null ? List.of() : List.copyOf(params);
         outcomes = outcomes == null ? List.of() : List.copyOf(outcomes);
+        if (goHome == null) goHome = Boolean.TRUE;
     }
 
-    /** Convenience for an activity with only the default outcome; a pre-outcomes file loads this way. */
+    /** Convenience for an activity that goes home first; a pre-goHome file loads this way. */
+    public ActivityDefinition(String name, boolean enabled, String description, List<ActivityVariable> params,
+                              boolean archived, List<String> outcomes) {
+        this(name, enabled, description, params, archived, outcomes, Boolean.TRUE);
+    }
+
+    /** Convenience for an activity with only the implicit outcome; a pre-outcomes file loads this way. */
     public ActivityDefinition(String name, boolean enabled, String description, List<ActivityVariable> params,
                               boolean archived) {
         this(name, enabled, description, params, archived, List.of());
@@ -73,35 +86,39 @@ public record ActivityDefinition(String name, boolean enabled, String descriptio
 
     /**
      * Every constant of this activity's generated {@code Outcome} enum, in generated order: the implicit
-     * {@link FlowEdge#DEFAULT_OUTCOME} first, then the declared {@link #outcomes()}. This is the single
+     * {@link FlowEdge#NEXT_OUTCOME} first, then the declared {@link #outcomes()}. This is the single
      * source of both the enum body and the card's output ports, so the two can't drift.
      */
     public List<String> allOutcomes() {
         List<String> all = new ArrayList<>(outcomes.size() + 1);
-        all.add(FlowEdge.DEFAULT_OUTCOME);
+        all.add(FlowEdge.NEXT_OUTCOME);
         for (String o : outcomes) {
-            if (!all.contains(o)) all.add(o); // a stored DEFAULT would otherwise duplicate the implicit one
+            if (!all.contains(o)) all.add(o); // a stored NEXT would otherwise duplicate the implicit one
         }
         return all;
     }
 
     public ActivityDefinition withEnabled(boolean newEnabled) {
-        return new ActivityDefinition(name, newEnabled, description, params, archived, outcomes);
+        return new ActivityDefinition(name, newEnabled, description, params, archived, outcomes, goHome);
     }
 
     public ActivityDefinition withDescription(String newDescription) {
-        return new ActivityDefinition(name, enabled, newDescription, params, archived, outcomes);
+        return new ActivityDefinition(name, enabled, newDescription, params, archived, outcomes, goHome);
     }
 
     public ActivityDefinition withParams(List<ActivityVariable> newParams) {
-        return new ActivityDefinition(name, enabled, description, newParams, archived, outcomes);
+        return new ActivityDefinition(name, enabled, description, newParams, archived, outcomes, goHome);
     }
 
     public ActivityDefinition withArchived(boolean newArchived) {
-        return new ActivityDefinition(name, enabled, description, params, newArchived, outcomes);
+        return new ActivityDefinition(name, enabled, description, params, newArchived, outcomes, goHome);
     }
 
     public ActivityDefinition withOutcomes(List<String> newOutcomes) {
-        return new ActivityDefinition(name, enabled, description, params, archived, newOutcomes);
+        return new ActivityDefinition(name, enabled, description, params, archived, newOutcomes, goHome);
+    }
+
+    public ActivityDefinition withGoHome(boolean newGoHome) {
+        return new ActivityDefinition(name, enabled, description, params, archived, outcomes, newGoHome);
     }
 }

@@ -37,14 +37,17 @@ import java.util.Map;
  * are named on/off selections the user can apply. Both are back-compatible additions — an
  * {@code activities.json} without them loads with an {@link ActivityFlow#empty() empty flow} and no presets.
  *
- * @param activities the activity definitions (each an enable flag + its params)
- * @param globals    free-standing global config variables not tied to any activity
- * @param flow       the visual flow (node placements + wires); empty means "no chosen chain, use list order"
- * @param presets    named on/off selections of activities (user-saved; built-ins are offered on top)
+ * @param activities      the activity definitions (each an enable flag + its params)
+ * @param globals         free-standing global config variables not tied to any activity
+ * @param flow            the visual flow (node placements + wires); empty means "no chosen chain, use list order"
+ * @param presets         named on/off selections of activities (user-saved; built-ins are offered on top)
+ * @param goHomeByDefault whether a newly added activity starts with {@link ActivityDefinition#goHome()} ticked;
+ *                        boxed for the same reason as that field — absent must mean {@code true}, not
+ *                        {@code false}
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record ActivitiesConfig(List<ActivityDefinition> activities, List<ActivityVariable> globals,
-                               ActivityFlow flow, List<ActivityPreset> presets) {
+                               ActivityFlow flow, List<ActivityPreset> presets, Boolean goHomeByDefault) {
 
     public static final String FILE_NAME = "activities.json";
 
@@ -57,6 +60,13 @@ public record ActivitiesConfig(List<ActivityDefinition> activities, List<Activit
         globals = globals == null ? List.of() : List.copyOf(globals);
         flow = flow == null ? ActivityFlow.empty() : flow;
         presets = presets == null ? List.of() : List.copyOf(presets);
+        if (goHomeByDefault == null) goHomeByDefault = Boolean.TRUE;
+    }
+
+    /** Convenience for callers that don't touch the go-home default; a pre-goHome file loads this way. */
+    public ActivitiesConfig(List<ActivityDefinition> activities, List<ActivityVariable> globals,
+                            ActivityFlow flow, List<ActivityPreset> presets) {
+        this(activities, globals, flow, presets, Boolean.TRUE);
     }
 
     /** Convenience for callers that don't touch the flow/presets (they default to empty). */
@@ -115,15 +125,15 @@ public record ActivitiesConfig(List<ActivityDefinition> activities, List<Activit
         List<ActivityDefinition> updated = activities.stream()
                 .map(a -> a.withEnabled(preset.enables(a.name())))
                 .toList();
-        return new ActivitiesConfig(updated, globals, flow, presets);
+        return new ActivitiesConfig(updated, globals, flow, presets, goHomeByDefault);
     }
 
     public ActivitiesConfig withFlow(ActivityFlow newFlow) {
-        return new ActivitiesConfig(activities, globals, newFlow, presets);
+        return new ActivitiesConfig(activities, globals, newFlow, presets, goHomeByDefault);
     }
 
     public ActivitiesConfig withPresets(List<ActivityPreset> newPresets) {
-        return new ActivitiesConfig(activities, globals, flow, newPresets);
+        return new ActivitiesConfig(activities, globals, flow, newPresets, goHomeByDefault);
     }
 
     /**

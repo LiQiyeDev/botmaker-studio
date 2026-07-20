@@ -16,12 +16,11 @@ import java.util.Set;
  * single linear chain, so it rejected a fork, a join, a self-wire and anything that would loop. With
  * outcome-routed edges: a fork <em>is</em> branching (one wire per outcome), a join is two branches meeting
  * again, a self-wire is a retry, and a cycle is how a bot repeats — the generated driver's step budget is what
- * bounds it now, not the editor. What is left is the one thing that genuinely cannot be drawn:
+ * bounds it now, not the editor. What is left is the one thing that genuinely cannot be drawn: <b>a second wire
+ * on the same {@code (from, outcome)} pair</b>, because one result can't lead to two places.
  *
- * <ul>
- *   <li>a second wire on the same {@code (from, outcome)} pair — one result can't lead to two places;</li>
- *   <li>a wire leaving the STOP node — reaching it ends the run, so it has nothing after it.</li>
- * </ul>
+ * <p>Note there is nothing here about ending the run. An outcome with no wire ends it, so "stop" is the absence
+ * of a rule rather than a node with rules of its own.
  *
  * <p>Nodes the run can't reach are reported by {@link #orphans} instead, which is a warning ("won't run"), not
  * a blocked action: while you are still wiring, most cards are legitimately unconnected.
@@ -35,10 +34,9 @@ public final class FlowRules {
      * written for the user and shown inline on the canvas.
      */
     public static String rejectionFor(List<FlowEdge> edges, String from, String outcome, String to) {
-        if (ActivityFlow.STOP_ID.equals(from)) return "Stop ends the run — nothing can come after it.";
-        String label = outcome == null || outcome.isBlank() ? FlowEdge.DEFAULT_OUTCOME : outcome;
+        String label = outcome == null || outcome.isBlank() ? FlowEdge.NEXT_OUTCOME : outcome;
         for (FlowEdge e : edges) {
-            if (e.from().equals(from) && e.outcomeOrDefault().equals(label)) {
+            if (e.from().equals(from) && e.outcomeOrNext().equals(label)) {
                 return from + " already goes somewhere when it reports " + label
                         + " — remove that wire first, or use a different outcome.";
             }

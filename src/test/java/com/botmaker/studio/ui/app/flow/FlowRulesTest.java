@@ -63,17 +63,10 @@ public class FlowRulesTest {
     }
 
     @Test
-    void aBlankOutcomeIsTheSameWireAsAnExplicitDefault() {
-        // Persisted blank vs. "DEFAULT" must not become two competing wires out of the same port.
-        assertNotNull(FlowRules.rejectionFor(List.of(new FlowEdge("A", "B", "")), "A", "DEFAULT", "C"));
-        assertNotNull(FlowRules.rejectionFor(List.of(new FlowEdge("A", "B", "DEFAULT")), "A", "", "C"));
-    }
-
-    @Test
-    void nothingCanComeAfterStop() {
-        String rejection = FlowRules.rejectionFor(List.of(), ActivityFlow.STOP_ID, "", "A");
-        assertNotNull(rejection);
-        assertTrue(rejection.contains("Stop"), rejection);
+    void aBlankOutcomeIsTheSameWireAsAnExplicitNext() {
+        // Persisted blank vs. "NEXT" must not become two competing wires out of the same port.
+        assertNotNull(FlowRules.rejectionFor(List.of(new FlowEdge("A", "B", "")), "A", "NEXT", "C"));
+        assertNotNull(FlowRules.rejectionFor(List.of(new FlowEdge("A", "B", "NEXT")), "A", "", "C"));
     }
 
     @Test

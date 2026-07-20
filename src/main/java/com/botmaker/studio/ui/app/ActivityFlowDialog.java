@@ -3,6 +3,7 @@ package com.botmaker.studio.ui.app;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityDefinition;
 import com.botmaker.studio.project.activity.ActivityFlow;
+import com.botmaker.studio.project.activity.FlowEdge;
 import com.botmaker.studio.project.activity.ActivityPreset;
 import com.botmaker.studio.project.activity.ActivityType;
 import com.botmaker.studio.project.activity.ActivityVariable;
@@ -19,6 +20,7 @@ import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressIndicator;
@@ -69,6 +71,12 @@ public class ActivityFlowDialog {
     private final List<ActivityDefinition> archived = new ArrayList<>();
 
     private final Label statusLabel = new Label();
+
+    /** The generated driver's step budget; edited in the no-selection panel alongside the globals. */
+    private int maxSteps = ActivityFlow.DEFAULT_MAX_STEPS;
+
+    /** Whether a newly added activity starts with its "go home first" tick on. */
+    private boolean goHomeByDefault = true;
     private final Label orderLabel = new Label();
     private final ProgressIndicator progress = new ProgressIndicator();
     private final VBox sidePanel = new VBox(10);
@@ -121,6 +129,9 @@ public class ActivityFlowDialog {
             canvas.add(ActivityDraft.of(a, at.getX(), at.getY()));
         }
         canvas.edges().setAll(flow.edges());
+        canvas.setStart(flow.start());
+        maxSteps = flow.maxSteps();
+        goHomeByDefault = current.goHomeByDefault();
         canvas.select(null);
         globals.addAll(current.globals());
         presets.addAll(current.presets());
@@ -155,7 +166,12 @@ public class ActivityFlowDialog {
         newName.setPrefWidth(200);
         Button addActivity = new Button("Add activity");
         addActivity.setOnAction(e -> addActivity(newName));
-        newName.setOnAction(e -> addActivity(newName));
+        // Consumed, or the un-consumed ActionEvent reaches the default Save button and closes the dialog —
+        // pressing Enter after typing a name would save the project instead of adding the activity.
+        newName.setOnAction(e -> {
+            addActivity(newName);
+            e.consume();
+        });
 
         Button recenter = new Button("⌖ Recenter");
         recenter.setTooltip(new javafx.scene.control.Tooltip("Reset the zoom and scroll back to the cards"));
@@ -163,7 +179,8 @@ public class ActivityFlowDialog {
 
         Button arrange = new Button("⇄ Auto-arrange");
         arrange.setTooltip(new javafx.scene.control.Tooltip(
-                "Lay the cards out along the chain, in run order, with anything unwired below"));
+                "Lay the cards out in layers, by how many steps they are from the start, with anything "
+                        + "unreachable below"));
         arrange.setOnAction(e -> canvas.autoArrange());
 
         HBox spacer = new HBox();
@@ -188,7 +205,8 @@ public class ActivityFlowDialog {
             return;
         }
         Point2D at = canvas.nextFreeSpot();
-        canvas.add(new ActivityDraft(name, "", false, List.of(), at.getX(), at.getY()));
+        canvas.add(new ActivityDraft(name, "", false, List.of(), List.of(), goHomeByDefault,
+                at.getX(), at.getY()));
         nameField.clear();
         error("");
     }
@@ -253,6 +271,7 @@ public class ActivityFlowDialog {
             sidePanel.getChildren().addAll(heading("Global variables"),
                     new Label("Config not tied to any one activity. Select a card to edit that activity."));
             sidePanel.getChildren().add(buildVariableEditor(globals, null));
+            sidePanel.getChildren().addAll(new Separator(), buildFlowLimitsSection());
             sidePanel.getChildren().addAll(new Separator(), buildArchivedSection());
             return;
         }
@@ -266,11 +285,18 @@ public class ActivityFlowDialog {
         TextField description = new TextField(draft.description());
         description.textProperty().addListener((o, was, is) -> draft.descriptionProperty().set(is));
 
+        CheckBox goHome = new CheckBox("Go home first");
+        goHome.selectedProperty().bindBidirectional(draft.goHomeProperty());
+        goHome.setTooltip(new javafx.scene.control.Tooltip(
+                "Call GoHome.run() immediately before this activity, so it starts from a known screen. Same "
+                        + "tick as the ⌂ on the card."));
+
         GridPane head = new GridPane();
         head.setHgap(8);
         head.setVgap(6);
         head.addRow(0, new Label("Name"), name);
         head.addRow(1, new Label("Description"), description);
+        head.add(goHome, 1, 2);
         GridPane.setHgrow(name, Priority.ALWAYS);
         GridPane.setHgrow(description, Priority.ALWAYS);
 
@@ -281,7 +307,129 @@ public class ActivityFlowDialog {
         archive.setOnAction(e -> archive(draft));
 
         sidePanel.getChildren().addAll(heading("Activity"), head, new Separator(),
+                heading("Outcomes"), buildOutcomeEditor(draft), new Separator(),
                 heading("Config params"), buildVariableEditor(draft.params(), draft), new Separator(), archive);
+    }
+
+    /**
+     * The outcome list for one activity: what it can report having happened, one card port each.
+     *
+     * <p>Deliberately says nothing about <em>where</em> an outcome goes — that is the canvas's job. Keeping
+     * the two apart is the whole reason an activity's code never names another activity.
+     */
+    private Node buildOutcomeEditor(ActivityDraft draft) {
+        VBox box = new VBox(6);
+
+        Label explain = new Label("What this activity can report. Return one from its run() method, then wire "
+                + "each one on the canvas. Every activity also has a \"then\" (NEXT) outcome, and any outcome "
+                + "you leave unwired ends the run.");
+        explain.setWrapText(true);
+        explain.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
+        box.getChildren().add(explain);
+
+        for (String outcome : List.copyOf(draft.outcomes())) {
+            TextField field = new TextField(outcome);
+            field.focusedProperty().addListener((o, was, is) -> {
+                if (is) return;
+                renameOutcome(draft, outcome, field.getText(), field);
+            });
+            // Enter has to commit here too: it is the obvious way to finish a rename, and without a consuming
+            // handler it would reach the default Save button and close the dialog with the old name still set.
+            field.setOnAction(e -> {
+                renameOutcome(draft, outcome, field.getText(), field);
+                e.consume();
+            });
+            Button remove = new Button("✕");
+            remove.setTooltip(new javafx.scene.control.Tooltip(
+                    "Remove this outcome. Any wire leaving it is removed too."));
+            remove.setOnAction(e -> {
+                draft.outcomes().remove(outcome);
+                showInSidePanel(draft);
+            });
+            HBox row = new HBox(6, field, remove);
+            HBox.setHgrow(field, Priority.ALWAYS);
+            row.setAlignment(Pos.CENTER_LEFT);
+            box.getChildren().add(row);
+        }
+
+        TextField newOutcome = new TextField();
+        newOutcome.setPromptText("new outcome (e.g. bag full)");
+        Button add = new Button("Add");
+        Runnable addOutcome = () -> {
+            String candidate = normalizeOutcome(newOutcome.getText());
+            String problem = outcomeProblem(draft, candidate, null);
+            if (problem != null) { error(problem); return; }
+            draft.outcomes().add(candidate);
+            newOutcome.clear();
+            error("");
+            showInSidePanel(draft);
+        };
+        add.setOnAction(e -> addOutcome.run());
+        newOutcome.setOnAction(e -> {
+            addOutcome.run();
+            e.consume();
+        });
+        HBox addRow = new HBox(6, newOutcome, add);
+        HBox.setHgrow(newOutcome, Priority.ALWAYS);
+        addRow.setAlignment(Pos.CENTER_LEFT);
+        box.getChildren().add(addRow);
+        return box;
+    }
+
+    /** Renames an outcome, carrying its wire across — as renaming an activity carries its wires. */
+    private void renameOutcome(ActivityDraft draft, String oldName, String typed, TextField field) {
+        String candidate = normalizeOutcome(typed);
+        if (candidate.equals(oldName)) {
+            field.setText(oldName);   // normalisation may have changed the text without changing the outcome
+            return;
+        }
+        String problem = outcomeProblem(draft, candidate, oldName);
+        if (problem != null) {
+            error(problem);
+            field.setText(oldName);
+            return;
+        }
+        int at = draft.outcomes().indexOf(oldName);
+        if (at < 0) return;
+        draft.outcomes().set(at, candidate);
+        field.setText(candidate);
+        List<FlowEdge> rewired = new ArrayList<>(canvas.edges().size());
+        for (FlowEdge e : canvas.edges()) {
+            boolean mine = e.from().equals(draft.name()) && e.outcomeOrNext().equals(oldName);
+            rewired.add(mine ? e.withOutcome(candidate) : e);
+        }
+        canvas.edges().setAll(rewired);
+        error("");
+        canvas.refresh();
+    }
+
+    /**
+     * An outcome name in the shape Java wants: trimmed, upper-cased, with runs of spaces, dots and dashes
+     * collapsed to {@code _}. "bag full" becomes {@code BAG_FULL} rather than being rejected — the user is
+     * naming a result, not writing an enum constant, and the one mechanical step between the two is ours to
+     * take. {@link #isValidIdentifier} still guards what this can't fix (a leading digit, punctuation).
+     */
+    static String normalizeOutcome(String typed) {
+        if (typed == null) return "";
+        String cleaned = typed.trim().replaceAll("[\\s.\\-]+", "_");
+        return cleaned.toUpperCase();
+    }
+
+    /** Why {@code candidate} can't be an outcome of {@code draft}, or null when it can. */
+    private static String outcomeProblem(ActivityDraft draft, String candidate, String replacing) {
+        if (candidate.isEmpty()) return "Give the outcome a name.";
+        if (!isValidIdentifier(candidate)) {
+            return "'" + candidate + "' isn't a valid name — it becomes an enum constant in Java.";
+        }
+        if (FlowEdge.NEXT_OUTCOME.equals(candidate)) {
+            return "Every activity already has a NEXT outcome — that's the \"then\" port.";
+        }
+        for (String existing : draft.outcomes()) {
+            if (existing.equals(candidate) && !existing.equals(replacing)) {
+                return "'" + candidate + "' is already an outcome of " + draft.name() + ".";
+            }
+        }
+        return null;
     }
 
     /**
@@ -299,6 +447,60 @@ public class ActivityFlowDialog {
         canvas.remove(draft); // also drops any wires into or out of it
         refreshPresetCombo();
         error("Archived '" + draft.name() + "'. Its file and settings are kept — restore it from the side panel.");
+    }
+
+    /**
+     * The step budget: how many activities one run may hand off to before the generated driver gives up.
+     *
+     * <p>A flow is allowed to loop — that is how a bot repeats — so nothing structural says when to stop. The
+     * budget is what separates "farms all night" from a cycle with no way out. It bounds transitions
+     * <em>between</em> activities; the SDK's watchdog covers being stuck inside one.
+     */
+    private Node buildFlowLimitsSection() {
+        VBox box = new VBox(6);
+        box.getChildren().add(heading("Loop safety"));
+
+        Label explain = new Label("A flow can loop on purpose. This is how many activities one run may go "
+                + "through before the bot gives up and stops — it's what catches a loop with no exit.");
+        explain.setWrapText(true);
+        explain.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
+
+        TextField field = new TextField(String.valueOf(maxSteps));
+        field.setPrefColumnCount(6);
+        field.focusedProperty().addListener((o, was, is) -> {
+            if (is) return;
+            commitMaxSteps(field);
+        });
+        field.setOnAction(e -> {
+            commitMaxSteps(field);
+            e.consume();   // otherwise Enter reaches the default Save button and closes the dialog
+        });
+
+        HBox row = new HBox(8, new Label("Max steps per run"), field);
+        row.setAlignment(Pos.CENTER_LEFT);
+
+        CheckBox goHome = new CheckBox("New activities go home first");
+        goHome.setSelected(goHomeByDefault);
+        goHome.setTooltip(new javafx.scene.control.Tooltip(
+                "Whether a newly added activity starts with its ⌂ tick on. Each activity can still be changed "
+                        + "individually on its card."));
+        goHome.selectedProperty().addListener((o, was, is) -> goHomeByDefault = is);
+
+        box.getChildren().addAll(explain, row, goHome);
+        return box;
+    }
+
+    private void commitMaxSteps(TextField field) {
+        try {
+            int parsed = Integer.parseInt(field.getText().trim());
+            if (parsed <= 0) throw new NumberFormatException();
+            maxSteps = parsed;
+            error("");
+        } catch (NumberFormatException bad) {
+            // A zero or negative budget generates a driver that stops before running anything at all.
+            error("The step limit must be a whole number above zero.");
+            field.setText(String.valueOf(maxSteps));
+        }
     }
 
     /** The restore list: archived activities, each with a button to put it back on the canvas. */
@@ -460,17 +662,32 @@ public class ActivityFlowDialog {
         return bar;
     }
 
-    /** Shows the run order the current wiring produces, and warns about cards the chain never reaches. */
+    /**
+     * Summarises what the current wiring will do.
+     *
+     * <p>It used to print the run order, which a branching flow no longer has — where the bot goes depends on
+     * what each activity reports at runtime, so the only honest static answers are where it starts and what it
+     * can get to.
+     */
     private void refreshOrderLabel() {
-        List<String> chain = canvas.chain();
-        List<String> orphans = canvas.orphans();
-        String order = canvas.edges().isEmpty()
-                ? "No wiring yet — activities run in the order they were added."
-                : "Runs: " + String.join(" → ", chain);
-        if (!orphans.isEmpty()) {
-            order += "    ⚠ not in the flow (won't run): " + String.join(", ", orphans);
+        if (canvas.edges().isEmpty()) {
+            orderLabel.setText("No wiring yet — activities run in the order they were added.");
+            return;
         }
-        orderLabel.setText(order);
+        List<String> reachable = canvas.chain();
+        List<String> orphans = canvas.orphans();
+        List<String> unwired = canvas.unwiredOutcomes();
+        StringBuilder summary = new StringBuilder("Starts at ")
+                .append(canvas.resolvedStart().isEmpty() ? "—" : canvas.resolvedStart())
+                .append("  ·  ").append(reachable.size()).append(" activities reachable");
+        // Not a warning: an outcome with no wire is how a run ends, so this is a count, not a complaint.
+        if (!unwired.isEmpty()) {
+            summary.append("  ·  ").append(unwired.size()).append(" outcomes end the run");
+        }
+        if (!orphans.isEmpty()) {
+            summary.append("    ⚠ not in the flow (won't run): ").append(String.join(", ", orphans));
+        }
+        orderLabel.setText(summary.toString());
     }
 
     private void save(Button save, Button close) {
@@ -487,7 +704,8 @@ public class ActivityFlowDialog {
         // lets their surviving activities/<Name>.java still compile. They get no flow node: they don't run.
         activities.addAll(archived);
         ActivitiesConfig cfg = new ActivitiesConfig(activities, new ArrayList<>(globals),
-                new ActivityFlow(nodes, new ArrayList<>(canvas.edges())), new ArrayList<>(presets));
+                new ActivityFlow(nodes, new ArrayList<>(canvas.edges()), canvas.start(), maxSteps),
+                new ArrayList<>(presets), goHomeByDefault);
 
         String problem = validate(cfg);
         if (problem != null) { error(problem); return; }
@@ -503,13 +721,35 @@ public class ActivityFlowDialog {
     /** Returns an error message if the config can't be generated (bad/duplicate names, collisions), else null. */
     static String validate(ActivitiesConfig cfg) {
         Set<String> actNames = new HashSet<>();
+        Set<String> registryFields = new HashSet<>();
         for (ActivityDefinition a : cfg.activities()) {
             if (!isValidIdentifier(a.name())) return "Invalid activity name: '" + a.name() + "'.";
             if (!actNames.add(a.name())) return "Duplicate activity name: '" + a.name() + "'.";
+            // The registry's singleton per activity is named by upper-casing, so two activities differing only
+            // in case would generate one field twice. (Their stub files would also collide on a
+            // case-insensitive filesystem, so this is a broken project either way — just say so here.)
+            if (!registryFields.add(a.name().toUpperCase())) {
+                return "'" + a.name() + "' clashes with another activity whose name differs only in case.";
+            }
             Set<String> paramNames = new HashSet<>();
             for (ActivityVariable p : a.params()) {
                 if (!isValidIdentifier(p.name())) return "Invalid param name in " + a.name() + ": '" + p.name() + "'.";
                 if (!paramNames.add(p.name())) return "Duplicate param '" + p.name() + "' in " + a.name() + ".";
+            }
+            // Outcomes become constants of the activity's generated Outcome enum. Checked against the declared
+            // list, not allOutcomes(): that one de-duplicates defensively, so validating it would report a
+            // clash as clean and leave the user with an outcome that silently has no port.
+            Set<String> outcomeNames = new HashSet<>();
+            outcomeNames.add(FlowEdge.NEXT_OUTCOME);
+            for (String outcome : a.outcomes()) {
+                if (!isValidIdentifier(outcome)) {
+                    return "Invalid outcome in " + a.name() + ": '" + outcome + "'.";
+                }
+                if (!outcomeNames.add(outcome)) {
+                    return FlowEdge.NEXT_OUTCOME.equals(outcome)
+                            ? a.name() + " already has a NEXT outcome — that's its \"then\" port."
+                            : "Duplicate outcome '" + outcome + "' in " + a.name() + ".";
+                }
             }
         }
         // Every generated Activities.<field> name must be a unique valid identifier.

@@ -280,10 +280,11 @@ public final class ActivityService {
      * list and ran everything once, so the drawn flow only ever decided the list's <em>order</em> — there was
      * no current node for a branch to branch.
      *
-     * <p>Three ways a run ends, all of them {@code null} from {@code step}: an edge into the STOP card, an
-     * outcome with no wire, and a node that isn't in the switch. Cycles are legal — that is how a bot repeats
-     * — so the step budget is what stops a flow that loops with no way out. It counts transitions <em>between</em>
-     * activities, which nothing previously bounded; {@code Watchdog} covers being stuck inside one.
+     * <p>A run ends when {@code step} returns null, which happens two ways: the outcome the activity reported
+     * has no wire leaving it, or the node isn't in the switch at all. There is no terminal node — an unwired
+     * outcome <em>is</em> the stop. Cycles are legal, that being how a bot repeats, so the step budget is what
+     * stops a flow that loops with no way out. It counts transitions <em>between</em> activities, which nothing
+     * previously bounded; {@code Watchdog} covers being stuck inside one.
      */
     String generateDriverSource(ActivitiesConfig cfg) {
         List<ActivityDefinition> reachable = cfg.orderedActivities();
@@ -308,7 +309,7 @@ public final class ActivityService {
                  * Project &rarr; Activity Flow.
                  *
                  * <p>Runs the current activity, then picks the next one from the outcome it reported. The run
-                 * ends when it reaches the Stop card, or an outcome with no wire leaving it.
+                 * ends when the reported outcome has no wire leaving it.
                  */
                 public final class FlowDriver {
 
@@ -352,17 +353,17 @@ public final class ActivityService {
         out.append("            case \"").append(a.name()).append("\":\n");
         // A disabled activity isn't skipped out of the flow — the flow still passes through it, it just
         // doesn't do anything, so it follows the wire it would have taken with nothing to report.
-        FlowEdge fallthrough = edgeFor(flow, a.name(), FlowEdge.DEFAULT_OUTCOME);
+        FlowEdge fallthrough = edgeFor(flow, a.name(), FlowEdge.NEXT_OUTCOME);
         out.append("                if (!").append(constant).append(".active()) return ")
                 .append(fallthrough == null ? "null" : target(fallthrough)).append(";\n");
+        // After the active() check, not before: there is nothing to go home for if the activity won't run.
+        if (a.goHome()) out.append("                GoHome.run();\n");
         out.append("                switch (").append(constant).append(".execute()) {\n");
         for (String outcome : a.allOutcomes()) {
             FlowEdge wire = edgeFor(flow, a.name(), outcome);
             if (wire == null) continue;   // nothing drawn for it: the default below ends the run
-            out.append("                    case ").append(outcome).append(": return ").append(target(wire));
-            // A Stop wire and an unwired outcome both end the run, but only one of them is something the user
-            // drew — say so, or the generated source reads as if they forgot to wire it.
-            out.append(ActivityFlow.STOP_ID.equals(wire.to()) ? ";   // Stop\n" : ";\n");
+            out.append("                    case ").append(outcome).append(": return ")
+                    .append(target(wire)).append(";\n");
         }
         out.append("                    default: return null;   // nothing wired — the run ends here\n");
         out.append("                }\n");
@@ -372,17 +373,14 @@ public final class ActivityService {
     /** The wire drawn for one {@code (activity, outcome)} pair, or null when that outcome goes nowhere. */
     private static FlowEdge edgeFor(ActivityFlow flow, String from, String outcome) {
         for (FlowEdge e : flow.edges()) {
-            if (e.from().equals(from) && e.outcomeOrDefault().equals(outcome)) return e;
+            if (e.from().equals(from) && e.outcomeOrNext().equals(outcome)) return e;
         }
         return null;
     }
 
-    /**
-     * The quoted next-node name a wire leads to. An edge into the Stop card yields {@code null} — ending the
-     * run is already "no next node", so the terminal needs no representation of its own at runtime.
-     */
+    /** The quoted next-node name a wire leads to. */
     private static String target(FlowEdge wire) {
-        return ActivityFlow.STOP_ID.equals(wire.to()) ? "null" : '"' + wire.to() + '"';
+        return '"' + wire.to() + '"';
     }
 
     /**
@@ -424,7 +422,7 @@ public final class ActivityService {
                     @Override
                     public Outcome run() {
                         // TODO: how to do %2$s
-                        return Outcome.DEFAULT;
+                        return Outcome.NEXT;
                     }
                 }
                 """, config.packageName(), a.name(), String.join(", ", a.allOutcomes()));

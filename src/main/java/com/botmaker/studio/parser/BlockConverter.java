@@ -136,6 +136,9 @@ public class BlockConverter {
                     DeclareEnumBlock enumBlock = new DeclareEnumBlock(
                             BlockId.of(enumDecl), enumDecl);
                     applyReadOnly(enumBlock, ctx);
+                    // An activity's Outcome enum is generated from the flow dialog inside a file the user
+                    // otherwise owns, so the file's own verdict is not the answer here.
+                    if (!signatureEditable(enumDecl, ctx)) enumBlock.setReadOnly(true);
                     ctx.nodeToBlockMap().put(enumDecl, enumBlock);
                     classBlock.addBodyDeclaration(enumBlock);
                 } else if (obj instanceof FieldDeclaration field) {
@@ -168,9 +171,9 @@ public class BlockConverter {
         if (ctx.readOnly()) block.setReadOnly(true);
     }
 
-    /** True when {@code method}'s name/params/return type may be changed. */
-    private boolean signatureEditable(MethodDeclaration method, ParseContext ctx) {
-        return ctx.resolver() == null ? !ctx.readOnly() : ctx.resolver().signatureEditable(method);
+    /** True when {@code node}'s name/params/return type — or class-level structure — may be changed. */
+    private boolean signatureEditable(ASTNode node, ParseContext ctx) {
+        return ctx.resolver() == null ? !ctx.readOnly() : ctx.resolver().signatureEditable(node);
     }
 
     /** True when statements inside {@code method} may be changed. */

@@ -114,6 +114,31 @@ public class CodeEditor {
         return verdict.allowed();
     }
 
+    /**
+     * Whether a statement may be inserted into {@code targetBody} at {@code index}.
+     *
+     * <p>Some bodies end in a statement that has to stay last — an activity's {@code run()} always closes by
+     * reporting an outcome. That is a rule about a <em>position</em>, so {@link #canModify} can't express it:
+     * the body is editable, and so is the return; only "after it" isn't.
+     */
+    private boolean canInsertAt(BodyBlock targetBody, int index) {
+        LockResolver resolver = LockResolver.forActiveFile(config, state);
+        ASTNode body = targetBody.getAstNode();
+        var pinned = resolver.pinnedReturnOf(body);
+        if (pinned == null || index <= ((org.eclipse.jdt.core.dom.Block) body).statements().indexOf(pinned)) {
+            return true;
+        }
+        eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(LockResolver.pinnedReturnReason()));
+        return false;
+    }
+
+    /** Whether {@code toDelete} may be removed — a pinned trailing return may not. */
+    private boolean canDelete(Statement toDelete) {
+        if (!LockResolver.forActiveFile(config, state).isPinnedReturn(toDelete)) return true;
+        eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(LockResolver.pinnedReturnReason()));
+        return false;
+    }
+
     private void triggerUpdate(String newCode) {
         triggerUpdate(newCode, false);
     }
@@ -440,6 +465,7 @@ public class CodeEditor {
     }
 
     public void addMethodCallStatement(BodyBlock targetBody, ExpressionChoice.Method choice, int index) {
+        if (!canInsertAt(targetBody, index)) return;
         edit(targetBody.getAstNode(), EditKind.BODY, false, (cu, code) -> MethodHandler.addMethodCallStatement(cu, code, targetBody, choice, index, analyzer, state));
     }
 
@@ -617,7 +643,7 @@ public class CodeEditor {
     // =================================================================================
 
     public void addStatement(BodyBlock targetBody, BlockType type, int index) {
-        if (!canModify(targetBody.getAstNode(), EditKind.BODY)) return;
+        if (!canModify(targetBody.getAstNode(), EditKind.BODY) || !canInsertAt(targetBody, index)) return;
         CompilationUnit cu = getCompilationUnit();
         if (cu == null) return;
         String newCode = addStatement(cu, getCurrentCode(), targetBody, type, index, state, analyzer);
@@ -627,10 +653,12 @@ public class CodeEditor {
     }
 
     public void deleteStatement(Statement toDelete) {
+        if (!canDelete(toDelete)) return;
         edit(toDelete, EditKind.BODY, false, (cu, code) -> deleteStatement(cu, code, toDelete));
     }
 
     public void pasteCode(BodyBlock targetBody, int index, String codeToPaste) {
+        if (!canInsertAt(targetBody, index)) return;
         edit(targetBody.getAstNode(), EditKind.BODY, false,
                 (cu, code) -> pasteCodeString(cu, code, targetBody, index, codeToPaste, analyzer, state));
     }
@@ -641,7 +669,9 @@ public class CodeEditor {
      * let a drag empty out a generated method.
      */
     public void moveStatement(StatementBlock blockToMove, BodyBlock sourceBody, BodyBlock targetBody, int targetIndex) {
-        if (!canModify(sourceBody.getAstNode(), EditKind.BODY)) return;
+        if (!canModify(sourceBody.getAstNode(), EditKind.BODY) || !canInsertAt(targetBody, targetIndex)) return;
+        // A pinned return is not the user's to move out of its body either — dragging it away is a delete.
+        if (blockToMove.getAstNode() instanceof Statement moved && !canDelete(moved)) return;
         edit(targetBody.getAstNode(), EditKind.BODY, false,
                 (cu, code) -> moveStatement(cu, code, blockToMove, sourceBody, targetBody, targetIndex));
     }

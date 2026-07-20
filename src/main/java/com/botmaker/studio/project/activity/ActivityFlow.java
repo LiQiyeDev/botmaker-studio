@@ -17,8 +17,8 @@ import java.util.Set;
  * The visual activity flow: node placements plus the wires between them, as built on the free-form canvas.
  * The flow is a <em>graph</em>: an activity may have one outgoing wire per {@link ActivityDefinition#outcomes()
  * outcome}, several wires may arrive at one node, and a wire may lead back to an earlier activity so the bot
- * repeats. Execution begins at {@link #start()} and ends when it reaches the {@link FlowNodeKind#STOP} node or
- * an outcome with no wire.
+ * repeats. Execution begins at {@link #start()} and ends when it reaches an outcome with no wire leaving it —
+ * that unwired port <em>is</em> the stop, which is why there is no terminal card.
  *
  * <p>This is presentational/topological state that lives alongside the activity definitions in
  * {@code activities.json}. It is optional and back-compatible: an empty flow (no wires) means "nothing wired
@@ -30,7 +30,7 @@ import java.util.Set;
  * outranked the actual chain and every wired activity was dropped from the generated registry); naming the
  * entry point removes the guess instead of improving it.
  *
- * @param nodes    canvas placements — one per activity dropped on the canvas, plus at most one STOP card
+ * @param nodes    canvas placements — one per activity dropped on the canvas
  * @param edges    the wires ("from reports this outcome → to runs next")
  * @param start    the activity the run begins at; blank ⇒ fall back to the first placed activity
  * @param maxSteps how many node transitions one run may make before the generated driver gives up (see
@@ -38,9 +38,6 @@ import java.util.Set;
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record ActivityFlow(List<FlowNode> nodes, List<FlowEdge> edges, String start, int maxSteps) {
-
-    /** The id of the terminal node — not an activity name, so it can never collide with one. */
-    public static final String STOP_ID = "@stop";
 
     /**
      * The default budget of node transitions per run. A branching flow may legitimately cycle forever, so the
@@ -74,11 +71,6 @@ public record ActivityFlow(List<FlowNode> nodes, List<FlowEdge> edges, String st
     /** The saved canvas placement for {@code activity}, if it has been dropped on the canvas. */
     public Optional<FlowNode> node(String activity) {
         return nodes.stream().filter(n -> n.activity().equals(activity)).findFirst();
-    }
-
-    /** The terminal card's placement, if one has been added. */
-    public Optional<FlowNode> stopNode() {
-        return nodes.stream().filter(FlowNode::isStop).findFirst();
     }
 
     public ActivityFlow withStart(String newStart) {
@@ -118,9 +110,9 @@ public record ActivityFlow(List<FlowNode> nodes, List<FlowEdge> edges, String st
     }
 
     /**
-     * Breadth-first walk of {@code edges} from {@code start} over {@code placed}, excluding the STOP node
-     * (reaching it ends the run, it isn't something that runs). Wires naming anything outside {@code placed}
-     * are ignored as stale, and revisiting is skipped — which is also what makes a cyclic flow terminate here.
+     * Breadth-first walk of {@code edges} from {@code start} over {@code placed}. Wires naming anything outside
+     * {@code placed} are ignored as stale — which is also how an edge into a pre-2026 {@code @stop} card
+     * disappears — and revisiting is skipped, which is what makes a cyclic flow terminate here.
      *
      * <p>Static and shared by the model and the flow editor, so the set of activities the canvas marks as
      * reachable is by construction the set the generator emits. Its predecessor {@code linearize} was shared
@@ -133,7 +125,7 @@ public record ActivityFlow(List<FlowNode> nodes, List<FlowEdge> edges, String st
 
         Map<String, List<String>> successors = new LinkedHashMap<>();
         for (FlowEdge e : edges) {
-            if (!known.contains(e.from()) || !known.contains(e.to())) continue; // stale wire, or → STOP
+            if (!known.contains(e.from()) || !known.contains(e.to())) continue; // stale wire
             successors.computeIfAbsent(e.from(), k -> new ArrayList<>()).add(e.to());
         }
 
@@ -148,12 +140,14 @@ public record ActivityFlow(List<FlowNode> nodes, List<FlowEdge> edges, String st
         return List.copyOf(visited);
     }
 
-    /** The placed activity names (STOP excluded), in canvas order, restricted to ones that still exist. */
+    /**
+     * The placed activity names, in canvas order, restricted to ones that still exist. Filtering on "still
+     * exists" is also what quietly drops a legacy {@code @stop} node: it names no activity.
+     */
     private List<String> placedActivities(List<String> allActivityNames) {
         Set<String> known = new HashSet<>(allActivityNames);
         List<String> placed = new ArrayList<>();
         for (FlowNode n : nodes) {
-            if (n.isStop()) continue;
             if (known.contains(n.activity()) && !placed.contains(n.activity())) placed.add(n.activity());
         }
         return placed;

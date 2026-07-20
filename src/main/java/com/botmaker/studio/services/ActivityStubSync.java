@@ -13,7 +13,9 @@ import org.eclipse.jdt.core.dom.EnumDeclaration;
 import org.eclipse.jdt.core.dom.MethodDeclaration;
 import org.eclipse.jdt.core.dom.Modifier;
 import org.eclipse.jdt.core.dom.PrimitiveType;
+import org.eclipse.jdt.core.dom.QualifiedName;
 import org.eclipse.jdt.core.dom.ReturnStatement;
+import org.eclipse.jdt.core.dom.SimpleName;
 import org.eclipse.jdt.core.dom.Statement;
 import org.eclipse.jdt.core.dom.ThrowStatement;
 import org.eclipse.jdt.core.dom.TypeDeclaration;
@@ -38,14 +40,22 @@ import java.util.List;
  * and the {@code extends Activity<Name.Outcome>} that binds it. Rewriting the file wholesale would destroy the
  * user's work, so this makes the smallest AST edits that reconcile the two.
  *
- * <p>It also carries an existing project across the {@code void run()} → {@code Outcome run()} change: the
- * signature is retyped and the body patched to actually return something ({@link #patchReturns}). That is
- * best-effort by design — a body it can't reason about is left for the compiler to point at, which is far
- * better than mangling it.
+ * <p>It also carries an existing project across two renames of the generated shape: {@code void run()} →
+ * {@code Outcome run()}, and the implicit outcome's {@code DEFAULT} → {@code NEXT}. Both are best-effort by
+ * design — a body it can't reason about is left for the compiler to point at, which is far better than
+ * mangling it.
+ *
+ * <p>The last statement of {@code run()} is always a {@code return}, appended here when the user's body
+ * doesn't end in one. The editor refuses to delete it or to insert after it ({@code project/GeneratedMembers}),
+ * so "what this activity reports" is a decision the file always states explicitly.
  */
 final class ActivityStubSync {
 
     private static final String OUTCOME_ENUM = "Outcome";
+
+    /** The implicit outcome's constant, and its previous spelling — see {@link #renameLegacyDefault}. */
+    private static final String NEXT = "NEXT";
+    private static final String LEGACY_NEXT = "DEFAULT";
 
     private ActivityStubSync() {}
 
@@ -90,7 +100,9 @@ final class ActivityStubSync {
 
         changed |= syncOutcomeEnum(ast, rewrite, type, definition.allOutcomes());
         changed |= syncSuperclass(ast, rewrite, type, definition.name());
-        changed |= syncRunSignature(ast, rewrite, type);
+        changed |= syncRunSignature(rewrite, type);
+        changed |= renameLegacyDefault(rewrite, type, definition.allOutcomes());
+        changed |= ensureTerminalReturn(rewrite, type);
 
         if (!changed) return source;
         try {
@@ -145,7 +157,7 @@ final class ActivityStubSync {
      * fires when the return type is literally {@code void}: once migrated, the user's own return statements
      * are none of our business.
      */
-    private static boolean syncRunSignature(AST ast, ASTRewrite rewrite, TypeDeclaration type) {
+    private static boolean syncRunSignature(ASTRewrite rewrite, TypeDeclaration type) {
         MethodDeclaration run = methodNamed(type, "run");
         if (run == null || run.getReturnType2() == null) return false;
         if (!(run.getReturnType2() instanceof PrimitiveType primitive)
@@ -154,32 +166,71 @@ final class ActivityStubSync {
         }
         rewrite.set(run, MethodDeclaration.RETURN_TYPE2_PROPERTY,
                 rewrite.createStringPlaceholder(OUTCOME_ENUM, ASTNode.SIMPLE_TYPE), null);
-        patchReturns(ast, rewrite, run.getBody());
+        patchBareReturns(rewrite, run.getBody());
         return true;
     }
 
     /**
      * Makes a body written for {@code void} valid for an {@code Outcome} return: every bare {@code return;}
-     * becomes {@code return Outcome.DEFAULT;}, and one is appended when control can fall off the end.
-     *
-     * <p>"Can fall off the end" is judged by the last statement alone — a real reachability analysis would be
-     * the compiler's job, and guessing wrong here only ever produces an unreachable statement the user can
-     * delete, never a silent change in what the activity does.
+     * becomes {@code return Outcome.NEXT;}. Falling off the end is {@link #ensureTerminalReturn}'s job, which
+     * runs on every sync rather than only on this migration.
      */
-    private static void patchReturns(AST ast, ASTRewrite rewrite, Block body) {
+    private static void patchBareReturns(ASTRewrite rewrite, Block body) {
         if (body == null) return;
-
         for (ReturnStatement bare : bareReturns(body)) {
             rewrite.set(bare, ReturnStatement.EXPRESSION_PROPERTY,
-                    rewrite.createStringPlaceholder(OUTCOME_ENUM + ".DEFAULT", ASTNode.SIMPLE_NAME), null);
+                    rewrite.createStringPlaceholder(OUTCOME_ENUM + "." + NEXT, ASTNode.SIMPLE_NAME), null);
         }
+    }
 
-        List<?> statements = body.statements();
+    /**
+     * Guarantees {@code run()} ends in a {@code return}, appending {@code return Outcome.NEXT;} when the last
+     * statement isn't one. Every path out of an activity has to say what it reports, and this is the statement
+     * the editor then pins in place.
+     *
+     * <p>A trailing {@code throw} is left alone: it can't fall through, and appending after it would be
+     * unreachable code. Otherwise "can fall off the end" is judged by the last statement alone — real
+     * reachability analysis is the compiler's job, and guessing wrong here only ever produces one statement the
+     * compiler will point at, never a silent change in what the activity does.
+     */
+    private static boolean ensureTerminalReturn(ASTRewrite rewrite, TypeDeclaration type) {
+        MethodDeclaration run = methodNamed(type, "run");
+        if (run == null || run.getBody() == null) return false;
+
+        List<?> statements = run.getBody().statements();
         Statement last = statements.isEmpty() ? null : (Statement) statements.get(statements.size() - 1);
-        if (last instanceof ReturnStatement || last instanceof ThrowStatement) return;
-        rewrite.getListRewrite(body, Block.STATEMENTS_PROPERTY).insertLast(
+        if (last instanceof ReturnStatement || last instanceof ThrowStatement) return false;
+
+        rewrite.getListRewrite(run.getBody(), Block.STATEMENTS_PROPERTY).insertLast(
                 (Statement) rewrite.createStringPlaceholder(
-                        "return " + OUTCOME_ENUM + ".DEFAULT;", ASTNode.RETURN_STATEMENT), null);
+                        "return " + OUTCOME_ENUM + "." + NEXT + ";", ASTNode.RETURN_STATEMENT), null);
+        return true;
+    }
+
+    /**
+     * Renames references to the implicit outcome's old spelling: {@code Outcome.DEFAULT} → {@code Outcome.NEXT}.
+     *
+     * <p>{@link #syncOutcomeEnum} rewrites the enum's constants as a set, so a stub written before the rename
+     * loses {@code DEFAULT} from the enum while its {@code return Outcome.DEFAULT;} stays behind, referring to
+     * a constant that no longer exists. Skipped entirely when the activity really does declare an outcome
+     * called {@code DEFAULT} — then it isn't a legacy reference, it is the user's own.
+     */
+    private static boolean renameLegacyDefault(ASTRewrite rewrite, TypeDeclaration type, List<String> outcomes) {
+        if (outcomes.contains(LEGACY_NEXT)) return false;
+
+        List<SimpleName> stale = new ArrayList<>();
+        type.accept(new org.eclipse.jdt.core.dom.ASTVisitor() {
+            @Override
+            public boolean visit(QualifiedName node) {
+                if (OUTCOME_ENUM.equals(node.getQualifier().toString())
+                        && LEGACY_NEXT.equals(node.getName().getIdentifier())) {
+                    stale.add(node.getName());
+                }
+                return true;
+            }
+        });
+        for (SimpleName name : stale) rewrite.set(name, SimpleName.IDENTIFIER_PROPERTY, NEXT, null);
+        return !stale.isEmpty();
     }
 
     /** Every {@code return;} anywhere in {@code body}, including inside nested ifs and loops. */

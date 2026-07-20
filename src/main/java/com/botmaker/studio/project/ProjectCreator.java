@@ -307,7 +307,7 @@ public class ProjectCreator {
             /**
              * One pass of the bot: walk the Activity Flow drawn in the Studio. {@code FlowDriver} starts at the
              * flow's start card, runs that activity, and follows the wire matching the outcome it reported,
-             * until it reaches Stop or an outcome with nowhere to go.
+             * until it reports an outcome with nowhere to go.
              *
              * <p>This stays a separate one-line hook because {@code Bot.start} binds {@code GameLoop::run} in
              * the entry point, which is yours to edit — so the generated driver can be regenerated freely
@@ -333,7 +333,7 @@ public class ProjectCreator {
              * Project &rarr; Activity Flow.
              *
              * <p>Runs the current activity, then picks the next one from the outcome it reported. The run
-             * ends when it reaches the Stop card, or an outcome with no wire leaving it.
+             * ends when the reported outcome has no wire leaving it.
              */
             public final class FlowDriver {
 
