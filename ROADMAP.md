@@ -6,6 +6,22 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-20 — flow/editor bug fixes + canvas and menu polish.** Five fixes from using the new canvas.
+  (1) `ActivityFlow.linearize` took the *first* node with no incoming wire as the chain root; placement is
+  canvas insertion order, so one un-wired card placed early became the whole "chain" and every wired activity
+  was reported an orphan **and dropped from the generated `ActivityRegistry.ALL`** — the longest walk now
+  wins. (2) Inserting after a comment landed before it (a `Comment` holds no `Block.statements()` slot and JDT
+  folds it into the *extended* range of the next statement, so no index means "after the comment"): that case
+  now defers to a text edit tracked by a `RangeMarker` (`AstRewriteHelper.applyRewriteAndInsertAt`), fixing
+  paste, palette-insert and drag-drop together. (3) Paste now brings the snippet's imports via
+  `ImportManager.addImportForSimpleName`. (4) `ExpressionCatalog` stopped offering maths/logic in reference-typed
+  slots — `TypeExpectation.of` folds every object type into `ANY`, which was read as "no constraint", so a
+  `Point` slot offered `Addition`; `Object` and unresolved types stay permissive. (5) Activities are now
+  **archived, never deleted** (`ActivityDefinition.archived`): deleting stopped `Activities.<Name>` being
+  generated while the hand-written `activities/<Name>.java` survived referring to it, so the project no longer
+  compiled. Plus: directional arrowheads on wires, Recenter and Auto-arrange buttons, and glyph icons on the
+  expression/statement menu entries (set as the item *graphic*, since the menus search on the text).
+
 - **2026-07-20 — warnings triage.** The IDE warnings came from an "enable all 467 inspections" IntelliJ
   profile, not javac (no pom sets `-Xlint`/`-Werror`). Curated to ~222 on / ~245 off — style dogma, complexity
   caps, mutually contradictory qualification/import rules, exception-style rules that fight the deliberate
@@ -1120,6 +1136,17 @@ whenever work lands here (see CLAUDE.md → Roadmap).
   projects pick the latest at creation (overridable), and any project's SDK version is editable from **Manage
   Libraries** (pinned, non-removable row). `MavenService.SDK_FALLBACK_VERSION` is only used when JitPack is
   unreachable. Each generated project keeps whatever version is pinned in its own `pom.xml`.
+
+## Activity Flow backlog
+
+- [ ] **Conditional edges + loops (the next milestone).** `FlowEdge` gains an optional condition; a node may
+  then have more than one outgoing edge, which retires the single-chain invariant `ChainRules.rejectionFor`
+  enforces (the fork rejection specifically) and makes `linearize`'s single-successor map a graph traversal.
+  With branches a cycle stops being illegal — it is how a bot repeats — so the guard becomes an emitted bound
+  (max iterations / wall-clock) rather than an editor-time rejection, and the current "runs once top to bottom
+  then stops" goes away. A branching flow can't be a flat `List<Activity> ALL`, so codegen needs a driver (a
+  state machine over node ids, or emitted `if/else` dispatch). Conditions should be authored with the existing
+  `ExpressionCatalog`/`ExpressionMenuFactory` against a boolean slot rather than a second expression language.
 
 ## Refactoring backlog (Studio)
 
