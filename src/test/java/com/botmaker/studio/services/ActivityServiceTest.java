@@ -156,6 +156,51 @@ public class ActivityServiceTest {
     }
 
     @Test
+    void anArchivedActivityStopsRunningButKeepsItsGeneratedFields(@TempDir Path dir) {
+        ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
+        ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
+
+        ActivityDefinition retired = new ActivityDefinition("Idle", true, "",
+                List.of(ActivityVariable.create("pauseMs", ActivityType.INT)), true);
+        ActivitiesConfig cfg = new ActivitiesConfig(
+                List.of(ActivityDefinition.create("Resources", ""), retired), List.of());
+
+        assertEquals(List.of("Resources"),
+                cfg.orderedActivities().stream().map(ActivityDefinition::name).toList());
+        assertFalse(service.generateRegistrySource(cfg).contains("new Idle()"));
+
+        // ...but its fields are still generated. This is the whole point: archiving never deletes
+        // activities/Idle.java, and that surviving file says `return Activities.Idle;` — drop the field and
+        // the user's project stops compiling.
+        List<String> fields = cfg.allVariables().stream().map(ActivityVariable::name).toList();
+        assertTrue(fields.contains("Idle"), fields.toString());
+        assertTrue(fields.contains("Idle_pauseMs"), fields.toString());
+        assertTrue(service.generateSource(cfg).contains("public static final boolean Idle;"));
+    }
+
+    @Test
+    void archivedStateSurvivesTheJsonRoundTripAndOlderFilesLoadUnarchived(@TempDir Path dir) throws Exception {
+        ActivitiesConfig cfg = new ActivitiesConfig(List.of(
+                ActivityDefinition.create("Resources", ""),
+                new ActivityDefinition("Idle", false, "", List.of(), true)), List.of());
+        cfg.write(dir);
+
+        ActivitiesConfig read = ActivitiesConfig.read(dir);
+        assertEquals(List.of("Resources"), read.liveActivities().stream()
+                .map(ActivityDefinition::name).toList());
+        assertEquals(List.of("Idle"), read.archivedActivities().stream()
+                .map(ActivityDefinition::name).toList());
+
+        // An activities.json written before the field existed must load with everything live.
+        java.nio.file.Files.writeString(dir.resolve(ActivitiesConfig.FILE_NAME), """
+                { "activities": [ { "name": "Resources", "enabled": true, "description": "", "params": [] } ] }
+                """);
+        ActivitiesConfig legacy = ActivitiesConfig.read(dir);
+        assertEquals(1, legacy.liveActivities().size());
+        assertTrue(legacy.archivedActivities().isEmpty());
+    }
+
+    @Test
     void anUnwiredFlowKeepsPlainDefinitionOrder() {
         // Legacy / not-yet-wired projects must keep running every activity in list order.
         ActivitiesConfig cfg = new ActivitiesConfig(List.of(

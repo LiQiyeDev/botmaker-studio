@@ -15,17 +15,30 @@ import java.util.List;
  * ({@code activities/<Name>.java}) <em>and</em> the enable-flag field on the generated {@code Activities}
  * class ({@code Activities.<Name>}). Each param {@code p} becomes {@code Activities.<Name>_<p>}.
  *
+ * <p>{@link #archived()} retires an activity without destroying anything: it leaves the canvas and the
+ * generated registry (so it no longer runs), but its {@code activities/<Name>.java} file and its
+ * {@code Activities} fields are still generated. That combination is the point — the editor never deletes a
+ * file, and the hand-written stub that survives still refers to {@code Activities.<Name>}, so dropping the
+ * definition outright would stop the project compiling.
+ *
  * @param name        activity name / generated class name (a valid Java identifier)
  * @param enabled     the default value of the enable flag
  * @param description optional human-readable note (may be empty)
  * @param params      the activity's config variables ("how to do it")
+ * @param archived    retired: keeps its file and fields, but doesn't appear on the canvas or run
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record ActivityDefinition(String name, boolean enabled, String description, List<ActivityVariable> params) {
+public record ActivityDefinition(String name, boolean enabled, String description, List<ActivityVariable> params,
+                                 boolean archived) {
 
     public ActivityDefinition {
         if (description == null) description = "";
         params = params == null ? List.of() : List.copyOf(params);
+    }
+
+    /** Convenience for the common live activity; an {@code activities.json} without the field loads this way. */
+    public ActivityDefinition(String name, boolean enabled, String description, List<ActivityVariable> params) {
+        this(name, enabled, description, params, false);
     }
 
     /** A fresh activity with the given name/description, disabled, no params. */
@@ -44,14 +57,18 @@ public record ActivityDefinition(String name, boolean enabled, String descriptio
     }
 
     public ActivityDefinition withEnabled(boolean newEnabled) {
-        return new ActivityDefinition(name, newEnabled, description, params);
+        return new ActivityDefinition(name, newEnabled, description, params, archived);
     }
 
     public ActivityDefinition withDescription(String newDescription) {
-        return new ActivityDefinition(name, enabled, newDescription, params);
+        return new ActivityDefinition(name, enabled, newDescription, params, archived);
     }
 
     public ActivityDefinition withParams(List<ActivityVariable> newParams) {
-        return new ActivityDefinition(name, enabled, description, newParams);
+        return new ActivityDefinition(name, enabled, description, newParams, archived);
+    }
+
+    public ActivityDefinition withArchived(boolean newArchived) {
+        return new ActivityDefinition(name, enabled, description, params, newArchived);
     }
 }

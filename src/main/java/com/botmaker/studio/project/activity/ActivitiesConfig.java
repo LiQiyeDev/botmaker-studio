@@ -28,6 +28,10 @@ import java.util.Map;
  * the expression menu consume. Old flat {@code activities.json} files (a bare list of {@link ActivityVariable}
  * under {@code "activities"}) still load: their variables come back as {@link #globals()}.
  *
+ * <p>An activity is retired by {@link ActivityDefinition#archived() archiving} it, never by deleting it: it
+ * drops out of {@link #orderedActivities()} but stays in {@link #allVariables()}, so its generated fields —
+ * and therefore the hand-written {@code activities/<Name>.java} that references them — keep compiling.
+ *
  * <p>{@link #flow()} is the optional visual chain (node placements + wires) built on the Activity Flow
  * canvas; when present it defines the <em>run order</em> ({@link #orderedActivities()}). {@link #presets()}
  * are named on/off selections the user can apply. Both are back-compatible additions — an
@@ -71,22 +75,36 @@ public record ActivitiesConfig(List<ActivityDefinition> activities, List<Activit
 
     /**
      * The activities in <em>run order</em>: the {@link #flow()} chain (root → …) when one is wired, else
-     * the plain definition order. Orphan activities (placed but not reachable from the chain root) are
-     * excluded — they won't run. This is what the generated {@code ActivityRegistry.ALL} iterates.
+     * the plain definition order. Excluded are orphans (placed but not reachable from the chain root) and
+     * {@link ActivityDefinition#archived() archived} activities — neither runs. This is what the generated
+     * {@code ActivityRegistry.ALL} iterates.
      *
-     * <p>Note {@link #allVariables()} still spans <em>all</em> activities (orphans included) so their
-     * {@code Activities.<field>} flags exist and every generated stub compiles — only running is gated here.
+     * <p>Note {@link #allVariables()} still spans <em>all</em> activities, orphaned and archived included, so
+     * their {@code Activities.<field>} flags exist and every generated stub compiles — only running is gated
+     * here. For an archived activity that is the whole point: its file survives and still refers to those
+     * fields.
      */
     public List<ActivityDefinition> orderedActivities() {
-        if (flow.isEmpty()) return activities;
+        List<ActivityDefinition> live = liveActivities();
+        if (flow.isEmpty()) return live;
         Map<String, ActivityDefinition> byName = new LinkedHashMap<>();
-        for (ActivityDefinition a : activities) byName.put(a.name(), a);
+        for (ActivityDefinition a : live) byName.put(a.name(), a);
         List<ActivityDefinition> ordered = new ArrayList<>();
-        for (String name : flow.order(activities.stream().map(ActivityDefinition::name).toList())) {
+        for (String name : flow.order(live.stream().map(ActivityDefinition::name).toList())) {
             ActivityDefinition a = byName.get(name);
             if (a != null) ordered.add(a);
         }
         return ordered;
+    }
+
+    /** The activities that have not been archived — what the canvas shows and the registry runs. */
+    public List<ActivityDefinition> liveActivities() {
+        return activities.stream().filter(a -> !a.archived()).toList();
+    }
+
+    /** The archived activities, for the editor's restore list. */
+    public List<ActivityDefinition> archivedActivities() {
+        return activities.stream().filter(ActivityDefinition::archived).toList();
     }
 
     /** A copy with each activity's enable flag set from {@code preset} (in it → on, else off). */

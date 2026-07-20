@@ -61,6 +61,12 @@ public class ActivityFlowDialog {
     private final FlowCanvas canvas = new FlowCanvas();
     private final List<ActivityPreset> presets = new ArrayList<>();
     private final List<ActivityVariable> globals = new ArrayList<>();
+    /**
+     * Retired activities, kept so they are written back on save. They are deliberately <em>not</em> dropped:
+     * the editor never deletes {@code activities/<Name>.java}, and that surviving file still refers to the
+     * activity's generated {@code Activities} fields — which only exist while the definition does.
+     */
+    private final List<ActivityDefinition> archived = new ArrayList<>();
 
     private final Label statusLabel = new Label();
     private final Label orderLabel = new Label();
@@ -109,7 +115,7 @@ public class ActivityFlowDialog {
     private void loadCurrent() {
         ActivitiesConfig current = activityService.current();
         ActivityFlow flow = current.flow();
-        for (ActivityDefinition a : current.activities()) {
+        for (ActivityDefinition a : current.liveActivities()) {
             Optional<FlowNode> placed = flow.node(a.name());
             Point2D at = placed.map(n -> new Point2D(n.x(), n.y())).orElseGet(canvas::nextFreeSpot);
             canvas.add(ActivityDraft.of(a, at.getX(), at.getY()));
@@ -118,6 +124,7 @@ public class ActivityFlowDialog {
         canvas.select(null);
         globals.addAll(current.globals());
         presets.addAll(current.presets());
+        archived.addAll(current.archivedActivities());
         canvas.refresh();
     }
 
@@ -236,6 +243,7 @@ public class ActivityFlowDialog {
             sidePanel.getChildren().addAll(heading("Global variables"),
                     new Label("Config not tied to any one activity. Select a card to edit that activity."));
             sidePanel.getChildren().add(buildVariableEditor(globals, null));
+            sidePanel.getChildren().addAll(new Separator(), buildArchivedSection());
             return;
         }
 
@@ -256,11 +264,68 @@ public class ActivityFlowDialog {
         GridPane.setHgrow(name, Priority.ALWAYS);
         GridPane.setHgrow(description, Priority.ALWAYS);
 
-        Button remove = new Button("Remove activity");
-        remove.setOnAction(e -> canvas.remove(draft));
+        Button archive = new Button("Archive activity");
+        archive.setTooltip(new javafx.scene.control.Tooltip(
+                "Takes it off the canvas so it stops running. Its file and settings are kept — restore it "
+                        + "any time from the panel shown when no card is selected."));
+        archive.setOnAction(e -> archive(draft));
 
         sidePanel.getChildren().addAll(heading("Activity"), head, new Separator(),
-                heading("Config params"), buildVariableEditor(draft.params(), draft), new Separator(), remove);
+                heading("Config params"), buildVariableEditor(draft.params(), draft), new Separator(), archive);
+    }
+
+    /**
+     * Retires {@code draft}: off the canvas and out of the run order, but its definition is remembered and
+     * written back on save.
+     *
+     * <p>There is deliberately no "delete". Removing an activity outright stopped its
+     * {@code Activities.<Name>} field being generated while its hand-written {@code activities/<Name>.java}
+     * stayed on disk still referring to it — so the project no longer compiled. Archiving keeps the fields and
+     * the file, and only stops the activity running.
+     */
+    private void archive(ActivityDraft draft) {
+        flushSidePanel();
+        archived.add(draft.toDefinition().withArchived(true));
+        canvas.remove(draft); // also drops any wires into or out of it
+        refreshPresetCombo();
+        error("Archived '" + draft.name() + "'. Its file and settings are kept — restore it from the side panel.");
+    }
+
+    /** The restore list: archived activities, each with a button to put it back on the canvas. */
+    private Node buildArchivedSection() {
+        VBox box = new VBox(6);
+        box.getChildren().add(heading("Archived (" + archived.size() + ")"));
+        if (archived.isEmpty()) {
+            Label none = new Label("Nothing archived. Archiving retires an activity without deleting its file.");
+            none.setWrapText(true);
+            none.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
+            box.getChildren().add(none);
+            return box;
+        }
+        for (ActivityDefinition a : List.copyOf(archived)) {
+            Label name = new Label(a.name());
+            HBox spacer = new HBox();
+            HBox.setHgrow(spacer, Priority.ALWAYS);
+            Button restore = new Button("Restore");
+            restore.setOnAction(e -> restore(a));
+            HBox row = new HBox(6, name, spacer, restore);
+            row.setAlignment(Pos.CENTER_LEFT);
+            box.getChildren().add(row);
+        }
+        return box;
+    }
+
+    /** Puts an archived activity back on the canvas, unwired (the user re-wires where it belongs). */
+    private void restore(ActivityDefinition a) {
+        if (canvas.drafts().stream().anyMatch(d -> d.name().equals(a.name()))) {
+            error("An activity called '" + a.name() + "' is already on the canvas.");
+            return;
+        }
+        archived.remove(a);
+        Point2D at = canvas.nextFreeSpot();
+        canvas.add(ActivityDraft.of(a, at.getX(), at.getY()));
+        refreshPresetCombo();
+        error("");
     }
 
     private void renameDraft(ActivityDraft draft, String candidate, TextField field) {
@@ -408,6 +473,9 @@ public class ActivityFlowDialog {
             activities.add(d.toDefinition());
             nodes.add(new FlowNode(d.name(), d.x(), d.y()));
         }
+        // Archived activities are persisted too — they keep generating their Activities fields, which is what
+        // lets their surviving activities/<Name>.java still compile. They get no flow node: they don't run.
+        activities.addAll(archived);
         ActivitiesConfig cfg = new ActivitiesConfig(activities, new ArrayList<>(globals),
                 new ActivityFlow(nodes, new ArrayList<>(canvas.edges())), new ArrayList<>(presets));
 
