@@ -6,6 +6,20 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-20 — Activity Flow canvas (replaces the two activity dialogs).** `ui/app/ActivityFlowDialog` is
+  now the single place activities are defined, configured, ordered and switched on — **Manage Activities…**
+  and **Set Activity Values…** are gone (both classes deleted), replaced by one **🔀 Activity Flow** toolbar
+  button + Project ▸ Activity Flow…. Three panes: the free-form `ui/app/flow/FlowCanvas` (draggable cards,
+  drag-from-▶-port wiring, click-a-wire to delete, Ctrl+scroll zoom, dot grid), a side panel editing the
+  selected card's name/description/params (or the project globals when nothing is selected), and a preset bar
+  (built-in Everything/Nothing + user-saved) that flips enable ticks without touching the wiring. A live
+  footer previews the run order and names any card the chain never reaches ("won't run"). `ui/app/flow/
+  ChainRules` keeps the flow a single linear chain — self-wires, forks, joins and loops are refused with an
+  inline reason — and delegates linearization to `ActivityFlow.linearize`, the same walk the generator uses,
+  so the previewed order is the generated order. Value widgets were lifted out of the retired dialog into
+  `ui/app/flow/ActivityValueWidgets`. Note a *second* disconnected chain reads as orphaned, by design: only
+  one chain runs.
+
 - **2026-07-20 — activity flow: one-shot activities + chain data model + flow-ordered registry.** Groundwork
   for the Activity Flow canvas (the visual editor itself lands next). **Execution model:** an activity's
   `execute()` is its whole job and runs **once** — the generated `GameLoop` (`ProjectCreator.gameBotSources`)

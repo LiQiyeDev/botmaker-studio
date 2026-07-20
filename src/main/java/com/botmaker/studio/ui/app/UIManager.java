@@ -130,10 +130,9 @@ public class UIManager {
         this.menuBarManager.setOnGettingStarted(this::openGettingStarted);
         this.menuBarManager.setOnManageImports(() ->
                 new ManageImportsDialog(primaryStage, codeEditorService).show());
-        this.menuBarManager.setOnManageActivities(() ->
-                new ManageActivitiesDialog(primaryStage, activityService).show());
-        this.menuBarManager.setOnSetActivityValues(() ->
-                new SetActivityValuesDialog(primaryStage, activityService).show());
+        Runnable openActivityFlow = () -> new ActivityFlowDialog(primaryStage, activityService).show();
+        this.menuBarManager.setOnActivityFlow(openActivityFlow);
+        this.toolbarManager.setOnActivityFlow(openActivityFlow);
         this.menuBarManager.setOnRecoverProjectFiles(() -> recoverProjectFiles(activityService));
         this.menuBarManager.setOnManageResources(this::openResourceManager);
         this.menuBarManager.setOnProjectSettings(() ->

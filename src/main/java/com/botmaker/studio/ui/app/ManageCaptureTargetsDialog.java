@@ -43,7 +43,7 @@ import java.util.concurrent.Executors;
  * delegates to {@link ProjectSettingsService}, which writes {@code settings.json} off the FX thread.
  *
  * <p>Once a default is set the pickers stop asking which screen to use; a window default is also brought
- * to the front and captured directly. Modeled on {@link ManageActivitiesDialog}.
+ * to the front and captured directly.
  */
 public class ManageCaptureTargetsDialog {
 

@@ -38,6 +38,7 @@ public class ToolbarManager {
     private Runnable onManageCaptureTargets;
     /** Opens the Launch Target dialog (what the bot launches); wired by {@link UIManager}. */
     private Runnable onManageLaunchTarget;
+    private Runnable onActivityFlow;
     /** Persists the debug-output toggle to the project; wired by {@link UIManager}. */
     private Consumer<Boolean> onToggleDebugOutput;
     /** The debug-output toggle's initial (persisted) state — read by {@link UIManager} before building the bar. */
@@ -123,6 +124,11 @@ public class ToolbarManager {
         this.onManageLaunchTarget = callback;
     }
 
+    /** Sets the callback invoked when the toolbar's Activity Flow button is clicked. */
+    public void setOnActivityFlow(Runnable callback) {
+        this.onActivityFlow = callback;
+    }
+
     /**
      * Wires the debug-output toggle: {@code initial} is the project's persisted {@code debug} state (shown as the
      * toggle's starting position) and {@code onToggle} persists each change. Call before {@link #createCaptureGroup()}.
@@ -188,6 +194,14 @@ public class ToolbarManager {
             if (onManageLaunchTarget != null) onManageLaunchTarget.run();
         });
 
+        Button activityFlowButton = new Button("🔀 Activity Flow");
+        activityFlowButton.getStyleClass().add("toolbar-btn");
+        activityFlowButton.setTooltip(new Tooltip(
+                "Define the bot's activities and wire the order they run in"));
+        activityFlowButton.setOnAction(e -> {
+            if (onActivityFlow != null) onActivityFlow.run();
+        });
+
         Button debugDashboardButton = new Button("📊 Debug Dashboard");
         debugDashboardButton.getStyleClass().add("toolbar-btn");
         debugDashboardButton.setTooltip(new Tooltip("Open the live telemetry debug dashboard in your browser"));
@@ -238,7 +252,7 @@ public class ToolbarManager {
         resolutionLabel.getStyleClass().add("toolbar-resolution");
         resolutionLabel.setTooltip(new Tooltip("Project standard resolution · primary screen resolution"));
 
-        HBox group = new HBox(5, projectSetupButton, captureButton, launchTargetButton,
+        HBox group = new HBox(5, projectSetupButton, captureButton, launchTargetButton, activityFlowButton,
                 debugDashboardButton, debugOutputButton, moreButton, resolutionLabel);
         group.setAlignment(Pos.CENTER);
         return group;

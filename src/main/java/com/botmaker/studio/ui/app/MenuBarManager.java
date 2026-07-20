@@ -24,9 +24,8 @@ public class MenuBarManager {
     private Consumer<Void> onSelectProject;
     private Runnable onManageLibraries;
     private Runnable onManageImports;
-    private Runnable onManageActivities;
+    private Runnable onActivityFlow;
     private Runnable onRecoverProjectFiles;
-    private Runnable onSetActivityValues;
     private Runnable onManageResources;
     private Runnable onProjectSettings;
     private Runnable onProjectSetup;
@@ -192,14 +191,10 @@ public class MenuBarManager {
             if (onManageImports != null) onManageImports.run();
         });
 
-        MenuItem manageActivitiesItem = new MenuItem("Manage Activities...");
-        manageActivitiesItem.setOnAction(e -> {
-            if (onManageActivities != null) onManageActivities.run();
-        });
-
-        MenuItem setActivityValuesItem = new MenuItem("Set Activity Values...");
-        setActivityValuesItem.setOnAction(e -> {
-            if (onSetActivityValues != null) onSetActivityValues.run();
+        // One entry for the whole activity story — define, configure, order and switch activities on.
+        MenuItem activityFlowItem = new MenuItem("Activity Flow...");
+        activityFlowItem.setOnAction(e -> {
+            if (onActivityFlow != null) onActivityFlow.run();
         });
 
         MenuItem manageResourcesItem = new MenuItem("Resource Manager...");
@@ -242,7 +237,7 @@ public class MenuBarManager {
         projectMenu.getItems().addAll(
                 projectSetupItem, new SeparatorMenuItem(),
                 manageLibrariesItem, manageImportsItem, new SeparatorMenuItem(),
-                manageActivitiesItem, setActivityValuesItem, manageResourcesItem,
+                activityFlowItem, manageResourcesItem,
                 new SeparatorMenuItem(),
                 projectSettingsItem, new SeparatorMenuItem(),
                 recoverFilesItem, historyItem, new SeparatorMenuItem(),
@@ -530,14 +525,9 @@ public class MenuBarManager {
         this.onRecoverProjectFiles = callback;
     }
 
-    /** Sets the callback for when "Manage Activities..." is clicked. */
-    public void setOnManageActivities(Runnable callback) {
-        this.onManageActivities = callback;
-    }
-
-    /** Sets the callback for when "Set Activity Values..." is clicked. */
-    public void setOnSetActivityValues(Runnable callback) {
-        this.onSetActivityValues = callback;
+    /** Sets the callback for when "Activity Flow..." is clicked. */
+    public void setOnActivityFlow(Runnable callback) {
+        this.onActivityFlow = callback;
     }
 
     /** Sets the callback for when "Resource Manager..." is clicked. */

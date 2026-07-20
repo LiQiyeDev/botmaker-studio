@@ -45,7 +45,7 @@ import java.util.stream.Collectors;
  * <b>reference (standard) resolution</b>, the project's <b>favourite methods per class</b> (surfaced
  * first in the overlay palette), and a read-only view of the <b>favourite overload per method</b>
  * (written by the block ⚙ menu). Applying delegates to {@link ProjectSettingsService#update}, which
- * rewrites {@code settings.json} off the FX thread. Modeled on {@link ManageActivitiesDialog}.
+ * rewrites {@code settings.json} off the FX thread.
  */
 public class ProjectSettingsDialog {
 

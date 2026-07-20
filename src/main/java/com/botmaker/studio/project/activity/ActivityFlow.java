@@ -5,7 +5,6 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -58,7 +57,26 @@ public record ActivityFlow(List<FlowNode> nodes, List<FlowEdge> edges) {
     public List<String> order(List<String> allActivityNames) {
         if (isEmpty()) return List.copyOf(allActivityNames);
 
+        // Placed activities, in canvas insertion order, restricted to ones that still exist.
         Set<String> known = new HashSet<>(allActivityNames);
+        List<String> placed = new ArrayList<>();
+        for (FlowNode n : nodes) {
+            if (known.contains(n.activity()) && !placed.contains(n.activity())) placed.add(n.activity());
+        }
+        return linearize(placed, edges);
+    }
+
+    /**
+     * Walks {@code edges} into a run order: start at the first of {@code placed} that nothing wires into (the
+     * chain root) and follow each single outgoing wire until the chain ends. Anything not reached is left out
+     * — with a valid single chain that means the orphans. Wires naming something outside {@code placed} are
+     * ignored (stale), and the {@code seen} guard means even a malformed cyclic file terminates.
+     *
+     * <p>Shared by the model and the flow editor so the order the canvas previews is the order that is
+     * generated.
+     */
+    public static List<String> linearize(List<String> placed, List<FlowEdge> edges) {
+        Set<String> known = new HashSet<>(placed);
         Map<String, String> next = new HashMap<>();
         Set<String> hasIncoming = new HashSet<>();
         for (FlowEdge e : edges) {
@@ -66,18 +84,11 @@ public record ActivityFlow(List<FlowNode> nodes, List<FlowEdge> edges) {
             next.put(e.from(), e.to());
             hasIncoming.add(e.to());
         }
-
-        // Placed activities, in insertion order, restricted to ones that still exist.
-        Set<String> placed = new LinkedHashSet<>();
-        for (FlowNode n : nodes) {
-            if (known.contains(n.activity())) placed.add(n.activity());
-        }
-        // Root of the chain: the first placed node nothing wires into.
         String root = placed.stream().filter(a -> !hasIncoming.contains(a)).findFirst().orElse(null);
 
         List<String> ordered = new ArrayList<>();
         Set<String> seen = new HashSet<>();
-        for (String cur = root; cur != null && known.contains(cur) && seen.add(cur); cur = next.get(cur)) {
+        for (String cur = root; cur != null && seen.add(cur); cur = next.get(cur)) {
             ordered.add(cur);
         }
         return ordered;
