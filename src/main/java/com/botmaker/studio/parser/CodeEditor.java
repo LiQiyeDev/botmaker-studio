@@ -631,7 +631,8 @@ public class CodeEditor {
     }
 
     public void pasteCode(BodyBlock targetBody, int index, String codeToPaste) {
-        edit(targetBody.getAstNode(), EditKind.BODY, false, (cu, code) -> pasteCodeString(cu, code, targetBody, index, codeToPaste));
+        edit(targetBody.getAstNode(), EditKind.BODY, false,
+                (cu, code) -> pasteCodeString(cu, code, targetBody, index, codeToPaste, analyzer, state));
     }
 
     /**
@@ -800,7 +801,11 @@ public class CodeEditor {
         Statement newStatement = NodeCreator.createDefaultStatement(ast, type, cu, rewriter, state, analyzer);
         if (newStatement == null) return originalCode;
         ListRewrite listRewrite = AstRewriteHelper.getListRewriteForBody(rewriter, targetBody);
-        insertIntoList(listRewrite, targetBody, newStatement, index);
+        PendingInsert deferred = insertIntoList(listRewrite, targetBody, newStatement, index, newStatement.toString());
+        if (deferred != null) {
+            // The rewriter still carries any imports the new statement needs; only the placement is textual.
+            return AstRewriteHelper.applyRewriteAndInsertAt(rewriter, originalCode, deferred.offset(), deferred.text());
+        }
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
     }
 
@@ -819,12 +824,22 @@ public class CodeEditor {
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
     }
 
-    private static String pasteCodeString(CompilationUnit cu, String originalCode, BodyBlock targetBody, int index, String codeToPaste) {
+    private static String pasteCodeString(CompilationUnit cu, String originalCode, BodyBlock targetBody, int index,
+                                          String codeToPaste, ProjectAnalyzer analyzer, ProjectState state) {
         AST ast = cu.getAST();
         ASTRewrite rewriter = ASTRewrite.create(ast);
+        // The clipboard carries bare source with no import context (an in-app copy is just node.toString()),
+        // so a pasted ImageFinder.find(...) would land in a file that never imported ImageFinder. Bring the
+        // imports along; addImportForSimpleName is a no-op for anything already imported or unresolvable.
+        for (String typeName : referencedTypeNames(codeToPaste)) {
+            ImportManager.addImportForSimpleName(cu, rewriter, typeName, analyzer, state);
+        }
         Statement placeHolder = (Statement) rewriter.createStringPlaceholder(codeToPaste, ASTNode.EMPTY_STATEMENT);
         ListRewrite listRewrite = AstRewriteHelper.getListRewriteForBody(rewriter, targetBody);
-        insertIntoList(listRewrite, targetBody, placeHolder, index);
+        PendingInsert deferred = insertIntoList(listRewrite, targetBody, placeHolder, index, codeToPaste);
+        if (deferred != null) {
+            return AstRewriteHelper.applyRewriteAndInsertAt(rewriter, originalCode, deferred.offset(), deferred.text());
+        }
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
     }
 
@@ -840,7 +855,12 @@ public class CodeEditor {
         ListRewrite targetListRewrite = AstRewriteHelper.getListRewriteForBody(rewriter, targetBody);
         Statement copiedStatement = (Statement) ASTNode.copySubtree(ast, statement);
         sourceListRewrite.remove(statement, null);
-        insertIntoList(targetListRewrite, targetBody, copiedStatement, targetIndex);
+        PendingInsert deferred =
+                insertIntoList(targetListRewrite, targetBody, copiedStatement, targetIndex, statement.toString());
+        if (deferred != null) {
+            // The removal stays on the rewriter; the RangeMarker keeps the drop offset correct across it.
+            return AstRewriteHelper.applyRewriteAndInsertAt(rewriter, originalCode, deferred.offset(), deferred.text());
+        }
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
     }
 
@@ -969,9 +989,73 @@ public class CodeEditor {
         }
     }
 
-    private static void insertIntoList(ListRewrite listRewrite, BodyBlock body, Statement newStatement, int relativeIndex) {
+    /**
+     * The simple type names a pasted snippet refers to, for import resolution.
+     *
+     * <p>Parsed rather than regex-matched: the snippet is re-parsed as a statement sequence (no bindings
+     * needed — {@link ImportManager} resolves the names itself) and two shapes are collected, which between
+     * them cover what a copied block looks like:
+     * <ul>
+     *   <li>{@link SimpleType} — declarations and {@code new Foo(...)}</li>
+     *   <li>the scope of a static call or constant, i.e. the {@code Foo} in {@code Foo.bar()} /
+     *       {@code Foo.BAZ}, which appears only as a {@link SimpleName} and has no type node at all</li>
+     * </ul>
+     *
+     * <p>Best-effort: unparseable clipboard text yields an empty set rather than failing the paste, and a
+     * false positive (a variable named like a type) is harmless — the import simply won't resolve.
+     */
+    private static java.util.Set<String> referencedTypeNames(String snippet) {
+        java.util.Set<String> names = new java.util.LinkedHashSet<>();
+        try {
+            ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
+            parser.setKind(ASTParser.K_STATEMENTS);
+            parser.setSource(snippet.toCharArray());
+            parser.createAST(null).accept(new ASTVisitor() {
+                @Override
+                public boolean visit(SimpleType node) {
+                    names.add(node.getName().getFullyQualifiedName());
+                    return true;
+                }
+
+                @Override
+                public boolean visit(MethodInvocation node) {
+                    if (node.getExpression() instanceof SimpleName scope) addIfTypeLike(scope);
+                    return true;
+                }
+
+                @Override
+                public boolean visit(QualifiedName node) {
+                    if (node.getQualifier() instanceof SimpleName scope) addIfTypeLike(scope);
+                    return true;
+                }
+
+                /** Uppercase-initial is the only signal available without bindings — the JLS naming convention. */
+                private void addIfTypeLike(SimpleName name) {
+                    String id = name.getIdentifier();
+                    if (!id.isEmpty() && Character.isUpperCase(id.charAt(0))) names.add(id);
+                }
+            });
+        } catch (Exception e) {
+            return java.util.Set.of();
+        }
+        return names;
+    }
+
+    /**
+     * Inserts {@code newStatement} at a {@link BodyBlock} child index.
+     *
+     * <p>Returns a {@link PendingInsert} when the insertion could <b>not</b> be expressed on the rewriter and
+     * has to be done as a raw text edit instead — see {@link #commentAnchor}. In that case the caller must
+     * finish through {@link AstRewriteHelper#applyRewriteAndInsertAt} and {@code newStatement} is not added to
+     * the list. {@code null} means the rewriter has it.
+     */
+    private static PendingInsert insertIntoList(ListRewrite listRewrite, BodyBlock body, Statement newStatement,
+                                                int relativeIndex, String textIfDeferred) {
         ASTNode node = body.getAstNode();
         if (node instanceof Block) {
+            Comment anchor = commentAnchor(body, relativeIndex);
+            if (anchor != null) return PendingInsert.after(anchor, textIfDeferred, body);
+
             // relativeIndex counts BodyBlock children, which include CommentBlocks — a Comment is not a JDT
             // Statement and so isn't in Block.statements(). Inserting at the raw index into a body whose only
             // child is a comment asked to insert at index 1 of an empty statement list and threw. Translate to
@@ -991,6 +1075,45 @@ public class CodeEditor {
             int caseIndex = allStatements.indexOf(caseNode);
             int absoluteIndex = caseIndex + 1 + relativeIndex;
             listRewrite.insertAt(newStatement, absoluteIndex, null);
+        }
+        return null;
+    }
+
+    /**
+     * The comment the insertion point sits immediately after, or {@code null} when it doesn't.
+     *
+     * <p>Why this exists: a {@link Comment} occupies no slot in {@code Block.statements()}, and JDT treats a
+     * leading comment as part of the <em>extended</em> source range of the statement that follows it. So there
+     * is no statements() index that means "after the comment" — inserting at the translated index puts the new
+     * code <b>before</b> it, which is why "Paste After" on a comment block pasted before the comment. The
+     * position is expressible only in raw offsets, hence the text-edit path.
+     */
+    private static Comment commentAnchor(BodyBlock body, int relativeIndex) {
+        var children = body.getStatements();
+        if (relativeIndex <= 0 || relativeIndex > children.size()) return null;
+        return children.get(relativeIndex - 1).getAstNode() instanceof Comment c ? c : null;
+    }
+
+    /** A text insertion the rewriter can't express: {@code text} goes at {@code offset} in the original code. */
+    private record PendingInsert(int offset, String text) {
+
+        /** Placed at the end of {@code anchor}'s line, indented to match it. */
+        static PendingInsert after(Comment anchor, String text, BodyBlock body) {
+            if (text == null || text.isBlank()) return null;
+            String indent = indentOf(anchor, body);
+            return new PendingInsert(anchor.getStartPosition() + anchor.getLength(),
+                    "\n" + indent + text.strip());
+        }
+
+        /** The anchor's own column, so the inserted statement lines up with the comment rather than the brace. */
+        private static String indentOf(Comment anchor, BodyBlock body) {
+            ASTNode root = anchor.getRoot();
+            if (!(root instanceof CompilationUnit cu)) return "    ";
+            int line = cu.getLineNumber(anchor.getStartPosition());
+            if (line < 1) return "    ";
+            int lineStart = cu.getPosition(line, 0);
+            int column = anchor.getStartPosition() - lineStart;
+            return column > 0 ? " ".repeat(column) : "    ";
         }
     }
 }

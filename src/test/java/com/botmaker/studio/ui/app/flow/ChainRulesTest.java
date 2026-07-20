@@ -64,6 +64,21 @@ public class ChainRulesTest {
     }
 
     @Test
+    void oneUnwiredActivityDoesNotOrphanTheWholeChain() {
+        // The regression: an un-wired card is itself a root, and placement order is canvas insertion order —
+        // nothing to do with the wiring. Picking the *first* root made D the chain and orphaned A, B and C,
+        // which then vanished from the generated registry. The longest walk has to win.
+        List<FlowEdge> edges = List.of(new FlowEdge("A", "B"), new FlowEdge("B", "C"));
+        for (List<String> placed : List.of(
+                List.of("D", "A", "B", "C"),   // the un-wired card first — the failing case
+                List.of("A", "B", "C", "D"),
+                List.of("A", "D", "B", "C"))) {
+            assertEquals(List.of("A", "B", "C"), ChainRules.chain(placed, edges), "placed: " + placed);
+            assertEquals(List.of("D"), ChainRules.orphans(placed, edges), "placed: " + placed);
+        }
+    }
+
+    @Test
     void aSecondDisconnectedChainCountsAsOrphaned() {
         // Only one chain can run, so the canvas warns about the other rather than silently picking one.
         List<String> placed = List.of("A", "B", "X", "Y");

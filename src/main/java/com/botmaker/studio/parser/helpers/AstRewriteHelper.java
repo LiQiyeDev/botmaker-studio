@@ -6,6 +6,8 @@ import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 import org.eclipse.jdt.core.dom.rewrite.ListRewrite;
 import org.eclipse.jface.text.Document;
 import org.eclipse.jface.text.IDocument;
+import org.eclipse.text.edits.MalformedTreeException;
+import org.eclipse.text.edits.RangeMarker;
 import org.eclipse.text.edits.TextEdit;
 
 /**
@@ -24,6 +26,38 @@ public class AstRewriteHelper {
         try {
             TextEdit edits = rewriter.rewriteAST(document, null);
             edits.apply(document);
+            return document.get();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return originalCode;
+        }
+    }
+
+    /**
+     * Applies {@code rewriter}, then inserts {@code text} at what {@code offset} in the <em>original</em> code
+     * has become — for edits that must land at a raw source position the AST cannot name.
+     *
+     * <p>The position is tracked with a {@link RangeMarker} added to the rewrite's own edit tree and applied
+     * with {@link TextEdit#UPDATE_REGIONS}, so Eclipse shifts it for us. A plain
+     * "{@code offset + (newLength - oldLength)}" delta would only be right when every edit happens to precede
+     * the offset; the marker is correct wherever the other edits land.
+     *
+     * <p>Falls back to a plain {@link #applyRewrite} if the marker can't be attached (it would overlap an
+     * edit) — better to lose the extra insertion than to corrupt the file.
+     */
+    public static String applyRewriteAndInsertAt(ASTRewrite rewriter, String originalCode, int offset, String text) {
+        IDocument document = new Document(originalCode);
+        try {
+            TextEdit edits = rewriter.rewriteAST(document, null);
+            RangeMarker marker = new RangeMarker(offset, 0);
+            try {
+                edits.addChild(marker);
+            } catch (MalformedTreeException overlapping) {
+                edits.apply(document);
+                return document.get();
+            }
+            edits.apply(document, TextEdit.UPDATE_REGIONS);
+            document.replace(marker.getOffset(), 0, text);
             return document.get();
         } catch (Exception e) {
             e.printStackTrace();
