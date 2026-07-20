@@ -21,14 +21,54 @@ public sealed interface ExpressionType
     String displayName();
     ExpressionCategory category();
 
+    /**
+     * A one-glyph icon for the menus. Per-variant rather than per-category because the operators are exactly
+     * where it pays: {@code +}, {@code &&} and {@code ==} are recognised as shapes far faster than the words
+     * "Addition", "And", "Equals" are read.
+     *
+     * <p>Emoji/symbols rather than image assets — nothing to load, and it matches the toolbar's existing
+     * style. Rendered as a menu item's <em>graphic</em>, never appended to its text, because the menu's
+     * search filters on the text.
+     */
+    default String icon() {
+        return switch (this) {
+            case Literal l -> switch (l.kind()) {
+                case TEXT -> "\"\"";
+                case NUMBER -> "#";
+                case TRUE, FALSE -> "◑";
+            };
+            case Reference r -> switch (r.kind()) {
+                case VARIABLE -> "𝑥";
+                case ACTIVITY -> "◆";
+                case FUNCTION_CALL -> "ƒ";
+                case ENUM_CONSTANT -> "◈";
+                case SUB_LIST -> "☰";
+                case INSTANTIATION -> "✦";
+            };
+            case InfixOp op -> op.operator().symbol();
+            case PrefixOp op -> op.operator().symbol();
+        };
+    }
+
     /** A self-contained constant value (no sub-slots to fill) — eligible in {@code constantOnly} menus. */
     boolean isConstant();
 
     /** JDT-free operator token; mapped to {@code InfixExpression.Operator}/{@code PrefixExpression.Operator}. */
     enum Op {
-        PLUS, MINUS, TIMES, DIVIDE, REMAINDER,
-        EQUALS, NOT_EQUALS, GREATER, LESS, GREATER_EQUALS, LESS_EQUALS,
-        AND, OR, NOT
+        PLUS("+"), MINUS("−"), TIMES("×"), DIVIDE("÷"), REMAINDER("%"),
+        EQUALS("="), NOT_EQUALS("≠"), GREATER(">"), LESS("<"), GREATER_EQUALS("≥"), LESS_EQUALS("≤"),
+        AND("&&"), OR("||"), NOT("!");
+
+        private final String symbol;
+
+        Op(String symbol) {
+            this.symbol = symbol;
+        }
+
+        /** How the operator is drawn in a menu — the maths glyph, not the Java spelling. */
+        public String symbol() {
+            return symbol;
+        }
     }
 
     /** A literal value: text / number / true / false. Always constant. */

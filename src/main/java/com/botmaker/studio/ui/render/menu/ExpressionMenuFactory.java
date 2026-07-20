@@ -20,6 +20,7 @@ import io.github.classgraph.ClassInfo;
 import javafx.scene.Node;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.CustomMenuItem;
+import javafx.scene.control.Label;
 import javafx.scene.control.Menu;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.SeparatorMenuItem;
@@ -431,6 +432,7 @@ public final class ExpressionMenuFactory {
                                                ResolvedType expectedType, CodeEditorService context, ProjectState state,
                                                Consumer<Object> onSelect) {
         Menu subMenu = new Menu(cat.getLabel());
+        subMenu.setGraphic(iconNode(cat.icon()));
         for (ExpressionType expr : items) {
             if (expr == ExpressionCatalog.INSTANTIATION && !expectedType.isUnknown() && !isCaptureSourceType(expectedType) && state != null) {
                 for (MethodSignature sig : context.getProjectAnalyzer().getConstructors(expectedType.simpleName())) {
@@ -448,6 +450,7 @@ public final class ExpressionMenuFactory {
     /** Math / comparison / logic: a flat submenu of plain items. */
     private static void appendOperatorSection(ContextMenu menu, ExpressionCategory cat, List<ExpressionType> items, Consumer<Object> onSelect) {
         Menu subMenu = new Menu(cat.getLabel());
+        subMenu.setGraphic(iconNode(cat.icon()));
         for (ExpressionType expr : items) subMenu.getItems().add(createItem(expr, onSelect));
         menu.getItems().add(subMenu);
     }
@@ -838,12 +841,14 @@ public final class ExpressionMenuFactory {
         List<BlockType> blocks = grouped.get(category);
         if (blocks == null || blocks.isEmpty()) return;
         Menu categoryMenu = new Menu(category.getLabel());
+        categoryMenu.setGraphic(iconNode(category.icon()));
         for (BlockType block : blocks) categoryMenu.getItems().add(statementItem(block, onSelection));
         menu.getItems().add(categoryMenu);
     }
 
     private static MenuItem statementItem(BlockType block, Consumer<BlockType> onSelection) {
         MenuItem item = new MenuItem(block.displayName());
+        item.setGraphic(iconNode(block.category().icon()));
         item.setOnAction(e -> onSelection.accept(block));
         return item;
     }
@@ -899,7 +904,24 @@ public final class ExpressionMenuFactory {
 
     private static MenuItem createItem(ExpressionType expr, Consumer<Object> onSelect) {
         MenuItem item = new MenuItem(expr.displayName());
+        item.setGraphic(iconNode(expr.icon()));
         item.setOnAction(e -> onSelect.accept(expr));
         return item;
+    }
+
+    /**
+     * A menu item's icon.
+     *
+     * <p>Set as the item's <b>graphic</b>, never folded into its text: both this menu and the statement menu
+     * filter their search on {@code getText()}, so an icon in the label would be searchable noise ("+" would
+     * match every arithmetic entry by its glyph rather than its name). Fixed-width and centred so the labels
+     * beside them still line up into a column.
+     */
+    private static Node iconNode(String glyph) {
+        Label label = new Label(glyph);
+        label.setStyle("-fx-font-family: 'Segoe UI Symbol'; -fx-text-fill: #555;");
+        label.setMinWidth(16);
+        label.setAlignment(javafx.geometry.Pos.CENTER);
+        return label;
     }
 }

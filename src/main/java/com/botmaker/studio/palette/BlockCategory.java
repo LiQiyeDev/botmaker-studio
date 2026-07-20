@@ -9,30 +9,41 @@ package com.botmaker.studio.palette;
  * hand-written rule (or an inline {@code setStyle} string) with its own copy of the hex.
  */
 public enum BlockCategory {
-    OUTPUT("Output"),
-    INPUT("Input"),
-    VARIABLES("Variables"),
-    FLOW("Logic"),
-    LOOPS("Loops"),
-    CONTROL("Control"),
+    OUTPUT("Output", "🖨"),
+    INPUT("Input", "⌨"),
+    VARIABLES("Variables", "𝑥"),
+    FLOW("Logic", "⑂"),
+    LOOPS("Loops", "↻"),
+    CONTROL("Control", "⏻"),
     // Game/emulator blocks. The SDK-facade launch calls (Game.*, Emulators.*) are now reached through the
     // generated per-facade submenus in the statement menu, so this category submenu carries only the non-facade
     // blocks (e.g. the "Connect Emulator" handle declaration). Still used flat by the overlay's Basic palette
     // (BlockCatalog.BOT_ACTIONS).
-    GAME("Game"),
-    FUNCTIONS("Functions"),
+    GAME("Game", "🎮"),
+    FUNCTIONS("Functions", "ƒ"),
     /** Vision/geometry variable declarations (Point, Rect, Size, MatchResult, …) — their own insert submenu. */
-    BOT_VARIABLE("Declare Bot Variable"),
-    UTILITY("Utility");
+    BOT_VARIABLE("Declare Bot Variable", "◎"),
+    UTILITY("Utility", "🔧");
 
     private final String label;
+    private final String icon;
 
-    BlockCategory(String label) {
+    BlockCategory(String label, String icon) {
         this.label = label;
+        this.icon = icon;
     }
 
     public String getLabel() {
         return label;
+    }
+
+    /**
+     * One-glyph icon for this category's menu entries — the statement-menu counterpart of
+     * {@link ExpressionType#icon()}. Rendered as a menu item's graphic, never appended to its text, since the
+     * menu's search filters on the text.
+     */
+    public String icon() {
+        return icon;
     }
 
     /**
