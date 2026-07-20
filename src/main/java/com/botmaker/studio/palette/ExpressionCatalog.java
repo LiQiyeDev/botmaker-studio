@@ -107,7 +107,25 @@ public final class ExpressionCatalog {
 
         // Literals / operators: the expression's result category must satisfy the slot's category.
         TypeExpectation required = TypeExpectation.of(targetType);
-        return required == TypeExpectation.ANY || required == returnCategory(expr);
+        if (required != TypeExpectation.ANY) return required == returnCategory(expr);
+
+        // TypeExpectation folds every reference type into ANY, which collapses two very different things:
+        // "no constraint" and "a constraint this enum can't express". Treating both as no-constraint is why a
+        // Point[] / ImageTemplate[] element slot offered Addition and And — there is no Java in which
+        // `Point + Point` or `Point && Point` type-checks. An unresolved type was already let through above
+        // (never over-filter), so reaching here means the slot's type IS known: allow a literal or operator
+        // only when the slot is Object, which genuinely accepts anything.
+        return isObject(targetType);
+    }
+
+    /**
+     * True for a slot typed exactly {@code Object} — the one reference type that really is unconstrained.
+     * {@code Named} already reports {@code Object} as unknown (so it never reaches here), but a {@code Bound}
+     * or {@code FromIndex} {@code java.lang.Object} does, and must stay permissive.
+     */
+    private static boolean isObject(ResolvedType type) {
+        String qualified = type.leafType().qualifiedName();
+        return "java.lang.Object".equals(qualified) || "Object".equals(qualified);
     }
 
     /** The {@link TypeExpectation} an expression's result falls into (only Literals/operators reach here). */
