@@ -1,9 +1,9 @@
 package com.botmaker.studio.ui.render.components;
 
-import com.botmaker.shared.emulator.AdbDevice;
 import com.botmaker.shared.emulator.EmulatorInstance;
 import com.botmaker.shared.emulator.Platforms.PlatformStatus;
 import com.botmaker.studio.emulator.EmulatorInstanceScanner;
+import com.botmaker.studio.emulator.EmulatorProbe;
 import com.botmaker.studio.services.ScreenCaptureService;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -26,8 +26,6 @@ import javafx.scene.shape.Circle;
 import javafx.stage.Window;
 
 import java.awt.image.BufferedImage;
-import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -114,7 +112,7 @@ public final class EmulatorPickerDialog {
         thumbHolder.setStyle("-fx-background-color: #101216; -fx-background-radius: 4;");
 
         Circle dot = new Circle(5, Color.web("#9aa0a6")); // neutral until the liveness probe resolves
-        Label brand = new Label(brandOf(instance.platformId()));
+        Label brand = new Label(instance.brand());
         brand.getStyleClass().add("emulator-picker-brand");
         Label name = new Label(instance.name());
         name.getStyleClass().add("emulator-picker-name");
@@ -140,7 +138,7 @@ public final class EmulatorPickerDialog {
 
         // Show any cached apps immediately (so a stopped instance still lists its last scan), then probe liveness
         // and — if up — refresh the apps from the live device and fill in the preview thumbnail.
-        renderApps(apps, instance, APP_CACHE.get(cacheKey(instance)), null, dialog);
+        renderApps(apps, instance, APP_CACHE.get(instance.identity()), null, dialog);
         probeAndLoad(instance, dot, state, apps, thumb, dialog);
         return row;
     }
@@ -152,16 +150,16 @@ public final class EmulatorPickerDialog {
     private static void probeAndLoad(EmulatorInstance instance, Circle dot, Label state, VBox apps,
                                      ImageView thumb, Dialog<Selection> dialog) {
         new Thread(() -> {
-            boolean running = isRunning(instance);
-            List<String> live = running ? installedApps(instance) : null;
-            BufferedImage shot = running ? screencap(instance) : null;
+            boolean running = EmulatorProbe.isRunning(instance);
+            List<String> live = running ? EmulatorProbe.installedApps(instance) : null;
+            BufferedImage shot = running ? EmulatorProbe.screencap(instance) : null;
             Image preview = shot != null ? ScreenCaptureService.toFxImage(shot) : null;
             Platform.runLater(() -> {
                 dot.setFill(running ? Color.web("#34a853") : Color.web("#9aa0a6"));
                 state.setText(running ? "running" : "stopped");
                 if (preview != null) thumb.setImage(preview);
-                if (running && live != null) APP_CACHE.put(cacheKey(instance), live);
-                List<String> show = running ? live : APP_CACHE.get(cacheKey(instance));
+                if (running && live != null) APP_CACHE.put(instance.identity(), live);
+                List<String> show = running ? live : APP_CACHE.get(instance.identity());
                 String emptyNote = running
                         ? "No third-party apps found on this instance."
                         : "Instance stopped — start it to list apps, or enter a package below.";
@@ -234,7 +232,7 @@ public final class EmulatorPickerDialog {
         title.setStyle("-fx-font-weight: bold;");
         box.getChildren().add(title);
         for (PlatformStatus s : statuses) {
-            box.getChildren().add(new Label("• " + statusLine(s)));
+            box.getChildren().add(new Label("• " + s.statusLine()));
         }
         Label hint = new Label("Start an instance with ADB enabled, then reopen this picker.");
         hint.setWrapText(true);
@@ -243,69 +241,4 @@ public final class EmulatorPickerDialog {
         return box;
     }
 
-    /** A one-line detection summary for a product. */
-    private static String statusLine(PlatformStatus s) {
-        if (!s.ok()) return s.displayName() + ": scan error (" + s.error() + ")";
-        if (!s.installed()) return s.displayName() + ": not installed";
-        int n = s.instanceCount();
-        return s.displayName() + ": installed · " + n + (n == 1 ? " instance" : " instances") + " configured";
-    }
-
-    /** App-cache key: the instance's identity (platform + endpoint), so two same-named instances don't collide. */
-    private static String cacheKey(EmulatorInstance instance) {
-        return instance.platformId() + "@" + instance.endpoint();
-    }
-
-    /** A quick TCP liveness probe of the instance's ADB port (mirrors the SDK's {@code EmulatorRef.running}). */
-    private static boolean isRunning(EmulatorInstance instance) {
-        try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress(instance.host(), instance.adbPort()), 300);
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    /** Installed third-party apps of a running instance via a short-lived ADB connection; empty on any failure. */
-    private static List<String> installedApps(EmulatorInstance instance) {
-        AdbDevice device = null;
-        try {
-            device = AdbDevice.connect(instance.host(), instance.adbPort());
-            return device.installedApps();
-        } catch (Exception e) {
-            return List.of();
-        } finally {
-            if (device != null) {
-                try { device.close(); } catch (Exception ignored) { /* best-effort */ }
-            }
-        }
-    }
-
-    /** One ADB {@code screencap} of a running instance via a short-lived connection; null on any failure. */
-    private static BufferedImage screencap(EmulatorInstance instance) {
-        AdbDevice device = null;
-        try {
-            device = AdbDevice.connect(instance.host(), instance.adbPort());
-            return device.screencap();
-        } catch (Exception e) {
-            return null;
-        } finally {
-            if (device != null) {
-                try { device.close(); } catch (Exception ignored) { /* best-effort */ }
-            }
-        }
-    }
-
-    /** Human-facing product brand for a {@code platformId} (falls back to the raw id for unknown products). */
-    private static String brandOf(String platformId) {
-        if (platformId == null) return "Emulator";
-        return switch (platformId) {
-            case "bluestacks" -> "BlueStacks";
-            case "ldplayer" -> "LDPlayer";
-            case "memu" -> "MEmu";
-            case "mumu" -> "MuMu";
-            case "gameloop" -> "Gameloop";
-            default -> platformId;
-        };
-    }
 }

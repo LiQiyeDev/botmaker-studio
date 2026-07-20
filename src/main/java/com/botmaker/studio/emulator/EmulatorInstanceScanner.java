@@ -67,16 +67,12 @@ public final class EmulatorInstanceScanner {
         return new ArrayList<>(names);
     }
 
-    /** De-duplicates by {@code platformId@host:adbPort} (unique per instance), preserving discovery order. */
+    /** De-duplicates by {@link EmulatorInstance#identity()} (unique per instance), preserving discovery order. */
     private static List<EmulatorInstance> dedupByIdentity(List<EmulatorInstance> all) {
         Map<String, EmulatorInstance> byIdentity = new LinkedHashMap<>();
         for (EmulatorInstance instance : all) {
-            byIdentity.putIfAbsent(identity(instance), instance);
+            byIdentity.putIfAbsent(instance.identity(), instance);
         }
         return new ArrayList<>(byIdentity.values());
-    }
-
-    private static String identity(EmulatorInstance instance) {
-        return instance.platformId() + "@" + instance.host() + ":" + instance.adbPort();
     }
 }

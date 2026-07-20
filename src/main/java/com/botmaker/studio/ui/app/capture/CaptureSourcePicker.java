@@ -2,10 +2,11 @@ package com.botmaker.studio.ui.app.capture;
 
 import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeControllerFactory;
-import com.botmaker.shared.emulator.AdbDevice;
 import com.botmaker.shared.emulator.EmulatorInstance;
 import com.botmaker.shared.emulator.Platforms.PlatformStatus;
 import com.botmaker.studio.emulator.EmulatorInstanceScanner;
+import com.botmaker.studio.emulator.EmulatorProbe;
+import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.project.capture.CaptureRegion;
 import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.services.capture.DesktopGrab;
@@ -35,16 +36,11 @@ import javafx.stage.Screen;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 
-import javax.imageio.ImageIO;
 import java.awt.GraphicsDevice;
 import java.awt.GraphicsEnvironment;
 import java.awt.Rectangle;
 import java.awt.Robot;
 import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executors;
@@ -255,7 +251,7 @@ public final class CaptureSourcePicker {
                 BufferedImage shot = (desktop != null)
                         ? DesktopGrab.cropToBounds(desktop, bounds)
                         : captureMonitorRobot(bounds);
-                Image img = toFxImage(shot);
+                Image img = ScreenCaptureService.toFxImage(shot);
                 VBox tile = tiles.get(i);
                 if (img != null) Platform.runLater(() -> setThumb(tile, img));
             }
@@ -275,7 +271,7 @@ public final class CaptureSourcePicker {
         if (selected == null) select(tile, new Selection.Concrete(target));
         into.getChildren().add(tile);
         thumbs().submit(() -> {
-            Image img = toFxImage(DesktopGrab.grabVirtualDesktop());
+            Image img = ScreenCaptureService.toFxImage(DesktopGrab.grabVirtualDesktop());
             if (img != null) Platform.runLater(() -> setThumb(tile, img));
         });
     }
@@ -301,8 +297,8 @@ public final class CaptureSourcePicker {
             }
             for (EmulatorInstance instance : instances) {
                 String name = instance.name();
-                boolean running = isEmulatorRunning(instance);
-                Image img = running ? toFxImage(emulatorScreencap(instance)) : null;
+                boolean running = EmulatorProbe.isRunning(instance);
+                Image img = running ? ScreenCaptureService.toFxImage(EmulatorProbe.screencap(instance)) : null;
                 Platform.runLater(() -> {
                     VBox tile = tile(name, running ? "Emulator · running" : "Emulator · stopped");
                     CaptureTarget target = new EmulatorTarget(name);
@@ -329,7 +325,7 @@ public final class CaptureSourcePicker {
         title.setStyle("-fx-text-fill: gray; -fx-font-size: 11px;");
         box.getChildren().add(title);
         for (PlatformStatus s : statuses) {
-            Label l = new Label("• " + statusLine(s));
+            Label l = new Label("• " + s.statusLine());
             l.setStyle("-fx-text-fill: gray; -fx-font-size: 11px;");
             box.getChildren().add(l);
         }
@@ -338,39 +334,6 @@ public final class CaptureSourcePicker {
         hint.setStyle("-fx-text-fill: gray; -fx-font-size: 11px;");
         box.getChildren().add(hint);
         return box;
-    }
-
-    /** A one-line detection summary for a product. */
-    private static String statusLine(PlatformStatus s) {
-        if (!s.ok()) return s.displayName() + ": scan error (" + s.error() + ")";
-        if (!s.installed()) return s.displayName() + ": not installed";
-        int n = s.instanceCount();
-        return s.displayName() + ": installed · " + n + (n == 1 ? " instance" : " instances") + " configured";
-    }
-
-    /** A quick TCP liveness probe of the instance's ADB port (mirrors {@code EmulatorPickerDialog.isRunning}). */
-    private static boolean isEmulatorRunning(EmulatorInstance instance) {
-        try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress(instance.host(), instance.adbPort()), 300);
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    /** One ADB {@code screencap} of a running instance via a short-lived connection; null on any failure. */
-    private static BufferedImage emulatorScreencap(EmulatorInstance instance) {
-        AdbDevice device = null;
-        try {
-            device = AdbDevice.connect(instance.host(), instance.adbPort());
-            return device.screencap();
-        } catch (Throwable t) {
-            return null;
-        } finally {
-            if (device != null) {
-                try { device.close(); } catch (Exception ignored) { /* best-effort */ }
-            }
-        }
     }
 
     private void loadWindows(FlowPane into) {
@@ -395,7 +358,7 @@ public final class CaptureSourcePicker {
                 } catch (Throwable t) {
                     shot = null;
                 }
-                Image img = toFxImage(shot);
+                Image img = ScreenCaptureService.toFxImage(shot);
                 Platform.runLater(() -> {
                     VBox tile = tile(title, "Window");
                     CaptureTarget target = new WindowTarget(title);
@@ -498,17 +461,6 @@ public final class CaptureSourcePicker {
         if (thumbExec != null) {
             thumbExec.shutdownNow();
             thumbExec = null;
-        }
-    }
-
-    private static Image toFxImage(BufferedImage image) {
-        if (image == null) return null;
-        try {
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            ImageIO.write(image, "png", out);
-            return new Image(new ByteArrayInputStream(out.toByteArray()));
-        } catch (Exception e) {
-            return null;
         }
     }
 }

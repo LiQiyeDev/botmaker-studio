@@ -49,6 +49,18 @@ Prefer minimizing mutable state — favor a functional OOP style. Use immutable 
 than holding mutable fields or reaching for static/singleton state. Keep side effects (file I/O, process
 launching, event publishing) at the edges in the service layer.
 
+**Don't re-derive what shared already models.** Studio consumes shared's types, so a label, key or probe that
+shared can answer belongs there, not in a dialog. Concretely: use `EmulatorInstance.brand()` /
+`PlatformId.displayName()` rather than a local id→name switch (Studio's own `brandOf` had silently drifted
+from shared's naming), `EmulatorInstance.identity()` for any cache or de-dup key (never the display name —
+instances routinely share one), and `Platforms.PlatformStatus.statusLine()` for the per-product summary. The
+editor-side counterpart is `emulator/EmulatorProbe` (liveness, `screencap`, `installedApps`), shared by both
+pickers so they can't drift on timeouts or failure handling.
+
+**One conversion, one place.** `ScreenCaptureService.toFxImage` is the single `BufferedImage` → FX `Image`
+path and is null-tolerant, so best-effort callers (a window that wouldn't capture, a stopped emulator) pass
+their result straight through instead of keeping a private null-returning copy.
+
 ## Setup
 
 User projects live in `~/BotMakerProjects/` (not inside this repo). Each project is a standard **Maven** project with the layout `src/main/java/com/<projectnamelowercase>/<ProjectName>.java`. The BotMaker-Studio app itself is also a Maven project (`pom.xml`): build with `mvn compile`, run with `mvn javafx:run`, test with `mvn test`.

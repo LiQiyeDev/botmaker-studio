@@ -996,8 +996,13 @@ public final class ScreenCaptureService {
         for (CaptureOverlayListener l : OVERLAY_LISTENERS) l.onHidden();
     }
 
-    /** Converts a {@link BufferedImage} to a JavaFX {@link Image} via in-memory PNG (no javafx.swing dep). */
+    /**
+     * Converts a {@link BufferedImage} to a JavaFX {@link Image} via in-memory PNG (no javafx.swing dep).
+     * Returns {@code null} for a {@code null} image, so callers feeding it a best-effort grab (a window that
+     * couldn't be captured, a stopped emulator) can pass the result straight through.
+     */
     public static Image toFxImage(BufferedImage image) {
+        if (image == null) return null;
         try {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             ImageIO.write(image, "png", out);

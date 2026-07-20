@@ -6,6 +6,16 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-20 — code quality: typed platform id + de-duplicated emulator/picker code.** Follows shared's
+  `String platformId` → `PlatformId` enum. **Deleted** `EmulatorPickerDialog.brandOf` (a second id→name
+  switch that had already drifted from shared's — it said "MuMu" where the platform said "MuMu Player") in
+  favour of `EmulatorInstance.brand()`; both pickers' hand-rolled cache/dedup keys now use
+  `EmulatorInstance.identity()`, and their byte-identical `statusLine` copies use
+  `Platforms.PlatformStatus.statusLine()`. New `emulator/EmulatorProbe` holds the TCP liveness probe,
+  `screencap` and `installedApps` that `EmulatorPickerDialog` and `CaptureSourcePicker` each carried their
+  own copies of. `CaptureSourcePicker.toFxImage` is gone: `ScreenCaptureService.toFxImage` is now
+  null-tolerant (returns null for a null image) so the one implementation serves best-effort callers too.
+
 - **2026-07-20 — Activity Flow canvas (replaces the two activity dialogs).** `ui/app/ActivityFlowDialog` is
   now the single place activities are defined, configured, ordered and switched on — **Manage Activities…**
   and **Set Activity Values…** are gone (both classes deleted), replaced by one **🔀 Activity Flow** toolbar
