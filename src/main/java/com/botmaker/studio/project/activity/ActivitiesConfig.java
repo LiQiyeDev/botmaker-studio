@@ -74,10 +74,13 @@ public record ActivitiesConfig(List<ActivityDefinition> activities, List<Activit
     }
 
     /**
-     * The activities in <em>run order</em>: the {@link #flow()} chain (root → …) when one is wired, else
-     * the plain definition order. Excluded are orphans (placed but not reachable from the chain root) and
+     * The activities a run can actually reach: everything reachable from the {@link #flow()}'s start node when
+     * one is wired, else the plain definition order. Excluded are orphans (placed but unreachable) and
      * {@link ActivityDefinition#archived() archived} activities — neither runs. This is what the generated
-     * {@code ActivityRegistry.ALL} iterates.
+     * {@code ActivityRegistry} instantiates and the generated {@code FlowDriver} can route to.
+     *
+     * <p>The order is breadth-first from the start and is presentational only — with branching there is no
+     * single run order any more; the driver picks the next node from the outcome each activity reports.
      *
      * <p>Note {@link #allVariables()} still spans <em>all</em> activities, orphaned and archived included, so
      * their {@code Activities.<field>} flags exist and every generated stub compiles — only running is gated
@@ -90,7 +93,7 @@ public record ActivitiesConfig(List<ActivityDefinition> activities, List<Activit
         Map<String, ActivityDefinition> byName = new LinkedHashMap<>();
         for (ActivityDefinition a : live) byName.put(a.name(), a);
         List<ActivityDefinition> ordered = new ArrayList<>();
-        for (String name : flow.order(live.stream().map(ActivityDefinition::name).toList())) {
+        for (String name : flow.reachable(live.stream().map(ActivityDefinition::name).toList())) {
             ActivityDefinition a = byName.get(name);
             if (a != null) ordered.add(a);
         }

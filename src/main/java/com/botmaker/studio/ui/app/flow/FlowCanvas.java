@@ -82,6 +82,9 @@ public final class FlowCanvas extends StackPane {
     private CubicCurve pendingWire;
     private ActivityDraft pendingFrom;
 
+    /** The entry point of the flow; blank until one is chosen (then the first placed card is used). */
+    private String start = "";
+
     public FlowCanvas() {
         content.setPrefSize(CANVAS_W, CANVAS_H);
         content.setStyle("-fx-background-color: #fafafa;");
@@ -168,14 +171,24 @@ public final class FlowCanvas extends StackPane {
         return new Point2D(x, y);
     }
 
-    /** The current run order, exactly as the generator will linearize it. */
+    /** The activities a run can reach, exactly as the generator will walk them. */
     public List<String> chain() {
-        return ChainRules.chain(placedNames(), edges);
+        return FlowRules.reachable(placedNames(), edges, start);
     }
 
-    /** Placed activities that the chain never reaches — they won't run. */
+    /** Placed activities the flow never reaches — they won't run. */
     public List<String> orphans() {
-        return ChainRules.orphans(placedNames(), edges);
+        return FlowRules.orphans(placedNames(), edges, start);
+    }
+
+    /** The activity the run begins at; blank falls back to the first placed card. */
+    public String start() {
+        return start;
+    }
+
+    public void setStart(String newStart) {
+        this.start = newStart == null ? "" : newStart;
+        refresh();
     }
 
     private List<String> placedNames() {
@@ -260,7 +273,7 @@ public final class FlowCanvas extends StackPane {
     // --- wiring ---
 
     private void tryConnect(ActivityDraft from, ActivityDraft to) {
-        String rejection = ChainRules.rejectionFor(edges, from.name(), to.name());
+        String rejection = FlowRules.rejectionFor(edges, from.name(), "", to.name());
         if (rejection != null) {
             onMessage.accept(rejection);
             return;

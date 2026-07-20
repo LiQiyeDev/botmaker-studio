@@ -2,9 +2,12 @@ package com.botmaker.studio.project.activity;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Deque;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -12,23 +15,51 @@ import java.util.Set;
 
 /**
  * The visual activity flow: node placements plus the wires between them, as built on the free-form canvas.
- * In v1 the flow is a single <em>linear chain</em> (each activity has at most one incoming and one outgoing
- * {@link FlowEdge}; no branches, cycles, or fan-out — enforced by the editor). The chain's <em>root</em>
- * (the placed node with no incoming wire) is where the bot starts; following the wires gives the run order.
+ * The flow is a <em>graph</em>: an activity may have one outgoing wire per {@link ActivityDefinition#outcomes()
+ * outcome}, several wires may arrive at one node, and a wire may lead back to an earlier activity so the bot
+ * repeats. Execution begins at {@link #start()} and ends when it reaches the {@link FlowNodeKind#STOP} node or
+ * an outcome with no wire.
  *
  * <p>This is presentational/topological state that lives alongside the activity definitions in
- * {@code activities.json}. It is optional and back-compatible: an empty flow (no wires) means "no chosen
- * chain yet", and callers fall back to the plain definition order (see {@link #order}).
+ * {@code activities.json}. It is optional and back-compatible: an empty flow (no wires) means "nothing wired
+ * yet", and callers fall back to plain definition order (see {@link #reachable}).
  *
- * @param nodes canvas placements, one per activity that has been dropped on the canvas
- * @param edges the wires ("from finishes → to runs next")
+ * <p><b>Why {@link #start()} is stored rather than inferred.</b> It used to be derived — the placed node
+ * nothing wires into. Once a cycle is legal that breaks down completely: in a loop every node has an incoming
+ * wire, so there is no root to find. Deriving it was already the source of a real bug (a lone unwired card
+ * outranked the actual chain and every wired activity was dropped from the generated registry); naming the
+ * entry point removes the guess instead of improving it.
+ *
+ * @param nodes    canvas placements — one per activity dropped on the canvas, plus at most one STOP card
+ * @param edges    the wires ("from reports this outcome → to runs next")
+ * @param start    the activity the run begins at; blank ⇒ fall back to the first placed activity
+ * @param maxSteps how many node transitions one run may make before the generated driver gives up (see
+ *                 {@link #DEFAULT_MAX_STEPS}); {@code <= 0} ⇒ the default
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record ActivityFlow(List<FlowNode> nodes, List<FlowEdge> edges) {
+public record ActivityFlow(List<FlowNode> nodes, List<FlowEdge> edges, String start, int maxSteps) {
+
+    /** The id of the terminal node — not an activity name, so it can never collide with one. */
+    public static final String STOP_ID = "@stop";
+
+    /**
+     * The default budget of node transitions per run. A branching flow may legitimately cycle forever, so the
+     * generated driver counts steps and stops when this is exceeded — that is the difference between "this bot
+     * farms all night" and "this bot is spinning between two activities and will never stop". The
+     * {@code Watchdog} covers being stuck <em>inside</em> an activity; nothing covered spinning between them.
+     */
+    public static final int DEFAULT_MAX_STEPS = 1000;
 
     public ActivityFlow {
         nodes = nodes == null ? List.of() : List.copyOf(nodes);
         edges = edges == null ? List.of() : List.copyOf(edges);
+        if (start == null) start = "";
+        if (maxSteps <= 0) maxSteps = DEFAULT_MAX_STEPS;
+    }
+
+    /** A flow with no explicit start or budget — how every pre-branching {@code activities.json} loads. */
+    public ActivityFlow(List<FlowNode> nodes, List<FlowEdge> edges) {
+        this(nodes, edges, "", DEFAULT_MAX_STEPS);
     }
 
     public static ActivityFlow empty() {
@@ -45,68 +76,86 @@ public record ActivityFlow(List<FlowNode> nodes, List<FlowEdge> edges) {
         return nodes.stream().filter(n -> n.activity().equals(activity)).findFirst();
     }
 
+    /** The terminal card's placement, if one has been added. */
+    public Optional<FlowNode> stopNode() {
+        return nodes.stream().filter(FlowNode::isStop).findFirst();
+    }
+
+    public ActivityFlow withStart(String newStart) {
+        return new ActivityFlow(nodes, edges, newStart, maxSteps);
+    }
+
+    public ActivityFlow withMaxSteps(int newMaxSteps) {
+        return new ActivityFlow(nodes, edges, start, newMaxSteps);
+    }
+
     /**
-     * The run order for {@code allActivityNames}, linearized from the wiring: start at the chain's root (a
-     * placed node with no incoming wire) and follow each single outgoing wire. Activities not reachable from
-     * the root — <em>orphans</em> — are excluded (they won't run; the editor flags them). Stale wires
-     * pointing at names no longer in {@code allActivityNames} are ignored.
+     * The entry point resolved against what is actually placed: {@link #start()} when it names a placed
+     * activity, else the first placed one. The fallback is what lets a flow drawn before start nodes existed
+     * — and a flow whose start activity was archived or renamed — still generate something that runs.
+     */
+    public String resolvedStart(List<String> allActivityNames) {
+        List<String> placed = placedActivities(allActivityNames);
+        if (placed.contains(start)) return start;
+        return placed.isEmpty() ? "" : placed.getFirst();
+    }
+
+    /**
+     * The activities the run can actually reach, breadth-first from {@link #resolvedStart}. Anything left out
+     * is an <em>orphan</em>: placed but unreachable, so it never runs (the editor flags it). Wires naming
+     * something that no longer exists are ignored.
      *
-     * <p>When the flow {@link #isEmpty() has no wires} the chain is undefined, so this returns
+     * <p>Breadth-first order is <em>presentational only</em> — with branches there is no single run order any
+     * more, and the generated driver decides what runs next from the outcome an activity reports. What this
+     * list still decides is which activities are instantiated and which are flagged as orphans.
+     *
+     * <p>When the flow {@link #isEmpty() has no wires} nothing is wired yet, so this returns
      * {@code allActivityNames} unchanged — preserving the pre-flow behaviour (definition order, all run).
      */
-    public List<String> order(List<String> allActivityNames) {
+    public List<String> reachable(List<String> allActivityNames) {
         if (isEmpty()) return List.copyOf(allActivityNames);
+        return reachableFrom(placedActivities(allActivityNames), edges, resolvedStart(allActivityNames));
+    }
 
-        // Placed activities, in canvas insertion order, restricted to ones that still exist.
+    /**
+     * Breadth-first walk of {@code edges} from {@code start} over {@code placed}, excluding the STOP node
+     * (reaching it ends the run, it isn't something that runs). Wires naming anything outside {@code placed}
+     * are ignored as stale, and revisiting is skipped — which is also what makes a cyclic flow terminate here.
+     *
+     * <p>Static and shared by the model and the flow editor, so the set of activities the canvas marks as
+     * reachable is by construction the set the generator emits. Its predecessor {@code linearize} was shared
+     * for the same reason; what changed is that a branching flow yields a reachable <em>set</em> rather than a
+     * single ordered chain.
+     */
+    public static List<String> reachableFrom(List<String> placed, List<FlowEdge> edges, String start) {
+        Set<String> known = new HashSet<>(placed);
+        if (!known.contains(start)) return List.of();
+
+        Map<String, List<String>> successors = new LinkedHashMap<>();
+        for (FlowEdge e : edges) {
+            if (!known.contains(e.from()) || !known.contains(e.to())) continue; // stale wire, or → STOP
+            successors.computeIfAbsent(e.from(), k -> new ArrayList<>()).add(e.to());
+        }
+
+        Set<String> visited = new LinkedHashSet<>();
+        Deque<String> queue = new ArrayDeque<>();
+        queue.add(start);
+        while (!queue.isEmpty()) {
+            String node = queue.removeFirst();
+            if (!visited.add(node)) continue; // already reached; this is also the cycle guard
+            queue.addAll(successors.getOrDefault(node, List.of()));
+        }
+        return List.copyOf(visited);
+    }
+
+    /** The placed activity names (STOP excluded), in canvas order, restricted to ones that still exist. */
+    private List<String> placedActivities(List<String> allActivityNames) {
         Set<String> known = new HashSet<>(allActivityNames);
         List<String> placed = new ArrayList<>();
         for (FlowNode n : nodes) {
+            if (n.isStop()) continue;
             if (known.contains(n.activity()) && !placed.contains(n.activity())) placed.add(n.activity());
         }
-        return linearize(placed, edges);
-    }
-
-    /**
-     * Walks {@code edges} into a run order: start at a chain root (a node of {@code placed} that nothing wires
-     * into) and follow each single outgoing wire until the chain ends. Anything not reached is left out — with
-     * a valid single chain that means the orphans. Wires naming something outside {@code placed} are ignored
-     * (stale), and the {@code seen} guard means even a malformed cyclic file terminates.
-     *
-     * <p>When several roots exist the <b>longest</b> walk wins, ties going to {@code placed} order. Taking the
-     * <em>first</em> root instead was a real bug: a single un-wired card is itself a root, so if it happened to
-     * be placed before the wired ones — placement is canvas insertion order, nothing to do with the wiring —
-     * the "chain" was that one card and every properly wired activity was reported an orphan and dropped from
-     * the generated registry.
-     *
-     * <p>Shared by the model and the flow editor so the order the canvas previews is the order that is
-     * generated.
-     */
-    public static List<String> linearize(List<String> placed, List<FlowEdge> edges) {
-        Set<String> known = new HashSet<>(placed);
-        Map<String, String> next = new HashMap<>();
-        Set<String> hasIncoming = new HashSet<>();
-        for (FlowEdge e : edges) {
-            if (!known.contains(e.from()) || !known.contains(e.to())) continue; // ignore stale wires
-            next.put(e.from(), e.to());
-            hasIncoming.add(e.to());
-        }
-
-        List<String> longest = List.of();
-        for (String root : placed) {
-            if (hasIncoming.contains(root)) continue;
-            List<String> walk = walkFrom(root, next);
-            if (walk.size() > longest.size()) longest = walk; // strict: ties keep the earlier-placed root
-        }
-        return longest;
-    }
-
-    /** Follows single outgoing wires from {@code root}; the {@code seen} guard terminates on a cyclic file. */
-    private static List<String> walkFrom(String root, Map<String, String> next) {
-        List<String> ordered = new ArrayList<>();
-        Set<String> seen = new HashSet<>();
-        for (String cur = root; cur != null && seen.add(cur); cur = next.get(cur)) {
-            ordered.add(cur);
-        }
-        return ordered;
+        return placed;
     }
 }

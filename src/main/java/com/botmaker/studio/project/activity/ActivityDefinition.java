@@ -3,6 +3,7 @@ package com.botmaker.studio.project.activity;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.node.BooleanNode;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -21,24 +22,38 @@ import java.util.List;
  * file, and the hand-written stub that survives still refers to {@code Activities.<Name>}, so dropping the
  * definition outright would stop the project compiling.
  *
+ * <p>{@link #outcomes()} are the activity's <em>results</em> — what it can report having happened
+ * ({@code BAG_FULL}, {@code NO_ORE}) — which the flow canvas maps to a next node each. They are generated as
+ * a nested {@code Outcome} enum on the activity's class, always led by the implicit
+ * {@link FlowEdge#DEFAULT_OUTCOME}, which is not stored here: every activity has it, so storing it would only
+ * create a way for it to go missing.
+ *
  * @param name        activity name / generated class name (a valid Java identifier)
  * @param enabled     the default value of the enable flag
  * @param description optional human-readable note (may be empty)
  * @param params      the activity's config variables ("how to do it")
  * @param archived    retired: keeps its file and fields, but doesn't appear on the canvas or run
+ * @param outcomes    the named results this activity can report, excluding the implicit DEFAULT
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record ActivityDefinition(String name, boolean enabled, String description, List<ActivityVariable> params,
-                                 boolean archived) {
+                                 boolean archived, List<String> outcomes) {
 
     public ActivityDefinition {
         if (description == null) description = "";
         params = params == null ? List.of() : List.copyOf(params);
+        outcomes = outcomes == null ? List.of() : List.copyOf(outcomes);
+    }
+
+    /** Convenience for an activity with only the default outcome; a pre-outcomes file loads this way. */
+    public ActivityDefinition(String name, boolean enabled, String description, List<ActivityVariable> params,
+                              boolean archived) {
+        this(name, enabled, description, params, archived, List.of());
     }
 
     /** Convenience for the common live activity; an {@code activities.json} without the field loads this way. */
     public ActivityDefinition(String name, boolean enabled, String description, List<ActivityVariable> params) {
-        this(name, enabled, description, params, false);
+        this(name, enabled, description, params, false, List.of());
     }
 
     /** A fresh activity with the given name/description, disabled, no params. */
@@ -56,19 +71,37 @@ public record ActivityDefinition(String name, boolean enabled, String descriptio
         return name + "_" + param.name();
     }
 
+    /**
+     * Every constant of this activity's generated {@code Outcome} enum, in generated order: the implicit
+     * {@link FlowEdge#DEFAULT_OUTCOME} first, then the declared {@link #outcomes()}. This is the single
+     * source of both the enum body and the card's output ports, so the two can't drift.
+     */
+    public List<String> allOutcomes() {
+        List<String> all = new ArrayList<>(outcomes.size() + 1);
+        all.add(FlowEdge.DEFAULT_OUTCOME);
+        for (String o : outcomes) {
+            if (!all.contains(o)) all.add(o); // a stored DEFAULT would otherwise duplicate the implicit one
+        }
+        return all;
+    }
+
     public ActivityDefinition withEnabled(boolean newEnabled) {
-        return new ActivityDefinition(name, newEnabled, description, params, archived);
+        return new ActivityDefinition(name, newEnabled, description, params, archived, outcomes);
     }
 
     public ActivityDefinition withDescription(String newDescription) {
-        return new ActivityDefinition(name, enabled, newDescription, params, archived);
+        return new ActivityDefinition(name, enabled, newDescription, params, archived, outcomes);
     }
 
     public ActivityDefinition withParams(List<ActivityVariable> newParams) {
-        return new ActivityDefinition(name, enabled, description, newParams, archived);
+        return new ActivityDefinition(name, enabled, description, newParams, archived, outcomes);
     }
 
     public ActivityDefinition withArchived(boolean newArchived) {
-        return new ActivityDefinition(name, enabled, description, params, newArchived);
+        return new ActivityDefinition(name, enabled, description, params, newArchived, outcomes);
+    }
+
+    public ActivityDefinition withOutcomes(List<String> newOutcomes) {
+        return new ActivityDefinition(name, enabled, description, params, archived, newOutcomes);
     }
 }
