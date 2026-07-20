@@ -368,6 +368,18 @@ public final class FlowCanvas extends StackPane {
      * </ul>
      */
     public void autoArrange() {
+        // Nothing wired yet: there are no layers to compute, so lay every card out as a uniform grid. Doing this
+        // rather than the layer walk (which would place only the start card and leave the rest where they were)
+        // is what makes a repeated click idempotent — otherwise centreOnCanvas translates the un-placed cards by
+        // an ever-growing delta and they drift further apart on every click.
+        if (edges.isEmpty()) {
+            gridCards(placedNames(), 0);
+            centreOnCanvas();
+            refresh();
+            recenter();
+            return;
+        }
+
         List<String> reachable = chain();
         Map<String, Integer> layers = longestPathLayers(reachable);
 
@@ -391,15 +403,39 @@ public final class FlowCanvas extends StackPane {
             bottom = Math.max(bottom, y);
         }
 
-        List<String> orphans = orphans();
-        for (int i = 0; i < orphans.size(); i++) {
-            NodeCard card = cards.get(orphans.get(i));
-            if (card != null) placeAt(card, i * ARRANGE_X, bottom + ARRANGE_GAP);
+        // Every placed card the layer walk didn't position — real orphans plus anything unreachable — is laid
+        // out on a fresh grid below the arranged block. Giving them fresh positions (rather than leaving them
+        // where they were) is what stops centreOnCanvas from feeding stale coordinates back in and drifting
+        // them on each click.
+        Set<String> arranged = new HashSet<>(reachable);
+        List<String> leftovers = new ArrayList<>();
+        for (String name : placedNames()) {
+            if (!arranged.contains(name)) leftovers.add(name);
         }
+        gridCards(leftovers, bottom + ARRANGE_GAP);
 
         centreOnCanvas();
         refresh();
         recenter();
+    }
+
+    /** Lays {@code names} out as a squarish grid whose top edge sits at {@code top}, in placement order. */
+    private void gridCards(List<String> names, double top) {
+        if (names.isEmpty()) return;
+        int columns = (int) Math.ceil(Math.sqrt(names.size()));
+        double y = top;
+        double rowHeight = 0;
+        for (int i = 0; i < names.size(); i++) {
+            int col = i % columns;
+            if (col == 0 && i > 0) {
+                y += rowHeight + ARRANGE_GAP;
+                rowHeight = 0;
+            }
+            NodeCard card = cards.get(names.get(i));
+            if (card == null) continue;
+            placeAt(card, col * ARRANGE_X, y);
+            rowHeight = Math.max(rowHeight, heightOf(card));
+        }
     }
 
     private static int maxLayer(Map<Integer, List<String>> byLayer) {

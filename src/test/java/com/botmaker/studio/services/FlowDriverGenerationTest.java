@@ -147,7 +147,7 @@ class FlowDriverGenerationTest {
     private static String afterActiveCheck(String constant, String fallthrough) {
         String indent = " ".repeat(16);
         return indent + "if (!ActivityRegistry." + constant + ".active()) return " + fallthrough + ";\n"
-                + indent + "GoHome.run();";
+                + indent + "GoHome.INSTANCE.execute();";
     }
 
     @Test
@@ -190,11 +190,18 @@ class FlowDriverGenerationTest {
         for (String standIn : SDK_STAND_INS) {
             sources.add(write(config.sourceRoot().resolve(standInPath(standIn)), standIn));
         }
-        // The driver calls GoHome.run() for every activity with the tick on. It is scaffolded into the project
-        // by ProjectCreator rather than generated here, so the test supplies the same shape.
+        // The driver calls GoHome.INSTANCE.execute() for every activity with the tick on. GoHome is an Activity
+        // subclass scaffolded into the project by ProjectCreator rather than generated here, so the test supplies
+        // the same shape.
         sources.add(write(config.mainSourceFile().getParent().resolve("GoHome.java"),
                 "package com." + config.packageName() + ";\n"
-                        + "public class GoHome { public static void run() {} }\n"));
+                        + "import com.botmaker.sdk.api.bot.Activity;\n"
+                        + "public class GoHome extends Activity<GoHome.Outcome> {\n"
+                        + "    public static final GoHome INSTANCE = new GoHome();\n"
+                        + "    public enum Outcome { NEXT }\n"
+                        + "    public boolean isEnabled() { return true; }\n"
+                        + "    public Outcome run() { return Outcome.NEXT; }\n"
+                        + "}\n"));
 
         assertEquals("", compile(root, sources), "the generated project must compile");
     }

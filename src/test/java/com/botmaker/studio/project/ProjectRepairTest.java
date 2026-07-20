@@ -105,7 +105,14 @@ class ProjectRepairTest {
     void recoveryNeverOverwritesAnExistingFile() throws IOException {
         // The user's own edits to an editable scaffold file must survive a recovery run.
         Path goHome = mainDir.resolve("GoHome.java");
-        String userEdited = "package com.mybot;\npublic class GoHome { public static void run() { /* mine */ } }\n";
+        String userEdited = "package com.mybot;\n"
+                + "import com.botmaker.sdk.api.bot.Activity;\n"
+                + "public class GoHome extends Activity<GoHome.Outcome> {\n"
+                + "    public static final GoHome INSTANCE = new GoHome();\n"
+                + "    public enum Outcome { NEXT }\n"
+                + "    @Override public boolean isEnabled() { return true; }\n"
+                + "    @Override public Outcome run() { /* mine */ return Outcome.NEXT; }\n"
+                + "}\n";
         Files.writeString(goHome, userEdited);
 
         Files.delete(mainDir.resolve("GameLoop.java"));   // something else is genuinely missing

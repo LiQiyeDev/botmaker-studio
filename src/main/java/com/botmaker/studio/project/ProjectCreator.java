@@ -295,7 +295,7 @@ public class ProjectCreator {
             public class %s {
                 public static void main(String[] args) {
                     // Runs GameLoop forever; on a crash or a stuck screen it runs GoHome then Startup and restarts.
-                    Bot.start(GameLoop::run, GoHome::run, Startup::run);
+                    Bot.start(GameLoop::run, GoHome.INSTANCE::execute, Startup::run);
                 }
             }
             """, packageName, className));
@@ -368,12 +368,18 @@ public class ProjectCreator {
             """, packageName));
 
         // Safe-point navigation (last resort before restarting; also a clean start point for activities).
+        // A real Activity like any other — so it self-registers by name and gets the before()/after()/onStuck()
+        // hooks — but a standalone one: it isn't on the flow canvas, it is called directly by the supervisor
+        // (recovery) and by the driver (the per-activity "go home first" tick), both via INSTANCE.execute().
         sources.put("GoHome.java", String.format("""
             package com.%s;
 
+            import com.botmaker.sdk.api.bot.Activity;
+
             /**
              * Navigate back to a known-good "home" screen. Called by the supervisor before Startup during
-             * recovery. Fill this in for your game, e.g.:
+             * recovery, and before any activity whose "go home first" tick is on. Fill in {@link #run()} for
+             * your game, e.g.:
              * <pre>
              *   while (!ImageFinder.find(home)) {
              *       ImageClicker.click(back);
@@ -381,9 +387,23 @@ public class ProjectCreator {
              *   }
              * </pre>
              */
-            public class GoHome {
-                public static void run() {
+            public class GoHome extends Activity<GoHome.Outcome> {
+
+                /** The one instance; referenced by the entry point and FlowDriver. Constructing it registers "GoHome". */
+                public static final GoHome INSTANCE = new GoHome();
+
+                /** GoHome reports nothing to route on — it is called directly, not wired into the flow. */
+                public enum Outcome { NEXT }
+
+                @Override
+                public boolean isEnabled() {
+                    return true;   // recovery hook — always available
+                }
+
+                @Override
+                public Outcome run() {
                     // TODO: navigate back to your game's home screen.
+                    return Outcome.NEXT;
                 }
             }
             """, packageName));

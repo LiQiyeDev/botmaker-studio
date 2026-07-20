@@ -14,9 +14,10 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Locks in which methods the user may change. The contract being protected is the SDK's:
- * {@code Bot.supervise(GameLoop::run, GoHome::run, Startup::run)} binds each as a {@code Runnable}, so those
- * signatures are not the user's to rename or re-parameterise. The three hooks differ on the body: {@code GoHome}
- * is shipped as a TODO stub whose body is the whole point, while {@code GameLoop.run} (the dispatch loop) and
+ * {@code Bot.start(GameLoop::run, GoHome.INSTANCE::execute, Startup::run)} binds each hook, so those signatures
+ * are not the user's to rename or re-parameterise. The three hooks differ on the body: {@code GoHome} is now an
+ * {@code Activity} subclass shipped as a TODO stub whose {@code run()} body is the whole point (its
+ * {@code isEnabled()} is generated wiring), while {@code GameLoop.run} (the dispatch loop) and
  * {@code Startup.run} ({@code Target.start()} over the configured launch target) are complete generated wiring —
  * all of it BotMaker's.
  *
@@ -47,8 +48,12 @@ class MethodLockTest {
 
     private static final String GO_HOME = """
             package com.mybot;
-            public class GoHome {
-                public static void run() {}
+            import com.botmaker.sdk.api.bot.Activity;
+            public class GoHome extends Activity<GoHome.Outcome> {
+                public static final GoHome INSTANCE = new GoHome();
+                public enum Outcome { NEXT }
+                @Override public boolean isEnabled() { return true; }
+                @Override public Outcome run() { return Outcome.NEXT; }
             }
             """;
 
@@ -69,22 +74,25 @@ class MethodLockTest {
             """;
 
     @Test
-    void superviseHooksHaveALockedSignatureButAnEditableBody() {
+    void goHomeRunHasALockedSignatureButAnEditableBody() {
+        // GoHome is now an Activity subclass shipped as a TODO stub: run() is an @Override of Activity.run, so
+        // its signature is BotMaker's (the entry point / driver call it via GoHome.INSTANCE.execute()), but its
+        // body is the whole point. (GameLoop and Startup are generated wiring — FULL, tested below.)
         MethodLock lock = MethodLock.of(CONFIG, ProjectTemplate.GAME_BOT, inMainPackage("GoHome.java"),
                 methodNamed(GO_HOME, "run"));
         assertEquals(MethodLock.SIGNATURE, lock);
-        assertTrue(lock.locksSignature(), "Bot.supervise binds GoHome::run as a Runnable");
+        assertTrue(lock.locksSignature(), "run() is an @Override of Activity.run");
         assertFalse(lock.locksBody(), "the body is exactly what the user is meant to write");
     }
 
     @Test
-    void goHomeHasALockedSignatureButAnEditableBody() {
-        // GoHome is the one supervise hook still shipped as a TODO stub: its signature is bound as a Runnable,
-        // but its body is the whole point. (GameLoop and Startup are generated wiring — FULL, tested below.)
-        assertEquals(MethodLock.SIGNATURE,
-                MethodLock.of(CONFIG, ProjectTemplate.GAME_BOT, inMainPackage("GoHome.java"),
-                        methodNamed(GO_HOME, "run")),
-                "GoHome.run is bound as a Runnable and must keep its signature");
+    void goHomeIsEnabledIsFullyLocked() {
+        // Like any activity's isEnabled(), GoHome's is generated wiring (it simply returns true) — not a thing
+        // to hand-edit.
+        MethodLock lock = MethodLock.of(CONFIG, ProjectTemplate.GAME_BOT, inMainPackage("GoHome.java"),
+                methodNamed(GO_HOME, "isEnabled"));
+        assertEquals(MethodLock.FULL, lock);
+        assertTrue(lock.locksBody(), "isEnabled is generated wiring");
     }
 
     @Test

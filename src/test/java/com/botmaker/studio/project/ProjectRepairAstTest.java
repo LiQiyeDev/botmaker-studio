@@ -71,10 +71,10 @@ class ProjectRepairAstTest {
 
     @Test
     void aRenamedSuperviseHookIsRestoredButItsBodyIsKept() throws IOException {
-        // Bot.supervise binds GoHome::run, so the rename breaks the bot — but the body is the user's work and
-        // restoring the signature must not cost them it.
+        // GoHome.run is an @Override of Activity.run bound via GoHome.INSTANCE::execute, so the rename breaks the
+        // bot — but the body is the user's work and restoring the signature must not cost them it.
         Files.writeString(goHome, Files.readString(goHome)
-                .replace("public static void run() {", "public static void goHomeNow() {\n        BotMaker.print(\"mine\");"));
+                .replace("public Outcome run() {", "public Outcome goHomeNow() {\n        BotMaker.print(\"mine\");"));
 
         List<ProjectRepair.Damage> damaged = findDamaged();
         assertEquals(1, damaged.size(), "expected exactly the renamed run(): " + damaged);
@@ -83,14 +83,14 @@ class ProjectRepairAstTest {
 
         assertEquals(List.of(goHome), repair(damaged));
         String repaired = Files.readString(goHome);
-        assertTrue(repaired.contains("void run()"), "run() must be back:\n" + repaired);
+        assertTrue(repaired.contains("Outcome run()"), "run() must be back:\n" + repaired);
         assertEquals(List.of(), findDamaged(), "and the project must now be clean");
     }
 
     @Test
     void aReParameterisedHookIsRestoredWithTheUsersBody() throws IOException {
         Files.writeString(goHome, Files.readString(goHome)
-                .replace("public static void run() {", "public static void run(int attempts) {\n        BotMaker.print(\"my recovery\");"));
+                .replace("public Outcome run() {", "public Outcome run(int attempts) {\n        BotMaker.print(\"my recovery\");"));
 
         List<ProjectRepair.Damage> damaged = findDamaged();
         assertEquals(1, damaged.size(), "" + damaged);
@@ -99,7 +99,7 @@ class ProjectRepairAstTest {
 
         repair(damaged);
         String repaired = Files.readString(goHome);
-        assertTrue(repaired.contains("void run()"), "the signature BotMaker calls is restored:\n" + repaired);
+        assertTrue(repaired.contains("Outcome run()"), "the signature BotMaker calls is restored:\n" + repaired);
         assertFalse(repaired.contains("int attempts"));
         assertTrue(repaired.contains("my recovery"),
                 "a SIGNATURE lock means the body is the user's — it must survive the repair:\n" + repaired);
@@ -114,7 +114,7 @@ class ProjectRepairAstTest {
         assertEquals(List.of(), findDamaged(), "a method BotMaker doesn't own is not damage");
 
         // And even while repairing something else in the same file, it survives untouched.
-        Files.writeString(goHome, Files.readString(goHome).replace("void run()", "void run(int n)"));
+        Files.writeString(goHome, Files.readString(goHome).replace("Outcome run()", "Outcome run(int n)"));
         repair(findDamaged());
         assertTrue(Files.readString(goHome).contains("myHelper"),
                 "repairing a locked method must not disturb the user's own");
@@ -125,7 +125,7 @@ class ProjectRepairAstTest {
         // GoHome.run's body is exactly what the user is meant to write. Reporting it as damage — or worse,
         // "restoring" it — would delete their work every time they ran Recover.
         Files.writeString(goHome, Files.readString(goHome)
-                .replace("public static void run() {", "public static void run() {\n        BotMaker.print(\"walking home\");"));
+                .replace("public Outcome run() {", "public Outcome run() {\n        BotMaker.print(\"walking home\");"));
         assertEquals(List.of(), findDamaged());
     }
 
@@ -197,7 +197,7 @@ class ProjectRepairAstTest {
     @Test
     void aMissingLockedMethodIsReinserted() throws IOException {
         String source = Files.readString(goHome);
-        int start = source.indexOf("public static void run()");
+        int start = source.indexOf("public Outcome run()");
         int end = source.lastIndexOf("}");
         Files.writeString(goHome, source.substring(0, start) + source.substring(end));
 
@@ -206,7 +206,7 @@ class ProjectRepairAstTest {
         assertEquals(ProjectRepair.Damage.Kind.MISSING, damaged.getFirst().kind());
 
         repair(damaged);
-        assertTrue(Files.readString(goHome).contains("void run()"));
+        assertTrue(Files.readString(goHome).contains("Outcome run()"));
         assertEquals(List.of(), findDamaged());
     }
 

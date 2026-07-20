@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Regression cover for the "{@code supervise()} renders with empty parentheses" bug.
  *
- * <p>The generated game-bot entry point is {@code Bot.supervise(GameLoop::run, GoHome::run, Startup::run)}.
+ * <p>The generated game-bot entry point is {@code Bot.start(GameLoop::run, GoHome.INSTANCE::execute, Startup::run)}.
  * {@code Bot} is an SDK facade, so the call becomes a {@code LibraryCallBlock} whose arguments are populated
  * via {@code parseExpression(...).ifPresent(block::addArgument)}. Method references matched no branch of
  * {@code dispatchExpression}, so all three arguments resolved to {@code Optional.empty()} and were silently
@@ -35,7 +35,7 @@ public class MethodReferenceBlockTest {
 
             public class Subject {
                 public static void main(String[] args) {
-                    Bot.supervise(GameLoop::run, GoHome::run, Startup::run);
+                    Bot.start(GameLoop::run, GoHome.INSTANCE::execute, Startup::run);
                 }
             }
             """;
@@ -80,13 +80,13 @@ public class MethodReferenceBlockTest {
         assertNotNull(root);
 
         List<MethodInvocationBlock> calls = collect(root, MethodInvocationBlock.class);
-        MethodInvocationBlock supervise = calls.stream()
-                .filter(c -> !c.getArgumentBlocks().isEmpty() || c.getDetails().contains("supervise"))
+        MethodInvocationBlock start = calls.stream()
+                .filter(c -> !c.getArgumentBlocks().isEmpty() || c.getDetails().contains("start"))
                 .findFirst()
-                .orElseThrow(() -> new AssertionError("no supervise call block was produced"));
+                .orElseThrow(() -> new AssertionError("no start call block was produced"));
 
-        assertEquals(3, supervise.getArgumentBlocks().size(),
-                "supervise(a, b, c) must expose three argument blocks, not render as supervise()");
+        assertEquals(3, start.getArgumentBlocks().size(),
+                "start(a, b, c) must expose three argument blocks, not render as start()");
     }
 
     @Test
@@ -94,13 +94,14 @@ public class MethodReferenceBlockTest {
         AbstractCodeBlock root = parse(GAME_BOT_MAIN);
 
         List<MethodReferenceBlock> refs = collect(root, MethodReferenceBlock.class);
-        assertEquals(3, refs.size(), "expected a block for each of GameLoop::run, GoHome::run, Startup::run");
+        assertEquals(3, refs.size(),
+                "expected a block for each of GameLoop::run, GoHome.INSTANCE::execute, Startup::run");
 
         List<String> rendered = refs.stream()
                 .map(r -> r.getTargetName() + "::" + r.getMethodName())
                 .toList();
         assertTrue(rendered.contains("GameLoop::run"), "got " + rendered);
-        assertTrue(rendered.contains("GoHome::run"), "got " + rendered);
+        assertTrue(rendered.contains("GoHome.INSTANCE::execute"), "got " + rendered);
         assertTrue(rendered.contains("Startup::run"), "got " + rendered);
     }
 

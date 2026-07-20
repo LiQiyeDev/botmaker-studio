@@ -6,6 +6,25 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-20 — `GoHome` is a project activity, and auto-arrange no longer drifts.** Two fixes.
+  (1) The scaffolded `GoHome.java` is generated as a real `Activity` subclass
+  (`extends Activity<GoHome.Outcome>` with a self-held `INSTANCE`) instead of a bare `public static void run()`,
+  so it gets the same base, `before()/after()/onStuck()` hooks and name-registration as every other activity. It
+  stays *standalone* — not in `activities.json`, not a canvas node — because its two call sites are special: the
+  supervisor recovery hook and the per-activity "⌂ go home first" pre-step, now
+  `Bot.start(GameLoop::run, GoHome.INSTANCE::execute, Startup::run)` and `GoHome.INSTANCE.execute();`
+  (`ProjectCreator.gameBotSources`, `ActivityService.driverCase`). No SDK change was needed — a value-returning
+  method reference is `Runnable`-compatible. `MethodLock` now treats GoHome like an activity stub (`run()` →
+  SIGNATURE, `isEnabled()` → FULL). Two known edges: `ProjectRepair` restores only *methods*, so a hand-deleted
+  `extends`/`Outcome`/`INSTANCE` is a plain compile error (same as a mangled activity stub); and projects
+  scaffolded before this keep `GoHome::run` in their entry point and won't auto-migrate.
+  (2) **Auto-arrange was pushing unlinked activities further apart on every click.** With no edges the layer walk
+  positioned only the start card and the orphan pass placed nothing (`FlowRules.orphans` is empty when there are
+  no edges), so `centreOnCanvas` translated everything by a delta derived from stale coordinates, widening the
+  bounding box each run. `FlowCanvas.autoArrange` now gives *every* placed card a fresh position each run —
+  unwired flows grid uniformly, and cards the layer walk didn't reach grid below it — making the layout a fixed
+  point. Covered by the new headless `ui/fx/FlowCanvasAutoArrangeTest` (verified to fail before the fix).
+
 - **2026-07-20 — conditional Activity Flow: outcome-routed edges + a generated `FlowDriver`.** An activity's
   `run()` now returns its own nested `Outcome` enum and the canvas maps each outcome to a target, so the flow
   branches and loops. The old generated `GameLoop` iterated `ActivityRegistry.ALL` and disabled each activity

@@ -357,7 +357,7 @@ public final class ActivityService {
         out.append("                if (!").append(constant).append(".active()) return ")
                 .append(fallthrough == null ? "null" : target(fallthrough)).append(";\n");
         // After the active() check, not before: there is nothing to go home for if the activity won't run.
-        if (a.goHome()) out.append("                GoHome.run();\n");
+        if (a.goHome()) out.append("                GoHome.INSTANCE.execute();\n");
         out.append("                switch (").append(constant).append(".execute()) {\n");
         for (String outcome : a.allOutcomes()) {
             FlowEdge wire = edgeFor(flow, a.name(), outcome);

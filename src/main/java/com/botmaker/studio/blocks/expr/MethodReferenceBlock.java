@@ -16,8 +16,8 @@ import org.eclipse.jdt.core.dom.TypeMethodReference;
  *
  * <p>Renders as {@code Target::method}. Clicking navigates to the referenced method when it lives in the
  * user's own project, which is the common case: the generated game-bot entry point is
- * {@code Bot.supervise(GameLoop::run, GoHome::run, Startup::run)}, and each argument is a jump-off point into
- * the file the user actually wants to edit.
+ * {@code Bot.start(GameLoop::run, GoHome.INSTANCE::execute, Startup::run)}, and each argument is a jump-off
+ * point into the file the user actually wants to edit.
  *
  * <p>Before this block existed, method references matched no branch of {@code BlockConverter}'s expression
  * dispatch, so every one of those three arguments was silently dropped and the call rendered as
