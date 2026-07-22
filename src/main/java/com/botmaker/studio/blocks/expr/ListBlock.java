@@ -4,7 +4,7 @@ import com.botmaker.studio.core.AbstractExpressionBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.types.ResolvedType;
-import com.botmaker.studio.ui.render.menu.ExpressionMenuFactory;
+import com.botmaker.studio.ui.render.menu.ExpressionMenu;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -129,7 +129,7 @@ public class ListBlock extends AbstractExpressionBlock {
         }
         // Reuse the same type-aware menu the "change" path uses (variable / method / constructor / enum
         // submenus), but insert the chosen expression at the target index instead of replacing one.
-        ContextMenu menu = ExpressionMenuFactory.createExpressionTypeMenu(
+        ContextMenu menu = ExpressionMenu.create(
                 targetType,
                 false,
                 context,

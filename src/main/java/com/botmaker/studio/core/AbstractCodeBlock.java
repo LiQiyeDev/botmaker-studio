@@ -10,7 +10,7 @@ import com.botmaker.studio.ui.dnd.BlockEvent;
 import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.palette.ExpressionType;
 import com.botmaker.studio.ui.render.components.BlockUIComponents;
-import com.botmaker.studio.ui.render.menu.ExpressionMenuFactory;
+import com.botmaker.studio.ui.render.menu.ExpressionMenu;
 import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.SimpleBooleanProperty;
 import javafx.css.PseudoClass;
@@ -199,7 +199,7 @@ public abstract class AbstractCodeBlock implements CodeBlock {
     }
 
     /**
-     * Applies the user's pick from {@link com.botmaker.studio.ui.render.menu.ExpressionMenuFactory} to
+     * Applies the user's pick from {@link com.botmaker.studio.ui.render.menu.ExpressionMenu} to
      * {@code toReplace}: a plain {@link ExpressionType} swaps in a fresh expression block, while an
      * {@link ExpressionChoice} drives a richer rewrite (method call, instantiation, enum constant, or
      * variable reference). Shared by statement and expression blocks.
@@ -209,6 +209,6 @@ public abstract class AbstractCodeBlock implements CodeBlock {
         // only reachable if a path forgot. CodeEditor would refuse the rewrite anyway — this keeps the refusal
         // from being reported to the user as if they had done something wrong.
         if (isReadOnly) return;
-        ExpressionMenuFactory.applySelection(context, toReplace, selection);
+        ExpressionMenu.applySelection(context, toReplace, selection);
     }
 }

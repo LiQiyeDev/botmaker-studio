@@ -13,7 +13,7 @@ import java.util.function.Function;
 /**
  * Small helpers for the recurring "turn a list into a flat menu" pattern: one {@link MenuItem} per element,
  * with a single disabled fallback item when the list is empty. Complements the type-aware menu building in
- * {@link ExpressionMenuFactory} — this is the plumbing, that is the domain logic.
+ * {@link ExpressionMenu} — this is the plumbing, that is the domain logic.
  */
 public final class MenuComponents {
 

@@ -169,7 +169,7 @@ public final class BlockCatalog {
      * The bot-first actions promoted to the very top of the insert menu (rendered flat, no submenu) so the most
      * common automation building blocks are the first thing reached for. Game launch is promoted here (rather than
      * a "Game" submenu) per its prominence; promoting a category's blocks empties its submenu, so no "Game" group
-     * is shown (see {@code ExpressionMenuFactory.addCategoryMenu}, which skips empty categories).
+     * is shown (see {@code ExpressionMenu.addCategoryMenu}, which skips empty categories).
      */
     private static final List<BlockType> BOT_ACTIONS = List.of(
             FIND_IMAGE, CLICK_IMAGE, WAIT_FOR_IMAGE, CLICK, WAIT, LAUNCH_GAME, LAUNCH_STEAM_GAME, LAUNCH_EPIC_GAME,

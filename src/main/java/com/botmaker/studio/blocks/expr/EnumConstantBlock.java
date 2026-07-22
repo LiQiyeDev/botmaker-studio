@@ -1,6 +1,6 @@
 package com.botmaker.studio.blocks.expr;
 
-import com.botmaker.studio.ui.render.menu.ExpressionMenuFactory;
+import com.botmaker.studio.ui.render.menu.ExpressionMenu;
 
 import com.botmaker.studio.core.AbstractExpressionBlock;
 import com.botmaker.studio.services.CodeEditorService;
@@ -40,7 +40,7 @@ public class EnumConstantBlock extends AbstractExpressionBlock {
 
         // --- INTERACTIVITY START (editable blocks only) ---
         if (!isReadOnly()) {
-            ExpressionMenuFactory.installTypeSelector(typeLabel, "Click to change Enum type",
+            ExpressionMenu.installTypeSelector(typeLabel, "Click to change Enum type",
                     () -> context.getProjectAnalyzer().findTypeByName(enumTypeName),
                     context, this.astNode,
                     newType -> {

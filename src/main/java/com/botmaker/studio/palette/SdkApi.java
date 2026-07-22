@@ -18,7 +18,7 @@ public final class SdkApi {
 
     /**
      * The complete, ordered facade list — this is also the display order of the per-class submenus in the
-     * statement insert menu ({@code ExpressionMenuFactory.rebuildStatementItems}). The intent of the order:
+     * statement insert menu ({@code StatementMenu.rebuildItems}). The intent of the order:
      * interaction (Mouse/Keyboard/Wait), then vision (find/click/wait/pixel/text + the last-match contexts and
      * click config + the global {@code Debug} switch), then launch/emulator (Game/Target/Emulators), then bot
      * lifecycle (Bot/Watchdog/Activity),

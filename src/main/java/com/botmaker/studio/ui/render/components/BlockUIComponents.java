@@ -19,7 +19,7 @@ import com.botmaker.studio.ui.render.layout.WrappingSentencePane;
 /**
  * Pure JavaFX widget factories for blocks (buttons, labels, spacers, header rows). No domain
  * knowledge — the type-aware menus live in
- * {@link com.botmaker.studio.ui.render.menu.ExpressionMenuFactory}.
+ * {@link com.botmaker.studio.ui.render.menu.ExpressionMenu}.
  */
 public final class BlockUIComponents {
 

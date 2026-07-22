@@ -1,7 +1,7 @@
 package com.botmaker.studio.blocks.flow;
 
 import com.botmaker.studio.palette.BlockCategory;
-import com.botmaker.studio.ui.render.menu.ExpressionMenuFactory;
+import com.botmaker.studio.ui.render.menu.ExpressionMenu;
 
 import com.botmaker.studio.core.AbstractStatementBlock;
 import com.botmaker.studio.core.BodyBlock;
@@ -167,7 +167,7 @@ public class SwitchBlock extends AbstractStatementBlock implements BlockWithChil
                 Button changeBtn = createChangeButton(e -> {
                     ContextMenu menu = switchType.isEnum()
                             ? enumCaseMenu(context, switchType, usedLabels, parentSwitch)
-                            : ExpressionMenuFactory.createExpressionTypeMenu(
+                            : ExpressionMenu.create(
                                     switchType,
                                     true, // constantOnly = true (Critical for Switch)
                                     context,

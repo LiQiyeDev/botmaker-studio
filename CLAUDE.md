@@ -171,7 +171,7 @@ Shared low-level rewrite primitives live in `AstRewriteHelper` (`applyRewrite`, 
 The owning `CodeEditorService` is passed directly into every block's `getUINode()` call, giving blocks access to the `CodeEditor`, event bus, drag-and-drop manager, project state, and `ProjectAnalyzer` without requiring service locators. (It earlier threaded a dedicated `CompletionContext` record, which was just a partial copy of the service and has been removed.)
 
 The type-aware context menus (insert/replace an expression, pick a method/constructor/enum/variable, choose a
-type) are built by `ui/render/menu/ExpressionMenuFactory`, which reads `ProjectAnalyzer`. A menu pick is emitted
+type) are built by `ui/render/menu/ExpressionMenu`, which reads `ProjectAnalyzer`. A menu pick is emitted
 either as a sealed `palette/ExpressionType` (a plain palette entry, from `ExpressionCatalog`) or as a sealed `parser/ExpressionChoice`
 (`Method` / `Constructor` / `EnumConstant` / `Variable`); `AbstractCodeBlock.applyExpressionSelection` dispatches it
 to the matching `CodeEditor.replaceWith…` call with an exhaustive `switch`.
@@ -211,7 +211,8 @@ The `ui/` package is split by concern:
   and `Initializer` for statements, `ExpressionType`/`ExpressionCatalog`/`ExpressionCategory` for expressions.
 - **`ui/render/`** — block rendering: `layout/` (the fluent `BlockLayout` DSL — only `header()`/`sentence()`,
   with `HeaderLayoutBuilder.andBody()`, are live), `components/` (pure JavaFX widget factories, e.g.
-  `BlockUIComponents`), `menu/` (`ExpressionMenuFactory`, the type-aware menus), and `theme/` (theming constants;
+  `BlockUIComponents`), `menu/` (`ExpressionMenu` fills an expression slot, `StatementMenu` inserts a block,
+  `MenuBuilders` is their shared plumbing and `MenuIcons` the single glyph lookup), and `theme/` (theming constants;
   `Spacing.gutter()` is the single source of the block gutter width).
 
 Cross-cutting block decoration lives in `core/render/` (the `BlockDecorator` pipeline, see **Block System**), and

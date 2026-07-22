@@ -25,7 +25,7 @@ import java.util.Map;
  * @param knownWindowTitles   window titles seen/used before, remembered so a window can be picked as a
  *                            target without the app being currently open (backward-compatible; absent → empty)
  * @param favoriteOverloads   per-method chosen overload: {@code methodKey → signatureKey} (see
- *                            {@code ExpressionMenuFactory}); the favorite is created by default when clicking
+ *                            {@code ExpressionMenu}); the favorite is created by default when clicking
  *                            the method (backward-compatible; absent → empty)
  * @param referenceResolution the canonical target-window size (logical px) image templates are captured at.
  *                            The overlay snaps the window to this before capturing so templates share one
@@ -150,7 +150,7 @@ public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer 
 
     /**
      * This settings with {@code methodKey}'s favorite overload set to {@code signatureKey} (or removed when
-     * {@code signatureKey} is {@code null}). Keys are opaque strings minted by {@code ExpressionMenuFactory}.
+     * {@code signatureKey} is {@code null}). Keys are opaque strings minted by {@code ExpressionMenu}.
      */
     public StudioProjectSettings withFavoriteOverload(String methodKey, String signatureKey) {
         Map<String, String> next = new LinkedHashMap<>(favoriteOverloads);

@@ -1,7 +1,7 @@
 package com.botmaker.studio.blocks.func;
 
 import com.botmaker.studio.palette.BlockCategory;
-import com.botmaker.studio.ui.render.menu.ExpressionMenuFactory;
+import com.botmaker.studio.ui.render.menu.ExpressionMenu;
 import com.botmaker.studio.util.DefaultNames;
 
 import com.botmaker.studio.core.AbstractStatementBlock;
@@ -188,7 +188,7 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
         Label returnTypeLabel = new Label(returnType);
         returnTypeLabel.getStyleClass().add("return-type-label");
         if (canEditSignature()) {
-            ExpressionMenuFactory.installTypeSelector(returnTypeLabel, "Click to change return type",
+            ExpressionMenu.installTypeSelector(returnTypeLabel, "Click to change return type",
                     () -> mdRet.getReturnType2() != null
                             ? ProjectAnalyzer.resolveType(mdRet.getReturnType2()) : ResolvedType.primitive("void"),
                     context, null, true,
@@ -242,7 +242,7 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
         if (canEditSignature()) {
             Button addParamBtn = new Button("+");
             addParamBtn.getStyleClass().add("add-param-button");
-            addParamBtn.setOnAction(e -> ExpressionMenuFactory.showTypeMenu(addParamBtn, null, context, null,
+            addParamBtn.setOnAction(e -> ExpressionMenu.showTypeMenu(addParamBtn, null, context, null,
                     false, false,
                     type -> context.getCodeEditor().addParameterToMethod((MethodDeclaration) this.astNode,
                             type, DefaultNames.forType(type.simpleName()))));
@@ -271,7 +271,7 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
         typeLabel.getStyleClass().add("param-type-label");
 
         if (canEditSignature()) {
-            ExpressionMenuFactory.installTypeSelector(typeLabel, "Click to change type",
+            ExpressionMenu.installTypeSelector(typeLabel, "Click to change type",
                     () -> ProjectAnalyzer.resolveType(param.getType()), context, null,
                     newType -> context.getCodeEditor().changeMethodParameterType((MethodDeclaration) this.astNode, index, newType));
         }

@@ -1,7 +1,7 @@
 package com.botmaker.studio.blocks.var;
 
 import com.botmaker.studio.palette.BlockCategory;
-import com.botmaker.studio.ui.render.menu.ExpressionMenuFactory;
+import com.botmaker.studio.ui.render.menu.ExpressionMenu;
 
 import com.botmaker.studio.blocks.expr.ListBlock;
 import com.botmaker.studio.core.AbstractStatementBlock;
@@ -66,7 +66,7 @@ public class DeclareClassVariableBlock extends AbstractStatementBlock {
 
         Label typeLabel = createTypeLabel(fieldType.simpleName());
         if (!isReadOnly()) {
-            ExpressionMenuFactory.installTypeSelector(typeLabel, "Click to change type", () -> fieldType,
+            ExpressionMenu.installTypeSelector(typeLabel, "Click to change type", () -> fieldType,
                     context, this.astNode,
                     newTypeName -> context.getCodeEditor().replaceFieldType((FieldDeclaration) this.astNode, newTypeName.simpleName()));
         }
@@ -114,7 +114,7 @@ public class DeclareClassVariableBlock extends AbstractStatementBlock {
                 Expression currentInitializer = (Expression) initializer.getAstNode();
 
                 // FIXED: Passed missing parameters (astNode, filter)
-                ContextMenu menu = ExpressionMenuFactory.createExpressionTypeMenu(
+                ContextMenu menu = ExpressionMenu.create(
                         fieldType,
                         false,
                         context,

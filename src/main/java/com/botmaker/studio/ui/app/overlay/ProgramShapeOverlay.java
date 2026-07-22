@@ -24,7 +24,8 @@ import com.botmaker.studio.project.InsertionCursor;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.CursorNavigator;
-import com.botmaker.studio.ui.render.menu.ExpressionMenuFactory;
+import com.botmaker.studio.ui.render.menu.ExpressionMenu;
+import com.botmaker.studio.ui.render.menu.StatementMenu;
 import com.botmaker.studio.util.MethodSignature;
 import com.botmaker.studio.validation.BlockValidator;
 import javafx.application.Platform;
@@ -516,7 +517,7 @@ public final class ProgramShapeOverlay {
     private void addBelow(javafx.scene.Node anchor) {
         InsertionCursor c = cursor();
         if (c == null) return;
-        var menu = ExpressionMenuFactory.createStatementMenu(
+        var menu = StatementMenu.create(
                 context.getProjectAnalyzer(), c.body().getAstNode(), this::insertBelowCursor);
         menu.show(anchor, Side.BOTTOM, 0, 0);
     }
@@ -804,7 +805,7 @@ public final class ProgramShapeOverlay {
 
     /**
      * A generic editor for a parameter that has no specialized picker: a button showing the current expression
-     * that opens the type-aware expression menu and rewrites the argument via {@link ExpressionMenuFactory}.
+     * that opens the type-aware expression menu and rewrites the argument via {@link ExpressionMenu}.
      * Closes the popover after a pick, since the re-parse replaces the argument node.
      */
     private javafx.scene.Node genericArgEditor(MethodInvocationBlock mib, ExpressionBlock arg, ResolvedType paramType) {
@@ -815,10 +816,10 @@ public final class ProgramShapeOverlay {
         b.setMaxWidth(240);
         b.setOnAction(e -> {
             if (!(arg.getAstNode() instanceof org.eclipse.jdt.core.dom.Expression expr)) return;
-            var menu = ExpressionMenuFactory.createExpressionTypeMenu(
+            var menu = ExpressionMenu.create(
                     paramType == null ? ResolvedType.UNKNOWN : paramType, false, context, mib.getAstNode(), null,
                     sel -> {
-                        ExpressionMenuFactory.applySelection(context, expr, sel);
+                        ExpressionMenu.applySelection(context, expr, sel);
                         if (configDlg != null) configDlg.close();
                     });
             menu.show(b, Side.BOTTOM, 0, 0);

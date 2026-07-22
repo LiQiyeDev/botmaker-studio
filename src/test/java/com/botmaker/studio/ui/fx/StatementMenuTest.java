@@ -3,7 +3,7 @@ package com.botmaker.studio.ui.fx;
 import com.botmaker.studio.palette.BlockCatalog;
 import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.palette.BlockType;
-import com.botmaker.studio.ui.render.menu.ExpressionMenuFactory;
+import com.botmaker.studio.ui.render.menu.StatementMenu;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.CustomMenuItem;
 import javafx.scene.control.Menu;
@@ -24,7 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Exercises the statement menu — the {@link ContextMenu} the "+" separator / empty-body placeholder shows to
- * insert a new block ({@link ExpressionMenuFactory#createStatementMenu}). This is the search/rebuild logic the
+ * insert a new block ({@link StatementMenu#create}). This is the search/rebuild logic the
  * user reported an interaction issue around; the companion {@link SeparatorInsertButtonTest} covers the button's
  * hover/visibility state machine.
  *
@@ -113,7 +113,7 @@ class StatementMenuTest extends FxHeadlessTest {
     private ContextMenu build(java.util.function.Consumer<BlockType> onSelection) {
         AtomicReference<ContextMenu> ref = new AtomicReference<>();
         // Null analyzer: exercises the language-block path (no project/SDK jar resolved in a headless test).
-        interact(() -> ref.set(ExpressionMenuFactory.createStatementMenu(null, onSelection)));
+        interact(() -> ref.set(StatementMenu.create(null, onSelection)));
         return ref.get();
     }
 

@@ -2,7 +2,7 @@ package com.botmaker.studio.blocks.flow;
 
 import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.project.LockResolver;
-import com.botmaker.studio.ui.render.menu.ExpressionMenuFactory;
+import com.botmaker.studio.ui.render.menu.ExpressionMenu;
 
 import com.botmaker.studio.core.AbstractStatementBlock;
 import com.botmaker.studio.core.ExpressionBlock;
@@ -72,7 +72,7 @@ public class ReturnBlock extends AbstractStatementBlock {
                     ));
         } else if (!isVoid) {
             sentenceBuilder.addNode(createAddButton(e ->
-                    ExpressionMenuFactory.createExpressionTypeMenu(
+                    ExpressionMenu.create(
                             ResolvedType.named(methodReturnType), false, context, this.astNode, x -> true,
                             selection -> context.getCodeEditor().setReturnExpression((ReturnStatement) this.astNode, selection)
                     ).show((Button)e.getSource(), javafx.geometry.Side.BOTTOM, 0, 0)

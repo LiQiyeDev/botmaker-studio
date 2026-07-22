@@ -1,7 +1,7 @@
 package com.botmaker.studio.blocks.var;
 
 import com.botmaker.studio.palette.BlockCategory;
-import com.botmaker.studio.ui.render.menu.ExpressionMenuFactory;
+import com.botmaker.studio.ui.render.menu.ExpressionMenu;
 import com.botmaker.studio.blocks.expr.ListBlock;
 import com.botmaker.studio.core.AbstractStatementBlock;
 import com.botmaker.studio.core.ExpressionBlock;
@@ -47,7 +47,7 @@ public class VariableDeclarationBlock extends AbstractStatementBlock {
         // The label always shows the type; only an editable block gets the click-to-change behaviour.
         if (!isReadOnly()) {
             // PASS THE AST NODE TO ENABLE LOCAL TYPE DETECTION
-            ExpressionMenuFactory.installTypeSelector(typeLabel, "Click to change type", () -> varType,
+            ExpressionMenu.installTypeSelector(typeLabel, "Click to change type", () -> varType,
                     context, this.astNode,
                     newTypeName -> context.getCodeEditor().replaceVariableType((VariableDeclarationStatement) this.astNode, newTypeName));
         }
@@ -82,7 +82,7 @@ public class VariableDeclarationBlock extends AbstractStatementBlock {
             Expression currentInitializer = initializer != null ?
                     (Expression) initializer.getAstNode() : null;
 
-            ContextMenu menu = ExpressionMenuFactory.createExpressionTypeMenu(
+            ContextMenu menu = ExpressionMenu.create(
                     varType, false, context, this.astNode, x -> true,
                     selection -> {
                         if (currentInitializer != null) {

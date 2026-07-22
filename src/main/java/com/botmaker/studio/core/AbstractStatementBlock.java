@@ -1,6 +1,6 @@
 package com.botmaker.studio.core;
 
-import com.botmaker.studio.ui.render.menu.ExpressionMenuFactory;
+import com.botmaker.studio.ui.render.menu.ExpressionMenu;
 
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.palette.ExpressionType;
@@ -101,7 +101,7 @@ public abstract class AbstractStatementBlock extends AbstractCodeBlock implement
         // rather than show a menu whose every pick the write layer will reject.
         if (isReadOnly()) return;
 
-        ContextMenu menu = ExpressionMenuFactory.createExpressionTypeMenu(
+        ContextMenu menu = ExpressionMenu.create(
                 targetType,
                 false,
                 context,

@@ -1,6 +1,6 @@
 package com.botmaker.studio.core;
 
-import com.botmaker.studio.ui.render.menu.ExpressionMenuFactory;
+import com.botmaker.studio.ui.render.menu.StatementMenu;
 
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
@@ -65,7 +65,7 @@ public class BodyBlock extends AbstractStatementBlock implements BlockWithChildr
                 placeholder.setMouseTransparent(false);
                 placeholder.setCursor(Cursor.HAND);
                 placeholder.setOnMouseClicked(e -> {
-                    ContextMenu menu = ExpressionMenuFactory.createStatementMenu(
+                    ContextMenu menu = StatementMenu.create(
                             context.getProjectAnalyzer(), getAstNode(), type -> {
                         context.getCodeEditor().addStatement(this, type, 0);
                     });

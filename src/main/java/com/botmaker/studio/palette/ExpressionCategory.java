@@ -2,7 +2,7 @@ package com.botmaker.studio.palette;
 
 /**
  * Palette grouping for {@link ExpressionType}s — drives the section ordering of the type-aware
- * insert/replace menus built by {@code ui.render.menu.ExpressionMenuFactory}. Mirrors
+ * insert/replace menus built by {@code ui.render.menu.ExpressionMenu}. Mirrors
  * {@link BlockCategory} for statements.
  */
 public enum ExpressionCategory {

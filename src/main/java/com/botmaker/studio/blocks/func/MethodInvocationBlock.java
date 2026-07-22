@@ -320,7 +320,7 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
         }
         Collections.sort(staticClassItems);
 
-        // External-library static-utility classes (same source as ExpressionMenuFactory's "Library (static)").
+        // External-library static-utility classes (same source as ExpressionMenu's "Library (static)").
         // SDK facades are excluded here: they're reached only via the curated Vision palette blocks (+ this
         // block's own SDK class/method/⚙ selectors once placed), so there's a single way in.
         List<String> libraryClassItems = new ArrayList<>();

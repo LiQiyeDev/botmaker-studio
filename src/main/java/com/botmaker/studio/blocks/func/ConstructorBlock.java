@@ -63,7 +63,7 @@ public class ConstructorBlock extends MethodDeclarationBlock {
 
         Button addParamBtn = new Button("+");
         addParamBtn.getStyleClass().add("add-param-button");
-        addParamBtn.setOnAction(e -> com.botmaker.studio.ui.render.menu.ExpressionMenuFactory.showTypeMenu(
+        addParamBtn.setOnAction(e -> com.botmaker.studio.ui.render.menu.ExpressionMenu.showTypeMenu(
                 addParamBtn, null, context, null, false, false,
                 type -> context.getCodeEditor().addParameterToMethod(md, type,
                         DefaultNames.forType(type.simpleName()))));

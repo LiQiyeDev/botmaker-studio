@@ -1,6 +1,6 @@
 package com.botmaker.studio.ui.dnd;
 
-import com.botmaker.studio.ui.render.menu.ExpressionMenuFactory;
+import com.botmaker.studio.ui.render.menu.StatementMenu;
 
 import com.botmaker.studio.palette.BlockCatalog;
 import com.botmaker.studio.palette.BlockType;
@@ -273,7 +273,7 @@ public class BlockDragAndDropManager {
             if (child instanceof Button) {
                 Button btn = (Button) child;
                 btn.setOnAction(e -> {
-                    ContextMenu menu = ExpressionMenuFactory.createStatementMenu(analyzer, targetBody, onInsert);
+                    ContextMenu menu = StatementMenu.create(analyzer, targetBody, onInsert);
 
                     // Store reference to menu so MouseExited knows not to hide button
                     btn.setUserData(menu);

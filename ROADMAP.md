@@ -6,6 +6,14 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-22 — `ExpressionMenuFactory` split, and every menu entry gets an icon.** The 944-line class held two
+  unrelated menus; it is now `ui/render/menu/ExpressionMenu` (fill an expression slot + the type picker),
+  `StatementMenu` (insert a block) and package-private `MenuBuilders` (the search box wiring, section headers,
+  leaf collection, `buildScopeMenu`). Deleted outright — no shim — and all ~14 call sites updated. New
+  `MenuIcons` is the one glyph lookup for both menus: it re-exports the category icons and adds the SDK-facade
+  map (🔍 ImageFinder, 🖱 Mouse, ⌨ Keyboard, 🎮 Game, 📱 Emulators, 🐞 Debug, …) plus the structural submenus
+  ("Variables", "Call Function", "Library (static)"), which previously rendered bare.
+
 - **2026-07-22 — VCS can push without publishing.** `project/vcs/ProjectVcs` gains a remote:
   `remoteUrl()` / `setRemote(url)` / `push(token)` (JGit, non-forcing, current branch + tags; a
   non-fast-forward is reported as "the remote has commits this project doesn't" rather than clobbered). A
