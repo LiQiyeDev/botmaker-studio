@@ -6,6 +6,13 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-22 — "Project default" capture no longer freezes on an overload switch.** Switching a call onto a
+  `(CaptureSource, …)` overload re-seeds the new slot through `InitializerFactory.createDefaultInitializer`,
+  which wrote `CaptureExpr.of(<today's default target>)` — a `CaptureSource.window("Firestone")` snapshot that
+  stopped following the project's source. It now emits the live `Source.current()` call, hoisted into
+  `CaptureExpr.projectDefault()` so the three sites that mean "project default" (`InitializerFactory`, the
+  in-block `CaptureSourcePicker`, and the expression menu's capture entry — the last still snapshotting too)
+  share one string. New `parser/CaptureSourceOverloadTest` pins the overload switch.
 - **2026-07-22 — `ExpressionMenuFactory` split, and every menu entry gets an icon.** The 944-line class held two
   unrelated menus; it is now `ui/render/menu/ExpressionMenu` (fill an expression slot + the type picker),
   `StatementMenu` (insert a block) and package-private `MenuBuilders` (the search box wiring, section headers,

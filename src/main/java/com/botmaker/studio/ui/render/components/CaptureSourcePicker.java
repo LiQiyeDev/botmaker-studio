@@ -39,9 +39,6 @@ public final class CaptureSourcePicker {
         return button;
     }
 
-    /** The fully-qualified SDK call for the live project-default source — survives later default changes. */
-    private static final String PROJECT_DEFAULT_EXPR = "com.botmaker.sdk.api.capture.Source.current()";
-
     /**
      * The inline, fully-qualified capture-source expression for {@code sel} (see {@link CaptureExpr}). The
      * "Project default" choice emits {@code Source.current()} — the SDK's ambient source — rather than a
@@ -50,7 +47,7 @@ public final class CaptureSourcePicker {
     private static String sourceCode(com.botmaker.studio.ui.app.capture.CaptureSourcePicker.Selection sel) {
         return switch (sel) {
             case com.botmaker.studio.ui.app.capture.CaptureSourcePicker.Selection.ProjectDefault ignored ->
-                    PROJECT_DEFAULT_EXPR;
+                    CaptureExpr.projectDefault();
             case com.botmaker.studio.ui.app.capture.CaptureSourcePicker.Selection.Concrete c ->
                     CaptureExpr.of(c.target(), c.region());
         };

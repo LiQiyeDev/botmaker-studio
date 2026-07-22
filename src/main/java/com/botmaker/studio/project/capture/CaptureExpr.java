@@ -24,6 +24,17 @@ public final class CaptureExpr {
 
     private CaptureExpr() {}
 
+    /**
+     * The expression for "the project default", emitted as the SDK's <em>live</em> ambient source rather than a
+     * snapshot of today's default target: it keeps following the project's configured source when that default is
+     * changed later. Every path that fills a {@code CaptureSource} slot with "project default" — the in-block
+     * picker, the expression menu, and the overload-switch seeding in {@code InitializerFactory} — must use this,
+     * or the slot silently freezes into a {@code CaptureSource.window("…")} literal.
+     */
+    public static String projectDefault() {
+        return PKG + "Source.current()";
+    }
+
     /** The inline expression for {@code target}, or the whole-desktop source when {@code target} is null. */
     public static String of(CaptureTarget target) {
         return of(target, null);

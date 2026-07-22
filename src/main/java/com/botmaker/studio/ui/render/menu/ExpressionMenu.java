@@ -265,14 +265,14 @@ public final class ExpressionMenu {
                     if (name.toLowerCase().contains(q)) matches.add(0, activityNameItem(name, onSelect));
                 }
             }
-            if (captureSlot && "choose capture source".contains(q)) matches.add(0, captureSourceItem(context, onSelect));
+            if (captureSlot && "choose capture source".contains(q)) matches.add(0, captureSourceItem(onSelect));
             if (matches.isEmpty()) menu.getItems().add(MenuBuilders.disabledItem("No matches"));
             else menu.getItems().addAll(matches);
             return;
         }
 
         if (activitySlot) menu.getItems().add(activityNameSubmenu(context, onSelect));
-        if (captureSlot) menu.getItems().add(captureSourceItem(context, onSelect));
+        if (captureSlot) menu.getItems().add(captureSourceItem(onSelect));
 
         // Parity with the statement menu: lead with a submenu per SDK facade (in SdkApi order), each listing
         // that facade's static members whose return type fits this slot (buildScopeMenu drops empty facades).
@@ -595,10 +595,10 @@ public final class ExpressionMenu {
     }
 
     /** The "Choose capture source…" entry: opens the visual picker and emits the helper-call snippet. */
-    private static MenuItem captureSourceItem(CodeEditorService context, Consumer<Object> onSelect) {
+    private static MenuItem captureSourceItem(Consumer<Object> onSelect) {
         MenuItem item = MenuIcons.decorate(new MenuItem("Choose capture source…"), MenuIcons.CAPTURE);
         item.setOnAction(e -> new CaptureSourcePicker(null, true).showAndWait()
-                .ifPresent(sel -> onSelect.accept(new ExpressionChoice.RawExpression(captureSourceCode(context, sel)))));
+                .ifPresent(sel -> onSelect.accept(new ExpressionChoice.RawExpression(captureSourceCode(sel)))));
         return item;
     }
 
@@ -607,12 +607,12 @@ public final class ExpressionMenu {
      * expression (see {@link com.botmaker.studio.project.capture.CaptureExpr}) that resolves from any file
      * without import management: {@code …CaptureSource.desktop()} / {@code …CaptureSource.monitor(i)} /
      * {@code …CaptureSource.window("t")}, optionally narrowed with a trailing {@code .region(new Rect(...))}.
-     * "Project default" is snapshotted to the current default target.
+     * "Project default" emits the live {@code Source.current()} call, not a snapshot of today's default target.
      */
-    private static String captureSourceCode(CodeEditorService context, CaptureSourcePicker.Selection sel) {
+    private static String captureSourceCode(CaptureSourcePicker.Selection sel) {
         return switch (sel) {
-            case CaptureSourcePicker.Selection.ProjectDefault ignored -> com.botmaker.studio.project.capture.CaptureExpr.of(
-                    com.botmaker.studio.services.ProjectSettingsService.forProject(context).defaultTarget());
+            case CaptureSourcePicker.Selection.ProjectDefault ignored ->
+                    com.botmaker.studio.project.capture.CaptureExpr.projectDefault();
             case CaptureSourcePicker.Selection.Concrete c ->
                     com.botmaker.studio.project.capture.CaptureExpr.of(c.target(), c.region());
         };
