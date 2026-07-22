@@ -11,13 +11,34 @@ import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 import org.eclipse.jdt.core.dom.rewrite.ListRewrite;
 
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 
 public class ImportManager {
 
-    private static final Set<String> COMMON_JAVA_UTIL_CLASSES = Set.of(
-            "List", "ArrayList", "Map", "HashMap", "Set", "HashSet", "Arrays"
-    );
+    /**
+     * Simple name → FQN for JDK types a name-only {@link ResolvedType} would otherwise never resolve to.
+     * This is the last-resort tier of {@link #resolveQualifiedName}, reached only after the project's own
+     * classes (and, via {@link #addImportForSimpleName}, the analyzer's index) have come up empty.
+     *
+     * <p>Deliberately <em>not</em> here: {@code Point}. The SDK ships {@code com.botmaker.sdk.api.Point} and
+     * bots use it constantly, so mapping the bare name to {@code java.awt.Point} would silently import the
+     * wrong one whenever resolution failed. {@code Rectangle} is safe — the SDK's equivalent is {@code Rect}.
+     */
+    private static final Map<String, String> WELL_KNOWN_JDK_TYPES = Map.ofEntries(
+            Map.entry("List", "java.util.List"),
+            Map.entry("ArrayList", "java.util.ArrayList"),
+            Map.entry("Map", "java.util.Map"),
+            Map.entry("HashMap", "java.util.HashMap"),
+            Map.entry("Set", "java.util.Set"),
+            Map.entry("HashSet", "java.util.HashSet"),
+            Map.entry("Arrays", "java.util.Arrays"),
+            Map.entry("Color", "java.awt.Color"),
+            Map.entry("Rectangle", "java.awt.Rectangle"),
+            Map.entry("Dimension", "java.awt.Dimension"),
+            Map.entry("BufferedImage", "java.awt.image.BufferedImage"),
+            Map.entry("Path", "java.nio.file.Path"),
+            Map.entry("File", "java.io.File"),
+            Map.entry("Duration", "java.time.Duration"));
 
     /**
      * Ensures that the specific class is imported.
@@ -50,20 +71,42 @@ public class ImportManager {
      * import path for palette/menu-created references — static call scopes, {@code new T(...)} types,
      * variable-declaration types and enum-constant scopes — which only carry a simple name.
      *
-     * <p>Best-effort: a no-op when the type is unresolved/primitive/{@code java.lang}/same-package/
-     * already-imported. When {@code analyzer} is {@code null} it falls back to the raw string overload
-     * (which silently ignores unqualified names), so callers without an analyzer keep their old behavior.
+     * <p>Best-effort: a no-op when the type is primitive/{@code java.lang}/same-package/already-imported.
+     * When the analyzer is absent or resolves nothing, this falls through to the name-based path, which
+     * still knows the project's own classes and {@link #WELL_KNOWN_JDK_TYPES} — that fallback is what makes
+     * a name-only {@code Color} importable.
      */
     public static void addImportForSimpleName(CompilationUnit cu, ASTRewrite rewriter, String typeName,
                                               ProjectAnalyzer analyzer, ProjectState state) {
         if (cu == null || typeName == null || typeName.isBlank()) return;
-        if (analyzer == null) {
-            addImport(cu, rewriter, typeName);
+        String name = typeName.trim();
+        ResolvedType resolved = analyzer != null ? analyzer.findTypeByName(name) : null;
+        if (resolved != null && !resolved.isUnknown()) {
+            addImport(cu, rewriter, resolved, state);
             return;
         }
-        ResolvedType resolved = analyzer.findTypeByName(typeName.trim());
-        if (resolved == null || resolved.isUnknown()) return;
-        addImport(cu, rewriter, resolved, state);
+        addImport(cu, rewriter, ResolvedType.named(name), state);
+    }
+
+    /**
+     * Imports {@code type} using the strongest resolution available: a {@link ResolvedType.Bound} or
+     * {@link ResolvedType.FromIndex} already carries its FQN, so it is used directly; anything else is
+     * looked up by simple name through the {@code analyzer}. Arrays import their <em>leaf</em> — a
+     * {@code Color[]} parameter needs {@code java.awt.Color}.
+     *
+     * <p>This is the entry point for importing a method/constructor's <em>parameter</em> types, which the
+     * insert and overload-switch paths both build default arguments for.
+     */
+    public static void addImportForType(CompilationUnit cu, ASTRewrite rewriter, ResolvedType type,
+                                        ProjectAnalyzer analyzer, ProjectState state) {
+        if (cu == null || type == null) return;
+        ResolvedType leaf = type.leafType();
+        if (leaf.isPrimitive() || leaf.isVoid() || leaf.isUnknown()) return;
+        if (leaf instanceof ResolvedType.Bound || leaf instanceof ResolvedType.FromIndex) {
+            addImport(cu, rewriter, leaf, state);
+            return;
+        }
+        addImportForSimpleName(cu, rewriter, leaf.simpleName(), analyzer, state);
     }
 
     /**
@@ -100,9 +143,10 @@ public class ImportManager {
             }
         }
 
-        // Check if it's a common java.util class
-        if (COMMON_JAVA_UTIL_CLASSES.contains(className)) {
-            return "java.util." + className;
+        // Check if it's a well-known JDK class
+        String jdk = WELL_KNOWN_JDK_TYPES.get(className);
+        if (jdk != null) {
+            return jdk;
         }
 
         // Cannot resolve - assume same package or already available

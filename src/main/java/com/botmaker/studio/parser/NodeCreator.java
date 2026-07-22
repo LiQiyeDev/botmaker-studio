@@ -35,7 +35,10 @@ public class NodeCreator {
                     ClassInstanceCreation creation = ast.newClassInstanceCreation();
                     creation.setType(ProjectAnalyzer.createTypeNode(ast, ResolvedType.named(c.typeName())));
                     ImportManager.addImportForSimpleName(cu, rewriter, c.typeName(), analyzer, null);
-                    for (ResolvedType p : c.paramTypes()) creation.arguments().add(createDefaultInitializer(ast, p));
+                    for (ResolvedType p : c.paramTypes()) {
+                        creation.arguments().add(createDefaultInitializer(ast, p));
+                        ImportManager.addImportForType(cu, rewriter, p, analyzer, null);
+                    }
                     yield creation;
                 }
                 case ExpressionChoice.EnumConstant e -> {

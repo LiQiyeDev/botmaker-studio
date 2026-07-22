@@ -198,11 +198,11 @@ public class CodeEditor {
     }
 
     public void updateInstantiation(ClassInstanceCreation node, String newTypeName, List<ResolvedType> newParamTypes) {
-        edit(node, EditKind.BODY, true, (cu, code) -> InstantiationHandler.updateInstantiation(cu, code, node, ResolvedType.named(newTypeName), newParamTypes, state));
+        edit(node, EditKind.BODY, true, (cu, code) -> InstantiationHandler.updateInstantiation(cu, code, node, ResolvedType.named(newTypeName), newParamTypes, analyzer, state));
     }
 
     public void replaceWithInstantiation(Expression toReplace, String typeName, List<ResolvedType> paramTypes) {
-        edit(toReplace, EditKind.BODY, true, (cu, code) -> InstantiationHandler.replaceWithInstantiation(cu, code, toReplace, ResolvedType.named(typeName), paramTypes, state));
+        edit(toReplace, EditKind.BODY, true, (cu, code) -> InstantiationHandler.replaceWithInstantiation(cu, code, toReplace, ResolvedType.named(typeName), paramTypes, analyzer, state));
     }
 
     public void replaceWithVariable(Expression toReplace, String variableName) {
@@ -454,7 +454,7 @@ public class CodeEditor {
     }
 
     public void updateMethodInvocation(MethodInvocation mi, String newScope, String newMethodName, List<ResolvedType> newParamTypes) {
-        edit(mi, EditKind.BODY, true, (cu, code) -> MethodHandler.updateMethodInvocation(cu, code, mi, newScope, newMethodName, newParamTypes, state));
+        edit(mi, EditKind.BODY, true, (cu, code) -> MethodHandler.updateMethodInvocation(cu, code, mi, newScope, newMethodName, newParamTypes, analyzer, state));
     }
 
     public void addArgumentToMethodInvocation(MethodInvocation mi, ExpressionType type) {

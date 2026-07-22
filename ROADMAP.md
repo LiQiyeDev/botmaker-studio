@@ -6,6 +6,23 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-22 — Imports follow the arguments, not just the scope.** Inserting `Pixel.find(Color)` left
+  `Color` unimportable, and switching a call through the SDK dropdown or the ⚙ overload picker imported
+  nothing at all. Two gaps: `MethodHandler.createMethodInvocation` imported `choice.scope()` but never
+  iterated `choice.paramTypes()` — even though it builds a default initializer for each, and those
+  initializers reference their type by *simple* name (`Color.RED`, `new Color()`); and
+  `updateMethodInvocation` → `syncArguments` (plus its twin in `InstantiationHandler`) added no import for
+  either the new scope or the new argument types. Both now import every parameter type through a new
+  `ImportManager.addImportForType`, which uses the strongest resolution available — the FQN a
+  `Bound`/`FromIndex` already carries, else an analyzer lookup by simple name — and imports an array's
+  *leaf*. The overload path threads the `ProjectAnalyzer` (it previously had none) and imports the new
+  scope, guarded on capitalisation since a scope may be an instance receiver rather than a type.
+  `ImportManager`'s `COMMON_JAVA_UTIL_CLASSES` became a well-known-JDK map so a name-only `Color` resolves
+  at all; `Point` is deliberately excluded — the SDK ships its own `com.botmaker.sdk.api.Point` and bots use
+  it constantly, so the bare name must not silently resolve to `java.awt.Point`. `addImportForSimpleName`
+  now falls through to that name-based path instead of giving up when the analyzer resolves nothing, which
+  is what makes the JDK fallback reachable. Covered by `ArgumentImportsTest` (insert + overload switch).
+
 - **2026-07-22 — Pilot Interact taps land, and the generated bot declares its input mode.**
   `PilotInputService` had the same bug as the SDK's `Mouse.click` for exactly one gesture:
   `case TAP -> postLeftClickScreen(...)`, a synthetic event games drop, while `DOWN`/`MOVE`/`UP` already

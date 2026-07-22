@@ -18,18 +18,18 @@ public class InstantiationHandler {
                                              ClassInstanceCreation node,
                                              ResolvedType newType,
                                              List<ResolvedType> newParamTypes,
-                                             ProjectState state) {
+                                             ProjectAnalyzer analyzer, ProjectState state) {
         AST ast = cu.getAST();
         ASTRewrite rewriter = ASTRewrite.create(ast);
 
         if (newType != null && !newType.simpleName().equals(node.getType().toString())) {
             Type newTypeNode = ProjectAnalyzer.createTypeNode(ast, newType);
             rewriter.replace(node.getType(), newTypeNode, null);
-            ImportManager.addImport(cu, rewriter, newType, state);
+            ImportManager.addImportForType(cu, rewriter, newType, analyzer, state);
         }
 
         if (newParamTypes != null) {
-            syncArguments(ast, rewriter, node, newParamTypes, cu, state);
+            syncArguments(ast, rewriter, node, newParamTypes, cu, analyzer, state);
         }
 
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
@@ -39,11 +39,11 @@ public class InstantiationHandler {
                                                   Expression toReplace,
                                                   ResolvedType type,
                                                   List<ResolvedType> paramTypes,
-                                                  ProjectState state) {
+                                                  ProjectAnalyzer analyzer, ProjectState state) {
         AST ast = cu.getAST();
         ASTRewrite rewriter = ASTRewrite.create(ast);
 
-        ImportManager.addImport(cu, rewriter, type, state);
+        ImportManager.addImportForType(cu, rewriter, type, analyzer, state);
 
         ClassInstanceCreation creation = ast.newClassInstanceCreation();
         creation.setType(ProjectAnalyzer.createTypeNode(ast, type));
@@ -52,6 +52,7 @@ public class InstantiationHandler {
             for (ResolvedType pType : paramTypes) {
                 Expression arg = NodeCreator.createDefaultInitializer(ast, pType, cu, state);
                 creation.arguments().add(arg);
+                ImportManager.addImportForType(cu, rewriter, pType, analyzer, state);
             }
         }
 
@@ -60,7 +61,7 @@ public class InstantiationHandler {
     }
 
     private static void syncArguments(AST ast, ASTRewrite rewriter, ClassInstanceCreation node, List<ResolvedType> targetTypes,
-                                      CompilationUnit cu, ProjectState state) {
+                                      CompilationUnit cu, ProjectAnalyzer analyzer, ProjectState state) {
         ListRewrite argsRewrite = rewriter.getListRewrite(node, ClassInstanceCreation.ARGUMENTS_PROPERTY);
         List<?> currentArgs = node.arguments();
         int currentCount = currentArgs.size();
@@ -75,6 +76,7 @@ public class InstantiationHandler {
                 ResolvedType type = targetTypes.get(i);
                 Expression defaultExpr = NodeCreator.createDefaultInitializer(ast, type, cu, state);
                 argsRewrite.insertLast(defaultExpr, null);
+                ImportManager.addImportForType(cu, rewriter, type, analyzer, state);
             }
         }
     }

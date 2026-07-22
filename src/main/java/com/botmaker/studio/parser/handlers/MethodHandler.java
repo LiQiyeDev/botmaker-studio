@@ -76,9 +76,11 @@ public class MethodHandler {
         // Name
         mi.setName(ast.newSimpleName(choice.methodName()));
 
-        // Arguments (Defaults)
+        // Arguments (Defaults). Each default initializer references its type by simple name
+        // (`Color.RED`, `new Color()`), so the parameter types need importing just as the scope does.
         for (ResolvedType paramType : choice.paramTypes()) {
             mi.arguments().add(NodeCreator.createDefaultInitializer(ast, paramType, cu, state));
+            ImportManager.addImportForType(cu, rewriter, paramType, analyzer, state);
         }
         return mi;
     }
@@ -140,7 +142,8 @@ public class MethodHandler {
 
     public static String updateMethodInvocation(CompilationUnit cu, String originalCode,
                                          MethodInvocation mi, String newScope,
-                                         String newMethodName, List<ResolvedType> newParamTypes, ProjectState state) {
+                                         String newMethodName, List<ResolvedType> newParamTypes,
+                                         ProjectAnalyzer analyzer, ProjectState state) {
         AST ast = cu.getAST();
         ASTRewrite rewriter = ASTRewrite.create(ast);
 
@@ -151,6 +154,13 @@ public class MethodHandler {
             }
         } else {
             SimpleName newScopeNode = ast.newSimpleName(newScope);
+            // Switching to another facade (SDK dropdown / ⚙ overload picker) introduces a type name that
+            // was never referenced before, so it needs the same import an inserted call gets. The scope may
+            // also be an instance receiver, which must not be imported — unlike createMethodInvocation there
+            // is no isStatic() flag here, so go on the capitalisation that tells types from variables.
+            if (Character.isUpperCase(newScope.charAt(0))) {
+                ImportManager.addImportForSimpleName(cu, rewriter, newScope, analyzer, state);
+            }
             if (mi.getExpression() == null) {
                 rewriter.set(mi, MethodInvocation.EXPRESSION_PROPERTY, newScopeNode, null);
             } else {
@@ -163,7 +173,7 @@ public class MethodHandler {
             rewriter.replace(mi.getName(), ast.newSimpleName(newMethodName), null);
         }
 
-        syncArguments(ast, rewriter, mi, newParamTypes, cu, state);
+        syncArguments(ast, rewriter, mi, newParamTypes, cu, analyzer, state);
 
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
     }
@@ -328,7 +338,7 @@ public class MethodHandler {
     }
 
     private static void syncArguments(AST ast, ASTRewrite rewriter, MethodInvocation mi, List<ResolvedType> targetTypes,
-                                      CompilationUnit cu, ProjectState state) {
+                                      CompilationUnit cu, ProjectAnalyzer analyzer, ProjectState state) {
         ListRewrite argsRewrite = rewriter.getListRewrite(mi, MethodInvocation.ARGUMENTS_PROPERTY);
         List<?> currentArgs = mi.arguments();
 
@@ -347,6 +357,7 @@ public class MethodHandler {
             if (!currentType.isAssignmentCompatible(targetType)) {
                 Expression defaultExpr = NodeCreator.createDefaultInitializer(ast, targetType, cu, state);
                 argsRewrite.replace(currentArg, defaultExpr, null);
+                ImportManager.addImportForType(cu, rewriter, targetType, analyzer, state);
             }
         }
 
@@ -362,6 +373,7 @@ public class MethodHandler {
                 ResolvedType type = targetTypes.get(i);
                 Expression defaultExpr = NodeCreator.createDefaultInitializer(ast, type, cu, state);
                 argsRewrite.insertLast(defaultExpr, null);
+                ImportManager.addImportForType(cu, rewriter, type, analyzer, state);
             }
         }
     }
