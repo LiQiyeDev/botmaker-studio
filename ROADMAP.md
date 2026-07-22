@@ -6,6 +6,13 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-22 — Faugus Launcher is a pickable launch target.** New `game/FaugusLibraryScanner` reads
+  `~/.local/share/faugus-launcher/games.json` (or the Flatpak data root), skipping `hidden` entries and taking
+  `artwork()` from each entry's `cover` else `icon` — both absolute paths already on disk, so the picker gets
+  previews for free. Registered in `game/GameLibraries`, offered by `ui/app/LaunchTargetDialog` and
+  `ui/render/components/LaunchTargetArgPicker`, and named by `LaunchTargetNames` (`faugus:<gameid>` →
+  "Faugus game …"). The arg picker's private kind→label switch — a third copy that had drifted to
+  "Steam: 570" against the dialog's "Steam game 570" — was deleted in favour of `LaunchTargetNames.describe`.
 - **2026-07-22 — Launch target shows its game: Heroic cover art + a named toolbar button.**
   `game/HeroicLibraryScanner` now reads `<configRoot>/icons/<appName>.{jpg,jpeg,png,webp,ico}` for
   `InstalledGame.artwork()` (its javadoc previously claimed Heroic keeps no local art path — it does, which is

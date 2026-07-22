@@ -36,6 +36,7 @@ public final class LaunchTargetNames {
             case "steam" -> "Steam game " + rest;
             case "epic" -> "Epic game " + rest;
             case "heroic" -> "Heroic game " + rest;
+            case "faugus" -> "Faugus game " + rest;
             case "cli" -> "Command: " + rest;
             case "exe" -> "Executable " + fileName(rest);
             case "emu-app" -> "Emulator app " + rest;

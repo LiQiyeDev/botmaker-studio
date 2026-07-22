@@ -1,6 +1,7 @@
 package com.botmaker.studio.ui.app;
 
 import com.botmaker.studio.game.EpicLibraryScanner;
+import com.botmaker.studio.game.FaugusLibraryScanner;
 import com.botmaker.studio.game.GameLibraryProvider;
 import com.botmaker.studio.game.HeroicLibraryScanner;
 import com.botmaker.studio.game.SteamLibraryScanner;
@@ -68,7 +69,8 @@ public final class LaunchTargetDialog {
         Label heading = new Label("What should the bot launch?");
         heading.setStyle("-fx-font-weight: bold; -fx-font-size: 14px;");
         Label hint = new Label("Baked into the project (launch.target) so the generated Startup launches it when the "
-                + "bot runs. Choose a Steam or Epic game, an executable, or an app inside an emulator.");
+                + "bot runs. Choose a game from a launcher's library (Steam, Epic, Heroic, Faugus), an "
+                + "executable or command, or an app inside an emulator.");
         hint.setWrapText(true);
         hint.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
 
@@ -85,6 +87,9 @@ public final class LaunchTargetDialog {
         Button heroic = new Button("🎮 Heroic game (Epic/GOG on Linux)…");
         heroic.setMaxWidth(Double.MAX_VALUE);
         heroic.setOnAction(e -> pickGame(new HeroicLibraryScanner(), "heroic"));
+        Button faugus = new Button("🎮 Faugus game (Proton/Wine on Linux)…");
+        faugus.setMaxWidth(Double.MAX_VALUE);
+        faugus.setOnAction(e -> pickGame(new FaugusLibraryScanner(), "faugus"));
         Button exe = new Button("📁 Executable…");
         exe.setMaxWidth(Double.MAX_VALUE);
         exe.setOnAction(e -> pickExecutable());
@@ -95,7 +100,7 @@ public final class LaunchTargetDialog {
         emu.setMaxWidth(Double.MAX_VALUE);
         emu.setOnAction(e -> pickEmulatorApp());
 
-        VBox choices = new VBox(6, steam, epic, heroic, exe, cli, emu);
+        VBox choices = new VBox(6, steam, epic, heroic, faugus, exe, cli, emu);
 
         statusLabel = new Label();
         statusLabel.setStyle("-fx-font-size: 11px;");

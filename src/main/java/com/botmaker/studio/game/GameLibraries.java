@@ -15,7 +15,8 @@ public final class GameLibraries {
 
     /** One instance of each scanner, in picker order. Scanners are stateless and cheap to construct. */
     public static List<GameLibraryProvider> all() {
-        return List.of(new SteamLibraryScanner(), new EpicLibraryScanner(), new HeroicLibraryScanner());
+        return List.of(new SteamLibraryScanner(), new EpicLibraryScanner(), new HeroicLibraryScanner(),
+                new FaugusLibraryScanner());
     }
 
     /** The provider whose {@link GameLibraryProvider#platform()} equals {@code platform}, if any. */

@@ -4,8 +4,10 @@ import com.botmaker.studio.core.AbstractCodeBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.game.EpicLibraryScanner;
 import com.botmaker.studio.game.GameLibraryProvider;
+import com.botmaker.studio.game.FaugusLibraryScanner;
 import com.botmaker.studio.game.HeroicLibraryScanner;
 import com.botmaker.studio.game.SteamLibraryScanner;
+import com.botmaker.studio.project.launch.LaunchTargetNames;
 import com.botmaker.studio.services.CodeEditorService;
 import javafx.scene.Node;
 import javafx.scene.control.MenuButton;
@@ -21,13 +23,14 @@ import java.io.File;
 import java.util.List;
 
 /**
- * Editor for a {@code LaunchTarget} argument (what the bot automates): a menu button offering the four kinds a
- * launch target can be — a Steam game, an Epic game, a plain executable, or an app inside an Android emulator —
- * each via the reusable picker dialog ({@link GameLibraryPickerDialog} / OS file chooser /
+ * Editor for a {@code LaunchTarget} argument (what the bot automates): a menu button offering the kinds a
+ * launch target can be — a game in a launcher's library (Steam, Epic, Heroic, Faugus), a plain executable or
+ * command line, or an app inside an Android emulator — each via the reusable picker dialog ({@link GameLibraryPickerDialog} / OS file chooser /
  * {@link EmulatorPickerDialog}). The chosen kind is committed as
  * {@code LaunchTarget.parse("<spec>")} via {@link com.botmaker.studio.parser.CodeEditor#replaceWithRawExpression}
  * (fully qualified so no import is needed), matching the {@code launch.target} spec grammar
- * ({@code steam:} / {@code epic:} / {@code exe:} / {@code emu-app:<pkg>@<instance>}).
+ * ({@code steam:} / {@code epic:} / {@code heroic:} / {@code faugus:} / {@code cli:} / {@code exe:} /
+ * {@code emu-app:<pkg>@<instance>}).
  *
  * <p>Replaces the plain {@code new …}/constructor pill the user otherwise gets for a {@code LaunchTarget} slot.
  * Selected by {@link com.botmaker.studio.ui.render.components.pickers.PickerRegistry} for any
@@ -49,6 +52,8 @@ public final class LaunchTargetArgPicker {
         epic.setOnAction(e -> pickGame(context, arg, button, new EpicLibraryScanner(), "epic"));
         MenuItem heroic = new MenuItem("Heroic game (Epic/GOG on Linux)…");
         heroic.setOnAction(e -> pickGame(context, arg, button, new HeroicLibraryScanner(), "heroic"));
+        MenuItem faugus = new MenuItem("Faugus game (Proton/Wine on Linux)…");
+        faugus.setOnAction(e -> pickGame(context, arg, button, new FaugusLibraryScanner(), "faugus"));
         MenuItem exe = new MenuItem("Executable…");
         exe.setOnAction(e -> pickExecutable(context, arg, button));
         MenuItem cli = new MenuItem("CLI command…");
@@ -56,7 +61,7 @@ public final class LaunchTargetArgPicker {
         MenuItem emu = new MenuItem("Emulator app…");
         emu.setOnAction(e -> pickEmulatorApp(context, arg, button));
 
-        button.getItems().addAll(steam, epic, heroic, new SeparatorMenuItem(), exe, cli, emu);
+        button.getItems().addAll(steam, epic, heroic, faugus, new SeparatorMenuItem(), exe, cli, emu);
         return button;
     }
 
@@ -119,25 +124,13 @@ public final class LaunchTargetArgPicker {
         return spec == null ? "Choose target…" : labelFor(spec);
     }
 
+    /**
+     * The pill's text for a spec. Delegates to {@link LaunchTargetNames} rather than keeping a third private
+     * copy of the kind→label switch (this one had already drifted to a {@code "Steam: 570"} spelling of the
+     * dialog's {@code "Steam game 570"}), so adding a launcher touches one place.
+     */
     private static String labelFor(String spec) {
-        int colon = spec.indexOf(':');
-        if (colon <= 0) return spec;
-        String kind = spec.substring(0, colon);
-        String rest = spec.substring(colon + 1);
-        return switch (kind) {
-            case "steam" -> "Steam: " + rest;
-            case "epic" -> "Epic: " + rest;
-            case "heroic" -> "Heroic: " + rest;
-            case "cli" -> "CLI: " + rest;
-            case "exe" -> "Exe: " + fileName(rest);
-            case "emu-app" -> "Emulator: " + rest;
-            default -> spec;
-        };
-    }
-
-    private static String fileName(String path) {
-        int slash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-        return slash >= 0 && slash < path.length() - 1 ? path.substring(slash + 1) : path;
+        return LaunchTargetNames.describe(spec);
     }
 
     /** The spec inside a {@code LaunchTarget.parse("…")} call, else null. */
