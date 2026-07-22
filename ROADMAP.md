@@ -6,6 +6,16 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-22 — Pilot Interact taps land, and the generated bot declares its input mode.**
+  `PilotInputService` had the same bug as the SDK's `Mouse.click` for exactly one gesture:
+  `case TAP -> postLeftClickScreen(...)`, a synthetic event games drop, while `DOWN`/`MOVE`/`UP` already
+  drove the real pointer — which is precisely why drags worked and taps did nothing. `TAP` now uses shared's
+  `clickRestoringCursor`; drags record the pointer's origin on `DOWN` and restore it on `UP` (never
+  mid-drag). Corrected the class javadoc, which asserted Windows needed no escalation because `PostMessage`
+  is "already both reliable and cursor-safe" — that claim is what let the bug stand. `ProjectCreator`'s
+  `Game bot` template now opens `main` with `ClickConfig.useRealInput(true)`, so a new bot is set up for a
+  game by default and the choice is a visible, editable statement rather than a hidden setting.
+
 - **2026-07-22 — Gallery: installs find the release, stars stop falling back to 0.** One root cause, two
   symptoms. `GitHubClient.ensureRepo` returns an *existing* repo untouched, and the VCS Push button creates
   that repo **private** — so publishing afterwards cut a release into a private repo. `BotPublisher.publish`

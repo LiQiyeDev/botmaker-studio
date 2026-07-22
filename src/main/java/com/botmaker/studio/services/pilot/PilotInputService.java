@@ -13,17 +13,19 @@ import com.botmaker.shared.capture.NativeControllerFactory;
  *
  * <p><b>Reliability beats cursor safety here.</b> The cursor-preserving Linux default ({@code XSendEvent})
  * sends synthetic events flagged {@code send_event=True}, which every Wine/Proton game — the targets Interact
- * exists for — ignores, so taps silently did nothing. The controller is therefore asked once, lazily, for
- * {@link NativeController#useReliableInput()}: on Linux that escalates to uinput (or XTest), on Windows it is
- * a no-op because {@code PostMessage} is already both reliable and cursor-safe. After escalating,
- * {@link #supportsBackgroundInput()} honestly reports {@code false}, which {@code PilotServer} forwards as
- * the state message's {@code backgroundInput} flag and the pilot renders as its "moves the computer's real
- * cursor" warning. The escalation is process-wide and sticky, so a bot run in the same Studio session after
- * Interact was used also drives the real pointer.
+ * exists for — ignores, so taps silently did nothing. Windows had the same bug in a different dialect:
+ * {@code PostMessage} puts a click in the window's message queue, which a game reading raw input never looks
+ * at. The controller is therefore asked once, lazily, for {@link NativeController#useReliableInput()}, which
+ * on both platforms switches to real device input. After escalating, {@link #supportsBackgroundInput()}
+ * honestly reports {@code false}, which {@code PilotServer} forwards as the state message's
+ * {@code backgroundInput} flag and the pilot renders as its "moves the computer's real cursor" warning. The
+ * escalation is process-wide and sticky, so a bot run in the same Studio session after Interact was used also
+ * drives the real pointer.
  *
- * <p>A plain tap still takes {@link NativeController#postLeftClickScreen}, the one gesture with a
- * direct-to-window path. Drags need press/move/release <em>state</em>, so they go through
- * {@code mouseMove}/{@code mouseButton}, which drives the pointer on every backend.
+ * <p><b>Every gesture now drives the real pointer</b>, and each puts it back where it started. A tap used to
+ * take {@code postLeftClickScreen} on the theory that it was the one gesture with a cursor-preserving
+ * direct-to-window path — that path is exactly the one games drop, which is why taps did nothing while drags
+ * (already on {@code mouseMove}/{@code mouseButton}) worked.
  *
  * <p><b>Bounds are not optional.</b> Every coordinate is clamped to the rect the client was actually shown
  * (the last pushed frame's surface). A pilot session is reachable over a public Funnel URL; without the clamp
@@ -44,6 +46,9 @@ public final class PilotInputService {
     /** Resolved lazily: constructing a controller probes X11/Win32 and must not run at Studio startup. */
     private NativeController controller;
 
+    /** Where the pointer was when the current drag started, restored on {@code UP}. Null when not dragging. */
+    private java.awt.Point dragOrigin;
+
     /**
      * Applies one gesture at absolute screen coordinates, ignoring anything outside {@code bounds}.
      *
@@ -57,11 +62,24 @@ public final class PilotInputService {
         int btn = button <= 0 ? 1 : button;
         try {
             switch (kind) {
-                // A plain tap is the one gesture that has a cursor-preserving path — use it.
-                case TAP -> nc.postLeftClickScreen(x, y);
-                case DOWN -> { nc.mouseMove(x, y); nc.mouseButton(btn, true); }
+                // A tap is self-contained, so it can put the pointer back afterwards. The drag gestures
+                // can't: the cursor has to stay with the gesture until the button is released, so UP is
+                // where the pointer is restored (see dragOrigin).
+                case TAP -> nc.clickRestoringCursor(x, y, btn);
+                case DOWN -> {
+                    dragOrigin = nc.cursorPosition();
+                    nc.mouseMove(x, y);
+                    nc.mouseButton(btn, true);
+                }
                 case MOVE -> nc.mouseMove(x, y);
-                case UP -> { nc.mouseMove(x, y); nc.mouseButton(btn, false); }
+                case UP -> {
+                    nc.mouseMove(x, y);
+                    nc.mouseButton(btn, false);
+                    if (dragOrigin != null) {
+                        nc.mouseMove(dragOrigin.x, dragOrigin.y);
+                        dragOrigin = null;
+                    }
+                }
                 case SCROLL -> { nc.mouseMove(x, y); nc.scroll(amount); }
             }
             return true;

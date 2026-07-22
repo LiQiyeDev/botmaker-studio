@@ -291,9 +291,16 @@ public class ProjectCreator {
             package com.%s;
 
             import com.botmaker.sdk.api.bot.Bot;
+            import com.botmaker.sdk.api.vision.ClickConfig;
 
             public class %s {
                 public static void main(String[] args) {
+                    // Games ignore the quiet background clicks BotMaker sends by default, so drive the real
+                    // mouse and keyboard instead: the pointer moves to each click and returns, and the game
+                    // window is raised. Set this to false if your target is an ordinary application and you
+                    // would rather the bot never touch the cursor.
+                    ClickConfig.useRealInput(true);
+
                     // Runs GameLoop forever; on a crash or a stuck screen it runs GoHome then Startup and restarts.
                     Bot.start(GameLoop::run, GoHome.INSTANCE::execute, Startup::run);
                 }
