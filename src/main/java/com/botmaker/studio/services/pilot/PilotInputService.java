@@ -11,12 +11,19 @@ import com.botmaker.shared.capture.NativeControllerFactory;
  * plumbing a running bot's {@code Mouse} calls use, so a hand gesture and a bot action reach the game by
  * exactly one path.
  *
- * <p><b>Why it can click without stealing the cursor.</b> {@link NativeController#postLeftClickScreen} posts
- * the click straight into the target's message queue (Windows {@code PostMessage}) or sends it as a synthetic
- * X event to the window under the point ({@code XSendEvent}) — neither moves the user's pointer. Drags cannot
- * work that way: they need press/move/release <em>state</em>, so they go through
- * {@code mouseMove}/{@code mouseButton}, which on some backends drives the one shared pointer. Callers should
- * surface {@link NativeController#supportsBackgroundInput()} so the user knows which they're getting.
+ * <p><b>Reliability beats cursor safety here.</b> The cursor-preserving Linux default ({@code XSendEvent})
+ * sends synthetic events flagged {@code send_event=True}, which every Wine/Proton game — the targets Interact
+ * exists for — ignores, so taps silently did nothing. The controller is therefore asked once, lazily, for
+ * {@link NativeController#useReliableInput()}: on Linux that escalates to uinput (or XTest), on Windows it is
+ * a no-op because {@code PostMessage} is already both reliable and cursor-safe. After escalating,
+ * {@link #supportsBackgroundInput()} honestly reports {@code false}, which {@code PilotServer} forwards as
+ * the state message's {@code backgroundInput} flag and the pilot renders as its "moves the computer's real
+ * cursor" warning. The escalation is process-wide and sticky, so a bot run in the same Studio session after
+ * Interact was used also drives the real pointer.
+ *
+ * <p>A plain tap still takes {@link NativeController#postLeftClickScreen}, the one gesture with a
+ * direct-to-window path. Drags need press/move/release <em>state</em>, so they go through
+ * {@code mouseMove}/{@code mouseButton}, which drives the pointer on every backend.
  *
  * <p><b>Bounds are not optional.</b> Every coordinate is clamped to the rect the client was actually shown
  * (the last pushed frame's surface). A pilot session is reachable over a public Funnel URL; without the clamp
@@ -70,10 +77,20 @@ public final class PilotInputService {
         return nc != null && nc.supportsBackgroundInput();
     }
 
+    /**
+     * The shared controller, resolved (and escalated to a reliable input path) on first use. The escalation
+     * happens exactly once, here, so Studio startup and bot-only sessions never pay for it — and never lose
+     * the cursor-safe default unless Interact was actually used.
+     */
     private NativeController controller() {
         if (controller == null) {
             try {
-                controller = NativeControllerFactory.get();
+                NativeController nc = NativeControllerFactory.get();
+                if (!nc.useReliableInput()) {
+                    System.err.println("Pilot interact: no reliable input backend available — taps may not "
+                            + "reach the game (see LinuxController.useReliableInput).");
+                }
+                controller = nc;
             } catch (Exception e) {
                 System.err.println("Pilot interact unavailable: " + e.getMessage());
             }

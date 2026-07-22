@@ -6,6 +6,15 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-22 — Pilot Interact actually clicks.** `PilotInputService.controller()` now calls shared's new
+  `NativeController.useReliableInput()` once, lazily, on first Interact use. On Linux that escalates the
+  input backend from the cursor-preserving `XSendEvent` (whose `send_event=True` events every Wine/Proton
+  game ignores — taps landed nowhere) to uinput, else XTest; on Windows it's a no-op. `supportsBackgroundInput()`
+  then honestly reports `false`, which `PilotServer` forwards as the state message's `backgroundInput` flag and
+  the pilot renders as its existing "moves the computer's real cursor" warning — accurate instead of decorative.
+  Escalating only on Interact keeps bot runs on the cursor-safe default. No pilot/TS change; `botmaker-pilot/README.md`'s
+  Interact section documents the trade.
+
 - **2026-07-22 — "Project default" capture no longer freezes on an overload switch.** Switching a call onto a
   `(CaptureSource, …)` overload re-seeds the new slot through `InitializerFactory.createDefaultInitializer`,
   which wrote `CaptureExpr.of(<today's default target>)` — a `CaptureSource.window("Firestone")` snapshot that
