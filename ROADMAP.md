@@ -14,7 +14,12 @@ whenever work lands here (see CLAUDE.md → Roadmap).
   mid-drag). Corrected the class javadoc, which asserted Windows needed no escalation because `PostMessage`
   is "already both reliable and cursor-safe" — that claim is what let the bug stand. `ProjectCreator`'s
   `Game bot` template now opens `main` with `ClickConfig.useRealInput(true)`, so a new bot is set up for a
-  game by default and the choice is a visible, editable statement rather than a hidden setting.
+  game by default and the choice is a visible, editable statement rather than a hidden setting. The toolbar's
+  **🖱 Game** toggle reads and rewrites *that statement* (`ProjectCreator.readRealInput`/`writeRealInput` on
+  `ProjectConfig.mainSourceFile()`) rather than a side-car key — one source of truth, and the bot behaves the
+  way its code reads when run outside the Studio. Inserts the call and its import when absent (an `EMPTY`
+  bot, or the user deleted it), and updates the editor's cached `ProjectFile` so a disk-only write can't be
+  clobbered by the next edit.
 
 - **2026-07-22 — Gallery: installs find the release, stars stop falling back to 0.** One root cause, two
   symptoms. `GitHubClient.ensureRepo` returns an *existing* repo untouched, and the VCS Push button creates

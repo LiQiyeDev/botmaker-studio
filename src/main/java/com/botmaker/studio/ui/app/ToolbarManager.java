@@ -63,6 +63,10 @@ public class ToolbarManager {
     private Consumer<Boolean> onToggleDebugOutput;
     /** The debug-output toggle's initial (persisted) state — read by {@link UIManager} before building the bar. */
     private boolean debugOutputInitial = true;
+    /** Rewrites the generated {@code ClickConfig.useRealInput(…)} call; wired by {@link UIManager}. */
+    private Consumer<Boolean> onToggleRealInput;
+    /** The real-input toggle's initial state, read from the bot's own source by {@link UIManager}. */
+    private boolean realInputInitial;
     /** Starts the remote pilot server and shows the pairing dialog; wired by {@link UIManager}. */
     private Runnable onEnableRemotePilot;
     /** Opens the live overlay template-capture over the default window; wired by {@link UIManager}. */
@@ -156,6 +160,15 @@ public class ToolbarManager {
         this.onToggleDebugOutput = onToggle;
     }
 
+    /**
+     * Wires the real-input (game) toggle: {@code initial} is what the bot's own {@code main} currently says
+     * and {@code onToggle} rewrites that statement. Call before {@link #createCaptureGroup()}.
+     */
+    public void setOnToggleRealInput(boolean initial, Consumer<Boolean> onToggle) {
+        this.realInputInitial = initial;
+        this.onToggleRealInput = onToggle;
+    }
+
     /** Sets the callback invoked when the toolbar's Remote Pilot button is clicked. */
     public void setOnEnableRemotePilot(Runnable callback) {
         this.onEnableRemotePilot = callback;
@@ -242,6 +255,21 @@ public class ToolbarManager {
             if (onToggleDebugOutput != null) onToggleDebugOutput.accept(on);
         });
 
+        ToggleButton realInputButton = new ToggleButton(realInputText(realInputInitial));
+        realInputButton.getStyleClass().add("toolbar-btn");
+        realInputButton.setSelected(realInputInitial);
+        realInputButton.setTooltip(new Tooltip(
+                "Turn on when the target is a game. Games ignore the quiet background clicks BotMaker sends "
+                        + "by default, so this drives the real mouse and keyboard instead — the pointer moves "
+                        + "to each click and returns, and the game window is raised.\n\n"
+                        + "This edits ClickConfig.useRealInput(…) in your bot's main, so the setting travels "
+                        + "with the code and applies when the bot runs outside the Studio."));
+        realInputButton.setOnAction(e -> {
+            boolean on = realInputButton.isSelected();
+            realInputButton.setText(realInputText(on));
+            if (onToggleRealInput != null) onToggleRealInput.accept(on);
+        });
+
         Button captureTemplatesButton = new Button("✂ Templates");
         captureTemplatesButton.getStyleClass().add("toolbar-btn");
         captureTemplatesButton.setTooltip(new Tooltip(
@@ -270,7 +298,8 @@ public class ToolbarManager {
 
         FlowPane group = new FlowPane(Orientation.HORIZONTAL, 5, 5,
                 projectSetupButton, captureButton, launchTargetButton, activityFlowButton, remotePilotButton,
-                debugOutputButton, captureTemplatesButton, overlayEditorButton, resourcesButton, resolutionLabel);
+                debugOutputButton, realInputButton, captureTemplatesButton, overlayEditorButton,
+                resourcesButton, resolutionLabel);
         group.setAlignment(Pos.CENTER);
         group.setMinWidth(0);
         return group;
@@ -292,6 +321,11 @@ public class ToolbarManager {
      */
     private static String debugOutputText(boolean on) {
         return on ? "🐞 Debug ●" : "🐞 Debug ○";
+    }
+
+    /** Same equal-length rule as {@link #debugOutputText} — see that javadoc for why the widths must match. */
+    private static String realInputText(boolean on) {
+        return on ? "🖱 Game ●" : "🖱 Game ○";
     }
 
     /** "Std W×H · 🖵 W×H": the project standard resolution (if set) and the primary screen resolution. */

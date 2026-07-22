@@ -242,6 +242,75 @@ public class ProjectCreator {
     }
 
     /**
+     * Matches the generated {@code ClickConfig.useRealInput(<bool>);} call in a bot's entry point, capturing
+     * the literal so it can be read or rewritten in place. Tolerates whitespace and an optional
+     * {@code com.botmaker.sdk.api.vision.} qualifier, since the statement is the user's to edit.
+     */
+    private static final java.util.regex.Pattern REAL_INPUT_CALL = java.util.regex.Pattern.compile(
+            "((?:com\\.botmaker\\.sdk\\.api\\.vision\\.)?ClickConfig\\s*\\.\\s*useRealInput\\s*\\(\\s*)"
+                    + "(true|false)(\\s*\\))");
+
+    /**
+     * Whether the bot's entry point currently calls {@code ClickConfig.useRealInput(true)} — the "my target
+     * is a game, drive the real mouse and keyboard" switch.
+     *
+     * <p>The generated source is the single source of truth here, deliberately: the setting is a visible,
+     * editable statement in the user's own {@code main} rather than a hidden properties key, so a bot behaves
+     * the way its code reads even when it is run outside Studio. Absent call → {@code false}, matching the
+     * SDK default.
+     */
+    public static boolean readRealInput(Path mainSourceFile) {
+        try {
+            java.util.regex.Matcher m = REAL_INPUT_CALL.matcher(Files.readString(mainSourceFile));
+            return m.find() && "true".equals(m.group(2));
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Sets {@code ClickConfig.useRealInput(<enabled>)} in the bot's entry point, rewriting the existing call
+     * when there is one and otherwise inserting it (with its import) as the first statement of {@code main}.
+     *
+     * <p>This is a textual edit rather than an AST rewrite: the target is a single generated statement with a
+     * boolean literal, and going through {@code CodeEditor} would require the entry point to be the file
+     * currently open in the editor, which it usually isn't.
+     *
+     * @return the file's new contents, or {@code null} if it has no {@code main} to insert into — so the
+     *         caller can both refresh its in-memory copy and report the failure instead of silently no-oping
+     */
+    public static String writeRealInput(Path mainSourceFile, boolean enabled) throws IOException {
+        String source = Files.readString(mainSourceFile);
+
+        java.util.regex.Matcher m = REAL_INPUT_CALL.matcher(source);
+        String updated;
+        if (m.find()) {
+            updated = new StringBuilder(source)
+                    .replace(m.start(2), m.end(2), Boolean.toString(enabled))
+                    .toString();
+        } else {
+            // No call yet (an EMPTY-template bot, or the user removed it) — add one at the top of main.
+            java.util.regex.Matcher main = java.util.regex.Pattern
+                    .compile("static\\s+void\\s+main\\s*\\([^)]*\\)\\s*\\{")
+                    .matcher(source);
+            if (!main.find()) {
+                return null;
+            }
+            updated = new StringBuilder(source)
+                    .insert(main.end(), "\n        ClickConfig.useRealInput(" + enabled + ");")
+                    .toString();
+            if (!updated.contains("import com.botmaker.sdk.api.vision.ClickConfig;")) {
+                int pkgEnd = updated.indexOf('\n', updated.indexOf("package "));
+                updated = new StringBuilder(updated)
+                        .insert(pkgEnd + 1, "\nimport com.botmaker.sdk.api.vision.ClickConfig;\n")
+                        .toString();
+            }
+        }
+        Files.writeString(mainSourceFile, updated);
+        return updated;
+    }
+
+    /**
      * The starting sources for {@code template} as {@code fileName -> source}. The single source of truth for
      * both creation and {@link ProjectRepair} — a template's files are defined exactly once, here.
      */

@@ -166,6 +166,39 @@ public class UIManager {
                         System.err.println("Failed to save debug setting: " + ex.getMessage());
                     }
                 });
+        // The real-input switch lives in the bot's own main() as a ClickConfig call, so the toggle reads and
+        // rewrites that statement rather than a side-car setting — the bot then behaves the way its code
+        // reads even when run outside the Studio.
+        this.toolbarManager.setOnToggleRealInput(
+                com.botmaker.studio.project.ProjectCreator.readRealInput(config.mainSourceFile()),
+                on -> {
+                    try {
+                        String updated = com.botmaker.studio.project.ProjectCreator
+                                .writeRealInput(config.mainSourceFile(), on);
+                        if (updated == null) {
+                            System.err.println("Could not set real-input mode: no main(...) found in "
+                                    + config.mainSourceFile());
+                            return;
+                        }
+                        // The editor caches file contents in memory, so a disk-only write would be
+                        // invisible (and overwritten by the next edit). Update the cached copy, and
+                        // re-render when it's the file currently on screen.
+                        state.getAllFiles().stream()
+                                .filter(f -> f.getPath().equals(config.mainSourceFile()))
+                                .findFirst()
+                                .ifPresent(f -> {
+                                    String previous = f.getContent();
+                                    f.setContent(updated);
+                                    var active = state.getActiveFile();
+                                    if (active != null && active.getPath().equals(config.mainSourceFile())) {
+                                        eventBus.publish(new CoreApplicationEvents.CodeUpdatedEvent(
+                                                updated, previous));
+                                    }
+                                });
+                    } catch (java.io.IOException ex) {
+                        System.err.println("Failed to set real-input mode: " + ex.getMessage());
+                    }
+                });
         this.toolbarManager.setOnEnableRemotePilot(this::openRemotePilot);
         this.toolbarManager.setOnCaptureTemplates(this::openOverlayTemplateCapture);
         this.toolbarManager.setOnOverlayEditor(this::openOverlayEditor);
