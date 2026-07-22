@@ -6,13 +6,13 @@ import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.project.capture.CaptureTargetNames;
 import com.botmaker.studio.services.ProjectSettingsService;
 import javafx.geometry.Insets;
+import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
-import javafx.scene.control.MenuButton;
-import javafx.scene.control.MenuItem;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.Tooltip;
+import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 
 import java.util.function.Consumer;
@@ -157,16 +157,17 @@ public class ToolbarManager {
     }
 
     /**
-     * Creates the center group. To keep the bar from crowding when the window narrows, only the
-     * high-frequency actions stay inline (Project Setup, Capture, Launch Target, Activity Flow, Remote Pilot,
-     * the Debug toggle); the secondary tooling actions (Capture Templates, Overlay Editor, Resources)
-     * collapse into a single "⋯ More" overflow menu so the group's inline width is fixed regardless of the
-     * window size.
+     * Creates the center group: every project-level action as its own visible button. It is a {@link FlowPane}
+     * so a narrow window <em>wraps</em> the buttons onto further rows instead of clipping them — which is why
+     * there is no longer a "⋯ More" overflow menu hiding Capture Templates / Overlay Editor / Resources. An
+     * overflow menu trades one problem (too wide) for a worse one (an action you can't see is an action you
+     * don't know exists), and it hid those three even at full width, where there was room for them.
      *
-     * <p>Remote Pilot is inline rather than in the overflow because it is now the <em>only</em> live view of
-     * what the bot sees — it replaced both the loopback debug dashboard and Studio's in-app preview.
+     * <p>{@code minWidth = 0} matters: without it the group's preferred width becomes a floor on the stage's
+     * width, so a button whose label grows ("🐞 Debug: off" → "on", a longer capture target) would push the
+     * window wider on click.
      */
-    public HBox createCaptureGroup() {
+    public FlowPane createCaptureGroup() {
         Button projectSetupButton = new Button("🧭 Project Setup");
         projectSetupButton.getStyleClass().add("toolbar-btn");
         projectSetupButton.setTooltip(new Tooltip(
@@ -218,36 +219,37 @@ public class ToolbarManager {
             if (onToggleDebugOutput != null) onToggleDebugOutput.accept(on);
         });
 
-        // Secondary tooling actions live in the "⋯ More" overflow so the inline bar stays compact. Each item
-        // fires the same wired handler its former toolbar button did.
-        MenuItem captureTemplatesItem = new MenuItem("✂ Capture Templates");
-        captureTemplatesItem.setOnAction(e -> {
+        Button captureTemplatesButton = new Button("✂ Capture Templates");
+        captureTemplatesButton.getStyleClass().add("toolbar-btn");
+        captureTemplatesButton.setTooltip(new Tooltip(
+                "Cut and manage the template images the bot matches against"));
+        captureTemplatesButton.setOnAction(e -> {
             if (onCaptureTemplates != null) onCaptureTemplates.run();
         });
 
-        MenuItem overlayEditorItem = new MenuItem("⧉ Overlay Editor");
-        overlayEditorItem.setOnAction(e -> {
+        Button overlayEditorButton = new Button("⧉ Overlay Editor");
+        overlayEditorButton.getStyleClass().add("toolbar-btn");
+        overlayEditorButton.setTooltip(new Tooltip("Draw and edit the project's regions and overlays"));
+        overlayEditorButton.setOnAction(e -> {
             if (onOverlayEditor != null) onOverlayEditor.run();
         });
 
-        MenuItem resourcesItem = new MenuItem("🗂 Resources");
-        resourcesItem.setOnAction(e -> {
+        Button resourcesButton = new Button("🗂 Resources");
+        resourcesButton.getStyleClass().add("toolbar-btn");
+        resourcesButton.setTooltip(new Tooltip("Browse the project's resource files"));
+        resourcesButton.setOnAction(e -> {
             if (onAccessResources != null) onAccessResources.run();
         });
-
-        MenuButton moreButton = new MenuButton("⋯ More", null,
-                captureTemplatesItem, overlayEditorItem, resourcesItem);
-        moreButton.getStyleClass().add("toolbar-btn");
-        moreButton.setTooltip(new Tooltip(
-                "More tools: Capture Templates, Overlay Editor, Resources"));
 
         resolutionLabel = new Label(resolutionText());
         resolutionLabel.getStyleClass().add("toolbar-resolution");
         resolutionLabel.setTooltip(new Tooltip("Project standard resolution · primary screen resolution"));
 
-        HBox group = new HBox(5, projectSetupButton, captureButton, launchTargetButton, activityFlowButton,
-                remotePilotButton, debugOutputButton, moreButton, resolutionLabel);
+        FlowPane group = new FlowPane(Orientation.HORIZONTAL, 5, 5,
+                projectSetupButton, captureButton, launchTargetButton, activityFlowButton, remotePilotButton,
+                debugOutputButton, captureTemplatesButton, overlayEditorButton, resourcesButton, resolutionLabel);
         group.setAlignment(Pos.CENTER);
+        group.setMinWidth(0);
         return group;
     }
 

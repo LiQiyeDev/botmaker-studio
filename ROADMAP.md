@@ -6,6 +6,15 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-22 — Toolbar wraps instead of hiding, and no longer resizes the window.**
+  `ui/app/ToolbarManager.createCaptureGroup()` returns a `FlowPane` and the three actions that lived in the
+  `⋯ More` `MenuButton` (Capture Templates, Overlay Editor, Resources) are plain buttons again — the overflow
+  hid them even at full width. `ui/app/UIManager.createScene()` drops the hand-rolled reflow
+  (`centerWrap`/`secondRow`/`TWO_ROW_THRESHOLD = 1080` + a width listener) for one outer `FlowPane` holding
+  the edit / capture / execution+identity groups as indivisible units; wrapping is the layout's job. The bar's
+  fixed 50px height is gone (a wrapped row needs to grow) and `minWidth = 0` on the toolbar containers stops a
+  growing button label (`🐞 Debug: on` → `off`, a longer capture target) from driving the stage wider on click.
+
 - **2026-07-22 — Login polish, activity comment/return blocks, Heroic/CLI launch, capture-source default.**
   Six parts. (1) **Comment blocks** (`blocks/misc/CommentBlock`, `TextFieldComponents`, `blocks.css`) are now a
   read-only wrapping amber note with a small ✎ edit button (a locked file gets no button); long notes wrap
