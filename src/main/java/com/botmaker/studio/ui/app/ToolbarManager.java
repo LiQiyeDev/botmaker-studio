@@ -13,6 +13,7 @@ import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.OverrunStyle;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.Tooltip;
 import javafx.scene.image.Image;
@@ -28,6 +29,14 @@ public class ToolbarManager {
     private static final int CAPTURE_LABEL_MAX = 26;
     /** Edge length of the launch target's cover thumbnail on its toolbar button. */
     private static final int LAUNCH_ICON_PX = 20;
+    /**
+     * Fixed width for the two buttons whose label tracks project state (capture target, launch target).
+     * Sized for {@link #CAPTURE_LABEL_MAX} characters plus the icon and padding. These are the buttons that
+     * change text <em>after</em> the bar is laid out — on a target switch, and again when
+     * {@link #resolveLaunchArtwork} 's background scan lands with the real game title — so leaving them to
+     * size themselves makes the toolbar re-wrap at moments the user reads as "the window moved on its own".
+     */
+    private static final int TARGET_BTN_WIDTH = 200;
 
     private final EventBus eventBus;
     private final ProjectSettingsService settings;
@@ -179,7 +188,7 @@ public class ToolbarManager {
      * window wider on click.
      */
     public FlowPane createCaptureGroup() {
-        Button projectSetupButton = new Button("🧭 Project Setup");
+        Button projectSetupButton = new Button("🧭 Setup");
         projectSetupButton.getStyleClass().add("toolbar-btn");
         projectSetupButton.setTooltip(new Tooltip(
                 "Set the project up to run: launch target, capture target, resolution and templates in one checklist"));
@@ -193,6 +202,7 @@ public class ToolbarManager {
         captureButton.setOnAction(e -> {
             if (onManageCaptureTargets != null) onManageCaptureTargets.run();
         });
+        pinWidth(captureButton);
 
         launchTargetButton = new Button(launchTargetText(launchTargetSpec));
         launchTargetButton.getStyleClass().add("toolbar-btn");
@@ -201,9 +211,10 @@ public class ToolbarManager {
         launchTargetButton.setOnAction(e -> {
             if (onManageLaunchTarget != null) onManageLaunchTarget.run();
         });
+        pinWidth(launchTargetButton);
         resolveLaunchArtwork(launchTargetSpec);
 
-        Button activityFlowButton = new Button("🔀 Activity Flow");
+        Button activityFlowButton = new Button("🔀 Flow");
         activityFlowButton.getStyleClass().add("toolbar-btn");
         activityFlowButton.setTooltip(new Tooltip(
                 "Define the bot's activities and wire the order they run in"));
@@ -211,7 +222,7 @@ public class ToolbarManager {
             if (onActivityFlow != null) onActivityFlow.run();
         });
 
-        Button remotePilotButton = new Button("🎮 Remote Pilot");
+        Button remotePilotButton = new Button("🎮 Pilot");
         remotePilotButton.getStyleClass().add("toolbar-btn");
         remotePilotButton.setTooltip(new Tooltip(
                 "Stream what the bot sees to your phone or browser — watch it, start/stop it, "
@@ -231,7 +242,7 @@ public class ToolbarManager {
             if (onToggleDebugOutput != null) onToggleDebugOutput.accept(on);
         });
 
-        Button captureTemplatesButton = new Button("✂ Capture Templates");
+        Button captureTemplatesButton = new Button("✂ Templates");
         captureTemplatesButton.getStyleClass().add("toolbar-btn");
         captureTemplatesButton.setTooltip(new Tooltip(
                 "Cut and manage the template images the bot matches against"));
@@ -239,7 +250,7 @@ public class ToolbarManager {
             if (onCaptureTemplates != null) onCaptureTemplates.run();
         });
 
-        Button overlayEditorButton = new Button("⧉ Overlay Editor");
+        Button overlayEditorButton = new Button("⧉ Overlay");
         overlayEditorButton.getStyleClass().add("toolbar-btn");
         overlayEditorButton.setTooltip(new Tooltip("Draw and edit the project's regions and overlays"));
         overlayEditorButton.setOnAction(e -> {
@@ -265,9 +276,22 @@ public class ToolbarManager {
         return group;
     }
 
-    /** The debug-output toggle's label for a given state. */
+    /** Locks a button to {@link #TARGET_BTN_WIDTH}, ellipsizing a label too long to fit rather than growing. */
+    private static void pinWidth(Button button) {
+        button.setMinWidth(TARGET_BTN_WIDTH);
+        button.setPrefWidth(TARGET_BTN_WIDTH);
+        button.setMaxWidth(TARGET_BTN_WIDTH);
+        button.setTextOverrun(OverrunStyle.ELLIPSIS);
+    }
+
+    /**
+     * The debug-output toggle's label for a given state. The two states are deliberately the <em>same
+     * length</em> (a filled vs hollow dot, not "on"/"off"): an unequal pair changes the button's width on
+     * click, which re-wraps the bar and — because a wrapped row raises the scene root's minimum height —
+     * used to grow the whole window. See the min-size clamps in {@code UIManager.createScene()}.
+     */
     private static String debugOutputText(boolean on) {
-        return on ? "🐞 Debug: on" : "🐞 Debug: off";
+        return on ? "🐞 Debug ●" : "🐞 Debug ○";
     }
 
     /** "Std W×H · 🖵 W×H": the project standard resolution (if set) and the primary screen resolution. */

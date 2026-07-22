@@ -6,6 +6,20 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-22 — Toolbar: centered, one row, and it stops resizing the window.** The outer wrapping `FlowPane`
+  in `UIManager.createScene()` is now a `BorderPane` (left = edit group, center = project actions, right = run
+  + identity): a FlowPane packs all three units from the leading edge and cannot centre its middle child,
+  which is why the project buttons sat left-aligned and the run cluster drifted. The run cluster also gets
+  right padding so it no longer touches the window edge. **The window-resize bug** was the min-size chain:
+  JavaFX derives a Stage's minimum from the scene root's *computed* minimum, so a wrapped extra row (min
+  height) or a widening label (min width) propagated up and grew the window — only `setMinWidth(0)` was set,
+  leaving the height half live. `topBar`, `toolbarColumn`, `mainSplit` and the root `VBox` are now clamped on
+  both axes. Labels shortened to icon + one word (`🧭 Setup`, `🔀 Flow`, `🎮 Pilot`, `✂ Templates`,
+  `⧉ Overlay`) with the full text kept in the tooltips, the debug toggle's two states made equal-width
+  (`🐞 Debug ●`/`○` instead of `on`/`off`), and the capture/launch-target buttons pinned to a fixed width so a
+  target switch — or `resolveLaunchArtwork`'s background scan landing with the real game title — ellipsizes
+  instead of re-wrapping the bar.
+
 - **2026-07-22 — Pilot Interact actually clicks.** `PilotInputService.controller()` now calls shared's new
   `NativeController.useReliableInput()` once, lazily, on first Interact use. On Linux that escalates the
   input backend from the cursor-preserving `XSendEvent` (whose `send_event=True` events every Wine/Proton

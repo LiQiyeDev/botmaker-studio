@@ -871,35 +871,43 @@ public class UIManager {
     public Scene createScene() {
         menuBarManager.setOnSelectProject(v -> { if (onSelectProject != null) onSelectProject.accept(null); });
 
-        // --- 1. Top Bar Construction (edit controls left, execution controls right) ---
-        // One wrapping bar. Each group stays an indivisible unit (its own HBox/FlowPane), and the outer
-        // FlowPane reflows those units onto as many rows as the current width needs — so every button is
-        // always visible and readable at any window size. This replaces a hand-rolled reflow that swapped the
-        // capture group between the bar's center and a second row at a hardcoded 1080px: a pixel guess
-        // unrelated to the buttons' real widths, which both clipped and hid controls.
+        // --- 1. Top Bar Construction (edit controls left, project actions centered, run controls right) ---
+        // A BorderPane, not a FlowPane. Only the *center* group wraps; left and right are pinned to their
+        // edges and never move when it does. A FlowPane cannot centre its middle child — it packs all three
+        // units from the leading edge — which is why the project buttons used to sit left-aligned and why the
+        // run cluster drifted with them. Each group is still an indivisible unit (its own HBox/FlowPane).
         HBox editControls = toolbarManager.createEditGroup();
         editControls.setAlignment(Pos.CENTER_LEFT);
 
         HBox executionControls = toolbarManager.createExecutionGroup();
         HBox rightContainer = new HBox(10, executionControls, buildIdentityCluster());
         rightContainer.setAlignment(Pos.CENTER_RIGHT);
+        // Breathing room against the window edge, mirroring the padding createEditGroup() applies on its side.
+        rightContainer.setPadding(new Insets(0, 10, 0, 0));
 
         FlowPane captureControls = toolbarManager.createCaptureGroup();
 
-        FlowPane topBar = new FlowPane(Orientation.HORIZONTAL, 10, 4,
-                editControls, captureControls, rightContainer);
+        BorderPane topBar = new BorderPane();
+        topBar.setLeft(editControls);
+        topBar.setCenter(captureControls);
+        topBar.setRight(rightContainer);
+        BorderPane.setAlignment(editControls, Pos.CENTER_LEFT);
+        BorderPane.setAlignment(rightContainer, Pos.CENTER_RIGHT);
         topBar.setPadding(new Insets(6));
-        topBar.setAlignment(Pos.CENTER_LEFT);
         topBar.getStyleClass().add("main-toolbar");
-        // Free to grow to a second/third row (the old fixed 50px clipped the wrapped rows), and free to
-        // shrink: a non-zero min width would let a button's label growing on click ("🐞 Debug: on" → "off")
-        // widen the whole stage, which is exactly the "window resizes when I click" symptom.
+        // Both axes must be free to shrink. JavaFX derives a Stage's *minimum* size from the scene root's
+        // computed minimum, so any node here that reports a hard floor pushes the window outwards: a label
+        // growing on click widens the bar (min width), and the centre group gaining a wrap row makes it taller
+        // (min height) — and the window grows to satisfy either. Only setMinWidth(0) was set before, which is
+        // why the height half of "clicking a button resizes the window" survived.
         topBar.setMinWidth(0);
+        topBar.setMinHeight(0);
         topBar.setPrefHeight(Region.USE_COMPUTED_SIZE);
         topBar.setStyle("-fx-border-color: #dcdcdc; -fx-border-width: 0 0 1 0; -fx-background-color: #f4f4f4;");
 
         VBox toolbarColumn = new VBox(topBar);
         toolbarColumn.setMinWidth(0);
+        toolbarColumn.setMinHeight(0);
 
         // --- 2. Left Panel: File Explorer ---
         // Fill the column (no maxWidth cap) so the tree occupies the full width the divider gives it —
@@ -980,6 +988,11 @@ public class UIManager {
         mainSplit.getItems().addAll(fileExplorer, verticalSplit);
         mainSplit.setDividerPositions(0.25);
         clampExplorerWidth(mainSplit);
+        // Same reason as the toolbar's clamps: a SplitPane's computed minimum is the sum of its items', and
+        // the file explorer carries a real EXPLORER_MIN_WIDTH floor. Left unclamped that floor reaches the
+        // Stage and becomes a minimum window size the user can't drag below.
+        mainSplit.setMinWidth(0);
+        mainSplit.setMinHeight(0);
 
         statusLabel = new Label("Ready");
         statusLabel.setId("status-label");
@@ -988,6 +1001,10 @@ public class UIManager {
         VBox root = new VBox(menuBarManager.getMenuBar(), toolbarColumn, mainSplit, statusLabel);
         VBox.setVgrow(mainSplit, Priority.ALWAYS);
         root.getStyleClass().add("light-theme");
+        // The last link in the min-size chain: the scene root is what JavaFX actually reads to decide the
+        // Stage's minimum, so it gets the clamp too. Without it, clamping the children alone isn't enough.
+        root.setMinWidth(0);
+        root.setMinHeight(0);
 
         primaryStage.setOnHidden(e -> eventLogManager.shutdown());
 
