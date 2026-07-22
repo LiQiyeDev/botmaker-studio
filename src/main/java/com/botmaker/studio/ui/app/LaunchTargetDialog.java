@@ -2,6 +2,7 @@ package com.botmaker.studio.ui.app;
 
 import com.botmaker.studio.game.EpicLibraryScanner;
 import com.botmaker.studio.game.GameLibraryProvider;
+import com.botmaker.studio.game.HeroicLibraryScanner;
 import com.botmaker.studio.game.SteamLibraryScanner;
 import com.botmaker.studio.project.ProjectCreator;
 import com.botmaker.studio.ui.render.components.EmulatorPickerDialog;
@@ -80,14 +81,20 @@ public final class LaunchTargetDialog {
         Button epic = new Button("🎮 Epic game…");
         epic.setMaxWidth(Double.MAX_VALUE);
         epic.setOnAction(e -> pickGame(new EpicLibraryScanner(), "epic"));
+        Button heroic = new Button("🎮 Heroic game (Epic/GOG on Linux)…");
+        heroic.setMaxWidth(Double.MAX_VALUE);
+        heroic.setOnAction(e -> pickGame(new HeroicLibraryScanner(), "heroic"));
         Button exe = new Button("📁 Executable…");
         exe.setMaxWidth(Double.MAX_VALUE);
         exe.setOnAction(e -> pickExecutable());
+        Button cli = new Button("⌨️ CLI command…");
+        cli.setMaxWidth(Double.MAX_VALUE);
+        cli.setOnAction(e -> pickCliCommand());
         Button emu = new Button("📱 Emulator app…");
         emu.setMaxWidth(Double.MAX_VALUE);
         emu.setOnAction(e -> pickEmulatorApp());
 
-        VBox choices = new VBox(6, steam, epic, exe, emu);
+        VBox choices = new VBox(6, steam, epic, heroic, exe, cli, emu);
 
         statusLabel = new Label();
         statusLabel.setStyle("-fx-font-size: 11px;");
@@ -108,7 +115,7 @@ public final class LaunchTargetDialog {
 
         VBox root = new VBox(12, heading, hint, currentLabel, choices, bar);
         root.setPadding(new Insets(16));
-        stage.setScene(new Scene(root, 420, 340));
+        stage.setScene(new Scene(root, 440, 420));
         stage.show();
     }
 
@@ -124,6 +131,26 @@ public final class LaunchTargetDialog {
         chooser.setTitle("Choose a program to launch");
         File chosen = chooser.showOpenDialog(stage);
         if (chosen != null) apply("exe:" + chosen.getAbsolutePath(), null);
+    }
+
+    /** Prompts for an arbitrary command line — the escape hatch for launchers we don't model (e.g. Heroic/legendary). */
+    private void pickCliCommand() {
+        javafx.scene.control.TextInputDialog dialog =
+                new javafx.scene.control.TextInputDialog(cliCommandOf(currentSpec));
+        dialog.initOwner(stage);
+        dialog.setTitle("CLI command");
+        dialog.setHeaderText("Command the bot runs to launch the game");
+        dialog.setContentText("Command:");
+        dialog.getEditor().setPrefColumnCount(40);
+        dialog.showAndWait().ifPresent(cmd -> {
+            String trimmed = cmd.trim();
+            if (!trimmed.isEmpty()) apply("cli:" + trimmed, null);
+        });
+    }
+
+    /** The command line inside a {@code cli:} spec (so re-editing pre-fills it), else empty. */
+    private static String cliCommandOf(String spec) {
+        return spec != null && spec.startsWith("cli:") ? spec.substring("cli:".length()) : "";
     }
 
     private void pickEmulatorApp() {
@@ -170,6 +197,8 @@ public final class LaunchTargetDialog {
         return switch (kind) {
             case "steam" -> "Steam game " + rest;
             case "epic" -> "Epic game " + rest;
+            case "heroic" -> "Heroic game " + rest;
+            case "cli" -> "Command: " + rest;
             case "exe" -> "Executable " + fileName(rest);
             case "emu-app" -> "Emulator app " + rest;
             default -> spec;

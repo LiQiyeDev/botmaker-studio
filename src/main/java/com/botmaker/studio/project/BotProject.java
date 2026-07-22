@@ -104,6 +104,8 @@ public class BotProject {
         // 2. Create state
         ProjectState state = new ProjectState();
         state.setSourcePath(config.sourceRoot());
+        // Installed community bots open read-only until the user chooses to edit; local projects are editable.
+        state.setReaderMode(ProjectMode.isReader(config.projectPath()));
 
         // 3. Create event bus
         EventBus eventBus = new EventBus(enableEventLogging);

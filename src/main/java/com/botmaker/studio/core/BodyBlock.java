@@ -65,7 +65,8 @@ public class BodyBlock extends AbstractStatementBlock implements BlockWithChildr
                 placeholder.setMouseTransparent(false);
                 placeholder.setCursor(Cursor.HAND);
                 placeholder.setOnMouseClicked(e -> {
-                    ContextMenu menu = ExpressionMenuFactory.createStatementMenu(context.getProjectAnalyzer(), type -> {
+                    ContextMenu menu = ExpressionMenuFactory.createStatementMenu(
+                            context.getProjectAnalyzer(), getAstNode(), type -> {
                         context.getCodeEditor().addStatement(this, type, 0);
                     });
                     menu.show(placeholder, javafx.geometry.Side.BOTTOM, 0, 0);
@@ -127,7 +128,7 @@ public class BodyBlock extends AbstractStatementBlock implements BlockWithChildr
 
         // 3. Setup Click Insert Handler
         // This wires the hidden "+" button to the CodeEditor
-        dragAndDropManager.enableSeparatorClick(separator, context.getProjectAnalyzer(), type -> {
+        dragAndDropManager.enableSeparatorClick(separator, context.getProjectAnalyzer(), targetBody.getAstNode(), type -> {
             context.getCodeEditor().addStatement(targetBody, type, insertionIndex);
         });
 

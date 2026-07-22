@@ -14,6 +14,7 @@ import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 public class StatementFactory {
@@ -24,11 +25,11 @@ public class StatementFactory {
      * {@link BlockType.LibraryCall}) are built generically from their fields, so new variants are pure data.
      */
     public static Statement createStatement(AST ast, BlockType type, CompilationUnit cu, ASTRewrite rewriter,
-                                            ProjectState state, ProjectAnalyzer analyzer) {
+                                            ProjectState state, ProjectAnalyzer analyzer, ASTNode context) {
         return switch (type) {
-            case BlockType.ControlFlow cf -> createControlFlow(ast, cf.kind(), cu, rewriter, state);
-            case BlockType.VarDecl v -> buildVarDecl(ast, v, cu, rewriter, analyzer);
-            case BlockType.ScannerRead r -> buildScannerRead(ast, r, cu, rewriter);
+            case BlockType.ControlFlow cf -> createControlFlow(ast, cf.kind(), cu, rewriter, state, analyzer, context);
+            case BlockType.VarDecl v -> buildVarDecl(ast, v, cu, rewriter, analyzer, context);
+            case BlockType.ScannerRead r -> buildScannerRead(ast, r, cu, rewriter, analyzer, context);
             case BlockType.LibraryCall l -> buildLibraryCall(ast, l, cu, rewriter, state, analyzer);
             case BlockType.LambdaCall l -> buildLambdaCall(ast, l, cu, rewriter, analyzer);
             case BlockType.EnumDecl ignored -> createEnumDeclaration(ast);
@@ -37,31 +38,72 @@ public class StatementFactory {
     }
 
     private static Statement createControlFlow(AST ast, BlockType.ControlFlow.Kind kind,
-                                               CompilationUnit cu, ASTRewrite rewriter, ProjectState state) {
+                                               CompilationUnit cu, ASTRewrite rewriter, ProjectState state,
+                                               ProjectAnalyzer analyzer, ASTNode context) {
         return switch (kind) {
             case PRINT -> createPrintStatement(ast, cu, rewriter);
             case IF -> createIfStatement(ast);
             case WHILE -> createWhileStatement(ast);
-            case FOR -> createForStatement(ast);
+            case FOR -> createForStatement(ast, analyzer, context);
             case DO_WHILE -> createDoWhileStatement(ast);
-            case SWITCH -> createSwitchStatement(ast);
+            case SWITCH -> createSwitchStatement(ast, analyzer, context);
             case BREAK -> ast.newBreakStatement();
             case CONTINUE -> ast.newContinueStatement();
             case RETURN -> ast.newReturnStatement();
             case WAIT -> createWaitStatement(ast);
-            case ASSIGNMENT -> createAssignmentStatement(ast);
-            case FUNCTION_CALL -> createFunctionCallStatement(ast, cu, rewriter);
-            case ARRAY -> createArrayDeclaration(ast, cu, state);
+            case ASSIGNMENT -> createAssignmentStatement(ast, analyzer, context);
+            case FUNCTION_CALL -> createFunctionCallStatement(ast, cu, rewriter, analyzer, context);
+            case ARRAY -> createArrayDeclaration(ast, cu, state, analyzer, context);
             case COMMENT -> (Statement) rewriter.createStringPlaceholder("// Comment", ASTNode.EMPTY_STATEMENT);
         };
+    }
+
+    // --- Scope-aware defaults ------------------------------------------------
+    //
+    // These four blocks used to be seeded with invented identifiers (`switch (variable)`, `variable = 0`,
+    // `for (String item : array)`, `BotMaker.DefaultMethod()`), so every drop produced an immediate
+    // "cannot resolve symbol". The rule now: name only something that exists at the drop site, and when
+    // nothing qualifies leave an empty "+" slot (a null literal, the same convention buildLibraryCall uses)
+    // rather than inventing a name the user has to notice and fix.
+
+    /** The first variable visible at {@code context} matching {@code filter}, or {@code null} if none is. */
+    private static ProjectAnalyzer.VariableOption firstVisibleVariable(
+            ProjectAnalyzer analyzer, ASTNode context, Predicate<ProjectAnalyzer.VariableOption> filter) {
+        if (analyzer == null || context == null) return null;
+        return analyzer.getVisibleVariables(context, ResolvedType.UNKNOWN).stream()
+                .filter(filter)
+                .findFirst()
+                .orElse(null);
+    }
+
+    /** An empty slot the user fills from the expression menu — never an invented identifier. */
+    private static Expression emptySlot(AST ast) {
+        return ast.newNullLiteral();
+    }
+
+    /**
+     * {@code base}, or {@code base2}, {@code base3}… if that name is already taken at the drop site. The declare
+     * blocks carry a fixed variable name, so dropping the same one twice used to declare the name twice — a
+     * duplicate-variable error from nothing but repeating a palette action.
+     */
+    private static String uniqueName(ProjectAnalyzer analyzer, ASTNode context, String base) {
+        if (analyzer == null || context == null) return base;
+        java.util.Set<String> taken = analyzer.getVisibleVariables(context, ResolvedType.UNKNOWN).stream()
+                .map(ProjectAnalyzer.VariableOption::name)
+                .collect(java.util.stream.Collectors.toSet());
+        if (!taken.contains(base)) return base;
+        for (int i = 2; ; i++) {
+            String candidate = base + i;
+            if (!taken.contains(candidate)) return candidate;
+        }
     }
 
     // --- Data-driven builders ---
 
     private static Statement buildVarDecl(AST ast, BlockType.VarDecl v, CompilationUnit cu,
-                                          ASTRewrite rewriter, ProjectAnalyzer analyzer) {
+                                          ASTRewrite rewriter, ProjectAnalyzer analyzer, ASTNode context) {
         VariableDeclarationFragment fragment = ast.newVariableDeclarationFragment();
-        fragment.setName(ast.newSimpleName(v.varName()));
+        fragment.setName(ast.newSimpleName(uniqueName(analyzer, context, v.varName())));
         Expression init = buildExpression(ast, v.init(), cu, rewriter, analyzer);
         if (init != null) fragment.setInitializer(init);
         VariableDeclarationStatement varDecl = ast.newVariableDeclarationStatement(fragment);
@@ -70,10 +112,11 @@ public class StatementFactory {
         return varDecl;
     }
 
-    private static Statement buildScannerRead(AST ast, BlockType.ScannerRead r, CompilationUnit cu, ASTRewrite rewriter) {
+    private static Statement buildScannerRead(AST ast, BlockType.ScannerRead r, CompilationUnit cu,
+                                              ASTRewrite rewriter, ProjectAnalyzer analyzer, ASTNode context) {
         ImportManager.addImport(cu, rewriter, "com.botmaker.sdk.api.BotMaker");
         VariableDeclarationFragment fragment = ast.newVariableDeclarationFragment();
-        fragment.setName(ast.newSimpleName(r.varName()));
+        fragment.setName(ast.newSimpleName(uniqueName(analyzer, context, r.varName())));
         MethodInvocation readCall = ast.newMethodInvocation();
         readCall.setExpression(ast.newSimpleName("BotMaker"));
         readCall.setName(ast.newSimpleName(r.method()));
@@ -207,9 +250,10 @@ public class StatementFactory {
         return ast.newExpressionStatement(print);
     }
 
-    private static Statement createArrayDeclaration(AST ast, CompilationUnit cu, ProjectState state) {
+    private static Statement createArrayDeclaration(AST ast, CompilationUnit cu, ProjectState state,
+                                                    ProjectAnalyzer analyzer, ASTNode context) {
         VariableDeclarationFragment frag = ast.newVariableDeclarationFragment();
-        frag.setName(ast.newSimpleName("myList"));
+        frag.setName(ast.newSimpleName(uniqueName(analyzer, context, "myList")));
         ResolvedType arrayType = ResolvedType.named("int[]");
         frag.setInitializer(InitializerFactory.createArrayInitializer(ast, arrayType, Collections.emptyList(), cu, state));
         VariableDeclarationStatement listDecl = ast.newVariableDeclarationStatement(frag);
@@ -231,15 +275,48 @@ public class StatementFactory {
         return whileStatement;
     }
 
-    private static Statement createForStatement(AST ast) {
+    /**
+     * {@code for (T item : <collection>)} over the first array/{@link Iterable} variable in scope, with the loop
+     * variable typed from its element type. With nothing iterable in scope the loop variable is a {@code var} over
+     * an empty slot, so the user picks the collection and the type follows.
+     */
+    private static Statement createForStatement(AST ast, ProjectAnalyzer analyzer, ASTNode context) {
+        ProjectAnalyzer.VariableOption iterable =
+                firstVisibleVariable(analyzer, context, v -> isIterable(v.type()));
+
         EnhancedForStatement enhancedFor = ast.newEnhancedForStatement();
         SingleVariableDeclaration parameter = ast.newSingleVariableDeclaration();
-        parameter.setType(ProjectAnalyzer.createTypeNode(ast, "String"));
+        parameter.setType(elementTypeNode(ast, iterable == null ? null : iterable.type()));
         parameter.setName(ast.newSimpleName("item"));
         enhancedFor.setParameter(parameter);
-        enhancedFor.setExpression(ast.newSimpleName("array"));
+        enhancedFor.setExpression(iterable == null ? emptySlot(ast) : ast.newSimpleName(iterable.name()));
         enhancedFor.setBody(ast.newBlock());
         return enhancedFor;
+    }
+
+    /** Arrays and the common {@code java.util} collection interfaces — what an enhanced-for can walk. */
+    private static boolean isIterable(ResolvedType type) {
+        if (type == null) return false;
+        if (type.isArray()) return true;
+        return ITERABLE_TYPES.contains(type.simpleName());
+    }
+
+    private static final java.util.Set<String> ITERABLE_TYPES = java.util.Set.of(
+            "Iterable", "Collection", "List", "ArrayList", "LinkedList", "Set", "HashSet", "LinkedHashSet",
+            "TreeSet", "Queue", "Deque", "ArrayDeque");
+
+    /**
+     * The loop-variable type for iterating {@code type}: an array's leaf type when known, else {@code var} —
+     * the element type of a {@code List<T>} isn't recoverable from a {@link ResolvedType}'s simple name, and
+     * {@code var} is correct for every case rather than a guess that may not compile.
+     */
+    private static Type elementTypeNode(AST ast, ResolvedType type) {
+        if (type != null && type.isArray()) {
+            ResolvedType leaf = type.leafType();
+            if (leaf.isPrimitive()) return ast.newPrimitiveType(primitiveCode(leaf.simpleName()));
+            return ProjectAnalyzer.createTypeNode(ast, leaf.simpleName());
+        }
+        return ast.newSimpleType(ast.newSimpleName("var"));
     }
 
     private static Statement createDoWhileStatement(AST ast) {
@@ -262,30 +339,112 @@ public class StatementFactory {
         return typeDeclStmt;
     }
 
-    private static Statement createAssignmentStatement(AST ast) {
+    /** {@code <var> = <default for its type>} over the first variable in scope; an empty slot when there is none. */
+    private static Statement createAssignmentStatement(AST ast, ProjectAnalyzer analyzer, ASTNode context) {
+        ProjectAnalyzer.VariableOption target = firstVisibleVariable(analyzer, context, v -> true);
         Assignment assignment = ast.newAssignment();
-        assignment.setLeftHandSide(ast.newSimpleName("variable"));
         assignment.setOperator(Assignment.Operator.ASSIGN);
-        assignment.setRightHandSide(ast.newNumberLiteral("0"));
+        if (target == null) {
+            assignment.setLeftHandSide(emptySlot(ast));
+            assignment.setRightHandSide(emptySlot(ast));
+        } else {
+            assignment.setLeftHandSide(ast.newSimpleName(target.name()));
+            assignment.setRightHandSide(InitializerFactory.createDefaultInitializer(ast, target.type()));
+        }
         return ast.newExpressionStatement(assignment);
     }
 
-    private static Statement createSwitchStatement(AST ast) {
+    /**
+     * A switch over the first switchable variable in scope, shaped as one real {@code case} plus a
+     * {@code default} so the structure is obvious. Every case gets a trailing {@code break} — {@code SwitchBlock}
+     * renders those as case chrome rather than deletable child blocks, so fall-through can't be created by
+     * accident.
+     */
+    private static Statement createSwitchStatement(AST ast, ProjectAnalyzer analyzer, ASTNode context) {
+        ProjectAnalyzer.VariableOption subject =
+                firstVisibleVariable(analyzer, context, v -> isSwitchable(v.type()));
+
         SwitchStatement switchStmt = ast.newSwitchStatement();
-        switchStmt.setExpression(ast.newSimpleName("variable"));
+        switchStmt.setExpression(subject == null ? emptySlot(ast) : ast.newSimpleName(subject.name()));
+
+        SwitchCase firstCase = ast.newSwitchCase();
+        firstCase.expressions().add(firstCaseLabel(ast, subject == null ? null : subject.type()));
+        switchStmt.statements().add(firstCase);
+        switchStmt.statements().add(ast.newBreakStatement());
+
         SwitchCase defaultCase = ast.newSwitchCase();
         switchStmt.statements().add(defaultCase);
         switchStmt.statements().add(ast.newBreakStatement());
         return switchStmt;
     }
 
-    private static Statement createFunctionCallStatement(AST ast, CompilationUnit cu, ASTRewrite rewriter) {
-        ImportManager.addImport(cu, rewriter, "com.botmaker.sdk.api.BotMaker");
+    /** What Java lets you switch on: the integral types (and their boxes), {@code String}, {@code char}, enums. */
+    private static boolean isSwitchable(ResolvedType type) {
+        if (type == null) return false;
+        if (type.isEnum() || type.isString()) return true;
+        return SWITCHABLE_TYPES.contains(type.simpleName());
+    }
+
+    private static final java.util.Set<String> SWITCHABLE_TYPES = java.util.Set.of(
+            "int", "short", "byte", "char", "Integer", "Short", "Byte", "Character", "String");
+
+    /** A constant of the switch subject's type for the seeded first case. */
+    private static Expression firstCaseLabel(AST ast, ResolvedType type) {
+        if (type != null && type.isEnum()) {
+            List<String> constants = type.enumConstants();
+            // Enum case labels are unqualified — `case OPTION_A:`, never `case MyEnum.OPTION_A:`.
+            if (!constants.isEmpty()) return ast.newSimpleName(constants.getFirst());
+        }
+        if (type != null && (type.isString() || "Character".equals(type.simpleName()) || "char".equals(type.simpleName()))) {
+            StringLiteral lit = ast.newStringLiteral();
+            lit.setLiteralValue("");
+            if (type.isString()) return lit;
+            CharacterLiteral charLit = ast.newCharacterLiteral();
+            charLit.setCharValue('a');
+            return charLit;
+        }
+        return ast.newNumberLiteral("0");
+    }
+
+    /**
+     * "Call Function" calls one of <em>the project's own</em> methods, seeded with the first one visible at the
+     * drop site. It used to emit {@code BotMaker.DefaultMethod()} — a method that has never existed in the SDK,
+     * so every drop produced an unresolvable symbol (ROADMAP B7). When the class declares nothing else to call
+     * yet, fall back to {@code BotMaker.print("")}, which always resolves.
+     */
+    private static Statement createFunctionCallStatement(AST ast, CompilationUnit cu, ASTRewrite rewriter,
+                                                         ProjectAnalyzer analyzer, ASTNode context) {
+        IMethodBinding target = firstCallableMethod(analyzer, context);
+        if (target == null) return createPrintStatement(ast, cu, rewriter);
+
         MethodInvocation methodCall = ast.newMethodInvocation();
-        Name libraryClass = ast.newName("BotMaker");
-        methodCall.setExpression(libraryClass);
-        methodCall.setName(ast.newSimpleName("DefaultMethod"));
+        methodCall.setName(ast.newSimpleName(target.getName()));
+        for (ITypeBinding p : target.getParameterTypes()) {
+            methodCall.arguments().add(InitializerFactory.createDefaultInitializer(ast, ResolvedType.of(p)));
+        }
         return ast.newExpressionStatement(methodCall);
+    }
+
+    /**
+     * The first method callable unqualified at {@code context}. Constructors are skipped (they aren't statements)
+     * and so is the enclosing method itself — seeding a block with a call to the method you're editing would be
+     * unbounded recursion, which compiles but is never what was meant.
+     */
+    private static IMethodBinding firstCallableMethod(ProjectAnalyzer analyzer, ASTNode context) {
+        if (analyzer == null || context == null) return null;
+        String enclosing = null;
+        for (ASTNode n = context; n != null; n = n.getParent()) {
+            if (n instanceof MethodDeclaration md) {
+                enclosing = md.getName().getIdentifier();
+                break;
+            }
+        }
+        for (IMethodBinding m : analyzer.getAvailableScopes(context).methods()) {
+            if (m.isConstructor() || m.isSynthetic()) continue;
+            if (m.getName().equals(enclosing)) continue;
+            return m;
+        }
+        return null;
     }
 
     private static Statement createWaitStatement(AST ast) {

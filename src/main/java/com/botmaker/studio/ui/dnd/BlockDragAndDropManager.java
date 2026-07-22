@@ -4,6 +4,7 @@ import com.botmaker.studio.ui.render.menu.ExpressionMenuFactory;
 
 import com.botmaker.studio.palette.BlockCatalog;
 import com.botmaker.studio.palette.BlockType;
+import com.botmaker.studio.parser.StatementPlacement;
 import com.botmaker.studio.blocks.ClassBlock;
 import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.CodeBlock;
@@ -40,10 +41,19 @@ public class BlockDragAndDropManager {
     public static final DataFormat ADDABLE_BLOCK_FORMAT = new DataFormat("application/x-java-addable-block");
     public static final DataFormat EXISTING_BLOCK_FORMAT = new DataFormat("application/x-java-existing-block");
 
+    /**
+     * The {@link StatementPlacement.Jump} the dragged block is, when it is one. Carried on the dragboard so a
+     * drop zone can judge legality during drag-over without resolving a block id back through the service — for
+     * an existing-block move the id is all the other format carries, and the AST node it names lives service-side.
+     */
+    public static final DataFormat JUMP_KIND_FORMAT = new DataFormat("application/x-java-jump-kind");
+
     // Drag-over feedback is driven by pseudo-classes (styled in blocks.css), not inline -fx-style strings,
     // consistent with the :highlighted / :error / :breakpoint approach in AbstractCodeBlock.
     private static final PseudoClass DRAG_OVER_COPY = PseudoClass.getPseudoClass("drag-over-copy");
     private static final PseudoClass DRAG_OVER_MOVE = PseudoClass.getPseudoClass("drag-over-move");
+    /** A drop the target would refuse — e.g. a {@code break} over a body with no enclosing loop or switch. */
+    private static final PseudoClass DRAG_OVER_ILLEGAL = PseudoClass.getPseudoClass("drag-over-illegal");
 
     private final EventBus eventBus;
 
@@ -58,6 +68,7 @@ public class BlockDragAndDropManager {
             Dragboard db = node.startDragAndDrop(TransferMode.COPY);
             ClipboardContent content = new ClipboardContent();
             content.put(ADDABLE_BLOCK_FORMAT, blockType.id());
+            putJumpKind(content, StatementPlacement.jumpOf(blockType));
             db.setContent(content);
             node.setOpacity(0.5);
             event.consume();
@@ -82,6 +93,7 @@ public class BlockDragAndDropManager {
             Dragboard db = node.startDragAndDrop(TransferMode.MOVE);
             ClipboardContent content = new ClipboardContent();
             content.put(EXISTING_BLOCK_FORMAT, block.getId());
+            putJumpKind(content, StatementPlacement.jumpOf(block.getAstNode()));
             db.setContent(content);
             node.setOpacity(0.5);
             event.consume();
@@ -101,17 +113,43 @@ public class BlockDragAndDropManager {
         return false;
     }
 
+    private static void putJumpKind(ClipboardContent content, StatementPlacement.Jump jump) {
+        if (jump != null) content.put(JUMP_KIND_FORMAT, jump.name());
+    }
+
     // --- Drag-over feedback helpers ---
 
+    /**
+     * Whether {@code targetBody} would accept whatever is on the dragboard. Only the jump statements can be
+     * refused; everything else is unconditionally legal, so this is a cheap check on the common path.
+     */
+    private static boolean accepts(Dragboard db, BodyBlock targetBody) {
+        Object kind = db.getContent(JUMP_KIND_FORMAT);
+        if (kind == null) return true;
+        StatementPlacement.Jump jump;
+        try {
+            jump = StatementPlacement.Jump.valueOf((String) kind);
+        } catch (IllegalArgumentException unknownKind) {
+            return true;
+        }
+        return StatementPlacement.allows(jump, targetBody.getAstNode());
+    }
+
     private void applyDragOver(Node target, Dragboard db) {
+        applyDragOver(target, db, true);
+    }
+
+    private void applyDragOver(Node target, Dragboard db, boolean accepted) {
         boolean copy = db.hasContent(ADDABLE_BLOCK_FORMAT);
-        target.pseudoClassStateChanged(DRAG_OVER_COPY, copy);
-        target.pseudoClassStateChanged(DRAG_OVER_MOVE, !copy && db.hasContent(EXISTING_BLOCK_FORMAT));
+        target.pseudoClassStateChanged(DRAG_OVER_COPY, accepted && copy);
+        target.pseudoClassStateChanged(DRAG_OVER_MOVE, accepted && !copy && db.hasContent(EXISTING_BLOCK_FORMAT));
+        target.pseudoClassStateChanged(DRAG_OVER_ILLEGAL, !accepted);
     }
 
     private void clearDragOver(Node target) {
         target.pseudoClassStateChanged(DRAG_OVER_COPY, false);
         target.pseudoClassStateChanged(DRAG_OVER_MOVE, false);
+        target.pseudoClassStateChanged(DRAG_OVER_ILLEGAL, false);
     }
 
     // --- Smart Separator Implementation (Styled) ---
@@ -228,13 +266,14 @@ public class BlockDragAndDropManager {
         btn.setLayoutX(newX);
     }
 
+    /** @param targetBody the body the "+" inserts into — blocks illegal there are left out of the menu */
     public void enableSeparatorClick(Pane separator, com.botmaker.studio.suggestions.ProjectAnalyzer analyzer,
-                                     Consumer<BlockType> onInsert) {
+                                     org.eclipse.jdt.core.dom.ASTNode targetBody, Consumer<BlockType> onInsert) {
         for (Node child : separator.getChildren()) {
             if (child instanceof Button) {
                 Button btn = (Button) child;
                 btn.setOnAction(e -> {
-                    ContextMenu menu = ExpressionMenuFactory.createStatementMenu(analyzer, onInsert);
+                    ContextMenu menu = ExpressionMenuFactory.createStatementMenu(analyzer, targetBody, onInsert);
 
                     // Store reference to menu so MouseExited knows not to hide button
                     btn.setUserData(menu);
@@ -264,7 +303,7 @@ public class BlockDragAndDropManager {
 
         separator.setOnDragEntered(event -> {
             hideInsertButton(separator); // Hide the "+" button while dragging over
-            applyDragOver(separator, event.getDragboard());
+            applyDragOver(separator, event.getDragboard(), accepts(event.getDragboard(), targetBody));
             event.consume();
         });
 
@@ -275,6 +314,7 @@ public class BlockDragAndDropManager {
 
         separator.setOnDragOver(event -> {
             Dragboard db = event.getDragboard();
+            if (!accepts(db, targetBody)) { event.consume(); return; }
             if (db.hasContent(ADDABLE_BLOCK_FORMAT)) event.acceptTransferModes(TransferMode.COPY);
             else if (db.hasContent(EXISTING_BLOCK_FORMAT)) event.acceptTransferModes(TransferMode.MOVE);
             event.consume();
@@ -300,13 +340,14 @@ public class BlockDragAndDropManager {
 
         blockNode.setOnDragOver(event -> {
             Dragboard db = event.getDragboard();
-            boolean accepted = false;
-            if (db.hasContent(ADDABLE_BLOCK_FORMAT)) { event.acceptTransferModes(TransferMode.COPY); accepted = true; }
-            else if (db.hasContent(EXISTING_BLOCK_FORMAT)) { event.acceptTransferModes(TransferMode.MOVE); accepted = true; }
+            boolean legal = accepts(db, targetBody);
+            boolean known = db.hasContent(ADDABLE_BLOCK_FORMAT) || db.hasContent(EXISTING_BLOCK_FORMAT);
+            if (legal && db.hasContent(ADDABLE_BLOCK_FORMAT)) event.acceptTransferModes(TransferMode.COPY);
+            else if (legal && db.hasContent(EXISTING_BLOCK_FORMAT)) event.acceptTransferModes(TransferMode.MOVE);
 
             clearDragOver(sepAbove);
             clearDragOver(sepBelow);
-            if (accepted) applyDragOver(isTopHalf(event, blockNode) ? sepAbove : sepBelow, db);
+            if (known) applyDragOver(isTopHalf(event, blockNode) ? sepAbove : sepBelow, db, legal);
             event.consume();
         });
 
@@ -421,7 +462,7 @@ public class BlockDragAndDropManager {
 
         target.setOnDragEntered(e -> {
             if (e.getDragboard().hasContent(ADDABLE_BLOCK_FORMAT) || e.getDragboard().hasContent(EXISTING_BLOCK_FORMAT))
-                applyDragOver(target, e.getDragboard());
+                applyDragOver(target, e.getDragboard(), accepts(e.getDragboard(), targetBody));
             e.consume();
         });
 
@@ -431,7 +472,8 @@ public class BlockDragAndDropManager {
         });
 
         target.setOnDragOver(e -> {
-            if (e.getDragboard().hasContent(ADDABLE_BLOCK_FORMAT) || e.getDragboard().hasContent(EXISTING_BLOCK_FORMAT))
+            if ((e.getDragboard().hasContent(ADDABLE_BLOCK_FORMAT) || e.getDragboard().hasContent(EXISTING_BLOCK_FORMAT))
+                    && accepts(e.getDragboard(), targetBody))
                 e.acceptTransferModes(TransferMode.ANY);
             e.consume();
         });

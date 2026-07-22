@@ -77,9 +77,14 @@ public class NodeCreator {
         return ExpressionFactory.createDefaultExpression(ast, type, cu, rewriter, null, null);
     }
 
+    /**
+     * @param context the AST node the block is being dropped into — the scope whose visible variables and methods
+     *                the block's default is seeded from (see {@code StatementFactory}). May be {@code null}, in
+     *                which case scope-dependent blocks get empty slots instead of real identifiers.
+     */
     public static Statement createDefaultStatement(AST ast, BlockType type, CompilationUnit cu, ASTRewrite rewriter,
-                                                   ProjectState state, ProjectAnalyzer analyzer) {
-        return StatementFactory.createStatement(ast, type, cu, rewriter, state, analyzer);
+                                                   ProjectState state, ProjectAnalyzer analyzer, ASTNode context) {
+        return StatementFactory.createStatement(ast, type, cu, rewriter, state, analyzer, context);
     }
 
     public static Expression createDefaultInitializer(AST ast, ResolvedType type) {

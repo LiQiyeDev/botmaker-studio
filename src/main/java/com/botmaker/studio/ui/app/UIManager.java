@@ -68,10 +68,24 @@ public class UIManager {
     private final ToolbarManager toolbarManager;
     private final EventLogManager eventLogManager;
     private final MenuBarManager menuBarManager;
-    private com.botmaker.studio.services.debug.TelemetryDashboardServer dashboardServer;
     private final com.botmaker.studio.runtime.CodeExecutionService codeExecutionService;
     private com.botmaker.studio.services.pilot.PilotServer pilotServer;
     private final FileExplorerManager fileExplorerManager;
+
+    // Sharing / GitHub services — promoted to fields so the toolbar VCS/account buttons and the VCS bottom
+    // tab can reach them at scene-build time, not just the menu wiring in the constructor.
+    private GitHubAuth gitHubAuth;
+    private GitHubClient gitHubClient;
+    private GitHubGallery gallery;
+    private BotPublisher botPublisher;
+    private BotInstaller botInstaller;
+    private Runnable openPublishDialog;
+    private Runnable openVcsDialog;
+
+    /** The canvas VBox's optional Reader-mode banner, so the Editor toggle can remove it in place. */
+    private VBox canvasColumn;
+    private VcsPanel vcsPanel;
+    private int vcsTabIndex = -1;
 
     private VBox blocksContainer;
     private ScrollPane blocksScrollPane;
@@ -150,33 +164,33 @@ public class UIManager {
                         System.err.println("Failed to save debug setting: " + ex.getMessage());
                     }
                 });
-        this.toolbarManager.setOnOpenDebugDashboard(this::openDebugDashboard);
         this.toolbarManager.setOnEnableRemotePilot(this::openRemotePilot);
         this.toolbarManager.setOnCaptureTemplates(this::openOverlayTemplateCapture);
         this.toolbarManager.setOnOverlayEditor(this::openOverlayEditor);
         this.toolbarManager.setOnAccessResources(this::openResourceManager);
-        GitHubClient gitHubClient = new GitHubClient();
-        GitHubGallery gallery = new GitHubGallery(gitHubClient);
-        BotInstaller botInstaller = new BotInstaller(gitHubClient, gallery);
+        this.gitHubClient = new GitHubClient();
+        this.gallery = new GitHubGallery(gitHubClient);
+        this.gitHubAuth = new GitHubAuth();
+        this.botInstaller = new BotInstaller(gitHubClient, gallery);
+        this.botPublisher = new BotPublisher(gitHubClient, gitHubAuth);
         this.menuBarManager.setOnBrowseGallery(() ->
-                new GalleryDialog(primaryStage, gallery, botInstaller).show());
-        GitHubAuth gitHubAuth = new GitHubAuth();
-        BotPublisher botPublisher = new BotPublisher(gitHubClient, gitHubAuth);
-        this.menuBarManager.setOnPublishGallery(() ->
+                new GalleryDialog(primaryStage, gallery, botInstaller, gitHubAuth, gitHubClient).show());
+        this.openPublishDialog = () ->
                 new PublishDialog(primaryStage, gitHubAuth, gitHubClient, gallery, botPublisher,
-                        config.projectName(), config.projectPath()).show());
-        this.menuBarManager.setOnShowHistory(() ->
-                new VcsDialog(primaryStage, config.projectName(), config.projectPath(), botPublisher).show());
+                        config.projectName(), config.projectPath()).show();
+        this.menuBarManager.setOnPublishGallery(openPublishDialog);
+        this.openVcsDialog = () ->
+                new VcsDialog(primaryStage, config.projectName(), config.projectPath(), botPublisher,
+                        gitHubAuth, gitHubClient, eventBus, openPublishDialog).show();
+        this.menuBarManager.setOnShowHistory(openVcsDialog);
         this.menuBarManager.setProjectRepoUrl(BotSource.read(config.projectPath())
                 .map(s -> "https://github.com/" + s.slug()).orElse(null));
-        this.menuBarManager.setOnOpenDebugDashboard(this::openDebugDashboard);
         this.menuBarManager.setOnEnableRemotePilot(this::openRemotePilot);
         this.fileExplorerManager = new FileExplorerManager(config, codeEditorService, state, activityService, eventBus);
 
         setupEventHandlers();
     }
 
-    /** Starts (once) the local telemetry debug dashboard server and opens it in the browser. */
     /**
      * Project ▸ Recover Project Files — puts back the scaffolding BotMaker owns.
      *
@@ -311,21 +325,6 @@ public class UIManager {
 
         divider.positionProperty().addListener((obs, ov, nv) -> clamp.run());
         mainSplit.widthProperty().addListener((obs, ov, nv) -> clamp.run());
-    }
-
-    private void openDebugDashboard() {
-        try {
-            if (dashboardServer == null) {
-                dashboardServer = new com.botmaker.studio.services.debug.TelemetryDashboardServer(
-                        eventBus, projectSettingsService);
-            }
-            String url = dashboardServer.startAndGetUrl();
-            com.botmaker.studio.util.BrowserLauncher.open(url);
-            eventBus.publish(new CoreApplicationEvents.StatusMessageEvent("Debug dashboard at " + url));
-        } catch (Exception e) {
-            eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(
-                    "Could not start debug dashboard: " + e.getMessage()));
-        }
     }
 
     /** Stable "latest release" permalink the install-app QR points at; the botmaker-pilot CI attaches this. */
@@ -797,7 +796,6 @@ public class UIManager {
                 () -> new LaunchTargetDialog(primaryStage, config.resourcesRoot(), spec -> { }).show(),
                 this::openOverlayTemplateCapture,
                 this::openResourceManager,
-                this::openDebugDashboard,
                 this::openRemotePilot,
                 onManageLibraries);
         new GettingStartedDialog(primaryStage, actions).show();
@@ -876,7 +874,7 @@ public class UIManager {
         leftContainer.setAlignment(Pos.CENTER_LEFT);
 
         HBox executionControls = toolbarManager.createExecutionGroup();
-        HBox rightContainer = new HBox(executionControls);
+        HBox rightContainer = new HBox(10, executionControls, buildIdentityCluster());
         rightContainer.setAlignment(Pos.CENTER_RIGHT);
 
         HBox captureControls = toolbarManager.createCaptureGroup();
@@ -954,6 +952,15 @@ public class UIManager {
         canvasScroll.getStyleClass().add("code-scroll-pane");
         blocksScrollPane = canvasScroll;
 
+        // Reader mode: a full-colour, control-free view of someone else's bot. A single banner carries the
+        // state; the blocks themselves render without any controls (LockResolver suppresses interaction).
+        canvasColumn = new VBox(canvasScroll);
+        VBox.setVgrow(canvasScroll, Priority.ALWAYS);
+        if (state.isReaderMode()) {
+            blocksContainer.getStyleClass().add("reader-mode");
+            canvasColumn.getChildren().add(0, createReaderBanner());
+        }
+
         // --- 4. Bottom Panel: Terminal/Errors ---
         outputArea = new TextArea();
         outputArea.setEditable(false);
@@ -967,12 +974,23 @@ public class UIManager {
         Tab terminalTab = new Tab("Terminal", outputArea); terminalTab.setClosable(false);
         Tab errorsTab = new Tab("Errors", errorPanel); errorsTab.setClosable(false);
         Tab eventsTab = new Tab("Event Log", eventLogManager.getView()); eventsTab.setClosable(false);
-        bottomTabPane.getTabs().addAll(terminalTab, errorsTab, eventsTab);
+
+        // VCS tool window — IntelliJ's Commit view docked beside Terminal (VcsPanel, shared with the dialog).
+        vcsPanel = new VcsPanel(primaryStage, config.projectName(), config.projectPath(), botPublisher,
+                gitHubAuth, gitHubClient, eventBus, openPublishDialog);
+        Tab vcsTab = new Tab("VCS", vcsPanel.getView()); vcsTab.setClosable(false);
+
+        bottomTabPane.getTabs().addAll(terminalTab, errorsTab, eventsTab, vcsTab);
+        vcsTabIndex = bottomTabPane.getTabs().indexOf(vcsTab);
+        // Keep the changed-files tree fresh whenever the user opens the tab.
+        bottomTabPane.getSelectionModel().selectedItemProperty().addListener((o, was, now) -> {
+            if (now == vcsTab && vcsPanel != null) vcsPanel.refresh();
+        });
 
         // --- 5. Layout Assembly ---
         SplitPane verticalSplit = new SplitPane();
         verticalSplit.setOrientation(Orientation.VERTICAL);
-        verticalSplit.getItems().addAll(canvasScroll, bottomTabPane);
+        verticalSplit.getItems().addAll(canvasColumn, bottomTabPane);
         verticalSplit.setDividerPositions(0.82);
 
         SplitPane mainSplit = new SplitPane();
@@ -1017,6 +1035,109 @@ public class UIManager {
         });
 
         return scene;
+    }
+
+    // =========================================================================
+    // READER / EDITOR MODE + IDENTITY / VCS TOOLBAR CLUSTER
+    // =========================================================================
+
+    /** The "Reading — switch to Editor to change" banner shown above the canvas for an installed bot. */
+    private HBox createReaderBanner() {
+        Label msg = new Label("Reading “" + config.projectName()
+                + "”. Switch to Editor mode to make it yours and start changing it.");
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        Button toEditor = new Button("Switch to Editor mode");
+        toEditor.setOnAction(e -> switchToEditorMode());
+        HBox banner = new HBox(10, msg, spacer, toEditor);
+        banner.setAlignment(Pos.CENTER_LEFT);
+        banner.getStyleClass().add("reader-banner");
+        return banner;
+    }
+
+    /**
+     * "Improve this bot" — flips the installed bot from Reader to Editor mode. Requires no GitHub account (the
+     * fork/branch only materializes at PR time): it drops the local opt-in marker, commits the current state
+     * locally so there's a restore point, then reloads so every block re-renders with its controls.
+     */
+    private void switchToEditorMode() {
+        try {
+            com.botmaker.studio.project.ProjectMode.switchToEditor(config.projectPath());
+        } catch (java.io.IOException ex) {
+            new Alert(Alert.AlertType.ERROR, "Couldn't switch to Editor mode: " + ex.getMessage(),
+                    ButtonType.OK).showAndWait();
+            return;
+        }
+        state.setReaderMode(false);
+        // Commit the as-installed state locally (best-effort) so "Editor mode" has a clean starting point.
+        new Thread(() -> {
+            try {
+                new com.botmaker.studio.project.vcs.ProjectVcs(config.projectPath())
+                        .commit("Start editing (switched from Reader mode)");
+            } catch (Exception ignored) {
+                // A missing/again-committed repo is fine; the reload below is what matters.
+            }
+            javafx.application.Platform.runLater(() ->
+                    eventBus.publish(new CoreApplicationEvents.ProjectReloadRequestedEvent()));
+        }, "reader-to-editor").start();
+    }
+
+    /** The far-right toolbar cluster: a VCS button plus the two BotMaker-wide account buttons. */
+    private HBox buildIdentityCluster() {
+        Button vcsButton = new Button("⑂ VCS");
+        vcsButton.setTooltip(new Tooltip("Show version control (commit, changes, history)"));
+        vcsButton.setOnAction(e -> { if (vcsTabIndex >= 0) selectBottomTab(vcsTabIndex); });
+
+        Button gitHub = roundButton("GH", "#24292f", "GitHub account");
+        gitHub.setOnAction(e -> showGitHubAccountPopup(gitHub));
+        refreshGitHubButton(gitHub);
+
+        Button google = roundButton("G", "#4285F4", "Google account (coming soon)");
+        google.setOnAction(e -> new Alert(Alert.AlertType.INFORMATION,
+                "Google sign-in isn't available yet — it's reserved for future Tailscale/Drive features.",
+                ButtonType.OK).showAndWait());
+
+        HBox cluster = new HBox(6, vcsButton, gitHub, google);
+        cluster.setAlignment(Pos.CENTER_RIGHT);
+        return cluster;
+    }
+
+    private Button roundButton(String glyph, String bg, String tooltip) {
+        Button b = new Button(glyph);
+        b.setTooltip(new Tooltip(tooltip));
+        b.setStyle("-fx-background-radius: 14; -fx-min-width: 28; -fx-min-height: 28; "
+                + "-fx-max-width: 28; -fx-max-height: 28; -fx-padding: 0; -fx-font-size: 10px; "
+                + "-fx-font-weight: bold; -fx-text-fill: white; -fx-background-color: " + bg + ";");
+        return b;
+    }
+
+    /** Labels the GitHub round button with the signed-in login initials (or a bare mark when signed out). */
+    private void refreshGitHubButton(Button gitHub) {
+        if (gitHubAuth != null && gitHubAuth.isAuthenticated()) {
+            gitHubAuth.login(gitHubClient).thenAccept(login -> javafx.application.Platform.runLater(() -> {
+                if (login != null && !login.isBlank()) {
+                    gitHub.setText(login.substring(0, Math.min(2, login.length())).toUpperCase());
+                    gitHub.setTooltip(new Tooltip("Signed in to GitHub as " + login));
+                }
+            }));
+        } else {
+            gitHub.setText("GH");
+            gitHub.setTooltip(new Tooltip("Sign in to GitHub"));
+        }
+    }
+
+    /** Opens the shared {@link GitHubAccountBar} (device-flow handshake) in a small popup off the round button. */
+    private void showGitHubAccountPopup(Button gitHub) {
+        Stage popup = new Stage();
+        popup.initOwner(primaryStage);
+        popup.initModality(javafx.stage.Modality.NONE);
+        popup.setTitle("GitHub account");
+        GitHubAccountBar bar = new GitHubAccountBar(popup, gitHubAuth, gitHubClient,
+                () -> refreshGitHubButton(gitHub));
+        VBox box = new VBox(bar);
+        box.setPadding(new Insets(14));
+        popup.setScene(new Scene(box));
+        popup.show();
     }
 
     private VBox createErrorPanel() {

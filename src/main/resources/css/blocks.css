@@ -217,11 +217,87 @@
 }
 
 /*
+ * READER MODE — reading someone else's installed bot. Here *every* block is read-only, so the two dimming
+ * treatments above (which exist to set a locked scaffold method apart from the editable code beside it) have
+ * nothing to contrast against and would just grey out the whole canvas. The honest signal that this is
+ * non-interactive is already there: no buttons, fields or drop-zones are rendered at all. So under the
+ * canvas-level .reader-mode class we undo the wash and let the bot show in full colour and full legibility.
+ * The generated-scaffold read-only case (a per-file distinction *inside* an editable project) is untouched —
+ * it isn't under .reader-mode.
+ */
+.reader-mode *:read-only {
+    -fx-opacity: 1.0;
+    -fx-saturation: 1.0;
+}
+.reader-mode .block-body:read-only {
+    -fx-border-color: transparent;
+    -fx-background-color: transparent;
+}
+.reader-mode .category-output:read-only        { -fx-border-color: -bm-cat-output; }
+.reader-mode .category-input:read-only         { -fx-border-color: -bm-cat-input; }
+.reader-mode .category-variables:read-only     { -fx-border-color: -bm-cat-variables; }
+.reader-mode .category-flow:read-only          { -fx-border-color: -bm-cat-flow; }
+.reader-mode .category-loops:read-only         { -fx-border-color: -bm-cat-loops; }
+.reader-mode .category-control:read-only       { -fx-border-color: -bm-cat-control; }
+.reader-mode .category-functions:read-only     { -fx-border-color: -bm-cat-functions; }
+.reader-mode .category-game:read-only          { -fx-border-color: -bm-cat-game; }
+.reader-mode .category-utility:read-only       { -fx-border-color: -bm-cat-utility; }
+.reader-mode .category-bot-variable:read-only  { -fx-border-color: -bm-cat-vision; }
+
+/* The "Reading — switch to Editor to change" banner above the canvas (UIManager). */
+.reader-banner {
+    -fx-background-color: -bm-cat-flow;
+    -fx-padding: 6 12 6 12;
+    -fx-alignment: center-left;
+}
+.reader-banner .label {
+    -fx-text-fill: -bm-text-on-color;
+    -fx-font-weight: bold;
+}
+
+/*
  * The comment block's text field. It grows to fill the block (HeaderLayoutBuilder.withGrowingNode), so it
  * needs no fixed width — a long note stays readable instead of scrolling inside a ~120px box.
  */
 .comment-text-field {
     -fx-pref-column-count: 0;
+}
+
+/*
+ * Comment blocks (CommentBlock). A comment reads as a sticky-note aside: a soft amber card with an italic,
+ * wrapping note that is read-only until the ✎ button opens it. See CommentBlock for the swap logic.
+ */
+.comment-block {
+    -fx-background-color: #fff8e1;
+    -fx-background-radius: 6;
+    -fx-border-color: #f0e0a8;
+    -fx-border-radius: 6;
+    -fx-border-width: 1;
+    -fx-padding: 5 8 5 8;
+}
+.comment-icon {
+    -fx-font-size: 12px;
+    -fx-padding: 1 0 0 0;
+}
+.comment-view {
+    -fx-font-style: italic;
+    -fx-text-fill: #7a6a2e;
+    -fx-font-size: 12px;
+}
+.comment-edit-area {
+    -fx-font-style: italic;
+    -fx-font-size: 12px;
+}
+.comment-edit-button {
+    -fx-background-color: transparent;
+    -fx-text-fill: #7a6a2e;
+    -fx-font-size: 11px;
+    -fx-padding: 1 5 1 5;
+    -fx-cursor: hand;
+}
+.comment-edit-button:hover {
+    -fx-background-color: rgba(0,0,0,0.06);
+    -fx-background-radius: 4;
 }
 
 /* A locked stand-in for a control (MethodInvocationBlock.staticValueLabel, read-only name fields). */
@@ -260,6 +336,19 @@
     -fx-background-color: #28a745;
     -fx-background-insets: 4 0 4 0;
     -fx-background-radius: 2;
+}
+
+/*
+ * A slot that will refuse this block — a break/continue over a body with no enclosing loop or switch. The drop
+ * is already rejected (the handler doesn't accept the transfer mode, so the cursor shows "no drop"); this red bar
+ * says *which* slot said no, which the cursor alone can't. Same geometry as the two accepting states so the
+ * layout doesn't shift as the pointer crosses between legal and illegal slots.
+ */
+*:drag-over-illegal {
+    -fx-background-color: #dc3545;
+    -fx-background-insets: 5 0 5 0;
+    -fx-background-radius: 2;
+    -fx-opacity: 0.55;
 }
 
 /*
@@ -437,6 +526,16 @@
     -fx-text-fill: rgba(255, 255, 255, 0.8);
     -fx-font-weight: bold;
     -fx-font-size: 10px;
+}
+
+/*
+ * The fixed `break;` closing a switch case. Dimmer than a live keyword on purpose: it is chrome the user can't
+ * move or remove (see SwitchBlock), so it should read as part of the case's frame rather than as a block sitting
+ * in the body that they might try to drag.
+ */
+.switch-case-break {
+    -fx-text-fill: rgba(255, 255, 255, 0.45);
+    -fx-font-weight: normal;
 }
 
 .header-name-label {

@@ -77,6 +77,22 @@ class LockResolverTest {
         return new LockResolver(CONFIG, ProjectTemplate.GAME_BOT, file);
     }
 
+    // --- reader mode: outranks every file/method verdict --------------------------------------------------
+
+    @Test
+    void readerModeDeniesEvenAUsersOwnHelperInAnEditableFile() {
+        // A helper file is EDITABLE and its body is normally the user's…
+        LockResolver editable = new LockResolver(CONFIG, ProjectTemplate.GAME_BOT, HELPER, false);
+        assertTrue(editable.permits(statementIn("helper"), EditKind.BODY), "precondition: editable when editing");
+
+        // …but opened for reading, the same edit is refused with the reader message.
+        LockResolver reader = new LockResolver(CONFIG, ProjectTemplate.GAME_BOT, HELPER, true);
+        LockResolver.Verdict v = reader.check(statementIn("helper"), EditKind.BODY);
+        assertFalse(v.allowed());
+        assertEquals(LockResolver.READER_MODE_REASON, v.reason());
+        assertTrue(reader.suppressesInteraction(), "reader mode suppresses interaction across the file");
+    }
+
     // --- the game loop: fully generated, fully locked ------------------------------------------------------
 
     @Test

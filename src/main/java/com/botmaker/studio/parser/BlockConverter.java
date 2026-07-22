@@ -427,10 +427,11 @@ public class BlockConverter {
         SwitchBlock block = new SwitchBlock(BlockId.of(stmt), stmt, ctx.manager());
         ctx.nodeToBlockMap().put(stmt, block);
         if (stmt.getExpression() != null) parseExpression(stmt.getExpression(), ctx).ifPresent(block::setExpression);
+        List<?> statements = stmt.statements();
         BodyBlock currentBody = null;
         SwitchBlock.SwitchCaseBlock currentCase = null;
-        for (Object obj : stmt.statements()) {
-            Statement s = (Statement) obj;
+        for (int i = 0; i < statements.size(); i++) {
+            Statement s = (Statement) statements.get(i);
             if (s instanceof SwitchCase sc) {
                 currentCase = new SwitchBlock.SwitchCaseBlock(BlockId.of(sc), sc);
                 applyReadOnly(currentCase, ctx);
@@ -441,11 +442,24 @@ public class BlockConverter {
                 currentCase.setBody(currentBody);
                 block.addCase(currentCase);
             } else if (currentBody != null) {
+                // A case's closing break is the case's own chrome, not a statement in it: leaving it out of the
+                // BodyBlock is what makes it undeletable and undraggable (there is no block to grab), and it
+                // also makes "append to this case" land before it — insertIntoList offsets from the case label,
+                // so the end of the visible body is exactly the break's slot.
+                if (s instanceof BreakStatement && endsCase(statements, i)) {
+                    currentCase.setClosingBreak(true);
+                    continue;
+                }
                 BodyBlock target = currentBody;
                 parseStatement(s, ctx).ifPresent(target::addStatement);
             }
         }
         return Optional.of(block);
+    }
+
+    /** Whether the statement at {@code i} is the last one before the next {@code case} label (or the switch's end). */
+    private static boolean endsCase(List<?> statements, int i) {
+        return i == statements.size() - 1 || statements.get(i + 1) instanceof SwitchCase;
     }
 
     private Optional<StatementBlock> parsePrint(ExpressionStatement stmt, ParseContext ctx) {

@@ -43,8 +43,6 @@ public class ToolbarManager {
     private Consumer<Boolean> onToggleDebugOutput;
     /** The debug-output toggle's initial (persisted) state — read by {@link UIManager} before building the bar. */
     private boolean debugOutputInitial = true;
-    /** Opens the debug dashboard; wired by {@link UIManager}. */
-    private Runnable onOpenDebugDashboard;
     /** Starts the remote pilot server and shows the pairing dialog; wired by {@link UIManager}. */
     private Runnable onEnableRemotePilot;
     /** Opens the live overlay template-capture over the default window; wired by {@link UIManager}. */
@@ -138,11 +136,6 @@ public class ToolbarManager {
         this.onToggleDebugOutput = onToggle;
     }
 
-    /** Sets the callback invoked when the toolbar's Debug Dashboard button is clicked. */
-    public void setOnOpenDebugDashboard(Runnable callback) {
-        this.onOpenDebugDashboard = callback;
-    }
-
     /** Sets the callback invoked when the toolbar's Remote Pilot button is clicked. */
     public void setOnEnableRemotePilot(Runnable callback) {
         this.onEnableRemotePilot = callback;
@@ -165,10 +158,13 @@ public class ToolbarManager {
 
     /**
      * Creates the center group. To keep the bar from crowding when the window narrows, only the
-     * high-frequency actions stay inline (Project Setup, Capture, Launch Target, Debug Dashboard, the Debug
-     * toggle); the secondary tooling actions (Capture Templates, Overlay Editor, Resources, Remote Pilot)
+     * high-frequency actions stay inline (Project Setup, Capture, Launch Target, Activity Flow, Remote Pilot,
+     * the Debug toggle); the secondary tooling actions (Capture Templates, Overlay Editor, Resources)
      * collapse into a single "⋯ More" overflow menu so the group's inline width is fixed regardless of the
      * window size.
+     *
+     * <p>Remote Pilot is inline rather than in the overflow because it is now the <em>only</em> live view of
+     * what the bot sees — it replaced both the loopback debug dashboard and Studio's in-app preview.
      */
     public HBox createCaptureGroup() {
         Button projectSetupButton = new Button("🧭 Project Setup");
@@ -202,11 +198,13 @@ public class ToolbarManager {
             if (onActivityFlow != null) onActivityFlow.run();
         });
 
-        Button debugDashboardButton = new Button("📊 Debug Dashboard");
-        debugDashboardButton.getStyleClass().add("toolbar-btn");
-        debugDashboardButton.setTooltip(new Tooltip("Open the live telemetry debug dashboard in your browser"));
-        debugDashboardButton.setOnAction(e -> {
-            if (onOpenDebugDashboard != null) onOpenDebugDashboard.run();
+        Button remotePilotButton = new Button("🎮 Remote Pilot");
+        remotePilotButton.getStyleClass().add("toolbar-btn");
+        remotePilotButton.setTooltip(new Tooltip(
+                "Stream what the bot sees to your phone or browser — watch it, start/stop it, "
+                        + "or turn on Interact to click and drag in the game yourself"));
+        remotePilotButton.setOnAction(e -> {
+            if (onEnableRemotePilot != null) onEnableRemotePilot.run();
         });
 
         ToggleButton debugOutputButton = new ToggleButton(debugOutputText(debugOutputInitial));
@@ -237,23 +235,18 @@ public class ToolbarManager {
             if (onAccessResources != null) onAccessResources.run();
         });
 
-        MenuItem remotePilotItem = new MenuItem("🎮 Remote Pilot");
-        remotePilotItem.setOnAction(e -> {
-            if (onEnableRemotePilot != null) onEnableRemotePilot.run();
-        });
-
         MenuButton moreButton = new MenuButton("⋯ More", null,
-                captureTemplatesItem, overlayEditorItem, resourcesItem, remotePilotItem);
+                captureTemplatesItem, overlayEditorItem, resourcesItem);
         moreButton.getStyleClass().add("toolbar-btn");
         moreButton.setTooltip(new Tooltip(
-                "More tools: Capture Templates, Overlay Editor, Resources, Remote Pilot"));
+                "More tools: Capture Templates, Overlay Editor, Resources"));
 
         resolutionLabel = new Label(resolutionText());
         resolutionLabel.getStyleClass().add("toolbar-resolution");
         resolutionLabel.setTooltip(new Tooltip("Project standard resolution · primary screen resolution"));
 
         HBox group = new HBox(5, projectSetupButton, captureButton, launchTargetButton, activityFlowButton,
-                debugDashboardButton, debugOutputButton, moreButton, resolutionLabel);
+                remotePilotButton, debugOutputButton, moreButton, resolutionLabel);
         group.setAlignment(Pos.CENTER);
         return group;
     }

@@ -66,6 +66,13 @@ public class CoreApplicationEvents {
     /** Request to open the Resource Manager dialog (e.g. from a block's image-template picker). */
     public record OpenResourceManagerEvent() implements ApplicationEvent {}
 
+    /**
+     * Request to close and re-open the current project from disk — used after a VCS rollback rewrites the
+     * working tree, since the in-memory ASTs are now stale and would otherwise be written back over the
+     * restored files on the next save. Handled by {@code BotMakerStudio}, which re-runs its open path.
+     */
+    public record ProjectReloadRequestedEvent() implements ApplicationEvent {}
+
     // --- Status / output ---
 
     public record StatusMessageEvent(String message) implements ApplicationEvent {}

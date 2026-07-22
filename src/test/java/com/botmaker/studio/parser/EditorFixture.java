@@ -42,7 +42,11 @@ final class EditorFixture {
     String lastCode;
 
     EditorFixture(String source) {
-        Path file = Paths.get("Subject.java").toAbsolutePath();
+        this(source, Paths.get("Subject.java").toAbsolutePath());
+    }
+
+    /** As {@link #EditorFixture(String)} but with an explicit file path — e.g. one under the activities dir. */
+    EditorFixture(String source, Path file) {
         state = new ProjectState();
         state.addFile(new ProjectFile(file, source));
         state.setActiveFile(file);
@@ -64,6 +68,11 @@ final class EditorFixture {
         assertNotNull(root, "converter should produce a root block");
 
         editor = new CodeEditor(CONFIG, state, bus, new ProjectAnalyzer(null, state));
+    }
+
+    /** A path under this project's activities package — a file there is treated as an activity stub. */
+    static Path activitiesFile(String fileName) {
+        return CONFIG.activitiesPackageDir().resolve(fileName).toAbsolutePath();
     }
 
     /** The {@link BodyBlock} for {@code methodName}'s body, found the way CodeEditorService finds it: by AST node. */

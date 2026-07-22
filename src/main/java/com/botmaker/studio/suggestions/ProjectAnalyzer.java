@@ -466,8 +466,16 @@ public class ProjectAnalyzer {
         return new VariableScopeVisitor.NodeScope(variables, methods, types);
     }
 
-    /** Lightweight view of a visible variable for menu population. */
-    public record VariableOption(String name, String typeName, boolean isField) {}
+    /**
+     * Lightweight view of a visible variable for menu population.
+     *
+     * <p>Carries the {@link ResolvedType}, not just its name: seeding a dropped block with a real variable
+     * (see {@code StatementFactory}) has to ask whether a candidate is an enum, an array or numeric, and a bare
+     * simple name can't answer that. {@link #typeName()} stays available for the menus that only render a label.
+     */
+    public record VariableOption(String name, ResolvedType type, boolean isField) {
+        public String typeName() { return type.simpleName(); }
+    }
 
     /** Lightweight view of a readable field (constant / member) of a type, for menu population. */
     public record FieldOption(String name, ResolvedType type, boolean isStatic) {}
@@ -486,7 +494,7 @@ public class ProjectAnalyzer {
             ResolvedType varType = ResolvedType.of(b.getType());
             if (!isCompatible(varType, requiredType)) continue;
             if (seen.add(name)) {
-                results.add(new VariableOption(name, varType.simpleName(), b.isField()));
+                results.add(new VariableOption(name, varType, b.isField()));
             }
         }
         return results;

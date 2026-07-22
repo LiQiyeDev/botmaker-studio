@@ -49,7 +49,9 @@ class SeparatorInsertButtonTest extends FxHeadlessTest {
     public void start(Stage stage) {
         BlockDragAndDropManager dnd = new BlockDragAndDropManager(new EventBus(false));
         separator = dnd.createSeparator();
-        dnd.enableSeparatorClick(separator, null, inserted::add);
+        // Null target body: no placement filtering, so the menu offers every block (this test is about the
+        // button's show/hide behaviour, not about which blocks are legal where).
+        dnd.enableSeparatorClick(separator, null, null, inserted::add);
         plusButton = plusButtonOf(separator);
 
         VBox root = new VBox(separator);

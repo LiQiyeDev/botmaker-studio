@@ -31,13 +31,20 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *       header ({@code sx,sy,sw,sh} as big-endian int32) so the client can map overlays. Loss-tolerant —
  *       a frame is <em>dropped</em> for any client whose previous send is still in flight (backpressure).</li>
  *   <li><b>text</b> server→client: telemetry events ({@code {"type":"telemetry",…}}) and run-state
- *       ({@code {"type":"state","run":"running|stopped|paused"}}).</li>
- *   <li><b>text</b> client→server: control commands ({@code {"cmd":"start|stop|pause|resume"}}).</li>
+ *       ({@code {"type":"state","run":"running|stopped|paused","backgroundInput":true}}).</li>
+ *   <li><b>text</b> client→server: control commands ({@code {"cmd":"start|stop|pause|resume"}}), the
+ *       Interact arm/disarm ({@code {"cmd":"interact","on":true}}) and, once armed, manual gestures
+ *       ({@code {"cmd":"input","kind":"tap|down|move|up|scroll","x":…,"y":…,"button":1,"amount":-3}} in
+ *       absolute screen coordinates — see {@link PilotInputService}).</li>
  * </ul>
  *
- * <p>Unlike the loopback {@code TelemetryDashboardServer} (SSE + base64), this is meant to be reachable
- * remotely over a Tailscale tunnel, so the WS handshake is token-gated. Capture and telemetry serialization
- * are shared with the dashboard via {@link TargetCapture} / {@link TelemetrySerializer}.
+ * <p>Interact is <b>armed per connection</b> and starts disarmed: a passive viewer must never poke the game
+ * because someone brushed the screen, and a leaked URL must not become a remote desktop.
+ *
+ * <p>This is the <b>only</b> live view of what a bot sees — it replaced both the loopback SSE debug
+ * dashboard and Studio's in-app preview panel. It is meant to be reachable remotely over a Tailscale tunnel,
+ * so the WS handshake is token-gated. Capture and telemetry serialization live in {@link TargetCapture} /
+ * {@link TelemetrySerializer}.
  */
 public final class PilotServer implements AutoCloseable {
 
@@ -46,14 +53,27 @@ public final class PilotServer implements AutoCloseable {
     private final EventBus eventBus;
     private final TargetCapture capture;
     private final PilotControlService control;
+    private final PilotInputService input = new PilotInputService();
     private final ObjectMapper json = new ObjectMapper();
 
-    /** Connected, authorized clients and a per-client "send in flight" latch for frame backpressure. */
-    private final Map<WsContext, AtomicBoolean> clients = new ConcurrentHashMap<>();
+    /**
+     * Per-connection state: a "send in flight" latch for frame backpressure, and whether this client has
+     * armed Interact. Both are per-client on purpose — one phone driving the game must not arm a second
+     * viewer, and one slow client must not stall everyone's frames.
+     */
+    private static final class Client {
+        final AtomicBoolean frameInFlight = new AtomicBoolean(false);
+        final AtomicBoolean interact = new AtomicBoolean(false);
+    }
+
+    /** Connected, authorized clients. */
+    private final Map<WsContext, Client> clients = new ConcurrentHashMap<>();
 
     private Javalin app;
     private ScheduledExecutorService frameExec;
     private volatile TelemetryEvent.Target lastTarget;
+    /** The surface of the most recently pushed frame — the only region Interact gestures may land in. */
+    private volatile PilotInputService.Bounds lastBounds;
     private volatile String token;
     private volatile String runState = "stopped";
 
@@ -107,12 +127,13 @@ public final class PilotServer implements AutoCloseable {
         app.ws("/ws", ws -> {
             ws.onConnect(ctx -> {
                 if (!authorized(ctx)) { ctx.closeSession(); return; }
-                clients.put(ctx, new AtomicBoolean(false));
+                clients.put(ctx, new Client());
                 ctx.enableAutomaticPings();
                 ctx.send(stateJson()); // let a fresh client render the current run state immediately
             });
             ws.onMessage(ctx -> {
-                if (clients.containsKey(ctx)) handleCommand(ctx.message());
+                Client client = clients.get(ctx);
+                if (client != null) handleCommand(client, ctx.message());
             });
             ws.onClose(ctx -> clients.remove(ctx));
             ws.onError(ctx -> clients.remove(ctx));
@@ -219,14 +240,14 @@ public final class PilotServer implements AutoCloseable {
 
     // --- Inbound control commands ---
 
-    private void handleCommand(String message) {
-        String cmd;
+    private void handleCommand(Client client, String message) {
+        JsonNode node;
         try {
-            JsonNode node = json.readTree(message);
-            cmd = node.path("cmd").asText(null);
+            node = json.readTree(message);
         } catch (Exception e) {
             return;
         }
+        String cmd = node.path("cmd").asText(null);
         if (cmd == null) return;
         switch (cmd) {
             case "start" -> Platform.runLater(() ->
@@ -235,8 +256,26 @@ public final class PilotServer implements AutoCloseable {
                     eventBus.publish(new CoreApplicationEvents.StopRunRequestedEvent()));
             case "pause" -> { control.pause(); refreshPausedState(); }
             case "resume" -> { control.resume(); refreshPausedState(); }
+            case "interact" -> client.interact.set(node.path("on").asBoolean(false));
+            case "input" -> handleInput(client, node);
             default -> { /* ignore unknown */ }
         }
+    }
+
+    /**
+     * One manual Interact gesture. Dropped silently unless this connection armed Interact and we have a
+     * frame surface to bound it by — an unarmed client's pointer events must never reach the desktop.
+     */
+    private void handleInput(Client client, JsonNode node) {
+        if (!client.interact.get()) return;
+        PilotInputService.Kind kind;
+        try {
+            kind = PilotInputService.Kind.valueOf(node.path("kind").asText("").toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException unknownKind) {
+            return;
+        }
+        input.apply(kind, node.path("x").asInt(), node.path("y").asInt(),
+                node.path("button").asInt(1), node.path("amount").asInt(0), lastBounds);
     }
 
     /** After a pause/resume, reflect it in run-state (only meaningful while a run is active). */
@@ -258,8 +297,13 @@ public final class PilotServer implements AutoCloseable {
         broadcastText(stateJson());
     }
 
+    /**
+     * {@code backgroundInput} tells the client whether Interact will leave the host's real cursor alone, so
+     * it can warn before the user's pointer visibly gets hijacked (Linux uinput/XTest backends).
+     */
     private String stateJson() {
-        return "{\"type\":\"state\",\"run\":\"" + runState + "\"}";
+        return "{\"type\":\"state\",\"run\":\"" + runState + "\",\"backgroundInput\":"
+                + input.supportsBackgroundInput() + "}";
     }
 
     private void broadcastText(String text) {
@@ -290,14 +334,18 @@ public final class PilotServer implements AutoCloseable {
         byte[] jpeg = TargetCapture.jpegBytes(cap.img());
         if (jpeg == null) return;
 
+        // Interact gestures are clamped to whatever the client was last actually shown, so the bound must be
+        // published from here — the one place that knows what went over the wire.
+        lastBounds = new PilotInputService.Bounds(cap.sx(), cap.sy(), cap.sw(), cap.sh());
+
         byte[] payload = new byte[16 + jpeg.length];
         ByteBuffer.wrap(payload)
                 .putInt(cap.sx()).putInt(cap.sy()).putInt(cap.sw()).putInt(cap.sh())
                 .put(jpeg);
 
-        for (Map.Entry<WsContext, AtomicBoolean> e : clients.entrySet()) {
+        for (Map.Entry<WsContext, Client> e : clients.entrySet()) {
             WsContext ctx = e.getKey();
-            AtomicBoolean inFlight = e.getValue();
+            AtomicBoolean inFlight = e.getValue().frameInFlight;
             // Drop this frame for any client still flushing the previous one — keeps real-time feel and
             // stops one slow client from stalling the whole loop.
             if (!inFlight.compareAndSet(false, true)) continue;

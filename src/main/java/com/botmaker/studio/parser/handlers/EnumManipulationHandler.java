@@ -1,6 +1,8 @@
 package com.botmaker.studio.parser.handlers;
 
+import com.botmaker.studio.parser.ImportManager;
 import com.botmaker.studio.parser.helpers.AstRewriteHelper;
+import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import org.eclipse.jdt.core.dom.*;
 import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 import org.eclipse.jdt.core.dom.rewrite.ListRewrite;
@@ -12,10 +14,15 @@ public class EnumManipulationHandler {
     // ... (Keep existing methods: addEnumToClass, deleteEnumFromClass, renameEnum, addEnumConstant, deleteEnumConstant, renameEnumConstant)
 
     /**
-     * Replaces an expression with a specific enum constant.
+     * Replaces an expression with {@code enumType.constantName} (an enum constant or a {@code Class.FIELD}
+     * reference — same {@link QualifiedName} shape). Also imports {@code enumType} so the reference resolves:
+     * picking {@code Key.B} from the enum menu used to emit a bare {@code Key.B} with no
+     * {@code import …interaction.Key}, giving the generated bot a "cannot find symbol Key". A same-file /
+     * same-package type (e.g. an activity's nested {@code Outcome}) resolves to no import, so this is safe there.
      */
     public static String replaceWithEnumConstant(CompilationUnit cu, String originalCode,
-                                          Expression toReplace, String enumType, String constantName) {
+                                          Expression toReplace, String enumType, String constantName,
+                                          ProjectAnalyzer analyzer) {
         AST ast = cu.getAST();
         ASTRewrite rewriter = ASTRewrite.create(ast);
 
@@ -25,6 +32,7 @@ public class EnumManipulationHandler {
         );
 
         rewriter.replace(toReplace, newConst, null);
+        ImportManager.addImportForSimpleName(cu, rewriter, enumType, analyzer, null);
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
     }
 

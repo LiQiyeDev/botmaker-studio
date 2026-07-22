@@ -20,7 +20,8 @@ public final class ProjectArchive {
     /** Top-level directory / file names that are never published. */
     private static final Set<String> EXCLUDED_NAMES = Set.of(
             "target", ".git", ".idea", ".gradle", "build", "out",
-            BotSource.FILE_NAME); // provenance is regenerated on install
+            BotSource.FILE_NAME,                                    // provenance is regenerated on install
+            com.botmaker.studio.project.ProjectMode.MARKER);       // local Reader/Editor opt-in, never shipped
 
     /**
      * Walks {@code projectDir} and returns every publishable file keyed by its POSIX-style relative path.

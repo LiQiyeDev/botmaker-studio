@@ -7,7 +7,7 @@ import com.botmaker.studio.project.capture.CaptureTarget.WindowTarget;
 
 /**
  * The single short-label for a {@link CaptureTarget}, shared by the toolbar Capture button, the in-block
- * capture-source button, and the debug dashboard so they always agree on how a target is named. A
+ * capture-source button, and the remote pilot so they always agree on how a target is named. A
  * {@code null} target (unset default) reads as the whole desktop — the same semantics as
  * {@link CaptureExpr} ({@code CaptureSource.desktop()}).
  */

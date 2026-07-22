@@ -14,6 +14,7 @@ import com.botmaker.studio.parser.handlers.ListHandler;
 import com.botmaker.studio.parser.handlers.MethodHandler;
 import com.botmaker.studio.parser.handlers.OperatorReplacementHandler;
 import com.botmaker.studio.parser.handlers.RawExpressionHandler;
+import com.botmaker.studio.parser.handlers.SwitchNormalizer;
 import com.botmaker.studio.parser.handlers.TypeHandler;
 import com.botmaker.studio.parser.helpers.AstRewriteHelper;
 import com.botmaker.studio.project.LockResolver;
@@ -125,11 +126,29 @@ public class CodeEditor {
         LockResolver resolver = LockResolver.forActiveFile(config, state);
         ASTNode body = targetBody.getAstNode();
         var pinned = resolver.pinnedReturnOf(body);
-        if (pinned == null || index <= ((org.eclipse.jdt.core.dom.Block) body).statements().indexOf(pinned)) {
+        // The drop index counts BodyBlock children (comments included); the pinned return's position is a
+        // statements() index (comments excluded). Translate before comparing, or a drop between a trailing
+        // comment and the pinned return reads as "after the return" and is wrongly refused.
+        int statementIndex = toStatementIndex(targetBody, index);
+        if (pinned == null || statementIndex <= ((org.eclipse.jdt.core.dom.Block) body).statements().indexOf(pinned)) {
             return true;
         }
         eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(LockResolver.pinnedReturnReason()));
         return false;
+    }
+
+    /**
+     * Translates a {@link BodyBlock} child index into a {@code Block.statements()} index by skipping the
+     * children that occupy no statements() slot — the {@link Comment}s. A {@code Comment} is not a JDT
+     * {@code Statement}, so the two indexings diverge whenever a body holds comment blocks.
+     */
+    private static int toStatementIndex(BodyBlock body, int childIndex) {
+        int astIndex = 0;
+        var children = body.getStatements();
+        for (int i = 0; i < childIndex && i < children.size(); i++) {
+            if (!(children.get(i).getAstNode() instanceof Comment)) astIndex++;
+        }
+        return astIndex;
     }
 
     /** Whether {@code toDelete} may be removed — a pinned trailing return may not. */
@@ -511,12 +530,12 @@ public class CodeEditor {
     // =================================================================================
 
     public void replaceWithEnumConstant(Expression toReplace, String enumType, String constantName) {
-        edit(toReplace, EditKind.BODY, false, (cu, code) -> EnumManipulationHandler.replaceWithEnumConstant(cu, code, toReplace, enumType, constantName));
+        edit(toReplace, EditKind.BODY, false, (cu, code) -> EnumManipulationHandler.replaceWithEnumConstant(cu, code, toReplace, enumType, constantName, analyzer));
     }
 
     /** Replaces with a field reference {@code scope.fieldName} (same {@code QualifiedName} shape as an enum constant). */
     public void replaceWithFieldReference(Expression toReplace, String scope, String fieldName) {
-        edit(toReplace, EditKind.BODY, false, (cu, code) -> EnumManipulationHandler.replaceWithEnumConstant(cu, code, toReplace, scope, fieldName));
+        edit(toReplace, EditKind.BODY, false, (cu, code) -> EnumManipulationHandler.replaceWithEnumConstant(cu, code, toReplace, scope, fieldName, analyzer));
     }
 
     public void renameEnum(EnumDeclaration enumNode, String newName) {
@@ -689,7 +708,29 @@ public class CodeEditor {
     }
 
     public void addCaseToSwitch(SwitchStatement switchStmt) {
-        edit(switchStmt, EditKind.BODY, true, (cu, code) -> addCaseToSwitch(cu, code, switchStmt));
+        edit(switchStmt, EditKind.BODY, true, (cu, code) -> addCaseToSwitch(cu, code, switchStmt, List.of()));
+    }
+
+    /**
+     * Appends one case per name in {@code caseLabels} (unqualified constants — enum labels are never qualified),
+     * each with its own closing {@code break}, in a single rewrite so "add all remaining cases" is one undo step.
+     */
+    public void addCasesToSwitch(SwitchStatement switchStmt, List<String> caseLabels) {
+        if (caseLabels == null || caseLabels.isEmpty()) return;
+        edit(switchStmt, EditKind.BODY, true, (cu, code) -> addCaseToSwitch(cu, code, switchStmt, caseLabels));
+    }
+
+    /**
+     * Appends the missing {@code break} to any falling-through case in the active file (see
+     * {@link SwitchNormalizer}). Called when a file is opened, so the {@code break} the switch block renders as
+     * fixed case chrome is always backed by a real one in the source. A no-op — no edit, no history entry, no
+     * {@code CodeUpdatedEvent} — when every case already terminates, which is the normal case.
+     */
+    public void normalizeSwitchBreaks() {
+        CompilationUnit cu = getCompilationUnit();
+        if (cu == null) return;
+        String newCode = SwitchNormalizer.addMissingBreaks(cu, getCurrentCode());
+        if (newCode != null) triggerUpdate(newCode, true);
     }
 
     public void moveSwitchCase(SwitchCase caseNode, boolean moveUp) {
@@ -828,7 +869,8 @@ public class CodeEditor {
     private static String addStatement(CompilationUnit cu, String originalCode, BodyBlock targetBody, BlockType type, int index, ProjectState state, ProjectAnalyzer analyzer) {
         AST ast = cu.getAST();
         ASTRewrite rewriter = ASTRewrite.create(ast);
-        Statement newStatement = NodeCreator.createDefaultStatement(ast, type, cu, rewriter, state, analyzer);
+        Statement newStatement = NodeCreator.createDefaultStatement(
+                ast, type, cu, rewriter, state, analyzer, targetBody.getAstNode());
         if (newStatement == null) return originalCode;
         ListRewrite listRewrite = AstRewriteHelper.getListRewriteForBody(rewriter, targetBody);
         PendingInsert deferred = insertIntoList(listRewrite, targetBody, newStatement, index, newStatement.toString());
@@ -932,20 +974,47 @@ public class CodeEditor {
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
     }
 
-    private static String addCaseToSwitch(CompilationUnit cu, String originalCode, SwitchStatement switchStmt) {
+    /**
+     * Appends cases to {@code switchStmt}, each closed by its own {@code break} — the break is not optional, see
+     * {@code SwitchNormalizer}. With {@code caseLabels} empty a single case is added labelled with the next free
+     * ordinal, which is the "+ Add Case" button's behaviour; otherwise one case per given constant name.
+     */
+    private static String addCaseToSwitch(CompilationUnit cu, String originalCode, SwitchStatement switchStmt,
+                                          List<String> caseLabels) {
         AST ast = cu.getAST();
         ASTRewrite rewriter = ASTRewrite.create(ast);
         ListRewrite listRewrite = rewriter.getListRewrite(switchStmt, SwitchStatement.STATEMENTS_PROPERTY);
-        SwitchCase newCase = ast.newSwitchCase();
-        int count = 0;
-        for (Object o : switchStmt.statements()) {
-            if (o instanceof SwitchCase) count++;
+
+        List<Expression> labels = new ArrayList<>();
+        if (caseLabels.isEmpty()) {
+            int count = 0;
+            for (Object o : switchStmt.statements()) {
+                if (o instanceof SwitchCase) count++;
+            }
+            labels.add(ast.newNumberLiteral(String.valueOf(count)));
+        } else {
+            for (String name : caseLabels) labels.add(ast.newSimpleName(name));
         }
-        try {
-            newCase.expressions().add(ast.newNumberLiteral(String.valueOf(count)));
-        } catch (Exception ignored) {}
-        listRewrite.insertLast(newCase, null);
-        listRewrite.insertLast(ast.newBreakStatement(), null);
+
+        // New cases go before `default:`, not after it. Java allows either, but a default that isn't last reads
+        // as a mistake — and the seeded switch now ships with one, so appending would put every case after it.
+        SwitchCase defaultCase = null;
+        for (Object o : switchStmt.statements()) {
+            if (o instanceof SwitchCase sc && sc.isDefault()) { defaultCase = sc; break; }
+        }
+
+        for (Expression label : labels) {
+            SwitchCase newCase = ast.newSwitchCase();
+            newCase.expressions().add(label);
+            BreakStatement newBreak = ast.newBreakStatement();
+            if (defaultCase != null) {
+                listRewrite.insertBefore(newCase, defaultCase, null);
+                listRewrite.insertBefore(newBreak, defaultCase, null);
+            } else {
+                listRewrite.insertLast(newCase, null);
+                listRewrite.insertLast(newBreak, null);
+            }
+        }
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
     }
 
@@ -1093,12 +1162,7 @@ public class CodeEditor {
             // the comments. (Checking `instanceof Statement` is wrong: an expression-backed statement block —
             // e.g. a bare method call — has a MethodInvocation as its node, not the ExpressionStatement, yet it
             // still occupies a slot.)
-            int astIndex = 0;
-            var children = body.getStatements();
-            for (int i = 0; i < relativeIndex && i < children.size(); i++) {
-                if (!(children.get(i).getAstNode() instanceof Comment)) astIndex++;
-            }
-            listRewrite.insertAt(newStatement, astIndex, null);
+            listRewrite.insertAt(newStatement, toStatementIndex(body, relativeIndex), null);
         } else if (node instanceof SwitchCase caseNode) {
             SwitchStatement parent = (SwitchStatement) caseNode.getParent();
             List<?> allStatements = parent.statements();

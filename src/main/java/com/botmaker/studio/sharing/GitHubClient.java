@@ -83,6 +83,27 @@ public final class GitHubClient {
         return send("PATCH", url, body, token);
     }
 
+    /** Bodyless DELETE (e.g. unstar a repo); fails the future on a non-2xx status, tolerates a 204. */
+    public CompletableFuture<JsonNode> delete(String url, String token) {
+        HttpRequest req = authed(baseRequest(url), token).DELETE().build();
+        return http.sendAsync(req, HttpResponse.BodyHandlers.ofString())
+                .thenApply(resp -> {
+                    int sc = resp.statusCode();
+                    if (sc < 200 || sc >= 300) {
+                        throw new RuntimeException("GitHub DELETE " + url + " → HTTP " + sc + ": " + resp.body());
+                    }
+                    return (JsonNode) mapper.createObjectNode();
+                });
+    }
+
+    /** True when {@code GET url} returns 204 (GitHub's "yes" for boolean check endpoints), false on 404/error. */
+    public CompletableFuture<Boolean> isNoContent(String url, String token) {
+        HttpRequest req = authed(baseRequest(url), token).GET().build();
+        return http.sendAsync(req, HttpResponse.BodyHandlers.ofString())
+                .thenApply(resp -> resp.statusCode() == 204)
+                .exceptionally(e -> false);
+    }
+
     /** Write request; fails the future (with the response body) on a non-2xx status. */
     private CompletableFuture<JsonNode> send(String method, String url, Object body, String token) {
         String json;

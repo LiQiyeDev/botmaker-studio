@@ -48,4 +48,44 @@ public final class GitHubGallery {
             return tag == null ? "" : tag.asText("");
         });
     }
+
+    /** Live per-repo signals used for gallery sorting/badges: star count and last-push time (epoch seconds). */
+    public record RepoMeta(int stars, long pushedAt) {
+        public static final RepoMeta UNKNOWN = new RepoMeta(0, 0);
+    }
+
+    /**
+     * Fetches {@code owner/repo}'s live star count and last-push time from the repo object (the star count is
+     * GitHub's own, so github.com stars count too). {@link RepoMeta#UNKNOWN} when the repo is unreachable.
+     */
+    public CompletableFuture<RepoMeta> repoMeta(String owner, String repo) {
+        String url = GitHubConfig.API_BASE + "/repos/" + owner + "/" + repo;
+        return client.get(url, null).thenApply(node -> {
+            if (node == null) return RepoMeta.UNKNOWN;
+            int stars = node.path("stargazers_count").asInt(0);
+            long pushed = parseInstant(node.path("pushed_at").asText(null));
+            return new RepoMeta(stars, pushed);
+        });
+    }
+
+    /** True when the signed-in user (via {@code token}) has starred {@code owner/repo}. */
+    public CompletableFuture<Boolean> isStarred(String owner, String repo, String token) {
+        return client.isNoContent(GitHubConfig.API_BASE + "/user/starred/" + owner + "/" + repo, token);
+    }
+
+    /** Stars or unstars {@code owner/repo} for the signed-in user. Requires a token. */
+    public CompletableFuture<Void> setStarred(String owner, String repo, boolean starred, String token) {
+        String url = GitHubConfig.API_BASE + "/user/starred/" + owner + "/" + repo;
+        return (starred ? client.put(url, java.util.Map.of(), token) : client.delete(url, token))
+                .thenApply(n -> null);
+    }
+
+    private static long parseInstant(String iso) {
+        if (iso == null || iso.isBlank()) return 0;
+        try {
+            return java.time.Instant.parse(iso).getEpochSecond();
+        } catch (Exception e) {
+            return 0;
+        }
+    }
 }

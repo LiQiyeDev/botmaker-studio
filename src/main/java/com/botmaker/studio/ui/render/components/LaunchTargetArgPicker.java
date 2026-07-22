@@ -4,6 +4,7 @@ import com.botmaker.studio.core.AbstractCodeBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.game.EpicLibraryScanner;
 import com.botmaker.studio.game.GameLibraryProvider;
+import com.botmaker.studio.game.HeroicLibraryScanner;
 import com.botmaker.studio.game.SteamLibraryScanner;
 import com.botmaker.studio.services.CodeEditorService;
 import javafx.scene.Node;
@@ -46,12 +47,16 @@ public final class LaunchTargetArgPicker {
         steam.setOnAction(e -> pickGame(context, arg, button, new SteamLibraryScanner(), "steam"));
         MenuItem epic = new MenuItem("Epic game…");
         epic.setOnAction(e -> pickGame(context, arg, button, new EpicLibraryScanner(), "epic"));
+        MenuItem heroic = new MenuItem("Heroic game (Epic/GOG on Linux)…");
+        heroic.setOnAction(e -> pickGame(context, arg, button, new HeroicLibraryScanner(), "heroic"));
         MenuItem exe = new MenuItem("Executable…");
         exe.setOnAction(e -> pickExecutable(context, arg, button));
+        MenuItem cli = new MenuItem("CLI command…");
+        cli.setOnAction(e -> pickCliCommand(context, arg, button));
         MenuItem emu = new MenuItem("Emulator app…");
         emu.setOnAction(e -> pickEmulatorApp(context, arg, button));
 
-        button.getItems().addAll(steam, epic, new SeparatorMenuItem(), exe, emu);
+        button.getItems().addAll(steam, epic, heroic, new SeparatorMenuItem(), exe, cli, emu);
         return button;
     }
 
@@ -71,6 +76,25 @@ public final class LaunchTargetArgPicker {
         if (chosen != null) {
             apply(context, arg, button, "exe:" + chosen.getAbsolutePath());
         }
+    }
+
+    private static void pickCliCommand(CodeEditorService context, ExpressionBlock arg, MenuButton button) {
+        javafx.scene.control.TextInputDialog dialog = new javafx.scene.control.TextInputDialog(cliCommandOf(arg));
+        dialog.initOwner(owner(button));
+        dialog.setTitle("CLI command");
+        dialog.setHeaderText("Command the bot runs to launch the game");
+        dialog.setContentText("Command:");
+        dialog.getEditor().setPrefColumnCount(40);
+        dialog.showAndWait().ifPresent(cmd -> {
+            String trimmed = cmd.trim();
+            if (!trimmed.isEmpty()) apply(context, arg, button, "cli:" + trimmed);
+        });
+    }
+
+    /** The command line inside a current {@code cli:} spec (so re-editing pre-fills it), else empty. */
+    private static String cliCommandOf(ExpressionBlock arg) {
+        String spec = currentSpec(arg);
+        return spec != null && spec.startsWith("cli:") ? spec.substring("cli:".length()) : "";
     }
 
     private static void pickEmulatorApp(CodeEditorService context, ExpressionBlock arg, MenuButton button) {
@@ -103,6 +127,8 @@ public final class LaunchTargetArgPicker {
         return switch (kind) {
             case "steam" -> "Steam: " + rest;
             case "epic" -> "Epic: " + rest;
+            case "heroic" -> "Heroic: " + rest;
+            case "cli" -> "CLI: " + rest;
             case "exe" -> "Exe: " + fileName(rest);
             case "emu-app" -> "Emulator: " + rest;
             default -> spec;

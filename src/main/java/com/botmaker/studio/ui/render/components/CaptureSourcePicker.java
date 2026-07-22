@@ -4,7 +4,6 @@ import com.botmaker.studio.core.AbstractCodeBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.project.capture.CaptureExpr;
 import com.botmaker.studio.services.CodeEditorService;
-import com.botmaker.studio.services.ProjectSettingsService;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.stage.Window;
@@ -16,8 +15,9 @@ import org.eclipse.jdt.core.dom.Expression;
  * chooser} (screens + windows with live thumbnails, plus "Project default"). A pick rewrites the backing
  * expression to an inline, fully-qualified SDK call ({@code CaptureSource.screen()} / {@code Screen.at(i)} /
  * {@code CaptureSource.window("t")}, from {@link CaptureExpr}) via
- * {@link com.botmaker.studio.parser.CodeEditor#replaceWithRawExpression}. "Project default" is resolved to
- * the current default target's inline expression at pick time (a snapshot — there is no generated sidecar).
+ * {@link com.botmaker.studio.parser.CodeEditor#replaceWithRawExpression}. "Project default" is emitted as the
+ * live {@code Source.current()} SDK call (not a snapshot), so the call keeps following the project's configured
+ * default source even after that default is changed later.
  *
  * <p>The SDK's {@code CaptureSource} is an <em>interface</em> — it must never be offered a {@code new}
  * constructor; this picker is the only way to fill such a slot. Used for a method parameter typed
@@ -33,23 +33,24 @@ public final class CaptureSourcePicker {
         button.setOnAction(e -> {
             Window owner = button.getScene() != null ? button.getScene().getWindow() : null;
             new com.botmaker.studio.ui.app.capture.CaptureSourcePicker(owner, true).showAndWait()
-                    .ifPresent(sel -> {
-                        String code = sourceCode(context, sel);
-                        context.getCodeEditor().replaceWithRawExpression(expr(arg), code);
-                    });
+                    .ifPresent(sel ->
+                        context.getCodeEditor().replaceWithRawExpression(expr(arg), sourceCode(sel)));
         });
         return button;
     }
 
+    /** The fully-qualified SDK call for the live project-default source — survives later default changes. */
+    private static final String PROJECT_DEFAULT_EXPR = "com.botmaker.sdk.api.capture.Source.current()";
+
     /**
      * The inline, fully-qualified capture-source expression for {@code sel} (see {@link CaptureExpr}). The
-     * "Project default" choice is resolved to the project's current default target at pick time; there is no
-     * generated {@code BotConfig} sidecar.
+     * "Project default" choice emits {@code Source.current()} — the SDK's ambient source — rather than a
+     * snapshot of today's default, so the bot follows the project's configured source if it later changes.
      */
-    private static String sourceCode(CodeEditorService context, com.botmaker.studio.ui.app.capture.CaptureSourcePicker.Selection sel) {
+    private static String sourceCode(com.botmaker.studio.ui.app.capture.CaptureSourcePicker.Selection sel) {
         return switch (sel) {
             case com.botmaker.studio.ui.app.capture.CaptureSourcePicker.Selection.ProjectDefault ignored ->
-                    CaptureExpr.of(ProjectSettingsService.forProject(context).defaultTarget());
+                    PROJECT_DEFAULT_EXPR;
             case com.botmaker.studio.ui.app.capture.CaptureSourcePicker.Selection.Concrete c ->
                     CaptureExpr.of(c.target(), c.region());
         };
@@ -63,6 +64,7 @@ public final class CaptureSourcePicker {
     private static String label(ExpressionBlock arg) {
         String raw = expr(arg).toString().trim();
         if (raw.isBlank()) return "🎯 Choose source…";
+        if (raw.contains("Source.current()")) return "🎯 Project Default";
         String suffix = raw.contains(".region(") ? " ▸ region" : "";
         int mon = raw.indexOf("monitor(");
         if (mon >= 0) {

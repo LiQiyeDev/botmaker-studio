@@ -516,7 +516,8 @@ public final class ProgramShapeOverlay {
     private void addBelow(javafx.scene.Node anchor) {
         InsertionCursor c = cursor();
         if (c == null) return;
-        var menu = ExpressionMenuFactory.createStatementMenu(context.getProjectAnalyzer(), this::insertBelowCursor);
+        var menu = ExpressionMenuFactory.createStatementMenu(
+                context.getProjectAnalyzer(), c.body().getAstNode(), this::insertBelowCursor);
         menu.show(anchor, Side.BOTTOM, 0, 0);
     }
 

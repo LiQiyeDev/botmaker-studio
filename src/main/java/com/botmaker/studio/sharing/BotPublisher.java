@@ -218,9 +218,24 @@ public final class BotPublisher {
         String message = (title == null || title.isBlank()) ? "Patch from BotMaker Studio" : title;
         String commitSha = buildTreeCommit(forkApi, files, baseSha, message, token);
 
-        String branch = "botmaker-patch-" + System.currentTimeMillis();
-        client.post(forkApi + "/git/refs",
-                mapOf("ref", "refs/heads/" + branch, "sha", commitSha), token).join();
+        // One branch per user (per the two-branch cap: main + editor-<login>). Reusing it means a second
+        // proposal force-updates the same branch, which GitHub reflects on the user's existing open PR
+        // instead of opening a second one.
+        String branch = "editor-" + login;
+        String branchRefUrl = forkApi + "/git/refs/heads/" + branch;
+        JsonNode existingBranch = client.get(branchRefUrl, token).join();
+        if (existingBranch != null && existingBranch.path("object").hasNonNull("sha")) {
+            client.patch(branchRefUrl, mapOf("sha", commitSha, "force", true), token).join();
+        } else {
+            client.post(forkApi + "/git/refs",
+                    mapOf("ref", "refs/heads/" + branch, "sha", commitSha), token).join();
+        }
+
+        // If a PR from this branch is already open, updating the branch updated it — return that PR's URL.
+        String existingPr = openPullRequestUrl(originApi, login, branch, token);
+        if (existingPr != null) {
+            return new PatchResult(existingPr);
+        }
 
         JsonNode pr = client.post(originApi + "/pulls", mapOf(
                 "title", message,
@@ -229,6 +244,54 @@ public final class BotPublisher {
                 "body", body == null ? "Submitted from BotMaker Studio." : body), token).join();
 
         return new PatchResult(pr.path("html_url").asText(""));
+    }
+
+    /** The html_url of the open PR from {@code login:branch} into {@code originApi}, or null if none is open. */
+    private String openPullRequestUrl(String originApi, String login, String branch, String token) {
+        JsonNode prs = client.get(originApi + "/pulls?state=open&head=" + login + ":" + branch, token).join();
+        if (prs != null && prs.isArray() && !prs.isEmpty()) {
+            return prs.get(0).path("html_url").asText(null);
+        }
+        return null;
+    }
+
+    /**
+     * "Get the latest from the original" — GitHub's native Sync-fork on the user's fork of an installed bot.
+     * Calls {@code POST /repos/{login}/{repo}/merge-upstream} with the fork's default branch, fast-forwarding it
+     * to the upstream tip. Returns a short human-readable outcome. Throws with a divergence message when GitHub
+     * reports a merge conflict (HTTP 409), so the caller can offer "open on GitHub". Blocking; off the FX thread.
+     */
+    public String syncFork(BotSource origin) throws IOException {
+        if (!auth.isAuthenticated()) {
+            throw new IOException("Not signed in to GitHub.");
+        }
+        if (origin == null) {
+            throw new IOException("This project has no upstream bot to sync from.");
+        }
+        String token = auth.token();
+        String api = GitHubConfig.API_BASE;
+        String login = auth.login(client).join();
+        if (login.isBlank()) {
+            throw new IOException("Could not read your GitHub account.");
+        }
+        String forkApi = api + "/repos/" + login + "/" + origin.repo();
+        JsonNode forkRepo = client.get(forkApi, token).join();
+        if (forkRepo == null) {
+            throw new IOException("You don't have a fork of " + origin.slug() + " yet — propose a change first.");
+        }
+        String branch = forkRepo.path("default_branch").asText("main");
+        try {
+            JsonNode result = client.post(forkApi + "/merge-upstream", mapOf("branch", branch), token).join();
+            String msg = result.path("message").asText("");
+            return msg.isBlank() ? "Your fork is up to date with " + origin.slug() + "." : msg;
+        } catch (Exception e) {
+            String m = rootMessage(e);
+            if (m != null && m.contains("HTTP 409")) {
+                throw new IOException("Your fork of " + origin.slug() + " has diverged from the original and "
+                        + "can't be synced automatically. Open it on GitHub to resolve the conflict.");
+            }
+            throw new IOException("Sync failed: " + m, e);
+        }
     }
 
     /** Blobs → tree (full snapshot, no {@code base_tree}) → commit; returns the new commit's SHA. */

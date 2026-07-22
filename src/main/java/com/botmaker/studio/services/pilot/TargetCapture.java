@@ -14,12 +14,11 @@ import java.awt.Rectangle;
 import java.awt.Robot;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
-import java.util.Base64;
 
 /**
  * Resolves and grabs a single non-intrusive frame of "the surface the bot is acting on", plus the JPEG
- * encoding used to ship it. Extracted from {@code TelemetryDashboardServer} so both the loopback debug
- * dashboard (base64-over-SSE) and the remote {@code PilotServer} (raw bytes over WebSocket) share one
+ * encoding used to ship it. Split out from the server so the capture/scale/encode path is testable and
+ * reusable on its own; {@code PilotServer} (raw JPEG bytes over WebSocket) is its one
  * capture pipeline.
  *
  * <p>Target resolution: a live window from telemetry wins;
@@ -136,12 +135,6 @@ public final class TargetCapture {
         } catch (Exception e) {
             return null;
         }
-    }
-
-    /** Base64-encoded JPEG (for the SSE dashboard's data: URLs), or {@code null} on failure. */
-    public static String base64Jpeg(BufferedImage img) {
-        byte[] bytes = jpegBytes(img);
-        return bytes == null ? null : Base64.getEncoder().encodeToString(bytes);
     }
 
     private static BufferedImage toRgb(BufferedImage src) {

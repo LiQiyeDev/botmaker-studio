@@ -35,7 +35,16 @@ import java.nio.file.Path;
  * everything. A null <em>node</em>, by contrast, is a caller that forgot to say what it was editing, and is
  * always denied.
  */
-public record LockResolver(ProjectConfig config, ProjectTemplate template, Path file) {
+public record LockResolver(ProjectConfig config, ProjectTemplate template, Path file, boolean readerMode) {
+
+    /** The message shown when an edit is refused solely because the project is open for reading. */
+    public static final String READER_MODE_REASON =
+            "This bot is open for reading. Switch to Editor mode to change it.";
+
+    /** Back-compat overload for the flush/region path, which has no project mode: never reader. */
+    public LockResolver(ProjectConfig config, ProjectTemplate template, Path file) {
+        this(config, template, file, false);
+    }
 
     /** Which half of a method an edit touches. {@link #SIGNATURE} also covers class-level structure. */
     public enum EditKind {
@@ -60,9 +69,10 @@ public record LockResolver(ProjectConfig config, ProjectTemplate template, Path 
 
     /** The resolver for whatever file is being edited right now, or a permissive one if there is no project. */
     public static LockResolver forActiveFile(ProjectConfig config, ProjectState state) {
-        if (config == null || state == null) return new LockResolver(null, null, null);
+        if (config == null || state == null) return new LockResolver(null, null, null, false);
         ProjectFile active = state.getActiveFile();
-        return new LockResolver(config, state.getTemplate(), active == null ? null : active.getPath());
+        return new LockResolver(config, state.getTemplate(),
+                active == null ? null : active.getPath(), state.isReaderMode());
     }
 
     /** This file's role. {@link FileRole#EDITABLE} when we don't know the project. */
@@ -97,7 +107,7 @@ public record LockResolver(ProjectConfig config, ProjectTemplate template, Path 
 
     /** True when blocks in this file should default to refusing interaction. Per-method locks refine it. */
     public boolean suppressesInteraction() {
-        return role().suppressesInteraction();
+        return readerMode || role().suppressesInteraction();
     }
 
     /**
@@ -144,6 +154,8 @@ public record LockResolver(ProjectConfig config, ProjectTemplate template, Path 
     public Verdict check(ASTNode node, EditKind kind) {
         if (config == null || file == null) return Verdict.ok();
         if (node == null) return Verdict.no("Nothing to edit.");
+        // Reading someone else's bot outranks every file/method verdict: nothing here is the user's to change.
+        if (readerMode) return Verdict.no(READER_MODE_REASON);
 
         boolean allowed = kind == EditKind.SIGNATURE ? signatureEditable(node) : bodyEditable(node);
         return allowed ? Verdict.ok() : Verdict.no(reasonFor(node, kind));

@@ -154,6 +154,12 @@ public class BotMakerStudio extends Application {
 
             currentProject.getCodeEditorService().loadInitialCode();
 
+            // A VCS rollback rewrites the working tree on disk; the open project still holds the pre-rollback
+            // ASTs and would save them back over the restored files. Re-open from disk to pick up the new state.
+            currentProject.getEventBus().subscribe(
+                    com.botmaker.studio.events.CoreApplicationEvents.ProjectReloadRequestedEvent.class,
+                    e -> openProject(primaryStage, projectName, false), true);
+
             primaryStage.setOnCloseRequest(e -> {
                 e.consume();
                 shutdown();

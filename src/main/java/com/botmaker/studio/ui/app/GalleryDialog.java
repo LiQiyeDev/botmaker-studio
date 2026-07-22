@@ -5,6 +5,8 @@ import com.botmaker.studio.project.ProjectManager;
 import com.botmaker.studio.sharing.BotInstaller;
 import com.botmaker.studio.sharing.BotSource;
 import com.botmaker.studio.sharing.GalleryEntry;
+import com.botmaker.studio.sharing.GitHubAuth;
+import com.botmaker.studio.sharing.GitHubClient;
 import com.botmaker.studio.sharing.GitHubConfig;
 import com.botmaker.studio.sharing.GitHubGallery;
 import com.botmaker.studio.util.BrowserLauncher;
@@ -47,22 +49,37 @@ import java.util.concurrent.CompletableFuture;
  */
 public class GalleryDialog {
 
+    /** How the browse list is ordered. */
+    private enum Sort { STARS("Stars"), UPDATED("Recently updated"), NAME("Name");
+        final String label; Sort(String label) { this.label = label; }
+        @Override public String toString() { return label; } }
+
     private final Window owner;
     private final GitHubGallery gallery;
     private final BotInstaller installer;
+    private final GitHubAuth auth;
+    private final GitHubClient client;
     private final ProjectManager projectManager = new ProjectManager();
 
     private final ObservableList<GalleryEntry> allEntries = FXCollections.observableArrayList();
     private final ObservableList<GalleryEntry> shownEntries = FXCollections.observableArrayList();
     private final ObservableList<InstalledBot> installed = FXCollections.observableArrayList();
 
+    /** Live per-repo signals (stars, last-push) keyed by {@code owner/repo}, filled in lazily after browse. */
+    private final java.util.Map<String, GitHubGallery.RepoMeta> metaBySlug = new java.util.concurrent.ConcurrentHashMap<>();
+
     private final ProgressIndicator browseProgress = new ProgressIndicator();
+    private final javafx.scene.control.ComboBox<Sort> sortBox = new javafx.scene.control.ComboBox<>();
+    private String currentQuery = "";
     private Stage stage;
 
-    public GalleryDialog(Window owner, GitHubGallery gallery, BotInstaller installer) {
+    public GalleryDialog(Window owner, GitHubGallery gallery, BotInstaller installer,
+                         GitHubAuth auth, GitHubClient client) {
         this.owner = owner;
         this.gallery = gallery;
         this.installer = installer;
+        this.auth = auth;
+        this.client = client;
     }
 
     public void show() {
@@ -98,12 +115,17 @@ public class GalleryDialog {
     private VBox buildBrowseTab() {
         TextField searchField = new TextField();
         searchField.setPromptText("Search the gallery…");
-        searchField.textProperty().addListener((o, old, q) -> applyFilter(q));
+        searchField.textProperty().addListener((o, old, q) -> { currentQuery = q; applyFilter(); });
         HBox.setHgrow(searchField, Priority.ALWAYS);
+
+        sortBox.getItems().setAll(Sort.values());
+        sortBox.getSelectionModel().select(Sort.STARS);
+        sortBox.setOnAction(e -> applyFilter());
+        Label sortLabel = new Label("Sort:");
 
         browseProgress.setVisible(false);
         browseProgress.setPrefSize(18, 18);
-        HBox searchRow = new HBox(8, searchField, browseProgress);
+        HBox searchRow = new HBox(8, searchField, sortLabel, sortBox, browseProgress);
         searchRow.setAlignment(Pos.CENTER_LEFT);
 
         ListView<GalleryEntry> list = new ListView<>(shownEntries);
@@ -127,16 +149,40 @@ public class GalleryDialog {
         gallery.browse().whenComplete((entries, err) -> Platform.runLater(() -> {
             browseProgress.setVisible(false);
             allEntries.setAll(entries == null ? List.of() : entries);
-            applyFilter("");
+            applyFilter();
+            // Fetch each repo's live stars/last-push so the Stars/Recently-updated sorts and the ★ counts work.
+            for (GalleryEntry e : allEntries) {
+                String slug = slug(e);
+                gallery.repoMeta(e.owner(), e.repo()).thenAccept(meta -> Platform.runLater(() -> {
+                    metaBySlug.put(slug, meta);
+                    applyFilter();     // re-sort as counts arrive
+                }));
+            }
         }));
     }
 
-    private void applyFilter(String query) {
+    private void applyFilter() {
         List<GalleryEntry> filtered = new ArrayList<>();
         for (GalleryEntry e : allEntries) {
-            if (e.matches(query)) filtered.add(e);
+            if (e.matches(currentQuery)) filtered.add(e);
         }
+        Sort sort = sortBox.getSelectionModel().getSelectedItem();
+        if (sort == null) sort = Sort.STARS;
+        java.util.Comparator<GalleryEntry> cmp = switch (sort) {
+            case NAME -> java.util.Comparator.comparing(e -> e.name().toLowerCase());
+            case STARS -> java.util.Comparator.comparingInt((GalleryEntry e) -> metaOf(e).stars()).reversed();
+            case UPDATED -> java.util.Comparator.comparingLong((GalleryEntry e) -> metaOf(e).pushedAt()).reversed();
+        };
+        filtered.sort(cmp);
         shownEntries.setAll(filtered);
+    }
+
+    private GitHubGallery.RepoMeta metaOf(GalleryEntry e) {
+        return metaBySlug.getOrDefault(slug(e), GitHubGallery.RepoMeta.UNKNOWN);
+    }
+
+    private static String slug(GalleryEntry e) {
+        return e.owner() + "/" + e.repo();
     }
 
     /** A gallery row: name + author + description, with an Install button. */
@@ -159,14 +205,54 @@ public class GalleryDialog {
             Region spacer = new Region();
             HBox.setHgrow(spacer, Priority.ALWAYS);
 
+            int stars = metaOf(entry).stars();
+            Label starCount = new Label("★ " + stars);
+            starCount.setStyle("-fx-text-fill: #9a6700; -fx-font-size: 11px;");
+
+            Button starBtn = new Button("Star");
+            starBtn.setOnAction(e -> toggleStar(entry, starBtn, starCount));
+            reflectStarState(entry, starBtn);
+
             Button installBtn = new Button(installer.isInstalled(entry.name()) ? "Installed" : "Install");
             installBtn.setDisable(installer.isInstalled(entry.name()));
             installBtn.setOnAction(e -> installEntry(entry, installBtn));
 
-            HBox row = new HBox(10, text, spacer, installBtn);
+            HBox row = new HBox(10, text, spacer, starCount, starBtn, installBtn);
             row.setAlignment(Pos.CENTER_LEFT);
             setGraphic(row);
         }
+    }
+
+    /** Reflects whether the signed-in user has starred this bot (best-effort; leaves "Star" when signed out). */
+    private void reflectStarState(GalleryEntry entry, Button starBtn) {
+        if (auth == null || !auth.isAuthenticated()) return;
+        gallery.isStarred(entry.owner(), entry.repo(), auth.token())
+                .thenAccept(starred -> Platform.runLater(() -> starBtn.setText(starred ? "Starred" : "Star")));
+    }
+
+    private void toggleStar(GalleryEntry entry, Button starBtn, Label starCount) {
+        if (auth == null || !auth.isAuthenticated()) {
+            info("Sign in to star", "Sign in to GitHub (the account button, top-right of the editor) to star "
+                    + "bots. Your stars count on github.com too.");
+            return;
+        }
+        boolean wasStarred = "Starred".equals(starBtn.getText());
+        boolean nowStarred = !wasStarred;
+        starBtn.setDisable(true);
+        gallery.setStarred(entry.owner(), entry.repo(), nowStarred, auth.token())
+                .whenComplete((v, err) -> Platform.runLater(() -> {
+                    starBtn.setDisable(false);
+                    if (err != null) {
+                        error("Couldn't update star", rootMessage(err));
+                        return;
+                    }
+                    starBtn.setText(nowStarred ? "Starred" : "Star");
+                    // Reflect the optimistic count locally and refresh from GitHub.
+                    GitHubGallery.RepoMeta m = metaOf(entry);
+                    int updated = Math.max(0, m.stars() + (nowStarred ? 1 : -1));
+                    metaBySlug.put(slug(entry), new GitHubGallery.RepoMeta(updated, m.pushedAt()));
+                    starCount.setText("★ " + updated);
+                }));
     }
 
     private void installEntry(GalleryEntry entry, Button installBtn) {

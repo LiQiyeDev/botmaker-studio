@@ -41,6 +41,7 @@ public class ProjectSelectionScreen {
 
     private final GitHubClient gitHubClient = new GitHubClient();
     private final GitHubAuth gitHubAuth = new GitHubAuth();
+    private final com.botmaker.studio.sharing.GoogleAuth googleAuth = new com.botmaker.studio.sharing.GoogleAuth();
     /** The signed-in GitHub login, resolved lazily; used to tell "published by you" from "imported". */
     private volatile String myLogin;
 
@@ -116,7 +117,9 @@ public class ProjectSelectionScreen {
         Label versionLabel = new Label("v" + com.botmaker.studio.config.AppVersion.get());
         versionLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: #888;");
         GitHubAccountBar accountBar = new GitHubAccountBar(stage, gitHubAuth, gitHubClient, this::onAuthChanged);
-        VBox header = new VBox(10, titleLabel, versionLabel, accountBar);
+        // "Sign in with Google" sits beside GitHub; it hides itself until a client id is configured (no backend yet).
+        GoogleAccountBar googleBar = new GoogleAccountBar(stage, googleAuth, () -> {});
+        VBox header = new VBox(10, titleLabel, versionLabel, accountBar, googleBar);
         header.setAlignment(Pos.CENTER);
         header.setPadding(new Insets(0, 0, 20, 0));
 
@@ -578,7 +581,7 @@ public class ProjectSelectionScreen {
     private void showGallery() {
         GitHubGallery gallery = new GitHubGallery(gitHubClient);
         BotInstaller installer = new BotInstaller(gitHubClient, gallery);
-        GalleryDialog dialog = new GalleryDialog(stage, gallery, installer);
+        GalleryDialog dialog = new GalleryDialog(stage, gallery, installer, gitHubAuth, gitHubClient);
         // Installs land new projects in PROJECTS_ROOT; reflect them when the gallery closes.
         dialog.show(this::refreshProjectList);
     }

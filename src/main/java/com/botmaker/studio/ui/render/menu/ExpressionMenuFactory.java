@@ -2,6 +2,7 @@ package com.botmaker.studio.ui.render.menu;
 
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.parser.ExpressionChoice;
+import com.botmaker.studio.parser.StatementPlacement;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.ui.app.capture.CaptureSourcePicker;
 import com.botmaker.studio.project.activity.ActivityVariable;
@@ -713,6 +714,18 @@ public final class ExpressionMenuFactory {
      *                 in which case only the language blocks are shown.
      */
     public static ContextMenu createStatementMenu(ProjectAnalyzer analyzer, Consumer<BlockType> onSelection) {
+        return createStatementMenu(analyzer, null, onSelection);
+    }
+
+    /**
+     * As {@link #createStatementMenu(ProjectAnalyzer, Consumer)}, but only offering blocks legal in
+     * {@code targetBody} — a {@code break} isn't listed where there's no loop or switch to break out of, so an
+     * illegal insert can't be chosen in the first place. Pass {@code null} to offer everything.
+     */
+    public static ContextMenu createStatementMenu(ProjectAnalyzer analyzer, ASTNode targetBody,
+                                                  Consumer<BlockType> onSelection) {
+        Predicate<BlockType> allowed =
+                targetBody == null ? b -> true : b -> StatementPlacement.allows(b, targetBody);
         ContextMenu menu = new ContextMenu();
 
         TextField search = new TextField();
@@ -721,8 +734,9 @@ public final class ExpressionMenuFactory {
         searchItem.setHideOnClick(false);
         menu.getItems().add(searchItem);
 
-        rebuildStatementItems(menu, "", analyzer, onSelection);
-        search.textProperty().addListener((obs, old, query) -> rebuildStatementItems(menu, query, analyzer, onSelection));
+        rebuildStatementItems(menu, "", analyzer, allowed, onSelection);
+        search.textProperty().addListener((obs, old, query) ->
+                rebuildStatementItems(menu, query, analyzer, allowed, onSelection));
         menu.setOnShown(e -> search.requestFocus());
 
         return menu;
@@ -741,7 +755,7 @@ public final class ExpressionMenuFactory {
 
     /** Rebuilds the menu body (everything below the search box at index 0) for the current search {@code query}. */
     private static void rebuildStatementItems(ContextMenu menu, String query, ProjectAnalyzer analyzer,
-                                              Consumer<BlockType> onSelection) {
+                                              Predicate<BlockType> allowed, Consumer<BlockType> onSelection) {
         menu.getItems().remove(1, menu.getItems().size());
 
         String q = query == null ? "" : query.trim().toLowerCase();
@@ -750,7 +764,7 @@ public final class ExpressionMenuFactory {
         // facade method — no submenus to dig through.
         if (!q.isEmpty()) {
             List<MenuItem> matches = new ArrayList<>();
-            for (BlockType b : languageBlocks()) {
+            for (BlockType b : languageBlocks(allowed)) {
                 if (b.displayName().toLowerCase().contains(q)) matches.add(statementItem(b, onSelection));
             }
             for (BlockType b : sdkCallBlocks(analyzer)) {
@@ -769,7 +783,7 @@ public final class ExpressionMenuFactory {
 
         // Then the language/structure block categories (SDK-facade calls excluded — reached via the submenus above).
         if (menu.getItems().size() > 1) menu.getItems().add(new SeparatorMenuItem());
-        Map<BlockCategory, List<BlockType>> grouped = languageBlocks().stream()
+        Map<BlockCategory, List<BlockType>> grouped = languageBlocks(allowed).stream()
                 .collect(Collectors.groupingBy(BlockType::category, LinkedHashMap::new, Collectors.toList()));
         for (BlockCategory category : LANGUAGE_CATEGORY_ORDER) {
             addCategoryMenu(menu, category, grouped, onSelection);
@@ -783,8 +797,11 @@ public final class ExpressionMenuFactory {
      * calls (a {@link BlockType.LibraryCall} / {@link BlockType.LambdaCall} on a {@link SdkApi} facade), which are
      * offered through the generated per-class submenus instead.
      */
-    private static List<BlockType> languageBlocks() {
-        return BlockCatalog.all().stream().filter(b -> !isSdkFacadeCall(b)).collect(Collectors.toList());
+    private static List<BlockType> languageBlocks(Predicate<BlockType> allowed) {
+        return BlockCatalog.all().stream()
+                .filter(b -> !isSdkFacadeCall(b))
+                .filter(allowed)
+                .collect(Collectors.toList());
     }
 
     private static boolean isSdkFacadeCall(BlockType block) {

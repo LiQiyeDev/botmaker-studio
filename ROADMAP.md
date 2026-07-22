@@ -6,6 +6,97 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-22 — Login polish, activity comment/return blocks, Heroic/CLI launch, capture-source default.**
+  Six parts. (1) **Comment blocks** (`blocks/misc/CommentBlock`, `TextFieldComponents`, `blocks.css`) are now a
+  read-only wrapping amber note with a small ✎ edit button (a locked file gets no button); long notes wrap
+  instead of scrolling a one-line field. (2) **Pinned activity return** (`blocks/flow/ReturnBlock`): the
+  trailing `return Outcome.X;` of an activity's `run()` shows an outcome-only picker (the nested `Outcome`
+  enum's constants) instead of the generic expression menu, and no delete button — you pick which outcome, the
+  flow canvas routes it. (3) **Insert-between-comment-and-return bug** (`parser/CodeEditor.canInsertAt`): the
+  guard compared a BodyBlock child index (comments included) against the pinned return's statements() index
+  (comments excluded), refusing a drop between the generated comment and the return; both it and `insertIntoList`
+  now share `toStatementIndex`. Covered by `PinnedReturnInsertTest`. (4) **GitHub login** (`GitHubAccountBar`):
+  the device-code dialog now auto-closes on success/failure (it used to stay open), and no-connection errors read
+  as "No internet connection…". (5) **Google sign-in** (`sharing/GoogleAuth`+`GoogleConfig`, `ui/app/GoogleAccountBar`):
+  OAuth device-flow plumbing + a signed-in email label, hidden until a client id is configured — no backend
+  wired yet. Both auth classes now merge into the shared `credentials.json` by key instead of overwriting it.
+  (6) **Capture-source picker** (`ui/render/components/CaptureSourcePicker`): "Project default" now emits the live
+  `Source.current()` SDK call (survives later default changes) and is labelled "Project Default". Heroic/CLI
+  launch targets are the Studio half of the SDK launch work (see `../botmaker-sdk/ROADMAP.md`): new
+  `game/HeroicLibraryScanner` (Linux Epic/GOG discovery) + "Heroic game…" and "CLI command…" choices in
+  `LaunchTargetDialog` and `LaunchTargetArgPicker`.
+
+- **2026-07-22 — VCS/publish made discoverable and trustworthy, Reader/Editor mode, GitHub fork/PR/sync + stars.**
+  Six parts. (1) **Restore fix (the trust bug)**: `ProjectVcs.restoreTo` was correct git, but nothing reloaded
+  the project — the in-memory ASTs were written back over the restored files on the next save. A rollback (and
+  a per-file discard) now publishes `CoreApplicationEvents.ProjectReloadRequestedEvent`, which `BotMakerStudio`
+  handles by re-running its open path from disk. (2) **VCS tool window**: extracted `VcsDialog`'s body into a
+  reusable `ui/app/VcsPanel` (IntelliJ Commit layout — message + Commit / Publish… / Propose / Sync on the left;
+  a changed-files tree grouped by directory over a Diff/History tab pane on the right), hosted both as a fourth
+  **VCS** bottom tab beside Terminal and by the (now thin) `VcsDialog`. New `ProjectVcs.status()` buckets JGit's
+  status; `diff()` (JGit `DiffFormatter`) and `discard()` back the diff view and per-file discard. A **⑂ VCS**
+  toolbar button plus two round account buttons (GitHub — reuses `GitHubAccountBar`'s device flow in a popup;
+  Google — an honest stub) sit far-right, BotMaker-wide. *Deliberate deviation:* no "Push" button — a BotMaker
+  project has no git remote (sharing is the GitHub Data API), so a push would have nowhere to go; offering one
+  would be the "looks like it works, silently doesn't" trap the codebase already rejects for read-only edits.
+  (3) **Reader/Editor mode** via `LockResolver`, the one authority on "may this change": a new `readerMode`
+  input makes every verdict a denial that outranks `FileRole`/`MethodLock`. Mode is derived, local-only
+  (`project/ProjectMode`): installed bots (have `BotSource` provenance) open read-only until "Switch to Editor
+  mode" drops a `.botmaker-editing` marker (excluded from publish + gitignored) and reloads; local projects are
+  always editable. Reader blocks render full-colour and control-free — a canvas-level `.reader-mode` CSS class
+  undoes the generated-scaffold dimming (kept for its own per-file case) — under a "Reading — switch to Editor"
+  banner. (4) **Fork/PR/sync**: `BotPublisher.submitPatch` now pushes one reused `editor-<login>` branch
+  (force-updating it, and returning the existing open PR's URL instead of opening a second), and new `syncFork`
+  calls GitHub's native `merge-upstream`, surfacing a 409 as a "your fork diverged — open on GitHub" message.
+  (5) **Starring + gallery sort**: `GitHubClient.delete`/`isNoContent`, `GitHubGallery.repoMeta`/`isStarred`/
+  `setStarred`; `GalleryDialog` gained a Sort (Stars / Recently updated / Name) control and a per-card ★ count +
+  star toggle (counts stay GitHub's, so github.com stars count too). (6) **Author identity** — commits carry the
+  signed-in login (noreply email); **provenance** shown as "Based on owner/repo @ tag" in the panel.
+
+- **2026-07-21 — blocks that compile the moment they're dropped, and jumps that can only land where they're legal.**
+  Three parts. (1) **Scope-aware creation defaults** (`parser/factories/StatementFactory`): `switch`, `Set
+  Variable`, `for-each` and `Call Function` were seeded with invented identifiers (`switch (variable)`,
+  `variable = 0`, `for (String item : array)`, `BotMaker.DefaultMethod()` — **closes B7**, that method never
+  existed), so every drop produced an unresolvable symbol. Each now names something real at the drop site via
+  `ProjectAnalyzer` (the drop target's `ASTNode` is threaded through `NodeCreator.createDefaultStatement`), or
+  leaves an empty "+" slot when nothing qualifies — never an invented name. `VariableOption` carries a
+  `ResolvedType` rather than a type *name*, since "is this switchable / iterable" can't be answered from a
+  simple name. The fixed-name declare blocks (`VarDecl`, `ScannerRead`, `ARRAY`) now uniquify (`myList2`, …)
+  instead of redeclaring on a second drop. (2) **Switch QOL**: a case's trailing `break` is kept out of the
+  `BodyBlock` by `BlockConverter` and drawn as fixed case chrome — nothing to drag, nothing to delete, and
+  appends land before it for free (`insertIntoList` offsets from the case label). New `parser/handlers/
+  SwitchNormalizer` adds the missing `break` to any falling-through case when a file is opened (skipping the
+  arrow form and the multi-label idiom, which don't fall through); a new switch ships as one `case` + `default`;
+  `+ Add Case` inserts before `default:`; and an enum switch gets a dedicated case-value menu listing only the
+  constants no sibling has claimed, plus "add all remaining cases" as one undo step. (3) **Jump placement**:
+  the loop/switch-ancestry rule moved out of `CodeEditorService` into `parser/StatementPlacement`, the single
+  implementation now enforced at all four points — drag-over (illegal slots show a red `:drag-over-illegal` bar
+  and refuse the transfer mode, carried on the dragboard as a new `JUMP_KIND_FORMAT`), the `+` insert menu
+  (illegal blocks aren't listed), and the existing drop and move paths.
+
+- **2026-07-21 — one live view: the debug dashboard is gone and BotPilot can drive the game.** Two halves.
+  (1) **Removed `services/debug/TelemetryDashboardServer`** and every wiring point (`UIManager`,
+  `ToolbarManager`, `MenuBarManager`, `GettingStartedDialog`). It was the older of two servers rendering the
+  same frames and the same `TelemetrySerializer` schema, over SSE + base64 to a loopback browser tab; with
+  Studio's in-app preview panel already gone, keeping two half-answers to "what does the bot see?" only split
+  the work. `PilotServer` is now the single answer, so **🎮 Remote Pilot moved out of the `⋯ More` overflow
+  into the inline toolbar group**, taking the dashboard button's slot. `TargetCapture.base64Jpeg` went with it
+  (the SSE data-URL encoder had no other caller). `TargetCapture` / `TelemetrySerializer` stay — they were
+  extracted to share one schema between the two servers, and that schema is now the pilot web app's contract.
+  (2) **Interact mode in BotPilot**: tapping the video reveals an **✋ Interact** toggle; armed, a tap/drag/
+  scroll on the stream reaches the real game. It rides the existing WebSocket rather than a new channel —
+  `{"cmd":"interact","on":…}` arms **per connection** (disarmed on connect, and re-sent on every reconnect),
+  then `{"cmd":"input","kind":"tap|down|move|up|scroll","x":…,"y":…}` carries absolute screen coordinates,
+  which the client derives by inverting the renderer's live letterbox transform (`ViewTransform`, published
+  from the draw loop — a re-derived fit would land clicks in the wrong place). Studio replays them through
+  `services/pilot/PilotInputService` → `NativeController`. Three deliberate details: a **plain tap is sent as
+  `tap`**, not down+up, so it takes the cursor-preserving path (`PostMessage` on Windows, `XSendEvent` on X11)
+  while only real drags fall back to `mouseMove`/`mouseButton`; every gesture is **clamped to the rect the
+  client was actually shown** (`lastBounds`, published from `pushFrame`) because a pilot session can be
+  reachable over a public Funnel URL and must not become a remote desktop; and the state message now carries
+  `backgroundInput` (`NativeController.supportsBackgroundInput()`) so the phone warns when the host's Linux
+  backend will visibly hijack the real cursor.
+
 - **2026-07-20 — `GoHome` is a project activity, and auto-arrange no longer drifts.** Two fixes.
   (1) The scaffolded `GoHome.java` is generated as a real `Activity` subclass
   (`extends Activity<GoHome.Outcome>` with a self-held `INSTANCE`) instead of a bare `public static void run()`,
@@ -1233,7 +1324,6 @@ Priority: **P0** = blocks core usage, **P1** = important, **P2** = nice-to-have.
   hook.
 - [ ] **B6 (P1) — Surface the rich vision/input API as blocks (Studio).** waitAndClick, clickUntilSuccess,
   exists → if, region-scoped find, key-press — buildable from the palette, not only via type-menus.
-- [ ] **B7 (P2) — Replace the `BotMaker.DefaultMethod()` stub** that the "Call Function" block inserts.
 - [ ] **B8 (P1) — Bump the Studio's SDK dependency** to the current SDK version and rebuild the type index so new
   APIs appear in the palette / type-menus.ic
 

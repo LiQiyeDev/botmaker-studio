@@ -2,6 +2,7 @@ package com.botmaker.studio.ui.render.components;
 
 import javafx.scene.Node;
 import javafx.scene.control.Label;
+import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -23,6 +24,26 @@ public class TextFieldComponents {
         field.setOnAction(e -> onCommit.accept(field.getText()));
 
         return field;
+    }
+
+    /**
+     * A multi-line, wrapping editor for a comment. Unlike {@link #createCommentField} (a single line that
+     * scrolls a long note out of view) this grows downward and wraps, so a paragraph-length note is fully
+     * visible while editing. Commits on focus-loss; Enter inserts a newline (a comment can be multi-line).
+     */
+    public static TextArea createCommentEditArea(String initialText, String prompt, Consumer<String> onCommit) {
+        TextArea area = new TextArea(initialText != null ? initialText : "");
+        area.setPromptText(prompt);
+        area.getStyleClass().add("comment-edit-area");
+        area.setWrapText(true);
+        area.setPrefRowCount(2);
+        HBox.setHgrow(area, Priority.ALWAYS);
+
+        area.focusedProperty().addListener((obs, oldVal, newVal) -> {
+            if (!newVal) onCommit.accept(area.getText());
+        });
+
+        return area;
     }
 
     /**

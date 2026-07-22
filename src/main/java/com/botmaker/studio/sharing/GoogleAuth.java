@@ -15,28 +15,28 @@ import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
 import java.time.Duration;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * "Sign in with GitHub" via the OAuth <b>device flow</b> — the user authorizes in their browser and never
- * pastes a personal access token. No third-party library implements device flow, so it is hand-rolled here
- * over the JDK {@link HttpClient}.
+ * "Sign in with Google" via the OAuth 2.0 <b>device flow</b> — the user authorizes in their browser and never
+ * pastes a token. Structurally the twin of {@link GitHubAuth} (no library implements device flow, so it is
+ * hand-rolled over the JDK {@link HttpClient}); the two persist to the same {@code credentials.json} under the
+ * BotMaker cache dir, under distinct keys.
  *
- * <p>The obtained token is persisted (best-effort {@code 0600}) under the BotMaker cache dir — never inside
- * {@code ~/BotMakerProjects/}, which may itself be published.
- *
- * <p>Requires {@link GitHubConfig#OAUTH_CLIENT_ID} to be set; otherwise {@link #isConfigured()} is false and
- * the publish UI degrades gracefully.
+ * <p><b>No backend yet.</b> This is the sign-in plumbing plus a signed-in identity (the user's email); nothing
+ * is gated on it. It stays inert until {@link GoogleConfig#OAUTH_CLIENT_ID} is set, at which point
+ * {@link #isConfigured()} turns true and the UI offers the button.
  */
-public final class GitHubAuth {
+public final class GoogleAuth {
 
-    /** Device-code response the UI shows the user. */
+    /** Device-code response the UI shows the user. Google returns {@code verification_url}. */
     public record DeviceCode(String deviceCode, String userCode, String verificationUri,
                              int intervalSeconds, int expiresInSeconds) {}
 
     private static final Path CRED_FILE = BotMakerDirs.getCacheDir().resolve("credentials.json");
-    private static final String TOKEN_KEY = "github_token";
+    private static final String TOKEN_KEY = "google_token";
 
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(8))
@@ -44,14 +44,14 @@ public final class GitHubAuth {
     private final ObjectMapper mapper = new ObjectMapper();
 
     private volatile String token;
-    private volatile String login;
+    private volatile String email;
 
-    public GitHubAuth() {
+    public GoogleAuth() {
         this.token = loadToken();
     }
 
     public boolean isConfigured() {
-        return GitHubConfig.isPublishingConfigured();
+        return GoogleConfig.isConfigured();
     }
 
     public boolean isAuthenticated() {
@@ -63,36 +63,47 @@ public final class GitHubAuth {
     }
 
     /**
-     * The signed-in user's GitHub login, resolved lazily from {@code /user} and cached for the session.
+     * The signed-in user's email, resolved lazily from Google's userinfo endpoint and cached for the session.
      * Resolves to {@code ""} when not signed in or unreachable. Runs the call off the FX thread.
      */
-    public CompletableFuture<String> login(GitHubClient client) {
+    public CompletableFuture<String> email() {
         if (!isAuthenticated()) return CompletableFuture.completedFuture("");
-        String cached = login;
+        String cached = email;
         if (cached != null) return CompletableFuture.completedFuture(cached);
-        return client.get(GitHubConfig.API_BASE + "/user", token).thenApply(node -> {
-            String l = node == null ? "" : node.path("login").asText("");
-            if (!l.isBlank()) login = l;
-            return l;
+        HttpRequest req = HttpRequest.newBuilder(URI.create(GoogleConfig.USERINFO_URL))
+                .timeout(Duration.ofSeconds(15))
+                .header("Authorization", "Bearer " + token)
+                .header("Accept", "application/json")
+                .GET()
+                .build();
+        return http.sendAsync(req, HttpResponse.BodyHandlers.ofString()).thenApply(resp -> {
+            try {
+                JsonNode n = mapper.readTree(resp.body());
+                String e = n.path("email").asText("");
+                if (!e.isBlank()) email = e;
+                return e;
+            } catch (Exception ex) {
+                return "";
+            }
         });
     }
 
     public void signOut() {
         token = null;
-        login = null;
+        email = null;
         try {
             removeTokenKey();
         } catch (Exception e) {
-            System.err.println("Failed to clear credentials: " + e.getMessage());
+            System.err.println("Failed to clear Google credentials: " + e.getMessage());
         }
     }
 
-    /** Step 1: request a device + user code from GitHub. */
+    /** Step 1: request a device + user code from Google. */
     public CompletableFuture<DeviceCode> requestDeviceCode() {
         String body = form(Map.of(
-                "client_id", GitHubConfig.OAUTH_CLIENT_ID,
-                "scope", GitHubConfig.SCOPE));
-        HttpRequest req = HttpRequest.newBuilder(URI.create(GitHubConfig.DEVICE_CODE_URL))
+                "client_id", GoogleConfig.OAUTH_CLIENT_ID,
+                "scope", GoogleConfig.SCOPE));
+        HttpRequest req = HttpRequest.newBuilder(URI.create(GoogleConfig.DEVICE_CODE_URL))
                 .timeout(Duration.ofSeconds(15))
                 .header("Accept", "application/json")
                 .header("Content-Type", "application/x-www-form-urlencoded")
@@ -102,12 +113,14 @@ public final class GitHubAuth {
             try {
                 JsonNode n = mapper.readTree(resp.body());
                 if (n.hasNonNull("device_code")) {
+                    // Google names it verification_url; accept verification_uri too for forward-compat.
+                    String verify = n.path("verification_url").asText(n.path("verification_uri").asText(""));
                     return new DeviceCode(
                             n.get("device_code").asText(),
                             n.get("user_code").asText(),
-                            n.get("verification_uri").asText(),
+                            verify,
                             n.path("interval").asInt(5),
-                            n.path("expires_in").asInt(900));
+                            n.path("expires_in").asInt(1800));
                 }
                 throw new RuntimeException("Device-code request failed: " + resp.body());
             } catch (RuntimeException e) {
@@ -119,8 +132,8 @@ public final class GitHubAuth {
     }
 
     /**
-     * Step 2: poll GitHub until the user authorizes (or the code expires / is denied). On success the token
-     * is stored and returned. Runs on a background thread — do not call on the FX thread.
+     * Step 2: poll Google until the user authorizes (or the code expires / is denied). On success the token is
+     * stored and returned. Runs on a background thread — do not call on the FX thread.
      */
     public CompletableFuture<String> pollForToken(DeviceCode code) {
         return CompletableFuture.supplyAsync(() -> {
@@ -134,7 +147,7 @@ public final class GitHubAuth {
                     String t = n.get("access_token").asText();
                     storeToken(t);
                     this.token = t;
-                    this.login = null; // re-resolve for the (possibly new) account
+                    this.email = null; // re-resolve for the (possibly new) account
                     return t;
                 }
                 String error = n.path("error").asText("");
@@ -143,7 +156,7 @@ public final class GitHubAuth {
                     case "slow_down" -> interval += 5;
                     case "access_denied" -> throw new RuntimeException("Authorization was denied.");
                     case "expired_token" -> throw new RuntimeException("The code expired. Please try again.");
-                    default -> { if (!error.isBlank()) throw new RuntimeException("GitHub sign-in failed: " + error); }
+                    default -> { if (!error.isBlank()) throw new RuntimeException("Google sign-in failed: " + error); }
                 }
             }
             throw new RuntimeException("Sign-in timed out. Please try again.");
@@ -151,15 +164,18 @@ public final class GitHubAuth {
     }
 
     private JsonNode pollOnce(String deviceCode) {
-        String body = form(Map.of(
-                "client_id", GitHubConfig.OAUTH_CLIENT_ID,
-                "device_code", deviceCode,
-                "grant_type", "urn:ietf:params:oauth:grant-type:device_code"));
-        HttpRequest req = HttpRequest.newBuilder(URI.create(GitHubConfig.ACCESS_TOKEN_URL))
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("client_id", GoogleConfig.OAUTH_CLIENT_ID);
+        if (!GoogleConfig.OAUTH_CLIENT_SECRET.isBlank()) {
+            params.put("client_secret", GoogleConfig.OAUTH_CLIENT_SECRET);
+        }
+        params.put("device_code", deviceCode);
+        params.put("grant_type", "urn:ietf:params:oauth:grant-type:device_code");
+        HttpRequest req = HttpRequest.newBuilder(URI.create(GoogleConfig.ACCESS_TOKEN_URL))
                 .timeout(Duration.ofSeconds(15))
                 .header("Accept", "application/json")
                 .header("Content-Type", "application/x-www-form-urlencoded")
-                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .POST(HttpRequest.BodyPublishers.ofString(form(params)))
                 .build();
         try {
             HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
@@ -170,7 +186,7 @@ public final class GitHubAuth {
     }
 
     // -------------------------------------------------------------------------
-    // Token persistence
+    // Token persistence (shares credentials.json with GitHubAuth, distinct key)
     // -------------------------------------------------------------------------
 
     private String loadToken() {
@@ -189,14 +205,12 @@ public final class GitHubAuth {
     private void storeToken(String t) {
         try {
             Files.createDirectories(CRED_FILE.getParent());
-            // credentials.json is shared with GoogleAuth (distinct keys) — merge, don't overwrite, or signing
-            // into one provider would wipe the other's token.
             Map<String, String> all = readAll();
             all.put(TOKEN_KEY, t);
             mapper.writeValue(CRED_FILE.toFile(), all);
             restrictPermissions(CRED_FILE);
         } catch (Exception e) {
-            System.err.println("Failed to store credentials: " + e.getMessage());
+            System.err.println("Failed to store Google credentials: " + e.getMessage());
         }
     }
 
@@ -214,7 +228,7 @@ public final class GitHubAuth {
 
     /** Reads the whole credentials map so writing one provider's key preserves the other's. */
     private Map<String, String> readAll() {
-        Map<String, String> all = new java.util.LinkedHashMap<>();
+        Map<String, String> all = new LinkedHashMap<>();
         try {
             if (Files.exists(CRED_FILE)) {
                 JsonNode n = mapper.readTree(CRED_FILE.toFile());

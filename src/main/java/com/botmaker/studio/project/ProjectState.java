@@ -237,4 +237,14 @@ public class ProjectState {
 
     public Path getSourcePath() { return sourcePath; }
     public void setSourcePath(Path sourcePath) { this.sourcePath = sourcePath; }
+
+    // =========================================================================
+    // READER / EDITOR MODE
+    // =========================================================================
+
+    /** True when this project is open for reading only — every edit is refused (see {@link com.botmaker.studio.project.LockResolver}). */
+    private boolean readerMode;
+
+    public boolean isReaderMode() { return readerMode; }
+    public void setReaderMode(boolean readerMode) { this.readerMode = readerMode; }
 }

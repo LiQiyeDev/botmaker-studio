@@ -65,6 +65,40 @@ class ProjectVcsTest {
     }
 
     @Test
+    void statusBucketsWorkingTreeChanges(@TempDir Path dir) throws IOException {
+        ProjectVcs vcs = new ProjectVcs(dir);
+        Files.writeString(dir.resolve("Bot.java"), "v1");
+        vcs.init();
+        assertTrue(vcs.status().isClean(), "a freshly committed tree is clean");
+
+        Files.writeString(dir.resolve("Bot.java"), "v2");           // modify a tracked file
+        Files.writeString(dir.resolve("New.java"), "brand new");    // untracked
+
+        ProjectVcs.FileStatus status = vcs.status();
+        assertFalse(status.isClean());
+        assertTrue(status.modified().contains("Bot.java"), "modified: " + status.modified());
+        assertTrue(status.untracked().contains("New.java"), "untracked: " + status.untracked());
+        assertEquals("modified", status.labelled().get("Bot.java"));
+        assertEquals("new", status.labelled().get("New.java"));
+    }
+
+    @Test
+    void diffShowsTrackedFileChangeAndDiscardReverts(@TempDir Path dir) throws IOException {
+        ProjectVcs vcs = new ProjectVcs(dir);
+        Files.writeString(dir.resolve("Bot.java"), "original\n");
+        vcs.init();
+
+        Files.writeString(dir.resolve("Bot.java"), "changed\n");
+        String diff = vcs.diff("Bot.java");
+        assertTrue(diff.contains("-original"), "diff should show the removed line:\n" + diff);
+        assertTrue(diff.contains("+changed"), "diff should show the added line:\n" + diff);
+
+        vcs.discard("Bot.java");
+        assertEquals("original\n", Files.readString(dir.resolve("Bot.java")));
+        assertTrue(vcs.status().isClean(), "discarding the only change makes the tree clean again");
+    }
+
+    @Test
     void restoreToRewindsContentAsNewCommitKeepingHistory(@TempDir Path dir) throws IOException {
         ProjectVcs vcs = new ProjectVcs(dir);
         Files.writeString(dir.resolve("Bot.java"), "v1");

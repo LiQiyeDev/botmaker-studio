@@ -1,7 +1,6 @@
 package com.botmaker.studio.ui.app;
 
-import com.botmaker.studio.sharing.GitHubAuth;
-import com.botmaker.studio.sharing.GitHubClient;
+import com.botmaker.studio.sharing.GoogleAuth;
 import com.botmaker.studio.util.BrowserLauncher;
 import javafx.application.Platform;
 import javafx.geometry.Pos;
@@ -16,69 +15,62 @@ import javafx.scene.layout.VBox;
 import javafx.stage.Window;
 
 /**
- * Reusable "Sign in with GitHub" control (OAuth device flow via {@link GitHubAuth}). Shows the signed-in
- * login with <b>Sign out</b> / <b>Switch account</b> actions, or a single <b>Sign in</b> button when
- * signed out. Owns the whole device-flow handshake (request code → browser + code alert → poll), so the
- * publish dialog and the project-selection screen can share one implementation.
- *
- * <p>{@code onAuthChanged} fires on every state transition (signed in / out) so the host can refresh
- * dependent UI (enable Publish, re-resolve ownership badges, …).
+ * Reusable "Sign in with Google" control (OAuth device flow via {@link GoogleAuth}) — the sibling of
+ * {@link GitHubAccountBar}. Shows the signed-in email with <b>Sign out</b>, or a single <b>Sign in</b> button.
+ * There is no backend behind the Google identity yet, so the whole bar is hidden until
+ * {@link GoogleAuth#isConfigured()} (a client id is set); this is the sign-in plumbing only.
  */
-public final class GitHubAccountBar extends HBox {
+public final class GoogleAccountBar extends HBox {
 
     private final Window owner;
-    private final GitHubAuth auth;
-    private final GitHubClient client;
+    private final GoogleAuth auth;
     private final Runnable onAuthChanged;
 
     private final Label statusLabel = new Label();
-    private final Button signInButton = new Button("Sign in with GitHub");
+    private final Button signInButton = new Button("Sign in with Google");
     private final Button signOutButton = new Button("Sign out");
-    private final Button switchButton = new Button("Switch account");
 
-    public GitHubAccountBar(Window owner, GitHubAuth auth, GitHubClient client, Runnable onAuthChanged) {
+    public GoogleAccountBar(Window owner, GoogleAuth auth, Runnable onAuthChanged) {
         super(10);
         this.owner = owner;
         this.auth = auth;
-        this.client = client;
         this.onAuthChanged = onAuthChanged;
 
         setAlignment(Pos.CENTER_LEFT);
         statusLabel.setStyle("-fx-text-fill: #444;");
-        signInButton.setOnAction(e -> startDeviceFlow(false));
+        signInButton.setOnAction(e -> startDeviceFlow());
         signOutButton.setOnAction(e -> {
             auth.signOut();
             refresh();
             notifyChanged();
         });
-        switchButton.setOnAction(e -> {
-            auth.signOut();
-            startDeviceFlow(true);
-        });
 
-        getChildren().addAll(statusLabel, signInButton, signOutButton, switchButton);
+        getChildren().addAll(statusLabel, signInButton, signOutButton);
         refresh();
     }
 
-    /** True once a token is held (browse/install never needs this; publish does). */
     public boolean isAuthenticated() {
         return auth.isAuthenticated();
     }
 
-    /** Re-reads auth state and updates which controls/labels are shown. */
+    /** Re-reads auth state and updates which controls/labels are shown. The whole bar hides until configured. */
     public void refresh() {
+        boolean configured = auth.isConfigured();
+        setVisible(configured);
+        setManaged(configured);
+        if (!configured) return;
+
         boolean authed = auth.isAuthenticated();
         show(signInButton, !authed);
         show(signOutButton, authed);
-        show(switchButton, authed);
         if (!authed) {
-            statusLabel.setText("Not signed in to GitHub.");
+            statusLabel.setText("Not signed in to Google.");
             return;
         }
-        statusLabel.setText("Signed in to GitHub.");
-        auth.login(client).thenAccept(login -> Platform.runLater(() -> {
-            if (auth.isAuthenticated() && !login.isBlank()) {
-                statusLabel.setText("Signed in as " + login + ".");
+        statusLabel.setText("Signed in to Google.");
+        auth.email().thenAccept(email -> Platform.runLater(() -> {
+            if (auth.isAuthenticated() && !email.isBlank()) {
+                statusLabel.setText("Signed in as " + email + ".");
             }
         }));
     }
@@ -87,18 +79,12 @@ public final class GitHubAccountBar extends HBox {
         if (onAuthChanged != null) onAuthChanged.run();
     }
 
-    // -------------------------------------------------------------------------
-    // Device flow
-    // -------------------------------------------------------------------------
-
-    private void startDeviceFlow(boolean switching) {
+    private void startDeviceFlow() {
         signInButton.setDisable(true);
-        switchButton.setDisable(true);
         statusLabel.setText("Requesting a sign-in code…");
         auth.requestDeviceCode().whenComplete((code, err) -> Platform.runLater(() -> {
             if (err != null || code == null) {
                 signInButton.setDisable(false);
-                switchButton.setDisable(false);
                 refresh();
                 statusLabel.setText("Sign-in failed: " + rootMessage(err));
                 return;
@@ -106,9 +92,6 @@ public final class GitHubAccountBar extends HBox {
             Alert dialog = showDeviceCode(code);
             auth.pollForToken(code).whenComplete((token, perr) -> Platform.runLater(() -> {
                 signInButton.setDisable(false);
-                switchButton.setDisable(false);
-                // The device-code dialog is done either way — success or failure — so close it instead of
-                // leaving a stale "waiting for authorization…" window open behind the result.
                 dialog.setResult(ButtonType.OK);
                 dialog.close();
                 refresh();
@@ -121,7 +104,7 @@ public final class GitHubAccountBar extends HBox {
         }));
     }
 
-    private Alert showDeviceCode(GitHubAuth.DeviceCode code) {
+    private Alert showDeviceCode(GoogleAuth.DeviceCode code) {
         statusLabel.setText("Enter code " + code.userCode() + " at " + code.verificationUri()
                 + " — waiting for authorization…");
         BrowserLauncher.open(code.verificationUri());
@@ -133,7 +116,7 @@ public final class GitHubAccountBar extends HBox {
 
         Alert a = new Alert(Alert.AlertType.INFORMATION);
         if (owner != null) a.initOwner(owner);
-        a.setTitle("Sign in with GitHub");
+        a.setTitle("Sign in with Google");
         a.setHeaderText("Authorize BotMaker Studio");
         Hyperlink link = new Hyperlink(code.verificationUri());
         link.setOnAction(e -> BrowserLauncher.open(code.verificationUri()));
@@ -148,10 +131,6 @@ public final class GitHubAccountBar extends HBox {
         return a;
     }
 
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
     private static void show(Button b, boolean visible) {
         b.setVisible(visible);
         b.setManaged(visible);
@@ -160,8 +139,6 @@ public final class GitHubAccountBar extends HBox {
     private static String rootMessage(Throwable t) {
         if (t == null) return "unknown error";
         while (t.getCause() != null) t = t.getCause();
-        // A dropped/absent network surfaces as one of these — say so plainly instead of leaking a raw
-        // "UnknownHostException: github.com" at the user.
         if (t instanceof java.net.UnknownHostException
                 || t instanceof java.net.ConnectException
                 || t instanceof java.nio.channels.UnresolvedAddressException) {

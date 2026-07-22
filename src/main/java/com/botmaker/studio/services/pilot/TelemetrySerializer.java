@@ -5,9 +5,9 @@ import com.botmaker.shared.ipc.TelemetryEvent;
 import java.util.Locale;
 
 /**
- * Serializes a decoded {@link TelemetryEvent} to the compact JSON shape the pilot/dashboard clients consume
- * (kind, target, rect/region/click coords, confidence). Extracted from {@code TelemetryDashboardServer} so
- * the SSE dashboard and the WebSocket {@code PilotServer} emit an identical schema.
+ * Serializes a decoded {@link TelemetryEvent} to the compact JSON shape the pilot client consumes
+ * (kind, target, rect/region/click coords, confidence). Kept separate from {@code PilotServer} so the wire
+ * schema has one owner — the pilot web app's {@code types.ts} mirrors it field for field.
  */
 public final class TelemetrySerializer {
 

@@ -2,14 +2,21 @@ package com.botmaker.studio.project.vcs;
 
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.ResetCommand.ResetType;
+import org.eclipse.jgit.diff.DiffEntry;
+import org.eclipse.jgit.diff.DiffFormatter;
 import org.eclipse.jgit.lib.ObjectId;
+import org.eclipse.jgit.lib.ObjectReader;
 import org.eclipse.jgit.lib.PersonIdent;
 import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
+import org.eclipse.jgit.treewalk.CanonicalTreeParser;
+import org.eclipse.jgit.treewalk.FileTreeIterator;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -17,6 +24,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeSet;
 
 /**
  * Local, single-branch git history for one user project, backed by JGit (no system git binary). Provides
@@ -33,12 +41,45 @@ public final class ProjectVcs {
     public record CommitInfo(String sha, String shortSha, String message, String author, Instant when,
                              List<String> tags) {}
 
+    /**
+     * The working tree's changes relative to {@code HEAD}, bucketed by kind, as POSIX-style relative paths.
+     * {@code added}/{@code modified}/{@code removed} are tracked changes staged or unstaged; {@code untracked}
+     * is new files git isn't yet following. Empty sets when the tree is clean (or the project isn't a repo).
+     */
+    public record FileStatus(java.util.SortedSet<String> added, java.util.SortedSet<String> modified,
+                             java.util.SortedSet<String> removed, java.util.SortedSet<String> untracked) {
+
+        public boolean isClean() {
+            return added.isEmpty() && modified.isEmpty() && removed.isEmpty() && untracked.isEmpty();
+        }
+
+        /** All changed paths, sorted, each mapped to its one-word status label. */
+        public java.util.SortedMap<String, String> labelled() {
+            java.util.SortedMap<String, String> out = new java.util.TreeMap<>();
+            untracked.forEach(p -> out.put(p, "new"));
+            added.forEach(p -> out.put(p, "added"));
+            modified.forEach(p -> out.put(p, "modified"));
+            removed.forEach(p -> out.put(p, "deleted"));
+            return out;
+        }
+
+        public static FileStatus empty() {
+            return new FileStatus(new TreeSet<>(), new TreeSet<>(), new TreeSet<>(), new TreeSet<>());
+        }
+    }
+
     private static final PersonIdent DEFAULT_AUTHOR =
             new PersonIdent("BotMaker Studio", "studio@botmaker.local");
 
-    /** Top-level names git should ignore (mirrors {@code ProjectArchive}'s publish exclusions). */
+    /**
+     * Names git should ignore. Mirrors {@code ProjectArchive}'s publish exclusions for build output, and adds
+     * the local-only editor state {@code ProjectArchive} also excludes but that additionally shouldn't clutter
+     * local history: the Reader/Editor opt-in marker. (Provenance, {@code botmaker-source.json}, is deliberately
+     * left tracked — it is worth versioning so a rollback keeps a bot's origin.)
+     */
     private static final List<String> GITIGNORE_LINES = List.of(
-            "target/", ".idea/", ".gradle/", "build/", "out/", "*.class");
+            "target/", ".idea/", ".gradle/", "build/", "out/", "*.class",
+            com.botmaker.studio.project.ProjectMode.MARKER);
 
     private final Path projectDir;
     private final PersonIdent author;
@@ -117,6 +158,73 @@ public final class ProjectVcs {
             return out;
         } catch (Exception e) {
             throw new IOException("Could not read project history: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * The working tree's changes against {@code HEAD}, bucketed for the VCS panel's changed-files tree. New
+     * files added but not committed since {@code init} show up as {@code added}/{@code untracked}. Clean (and
+     * empty) when the project has no repo yet.
+     */
+    public FileStatus status() throws IOException {
+        if (!isRepo()) return FileStatus.empty();
+        try (Git git = open()) {
+            org.eclipse.jgit.api.Status s = git.status().call();
+            java.util.SortedSet<String> added = new TreeSet<>(s.getAdded());
+            added.addAll(s.getChanged());                 // staged modifications count as added-to-index
+            java.util.SortedSet<String> modified = new TreeSet<>(s.getModified());
+            java.util.SortedSet<String> removed = new TreeSet<>(s.getRemoved());
+            removed.addAll(s.getMissing());               // tracked-but-deleted-on-disk
+            java.util.SortedSet<String> untracked = new TreeSet<>(s.getUntracked());
+            return new FileStatus(added, modified, removed, untracked);
+        } catch (Exception e) {
+            throw new IOException("Could not read project status: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * A unified text diff of one working-tree file against {@code HEAD} (what committing it would record).
+     * Returns an empty string when there is no difference, or a placeholder note for a binary change. The
+     * path is the POSIX-style project-relative path from {@link #status()}.
+     */
+    public String diff(String relativePath) throws IOException {
+        if (!isRepo()) return "";
+        try (Git git = open(); ByteArrayOutputStream out = new ByteArrayOutputStream();
+             DiffFormatter fmt = new DiffFormatter(out)) {
+            Repository repo = git.getRepository();
+            fmt.setRepository(repo);
+            fmt.setPathFilter(org.eclipse.jgit.treewalk.filter.PathFilter.create(relativePath));
+
+            ObjectId head = repo.resolve("HEAD^{tree}");
+            List<DiffEntry> entries;
+            try (ObjectReader reader = repo.newObjectReader()) {
+                CanonicalTreeParser oldTree = new CanonicalTreeParser();
+                if (head != null) oldTree.reset(reader, head);
+                // HEAD tree (or an empty one for a repo with no commit) vs the working directory.
+                entries = fmt.scan(head != null ? oldTree : new org.eclipse.jgit.treewalk.EmptyTreeIterator(),
+                        new FileTreeIterator(repo));
+            }
+            for (DiffEntry e : entries) {
+                fmt.format(e);
+            }
+            fmt.flush();
+            return out.toString(StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            throw new IOException("Could not diff " + relativePath + ": " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Discards a single file's uncommitted changes, restoring it to its {@code HEAD} content ({@code git
+     * checkout -- path}). A far narrower undo than {@link #restoreTo}. No-op for an untracked file (there is
+     * no committed version to restore — the caller deletes it instead if desired).
+     */
+    public void discard(String relativePath) throws IOException {
+        ensureInitialized();
+        try (Git git = open()) {
+            git.checkout().addPath(relativePath).call();
+        } catch (Exception e) {
+            throw new IOException("Could not discard " + relativePath + ": " + e.getMessage(), e);
         }
     }
 

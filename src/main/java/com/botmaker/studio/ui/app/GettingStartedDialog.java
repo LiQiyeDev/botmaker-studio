@@ -25,7 +25,7 @@ public final class GettingStartedDialog {
 
     /** The feature-opening actions each section's "Open ▸" button triggers, supplied by {@link UIManager}. */
     public record Actions(Runnable projectSetup, Runnable captureTargets, Runnable launchTarget,
-                          Runnable captureTemplates, Runnable resources, Runnable debugDashboard,
+                          Runnable captureTemplates, Runnable resources,
                           Runnable remotePilot, Runnable manageLibraries) {}
 
     private final Stage owner;
@@ -75,11 +75,13 @@ public final class GettingStartedDialog {
                         "Open Resource Manager ▸", actions.resources()),
                 section("5 · Run & debug",
                         "Use Run to execute the bot, or Debug to step through it block by block with breakpoints. "
-                                + "The Debug Dashboard opens a live view of what the bot sees and does in your browser.",
-                        "Open Debug Dashboard ▸", actions.debugDashboard()),
-                section("6 · Control it from your phone (Remote Pilot)",
-                        "Remote Pilot streams the bot to your phone and lets you start, stop and watch it from "
-                                + "anywhere — scan the QR code to pair, no VPN needed.",
+                                + "The Terminal and Errors tabs at the bottom show what it printed and what went "
+                                + "wrong; for a live view of what the bot actually sees, open Remote Pilot below.",
+                        null, null),
+                section("6 · Watch and drive it (Remote Pilot)",
+                        "Remote Pilot streams what the bot sees to your phone or browser and lets you start, stop "
+                                + "and watch it from anywhere — scan the QR code to pair, no VPN needed. Turn on "
+                                + "Interact to click and drag in the game yourself, straight from the stream.",
                         "Enable Remote Pilot ▸", actions.remotePilot()),
                 section("7 · Add libraries",
                         "Need something extra? Manage Libraries adds third-party Maven dependencies (and picks the "
