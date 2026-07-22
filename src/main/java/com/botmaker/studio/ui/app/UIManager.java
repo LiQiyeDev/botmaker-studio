@@ -153,8 +153,10 @@ public class UIManager {
                 new ProjectSettingsDialog(primaryStage, projectSettingsService, projectAnalyzer).show());
         this.toolbarManager.setOnManageCaptureTargets(() ->
                 new ManageCaptureTargetsDialog(primaryStage, projectSettingsService).show());
-        this.toolbarManager.setOnManageLaunchTarget(() ->
-                new LaunchTargetDialog(primaryStage, config.resourcesRoot(), spec -> { }).show());
+        this.toolbarManager.setLaunchTarget(
+                com.botmaker.studio.project.ProjectCreator.readLaunchTarget(config.resourcesRoot()));
+        this.toolbarManager.setOnManageLaunchTarget(() -> new LaunchTargetDialog(
+                primaryStage, config.resourcesRoot(), this.toolbarManager::setLaunchTarget).show());
         this.toolbarManager.setOnToggleDebugOutput(
                 com.botmaker.studio.project.ProjectCreator.readDebug(config.resourcesRoot()),
                 on -> {
@@ -793,7 +795,8 @@ public class UIManager {
         GettingStartedDialog.Actions actions = new GettingStartedDialog.Actions(
                 this::openProjectSetup,
                 () -> new ManageCaptureTargetsDialog(primaryStage, projectSettingsService).show(),
-                () -> new LaunchTargetDialog(primaryStage, config.resourcesRoot(), spec -> { }).show(),
+                () -> new LaunchTargetDialog(
+                        primaryStage, config.resourcesRoot(), toolbarManager::setLaunchTarget).show(),
                 this::openOverlayTemplateCapture,
                 this::openResourceManager,
                 this::openRemotePilot,

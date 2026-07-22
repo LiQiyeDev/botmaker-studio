@@ -5,6 +5,7 @@ import com.botmaker.studio.game.GameLibraryProvider;
 import com.botmaker.studio.game.HeroicLibraryScanner;
 import com.botmaker.studio.game.SteamLibraryScanner;
 import com.botmaker.studio.project.ProjectCreator;
+import com.botmaker.studio.project.launch.LaunchTargetNames;
 import com.botmaker.studio.ui.render.components.EmulatorPickerDialog;
 import com.botmaker.studio.ui.render.components.GameLibraryPickerDialog;
 import javafx.geometry.Insets;
@@ -185,29 +186,7 @@ public final class LaunchTargetDialog {
     }
 
     private void refreshCurrentLabel() {
-        currentLabel.setText("Current: " + (currentSpec == null ? "(none)" : describe(currentSpec)));
-    }
-
-    /** A friendly one-line description of a {@code launch.target} spec. */
-    private static String describe(String spec) {
-        int colon = spec.indexOf(':');
-        if (colon <= 0) return spec;
-        String kind = spec.substring(0, colon);
-        String rest = spec.substring(colon + 1);
-        return switch (kind) {
-            case "steam" -> "Steam game " + rest;
-            case "epic" -> "Epic game " + rest;
-            case "heroic" -> "Heroic game " + rest;
-            case "cli" -> "Command: " + rest;
-            case "exe" -> "Executable " + fileName(rest);
-            case "emu-app" -> "Emulator app " + rest;
-            default -> spec;
-        };
-    }
-
-    private static String fileName(String path) {
-        int slash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-        return slash >= 0 && slash < path.length() - 1 ? path.substring(slash + 1) : path;
+        currentLabel.setText("Current: " + LaunchTargetNames.describe(currentSpec));
     }
 
     private void error(String message) {

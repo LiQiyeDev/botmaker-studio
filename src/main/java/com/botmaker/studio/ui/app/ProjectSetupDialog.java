@@ -4,6 +4,7 @@ import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectCreator;
+import com.botmaker.studio.project.launch.LaunchTargetNames;
 import com.botmaker.studio.project.StudioProjectSettings;
 import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.project.capture.CaptureTargetNames;
@@ -154,7 +155,7 @@ public final class ProjectSetupDialog {
 
     private String describeLaunch() {
         String spec = ProjectCreator.readLaunchTarget(config.resourcesRoot());
-        return spec == null ? "Not set" : spec;
+        return spec == null ? "Not set" : LaunchTargetNames.describe(spec);
     }
 
     private static String describeCapture(StudioProjectSettings s) {

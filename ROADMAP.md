@@ -6,6 +6,15 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-22 — Launch target shows its game: Heroic cover art + a named toolbar button.**
+  `game/HeroicLibraryScanner` now reads `<configRoot>/icons/<appName>.{jpg,jpeg,png,webp,ico}` for
+  `InstalledGame.artwork()` (its javadoc previously claimed Heroic keeps no local art path — it does, which is
+  why every Heroic tile was a placeholder). New `project/launch/LaunchTargetNames` owns the `launch.target`
+  spec's labels (`describe`/`shortLabel`/`kindOf`/`tokenOf`) for the dialog, the Project Setup checklist and the
+  toolbar; new `game/GameLibraries` resolves a `<platform>:<id>` spec back to its `InstalledGame`. The toolbar's
+  Launch Target button now reads `🚀 <game title>` with a 20px cover as its graphic, resolved off the FX thread
+  and refreshed from `LaunchTargetDialog`'s change callback (`ui/app/ToolbarManager.setLaunchTarget`).
+
 - **2026-07-22 — Toolbar wraps instead of hiding, and no longer resizes the window.**
   `ui/app/ToolbarManager.createCaptureGroup()` returns a `FlowPane` and the three actions that lived in the
   `⋯ More` `MenuButton` (Capture Templates, Overlay Editor, Resources) are plain buttons again — the overflow

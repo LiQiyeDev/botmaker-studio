@@ -28,8 +28,12 @@ import java.util.Map;
  * </ul>
  * Both the native ({@code ~/.config/heroic}) and Flatpak
  * ({@code ~/.var/app/com.heroicgameslauncher.hgl/config/heroic}) config roots are checked. Linux-only in
- * practice; returns empty elsewhere. Heroic keeps no stable local portrait art path, so
- * {@link InstalledGame#artwork()} is always {@code null} and the picker falls back to a placeholder tile.
+ * practice; returns empty elsewhere.
+ *
+ * <p>{@link InstalledGame#artwork()} comes from {@code <configRoot>/icons/<appName>.<ext>}, which Heroic
+ * populates when it caches a game's art (e.g. {@code icons/43d4ef20fcb94eb39a864d13164fe3ca.jpg}). An earlier
+ * version of this javadoc claimed Heroic keeps no stable local art path and hard-coded {@code null}, which is
+ * why every Heroic tile rendered as a bare placeholder.
  */
 public final class HeroicLibraryScanner implements GameLibraryProvider {
 
@@ -79,7 +83,7 @@ public final class HeroicLibraryScanner implements GameLibraryProvider {
             String appName = text(game, "app_name", entry.getKey());
             if (appName == null || appName.isBlank()) return;
             String title = text(game, "title", appName);
-            byId.putIfAbsent(appName, new InstalledGame(PLATFORM, appName, title, null));
+            byId.putIfAbsent(appName, new InstalledGame(PLATFORM, appName, title, artworkFor(root, appName)));
         });
     }
 
@@ -95,7 +99,7 @@ public final class HeroicLibraryScanner implements GameLibraryProvider {
             String appName = text(game, "appName", null);
             if (appName == null || appName.isBlank()) continue;
             String title = titles.getOrDefault(appName, appName);
-            byId.putIfAbsent(appName, new InstalledGame(PLATFORM, appName, title, null));
+            byId.putIfAbsent(appName, new InstalledGame(PLATFORM, appName, title, artworkFor(root, appName)));
         }
     }
 
@@ -124,8 +128,20 @@ public final class HeroicLibraryScanner implements GameLibraryProvider {
             String appName = text(game, "app_name", text(game, "appName", null));
             if (appName == null || appName.isBlank()) continue;
             String title = text(game, "title", appName);
-            byId.putIfAbsent(appName, new InstalledGame(PLATFORM, appName, title, null));
+            byId.putIfAbsent(appName, new InstalledGame(PLATFORM, appName, title, artworkFor(root, appName)));
         }
+    }
+
+    /**
+     * The cached cover Heroic wrote for {@code appName} under {@code <root>/icons/}, or null if it hasn't
+     * cached one. The extension varies with what the store served, so each known one is probed in turn.
+     */
+    private static Path artworkFor(Path root, String appName) {
+        for (String ext : List.of("jpg", "jpeg", "png", "webp", "ico")) {
+            Path candidate = root.resolve("icons").resolve(appName + '.' + ext);
+            if (Files.isRegularFile(candidate)) return candidate;
+        }
+        return null;
     }
 
     /** Reads and parses a JSON file, or null when it is missing/unreadable/unparseable. Never throws. */

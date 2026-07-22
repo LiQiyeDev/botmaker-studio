@@ -2,8 +2,11 @@ package com.botmaker.studio.ui.app;
 
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
+import com.botmaker.studio.game.GameLibraries;
+import com.botmaker.studio.game.InstalledGame;
 import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.project.capture.CaptureTargetNames;
+import com.botmaker.studio.project.launch.LaunchTargetNames;
 import com.botmaker.studio.services.ProjectSettingsService;
 import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
@@ -12,6 +15,8 @@ import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.Tooltip;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
 import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 
@@ -21,6 +26,8 @@ public class ToolbarManager {
 
     /** Longest window title shown on the Capture button before it's ellipsized. */
     private static final int CAPTURE_LABEL_MAX = 26;
+    /** Edge length of the launch target's cover thumbnail on its toolbar button. */
+    private static final int LAUNCH_ICON_PX = 20;
 
     private final EventBus eventBus;
     private final ProjectSettingsService settings;
@@ -30,6 +37,10 @@ public class ToolbarManager {
     private Button stepOverButton, continueButton;
     /** The Capture Targets button, whose text tracks the current project default. */
     private Button captureButton;
+    /** The Launch Target button, whose text + icon track the project's {@code launch.target}. */
+    private Button launchTargetButton;
+    /** The current {@code launch.target} spec, pushed in by {@link UIManager}; null when none is set. */
+    private String launchTargetSpec;
     private Label resolutionLabel;
 
     /** Opens the Project Setup checklist hub; wired by {@link UIManager}. */
@@ -183,13 +194,14 @@ public class ToolbarManager {
             if (onManageCaptureTargets != null) onManageCaptureTargets.run();
         });
 
-        Button launchTargetButton = new Button("🚀 Launch Target");
+        launchTargetButton = new Button(launchTargetText(launchTargetSpec));
         launchTargetButton.getStyleClass().add("toolbar-btn");
         launchTargetButton.setTooltip(new Tooltip(
                 "Choose what the bot launches at startup — a Steam/Epic game, an executable, or an emulator app"));
         launchTargetButton.setOnAction(e -> {
             if (onManageLaunchTarget != null) onManageLaunchTarget.run();
         });
+        resolveLaunchArtwork(launchTargetSpec);
 
         Button activityFlowButton = new Button("🔀 Activity Flow");
         activityFlowButton.getStyleClass().add("toolbar-btn");
@@ -281,6 +293,63 @@ public class ToolbarManager {
         String name = CaptureTargetNames.shortLabel(def);
         if (name.length() > CAPTURE_LABEL_MAX) name = name.substring(0, CAPTURE_LABEL_MAX - 1) + "…";
         return "🎯 " + name;
+    }
+
+    /**
+     * Points the Launch Target button at {@code spec} (the project's {@code launch.target}, null when unset):
+     * the label becomes the target's name and, once the library scan resolves, its cover art becomes the
+     * button's graphic. Called by {@link UIManager} when the bar is built and from {@link LaunchTargetDialog}'s
+     * change callback — the launch target lives in {@code botmaker-project.properties}, not in
+     * {@link ProjectSettingsService}, so no {@code SettingsChangedEvent} announces it.
+     */
+    public void setLaunchTarget(String spec) {
+        this.launchTargetSpec = (spec == null || spec.isBlank()) ? null : spec.trim();
+        if (launchTargetButton == null) return;
+        launchTargetButton.setGraphic(null);
+        launchTargetButton.setText(launchTargetText(launchTargetSpec));
+        resolveLaunchArtwork(launchTargetSpec);
+    }
+
+    /** "🚀 " + the target's short name, or "🚀 Launch Target" when none is set. */
+    private static String launchTargetText(String spec) {
+        return launchTargetText(spec, null);
+    }
+
+    private static String launchTargetText(String spec, String displayName) {
+        String name = LaunchTargetNames.shortLabel(spec, displayName);
+        if (name.length() > CAPTURE_LABEL_MAX) name = name.substring(0, CAPTURE_LABEL_MAX - 1) + "…";
+        return "🚀 " + name;
+    }
+
+    /**
+     * Resolves a {@code <platform>:<id>} spec to its installed game so the button can show the real title and a
+     * small cover. The scan reads JSON/VDF off disk, so it runs on a daemon thread and hops back to the FX
+     * thread; a spec that resolves to nothing (a plain exe, an uninstalled game) simply leaves the label as-is.
+     */
+    private void resolveLaunchArtwork(String spec) {
+        String platform = LaunchTargetNames.kindOf(spec);
+        String id = LaunchTargetNames.tokenOf(spec);
+        if (platform == null || id == null) return;
+        Button button = launchTargetButton;
+        Thread scan = new Thread(() -> {
+            InstalledGame game = GameLibraries.findGame(platform, id).orElse(null);
+            if (game == null) return;
+            javafx.application.Platform.runLater(() -> {
+                // A later setLaunchTarget may have won the race; only decorate the spec we were asked about.
+                if (!java.util.Objects.equals(spec, launchTargetSpec)) return;
+                button.setText(launchTargetText(spec, game.name()));
+                if (game.artwork() != null) {
+                    ImageView icon = new ImageView(
+                            new Image(game.artwork().toUri().toString(), LAUNCH_ICON_PX, LAUNCH_ICON_PX, true, true, true));
+                    icon.setPreserveRatio(true);
+                    icon.setFitWidth(LAUNCH_ICON_PX);
+                    icon.setFitHeight(LAUNCH_ICON_PX);
+                    button.setGraphic(icon);
+                }
+            });
+        }, "launch-target-art");
+        scan.setDaemon(true);
+        scan.start();
     }
 
     /**
