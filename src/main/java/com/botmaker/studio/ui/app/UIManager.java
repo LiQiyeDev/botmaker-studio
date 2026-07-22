@@ -928,19 +928,23 @@ public class UIManager {
         BorderPane.setAlignment(rightContainer, Pos.CENTER_RIGHT);
         topBar.setPadding(new Insets(6));
         topBar.getStyleClass().add("main-toolbar");
-        // Both axes must be free to shrink. JavaFX derives a Stage's *minimum* size from the scene root's
-        // computed minimum, so any node here that reports a hard floor pushes the window outwards: a label
-        // growing on click widens the bar (min width), and the centre group gaining a wrap row makes it taller
-        // (min height) — and the window grows to satisfy either. Only setMinWidth(0) was set before, which is
-        // why the height half of "clicking a button resizes the window" survived.
+        // Width is free to shrink; height is *not*, and the asymmetry is the whole point. JavaFX reads the
+        // **scene root's** minimum to decide the Stage's, so root.setMinHeight(0) below is what keeps a label
+        // growing on click (or a new wrap row) from pushing the window outwards — clamping this bar as well
+        // buys nothing there and costs everything here: the root VBox's shrink pass treats every child as a
+        // candidate regardless of Vgrow, splitting the deficit evenly and clamping each at its own min. The
+        // canvas ScrollPane's preferred height tracks the block list, so on any real bot the root is
+        // permanently over-subscribed — a bar with min height 0 then takes its share down to nothing, and
+        // since JavaFX doesn't clip a Region, its buttons paint upward over the menu bar. Pinning min to pref
+        // makes the bar refuse the shrink; mainSplit (min 0, Vgrow.ALWAYS) absorbs it instead, as it should.
         topBar.setMinWidth(0);
-        topBar.setMinHeight(0);
         topBar.setPrefHeight(Region.USE_COMPUTED_SIZE);
+        topBar.setMinHeight(Region.USE_PREF_SIZE);
         topBar.setStyle("-fx-border-color: #dcdcdc; -fx-border-width: 0 0 1 0; -fx-background-color: #f4f4f4;");
 
         VBox toolbarColumn = new VBox(topBar);
         toolbarColumn.setMinWidth(0);
-        toolbarColumn.setMinHeight(0);
+        toolbarColumn.setMinHeight(Region.USE_PREF_SIZE);
 
         // --- 2. Left Panel: File Explorer ---
         // Fill the column (no maxWidth cap) so the tree occupies the full width the divider gives it —
@@ -1034,8 +1038,9 @@ public class UIManager {
         VBox root = new VBox(menuBarManager.getMenuBar(), toolbarColumn, mainSplit, statusLabel);
         VBox.setVgrow(mainSplit, Priority.ALWAYS);
         root.getStyleClass().add("light-theme");
-        // The last link in the min-size chain: the scene root is what JavaFX actually reads to decide the
-        // Stage's minimum, so it gets the clamp too. Without it, clamping the children alone isn't enough.
+        // The only clamp the Stage actually reads: JavaFX derives a window's minimum size from the scene
+        // root's computed minimum. Clamping here is therefore both necessary and sufficient — the children's
+        // own honest minimums never reach the Stage through it, which is why the toolbar above keeps its.
         root.setMinWidth(0);
         root.setMinHeight(0);
 

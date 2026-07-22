@@ -6,6 +6,13 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-22 — The toolbar stops collapsing over the menu bar.** A regression from the min-size clamps added
+  with the centered toolbar: `topBar`/`toolbarColumn` had `setMinHeight(0)`, and the root `VBox`'s shrink pass
+  treats *every* child as a candidate regardless of `Vgrow`, so on any real bot (the canvas `ScrollPane`'s
+  preferred height tracks the block list, leaving the root permanently over-subscribed) the bar was squeezed to
+  nothing and — JavaFX not clipping a `Region` — painted `⚙ Compile` up over the menu. Both now pin
+  `minHeight = USE_PREF_SIZE`; `root.setMinHeight(0)` is the only clamp the Stage ever reads, so the
+  click-resizes-the-window fix is unaffected (`UIManager.createScene`).
 - **2026-07-22 — Imports follow the arguments, not just the scope.** Inserting `Pixel.find(Color)` left
   `Color` unimportable, and switching a call through the SDK dropdown or the ⚙ overload picker imported
   nothing at all. Two gaps: `MethodHandler.createMethodInvocation` imported `choice.scope()` but never
