@@ -89,6 +89,19 @@ public class InitializerFactory {
             return desktop;
         }
 
+        // 2c. java.awt.Color has no no-arg constructor, so the generic `new T()` below produced a
+        // `new Color()` that failed to compile twice over — "cannot find symbol: class Color" (nothing imports
+        // it) and, once imported, "no suitable constructor". Worse, it made the editor lie: ColorArgPicker
+        // reads RGB back out of a `new Color(r, g, b)` literal and returns null for anything else, so the
+        // swatch fell back to the JavaFX ColorPicker's own default — white — while the code said something
+        // uncompilable. Seeding white makes the swatch and the source agree on the first render instead of
+        // only after the first pick. Fully qualified so it needs no import, exactly as the picker's own
+        // committed value is (see ColorArgPicker).
+        if ("Color".equals(richType.leafType().simpleName())) {
+            Expression seeded = parseExpr(ast, "new java.awt.Color(255, 255, 255)");
+            if (seeded != null) return seeded;
+        }
+
         // 3. Objects
         if (!richType.isUnknown()) {
             ClassInstanceCreation cic = ast.newClassInstanceCreation();

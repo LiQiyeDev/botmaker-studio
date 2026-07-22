@@ -303,6 +303,7 @@ public final class ActivityService {
                 import com.botmaker.sdk.api.Debug;
                 import com.botmaker.sdk.api.bot.Bot;
                 import com.botmaker.sdk.api.bot.Watchdog;
+                import com.botmaker.sdk.api.interaction.Wait;
                 %s
                 /**
                  * Walks the Activity Flow drawn in BotMaker Studio. GENERATED — do not edit by hand; manage via
@@ -320,6 +321,14 @@ public final class ActivityService {
                      */
                     private static final int MAX_STEPS = %d;
 
+                    /**
+                     * How long to pause between two activities, in milliseconds. A flow may loop, so an
+                     * activity that finishes in milliseconds can hand straight back to itself and never let go
+                     * of the mouse — leaving no gap in which to stop the bot. This is that gap. 0 disables it.
+                     * Change it in Project &rarr; Activity Flow.
+                     */
+                    private static final int STEP_DELAY_MS = %d;
+
                     public static void run() {
                         String node = %s;
                         for (int steps = 0; node != null; steps++) {
@@ -330,6 +339,11 @@ public final class ActivityService {
                             }
                             node = step(node);
                             Watchdog.checkpoint();
+                            // After the hand-off, not before it: this separates two activities rather than
+                            // delaying the first, and a run that has just ended shouldn't sit here waiting.
+                            if (node != null && STEP_DELAY_MS > 0) {
+                                Wait.milliseconds(STEP_DELAY_MS);
+                            }
                         }
                         Bot.stop();
                     }
@@ -340,7 +354,7 @@ public final class ActivityService {
 
                     private FlowDriver() {}
                 }
-                """, config.packageName(), activitiesImport, flow.maxSteps(),
+                """, config.packageName(), activitiesImport, flow.maxSteps(), flow.stepDelayMs(),
                 start.isEmpty() ? "null" : '"' + start + '"',
                 cases.isEmpty() ? "        return null;\n" : "        switch (node) {\n" + cases
                         + "            default:\n                return null;\n        }\n");

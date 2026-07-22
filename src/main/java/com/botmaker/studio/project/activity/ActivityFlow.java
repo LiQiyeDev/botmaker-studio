@@ -1,6 +1,8 @@
 package com.botmaker.studio.project.activity;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -35,9 +37,12 @@ import java.util.Set;
  * @param start    the activity the run begins at; blank ⇒ fall back to the first placed activity
  * @param maxSteps how many node transitions one run may make before the generated driver gives up (see
  *                 {@link #DEFAULT_MAX_STEPS}); {@code <= 0} ⇒ the default
+ * @param stepDelayMs how long the driver pauses between two activities (see {@link #DEFAULT_STEP_DELAY_MS});
+ *                    {@code < 0} ⇒ the default, {@code 0} ⇒ no pause
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record ActivityFlow(List<FlowNode> nodes, List<FlowEdge> edges, String start, int maxSteps) {
+public record ActivityFlow(List<FlowNode> nodes, List<FlowEdge> edges, String start, int maxSteps,
+                           int stepDelayMs) {
 
     /**
      * The default budget of node transitions per run. A branching flow may legitimately cycle forever, so the
@@ -47,16 +52,50 @@ public record ActivityFlow(List<FlowNode> nodes, List<FlowEdge> edges, String st
      */
     public static final int DEFAULT_MAX_STEPS = 1000;
 
+    /**
+     * The default pause between two activities, in milliseconds. A flow is allowed to loop, so an activity
+     * that finishes in milliseconds can hand straight back to itself and leave the user with no gap in which
+     * to hit Stop — the bot holds the mouse and the UI never gets a turn. A second between activities is that
+     * gap. It is deliberately a floor on the <em>flow</em>, not on anything inside an activity: {@code Wait}
+     * calls a user writes are their own business, and {@link #DEFAULT_MAX_STEPS} still bounds the run.
+     */
+    public static final int DEFAULT_STEP_DELAY_MS = 1000;
+
     public ActivityFlow {
         nodes = nodes == null ? List.of() : List.copyOf(nodes);
         edges = edges == null ? List.of() : List.copyOf(edges);
         if (start == null) start = "";
         if (maxSteps <= 0) maxSteps = DEFAULT_MAX_STEPS;
+        // Only a negative value means "unset". 0 is a legitimate "no pause" the user can ask for, so unlike
+        // maxSteps it must survive the constructor — see the JSON creator below for how absent stays distinct.
+        if (stepDelayMs < 0) stepDelayMs = DEFAULT_STEP_DELAY_MS;
+    }
+
+    /**
+     * Deserialises {@code activities.json}. {@code stepDelayMs} is boxed for one reason: a file written before
+     * the field existed has no such key, and Jackson would bind a missing {@code int} to 0 — silently turning
+     * every pre-existing flow into a zero-delay one, which is exactly the runaway this field exists to
+     * prevent. Absent ({@code null}) means "take the default"; an explicit {@code 0} means the user asked for
+     * no pause, and the two must not be conflated.
+     */
+    @JsonCreator
+    static ActivityFlow fromJson(@JsonProperty("nodes") List<FlowNode> nodes,
+                                 @JsonProperty("edges") List<FlowEdge> edges,
+                                 @JsonProperty("start") String start,
+                                 @JsonProperty("maxSteps") int maxSteps,
+                                 @JsonProperty("stepDelayMs") Integer stepDelayMs) {
+        return new ActivityFlow(nodes, edges, start, maxSteps,
+                stepDelayMs == null ? DEFAULT_STEP_DELAY_MS : stepDelayMs);
     }
 
     /** A flow with no explicit start or budget — how every pre-branching {@code activities.json} loads. */
     public ActivityFlow(List<FlowNode> nodes, List<FlowEdge> edges) {
-        this(nodes, edges, "", DEFAULT_MAX_STEPS);
+        this(nodes, edges, "", DEFAULT_MAX_STEPS, DEFAULT_STEP_DELAY_MS);
+    }
+
+    /** Pre-{@code stepDelayMs} arity, kept so existing four-arg construction still reads naturally. */
+    public ActivityFlow(List<FlowNode> nodes, List<FlowEdge> edges, String start, int maxSteps) {
+        this(nodes, edges, start, maxSteps, DEFAULT_STEP_DELAY_MS);
     }
 
     public static ActivityFlow empty() {
@@ -74,11 +113,15 @@ public record ActivityFlow(List<FlowNode> nodes, List<FlowEdge> edges, String st
     }
 
     public ActivityFlow withStart(String newStart) {
-        return new ActivityFlow(nodes, edges, newStart, maxSteps);
+        return new ActivityFlow(nodes, edges, newStart, maxSteps, stepDelayMs);
     }
 
     public ActivityFlow withMaxSteps(int newMaxSteps) {
-        return new ActivityFlow(nodes, edges, start, newMaxSteps);
+        return new ActivityFlow(nodes, edges, start, newMaxSteps, stepDelayMs);
+    }
+
+    public ActivityFlow withStepDelayMs(int newStepDelayMs) {
+        return new ActivityFlow(nodes, edges, start, maxSteps, newStepDelayMs);
     }
 
     /**

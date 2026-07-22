@@ -75,6 +75,9 @@ public class ActivityFlowDialog {
     /** The generated driver's step budget; edited in the no-selection panel alongside the globals. */
     private int maxSteps = ActivityFlow.DEFAULT_MAX_STEPS;
 
+    /** The generated driver's pause between activities, in ms; edited beside {@link #maxSteps}. */
+    private int stepDelayMs = ActivityFlow.DEFAULT_STEP_DELAY_MS;
+
     /** Whether a newly added activity starts with its "go home first" tick on. */
     private boolean goHomeByDefault = true;
     private final Label orderLabel = new Label();
@@ -131,6 +134,7 @@ public class ActivityFlowDialog {
         canvas.edges().setAll(flow.edges());
         canvas.setStart(flow.start());
         maxSteps = flow.maxSteps();
+        stepDelayMs = flow.stepDelayMs();
         goHomeByDefault = current.goHomeByDefault();
         canvas.select(null);
         globals.addAll(current.globals());
@@ -450,11 +454,16 @@ public class ActivityFlowDialog {
     }
 
     /**
-     * The step budget: how many activities one run may hand off to before the generated driver gives up.
+     * The two loop-safety controls, both about a flow that legitimately cycles.
      *
-     * <p>A flow is allowed to loop — that is how a bot repeats — so nothing structural says when to stop. The
-     * budget is what separates "farms all night" from a cycle with no way out. It bounds transitions
-     * <em>between</em> activities; the SDK's watchdog covers being stuck inside one.
+     * <p>The <b>step budget</b> is how many activities one run may hand off to before the generated driver
+     * gives up: nothing structural says when a loop should stop, so this is what separates "farms all night"
+     * from a cycle with no way out. It bounds transitions <em>between</em> activities; the SDK's watchdog
+     * covers being stuck inside one.
+     *
+     * <p>The <b>pause between activities</b> is the other half: the budget eventually stops a runaway, but a
+     * fast activity looping back to itself gives the <em>user</em> no moment to intervene, because the bot is
+     * holding the mouse the whole time. A default second between activities is that moment.
      */
     private Node buildFlowLimitsSection() {
         VBox box = new VBox(6);
@@ -479,6 +488,26 @@ public class ActivityFlowDialog {
         HBox row = new HBox(8, new Label("Max steps per run"), field);
         row.setAlignment(Pos.CENTER_LEFT);
 
+        Label delayExplain = new Label("How long the bot pauses between two activities. A fast activity that "
+                + "loops back to itself otherwise never lets go of the mouse — this is your window to hit "
+                + "Stop. Set 0 for no pause.");
+        delayExplain.setWrapText(true);
+        delayExplain.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
+
+        TextField delayField = new TextField(String.valueOf(stepDelayMs));
+        delayField.setPrefColumnCount(6);
+        delayField.focusedProperty().addListener((o, was, is) -> {
+            if (is) return;
+            commitStepDelay(delayField);
+        });
+        delayField.setOnAction(e -> {
+            commitStepDelay(delayField);
+            e.consume();   // otherwise Enter reaches the default Save button and closes the dialog
+        });
+
+        HBox delayRow = new HBox(8, new Label("Pause between activities (ms)"), delayField);
+        delayRow.setAlignment(Pos.CENTER_LEFT);
+
         CheckBox goHome = new CheckBox("New activities go home first");
         goHome.setSelected(goHomeByDefault);
         goHome.setTooltip(new javafx.scene.control.Tooltip(
@@ -486,8 +515,22 @@ public class ActivityFlowDialog {
                         + "individually on its card."));
         goHome.selectedProperty().addListener((o, was, is) -> goHomeByDefault = is);
 
-        box.getChildren().addAll(explain, row, goHome);
+        box.getChildren().addAll(explain, row, delayExplain, delayRow, goHome);
         return box;
+    }
+
+    private void commitStepDelay(TextField field) {
+        try {
+            int parsed = Integer.parseInt(field.getText().trim());
+            // 0 is allowed here, unlike the step budget: "run flat out" is a real choice, it just forfeits the
+            // gap that lets you stop a runaway loop.
+            if (parsed < 0) throw new NumberFormatException();
+            stepDelayMs = parsed;
+            error("");
+        } catch (NumberFormatException bad) {
+            error("The pause must be a whole number of milliseconds, 0 or more.");
+            field.setText(String.valueOf(stepDelayMs));
+        }
     }
 
     private void commitMaxSteps(TextField field) {
@@ -704,7 +747,7 @@ public class ActivityFlowDialog {
         // lets their surviving activities/<Name>.java still compile. They get no flow node: they don't run.
         activities.addAll(archived);
         ActivitiesConfig cfg = new ActivitiesConfig(activities, new ArrayList<>(globals),
-                new ActivityFlow(nodes, new ArrayList<>(canvas.edges()), canvas.start(), maxSteps),
+                new ActivityFlow(nodes, new ArrayList<>(canvas.edges()), canvas.start(), maxSteps, stepDelayMs),
                 new ArrayList<>(presets), goHomeByDefault);
 
         String problem = validate(cfg);

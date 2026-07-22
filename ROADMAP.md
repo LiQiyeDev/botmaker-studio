@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-23 — A pause between activities, so a looping flow can be stopped.** A flow may cycle on purpose,
+  but an activity that finishes in milliseconds and wires back to itself never lets go of the mouse — the
+  step budget eventually stops the run, yet the *user* got no moment to intervene. `ActivityFlow` gains
+  `stepDelayMs` (default 1000, `0` = no pause), edited beside Max steps in Activity Flow ▸ Loop safety, and
+  the generated `FlowDriver` waits after each hand-off (`ActivityFlow`, `ActivityFlowDialog`,
+  `ActivityService`). Absent-vs-zero matters, so deserialization goes through a `@JsonCreator` with a boxed
+  `Integer` — a missing key would otherwise bind to 0 and silently turn every existing flow zero-delay.
+- **2026-07-23 — `Pixel.find` blocks compile again; the colour swatch stops lying.** The default for an object
+  argument was a bare `new Color()` — uncompilable twice over (nothing imports it; `java.awt.Color` has no
+  no-arg constructor), which is the recurring `cannot find symbol: class Color`. Worse, `ColorArgPicker` reads
+  RGB back only from a `new Color(r, g, b)` literal, so its swatch fell back to the JavaFX default (white)
+  while the code said otherwise. `Color` slots are now seeded `new java.awt.Color(255, 255, 255)`, fully
+  qualified so no import is needed (`InitializerFactory`, pinned by `ColorArgumentSeedTest`).
 - **2026-07-22 — The toolbar stops collapsing over the menu bar.** A regression from the min-size clamps added
   with the centered toolbar: `topBar`/`toolbarColumn` had `setMinHeight(0)`, and the root `VBox`'s shrink pass
   treats *every* child as a candidate regardless of `Vgrow`, so on any real bot (the canvas `ScrollPane`'s
@@ -1419,6 +1432,11 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 - [ ] **A5 — Refresh CLAUDE.md.** It still references the removed `BlockFactory` / `BlockParser` and the old
   `AddableBlock`; document `BlockType` / `BlockCatalog` and the event-driven drag-and-drop.
+- [ ] **A6 — Don't seed `new T()` for a type with no no-arg constructor.** `InitializerFactory`'s object
+  branch assumes one exists; `java.awt.Color` is now special-cased but any other such type still generates
+  uncompilable code. A general guard needs constructor knowledge — `ProjectAnalyzer.getConstructors` has it,
+  but `createDefaultInitializer` isn't given an analyzer, so this is a signature change across its callers.
+  Fall back to `null` when no no-arg constructor is visible.
 
 ## Overlay Editor backlog
 

@@ -64,6 +64,11 @@ class FlowDriverGenerationTest {
             public final class Watchdog {
                 public static void checkpoint() {}
             }
+            """, """
+            package com.botmaker.sdk.api.interaction;
+            public final class Wait {
+                public static void milliseconds(int milliseconds) {}
+            }
             """);
 
     private static FlowNode at(String activity) {
