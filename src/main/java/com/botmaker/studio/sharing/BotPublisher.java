@@ -53,19 +53,11 @@ public final class BotPublisher {
         }
         String repoApi = api + "/repos/" + login + "/" + repoName;
 
-        // 1. Ensure the repo exists (auto_init gives us a base branch/commit to build on).
-        JsonNode repo = client.get(repoApi, token).join();
-        String repoUrl;
-        String branch;
-        if (repo == null) {
-            JsonNode created = client.post(api + "/user/repos", mapOf(
-                    "name", repoName, "description", description, "private", false, "auto_init", true), token).join();
-            repoUrl = created.path("html_url").asText("https://github.com/" + login + "/" + repoName);
-            branch = created.path("default_branch").asText("main");
-        } else {
-            repoUrl = repo.path("html_url").asText("https://github.com/" + login + "/" + repoName);
-            branch = repo.path("default_branch").asText("main");
-        }
+        // 1. Ensure the repo exists (auto_init gives us a base branch/commit to build on). Public: a published
+        //    bot is meant to be installable, and the gallery listing is the separate opt-in below.
+        JsonNode repo = client.ensureRepo(login, repoName, description, false, true, token);
+        String repoUrl = repo.path("html_url").asText("https://github.com/" + login + "/" + repoName);
+        String branch = repo.path("default_branch").asText("main");
 
         // 2. Base commit sha (may be absent for a truly empty repo).
         String refUrl = repoApi + "/git/refs/heads/" + branch;

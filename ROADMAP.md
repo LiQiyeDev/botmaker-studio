@@ -6,6 +6,16 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-22 — VCS can push without publishing.** `project/vcs/ProjectVcs` gains a remote:
+  `remoteUrl()` / `setRemote(url)` / `push(token)` (JGit, non-forcing, current branch + tags; a
+  non-fast-forward is reported as "the remote has commits this project doesn't" rather than clobbered). A
+  **Push** button in `ui/app/VcsPanel` signs in if needed (the shared `GitHubAccountBar` popup), and on the
+  first push offers to create a **private** repo and set it as `origin` — no release, no gallery entry, no
+  provenance. Repo creation moved into `GitHubClient.ensureRepo(...)`, now shared with `BotPublisher`
+  (public + `auto_init` for publish; private + no `auto_init` for backup, since an auto-created initial commit
+  would make the first push a non-fast-forward). `GitHubConfig.SCOPE` `public_repo` → `repo` (private repos
+  need it); tokens predating the change get a "sign out and back in" message instead of a raw 403/404. This
+  reverses the earlier "deliberately no Push button" decision recorded in the 2026-06 VCS entry.
 - **2026-07-22 — Google sign-in stops pretending.** The identity cluster's round **G** button is now disabled
   with "Google sign-in isn't available yet — reserved for future Tailscale/Drive features." as its tooltip
   (installed on a wrapper, since a disabled JavaFX control gets no mouse events); the alert that only
@@ -68,9 +78,8 @@ whenever work lands here (see CLAUDE.md → Roadmap).
   **VCS** bottom tab beside Terminal and by the (now thin) `VcsDialog`. New `ProjectVcs.status()` buckets JGit's
   status; `diff()` (JGit `DiffFormatter`) and `discard()` back the diff view and per-file discard. A **⑂ VCS**
   toolbar button plus two round account buttons (GitHub — reuses `GitHubAccountBar`'s device flow in a popup;
-  Google — an honest stub) sit far-right, BotMaker-wide. *Deliberate deviation:* no "Push" button — a BotMaker
-  project has no git remote (sharing is the GitHub Data API), so a push would have nowhere to go; offering one
-  would be the "looks like it works, silently doesn't" trap the codebase already rejects for read-only edits.
+  Google — an honest stub) sit far-right, BotMaker-wide. *Deliberate deviation (since reversed — see the
+  2026-07-22 Push entry): no "Push" button, on the grounds that a BotMaker project has no git remote.*
   (3) **Reader/Editor mode** via `LockResolver`, the one authority on "may this change": a new `readerMode`
   input makes every verdict a denial that outranks `FileRole`/`MethodLock`. Mode is derived, local-only
   (`project/ProjectMode`): installed bots (have `BotSource` provenance) open read-only until "Switch to Editor

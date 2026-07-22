@@ -9,8 +9,13 @@ import org.eclipse.jgit.lib.ObjectReader;
 import org.eclipse.jgit.lib.PersonIdent;
 import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.lib.Repository;
+import org.eclipse.jgit.lib.StoredConfig;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
+import org.eclipse.jgit.transport.PushResult;
+import org.eclipse.jgit.transport.RefSpec;
+import org.eclipse.jgit.transport.RemoteRefUpdate;
+import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
 import org.eclipse.jgit.treewalk.FileTreeIterator;
 
@@ -28,7 +33,10 @@ import java.util.TreeSet;
 
 /**
  * Local, single-branch git history for one user project, backed by JGit (no system git binary). Provides
- * commit / tag / rollback over a plain {@code .git} inside the project directory. <strong>Linear only</strong>
+ * commit / tag / rollback over a plain {@code .git} inside the project directory, plus an optional
+ * {@code origin} remote for a plain backup push ({@link #remoteUrl()} / {@link #setRemote} / {@link #push}) —
+ * pushing is <em>not</em> publishing: it copies the history to a (private) GitHub repo and touches neither the
+ * gallery nor a release. <strong>Linear only</strong>
  * — there are no branches; rollback rewinds the working tree to an earlier commit's content as a new commit on
  * top of the current tip, so nothing is ever lost.
  *
@@ -274,6 +282,85 @@ public final class ProjectVcs {
             throw e;
         } catch (Exception e) {
             throw new IOException("Rollback failed: " + e.getMessage(), e);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Remote (backup push — not publishing)
+    // -------------------------------------------------------------------------
+
+    /** The remote this project pushes to. Only one is ever configured, so it needs no name in the API. */
+    private static final String ORIGIN = "origin";
+
+    /** The configured {@code origin} URL, or {@code null} when the project has no remote (the default). */
+    public String remoteUrl() {
+        if (!isRepo()) return null;
+        try (Git git = open()) {
+            String url = git.getRepository().getConfig().getString("remote", ORIGIN, "url");
+            return url == null || url.isBlank() ? null : url;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Points {@code origin} at {@code url} ({@code git remote add}/{@code set-url} in one call). */
+    public void setRemote(String url) throws IOException {
+        if (url == null || url.isBlank()) throw new IOException("Remote URL must not be empty.");
+        ensureInitialized();
+        try (Git git = open()) {
+            StoredConfig config = git.getRepository().getConfig();
+            config.setString("remote", ORIGIN, "url", url.trim());
+            config.setString("remote", ORIGIN, "fetch", "+refs/heads/*:refs/remotes/" + ORIGIN + "/*");
+            config.save();
+        } catch (Exception e) {
+            throw new IOException("Could not set the remote: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Pushes the current branch and its tags to {@code origin}, authenticating with a GitHub token (used as
+     * the HTTPS username, which is how GitHub accepts a PAT/OAuth token). Returns the branch that was pushed.
+     *
+     * <p>This is a <em>backup</em> push, deliberately non-forcing: a remote that has commits the project
+     * doesn't is reported as such rather than being overwritten — that state means someone published or edited
+     * on GitHub, and silently clobbering it is exactly what a backup must not do.
+     */
+    public String push(String token) throws IOException {
+        if (token == null || token.isBlank()) throw new IOException("Not signed in to GitHub.");
+        if (!isRepo()) throw new IOException("Nothing to push — this project has no history yet.");
+        if (remoteUrl() == null) throw new IOException("This project has no 'origin' remote yet.");
+        try (Git git = open()) {
+            String branch = git.getRepository().getBranch();
+            Iterable<PushResult> results = git.push()
+                    .setRemote(ORIGIN)
+                    .setRefSpecs(new RefSpec("refs/heads/" + branch + ":refs/heads/" + branch))
+                    .setPushTags()
+                    .setForce(false)
+                    .setCredentialsProvider(new UsernamePasswordCredentialsProvider(token, ""))
+                    .call();
+            for (PushResult result : results) {
+                for (RemoteRefUpdate update : result.getRemoteUpdates()) {
+                    checkUpdate(update);
+                }
+            }
+            return branch;
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IOException("Push failed: " + e.getMessage(), e);
+        }
+    }
+
+    /** Turns one ref's push outcome into a readable failure; a successful/no-op update passes silently. */
+    private static void checkUpdate(RemoteRefUpdate update) throws IOException {
+        switch (update.getStatus()) {
+            case OK, UP_TO_DATE -> { /* pushed, or already there */ }
+            case REJECTED_NONFASTFORWARD -> throw new IOException(
+                    "The remote has commits this project doesn't — pull or publish instead of pushing.");
+            case REJECTED_OTHER_REASON -> throw new IOException("Push rejected: "
+                    + (update.getMessage() == null ? "the remote refused the update." : update.getMessage()));
+            default -> throw new IOException("Push failed (" + update.getStatus() + ")"
+                    + (update.getMessage() == null ? "." : ": " + update.getMessage()));
         }
     }
 

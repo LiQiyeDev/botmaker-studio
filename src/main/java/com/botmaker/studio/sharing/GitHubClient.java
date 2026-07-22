@@ -71,6 +71,28 @@ public final class GitHubClient {
                 });
     }
 
+    /**
+     * The repo {@code login/name}, creating it if it doesn't exist yet — the one place that talks to
+     * {@code POST /user/repos}, shared by publishing (public, {@code auto_init} so there's a base commit to
+     * build a tree on) and the VCS Push button (private, <em>no</em> {@code auto_init}: an auto-created initial
+     * commit would make the very first push a non-fast-forward). Blocking; the returned node is GitHub's repo
+     * object either way, so {@code html_url} / {@code clone_url} / {@code default_branch} are always readable.
+     *
+     * @throws RuntimeException wrapping GitHub's response on a failed creation — notably a 403/404 when the
+     *                          token's scope doesn't cover the requested visibility.
+     */
+    public JsonNode ensureRepo(String login, String name, String description, boolean isPrivate,
+                               boolean autoInit, String token) {
+        JsonNode existing = get(GitHubConfig.API_BASE + "/repos/" + login + "/" + name, token).join();
+        if (existing != null) return existing;
+        java.util.Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("name", name);
+        body.put("description", description == null ? "" : description);
+        body.put("private", isPrivate);
+        body.put("auto_init", autoInit);
+        return post(GitHubConfig.API_BASE + "/user/repos", body, token).join();
+    }
+
     public CompletableFuture<JsonNode> post(String url, Object body, String token) {
         return send("POST", url, body, token);
     }

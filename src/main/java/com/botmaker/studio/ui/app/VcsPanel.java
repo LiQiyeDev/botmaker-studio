@@ -8,6 +8,7 @@ import com.botmaker.studio.sharing.BotSource;
 import com.botmaker.studio.sharing.GitHubAuth;
 import com.botmaker.studio.sharing.GitHubClient;
 import com.botmaker.studio.util.BrowserLauncher;
+import com.fasterxml.jackson.databind.JsonNode;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -55,8 +56,14 @@ import java.util.concurrent.CompletableFuture;
  * {@link CoreApplicationEvents.ProjectReloadRequestedEvent} — the in-memory ASTs are stale afterwards.
  *
  * <p>Extracted from {@code VcsDialog} so the bottom "VCS" tab and the standalone dialog host one implementation.
- * All git work runs off the FX thread. There is deliberately no "Push" button: a BotMaker project has no git
- * remote — sharing goes through the GitHub Data API (Publish / Propose), so a raw push would have nowhere to go.
+ * All git work runs off the FX thread.
+ *
+ * <p><b>Push is backup, not publishing.</b> This class once documented a deliberate absence of a Push button on
+ * the grounds that a BotMaker project has no remote; it now creates one on demand — the first Push offers to
+ * make a <em>private</em> repo and set it as {@code origin}, later pushes just go. That is the whole feature:
+ * no release, no gallery entry, no provenance file. Publish / Propose still go through the GitHub Data API and
+ * are unaffected — a project whose {@code origin} Push created is exactly the state Publish would have made
+ * itself.
  */
 public final class VcsPanel {
 
@@ -128,11 +135,18 @@ public final class VcsPanel {
         commit.setMaxWidth(Double.MAX_VALUE);
         commit.setOnAction(e -> doCommit());
 
+        Button push = new Button("Push");
+        push.setMaxWidth(Double.MAX_VALUE);
+        push.setTooltip(new javafx.scene.control.Tooltip(
+                "Back this project's history up to a private GitHub repo. Not the same as Publish — nothing "
+                        + "is released or listed."));
+        push.setOnAction(e -> doPush());
+
         Button publish = new Button("Publish…");
         publish.setMaxWidth(Double.MAX_VALUE);
         publish.setOnAction(e -> { if (openPublish != null) openPublish.run(); });
 
-        VBox buttons = new VBox(6, commit, publish);
+        VBox buttons = new VBox(6, commit, push, publish);
 
         // Community bots (provenance present) get the propose / sync-from-upstream pair instead of a bare push.
         if (origin.isPresent()) {
@@ -364,6 +378,102 @@ public final class VcsPanel {
             status((isNew ? "Deleted " : "Discarded changes to ") + file.path() + ".");
             requestReload();
         });
+    }
+
+    /**
+     * Backs the project's history up to GitHub. First push creates a <b>private</b> repo (after confirming) and
+     * sets it as {@code origin}; later pushes go straight through. Deliberately separate from Publish: this
+     * creates no release, no gallery entry and no provenance file — it is the "keep a copy off my machine"
+     * button, which is why it doesn't reuse the publish flow's Data-API tree upload.
+     */
+    private void doPush() {
+        if (!auth.isAuthenticated()) {
+            status("Sign in to GitHub to push — opening the sign-in…");
+            showGitHubSignIn();
+            return;
+        }
+        String existingRemote = new ProjectVcs(projectDir).remoteUrl();
+        String repoName = backupRepoName();
+        if (existingRemote == null && !confirmRepoCreation(repoName)) return;
+
+        run(() -> {
+            ProjectVcs vcs = vcs();
+            vcs.ensureInitialized();
+            String token = auth.token();
+            String remote = vcs.remoteUrl();
+            String webUrl = null;
+            if (remote == null) {
+                String login = auth.login(client).join();
+                if (login == null || login.isBlank()) throw new java.io.IOException("Could not read your GitHub account.");
+                JsonNode repo = createBackupRepo(login, repoName, token);
+                webUrl = repo.path("html_url").asText("https://github.com/" + login + "/" + repoName);
+                vcs.setRemote(repo.path("clone_url").asText(webUrl + ".git"));
+            }
+            String branch = vcs.push(token);
+            return webUrl == null
+                    ? "Pushed " + branch + " to " + shortRemote(vcs.remoteUrl()) + "."
+                    : "Pushed to your new private repo: " + webUrl;
+        }, this::status);
+    }
+
+    /**
+     * The project name as a GitHub repo name: anything outside {@code [A-Za-z0-9._-]} becomes a dash, which is
+     * what GitHub itself does to a name it accepts. Unlike the Publish dialog the user isn't asked to pick one —
+     * a backup repo's name is an implementation detail, not a published identity.
+     */
+    private String backupRepoName() {
+        String cleaned = projectName == null ? "" : projectName.trim().replaceAll("[^A-Za-z0-9._-]+", "-");
+        cleaned = cleaned.replaceAll("^-+|-+$", "");
+        return cleaned.isBlank() ? "botmaker-project" : cleaned;
+    }
+
+    /** Creates the private backup repo, translating a scope-related refusal into an actionable message. */
+    private JsonNode createBackupRepo(String login, String repoName, String token) throws java.io.IOException {
+        try {
+            return client.ensureRepo(login, repoName,
+                    "BotMaker project backup — pushed from BotMaker Studio.", true, false, token);
+        } catch (Exception ex) {
+            String message = rootMessage(ex);
+            if (message.contains("HTTP 403") || message.contains("HTTP 404")) {
+                throw new java.io.IOException("GitHub refused to create a private repo. Your sign-in probably "
+                        + "predates private-repo support — sign out and back in from the GitHub button, then "
+                        + "try again.");
+            }
+            throw new java.io.IOException("Could not create the backup repo: " + message);
+        }
+    }
+
+    private boolean confirmRepoCreation(String repoName) {
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
+                "This project has no GitHub remote yet.\n\nCreate a private repository “" + repoName
+                        + "” on your account and push the project's history to it?\n\n"
+                        + "Private means only you can see it. This is a backup, not a publish — no release is "
+                        + "created and the bot is not listed anywhere.",
+                ButtonType.OK, ButtonType.CANCEL);
+        confirm.initOwner(owner);
+        confirm.setHeaderText("Create a private backup repo?");
+        return confirm.showAndWait().filter(b -> b == ButtonType.OK).isPresent();
+    }
+
+    /** Opens the shared GitHub device-flow bar in a popup, so Push can recover from "not signed in" in place. */
+    private void showGitHubSignIn() {
+        javafx.stage.Stage popup = new javafx.stage.Stage();
+        if (owner != null) popup.initOwner(owner);
+        popup.setTitle("GitHub account");
+        GitHubAccountBar bar = new GitHubAccountBar(popup, auth, client,
+                () -> status(auth.isAuthenticated() ? "Signed in — press Push again." : "Not signed in."));
+        VBox box = new VBox(bar);
+        box.setPadding(new Insets(14));
+        popup.setScene(new javafx.scene.Scene(box));
+        popup.show();
+    }
+
+    /** {@code owner/repo} out of a clone URL, for a status line that isn't a wall of URL. */
+    private static String shortRemote(String url) {
+        if (url == null) return "origin";
+        String trimmed = url.endsWith(".git") ? url.substring(0, url.length() - 4) : url;
+        int slash = trimmed.lastIndexOf('/', trimmed.lastIndexOf('/') - 1);
+        return slash >= 0 ? trimmed.substring(slash + 1) : trimmed;
     }
 
     private void doPropose() {

@@ -38,7 +38,13 @@ public final class GitHubConfig {
     public static final String API_BASE = "https://api.github.com";
     public static final String DEVICE_CODE_URL = "https://github.com/login/device/code";
     public static final String ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token";
-    public static final String SCOPE = "public_repo";
+    /**
+     * Full {@code repo} rather than {@code public_repo}: the VCS panel's Push button creates and pushes to a
+     * <em>private</em> backup repo, which {@code public_repo} cannot do. Tokens issued before this change keep
+     * their narrower scope, so the private-repo calls translate the resulting 403/404 into a "sign out and back
+     * in" hint rather than a raw API error.
+     */
+    public static final String SCOPE = "repo";
 
     /** Raw (CDN) URL of the curated catalog — no API rate limit, no auth. */
     public static String indexRawUrl() {
