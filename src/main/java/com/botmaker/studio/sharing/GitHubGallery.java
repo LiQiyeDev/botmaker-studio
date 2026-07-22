@@ -11,13 +11,25 @@ import java.util.concurrent.CompletableFuture;
  * <p>The catalog is the curated {@code index.json} fetched from the index repo's raw CDN URL — a single
  * request with no API rate limit. Per-bot version / update information is fetched live from each author's
  * own repo via the Releases API, so the index only ever needs one entry per bot.
+ *
+ * <p>Those per-bot calls are sent <em>with</em> the signed-in token when there is one. Anonymously they are
+ * capped at 60 requests/hour across the whole process, and browse costs one call per listed bot — so an
+ * unauthenticated gallery would silently read back as "no release, ★ 0" for every entry past the cap. The
+ * token also makes the user's own not-yet-public repos readable.
  */
 public final class GitHubGallery {
 
     private final GitHubClient client;
+    private final GitHubAuth auth;
 
-    public GitHubGallery(GitHubClient client) {
+    public GitHubGallery(GitHubClient client, GitHubAuth auth) {
         this.client = client;
+        this.auth = auth;
+    }
+
+    /** The signed-in token, or {@code null} when browsing anonymously. */
+    String token() {
+        return (auth != null && auth.isAuthenticated()) ? auth.token() : null;
     }
 
     /** Fetches the full curated catalog (empty if the index repo is unset/unreachable or malformed). */
@@ -42,26 +54,31 @@ public final class GitHubGallery {
      */
     public CompletableFuture<String> latestReleaseTag(String owner, String repo) {
         String url = GitHubConfig.API_BASE + "/repos/" + owner + "/" + repo + "/releases/latest";
-        return client.get(url, null).thenApply(node -> {
+        return client.get(url, token()).thenApply(node -> {
             if (node == null) return "";
             JsonNode tag = node.get("tag_name");
             return tag == null ? "" : tag.asText("");
         });
     }
 
-    /** Live per-repo signals used for gallery sorting/badges: star count and last-push time (epoch seconds). */
+    /**
+     * Live per-repo signals used for gallery sorting/badges: star count and last-push time (epoch seconds).
+     * {@link #UNKNOWN} is the <em>display</em> placeholder for "not fetched yet" only — a failed fetch
+     * resolves to {@code null}, so callers can tell "we don't know" from "genuinely zero stars" and never
+     * overwrite a count they already have.
+     */
     public record RepoMeta(int stars, long pushedAt) {
         public static final RepoMeta UNKNOWN = new RepoMeta(0, 0);
     }
 
     /**
      * Fetches {@code owner/repo}'s live star count and last-push time from the repo object (the star count is
-     * GitHub's own, so github.com stars count too). {@link RepoMeta#UNKNOWN} when the repo is unreachable.
+     * GitHub's own, so github.com stars count too). {@code null} when the repo is unreachable.
      */
     public CompletableFuture<RepoMeta> repoMeta(String owner, String repo) {
         String url = GitHubConfig.API_BASE + "/repos/" + owner + "/" + repo;
-        return client.get(url, null).thenApply(node -> {
-            if (node == null) return RepoMeta.UNKNOWN;
+        return client.get(url, token()).thenApply(node -> {
+            if (node == null) return null;
             int stars = node.path("stargazers_count").asInt(0);
             long pushed = parseInstant(node.path("pushed_at").asText(null));
             return new RepoMeta(stars, pushed);

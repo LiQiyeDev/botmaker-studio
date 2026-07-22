@@ -579,7 +579,7 @@ public class ProjectSelectionScreen {
                                  com.botmaker.studio.project.ProjectTemplate template) {}
 
     private void showGallery() {
-        GitHubGallery gallery = new GitHubGallery(gitHubClient);
+        GitHubGallery gallery = new GitHubGallery(gitHubClient, gitHubAuth);
         BotInstaller installer = new BotInstaller(gitHubClient, gallery);
         GalleryDialog dialog = new GalleryDialog(stage, gallery, installer, gitHubAuth, gitHubClient);
         // Installs land new projects in PROJECTS_ROOT; reflect them when the gallery closes.

@@ -56,6 +56,21 @@ public final class BotPublisher {
         // 1. Ensure the repo exists (auto_init gives us a base branch/commit to build on). Public: a published
         //    bot is meant to be installable, and the gallery listing is the separate opt-in below.
         JsonNode repo = client.ensureRepo(login, repoName, description, false, true, token);
+
+        // 1b. ensureRepo returns an *existing* repo as-is, and the VCS Push button creates that repo private.
+        //     Publishing into it would then cut a release nobody but the author can see — the gallery reads it
+        //     back as "no release yet" and the install fails. A publish is a request to be installable, so
+        //     widen the visibility here (never the reverse: a public repo is left alone).
+        if (repo.path("private").asBoolean(false)) {
+            try {
+                repo = client.patch(repoApi, mapOf("private", false), token).join();
+            } catch (Exception e) {
+                throw new IOException("Couldn't make " + login + "/" + repoName + " public, so the published "
+                        + "release wouldn't be installable (" + rootMessage(e) + "). Change its visibility on "
+                        + "github.com, or sign out and back in to refresh the token's permissions.", e);
+            }
+        }
+
         String repoUrl = repo.path("html_url").asText("https://github.com/" + login + "/" + repoName);
         String branch = repo.path("default_branch").asText("main");
 

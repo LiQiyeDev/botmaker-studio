@@ -24,6 +24,9 @@ public final class GitHubClient {
     public GitHubClient() {
         this.http = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(8))
+                // The release-archive endpoint (/repos/…/zipball/…) answers 302 to a signed codeload URL;
+                // without this every download would fail on the redirect instead of following it.
+                .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
     }
 
@@ -59,9 +62,12 @@ public final class GitHubClient {
                 });
     }
 
-    /** Download raw bytes (e.g. a codeload zip), or fail the future on a non-200. */
-    public CompletableFuture<byte[]> getBytes(String url) {
-        HttpRequest req = baseRequest(url).GET().build();
+    /**
+     * Download raw bytes (e.g. a release zip), or fail the future on a non-200. {@code token} may be null for
+     * a public repo; it is required for a private one (and lifts the 60-req/hour anonymous rate limit).
+     */
+    public CompletableFuture<byte[]> getBytes(String url, String token) {
+        HttpRequest req = authed(baseRequest(url), token).GET().build();
         return http.sendAsync(req, HttpResponse.BodyHandlers.ofByteArray())
                 .thenApply(resp -> {
                     if (resp.statusCode() != 200) {

@@ -52,9 +52,14 @@ public final class GitHubConfig {
                 + INDEX_OWNER + "/" + INDEX_REPO + "/" + INDEX_BRANCH + "/" + INDEX_PATH;
     }
 
-    /** {@code https://codeload.github.com/{owner}/{repo}/zip/refs/tags/{tag}} (public, unauthenticated). */
+    /**
+     * Release-archive endpoint for a tag. Deliberately the API's {@code zipball} rather than a direct
+     * {@code codeload.github.com} URL: the API form honours an {@code Authorization} header (so a private or
+     * rate-limited repo still installs) and answers a 302 to a signed codeload URL that needs no auth of its
+     * own — the client follows it.
+     */
     public static String archiveUrl(String owner, String repo, String tag) {
-        return "https://codeload.github.com/" + owner + "/" + repo + "/zip/refs/tags/" + tag;
+        return API_BASE + "/repos/" + owner + "/" + repo + "/zipball/refs/tags/" + tag;
     }
 
     /** REST endpoint for creating an issue on the umbrella repo (used with an authenticated token). */

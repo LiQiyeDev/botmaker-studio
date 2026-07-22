@@ -154,6 +154,7 @@ public class GalleryDialog {
             for (GalleryEntry e : allEntries) {
                 String slug = slug(e);
                 gallery.repoMeta(e.owner(), e.repo()).thenAccept(meta -> Platform.runLater(() -> {
+                    if (meta == null) return;   // unreachable — keep whatever count we already show
                     metaBySlug.put(slug, meta);
                     applyFilter();     // re-sort as counts arrive
                 }));
@@ -271,7 +272,9 @@ public class GalleryDialog {
                 .supplyAsync(() -> {
                     String tag = gallery.latestReleaseTag(entry.owner(), entry.repo()).join();
                     if (tag.isBlank()) {
-                        throw new RuntimeException("This bot has no published release yet.");
+                        throw new RuntimeException("No release was found for " + entry.owner() + "/"
+                                + entry.repo() + ". Either its author hasn't published one yet, or the repo "
+                                + "isn't public — signing in to GitHub lets the gallery read your own.");
                     }
                     try {
                         return installer.install(entry, tag).getFileName().toString();

@@ -6,6 +6,17 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-22 — Gallery: installs find the release, stars stop falling back to 0.** One root cause, two
+  symptoms. `GitHubClient.ensureRepo` returns an *existing* repo untouched, and the VCS Push button creates
+  that repo **private** — so publishing afterwards cut a release into a private repo. `BotPublisher.publish`
+  now PATCHes it public (never the reverse) with a clear error if the token's scope refuses. Both read paths
+  passed `null` for the token: `GitHubGallery` now takes `GitHubAuth` and sends the signed-in token on
+  `latestReleaseTag`/`repoMeta`/the archive download — which also lifts the anonymous 60-req/hour cap that
+  silently zeroed a whole browse page (one API call per listed bot). `repoMeta` resolves to `null` rather than
+  `RepoMeta.UNKNOWN` on failure so `GalleryDialog.refreshBrowse` can't clobber a known star count with 0.
+  `GitHubConfig.archiveUrl` is now the API `zipball` endpoint (honours auth, 302s to a signed codeload URL) and
+  `GitHubClient` follows redirects.
+
 - **2026-07-22 — Toolbar: centered, one row, and it stops resizing the window.** The outer wrapping `FlowPane`
   in `UIManager.createScene()` is now a `BorderPane` (left = edit group, center = project actions, right = run
   + identity): a FlowPane packs all three units from the leading edge and cannot centre its middle child,

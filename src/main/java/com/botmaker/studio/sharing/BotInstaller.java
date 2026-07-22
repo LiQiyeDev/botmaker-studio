@@ -95,7 +95,7 @@ public final class BotInstaller {
     private void downloadInto(String owner, String repo, String tag, Path dest) throws IOException {
         byte[] zip;
         try {
-            zip = client.getBytes(GitHubConfig.archiveUrl(owner, repo, tag)).join();
+            zip = client.getBytes(GitHubConfig.archiveUrl(owner, repo, tag), gallery.token()).join();
         } catch (Exception e) {
             throw new IOException("Failed to download " + owner + "/" + repo + "@" + tag + ": "
                     + rootMessage(e), e);

@@ -171,8 +171,8 @@ public class UIManager {
         this.toolbarManager.setOnOverlayEditor(this::openOverlayEditor);
         this.toolbarManager.setOnAccessResources(this::openResourceManager);
         this.gitHubClient = new GitHubClient();
-        this.gallery = new GitHubGallery(gitHubClient);
         this.gitHubAuth = new GitHubAuth();
+        this.gallery = new GitHubGallery(gitHubClient, gitHubAuth);
         this.botInstaller = new BotInstaller(gitHubClient, gallery);
         this.botPublisher = new BotPublisher(gitHubClient, gitHubAuth);
         this.menuBarManager.setOnBrowseGallery(() ->
