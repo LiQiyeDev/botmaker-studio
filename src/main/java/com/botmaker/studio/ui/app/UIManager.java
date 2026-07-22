@@ -1074,19 +1074,34 @@ public class UIManager {
         gitHub.setOnAction(e -> showGitHubAccountPopup(gitHub));
         refreshGitHubButton(gitHub);
 
-        Button google = roundButton("G", "#4285F4", "Google account (coming soon)");
-        google.setOnAction(e -> new Alert(Alert.AlertType.INFORMATION,
-                "Google sign-in isn't available yet — it's reserved for future Tailscale/Drive features.",
-                ButtonType.OK).showAndWait());
-
-        HBox cluster = new HBox(6, vcsButton, gitHub, google);
+        HBox cluster = new HBox(6, vcsButton, gitHub, googleButton());
         cluster.setAlignment(Pos.CENTER_RIGHT);
         return cluster;
     }
 
+    /**
+     * The round Google button — <em>disabled</em>, with the reason as its tooltip. It used to be clickable and
+     * its only action was an alert apologising that the feature doesn't exist; a greyed control with a reason
+     * reads as "not yet", a clickable one that only apologises reads as broken. The sign-in plumbing behind it
+     * ({@code sharing/GoogleAuth}, {@link GoogleAccountBar}) is finished and correct — it just has no client id
+     * and no backend yet (see {@code sharing/GoogleConfig}).
+     *
+     * <p>Returned wrapped in a container because a disabled JavaFX control receives no mouse events, so a
+     * tooltip installed on the button itself would never show; it goes on the (enabled) wrapper instead.
+     */
+    private Node googleButton() {
+        Button google = roundButton("G", "#4285F4", null);
+        google.setDisable(true);
+        HBox holder = new HBox(google);
+        Tooltip.install(holder, new Tooltip(
+                "Google sign-in isn't available yet — reserved for future Tailscale/Drive features."));
+        return holder;
+    }
+
+    /** A 28px round icon button. A null {@code tooltip} installs none (see {@link #googleButton()}). */
     private Button roundButton(String glyph, String bg, String tooltip) {
         Button b = new Button(glyph);
-        b.setTooltip(new Tooltip(tooltip));
+        if (tooltip != null) b.setTooltip(new Tooltip(tooltip));
         b.setStyle("-fx-background-radius: 14; -fx-min-width: 28; -fx-min-height: 28; "
                 + "-fx-max-width: 28; -fx-max-height: 28; -fx-padding: 0; -fx-font-size: 10px; "
                 + "-fx-font-weight: bold; -fx-text-fill: white; -fx-background-color: " + bg + ";");

@@ -6,6 +6,13 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-22 — Google sign-in stops pretending.** The identity cluster's round **G** button is now disabled
+  with "Google sign-in isn't available yet — reserved for future Tailscale/Drive features." as its tooltip
+  (installed on a wrapper, since a disabled JavaFX control gets no mouse events); the alert that only
+  apologised is gone. `ProjectSelectionScreen` no longer builds a `GoogleAccountBar` — with a blank
+  `GoogleConfig.OAUTH_CLIENT_ID` it could only render itself invisible. The device-flow plumbing
+  (`sharing/GoogleAuth`, `ui/app/GoogleAccountBar`) is kept and `GoogleConfig`'s javadoc now records exactly
+  what wiring it up would take.
 - **2026-07-22 — Faugus Launcher is a pickable launch target.** New `game/FaugusLibraryScanner` reads
   `~/.local/share/faugus-launcher/games.json` (or the Flatpak data root), skipping `hidden` entries and taking
   `artwork()` from each entry's `cover` else `icon` — both absolute paths already on disk, so the picker gets
