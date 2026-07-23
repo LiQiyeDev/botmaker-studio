@@ -43,6 +43,16 @@ public class CodeExecutionService {
     private static final int MAX_UI_BUFFER_SIZE = 4096;
     private static final int UI_UPDATE_RATE_MS = 100;
 
+    /**
+     * Kills the bot when this JVM exits. The bot runs as its own OS process, so it outlives the Studio unless
+     * something explicitly ends it — and {@code System.exit(0)} does not: closing the window left a bot still
+     * clicking away with no UI to stop it from.
+     *
+     * <p>{@link #close()} is the ordinary path and unregisters this. The hook exists for the paths that skip
+     * it — {@code File ▸ Exit}, a crash, a kill signal — where there is no orderly close to hang the cleanup on.
+     */
+    private final Thread shutdownHook = new Thread(this::killRunningProcess, "bot-process-reaper");
+
     public CodeExecutionService(
             DiagnosticsManager diagnosticsManager,
             ProjectConfig config,
@@ -53,6 +63,7 @@ public class CodeExecutionService {
         this.state = state;
         this.eventBus = eventBus;
         setupEventHandlers();
+        Runtime.getRuntime().addShutdownHook(shutdownHook);
     }
 
     private void setupEventHandlers() {
@@ -264,17 +275,44 @@ public class CodeExecutionService {
     }
 
     public void stopRunningProgram() {
-        if (currentRunningProcess != null && currentRunningProcess.isAlive()) {
-            currentRunningProcess.destroyForcibly();
-
-            // Also attempt to kill child processes (like the actual Java process spawned by Gradle)
-            currentRunningProcess.descendants().forEach(ProcessHandle::destroyForcibly);
-        }
+        killRunningProcess();
         stopUiUpdater();
         stopTelemetry();
         // Force state update immediately on hard kill
         isRunning.set(false);
         eventBus.publish(new CoreApplicationEvents.ProgramStoppedEvent());
+    }
+
+    /**
+     * Force-kills the bot process and everything it spawned. Deliberately process-only — no event publishing,
+     * no UI teardown — so it is also safe to call from {@link #shutdownHook}, where the FX toolkit may already
+     * be gone.
+     *
+     * <p>Descendants are collected <em>before</em> the parent dies: once it does, its children are reparented
+     * to init and are no longer reachable through {@code descendants()}. The old order (parent first, then
+     * descendants) therefore missed anything the bot had launched.
+     */
+    private void killRunningProcess() {
+        Process process = currentRunningProcess;
+        if (process == null || !process.isAlive()) {
+            return;
+        }
+        List<ProcessHandle> descendants = process.descendants().toList();
+        process.destroyForcibly();
+        descendants.forEach(ProcessHandle::destroyForcibly);
+    }
+
+    /**
+     * Releases the shutdown hook and kills the bot. Called by {@code BotProject.close()} when the project is
+     * closed or the Studio quits — see {@link #shutdownHook} for why both paths exist.
+     */
+    public void close() {
+        try {
+            Runtime.getRuntime().removeShutdownHook(shutdownHook);
+        } catch (IllegalStateException alreadyShuttingDown) {
+            // The hook is running (or about to); it does the same work, so there is nothing left to do here.
+        }
+        killRunningProcess();
     }
 
     /**

@@ -252,7 +252,20 @@ public class BotProject {
     // LIFECYCLE
     // =========================================================================
 
+    /**
+     * Ends everything this project started outside the JVM. Both services run the bot as a <em>separate OS
+     * process</em>, which survives the Studio exiting on its own — this used to be an empty stub, so quitting
+     * the Studio left the bot running with nothing left to stop it from.
+     *
+     * <p>Debug first: a debuggee is suspended at a breakpoint until the JDI connection is disposed, so killing
+     * it without that leaves the VM wedged rather than exiting.
+     */
     public void close() {
-        // Clean shutdown of any running processes, etc.
+        if (debuggingService != null) {
+            debuggingService.stopDebugging();
+        }
+        if (codeExecutionService != null) {
+            codeExecutionService.close();
+        }
     }
 }

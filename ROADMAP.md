@@ -6,6 +6,17 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-23 — Quitting the Studio now stops the bot.** `BotProject.close()` was an empty stub whose comment
+  said "Clean shutdown of any running processes" — so the bot, which runs as its own OS process, outlived the
+  window and kept clicking with no UI left to stop it from. It now stops the debug session (first: a debuggee
+  suspended at a breakpoint won't exit until the JDI connection is disposed) and closes
+  `CodeExecutionService`. Two more holes closed alongside it: the `File ▸ Exit` item called
+  `Platform.exit()`/`System.exit(0)` *directly*, never reaching that close path at all, and now fires the
+  stage's `WINDOW_CLOSE_REQUEST` like the window's X does; and a `bot-process-reaper` JVM shutdown hook covers
+  the paths with no orderly close (a crash, a signal). `stopRunningProgram` also collects descendants
+  **before** killing the parent — afterwards they're reparented to init and no longer reachable, which is how
+  a bot-launched game survived Stop. Same fix in `DebuggingService.stopDebugging`.
+
 - **2026-07-23 — Project files: a flat "My activities" replaces the package tree.** `Your files → com → <bot> →
   activities → Mining.java` was four rows of Java ceremony in front of the only file a user ever opens.
   `FileExplorerManager.buildUserTree` — the recursive, empty-directory-pruning walk that *was* that

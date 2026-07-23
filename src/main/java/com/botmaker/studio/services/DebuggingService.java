@@ -471,7 +471,11 @@ public class DebuggingService {
 
         if (currentProcess != null && currentProcess.isAlive()) {
             try {
+                // Collect the debuggee's children before killing it: afterwards they are reparented to init
+                // and no longer reachable here, which is how a bot-launched game outlived a stopped session.
+                var descendants = currentProcess.descendants().toList();
                 currentProcess.destroyForcibly();
+                descendants.forEach(ProcessHandle::destroyForcibly);
                 eventBus.publish(new CoreApplicationEvents.StatusMessageEvent("Debug process terminated."));
             } catch (Exception e) { e.printStackTrace(); }
         }

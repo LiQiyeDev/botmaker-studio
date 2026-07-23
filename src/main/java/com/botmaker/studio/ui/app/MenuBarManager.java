@@ -108,11 +108,11 @@ public class MenuBarManager {
                 KeyCombination.CONTROL_DOWN
         ));
 
-        // UPDATED: Force system exit
-        exitItem.setOnAction(e -> {
-            javafx.application.Platform.exit(); // Close JavaFX
-            System.exit(0); // Kill JVM (stops LSP, Debugger, etc.)
-        });
+        // Route through the stage's close-request handler rather than exiting here. That handler is the one
+        // place that closes the open project first — which is what kills a running bot — and this item used to
+        // bypass it entirely, so quitting with Ctrl+Q left the bot running where closing the window did not.
+        exitItem.setOnAction(e -> primaryStage.fireEvent(
+                new javafx.stage.WindowEvent(primaryStage, javafx.stage.WindowEvent.WINDOW_CLOSE_REQUEST)));
 
         fileMenu.getItems().addAll(
                 selectProjectItem,
