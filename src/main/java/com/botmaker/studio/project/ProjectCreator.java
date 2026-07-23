@@ -1,5 +1,6 @@
 package com.botmaker.studio.project;
 
+import com.botmaker.shared.config.ProjectProperties;
 import com.botmaker.studio.project.vcs.ProjectVcs;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.MavenService;
@@ -118,13 +119,13 @@ public class ProjectCreator {
     public static void writeCaptureProperties(Path resourcesDir, StudioProjectSettings.Resolution resolution)
             throws IOException {
         Files.createDirectories(resourcesDir);
-        Path file = resourcesDir.resolve("botmaker-project.properties");
+        Path file = resourcesDir.resolve(ProjectProperties.FILE_NAME);
         java.util.Properties props = new java.util.Properties();
         if (Files.exists(file)) {
             try (var in = Files.newInputStream(file)) { props.load(in); }
         }
-        props.setProperty("capture.width", Integer.toString(resolution.width()));
-        props.setProperty("capture.height", Integer.toString(resolution.height()));
+        props.setProperty(ProjectProperties.KEY_CAPTURE_WIDTH, Integer.toString(resolution.width()));
+        props.setProperty(ProjectProperties.KEY_CAPTURE_HEIGHT, Integer.toString(resolution.height()));
         try (var out = Files.newOutputStream(file)) {
             props.store(out, "BotMaker project defaults (standard capture resolution)");
         }
@@ -139,15 +140,15 @@ public class ProjectCreator {
      */
     public static void writeLaunchTarget(Path resourcesDir, String spec) throws IOException {
         Files.createDirectories(resourcesDir);
-        Path file = resourcesDir.resolve("botmaker-project.properties");
+        Path file = resourcesDir.resolve(ProjectProperties.FILE_NAME);
         java.util.Properties props = new java.util.Properties();
         if (Files.exists(file)) {
             try (var in = Files.newInputStream(file)) { props.load(in); }
         }
         if (spec == null || spec.isBlank()) {
-            props.remove("launch.target");
+            props.remove(ProjectProperties.KEY_LAUNCH_TARGET);
         } else {
-            props.setProperty("launch.target", spec.trim());
+            props.setProperty(ProjectProperties.KEY_LAUNCH_TARGET, spec.trim());
         }
         try (var out = Files.newOutputStream(file)) {
             props.store(out, "BotMaker project defaults");
@@ -160,7 +161,7 @@ public class ProjectCreator {
      * editor with what's already configured.
      */
     public static String readLaunchTarget(Path resourcesDir) {
-        Path file = resourcesDir.resolve("botmaker-project.properties");
+        Path file = resourcesDir.resolve(ProjectProperties.FILE_NAME);
         if (!Files.exists(file)) return null;
         java.util.Properties props = new java.util.Properties();
         try (var in = Files.newInputStream(file)) {
@@ -168,7 +169,7 @@ public class ProjectCreator {
         } catch (IOException e) {
             return null;
         }
-        String spec = props.getProperty("launch.target");
+        String spec = props.getProperty(ProjectProperties.KEY_LAUNCH_TARGET);
         return (spec == null || spec.isBlank()) ? null : spec.trim();
     }
 
@@ -181,15 +182,15 @@ public class ProjectCreator {
      */
     public static void writeCaptureSource(Path resourcesDir, String spec) throws IOException {
         Files.createDirectories(resourcesDir);
-        Path file = resourcesDir.resolve("botmaker-project.properties");
+        Path file = resourcesDir.resolve(ProjectProperties.FILE_NAME);
         java.util.Properties props = new java.util.Properties();
         if (Files.exists(file)) {
             try (var in = Files.newInputStream(file)) { props.load(in); }
         }
         if (spec == null || spec.isBlank()) {
-            props.remove("capture.source");
+            props.remove(ProjectProperties.KEY_CAPTURE_SOURCE);
         } else {
-            props.setProperty("capture.source", spec.trim());
+            props.setProperty(ProjectProperties.KEY_CAPTURE_SOURCE, spec.trim());
         }
         try (var out = Files.newOutputStream(file)) {
             props.store(out, "BotMaker project defaults");
@@ -204,15 +205,15 @@ public class ProjectCreator {
      */
     public static void writeDebug(Path resourcesDir, Boolean enabled) throws IOException {
         Files.createDirectories(resourcesDir);
-        Path file = resourcesDir.resolve("botmaker-project.properties");
+        Path file = resourcesDir.resolve(ProjectProperties.FILE_NAME);
         java.util.Properties props = new java.util.Properties();
         if (Files.exists(file)) {
             try (var in = Files.newInputStream(file)) { props.load(in); }
         }
         if (enabled == null) {
-            props.remove("debug");
+            props.remove(ProjectProperties.KEY_DEBUG);
         } else {
-            props.setProperty("debug", Boolean.toString(enabled));
+            props.setProperty(ProjectProperties.KEY_DEBUG, Boolean.toString(enabled));
         }
         try (var out = Files.newOutputStream(file)) {
             props.store(out, "BotMaker project defaults");
@@ -225,7 +226,7 @@ public class ProjectCreator {
      * SDK's default-on semantics ({@code api.Debug}) so the Studio toggle shows the state the bot will run with.
      */
     public static boolean readDebug(Path resourcesDir) {
-        Path file = resourcesDir.resolve("botmaker-project.properties");
+        Path file = resourcesDir.resolve(ProjectProperties.FILE_NAME);
         if (!Files.exists(file)) return true;
         java.util.Properties props = new java.util.Properties();
         try (var in = Files.newInputStream(file)) {
@@ -233,7 +234,7 @@ public class ProjectCreator {
         } catch (IOException e) {
             return true;
         }
-        String spec = props.getProperty("debug");
+        String spec = props.getProperty(ProjectProperties.KEY_DEBUG);
         if (spec == null || spec.isBlank()) return true;
         return switch (spec.trim().toLowerCase()) {
             case "false", "0", "no", "off" -> false;

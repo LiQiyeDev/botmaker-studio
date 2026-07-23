@@ -1,5 +1,7 @@
 package com.botmaker.studio.ui.app.capture;
 
+import com.botmaker.shared.opencv.OpenCvNative;
+
 import org.opencv.core.Core;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;

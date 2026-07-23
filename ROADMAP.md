@@ -6,6 +6,14 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-23 — Studio's duplicate OpenCV loader deleted; project-property keys single-sourced.** Studio had
+  its own `ui/app/capture/OpenCvNative`, whose javadoc admitted it mirrored the SDK's — two of the three
+  independent `loadLocally()` calls that could run in one JVM. `MagicWand` now calls
+  `com.botmaker.shared.opencv.OpenCvNative` and the copy is gone. Separately, `ProjectCreator` wrote
+  `capture.source` / `capture.width` / `capture.height` / `launch.target` / `debug` and the file name as
+  string literals, while the SDK read the same keys from its own literals; both sides now use
+  `shared.config.ProjectProperties`' constants, so a renamed key can't silently write to one side only.
+
 - **2026-07-23 — Launch logic moved to shared; `LaunchTargetNames` deleted.** Studio can't depend on the SDK,
   so the launch stack was being copied instead: `util/BrowserLauncher` duplicated the SDK's `UriLauncher`, and
   `project/launch/LaunchTargetNames` re-derived the `launch.target` grammar `LaunchTarget.parse` already had.
