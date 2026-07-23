@@ -51,9 +51,11 @@ public final class PilotServer implements AutoCloseable {
     private static final int FRAME_FPS = 12;
 
     private final EventBus eventBus;
+    /** The one switch between the {@code :0} desktop and a bot-owned {@code :N} session, shared by capture + input. */
+    private final PilotSession session = new PilotSession();
     private final TargetCapture capture;
     private final PilotControlService control;
-    private final PilotInputService input = new PilotInputService();
+    private final PilotInputService input = new PilotInputService(session);
     private final ObjectMapper json = new ObjectMapper();
 
     /**
@@ -79,8 +81,23 @@ public final class PilotServer implements AutoCloseable {
 
     public PilotServer(EventBus eventBus, ProjectSettingsService settings, PilotControlService control) {
         this.eventBus = eventBus;
-        this.capture = new TargetCapture(settings);
+        this.capture = new TargetCapture(settings, session);
         this.control = control;
+    }
+
+    /**
+     * Route the pilot's live preview and Interact gestures through {@code desktopSession}'s nested {@code :N}
+     * display instead of the user's {@code :0} desktop — the Phase 5 integration point a nested-session launcher
+     * calls once the game is up. Pass {@code null} (or call {@link #clearActiveSession()}) to return to {@code :0}.
+     * Takes effect on the next frame/gesture; safe to call while the server is running.
+     */
+    public void setActiveSession(com.botmaker.shared.session.DesktopSession desktopSession) {
+        session.set(desktopSession);
+    }
+
+    /** Return the pilot to previewing and driving the real {@code :0} desktop. */
+    public void clearActiveSession() {
+        session.clear();
     }
 
     /**

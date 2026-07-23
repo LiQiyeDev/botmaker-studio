@@ -2,6 +2,8 @@ package com.botmaker.studio.services.pilot;
 
 import com.botmaker.shared.capture.NativeController;
 import com.botmaker.shared.capture.NativeControllerFactory;
+import com.botmaker.shared.session.Capability;
+import com.botmaker.shared.session.DesktopSession;
 
 /**
  * Replays the pilot's manual "Interact" gestures onto the real desktop.
@@ -43,11 +45,21 @@ public final class PilotInputService {
     /** One gesture step from the client. {@code amount} is only read for {@link Kind#SCROLL}. */
     public enum Kind { TAP, DOWN, MOVE, UP, SCROLL }
 
-    /** Resolved lazily: constructing a controller probes X11/Win32 and must not run at Studio startup. */
-    private NativeController controller;
+    /** When it holds a nested session, gestures drive that session's {@code :N} controller, not the host's {@code :0}. */
+    private final PilotSession session;
+
+    /**
+     * The host {@code :0} controller, resolved lazily (constructing it probes X11/Win32 and must not run at
+     * Studio startup) and only when there is no active nested session. Its escalation is sticky by design.
+     */
+    private NativeController host;
 
     /** Where the pointer was when the current drag started, restored on {@code UP}. Null when not dragging. */
     private java.awt.Point dragOrigin;
+
+    public PilotInputService(PilotSession session) {
+        this.session = session;
+    }
 
     /**
      * Applies one gesture at absolute screen coordinates, ignoring anything outside {@code bounds}.
@@ -89,30 +101,41 @@ public final class PilotInputService {
         }
     }
 
-    /** True when synthesized input leaves the user's real cursor alone (see {@link NativeController}). */
+    /**
+     * True when synthesized input leaves the user's real cursor alone. A nested session is background-safe by
+     * construction (its {@code :N} pointer is the bot's alone — {@link Capability#BACKGROUND_CLICK}); only the
+     * host {@code :0} path can fail this, once it has escalated to device input (see {@link NativeController}).
+     */
     public synchronized boolean supportsBackgroundInput() {
+        DesktopSession s = session != null ? session.get() : null;
+        if (s != null) return s.has(Capability.BACKGROUND_CLICK);
         NativeController nc = controller();
         return nc != null && nc.supportsBackgroundInput();
     }
 
     /**
-     * The shared controller, resolved (and escalated to a reliable input path) on first use. The escalation
-     * happens exactly once, here, so Studio startup and bot-only sessions never pay for it — and never lose
-     * the cursor-safe default unless Interact was actually used.
+     * The controller a gesture drives. An active nested session wins: its {@code :N} controller is already
+     * device-level and background-safe, so it needs no {@code useReliableInput()} escalation — and routing
+     * through it keeps Interact in the same coordinate space as the streamed {@code :N} frame. With no session,
+     * the host {@code :0} controller is resolved (and escalated to a reliable input path) exactly once, lazily,
+     * so Studio startup and bot-only sessions never pay for it — and never lose the cursor-safe default unless
+     * Interact was actually used on {@code :0}.
      */
     private NativeController controller() {
-        if (controller == null) {
+        DesktopSession s = session != null ? session.get() : null;
+        if (s != null) return s.controller();
+        if (host == null) {
             try {
                 NativeController nc = NativeControllerFactory.get();
                 if (!nc.useReliableInput()) {
                     System.err.println("Pilot interact: no reliable input backend available — taps may not "
                             + "reach the game (see LinuxController.useReliableInput).");
                 }
-                controller = nc;
+                host = nc;
             } catch (Exception e) {
                 System.err.println("Pilot interact unavailable: " + e.getMessage());
             }
         }
-        return controller;
+        return host;
     }
 }

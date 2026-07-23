@@ -3,6 +3,7 @@ package com.botmaker.studio.services.pilot;
 import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeControllerFactory;
 import com.botmaker.shared.ipc.TelemetryEvent;
+import com.botmaker.shared.session.DesktopSession;
 import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.services.ProjectSettingsService;
 
@@ -32,16 +33,25 @@ public final class TargetCapture {
     public record Capture(BufferedImage img, int sx, int sy, int sw, int sh) {}
 
     private final ProjectSettingsService settings;
+    /** When it holds a nested session, that session's {@code :N} surface is previewed instead of the {@code :0} target. */
+    private final PilotSession session;
 
-    public TargetCapture(ProjectSettingsService settings) {
+    public TargetCapture(ProjectSettingsService settings, PilotSession session) {
         this.settings = settings;
+        this.session = session;
     }
 
     /**
-     * Grabs the frame to preview this tick. {@code lastTarget} is the most recent telemetry target (may be
-     * {@code null} when idle); a live window target wins over the project default.
+     * Grabs the frame to preview this tick. An active nested {@link DesktopSession} wins over everything —
+     * its {@code :N} surface is the whole point of the session. Otherwise {@code lastTarget} is the most recent
+     * telemetry target (may be {@code null} when idle) and a live window target wins over the project default.
      */
     public Capture resolve(TelemetryEvent.Target lastTarget) {
+        DesktopSession s = session != null ? session.get() : null;
+        if (s != null) {
+            Capture c = captureSession(s);
+            if (c != null) return c;
+        }
         TelemetryEvent.Target t = lastTarget;
         if (t != null && t.title() != null && t.width() > 0 && t.height() > 0) {
             Capture c = captureWindowTarget(t.title());
@@ -58,6 +68,25 @@ public final class TargetCapture {
         }
         if (t != null) return captureBounds(virtualBounds()); // whole-screen telemetry target
         return captureBounds(primaryBounds());                // idle, no default → current primary screen
+    }
+
+    /**
+     * Grab the window the nested session launched into {@code :N}, tagged with that window's rect <em>on
+     * {@code :N}</em>. Because {@link PilotInputService} drives the same {@code :N} controller, that rect is
+     * the one coordinate space both capture and Interact live in — a tap on the streamed frame lands on the
+     * same pixel the bot sees.
+     */
+    private Capture captureSession(DesktopSession s) {
+        try {
+            GenericWindow win = s.attached();
+            if (win == null) return null;
+            BufferedImage img = s.capture(); // the :N-bound controller's captureWindow — no :0 focus, non-intrusive
+            if (img == null) return null;
+            Rectangle b = win.getRect();
+            return new Capture(img, b.x, b.y, b.width, b.height);
+        } catch (Throwable ex) {
+            return null;
+        }
     }
 
     private Capture captureWindowTarget(String title) {

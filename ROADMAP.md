@@ -6,6 +6,18 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-23 — Pilot capture + Interact can be pointed at a bot-owned `:N` session (bot-owned-display plan,
+  Phase 5).** New `services/pilot/PilotSession` is the one switch between the user's `:0` desktop (default,
+  unchanged) and a nested `DesktopSession`: `TargetCapture` now previews the session's `:N` window (its own
+  `capture()` frame, tagged with the window's `:N` rect) and `PilotInputService` drives the session's
+  `:N`-bound controller — so capture and Interact share one coordinate space and every gesture is a background
+  click by construction (no `:0` cursor to hijack, no `useReliableInput()` escalation, `backgroundInput`
+  honestly `true` via `Capability.BACKGROUND_CLICK`). `PilotServer` owns the holder and exposes
+  `setActiveSession(...)`/`clearActiveSession()` as the integration point; with no session it behaves exactly
+  as before. Tests: `PilotInputServiceTest` (4) + `TargetCaptureTest` (1) via new `PilotFakes`; full suite 339
+  green. **Deferred** (needs a live Xephyr `:N` + a phone): the Studio UI that actually launches a nested
+  session and calls `setActiveSession`, and the plan's Phase 5 exit — a Tailscale pilot preview of a nested
+  session with stable RSS over an hour. Net-new streaming (`XShmGetImage`+`XDamage`) stays out of scope here.
 - **2026-07-23 — The Game toggle became an Input & Clicks dialog over a generated `BotSettings.java`.** New
   `project/BotSettings` (record + generator + regex reader) owns all of `ClickConfig` — real input, both delays,
   confidence, compare margin, random clicks, watchdog retries — plus the Linux input backend, written as a
