@@ -6,6 +6,7 @@ import com.botmaker.studio.game.GameLibraries;
 import com.botmaker.studio.game.InstalledGame;
 import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.project.capture.CaptureTargetNames;
+import com.botmaker.studio.project.launch.QuickLaunch;
 import com.botmaker.shared.launch.LaunchKind;
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.studio.services.ProjectSettingsService;
@@ -51,6 +52,10 @@ public class ToolbarManager {
     private Button launchTargetButton;
     /** The current {@code launch.target} spec, pushed in by {@link UIManager}; null when none is set. */
     private String launchTargetSpec;
+    /** "▶ Launch" — starts the configured target without running the bot. Rebound when the target changes. */
+    private Button quickLaunchButton;
+    /** The project's resources dir, pushed in by {@link UIManager}; what quick launch reads its target from. */
+    private java.nio.file.Path resourcesDir;
     private Label resolutionLabel;
 
     /** Opens the Project Setup checklist hub; wired by {@link UIManager}. */
@@ -228,6 +233,14 @@ public class ToolbarManager {
         pinWidth(launchTargetButton);
         resolveLaunchArtwork(launchTargetSpec);
 
+        // Starts the configured target without compiling and running the bot. Its label is deliberately
+        // constant ("▶ Launch" never becomes "Launching…"), so unlike its two neighbours it cannot change
+        // width mid-session and re-wrap the bar — the reason those two are pinned. Progress is reported on
+        // the status line instead.
+        quickLaunchButton = QuickLaunch.button(resourcesDir, this::reportQuickLaunch);
+        quickLaunchButton.setText("▶ Launch");
+        quickLaunchButton.getStyleClass().add("toolbar-btn");
+
         Button activityFlowButton = new Button("🔀 Flow");
         activityFlowButton.getStyleClass().add("toolbar-btn");
         activityFlowButton.setTooltip(new Tooltip(
@@ -298,7 +311,10 @@ public class ToolbarManager {
         resolutionLabel.setTooltip(new Tooltip("Project standard resolution · primary screen resolution"));
 
         FlowPane group = new FlowPane(Orientation.HORIZONTAL, 5, 5,
-                projectSetupButton, captureButton, launchTargetButton, activityFlowButton, remotePilotButton,
+                // Launch before Capture: you pick what the bot opens, then where it looks — and a game's
+                // window can only be picked as a capture target once the game is actually up.
+                projectSetupButton, launchTargetButton, quickLaunchButton, captureButton, activityFlowButton,
+                remotePilotButton,
                 debugOutputButton, realInputButton, captureTemplatesButton, overlayEditorButton,
                 resourcesButton, resolutionLabel);
         group.setAlignment(Pos.CENTER);
@@ -367,6 +383,24 @@ public class ToolbarManager {
         launchTargetButton.setGraphic(null);
         launchTargetButton.setText(launchTargetText(launchTargetSpec));
         resolveLaunchArtwork(launchTargetSpec);
+        // The quick-launch button reads the target off disk, so it has to be rebound whenever it changes —
+        // otherwise it stays disabled after the very first target is set, or launches the previous one.
+        if (quickLaunchButton != null) {
+            QuickLaunch.bind(quickLaunchButton, resourcesDir, this::reportQuickLaunch);
+        }
+    }
+
+    /**
+     * The project's resources dir, needed before {@link #createCaptureGroup()} so quick launch can read
+     * {@code launch.target}. Set by {@link UIManager} when it wires the bar.
+     */
+    public void setResourcesDir(java.nio.file.Path resourcesDir) {
+        this.resourcesDir = resourcesDir;
+    }
+
+    /** Quick launch has no status label of its own up here, so it reports on the shared status line. */
+    private void reportQuickLaunch(boolean ok, String message) {
+        eventBus.publish(new CoreApplicationEvents.StatusMessageEvent((ok ? "" : "⚠ ") + message));
     }
 
     /** "🚀 " + the target's short name, or "🚀 Launch Target" when none is set. */

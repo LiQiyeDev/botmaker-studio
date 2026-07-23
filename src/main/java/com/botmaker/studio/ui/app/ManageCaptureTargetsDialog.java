@@ -3,6 +3,7 @@ package com.botmaker.studio.ui.app;
 import com.botmaker.studio.project.StudioProjectSettings;
 import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.WindowTarget;
+import com.botmaker.studio.project.launch.QuickLaunch;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.ui.app.capture.CaptureSourcePicker;
@@ -30,6 +31,7 @@ import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -49,6 +51,11 @@ public class ManageCaptureTargetsDialog {
 
     private final Window owner;
     private final ProjectSettingsService settingsService;
+    /**
+     * The project's resources dir, for the "▶ Launch now" button. This dialog is where the button earns its
+     * keep most directly: a game's window cannot be picked as a capture source until the game is up.
+     */
+    private final Path resourcesDir;
 
     private final ObservableList<CaptureTarget> rows = FXCollections.observableArrayList();
     private final Label statusLabel = new Label();
@@ -74,9 +81,10 @@ public class ManageCaptureTargetsDialog {
     /** A cached probe: the FX preview image (may be null) and whether the target currently exists. */
     private record ThumbEntry(Image image, boolean exists) {}
 
-    public ManageCaptureTargetsDialog(Window owner, ProjectSettingsService settingsService) {
+    public ManageCaptureTargetsDialog(Window owner, ProjectSettingsService settingsService, Path resourcesDir) {
         this.owner = owner;
         this.settingsService = settingsService;
+        this.resourcesDir = resourcesDir;
     }
 
     public void show() {
@@ -250,9 +258,11 @@ public class ManageCaptureTargetsDialog {
         apply.setDefaultButton(true);
         apply.setOnAction(e -> apply(apply, cancel));
 
+        Button launchNow = QuickLaunch.button(resourcesDir, this::report);
+
         HBox spacer = new HBox();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox bar = new HBox(10, progress, statusLabel, spacer, cancel, apply);
+        HBox bar = new HBox(10, progress, statusLabel, launchNow, spacer, cancel, apply);
         bar.setAlignment(Pos.CENTER_LEFT);
         return bar;
     }
@@ -282,6 +292,16 @@ public class ManageCaptureTargetsDialog {
         progress.setVisible(busy);
         apply.setDisable(busy);
         cancel.setDisable(busy);
+    }
+
+    /** Shows a quick-launch outcome on the same status line the Apply failures use. */
+    private void report(boolean ok, String message) {
+        if (!ok) {
+            error(message);
+            return;
+        }
+        statusLabel.setStyle("-fx-text-fill: #2e7d32;");
+        statusLabel.setText(message);
     }
 
     private void error(String message) {

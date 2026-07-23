@@ -6,6 +6,7 @@ import com.botmaker.studio.game.GameLibraryProvider;
 import com.botmaker.studio.game.HeroicLibraryScanner;
 import com.botmaker.studio.game.SteamLibraryScanner;
 import com.botmaker.studio.project.ProjectCreator;
+import com.botmaker.studio.project.launch.QuickLaunch;
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.studio.ui.render.components.EmulatorPickerDialog;
 import com.botmaker.studio.ui.render.components.GameLibraryPickerDialog;
@@ -50,6 +51,8 @@ public final class LaunchTargetDialog {
     private Stage stage;
     private Label currentLabel;
     private Label statusLabel;
+    /** "▶ Launch now" — rebound after every save, so it never launches the target the user just replaced. */
+    private Button launchNow;
     private String currentSpec;
 
     public LaunchTargetDialog(Window owner, Path resourcesDir, Consumer<String> onChanged) {
@@ -109,6 +112,9 @@ public final class LaunchTargetDialog {
         statusLabel.setMaxWidth(Double.MAX_VALUE);
         HBox.setHgrow(statusLabel, Priority.ALWAYS);
 
+        launchNow = QuickLaunch.button(resourcesDir, this::report);
+        launchNow.setMinWidth(Region.USE_PREF_SIZE);
+
         Button clear = new Button("Clear target");
         clear.setMinWidth(Region.USE_PREF_SIZE);
         clear.setOnAction(e -> apply(null, null));
@@ -116,7 +122,7 @@ public final class LaunchTargetDialog {
         close.setMinWidth(Region.USE_PREF_SIZE);
         close.setDefaultButton(true);
         close.setOnAction(e -> stage.close());
-        HBox bar = new HBox(8, statusLabel, clear, close);
+        HBox bar = new HBox(8, statusLabel, launchNow, clear, close);
         bar.setAlignment(Pos.CENTER_LEFT);
 
         VBox root = new VBox(12, heading, hint, currentLabel, choices, bar);
@@ -182,11 +188,21 @@ public final class LaunchTargetDialog {
             if (captureSource != null) ProjectCreator.writeCaptureSource(resourcesDir, captureSource);
             currentSpec = (spec == null || spec.isBlank()) ? null : spec.trim();
             refreshCurrentLabel();
-            statusLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: #2e7d32;");
-            statusLabel.setText(currentSpec == null ? "Launch target cleared." : "Launch target saved.");
+            report(true, currentSpec == null ? "Launch target cleared." : "Launch target saved.");
+            QuickLaunch.bind(launchNow, resourcesDir, this::report);
             if (onChanged != null) onChanged.accept(currentSpec);
         } catch (IOException ex) {
             error("Couldn't save: " + ex.getMessage());
+        }
+    }
+
+    /** Shows an outcome on the status line — green when it worked, the usual red when it didn't. */
+    private void report(boolean ok, String message) {
+        if (ok) {
+            statusLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: #2e7d32;");
+            statusLabel.setText(message);
+        } else {
+            error(message);
         }
     }
 

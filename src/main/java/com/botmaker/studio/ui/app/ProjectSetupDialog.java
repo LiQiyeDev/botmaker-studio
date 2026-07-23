@@ -129,7 +129,7 @@ public final class ProjectSetupDialog {
                 row(captureDone, false, "Capture target",
                         describeCapture(s),
                         captureDone ? "Change…" : "Set…",
-                        () -> new ManageCaptureTargetsDialog(owner, settings).show()),
+                        () -> new ManageCaptureTargetsDialog(owner, settings, config.resourcesRoot()).show()),
                 row(resolutionDone, false, "Reference resolution",
                         resolutionDone
                                 ? s.referenceResolution().width() + "×" + s.referenceResolution().height()

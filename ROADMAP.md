@@ -6,6 +6,17 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-23 — "▶ Launch now" in three places; Launch moved left of Capture on the toolbar.** A user can now
+  start the project's configured `launch.target` without compiling and running the bot — from the Launch Target
+  dialog (verify what you just picked), the Capture Targets dialog (a game's window can't be picked as a capture
+  source until the game is up), and the toolbar. One helper, `project/launch/QuickLaunch`, backs all three: it
+  runs `shared.launch.Launcher.start` **off the FX thread** (a protocol hand-off spawns processes, and an
+  `emu-app:` target polls to its boot timeout) and yields a *disabled* button with an explanatory tooltip when
+  no target is configured, rather than an enabled one that does nothing. The whole thing is a one-liner because
+  shared owns the launch stack — the entire point of the preceding move. `ManageCaptureTargetsDialog` gained a
+  `resourcesDir` constructor argument to read the target. Toolbar order is now
+  `Setup │ 🚀 Launch Target │ ▶ Launch │ 🎯 Capture │ …`: you choose what opens before where to look.
+
 - **2026-07-23 — Studio's duplicate OpenCV loader deleted; project-property keys single-sourced.** Studio had
   its own `ui/app/capture/OpenCvNative`, whose javadoc admitted it mirrored the SDK's — two of the three
   independent `loadLocally()` calls that could run in one JVM. `MagicWand` now calls
