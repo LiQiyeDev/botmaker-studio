@@ -6,6 +6,12 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-23 — Project Setup can launch the target it just ticked.** The launch-target row in
+  `ProjectSetupDialog` gained `QuickLaunch.button(...)` beside its Set… button, so the checklist can prove the
+  target works — and so the game's window exists before the user reaches the capture-target row below it. The
+  row builder took an optional trailing `Node` rather than growing a second copy, and the outcome reports to its
+  own status label: the summary line is rewritten by the focus-return `refresh()`, which a launch always
+  triggers, so a failure parked there would erase itself.
 - **2026-07-23 — The run cluster wraps, and Compile moved into it.** `ToolbarManager.createExecutionGroup()`
   returns a `FlowPane` instead of an `HBox`, with Compile leading it (out of `createEditGroup()`, which is now
   just Undo/Redo). Because a `BorderPane` gives its right child that child's *preferred* width, the FlowPane

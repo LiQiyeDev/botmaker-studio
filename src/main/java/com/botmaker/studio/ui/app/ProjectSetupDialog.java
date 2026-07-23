@@ -8,11 +8,13 @@ import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.studio.project.StudioProjectSettings;
 import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.project.capture.CaptureTargetNames;
+import com.botmaker.studio.project.launch.QuickLaunch;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
@@ -50,6 +52,12 @@ public final class ProjectSetupDialog {
     private Stage stage;
     private VBox rows;
     private Label summary;
+    /**
+     * Where the quick-launch button reports. Deliberately <em>not</em> {@link #summary}: a launch flips the
+     * window's focus to the game, and focus coming back re-runs {@link #refresh()}, which rewrites the summary —
+     * so a failure message parked there would be wiped by the very act of looking at the dialog again.
+     */
+    private Label launchStatus;
 
     public ProjectSetupDialog(Stage owner, ProjectConfig config, ProjectSettingsService settings,
                               ProjectAnalyzer analyzer, EventBus eventBus, Runnable onCaptureTemplates) {
@@ -77,6 +85,9 @@ public final class ProjectSetupDialog {
         summary = new Label();
         summary.setStyle("-fx-font-size: 12px; -fx-font-weight: bold;");
 
+        launchStatus = new Label();
+        launchStatus.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
+
         rows = new VBox(10);
 
         Button recheck = new Button("Re-check");
@@ -89,7 +100,7 @@ public final class ProjectSetupDialog {
         HBox bar = new HBox(8, summary, spacer, recheck, done);
         bar.setAlignment(Pos.CENTER_LEFT);
 
-        VBox root = new VBox(14, heading, intro, new Separator(), rows, new Separator(), bar);
+        VBox root = new VBox(14, heading, intro, new Separator(), rows, new Separator(), launchStatus, bar);
         root.setPadding(new Insets(18));
 
         // Live refresh: capture/resolution edits publish SettingsChangedEvent (from a background write), so
@@ -125,7 +136,8 @@ public final class ProjectSetupDialog {
         rows.getChildren().setAll(
                 row(launchDone, false, "Launch target",
                         launchDone ? describeLaunch() : "Not set — pick what the bot should open.",
-                        "Set…", () -> new LaunchTargetDialog(owner, config.resourcesRoot(), spec -> refresh()).show()),
+                        "Set…", () -> new LaunchTargetDialog(owner, config.resourcesRoot(), spec -> refresh()).show(),
+                        quickLaunchButton()),
                 row(captureDone, false, "Capture target",
                         describeCapture(s),
                         captureDone ? "Change…" : "Set…",
@@ -140,6 +152,21 @@ public final class ProjectSetupDialog {
                                 ? "None yet — only needed for image-matching bots (skip for pixel/OCR/coords)."
                                 : templateCount + (templateCount == 1 ? " template saved." : " templates saved."),
                         "Capture…", onCaptureTemplates));
+    }
+
+    /**
+     * The launch-target row's second button: start the configured target <em>without</em> running the bot, so the
+     * user can confirm the row's ✓ actually means what they wanted — and so the game's window exists before they
+     * walk down to the capture-target row, which is the next step and needs something to point at.
+     *
+     * <p>Rebuilt on every {@link #refresh()} rather than kept and re-bound, because refresh() rebuilds every row
+     * anyway; {@link QuickLaunch#button} re-reads the target each time, so the button can't go stale.
+     */
+    private Button quickLaunchButton() {
+        return QuickLaunch.button(config.resourcesRoot(), (ok, message) -> {
+            launchStatus.setText(message);
+            launchStatus.setStyle("-fx-font-size: 11px; -fx-text-fill: " + (ok ? "gray" : "#c0392b") + ";");
+        });
     }
 
     /**
@@ -170,6 +197,17 @@ public final class ProjectSetupDialog {
      * button that opens the step's editor. {@code optional} steps show a neutral glyph and never a red ✗.
      */
     private HBox row(boolean done, boolean optional, String title, String detail, String btnText, Runnable action) {
+        return row(done, optional, title, detail, btnText, action, null);
+    }
+
+    /**
+     * {@link #row(boolean, boolean, String, String, String, Runnable)} with an {@code extra} control placed
+     * <em>before</em> the step's own button, so the editor button stays in the same column down the whole list.
+     * Only the launch-target row uses it (for quick launch); the parameter exists so that row is the same builder
+     * as the others rather than a second, drifting copy.
+     */
+    private HBox row(boolean done, boolean optional, String title, String detail, String btnText, Runnable action,
+                     Node extra) {
         Label glyph = new Label(done ? "✓" : (optional ? "○" : "✗"));
         glyph.setMinWidth(18);
         glyph.setStyle("-fx-font-weight: bold; -fx-font-size: 15px; -fx-text-fill: "
@@ -187,7 +225,9 @@ public final class ProjectSetupDialog {
         btn.setMinWidth(84);
         btn.setOnAction(e -> { if (action != null) action.run(); });
 
-        HBox row = new HBox(10, glyph, text, btn);
+        HBox row = new HBox(10, glyph, text);
+        if (extra != null) row.getChildren().add(extra);
+        row.getChildren().add(btn);
         row.setAlignment(Pos.CENTER_LEFT);
         return row;
     }
