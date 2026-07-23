@@ -6,6 +6,13 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-23 — The Game toggle became an Input & Clicks dialog over a generated `BotSettings.java`.** New
+  `project/BotSettings` (record + generator + regex reader) owns all of `ClickConfig` — real input, both delays,
+  confidence, compare margin, random clicks, watchdog retries — plus the Linux input backend, written as a
+  generated file both templates carry and `main` calls first (`ProjectCreator.sourcesFor`, so `ProjectRepair`
+  regenerates it). `ui/app/ClickConfigDialog` edits it; the toolbar's `🖱 Game ●/○` ToggleButton is now a plain
+  `🖱 Input` button, and `writeRealInput`'s regex-in-main is gone. Projects predating the file are migrated on
+  open: the inline `ClickConfig.useRealInput(…)` seeds the new file and is replaced with `BotSettings.apply();`.
 - **2026-07-23 — Project Setup can launch the target it just ticked.** The launch-target row in
   `ProjectSetupDialog` gained `QuickLaunch.button(...)` beside its Set… button, so the checklist can prove the
   target works — and so the game's window exists before the user reaches the capture-target row below it. The

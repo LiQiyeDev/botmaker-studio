@@ -53,8 +53,13 @@ class ProjectCreatorTest {
     void theGameBotTemplateScaffoldsTheSuperviseContract() {
         Map<String, String> sources = ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "MyBot", "mybot");
 
-        assertEquals(java.util.List.of("MyBot.java", "GameLoop.java", "FlowDriver.java", "GoHome.java",
-                "Startup.java", "ActivityRegistry.java"), java.util.List.copyOf(sources.keySet()));
+        assertEquals(java.util.List.of("BotSettings.java", "MyBot.java", "GameLoop.java", "FlowDriver.java",
+                "GoHome.java", "Startup.java", "ActivityRegistry.java"), java.util.List.copyOf(sources.keySet()));
+        // The click/vision tuning is a generated file of its own, applied first thing in main, so it travels
+        // with the bot and applies when it runs outside the Studio.
+        assertTrue(sources.get("MyBot.java").contains("BotSettings.apply();"), sources.get("MyBot.java"));
+        assertTrue(sources.get("BotSettings.java").contains("ClickConfig.useRealInput(true);"),
+                sources.get("BotSettings.java"));
         assertTrue(sources.get("MyBot.java")
                 .contains("Bot.start(GameLoop::run, GoHome.INSTANCE::execute, Startup::run)"));
         // GameLoop::run binds as a Runnable (static, no-arg, void); GoHome is an Activity so its instance
@@ -113,7 +118,7 @@ class ProjectCreatorTest {
     void theEmptyTemplateEntryPointCompilesAsWritten() {
         Map<String, String> sources = ProjectCreator.sourcesFor(ProjectTemplate.EMPTY, "MyBot", "mybot");
 
-        assertEquals(java.util.List.of("MyBot.java"), java.util.List.copyOf(sources.keySet()));
+        assertEquals(java.util.List.of("MyBot.java", "BotSettings.java"), java.util.List.copyOf(sources.keySet()));
         String main = sources.get("MyBot.java");
         assertTrue(main.contains("BotMaker.print"), main);
         // ProjectRepair used to hold its own copy of this source that had lost the import, so a recovered

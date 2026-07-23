@@ -173,39 +173,22 @@ public class UIManager {
                         System.err.println("Failed to save debug setting: " + ex.getMessage());
                     }
                 });
-        // The real-input switch lives in the bot's own main() as a ClickConfig call, so the toggle reads and
-        // rewrites that statement rather than a side-car setting — the bot then behaves the way its code
-        // reads even when run outside the Studio.
-        this.toolbarManager.setOnToggleRealInput(
-                com.botmaker.studio.project.ProjectCreator.readRealInput(config.mainSourceFile()),
-                on -> {
-                    try {
-                        String updated = com.botmaker.studio.project.ProjectCreator
-                                .writeRealInput(config.mainSourceFile(), on);
-                        if (updated == null) {
-                            System.err.println("Could not set real-input mode: no main(...) found in "
-                                    + config.mainSourceFile());
-                            return;
-                        }
-                        // The editor caches file contents in memory, so a disk-only write would be
-                        // invisible (and overwritten by the next edit). Update the cached copy, and
-                        // re-render when it's the file currently on screen.
-                        state.getAllFiles().stream()
-                                .filter(f -> f.getPath().equals(config.mainSourceFile()))
-                                .findFirst()
-                                .ifPresent(f -> {
-                                    String previous = f.getContent();
-                                    f.setContent(updated);
-                                    var active = state.getActiveFile();
-                                    if (active != null && active.getPath().equals(config.mainSourceFile())) {
-                                        eventBus.publish(new CoreApplicationEvents.CodeUpdatedEvent(
-                                                updated, previous));
-                                    }
-                                });
-                    } catch (java.io.IOException ex) {
-                        System.err.println("Failed to set real-input mode: " + ex.getMessage());
-                    }
-                });
+        // The click/vision tuning lives in the bot's own generated BotSettings.java rather than a side-car
+        // setting, so the bot behaves the way its code reads even when run outside the Studio. Projects made
+        // before that file existed carry only the real-input flag, as an inline ClickConfig call in main —
+        // migrate them here, on open, which is the one moment we know the project and haven't yet built the
+        // file explorer that would otherwise not list the new file.
+        try {
+            String migratedMain = com.botmaker.studio.project.BotSettings.migrate(config);
+            if (migratedMain != null) refreshCachedSource(config.mainSourceFile(), migratedMain);
+        } catch (java.io.IOException ex) {
+            System.err.println("Could not move this project's input settings into BotSettings.java: "
+                    + ex.getMessage());
+        }
+        this.toolbarManager.setOnConfigureInput(() -> new ClickConfigDialog(primaryStage, config,
+                written -> refreshCachedSource(
+                        com.botmaker.studio.project.BotSettings.fileFor(config.mainSourceFile()), written))
+                .show());
         this.toolbarManager.setOnEnableRemotePilot(this::openRemotePilot);
         this.toolbarManager.setOnCaptureTemplates(this::openOverlayTemplateCapture);
         this.toolbarManager.setOnOverlayEditor(this::openOverlayEditor);
@@ -305,6 +288,29 @@ public class UIManager {
             err.setContentText(ex.getMessage());
             err.showAndWait();
         }
+    }
+
+    /**
+     * Tells the editor that {@code file} was rewritten on disk behind its back, e.g. by the Input &amp; Clicks
+     * dialog or the one-time {@code BotSettings} migration.
+     *
+     * <p>The editor caches file contents in memory, so a disk-only write would be invisible — and would be
+     * overwritten by the next edit that flushes the stale copy. Update the cached copy, and re-render when it
+     * happens to be the file on screen. A file the editor hasn't loaded needs nothing.
+     */
+    private void refreshCachedSource(java.nio.file.Path file, String updated) {
+        if (file == null || updated == null) return;
+        state.getAllFiles().stream()
+                .filter(f -> f.getPath().equals(file))
+                .findFirst()
+                .ifPresent(f -> {
+                    String previous = f.getContent();
+                    f.setContent(updated);
+                    var active = state.getActiveFile();
+                    if (active != null && active.getPath().equals(file)) {
+                        eventBus.publish(new CoreApplicationEvents.CodeUpdatedEvent(updated, previous));
+                    }
+                });
     }
 
     /** What the generators would produce for this project's scaffold today, keyed by path. */

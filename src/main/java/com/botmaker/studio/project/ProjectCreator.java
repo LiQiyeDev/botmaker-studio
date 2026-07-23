@@ -255,10 +255,10 @@ public class ProjectCreator {
      * Whether the bot's entry point currently calls {@code ClickConfig.useRealInput(true)} — the "my target
      * is a game, drive the real mouse and keyboard" switch.
      *
-     * <p>The generated source is the single source of truth here, deliberately: the setting is a visible,
-     * editable statement in the user's own {@code main} rather than a hidden properties key, so a bot behaves
-     * the way its code reads even when it is run outside Studio. Absent call → {@code false}, matching the
-     * SDK default.
+     * <p><b>Legacy read only.</b> This inline call is how the setting was stored before {@link BotSettings}
+     * gave the whole of {@code ClickConfig} a generated file of its own; the single remaining caller is
+     * {@link BotSettings#migrate}, which reads it once to seed that file and then rewrites the statement away.
+     * Absent call → {@code false}, matching the SDK default.
      */
     public static boolean readRealInput(Path mainSourceFile) {
         try {
@@ -267,48 +267,6 @@ public class ProjectCreator {
         } catch (IOException e) {
             return false;
         }
-    }
-
-    /**
-     * Sets {@code ClickConfig.useRealInput(<enabled>)} in the bot's entry point, rewriting the existing call
-     * when there is one and otherwise inserting it (with its import) as the first statement of {@code main}.
-     *
-     * <p>This is a textual edit rather than an AST rewrite: the target is a single generated statement with a
-     * boolean literal, and going through {@code CodeEditor} would require the entry point to be the file
-     * currently open in the editor, which it usually isn't.
-     *
-     * @return the file's new contents, or {@code null} if it has no {@code main} to insert into — so the
-     *         caller can both refresh its in-memory copy and report the failure instead of silently no-oping
-     */
-    public static String writeRealInput(Path mainSourceFile, boolean enabled) throws IOException {
-        String source = Files.readString(mainSourceFile);
-
-        java.util.regex.Matcher m = REAL_INPUT_CALL.matcher(source);
-        String updated;
-        if (m.find()) {
-            updated = new StringBuilder(source)
-                    .replace(m.start(2), m.end(2), Boolean.toString(enabled))
-                    .toString();
-        } else {
-            // No call yet (an EMPTY-template bot, or the user removed it) — add one at the top of main.
-            java.util.regex.Matcher main = java.util.regex.Pattern
-                    .compile("static\\s+void\\s+main\\s*\\([^)]*\\)\\s*\\{")
-                    .matcher(source);
-            if (!main.find()) {
-                return null;
-            }
-            updated = new StringBuilder(source)
-                    .insert(main.end(), "\n        ClickConfig.useRealInput(" + enabled + ");")
-                    .toString();
-            if (!updated.contains("import com.botmaker.sdk.api.vision.ClickConfig;")) {
-                int pkgEnd = updated.indexOf('\n', updated.indexOf("package "));
-                updated = new StringBuilder(updated)
-                        .insert(pkgEnd + 1, "\nimport com.botmaker.sdk.api.vision.ClickConfig;\n")
-                        .toString();
-            }
-        }
-        Files.writeString(mainSourceFile, updated);
-        return updated;
     }
 
     /**
@@ -328,7 +286,11 @@ public class ProjectCreator {
         }
     }
 
-    /** The {@link ProjectTemplate#EMPTY} scaffold: a bare {@code main} that prints a greeting. */
+    /**
+     * The {@link ProjectTemplate#EMPTY} scaffold: a bare {@code main} that prints a greeting, plus the
+     * {@link BotSettings} file every project gets — the click/vision tuning applies to any bot, not only a
+     * game one, and the Studio's Input &amp; Clicks dialog needs somewhere to write for both templates.
+     */
     public static Map<String, String> emptySources(String className, String packageName) {
         Map<String, String> sources = new LinkedHashMap<>();
         sources.put(className + ".java", String.format("""
@@ -337,10 +299,12 @@ public class ProjectCreator {
 
             public class %s {
                 public static void main(String[] args) {
+                    BotSettings.apply();
                     BotMaker.print("Hello from %s!");
                 }
             }
             """, packageName, className, className));
+        sources.put(BotSettings.FILE_NAME, BotSettings.source(packageName, BotSettings.DEFAULTS));
         return sources;
     }
 
@@ -356,20 +320,22 @@ public class ProjectCreator {
     public static Map<String, String> gameBotSources(String className, String packageName) {
         Map<String, String> sources = new LinkedHashMap<>();
 
+        // Runtime tuning, applied first thing in main. A game bot starts with real input on — that is the
+        // whole difference between GAME_DEFAULTS and DEFAULTS.
+        sources.put(BotSettings.FILE_NAME, BotSettings.source(packageName, BotSettings.GAME_DEFAULTS));
+
         // Entry point: supervise the game loop, recovering via goHome → startGame on crash/stuck.
         sources.put(className + ".java", String.format("""
             package com.%s;
 
             import com.botmaker.sdk.api.bot.Bot;
-            import com.botmaker.sdk.api.vision.ClickConfig;
 
             public class %s {
                 public static void main(String[] args) {
-                    // Games ignore the quiet background clicks BotMaker sends by default, so drive the real
-                    // mouse and keyboard instead: the pointer moves to each click and returns, and the game
-                    // window is raised. Set this to false if your target is an ordinary application and you
-                    // would rather the bot never touch the cursor.
-                    ClickConfig.useRealInput(true);
+                    // Click delays, match confidence, and whether to drive the real mouse and keyboard (which
+                    // is what a game needs — it ignores the quiet background clicks BotMaker sends by default).
+                    // Edit them in the Studio's Input & Clicks dialog, or in BotSettings.java itself.
+                    BotSettings.apply();
 
                     // Runs GameLoop forever; on a crash or a stuck screen it runs GoHome then Startup and restarts.
                     Bot.start(GameLoop::run, GoHome.INSTANCE::execute, Startup::run);
