@@ -6,6 +6,12 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-23 — The run cluster wraps, and Compile moved into it.** `ToolbarManager.createExecutionGroup()`
+  returns a `FlowPane` instead of an `HBox`, with Compile leading it (out of `createEditGroup()`, which is now
+  just Undo/Redo). Because a `BorderPane` gives its right child that child's *preferred* width, the FlowPane
+  also needs a wrap length to be squeezable at all — `UIManager.createScene()` binds `prefWrapLength` to 42% of
+  the toolbar width, so the cluster holds one row on a normal window and starts sharing the shortfall with the
+  centre group instead of letting it wrap alone onto three or four rows.
 - **2026-07-23 — `HeroicLibraryScanner` reads Heroic's config through shared.** The launch stack needed the
   same records to tell whether a `heroic:` target is already running (its app name appears nowhere in a running
   game's command line — the executable and title do), so the parsing moved to

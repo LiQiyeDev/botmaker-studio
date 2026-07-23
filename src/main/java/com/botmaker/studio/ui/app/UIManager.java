@@ -26,6 +26,7 @@ import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.validation.DiagnosticsManager;
 import com.botmaker.studio.validation.ErrorTranslator;
+import javafx.beans.binding.Bindings;
 import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
@@ -54,6 +55,11 @@ public class UIManager {
     private static final double EXPLORER_MIN_WIDTH = 150;
     /** Widest the file explorer may be dragged — without this the divider has no upper bound at all. */
     private static final double EXPLORER_MAX_WIDTH = 460;
+
+    /** Share of the toolbar's width the run cluster may occupy before it wraps — see {@code createScene()}. */
+    private static final double EXEC_WIDTH_SHARE = 0.42;
+    /** Floor under that share, so a very narrow window wraps the cluster rather than stacking it one per row. */
+    private static final double EXEC_MIN_WRAP_PX = 170;
 
     private final EventBus eventBus;
     private final CodeEditorService codeEditorService;
@@ -913,9 +919,10 @@ public class UIManager {
         HBox editControls = toolbarManager.createEditGroup();
         editControls.setAlignment(Pos.CENTER_LEFT);
 
-        HBox executionControls = toolbarManager.createExecutionGroup();
+        FlowPane executionControls = toolbarManager.createExecutionGroup();
         HBox rightContainer = new HBox(10, executionControls, buildIdentityCluster());
         rightContainer.setAlignment(Pos.CENTER_RIGHT);
+        rightContainer.setMinWidth(0);
         // Breathing room against the window edge, mirroring the padding createEditGroup() applies on its side.
         rightContainer.setPadding(new Insets(0, 10, 0, 0));
 
@@ -939,6 +946,15 @@ public class UIManager {
         // since JavaFX doesn't clip a Region, its buttons paint upward over the menu bar. Pinning min to pref
         // makes the bar refuse the shrink; mainSplit (min 0, Vgrow.ALWAYS) absorbs it instead, as it should.
         topBar.setMinWidth(0);
+        // Why the run cluster needs telling how wide it may be: BorderPane lays its right child out at that
+        // child's *preferred* width, and a FlowPane's preferred width is "whatever fits on one row" unless it is
+        // given a wrap length. Left alone it would therefore behave exactly like the HBox it replaced — pinned to
+        // one line, with the centre group absorbing every pixel the window loses. Tying the wrap length to a share
+        // of the bar means it stays one row while there is room for one (the share exceeds the cluster's natural
+        // width on any normal window) and starts wrapping only once the bar is genuinely tight — which is the
+        // point at which the centre group would otherwise have been wrapping alone.
+        executionControls.prefWrapLengthProperty().bind(Bindings.createDoubleBinding(
+                () -> Math.max(EXEC_MIN_WRAP_PX, topBar.getWidth() * EXEC_WIDTH_SHARE), topBar.widthProperty()));
         topBar.setPrefHeight(Region.USE_COMPUTED_SIZE);
         topBar.setMinHeight(Region.USE_PREF_SIZE);
         topBar.setStyle("-fx-border-color: #dcdcdc; -fx-border-width: 0 0 1 0; -fx-background-color: #f4f4f4;");

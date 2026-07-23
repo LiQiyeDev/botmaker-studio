@@ -6,6 +6,7 @@ import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.ui.app.ToolbarManager;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
+import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
@@ -41,7 +42,7 @@ class ToolbarInteractionTest extends FxHeadlessTest {
         // No project settings needed for these edit/execution-group assertions (only the capture group reads them).
         ToolbarManager toolbar = new ToolbarManager(bus, null);
         HBox edit = toolbar.createEditGroup();
-        HBox exec = toolbar.createExecutionGroup();
+        FlowPane exec = toolbar.createExecutionGroup();
 
         runButton = (Button) exec.lookup(".btn-run");
         stopButton = (Button) exec.lookup(".btn-stop");
@@ -60,8 +61,7 @@ class ToolbarInteractionTest extends FxHeadlessTest {
 
     @Test
     void compileButtonPublishesCompilationRequest() {
-        // The "⚙ Compile" button is the only .toolbar-btn in the edit group.
-        Button compile = editGroupCompileButton();
+        Button compile = compileButton();
         interact(compile::fire);
         assertTrue(published.stream().anyMatch(e -> e instanceof CoreApplicationEvents.CompilationRequestedEvent),
                 "clicking Compile should publish a CompilationRequestedEvent");
@@ -83,8 +83,8 @@ class ToolbarInteractionTest extends FxHeadlessTest {
 
     // --- helpers ---
 
-    private Button editGroupCompileButton() {
-        // createEditGroup() returns Undo, Redo, then the styled Compile button; find it by its label.
+    private Button compileButton() {
+        // Compile leads the execution group (it used to sit in the edit group); find it by its label.
         return (Button) runButton.getScene().getRoot().lookupAll(".button").stream()
                 .filter(n -> n instanceof Button b && "⚙ Compile".equals(b.getText()))
                 .findFirst().orElseThrow();

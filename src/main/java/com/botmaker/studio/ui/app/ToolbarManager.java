@@ -114,7 +114,10 @@ public class ToolbarManager {
     }
 
     /**
-     * Creates the Left-side group: Undo, Redo, Compile
+     * Creates the left-side group: Undo and Redo, and nothing else. Compile used to live here and now sits with
+     * Run in {@link #createExecutionGroup()} — it is the first step of the same "make this bot go" sequence, and
+     * keeping it here made the left group wide enough to matter when the window narrows. Undo/Redo stay because
+     * they're two glyph-sized buttons that edit code rather than run it.
      */
     public HBox createEditGroup() {
         undoButton = new Button("↶");
@@ -127,11 +130,7 @@ public class ToolbarManager {
         redoButton.setDisable(true);
         redoButton.setOnAction(e -> eventBus.publish(new CoreApplicationEvents.RedoRequestedEvent()));
 
-        Button compileButton = new Button("⚙ Compile");
-        compileButton.getStyleClass().add("toolbar-btn");
-        compileButton.setOnAction(e -> eventBus.publish(new CoreApplicationEvents.CompilationRequestedEvent()));
-
-        HBox group = new HBox(5, undoButton, redoButton, compileButton);
+        HBox group = new HBox(5, undoButton, redoButton);
         group.setAlignment(Pos.CENTER_LEFT);
         group.setPadding(new Insets(0, 10, 0, 0));
         return group;
@@ -445,9 +444,24 @@ public class ToolbarManager {
     }
 
     /**
-     * Creates the Right-side group: Run, Debug, Stop, Step, Continue
+     * Creates the right-side group: Compile, Run, Debug, Follow, Stop, Step, Continue — the whole "make this bot
+     * go" sequence in the order you'd use it.
+     *
+     * <p>A {@link FlowPane}, like {@link #createCaptureGroup()}, and for the same reason turned inside out: as an
+     * {@code HBox} this cluster held one line at any width, so a narrow window took the space out of the
+     * <em>centre</em> group instead, which then wrapped onto three or four rows and pushed the bar's height up.
+     * Wrapping here lets the two groups share the shortfall a row at a time. {@code minWidth = 0} for the same
+     * reason the capture group sets it: the group's preferred width must not become a floor on the stage's.
+     *
+     * <p>What makes the wrap actually happen is {@code prefWrapLength}, bound to a share of the toolbar width in
+     * {@code UIManager.createScene()} — a {@code BorderPane} hands its right child that child's <em>preferred</em>
+     * width, so a FlowPane left to compute its own would report one row's worth and never be squeezed.
      */
-    public HBox createExecutionGroup() {
+    public FlowPane createExecutionGroup() {
+        Button compileButton = new Button("⚙ Compile");
+        compileButton.getStyleClass().add("toolbar-btn");
+        compileButton.setOnAction(e -> eventBus.publish(new CoreApplicationEvents.CompilationRequestedEvent()));
+
         runButton = new Button("▶ Run");
         runButton.getStyleClass().addAll("toolbar-btn", "btn-run");
         runButton.setOnAction(e -> eventBus.publish(new CoreApplicationEvents.ExecutionRequestedEvent()));
@@ -477,8 +491,10 @@ public class ToolbarManager {
         continueButton.setDisable(true);
         continueButton.setOnAction(e -> eventBus.publish(new CoreApplicationEvents.DebugContinueRequestedEvent()));
 
-        HBox group = new HBox(5, runButton, debugButton, followButton, unifiedStopButton, stepOverButton, continueButton);
+        FlowPane group = new FlowPane(Orientation.HORIZONTAL, 5, 5,
+                compileButton, runButton, debugButton, followButton, unifiedStopButton, stepOverButton, continueButton);
         group.setAlignment(Pos.CENTER_RIGHT);
+        group.setMinWidth(0);
         return group;
     }
 
