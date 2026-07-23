@@ -6,6 +6,15 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-23 — Launch logic moved to shared; `LaunchTargetNames` deleted.** Studio can't depend on the SDK,
+  so the launch stack was being copied instead: `util/BrowserLauncher` duplicated the SDK's `UriLauncher`, and
+  `project/launch/LaunchTargetNames` re-derived the `launch.target` grammar `LaunchTarget.parse` already had.
+  Both now come from `com.botmaker.shared.launch` — `BrowserLauncher` is a four-line wrapper adding only
+  Studio's "log it, never throw" contract, and `LaunchSpec` replaces `LaunchTargetNames` in `LaunchTargetDialog`,
+  `ProjectSetupDialog`, `LaunchTargetArgPicker` and `ToolbarManager` (which now resolves cover artwork from
+  `LaunchKind.id()`/`token()` instead of hand-splitting the spec). This unblocks a quick-launch button, which
+  is what motivated the move. (shared/ROADMAP.md has the full picture.)
+
 - **2026-07-23 — A pause between activities, so a looping flow can be stopped.** A flow may cycle on purpose,
   but an activity that finishes in milliseconds and wires back to itself never lets go of the mouse — the
   step budget eventually stops the run, yet the *user* got no moment to intervene. `ActivityFlow` gains

@@ -6,7 +6,7 @@ import com.botmaker.studio.game.GameLibraryProvider;
 import com.botmaker.studio.game.HeroicLibraryScanner;
 import com.botmaker.studio.game.SteamLibraryScanner;
 import com.botmaker.studio.project.ProjectCreator;
-import com.botmaker.studio.project.launch.LaunchTargetNames;
+import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.studio.ui.render.components.EmulatorPickerDialog;
 import com.botmaker.studio.ui.render.components.GameLibraryPickerDialog;
 import javafx.geometry.Insets;
@@ -191,7 +191,7 @@ public final class LaunchTargetDialog {
     }
 
     private void refreshCurrentLabel() {
-        currentLabel.setText("Current: " + LaunchTargetNames.describe(currentSpec));
+        currentLabel.setText("Current: " + LaunchSpec.describe(currentSpec));
     }
 
     private void error(String message) {

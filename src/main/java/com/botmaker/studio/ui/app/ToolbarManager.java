@@ -6,7 +6,8 @@ import com.botmaker.studio.game.GameLibraries;
 import com.botmaker.studio.game.InstalledGame;
 import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.project.capture.CaptureTargetNames;
-import com.botmaker.studio.project.launch.LaunchTargetNames;
+import com.botmaker.shared.launch.LaunchKind;
+import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.studio.services.ProjectSettingsService;
 import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
@@ -374,7 +375,7 @@ public class ToolbarManager {
     }
 
     private static String launchTargetText(String spec, String displayName) {
-        String name = LaunchTargetNames.shortLabel(spec, displayName);
+        String name = LaunchSpec.shortLabel(spec, displayName);
         if (name.length() > CAPTURE_LABEL_MAX) name = name.substring(0, CAPTURE_LABEL_MAX - 1) + "…";
         return "🚀 " + name;
     }
@@ -385,12 +386,11 @@ public class ToolbarManager {
      * thread; a spec that resolves to nothing (a plain exe, an uninstalled game) simply leaves the label as-is.
      */
     private void resolveLaunchArtwork(String spec) {
-        String platform = LaunchTargetNames.kindOf(spec);
-        String id = LaunchTargetNames.tokenOf(spec);
-        if (platform == null || id == null) return;
+        LaunchSpec parsed = LaunchSpec.parse(spec);
+        if (parsed == null || parsed.kind() == LaunchKind.UNKNOWN) return;
         Button button = launchTargetButton;
         Thread scan = new Thread(() -> {
-            InstalledGame game = GameLibraries.findGame(platform, id).orElse(null);
+            InstalledGame game = GameLibraries.findGame(parsed.kind().id(), parsed.token()).orElse(null);
             if (game == null) return;
             javafx.application.Platform.runLater(() -> {
                 // A later setLaunchTarget may have won the race; only decorate the spec we were asked about.

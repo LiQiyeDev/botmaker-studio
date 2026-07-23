@@ -7,7 +7,7 @@ import com.botmaker.studio.game.GameLibraryProvider;
 import com.botmaker.studio.game.FaugusLibraryScanner;
 import com.botmaker.studio.game.HeroicLibraryScanner;
 import com.botmaker.studio.game.SteamLibraryScanner;
-import com.botmaker.studio.project.launch.LaunchTargetNames;
+import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.studio.services.CodeEditorService;
 import javafx.scene.Node;
 import javafx.scene.control.MenuButton;
@@ -125,12 +125,12 @@ public final class LaunchTargetArgPicker {
     }
 
     /**
-     * The pill's text for a spec. Delegates to {@link LaunchTargetNames} rather than keeping a third private
+     * The pill's text for a spec. Delegates to {@link LaunchSpec} rather than keeping a third private
      * copy of the kind→label switch (this one had already drifted to a {@code "Steam: 570"} spelling of the
      * dialog's {@code "Steam game 570"}), so adding a launcher touches one place.
      */
     private static String labelFor(String spec) {
-        return LaunchTargetNames.describe(spec);
+        return LaunchSpec.describe(spec);
     }
 
     /** The spec inside a {@code LaunchTarget.parse("…")} call, else null. */
