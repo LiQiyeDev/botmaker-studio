@@ -6,6 +6,13 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-23 — `HeroicLibraryScanner` reads Heroic's config through shared.** The launch stack needed the
+  same records to tell whether a `heroic:` target is already running (its app name appears nowhere in a running
+  game's command line — the executable and title do), so the parsing moved to
+  `shared.launch.HeroicLibrary` and this class kept only what a picker cares about: the `InstalledGame`
+  mapping and the `icons/<appName>.<ext>` artwork probe, which now searches every config root instead of the
+  first. Drops the Jackson parse here; behaviour is unchanged.
+
 - **2026-07-23 — Quitting the Studio now stops the bot.** `BotProject.close()` was an empty stub whose comment
   said "Clean shutdown of any running processes" — so the bot, which runs as its own OS process, outlived the
   window and kept clicking with no UI left to stop it from. It now stops the debug session (first: a debuggee
