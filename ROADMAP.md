@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-28 — Nested-session launcher: the producer that connects launch target → `:N` → pilot
+  (bot-owned-display plan, Phase A).** New `services/pilot/NestedSessionLauncher` is the missing producer —
+  the `setActiveSession` hook from Phase 5 finally has a caller. It reads the project's configured
+  `launch.target` (`QuickLaunch.specOf` → `LaunchSpec`), brings up a `NestedSession` on the selected backend
+  (Xephyr 2D default; gamescope 3D opt-in), `launch()`es the game into `:N`, and hands the live session to
+  `PilotServer.setActiveSession` so the pilot previews and drives that window while the real `:0` desktop stays
+  the user's. Stopping reaps the whole tree and clears the session back to `:0`. The nested display is sized to
+  the project's reference resolution (`StudioProjectSettings.referenceResolution()`, fallback 1280×720) so
+  captures line up with the templates. Because a nested session **owns the single window it launched**, there
+  is no capture *target* to pick — the launched game is the target and `capture.source`'s title selector is
+  irrelevant while a session is active. UI: an "Isolated display (:N)" section in the Remote Pilot dialog
+  (`UIManager.isolatedSessionBox`) with a backend choice + Launch/Stop. Bring-up runs off the FX thread.
+  Backend selection unit-tested (`NestedSessionLauncherTest`); live launch is manual (needs a real X server).
 - **2026-07-23 — Pilot capture + Interact can be pointed at a bot-owned `:N` session (bot-owned-display plan,
   Phase 5).** New `services/pilot/PilotSession` is the one switch between the user's `:0` desktop (default,
   unchanged) and a nested `DesktopSession`: `TargetCapture` now previews the session's `:N` window (its own

@@ -1,5 +1,6 @@
 package com.botmaker.studio.ui.app;
 
+import com.botmaker.shared.session.NestedSession;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
 import com.botmaker.studio.ui.dnd.BlockEvent;
 import com.botmaker.studio.project.ProjectConfig;
@@ -76,6 +77,8 @@ public class UIManager {
     private final MenuBarManager menuBarManager;
     private final com.botmaker.studio.runtime.CodeExecutionService codeExecutionService;
     private com.botmaker.studio.services.pilot.PilotServer pilotServer;
+    /** Produces + tears down the bot-owned {@code :N} session the pilot streams; created lazily with the server. */
+    private com.botmaker.studio.services.pilot.NestedSessionLauncher nestedLauncher;
     private final FileExplorerManager fileExplorerManager;
 
     // Sharing / GitHub services — promoted to fields so the toolbar VCS/account buttons and the VCS bottom
@@ -678,9 +681,88 @@ public class UIManager {
             advanced.setOnAction(e -> { alert.close(); enableFunnelExposure(); });
             content.getChildren().addAll(new Separator(), advanced);
         }
+        content.getChildren().addAll(new Separator(), isolatedSessionBox());
+
         alert.getDialogPane().setContent(content);
         alert.setResizable(true); // let the user grow it if the QR codes crowd the buttons on small screens
         alert.show();
+    }
+
+    /**
+     * The "isolated display (:N)" controls: launch the project's configured game into a bot-owned nested
+     * display and route the pilot through it (flawless background input), or stop it and fall back to the real
+     * {@code :0} desktop. The producer is {@link com.botmaker.studio.services.pilot.NestedSessionLauncher} —
+     * created lazily here bound to the (already-constructed) {@link #pilotServer}, and reused across dialog
+     * reopens so Stop still works after the dialog was closed.
+     */
+    private Node isolatedSessionBox() {
+        if (nestedLauncher == null) {
+            nestedLauncher = new com.botmaker.studio.services.pilot.NestedSessionLauncher(
+                    config.resourcesRoot(), pilotServer);
+        }
+        VBox box = new VBox(6);
+        Label title = new Label("Isolated display (:N) — flawless background input");
+        title.setStyle("-fx-font-weight: bold;");
+        Label help = wrapped("Launch the configured game into a private nested display the bot alone drives, so "
+                + "the pilot previews and controls that window while your real desktop stays yours. The launched "
+                + "window is the target — no capture source to pick.");
+
+        ChoiceBox<NestedSession.Backend> backend = new ChoiceBox<>();
+        backend.getItems().addAll(NestedSession.Backend.XEPHYR, NestedSession.Backend.GAMESCOPE);
+        backend.setValue(NestedSession.Backend.XEPHYR);
+        backend.setTooltip(new Tooltip(
+                "Xephyr: 2D targets. gamescope: hardware-3D (Proton/DXVK/Vulkan) — needs a GPU box."));
+
+        Button start = new Button("Launch into :N");
+        Button stop = new Button("Stop session");
+        Label status = wrapped("");
+
+        Runnable refresh = () -> {
+            boolean running = nestedLauncher.isRunning();
+            start.setDisable(running);
+            stop.setDisable(!running);
+            backend.setDisable(running);
+        };
+        refresh.run();
+
+        start.setOnAction(e -> {
+            int[] size = referenceSize();
+            start.setDisable(true);
+            nestedLauncher.start(backend.getValue(), size[0], size[1], (ok, msg) -> {
+                status.setText(msg);
+                status.setStyle(ok ? "" : "-fx-text-fill: #e67e22;");
+                refresh.run();
+            });
+        });
+        stop.setOnAction(e -> {
+            nestedLauncher.stop();
+            status.setText("Nested session stopped — pilot is back on your real desktop.");
+            status.setStyle("");
+            refresh.run();
+        });
+
+        box.getChildren().addAll(title, help,
+                new HBox(8, new Label("Backend:"), backend, start, stop), status);
+        return box;
+    }
+
+    /**
+     * The project's reference resolution (what image templates were authored at) as {@code [width, height]},
+     * or the launcher's default when unset — the nested display is sized to match so captures line up with the
+     * templates.
+     */
+    private int[] referenceSize() {
+        try {
+            var res = projectSettingsService.current().referenceResolution();
+            if (res != null && res.width() > 0 && res.height() > 0) {
+                return new int[]{res.width(), res.height()};
+            }
+        } catch (Exception ignored) {
+            // fall through to the launcher default
+        }
+        return new int[]{
+                com.botmaker.studio.services.pilot.NestedSessionLauncher.DEFAULT_WIDTH,
+                com.botmaker.studio.services.pilot.NestedSessionLauncher.DEFAULT_HEIGHT};
     }
 
     /**
