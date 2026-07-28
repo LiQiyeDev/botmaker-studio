@@ -2,6 +2,7 @@ package com.botmaker.studio.services.pilot;
 
 import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeControllerFactory;
+import com.botmaker.shared.capture.WindowMatch;
 import com.botmaker.shared.ipc.TelemetryEvent;
 import com.botmaker.shared.session.DesktopSession;
 import com.botmaker.studio.project.capture.CaptureTarget;
@@ -133,15 +134,11 @@ public final class TargetCapture {
     }
 
     private static GenericWindow resolveWindow(String titleSubstring) {
-        String needle = titleSubstring.toLowerCase();
         try {
-            for (GenericWindow w : NativeControllerFactory.get().getAllWindows()) {
-                String title = w.getTitle();
-                if (title != null && title.toLowerCase().contains(needle)) return w;
-            }
+            return WindowMatch.best(NativeControllerFactory.get().getAllWindows(), titleSubstring);
         } catch (Throwable ignored) {
+            return null;
         }
-        return null;
     }
 
     private static Rectangle virtualBounds() {

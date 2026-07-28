@@ -6,6 +6,13 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-28 — Pilot capture picks the right window (bot-owned-display plan, Phase D).**
+  `TargetCapture.resolveWindow` took the first window whose title *contained* the needle, so streaming/Interact
+  on a "Firestone" target could bind a wiki tab or launcher entry instead of the game (and the wrong rect made
+  `:0` clicks miss). It now delegates to shared `WindowMatch.best(...)` — the same ranked matcher the SDK
+  runtime uses — so an exact/prefix/whole-word match beats an incidental substring and the shortest/largest
+  window wins ties.
+
 - **2026-07-28 — Nested-session launcher: the producer that connects launch target → `:N` → pilot
   (bot-owned-display plan, Phase A).** New `services/pilot/NestedSessionLauncher` is the missing producer —
   the `setActiveSession` hook from Phase 5 finally has a caller. It reads the project's configured
