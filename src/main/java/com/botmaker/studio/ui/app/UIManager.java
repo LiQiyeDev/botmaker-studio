@@ -1,5 +1,8 @@
 package com.botmaker.studio.ui.app;
 
+import com.botmaker.shared.capture.GenericWindow;
+import com.botmaker.shared.capture.NativeControllerFactory;
+import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.shared.session.NestedSession;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
 import com.botmaker.studio.ui.dnd.BlockEvent;
@@ -636,6 +639,11 @@ public class UIManager {
             content.getChildren().add(linkBtn("Get Tailscale for your phone ▸", TAILSCALE_DOWNLOAD_URL));
         }
 
+        // Lead with the input-mode choice: background (isolated :N) vs. mirroring the real desktop. This is the
+        // recommended path (cursor stays free) and used to be buried at the very bottom of the dialog where the
+        // user never found it — hence every click went through the cursor-moving :0 controller.
+        content.getChildren().addAll(isolatedSessionBox(), new Separator());
+
         // The URL as a real clickable link (opens the system browser).
         Hyperlink link = new Hyperlink(url);
         link.setOnAction(e -> com.botmaker.studio.util.BrowserLauncher.open(url));
@@ -681,7 +689,6 @@ public class UIManager {
             advanced.setOnAction(e -> { alert.close(); enableFunnelExposure(); });
             content.getChildren().addAll(new Separator(), advanced);
         }
-        content.getChildren().addAll(new Separator(), isolatedSessionBox());
 
         alert.getDialogPane().setContent(content);
         alert.setResizable(true); // let the user grow it if the QR codes crowd the buttons on small screens
@@ -689,11 +696,14 @@ public class UIManager {
     }
 
     /**
-     * The "isolated display (:N)" controls: launch the project's configured game into a bot-owned nested
-     * display and route the pilot through it (flawless background input), or stop it and fall back to the real
-     * {@code :0} desktop. The producer is {@link com.botmaker.studio.services.pilot.NestedSessionLauncher} —
-     * created lazily here bound to the (already-constructed) {@link #pilotServer}, and reused across dialog
-     * reopens so Stop still works after the dialog was closed.
+     * The "Background mode" controls — the pilot's <b>recommended</b> input path: launch the project's configured
+     * game into a bot-owned nested display ({@code :N}) and route the pilot through it (flawless background input),
+     * versus mirroring the real {@code :0} desktop (where Interact moves your real cursor). Carries one persistent,
+     * colour-coded status line — green "Isolated on :N — <game> attached" vs amber "Mirroring your real desktop
+     * :0" — so the user can always tell which path is live. The producer is
+     * {@link com.botmaker.studio.services.pilot.NestedSessionLauncher} — created lazily here bound to the
+     * (already-constructed) {@link #pilotServer}, and reused across dialog reopens so Stop and the status still
+     * reflect a session started earlier.
      */
     private Node isolatedSessionBox() {
         if (nestedLauncher == null) {
@@ -701,11 +711,12 @@ public class UIManager {
                     config.resourcesRoot(), pilotServer);
         }
         VBox box = new VBox(6);
-        Label title = new Label("Isolated display (:N) — flawless background input");
+        Label title = new Label("Background mode — run the game in a private display (recommended)");
         title.setStyle("-fx-font-weight: bold;");
-        Label help = wrapped("Launch the configured game into a private nested display the bot alone drives, so "
-                + "the pilot previews and controls that window while your real desktop stays yours. The launched "
-                + "window is the target — no capture source to pick.");
+        Label help = wrapped("Launches the configured game into a private nested display the bot alone drives, so "
+                + "the pilot previews and controls that window while your real cursor stays free. The launched "
+                + "window is the target — no capture source to pick. Otherwise the pilot mirrors your real "
+                + "desktop and Interact moves your actual cursor.");
 
         ChoiceBox<NestedSession.Backend> backend = new ChoiceBox<>();
         backend.getItems().addAll(NestedSession.Backend.XEPHYR, NestedSession.Backend.GAMESCOPE);
@@ -713,37 +724,104 @@ public class UIManager {
         backend.setTooltip(new Tooltip(
                 "Xephyr: 2D targets. gamescope: hardware-3D (Proton/DXVK/Vulkan) — needs a GPU box."));
 
-        Button start = new Button("Launch into :N");
-        Button stop = new Button("Stop session");
+        Button start = new Button("Start background mode");
+        Button stop = new Button("Stop");
+        Button showWin = new Button("Show display window");
+        showWin.setTooltip(new Tooltip(
+                "Raise the Xephyr host window on your desktop so you can watch the private display."));
         Label status = wrapped("");
 
-        Runnable refresh = () -> {
+        // Button/visibility state only — never touches the status text, so a transient start/failure message set
+        // by the async callback isn't clobbered when we re-enable the buttons.
+        Runnable refreshButtons = () -> {
             boolean running = nestedLauncher.isRunning();
-            start.setDisable(running);
+            boolean backendOk = com.botmaker.studio.services.pilot.NestedSessionLauncher
+                    .backendAvailable(backend.getValue());
+            boolean canStart = nestedLauncher.configuredTarget() != null && backendOk;
+            start.setDisable(running || !canStart);
             stop.setDisable(!running);
             backend.setDisable(running);
+            boolean xephyr = backend.getValue() == NestedSession.Backend.XEPHYR;
+            showWin.setVisible(xephyr);
+            showWin.setManaged(xephyr);
+            showWin.setDisable(!running);
         };
-        refresh.run();
+        // The persistent resting status line: green when isolated, amber when mirroring / unavailable.
+        Runnable refreshStatus = () -> {
+            if (nestedLauncher.isRunning()) {
+                String disp = nestedLauncher.activeDisplay();
+                String game = nestedLauncher.attachedTitle();
+                status.setText("● Isolated on " + disp + (game != null ? " — " + game + " attached" : " — attached")
+                        + ". Interact drives it; your real cursor stays free.");
+                status.setStyle("-fx-text-fill: #27ae60;"); // green — the good, isolated state
+                return;
+            }
+            LaunchSpec spec = nestedLauncher.configuredTarget();
+            if (spec == null) {
+                status.setText("● Set a launch target (Run ▸ Launch Target…) to enable background mode.");
+            } else if (!com.botmaker.studio.services.pilot.NestedSessionLauncher.backendAvailable(backend.getValue())) {
+                status.setText("● Install " + backend.getValue().binaryName()
+                        + " to use this backend for background mode.");
+            } else {
+                status.setText("● Mirroring your real desktop :0 — Interact moves your real cursor. Start "
+                        + "background mode to run " + spec.describe() + " isolated.");
+            }
+            status.setStyle("-fx-text-fill: #e67e22;"); // amber — cursor-moving / not-yet-isolated
+        };
+        backend.setOnAction(e -> { refreshButtons.run(); refreshStatus.run(); });
+        refreshButtons.run();
+        refreshStatus.run();
 
         start.setOnAction(e -> {
             int[] size = referenceSize();
             start.setDisable(true);
             nestedLauncher.start(backend.getValue(), size[0], size[1], (ok, msg) -> {
-                status.setText(msg);
-                status.setStyle(ok ? "" : "-fx-text-fill: #e67e22;");
-                refresh.run();
+                if (!ok) {
+                    // Loud failure (e.g. a host launcher stole the game onto :0) — show it, stay amber.
+                    status.setText("● " + msg);
+                    status.setStyle("-fx-text-fill: #e67e22;");
+                } else if (nestedLauncher.isRunning()) {
+                    refreshStatus.run(); // terminal success → green "Isolated on :N"
+                } else {
+                    status.setText(msg); // interim "Bringing up…"
+                    status.setStyle("-fx-text-fill: #7f8c8d;");
+                }
+                refreshButtons.run();
             });
         });
         stop.setOnAction(e -> {
             nestedLauncher.stop();
-            status.setText("Nested session stopped — pilot is back on your real desktop.");
-            status.setStyle("");
-            refresh.run();
+            refreshButtons.run();
+            refreshStatus.run();
         });
+        showWin.setOnAction(e -> raiseXephyrHostWindow(nestedLauncher.activeDisplay(), status));
 
         box.getChildren().addAll(title, help,
-                new HBox(8, new Label("Backend:"), backend, start, stop), status);
+                new HBox(8, new Label("Backend:"), backend, start, stop, showWin), status);
         return box;
+    }
+
+    /**
+     * Raise the Xephyr host window (it lives on the real {@code :0} desktop, titled "Xephyr on :N …") so the user
+     * can watch the private display directly. gamescope has no such host window — there the pilot preview is the
+     * only view, which is why this affordance is Xephyr-only. Best-effort: reports into {@code status} if the
+     * window can't be found.
+     */
+    private void raiseXephyrHostWindow(String display, Label status) {
+        GenericWindow host = null;
+        for (GenericWindow w : NativeControllerFactory.get().getAllWindows()) {
+            String t = w.getTitle();
+            if (t != null && t.toLowerCase().contains("xephyr") && (display == null || t.contains(display))) {
+                host = w;
+                break;
+            }
+        }
+        if (host != null) {
+            NativeControllerFactory.get().focusWindow(host);
+        } else {
+            status.setText("● Couldn't find the Xephyr host window to raise — it may have been closed.");
+            status.setStyle("-fx-text-fill: #e67e22;");
+        }
     }
 
     /**

@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-28 — Surface & default background mode in the pilot (bot-owned-display plan, Phase F).** The
+  isolated-`:N` control was buried at the very bottom of the Remote Pilot dialog where users never found it, so
+  every click went through the cursor-moving `:0` path. Now the **Remote Pilot** dialog leads with a
+  **"Background mode — run the game in a private display (recommended)"** box: the backend picker + Start/Stop,
+  a Start gated on a configured launch target **and** the backend binary on `PATH`
+  (`NestedSessionLauncher.backendAvailable`, off shared's new `Backend.binaryName()`), and one persistent,
+  colour-coded status line driven off live session state — green *"● Isolated on `:3` — Firestone attached.
+  Interact drives it; your real cursor stays free."* vs amber *"● Mirroring your real desktop `:0` — Interact
+  moves your real cursor…"* (also carries the loud Phase-E failure text). Adds a Xephyr-only **"Show display
+  window"** button that raises the "Xephyr on `:N`" host window on the real desktop (gamescope has no host
+  window — the pilot preview is its view). New `NestedSessionLauncher` accessors: `activeDisplay()`,
+  `attachedTitle()`, `configuredTarget()`, `backendAvailable(...)`.
+
 - **2026-07-28 — Nested launcher fails loudly instead of silently dropping to `:0` (bot-owned-display plan,
   Phase E).** With shared now able to launch store targets (Heroic/Steam/Faugus) into `:N` via their
   child-launchable CLI ladders, `NestedSessionLauncher.runStart`'s no-window path now reports an explicit,

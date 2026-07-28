@@ -6,6 +6,8 @@ import com.botmaker.shared.session.NestedSession;
 import com.botmaker.studio.project.launch.QuickLaunch;
 import javafx.application.Platform;
 
+import java.io.File;
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
@@ -52,6 +54,45 @@ public final class NestedSessionLauncher implements AutoCloseable {
     /** True while a nested session is live (so the UI can show Stop rather than Start). */
     public boolean isRunning() {
         return active != null;
+    }
+
+    /** The live session's display (e.g. {@code :3}), or {@code null} when none is running. For the UI status line. */
+    public String activeDisplay() {
+        NestedSession session = active;
+        return session == null ? null : session.displayName();
+    }
+
+    /** Title of the window the live session attached, or {@code null} when none is running / nothing attached. */
+    public String attachedTitle() {
+        NestedSession session = active;
+        if (session == null) {
+            return null;
+        }
+        GenericWindow window = session.attached();
+        return window == null ? null : window.getTitle();
+    }
+
+    /** The project's configured launch target, or {@code null} when none is set — for the UI's availability/label. */
+    public LaunchSpec configuredTarget() {
+        return QuickLaunch.specOf(resourcesDir);
+    }
+
+    /**
+     * Whether {@code backend}'s host binary ({@link NestedSession.Backend#binaryName()}) is on {@code PATH}, so the
+     * UI can offer/preselect background mode only when it could actually start. Best-effort: no {@code PATH} → false.
+     */
+    public static boolean backendAvailable(NestedSession.Backend backend) {
+        String path = System.getenv("PATH");
+        if (path == null || path.isBlank()) {
+            return false;
+        }
+        String binary = backend.binaryName();
+        for (String dir : path.split(File.pathSeparator)) {
+            if (!dir.isBlank() && Files.isExecutable(Path.of(dir, binary))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
