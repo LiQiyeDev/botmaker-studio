@@ -83,8 +83,13 @@ public final class NestedSessionLauncher implements AutoCloseable {
             GenericWindow window = session.attached();
             if (window == null) {
                 // The display came up but the game never mapped a window on :N — nothing to preview or drive.
+                // Fail LOUDLY and stay off :0: do not leave the pilot on the real desktop thinking it worked.
+                String display = session.displayName();
                 session.close();
-                report(report, false, "Launched " + spec.describe() + " but no window appeared on the nested display.");
+                report(report, false, "Couldn't run " + spec.describe() + " on the private display " + display
+                        + " — it didn't map a window there. A host launcher (Heroic/Steam) may have grabbed it "
+                        + "on your real desktop instead. The pilot stayed on :0, so Interact would move your real "
+                        + "cursor. Close the launcher and try again.");
                 return;
             }
             active = session;

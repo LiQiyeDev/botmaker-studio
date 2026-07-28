@@ -6,6 +6,15 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-28 — Nested launcher fails loudly instead of silently dropping to `:0` (bot-owned-display plan,
+  Phase E).** With shared now able to launch store targets (Heroic/Steam/Faugus) into `:N` via their
+  child-launchable CLI ladders, `NestedSessionLauncher.runStart`'s no-window path now reports an explicit,
+  actionable error: it names the private display, explains a host launcher (Heroic/Steam) likely grabbed the
+  game on the real desktop, and warns that the pilot stayed on `:0` so Interact would move the real cursor —
+  "close the launcher and try again". No more silent `:0` fallback the user mistakes for success. (The
+  shared-side launch mechanics — `LaunchCommands`, `NestedSession.commandFor` ladder — are in
+  `../botmaker-shared/ROADMAP.md`.)
+
 - **2026-07-28 — Pilot capture picks the right window (bot-owned-display plan, Phase D).**
   `TargetCapture.resolveWindow` took the first window whose title *contained* the needle, so streaming/Interact
   on a "Firestone" target could bind a wiki tab or launcher entry instead of the game (and the wrong rect made
