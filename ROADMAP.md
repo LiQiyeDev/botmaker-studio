@@ -6,6 +6,14 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-29 — A background launch that can't be isolated now says exactly why, immediately (isolated-launch
+  fixes, Phase 7).** `BackgroundLauncher.start`'s up-front guard was only about an open host launcher; it now
+  asks shared's `LaunchIsolation.check(spec)`, which also names a kind with no child-launchable command, a
+  Flatpak-only target with no `dbus-daemon` to own its portal (the game would land on your real desktop), and
+  "nothing that starts it is installed" — each as its own sentence rather than one two-minute timeout.
+  The failure message after a launch that *was* allowed now reports what the process table says happened
+  (escaped to the desktop vs never started) instead of offering both as a guess.
+
 - **2026-07-29 — The private display becomes a bot setting, and a running launcher is refused up front
   (isolated-launch fixes, Phase 4).** Isolation was a properties key with a checkbox buried in the Launch Target
   dialog; it is now a first-class setting in the same place as every other runtime knob, and it travels with the

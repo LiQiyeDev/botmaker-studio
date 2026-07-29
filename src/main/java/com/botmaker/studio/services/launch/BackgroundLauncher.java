@@ -1,7 +1,7 @@
 package com.botmaker.studio.services.launch;
 
 import com.botmaker.shared.capture.GenericWindow;
-import com.botmaker.shared.launch.HostLauncherProbe;
+import com.botmaker.shared.launch.LaunchIsolation;
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.shared.session.NestedSession;
 import javafx.application.Platform;
@@ -112,12 +112,13 @@ public final class BackgroundLauncher implements AutoCloseable {
             report.accept(false, "A background session is already running — stop it first (Remote Pilot ▸ Stop).");
             return;
         }
-        if (HostLauncherProbe.isRunning(spec)) {
-            // Refuse before spending anything. A second Heroic/Steam invocation is forwarded to the instance
-            // already running on :0, which maps the game on the real desktop — so the private display would sit
-            // empty for the whole window timeout and the forwarded launcher would then be SIGKILLed mid-boot
-            // (the Electron SIGTRAP coredump that started this work). Telling the user now costs nothing.
-            report.accept(false, HostLauncherProbe.refusalMessage(spec.kind()));
+        LaunchIsolation.Verdict verdict = LaunchIsolation.check(spec);
+        if (!verdict.isolatable()) {
+            // Refuse before spending anything. Every way this fails ends the same way if we launch anyway — the
+            // private display sits empty for the whole window timeout, then the half-booted child is SIGKILLed
+            // (the Electron SIGTRAP coredump that started this work) — and the causes are distinguishable now
+            // rather than guessable later. Telling the user immediately costs nothing.
+            report.accept(false, verdict.reason());
             return;
         }
         report.accept(true, "Bringing up " + backend + " session and launching " + spec.describe() + "…");
@@ -137,14 +138,11 @@ public final class BackgroundLauncher implements AutoCloseable {
                 // Fail LOUDLY and stay off :0: do not leave a caller thinking it worked on the real desktop.
                 String display = session.displayName();
                 session.close();
-                // A launcher started *during* bring-up is the one case the up-front probe can't catch, so the
-                // same wording is offered here as a likely cause rather than asserted.
+                // The up-front probe already ruled out what it can see, so the backstop reports what the process
+                // table says actually happened — escaped to the desktop, or never started — rather than
+                // offering both as a guess.
                 report(report, false, "Couldn't run " + spec.describe() + " on the private display " + display
-                        + " — it didn't map a window there. "
-                        + (HostLauncherProbe.isRunning(spec)
-                            ? HostLauncherProbe.refusalMessage(spec.kind())
-                            : "The game may still have been setting up (a first Proton/Wine run can take "
-                                + "minutes), or it opened on your real desktop instead."));
+                        + " — it didn't map a window there. " + LaunchIsolation.noWindowDiagnosis(spec));
                 return;
             }
             active = session;
