@@ -2,6 +2,8 @@ package com.botmaker.studio.ui.app;
 
 import com.botmaker.studio.project.BotSettings;
 import com.botmaker.studio.project.ProjectConfig;
+import com.botmaker.studio.project.ProjectCreator;
+import com.botmaker.studio.project.SessionSetting;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
@@ -51,6 +53,8 @@ public final class ClickConfigDialog {
     private final Spinner<Double> compareMargin = new Spinner<>(0.0, 1.0, 0.05, 0.01);
     private final Spinner<Integer> maxRetryAttempts = new Spinner<>(1, 1000, 20, 1);
     private final ComboBox<BotSettings.LinuxInput> linuxInput = new ComboBox<>();
+    private final CheckBox isolatedSession = new CheckBox("Run in a private display (background)");
+    private final ComboBox<BotSettings.SessionBackend> sessionBackend = new ComboBox<>();
 
     private final Label status = new Label();
     private Stage stage;
@@ -89,10 +93,10 @@ public final class ClickConfigDialog {
         bar.setAlignment(Pos.CENTER_LEFT);
 
         VBox root = new VBox(14, heading, intro, new Separator(), buildInputPane(), new Separator(),
-                buildVisionPane(), new Separator(), bar);
+                buildSessionPane(), new Separator(), buildVisionPane(), new Separator(), bar);
         root.setPadding(new Insets(18));
 
-        stage.setScene(new Scene(root, 620, 560));
+        stage.setScene(new Scene(root, 620, 720));
         stage.show();
     }
 
@@ -132,6 +136,52 @@ public final class ClickConfigDialog {
         GridPane.setHgrow(linuxInput, Priority.ALWAYS);
 
         return new VBox(8, title, realInput, explain, grid, backendNote);
+    }
+
+    /**
+     * The private-display section. This is the setting that decides whether you can keep using the machine
+     * while the bot runs, so it says so in those terms rather than in terms of nested X servers.
+     *
+     * <p>Unlike every other control here it is saved <b>twice</b>: as a {@code Session} statement in the
+     * generated source (so it travels with the bot) <em>and</em> into {@code botmaker-project.properties}, which
+     * is what Studio's own Launch buttons read — Studio does not depend on the SDK and cannot run the generated
+     * statement. The Launch Target dialog's "Run in background" toggle writes the same key, so the two agree.
+     */
+    private VBox buildSessionPane() {
+        Label title = new Label("Session");
+        title.setStyle("-fx-font-weight: bold;");
+
+        Label explain = new Label(
+                "On (the default), the bot brings up a private display of its own and launches the game there. "
+                        + "The window never appears on your desktop, the bot never steals your cursor or focus, "
+                        + "and your own clicks can't land in its window — so you can keep using the machine "
+                        + "while it runs. Turn it off to watch the bot work on your real desktop, sharing the "
+                        + "one cursor with it. Linux only; on Windows the bot runs on the desktop either way.");
+        explain.setWrapText(true);
+        explain.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
+
+        sessionBackend.getItems().setAll(BotSettings.SessionBackend.values());
+        sessionBackend.setConverter(new StringConverter<>() {
+            @Override public String toString(BotSettings.SessionBackend v) { return v == null ? "" : v.label(); }
+            @Override public BotSettings.SessionBackend fromString(String s) { return null; }
+        });
+        sessionBackend.setMaxWidth(Double.MAX_VALUE);
+        // The backend only means anything for a private display.
+        sessionBackend.disableProperty().bind(isolatedSession.selectedProperty().not());
+
+        Label backendNote = new Label(
+                "Which private display hosts it. Automatic is right almost always: a game gets gamescope, which "
+                        + "puts a real GPU inside the private display, and a plain command gets the lighter "
+                        + "Xephyr. Pin one only to reproduce a problem — Xephyr renders in software, which is "
+                        + "what makes 3D games and store launchers crash.");
+        backendNote.setWrapText(true);
+        backendNote.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
+
+        GridPane grid = grid();
+        grid.addRow(0, new Label("Display backend"), sessionBackend);
+        GridPane.setHgrow(sessionBackend, Priority.ALWAYS);
+
+        return new VBox(8, title, isolatedSession, explain, grid, backendNote);
     }
 
     /** Delays, confidence and retries — what the bot does around each match attempt. */
@@ -183,6 +233,11 @@ public final class ClickConfigDialog {
         setValue(compareMargin, s.compareMargin());
         setValue(maxRetryAttempts, s.maxRetryAttempts());
         linuxInput.setValue(s.linuxInput());
+        // The session part is seeded from the properties file, not from `s`: it is the form both this dialog and
+        // the Launch Target dialog write, and the one Studio's Launch buttons read. See SessionSetting.
+        SessionSetting session = SessionSetting.read(config.resourcesRoot());
+        isolatedSession.setSelected(session.isolated());
+        sessionBackend.setValue(session.backend());
     }
 
     private static <T> void setValue(Spinner<T> spinner, T value) {
@@ -199,9 +254,15 @@ public final class ClickConfigDialog {
         BotSettings settings = new BotSettings(
                 realInput.isSelected(), foundDelay.getValue(), notFoundDelay.getValue(), confidence.getValue(),
                 randomizeClicks.isSelected(), compareMargin.getValue(), maxRetryAttempts.getValue(),
-                linuxInput.getValue() == null ? BotSettings.LinuxInput.AUTO : linuxInput.getValue());
+                linuxInput.getValue() == null ? BotSettings.LinuxInput.AUTO : linuxInput.getValue(),
+                isolatedSession.isSelected(),
+                sessionBackend.getValue() == null ? BotSettings.SessionBackend.AUTO : sessionBackend.getValue());
         try {
             BotSettings.write(config.mainSourceFile(), config.packageName(), settings);
+            // The session part also lives in botmaker-project.properties, which is what Studio's own Launch
+            // buttons read — BotSettings.write only produces the generated statement.
+            ProjectCreator.writeSessionIsolated(config.resourcesRoot(), settings.isolatedSession());
+            ProjectCreator.writeSessionBackend(config.resourcesRoot(), settings.sessionBackend().id());
             if (onWritten != null) onWritten.accept(BotSettings.source(config.packageName(), settings));
             stage.close();
         } catch (IOException e) {

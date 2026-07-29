@@ -254,13 +254,54 @@ public class ProjectCreator {
      * choice, not a tri-state like {@code launch.target}). The SDK's {@code SessionBootstrap} reads the same key.
      */
     public static void writeSessionIsolated(Path resourcesDir, boolean isolated) throws IOException {
+        writeProjectKey(resourcesDir, ProjectProperties.KEY_SESSION_ISOLATED, Boolean.toString(isolated));
+    }
+
+    /**
+     * Writes the {@code session.backend} key — which nested display hosts an isolated run
+     * ({@code gamescope}/{@code xephyr}), or removes the key for the SDK's kind-driven choice. Studio's own
+     * Launch buttons read this file (Studio doesn't depend on the SDK), which is why the dialog persists here as
+     * well as into the generated source.
+     *
+     * <p>A blank/{@code auto} backend <b>removes</b> the key rather than writing the string {@code "auto"}:
+     * absent is what the SDK reads as "choose by kind", and it is the state a project that never pinned a
+     * backend is in — writing a value for it would make "never chose" and "chose automatic" different bytes.
+     */
+    public static void writeSessionBackend(Path resourcesDir, String backendId) throws IOException {
+        boolean auto = backendId == null || backendId.isBlank() || "auto".equalsIgnoreCase(backendId.trim());
+        writeProjectKey(resourcesDir, ProjectProperties.KEY_SESSION_BACKEND, auto ? null : backendId.trim());
+    }
+
+    /** The current {@code session.backend} value, or {@code null} when unset (the kind-driven default). */
+    public static String readSessionBackend(Path resourcesDir) {
+        Path file = resourcesDir.resolve(ProjectProperties.FILE_NAME);
+        if (!Files.exists(file)) return null;
+        java.util.Properties props = new java.util.Properties();
+        try (var in = Files.newInputStream(file)) {
+            props.load(in);
+        } catch (IOException e) {
+            return null;
+        }
+        String spec = props.getProperty(ProjectProperties.KEY_SESSION_BACKEND);
+        return spec == null || spec.isBlank() ? null : spec.trim();
+    }
+
+    /**
+     * Sets (or, for a {@code null} value, removes) one key in {@code botmaker-project.properties}, preserving
+     * every other key. The load-modify-store dance was copied per key; one copy is enough.
+     */
+    private static void writeProjectKey(Path resourcesDir, String key, String value) throws IOException {
         Files.createDirectories(resourcesDir);
         Path file = resourcesDir.resolve(ProjectProperties.FILE_NAME);
         java.util.Properties props = new java.util.Properties();
         if (Files.exists(file)) {
             try (var in = Files.newInputStream(file)) { props.load(in); }
         }
-        props.setProperty(ProjectProperties.KEY_SESSION_ISOLATED, Boolean.toString(isolated));
+        if (value == null) {
+            props.remove(key);
+        } else {
+            props.setProperty(key, value);
+        }
         try (var out = Files.newOutputStream(file)) {
             props.store(out, "BotMaker project defaults");
         }

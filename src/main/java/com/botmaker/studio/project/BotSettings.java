@@ -30,7 +30,9 @@ public record BotSettings(boolean realInput,
                           boolean randomizeClicks,
                           double compareMargin,
                           int maxRetryAttempts,
-                          LinuxInput linuxInput) {
+                          LinuxInput linuxInput,
+                          boolean isolatedSession,
+                          SessionBackend sessionBackend) {
 
     /** The generated file's name; it sits beside the entry point in the project's own package. */
     public static final String FILE_NAME = "BotSettings.java";
@@ -74,9 +76,55 @@ public record BotSettings(boolean realInput,
         }
     }
 
-    /** The SDK's own defaults ({@code ClickConfig}'s field initialisers), with real input off. */
+    /**
+     * Which nested display hosts an isolated bot, mirroring the SDK's {@code Session.useBackend} and the
+     * project's {@code session.backend} key. {@link #AUTO} is the SDK's own kind-driven choice — a game gets
+     * gamescope (a real GPU in the private display), a plain command the lighter Xephyr — and, like
+     * {@link LinuxInput#AUTO}, it writes no statement at all.
+     *
+     * <p>The ids are shared's {@code NestedSession.Backend.id()} values; they are persisted, so they must stay
+     * stable. Pinning {@link #XEPHYR} for a game is the one combination worth avoiding: its software GL is what
+     * makes store launchers and Proton titles abort.
+     */
+    public enum SessionBackend {
+        AUTO("auto", "Automatic (gamescope for games, Xephyr for commands)"),
+        GAMESCOPE("gamescope", "gamescope — a real GPU in the private display (3D games)"),
+        XEPHYR("xephyr", "Xephyr — software-rendered 2D (crashes 3D games)");
+
+        private final String id;
+        private final String label;
+
+        SessionBackend(String id, String label) {
+            this.id = id;
+            this.label = label;
+        }
+
+        /** The value written to {@code session.backend} and into generated source; stable. */
+        public String id() {
+            return id;
+        }
+
+        public String label() {
+            return label;
+        }
+
+        /** Total parse: an unrecognised id (a newer Studio's, a typo in a hand-edit) reads back as {@link #AUTO}. */
+        public static SessionBackend fromId(String id) {
+            if (id == null) return AUTO;
+            for (SessionBackend v : values()) {
+                if (v.id.equalsIgnoreCase(id.trim())) return v;
+            }
+            return AUTO;
+        }
+    }
+
+    /**
+     * The SDK's own defaults ({@code ClickConfig}'s field initialisers), with real input off — and isolation
+     * <b>on</b>, matching the SDK's default-on {@code Session}, so a default project generates no session
+     * statement at all.
+     */
     public static final BotSettings DEFAULTS =
-            new BotSettings(false, 500, 200, 0.8, true, 0.05, 20, LinuxInput.AUTO);
+            new BotSettings(false, 500, 200, 0.8, true, 0.05, 20, LinuxInput.AUTO, true, SessionBackend.AUTO);
 
     /**
      * What a Game-bot project starts with: {@link #DEFAULTS} but driving the real mouse and keyboard, because
@@ -86,7 +134,13 @@ public record BotSettings(boolean realInput,
 
     public BotSettings withRealInput(boolean enabled) {
         return new BotSettings(enabled, foundDelay, notFoundDelay, confidence, randomizeClicks, compareMargin,
-                maxRetryAttempts, linuxInput);
+                maxRetryAttempts, linuxInput, isolatedSession, sessionBackend);
+    }
+
+    /** This settings value with the session (private-display) part replaced — the dialog's save path. */
+    public BotSettings withSession(boolean isolated, SessionBackend backend) {
+        return new BotSettings(realInput, foundDelay, notFoundDelay, confidence, randomizeClicks, compareMargin,
+                maxRetryAttempts, linuxInput, isolated, backend == null ? SessionBackend.AUTO : backend);
     }
 
     /** {@code BotSettings.java} for a project whose entry point is {@code mainSourceFile}. */
@@ -102,7 +156,7 @@ public record BotSettings(boolean realInput,
         return String.format("""
             package com.%s;
 
-            import com.botmaker.sdk.api.vision.ClickConfig;
+            %simport com.botmaker.sdk.api.vision.ClickConfig;
 
             /**
              * How this bot behaves at runtime: how long it waits after a match, how sure it has to be, and
@@ -116,7 +170,7 @@ public record BotSettings(boolean realInput,
 
                 /** Applies every setting below. Called as the first statement of the bot's main. */
                 public static void apply() {
-            %s        ClickConfig.useRealInput(%s);
+            %s%s        ClickConfig.useRealInput(%s);
                     ClickConfig.setFoundDelay(%d);
                     ClickConfig.setNotFoundDelay(%d);
                     ClickConfig.setDefaultConfidence(%s);
@@ -127,8 +181,34 @@ public record BotSettings(boolean realInput,
 
                 private BotSettings() {}
             }
-            """, packageName, linuxInputStatement(s), s.realInput(), s.foundDelay(), s.notFoundDelay(),
-                s.confidence(), s.randomizeClicks(), s.compareMargin(), s.maxRetryAttempts());
+            """, packageName, sessionImport(s), linuxInputStatement(s), sessionStatements(s), s.realInput(),
+                s.foundDelay(), s.notFoundDelay(), s.confidence(), s.randomizeClicks(), s.compareMargin(),
+                s.maxRetryAttempts());
+    }
+
+    /**
+     * The session lines, emitted only where they differ from the SDK's defaults — isolation is on and the
+     * backend auto-selected, so a default project's generated file mentions {@code Session} nowhere. That is the
+     * same rule {@link #linuxInputStatement} follows, and it is what keeps regenerating an existing default
+     * project byte-identical.
+     *
+     * <p>They lead the method (after the Linux backend property) because the session is brought up by the first
+     * {@code Target.start()}, and a call made after that point changes nothing.
+     */
+    private static String sessionStatements(BotSettings s) {
+        StringBuilder out = new StringBuilder();
+        if (!s.isolatedSession()) {
+            out.append("        Session.disable();\n");
+        }
+        if (s.sessionBackend() != SessionBackend.AUTO) {
+            out.append("        Session.useBackend(\"").append(s.sessionBackend().id()).append("\");\n");
+        }
+        return out.toString();
+    }
+
+    /** {@code Session}'s import, only when a session statement is emitted — an unused import is a warning. */
+    private static String sessionImport(BotSettings s) {
+        return sessionStatements(s).isEmpty() ? "" : "import com.botmaker.sdk.api.Session;\n";
     }
 
     /**
@@ -158,6 +238,16 @@ public record BotSettings(boolean realInput,
             "ClickConfig\\s*\\.\\s*DEFAULT_COMPARE_MARGIN\\s*=\\s*(" + NUMBER + ")");
     private static final Pattern LINUX_INPUT = Pattern.compile(
             "setProperty\\s*\\(\\s*\"botmaker\\.linux\\.input\"\\s*,\\s*\"([^\"]*)\"\\s*\\)");
+    /**
+     * The isolation statement in any of the three spellings the facade offers — {@code Session.disable()},
+     * {@code Session.enable()} and {@code Session.set(<bool>)} — because a user hand-editing this file will
+     * reach for whichever reads best, and all three are real API. The captured group is normalised in
+     * {@link #isolatedFrom}.
+     */
+    private static final Pattern SESSION_ISOLATED = Pattern.compile(
+            "Session\\s*\\.\\s*(?:(enable|disable)\\s*\\(\\s*\\)|set\\s*\\(\\s*(true|false)\\s*\\))");
+    private static final Pattern SESSION_BACKEND = Pattern.compile(
+            "Session\\s*\\.\\s*useBackend\\s*\\(\\s*\"([^\"]*)\"\\s*\\)");
 
     /**
      * The settings currently written in {@code settingsFile}, falling back to {@link #DEFAULTS} for anything
@@ -181,7 +271,22 @@ public record BotSettings(boolean realInput,
                 bool(RANDOM_CLICKS, source, DEFAULTS.randomizeClicks()),
                 real(COMPARE_MARGIN, source, DEFAULTS.compareMargin()),
                 integer(MAX_RETRIES, source, DEFAULTS.maxRetryAttempts()),
-                LinuxInput.fromId(text(LINUX_INPUT, source)));
+                LinuxInput.fromId(text(LINUX_INPUT, source)),
+                isolatedFrom(source),
+                SessionBackend.fromId(text(SESSION_BACKEND, source)));
+    }
+
+    /**
+     * Whether {@code source} asks for isolation: absent → the default (on), which is also how a file generated
+     * by an older Studio that had no session settings reads back.
+     */
+    private static boolean isolatedFrom(String source) {
+        Matcher m = SESSION_ISOLATED.matcher(source);
+        if (!m.find()) {
+            return DEFAULTS.isolatedSession();
+        }
+        String named = m.group(1);
+        return named != null ? "enable".equals(named) : Boolean.parseBoolean(m.group(2));
     }
 
     private static String text(Pattern p, String source) {

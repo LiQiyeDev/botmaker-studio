@@ -46,6 +46,7 @@ public final class SdkApi {
             "VisionContext",
             "ClickConfig",
             "Debug",
+            "Session",
             "Game",
             "Target",
             "Emulators",

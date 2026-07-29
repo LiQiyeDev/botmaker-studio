@@ -6,6 +6,41 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-29 — The private display becomes a bot setting, and a running launcher is refused up front
+  (isolated-launch fixes, Phase 4).** Isolation was a properties key with a checkbox buried in the Launch Target
+  dialog; it is now a first-class setting in the same place as every other runtime knob, and it travels with the
+  bot.
+  - **`BotSettings` gains `isolatedSession` + a `SessionBackend {AUTO, GAMESCOPE, XEPHYR}` enum** (shaped like
+    the existing `LinuxInput`: stable `id()`, total `fromId`). `source(...)` emits `Session.disable();` /
+    `Session.useBackend("…");` **only when they differ from the SDK's defaults**, and the `Session` import is
+    conditional on the same test — so a default project's generated file mentions `Session` nowhere and
+    regenerating an existing one is byte-identical. `read(Path)` accepts all three spellings a hand-editor might
+    reach for (`disable()`, `enable()`, `set(bool)`).
+  - **"Session" section in the Input &amp; Clicks dialog**: the checkbox and a backend combo, worded in terms of
+    what the setting actually buys (keep using the machine while the bot runs) rather than nested X servers. The
+    backend combo disables when isolation is off.
+  - **New `SessionSetting` — one writer for a setting that exists in two forms.** The generated statement
+    travels with the bot; the `session.isolated`/`session.backend` keys are what *Studio's own* Launch buttons
+    read (Studio doesn't depend on the SDK, so it can't run the statement). The SDK ranks the statement **above**
+    the keys, so a properties-only write would let a stale `Session.disable()` silently beat the box the user
+    just ticked — which is exactly what the Launch Target dialog's toggle used to do. Both surfaces now go
+    through `SessionSetting.write`, which moves both forms; reading is from the properties file, the form both
+    write. `LaunchTargetDialog` takes a `ProjectConfig` instead of a bare resources dir to make that possible.
+    `ProjectCreator` gains `writeSessionBackend`/`readSessionBackend` over a factored `writeProjectKey` (the
+    load-modify-store dance had been copied per key), and *removes* the backend key for `auto` rather than
+    writing the string — absent is what the SDK reads as "choose by kind", so "never chose" and "chose
+    automatic" stay the same bytes.
+  - **A running host launcher is now refused before anything is spent.** `BackgroundLauncher.start` probes with
+    `HostLauncherProbe` and reports the shared refusal message immediately: a second Heroic/Steam invocation is
+    forwarded to the instance already on `:0`, which maps the game on the real desktop, so the private display
+    sat empty for the whole window timeout and the forwarded launcher was then SIGKILLed mid-boot — the Electron
+    SIGTRAP coredump that started this work. The post-timeout message no longer *asserts* a launcher grabbed it;
+    it says so only when the probe agrees, and otherwise offers the likelier "a first Proton/Wine run takes
+    minutes".
+  - `SdkApi` lists `Session` so the palette recognises and offers it. Tests: the new statements' emit/parse/
+    absent cases in `BotSettingsTest`, and a `SessionSettingTest` covering both-forms-move, back-to-default
+    removing the key *and* the statement, and the session write preserving every other tuning value.
+
 - **2026-07-29 — Background the Launch buttons, add the opt-out toggle, share the setting (bot-owned-display
   plan, Phase J).** Isolation was reachable only from the Remote Pilot dialog; every other Launch button ran on
   the cursor-moving `:0`. Now the toolbar **▶ Launch** and the Launch Target dialog's **▶ Launch now**

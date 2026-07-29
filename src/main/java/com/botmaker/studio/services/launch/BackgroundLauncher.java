@@ -1,6 +1,7 @@
 package com.botmaker.studio.services.launch;
 
 import com.botmaker.shared.capture.GenericWindow;
+import com.botmaker.shared.launch.HostLauncherProbe;
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.shared.session.NestedSession;
 import javafx.application.Platform;
@@ -111,6 +112,14 @@ public final class BackgroundLauncher implements AutoCloseable {
             report.accept(false, "A background session is already running — stop it first (Remote Pilot ▸ Stop).");
             return;
         }
+        if (HostLauncherProbe.isRunning(spec)) {
+            // Refuse before spending anything. A second Heroic/Steam invocation is forwarded to the instance
+            // already running on :0, which maps the game on the real desktop — so the private display would sit
+            // empty for the whole window timeout and the forwarded launcher would then be SIGKILLed mid-boot
+            // (the Electron SIGTRAP coredump that started this work). Telling the user now costs nothing.
+            report.accept(false, HostLauncherProbe.refusalMessage(spec.kind()));
+            return;
+        }
         report.accept(true, "Bringing up " + backend + " session and launching " + spec.describe() + "…");
         Thread worker = new Thread(() -> runStart(backend, width, height, spec, report), "background-launch");
         worker.setDaemon(true);
@@ -128,9 +137,14 @@ public final class BackgroundLauncher implements AutoCloseable {
                 // Fail LOUDLY and stay off :0: do not leave a caller thinking it worked on the real desktop.
                 String display = session.displayName();
                 session.close();
+                // A launcher started *during* bring-up is the one case the up-front probe can't catch, so the
+                // same wording is offered here as a likely cause rather than asserted.
                 report(report, false, "Couldn't run " + spec.describe() + " on the private display " + display
-                        + " — it didn't map a window there. A host launcher (Heroic/Steam) may have grabbed it "
-                        + "on your real desktop instead. Close the launcher and try again.");
+                        + " — it didn't map a window there. "
+                        + (HostLauncherProbe.isRunning(spec)
+                            ? HostLauncherProbe.refusalMessage(spec.kind())
+                            : "The game may still have been setting up (a first Proton/Wine run can take "
+                                + "minutes), or it opened on your real desktop instead."));
                 return;
             }
             active = session;

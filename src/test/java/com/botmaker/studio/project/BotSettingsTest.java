@@ -29,7 +29,7 @@ class BotSettingsTest {
     void everySettingRoundTripsThroughTheGeneratedFile(@TempDir Path root) throws IOException {
         ProjectConfig config = project(root);
         BotSettings written = new BotSettings(true, 750, 125, 0.62, false, 0.11, 7,
-                BotSettings.LinuxInput.UINPUT);
+                BotSettings.LinuxInput.UINPUT, false, BotSettings.SessionBackend.GAMESCOPE);
 
         BotSettings.write(config.mainSourceFile(), config.packageName(), written);
 
@@ -47,6 +47,51 @@ class BotSettingsTest {
         assertFalse(source.contains("botmaker.linux.input"), source);
         assertEquals(BotSettings.LinuxInput.AUTO,
                 BotSettings.read(BotSettings.fileFor(config.mainSourceFile())).linuxInput());
+    }
+
+    @Test
+    void aDefaultProjectMentionsNoSessionAtAll(@TempDir Path root) throws IOException {
+        ProjectConfig config = project(root);
+        BotSettings.write(config.mainSourceFile(), config.packageName(), BotSettings.DEFAULTS);
+
+        String source = Files.readString(BotSettings.fileFor(config.mainSourceFile()));
+        // Isolation on with an automatic backend *is* the SDK's own default, so the generated file carries no
+        // Session statement and — just as important — no unused Session import. This is what keeps regenerating
+        // an existing default project byte-identical.
+        assertFalse(source.contains("Session"), source);
+        BotSettings read = BotSettings.read(BotSettings.fileFor(config.mainSourceFile()));
+        assertTrue(read.isolatedSession());
+        assertEquals(BotSettings.SessionBackend.AUTO, read.sessionBackend());
+    }
+
+    @Test
+    void optingOutEmitsExactlyTheDisableCallAndItsImport(@TempDir Path root) throws IOException {
+        ProjectConfig config = project(root);
+        BotSettings.write(config.mainSourceFile(), config.packageName(),
+                BotSettings.DEFAULTS.withSession(false, BotSettings.SessionBackend.XEPHYR));
+
+        String source = Files.readString(BotSettings.fileFor(config.mainSourceFile()));
+        assertTrue(source.contains("import com.botmaker.sdk.api.Session;"), source);
+        assertTrue(source.contains("Session.disable();"), source);
+        assertTrue(source.contains("Session.useBackend(\"xephyr\");"), source);
+    }
+
+    @Test
+    void aHandWrittenSessionCallInAnySpellingReadsBack(@TempDir Path root) throws IOException {
+        // All three spellings are real API, so a user hand-editing this file may reach for any of them.
+        record Case(String statement, boolean isolated) {}
+        for (Case c : new Case[]{new Case("Session.disable();", false), new Case("Session.enable();", true),
+                new Case("Session.set(false);", false), new Case("Session.set(true);", true)}) {
+            Path file = root.resolve(c.statement().hashCode() + BotSettings.FILE_NAME);
+            Files.writeString(file, """
+                public final class BotSettings {
+                    public static void apply() {
+                        %s
+                    }
+                }
+                """.formatted(c.statement()));
+            assertEquals(c.isolated(), BotSettings.read(file).isolatedSession(), c.statement());
+        }
     }
 
     @Test

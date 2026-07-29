@@ -5,7 +5,9 @@ import com.botmaker.studio.game.FaugusLibraryScanner;
 import com.botmaker.studio.game.GameLibraryProvider;
 import com.botmaker.studio.game.HeroicLibraryScanner;
 import com.botmaker.studio.game.SteamLibraryScanner;
+import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectCreator;
+import com.botmaker.studio.project.SessionSetting;
 import com.botmaker.studio.project.launch.QuickLaunch;
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.studio.ui.render.components.EmulatorPickerDialog;
@@ -45,6 +47,7 @@ import java.util.function.Consumer;
 public final class LaunchTargetDialog {
 
     private final Window owner;
+    private final ProjectConfig config;
     private final Path resourcesDir;
     /** Notified with the new spec (or {@code null} when cleared) after a successful write, so the toolbar can refresh. */
     private final Consumer<String> onChanged;
@@ -56,9 +59,15 @@ public final class LaunchTargetDialog {
     private Button launchNow;
     private String currentSpec;
 
-    public LaunchTargetDialog(Window owner, Path resourcesDir, Consumer<String> onChanged) {
+    /**
+     * @param config the open project — needed in full (not just its resources dir) because the "Run in
+     *               background" toggle also rewrites the generated {@code Session} statement; see
+     *               {@link com.botmaker.studio.project.SessionSetting} for why both forms must move together.
+     */
+    public LaunchTargetDialog(Window owner, ProjectConfig config, Consumer<String> onChanged) {
         this.owner = owner;
-        this.resourcesDir = resourcesDir;
+        this.config = config;
+        this.resourcesDir = config.resourcesRoot();
         this.onChanged = onChanged;
     }
 
@@ -142,10 +151,17 @@ public final class LaunchTargetDialog {
         stage.show();
     }
 
-    /** Persists the "Run in background" toggle to {@code session.isolated} and reports the new state. */
+    /**
+     * Persists the "Run in background" toggle and reports the new state. It goes through
+     * {@link SessionSetting}, not straight to the properties key, because the setting also exists as a
+     * {@code Session} statement in the generated source — and the SDK ranks that statement <em>above</em> the
+     * key, so writing only the key here would let a stale {@code Session.disable()} beat the box just ticked.
+     * The backend the Input &amp; Clicks dialog chose is carried through untouched.
+     */
     private void applyBackground(boolean isolated) {
         try {
-            ProjectCreator.writeSessionIsolated(resourcesDir, isolated);
+            SessionSetting.write(config,
+                    new SessionSetting(isolated, SessionSetting.read(resourcesDir).backend()));
             report(true, isolated
                     ? "Background mode on — launches into a private display, your real cursor stays free."
                     : "Background mode off — launches on your real desktop (:0).");

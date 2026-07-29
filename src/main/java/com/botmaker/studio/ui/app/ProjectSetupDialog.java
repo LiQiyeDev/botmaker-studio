@@ -136,7 +136,7 @@ public final class ProjectSetupDialog {
         rows.getChildren().setAll(
                 row(launchDone, false, "Launch target",
                         launchDone ? describeLaunch() : "Not set — pick what the bot should open.",
-                        "Set…", () -> new LaunchTargetDialog(owner, config.resourcesRoot(), spec -> refresh()).show(),
+                        "Set…", () -> new LaunchTargetDialog(owner, config, spec -> refresh()).show(),
                         quickLaunchButton()),
                 row(captureDone, false, "Capture target",
                         describeCapture(s),
