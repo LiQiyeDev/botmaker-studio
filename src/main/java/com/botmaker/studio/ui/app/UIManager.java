@@ -4,6 +4,7 @@ import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeControllerFactory;
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.shared.session.NestedSession;
+import com.botmaker.shared.session.SessionBackends;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
 import com.botmaker.studio.ui.dnd.BlockEvent;
 import com.botmaker.studio.project.ProjectConfig;
@@ -720,7 +721,9 @@ public class UIManager {
 
         ChoiceBox<NestedSession.Backend> backend = new ChoiceBox<>();
         backend.getItems().addAll(NestedSession.Backend.XEPHYR, NestedSession.Backend.GAMESCOPE);
-        backend.setValue(NestedSession.Backend.XEPHYR);
+        // Preselect the backend the configured target actually needs (gamescope for a game, Xephyr otherwise),
+        // single-sourced through SessionBackends so the pilot and the Launch buttons can't disagree.
+        backend.setValue(SessionBackends.preferredBackend(nestedLauncher.configuredTarget()));
         backend.setTooltip(new Tooltip(
                 "Xephyr: 2D targets. gamescope: hardware-3D (Proton/DXVK/Vulkan) — needs a GPU box."));
 
@@ -735,8 +738,7 @@ public class UIManager {
         // by the async callback isn't clobbered when we re-enable the buttons.
         Runnable refreshButtons = () -> {
             boolean running = nestedLauncher.isRunning();
-            boolean backendOk = com.botmaker.studio.services.pilot.NestedSessionLauncher
-                    .backendAvailable(backend.getValue());
+            boolean backendOk = SessionBackends.isAvailable(backend.getValue());
             boolean canStart = nestedLauncher.configuredTarget() != null && backendOk;
             start.setDisable(running || !canStart);
             stop.setDisable(!running);
@@ -759,9 +761,9 @@ public class UIManager {
             LaunchSpec spec = nestedLauncher.configuredTarget();
             if (spec == null) {
                 status.setText("● Set a launch target (Run ▸ Launch Target…) to enable background mode.");
-            } else if (!com.botmaker.studio.services.pilot.NestedSessionLauncher.backendAvailable(backend.getValue())) {
-                status.setText("● Install " + backend.getValue().binaryName()
-                        + " to use this backend for background mode.");
+            } else if (!SessionBackends.isAvailable(backend.getValue())) {
+                status.setText("● To use this backend for background mode, "
+                        + SessionBackends.installHint(backend.getValue()) + ".");
             } else {
                 status.setText("● Mirroring your real desktop :0 — Interact moves your real cursor. Start "
                         + "background mode to run " + spec.describe() + " isolated.");

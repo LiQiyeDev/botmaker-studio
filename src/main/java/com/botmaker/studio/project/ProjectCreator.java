@@ -81,6 +81,11 @@ public class ProjectCreator {
             //    generated bot's runtime scaling defaults to it.
             seedSettings(cfg, referenceResolution, template);
 
+            // 5b. Default new projects to background-isolated launch (private :N display). It is written
+            //     explicitly (rather than relying on the absent-key default) so the toggle in the Launch Target
+            //     dialog shows a concrete state and the SDK/Studio agree from the first run.
+            writeSessionIsolated(cfg.resourcesRoot(), true);
+
             // 6. Initialize local project history (linear VCS) with an initial commit.
             new ProjectVcs(projectPath).init();
 
@@ -235,6 +240,48 @@ public class ProjectCreator {
             return true;
         }
         String spec = props.getProperty(ProjectProperties.KEY_DEBUG);
+        if (spec == null || spec.isBlank()) return true;
+        return switch (spec.trim().toLowerCase()) {
+            case "false", "0", "no", "off" -> false;
+            default -> true;
+        };
+    }
+
+    /**
+     * Writes the {@code session.isolated} key in {@code botmaker-project.properties} — whether the bot (and the
+     * Studio Launch buttons) run the game in a private nested display ({@code :N}) instead of the real
+     * {@code :0} desktop. Always writes a definite {@code true}/{@code false} (the toggle is a deliberate
+     * choice, not a tri-state like {@code launch.target}). The SDK's {@code SessionBootstrap} reads the same key.
+     */
+    public static void writeSessionIsolated(Path resourcesDir, boolean isolated) throws IOException {
+        Files.createDirectories(resourcesDir);
+        Path file = resourcesDir.resolve(ProjectProperties.FILE_NAME);
+        java.util.Properties props = new java.util.Properties();
+        if (Files.exists(file)) {
+            try (var in = Files.newInputStream(file)) { props.load(in); }
+        }
+        props.setProperty(ProjectProperties.KEY_SESSION_ISOLATED, Boolean.toString(isolated));
+        try (var out = Files.newOutputStream(file)) {
+            props.store(out, "BotMaker project defaults");
+        }
+    }
+
+    /**
+     * The current {@code session.isolated} setting: {@code true} unless the key is explicitly
+     * {@code false}/{@code 0}/{@code no}/{@code off} (matching {@link ProjectProperties#sessionIsolated()} and
+     * the SDK's default-on isolation). The inverse of {@link #writeSessionIsolated} — used to seed the Launch
+     * Target dialog's "Run in background" toggle and to gate the Studio Launch buttons' background path.
+     */
+    public static boolean readSessionIsolated(Path resourcesDir) {
+        Path file = resourcesDir.resolve(ProjectProperties.FILE_NAME);
+        if (!Files.exists(file)) return true;
+        java.util.Properties props = new java.util.Properties();
+        try (var in = Files.newInputStream(file)) {
+            props.load(in);
+        } catch (IOException e) {
+            return true;
+        }
+        String spec = props.getProperty(ProjectProperties.KEY_SESSION_ISOLATED);
         if (spec == null || spec.isBlank()) return true;
         return switch (spec.trim().toLowerCase()) {
             case "false", "0", "no", "off" -> false;

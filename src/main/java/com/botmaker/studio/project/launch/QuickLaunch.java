@@ -2,12 +2,16 @@ package com.botmaker.studio.project.launch;
 
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.shared.launch.Launcher;
+import com.botmaker.shared.session.NestedSession;
+import com.botmaker.shared.session.SessionBackends;
 import com.botmaker.studio.project.ProjectCreator;
+import com.botmaker.studio.services.launch.BackgroundLauncher;
 import javafx.application.Platform;
 import javafx.scene.control.Button;
 import javafx.scene.control.Tooltip;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
 /**
  * The "▶ Launch now" button: brings the project's configured {@code launch.target} up <em>without</em>
@@ -18,6 +22,12 @@ import java.nio.file.Path;
  * the point of the move: an earlier attempt at this button copied the protocol URLs and CLI ladders into
  * Studio, which is documented as explicitly <em>not</em> their owner. Studio now knows nothing about how a
  * Steam or Heroic game starts.
+ *
+ * <p><b>Background isolation.</b> When the project has {@code session.isolated} on (the default), the button
+ * doesn't launch on the real {@code :0} desktop — it brings the target up in a private nested display via the
+ * shared {@link BackgroundLauncher} (gamescope for games, Xephyr for a plain command, per
+ * {@link SessionBackends}), so your real cursor stays free and the Remote Pilot's Stop/status reflect the same
+ * live session. Turning the toggle off returns to a {@code :0} {@link Launcher#start}.
  *
  * <p>Two things every call site gets for free by going through here rather than wiring its own button:
  * the launch runs <b>off the FX thread</b> (a protocol hand-off blocks on process spawns, and an
@@ -61,7 +71,7 @@ public final class QuickLaunch {
         }
         button.setDisable(false);
         button.setTooltip(new Tooltip("Start " + spec.describe() + " now, without running the bot"));
-        button.setOnAction(e -> launch(button, spec, report));
+        button.setOnAction(e -> launch(button, spec, report, resourcesDir));
     }
 
     /** The parsed {@code launch.target} of the project rooted at {@code resourcesDir}, or {@code null}. */
@@ -73,8 +83,12 @@ public final class QuickLaunch {
         return (spec == null || spec.isBlank()) ? null : LaunchSpec.parse(spec);
     }
 
-    private static void launch(Button button, LaunchSpec spec, Report report) {
+    private static void launch(Button button, LaunchSpec spec, Report report, Path resourcesDir) {
         button.setDisable(true);
+        if (ProjectCreator.readSessionIsolated(resourcesDir)) {
+            launchInBackground(button, spec, report, resourcesDir);
+            return;
+        }
         report.accept(true, "Launching " + spec.describe() + "…");
         Thread worker = new Thread(() -> {
             String failure = null;
@@ -97,5 +111,29 @@ public final class QuickLaunch {
         }, "quick-launch");
         worker.setDaemon(true);
         worker.start();
+    }
+
+    /**
+     * The background path (project {@code session.isolated} on): bring the target up in a private nested
+     * display via the shared {@link BackgroundLauncher} instead of the real {@code :0} desktop. The backend is
+     * chosen by kind ({@link SessionBackends}) — gamescope for games, Xephyr for a plain command; when the
+     * backend a game needs isn't installed we fail <b>loudly</b> with the install hint rather than dropping to a
+     * Xephyr that would crash it. The button is re-enabled once the async bring-up reports back.
+     */
+    private static void launchInBackground(Button button, LaunchSpec spec, Report report, Path resourcesDir) {
+        Optional<NestedSession.Backend> backend = SessionBackends.availableBackendFor(spec);
+        if (backend.isEmpty()) {
+            button.setDisable(false);
+            report.accept(false, "Can't run " + spec.describe() + " in the background — "
+                    + SessionBackends.installHint(SessionBackends.preferredBackend(spec))
+                    + ". Turn off \"Run in background\" (Launch Target dialog) to launch on your desktop instead.");
+            return;
+        }
+        BackgroundLauncher.forProject(resourcesDir).start(
+                backend.get(), spec, BackgroundLauncher.DEFAULT_WIDTH, BackgroundLauncher.DEFAULT_HEIGHT,
+                (ok, message) -> {
+                    button.setDisable(false);
+                    report.accept(ok, message);
+                });
     }
 }

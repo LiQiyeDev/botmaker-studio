@@ -6,6 +6,23 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-29 — Background the Launch buttons, add the opt-out toggle, share the setting (bot-owned-display
+  plan, Phase J).** Isolation was reachable only from the Remote Pilot dialog; every other Launch button ran on
+  the cursor-moving `:0`. Now the toolbar **▶ Launch** and the Launch Target dialog's **▶ Launch now**
+  (`QuickLaunch`) bring the game up in a private nested display **by default**, choosing the backend by kind
+  (`SessionBackends` — gamescope for Steam/Epic/Heroic/Faugus/exe games, Xephyr for a `cli:` command) and
+  failing **loudly** with the install hint when a game's backend isn't installed, rather than dropping to a
+  Xephyr that crashes it. The bring-up + held session moved out of the pilot into a new PilotServer-free
+  `services/launch/BackgroundLauncher` (one holder per project keyed by resources dir, started/stopped
+  listeners), so the Launch buttons and the pilot drive the **same** session and can't disagree;
+  `NestedSessionLauncher` is now a thin pilot adapter over it that routes the session to `PilotServer`. The
+  **Launch Target** dialog gained a **"Run in background (private display)"** checkbox persisted to
+  `session.isolated` (`ProjectCreator.readSessionIsolated`/`writeSessionIsolated`); new projects default it on.
+  The pilot box now preselects the backend from `SessionBackends.preferredBackend(target)` and takes
+  availability/install-hint from shared `SessionBackends` (the old `NestedSessionLauncher.backendAvailable` PATH
+  probe is gone). Bot Run/Debug already isolates by default via the SDK (Phase H reads the same key) — a
+  Studio-side "gamescope missing" note on Run/Debug is deferred (cosmetic; the bot logs the hint itself).
+
 - **2026-07-28 — Surface & default background mode in the pilot (bot-owned-display plan, Phase F).** The
   isolated-`:N` control was buried at the very bottom of the Remote Pilot dialog where users never found it, so
   every click went through the cursor-moving `:0` path. Now the **Remote Pilot** dialog leads with a

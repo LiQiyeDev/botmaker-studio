@@ -14,6 +14,7 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -105,6 +106,16 @@ public final class LaunchTargetDialog {
 
         VBox choices = new VBox(6, steam, epic, heroic, faugus, exe, cli, emu);
 
+        CheckBox background = new CheckBox("Run in background (private display)");
+        background.setSelected(ProjectCreator.readSessionIsolated(resourcesDir));
+        background.setOnAction(e -> applyBackground(background.isSelected()));
+        Label backgroundHint = new Label("On: the game runs in a private nested display the bot alone drives "
+                + "(gamescope for Steam/Epic/Heroic/Faugus/exe games, Xephyr for a CLI command) so your real "
+                + "cursor stays free. Off: it launches on your real desktop (:0).");
+        backgroundHint.setWrapText(true);
+        backgroundHint.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
+        VBox backgroundBox = new VBox(2, background, backgroundHint);
+
         statusLabel = new Label();
         statusLabel.setStyle("-fx-font-size: 11px;");
         // The status text is the flexible element: it grows to fill the row and ellipsizes when long, so it
@@ -125,10 +136,22 @@ public final class LaunchTargetDialog {
         HBox bar = new HBox(8, statusLabel, launchNow, clear, close);
         bar.setAlignment(Pos.CENTER_LEFT);
 
-        VBox root = new VBox(12, heading, hint, currentLabel, choices, bar);
+        VBox root = new VBox(12, heading, hint, currentLabel, choices, backgroundBox, bar);
         root.setPadding(new Insets(16));
-        stage.setScene(new Scene(root, 440, 420));
+        stage.setScene(new Scene(root, 440, 500));
         stage.show();
+    }
+
+    /** Persists the "Run in background" toggle to {@code session.isolated} and reports the new state. */
+    private void applyBackground(boolean isolated) {
+        try {
+            ProjectCreator.writeSessionIsolated(resourcesDir, isolated);
+            report(true, isolated
+                    ? "Background mode on — launches into a private display, your real cursor stays free."
+                    : "Background mode off — launches on your real desktop (:0).");
+        } catch (IOException ex) {
+            error("Couldn't save: " + ex.getMessage());
+        }
     }
 
     private void pickGame(GameLibraryProvider provider, String kind) {

@@ -50,6 +50,21 @@ class ProjectCreatorTest {
     }
 
     @Test
+    void sessionIsolatedDefaultsToTrueAndRoundTrips(@TempDir Path root) throws IOException {
+        ProjectConfig config = ProjectConfig.forProject("MyBot", root);
+        Path resources = config.resourcesRoot();
+
+        // No file yet → the default-on state (matching the SDK's SessionBootstrap default).
+        assertTrue(ProjectCreator.readSessionIsolated(resources), "isolation defaults on when unset");
+
+        ProjectCreator.writeSessionIsolated(resources, false);
+        assertFalse(ProjectCreator.readSessionIsolated(resources), "an explicit opt-out reads back as off");
+
+        ProjectCreator.writeSessionIsolated(resources, true);
+        assertTrue(ProjectCreator.readSessionIsolated(resources), "toggling back on reads as on");
+    }
+
+    @Test
     void theGameBotTemplateScaffoldsTheSuperviseContract() {
         Map<String, String> sources = ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "MyBot", "mybot");
 
