@@ -6,6 +6,11 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-30 — Run the bot into the session you already launched (Phase 11 step 3).** `CodeExecutionService` now
+  prefixes the bot's argv with `BackgroundLauncher.handoffArguments()` — the live session's display, backend and
+  attached window — so the bot joins it instead of bringing up a second private display, which a single-instance
+  launcher would have redirected into the first one. The hand-off's shape belongs to shared's `AdoptedSession`
+  (which also reads it); Studio only passes it along, and a failure to compose it never blocks a run.
 - **2026-07-30 — A dead background session is let go of (Phase 11 step 2).** `BackgroundLauncher` now watches its
   held session (2 s poll on `NestedSession.closeIfDead()`) and drops it when the private display dies, firing the
   stopped listeners. Before, `isRunning()` kept saying yes, the Launch button kept refusing a second bring-up, and

@@ -9,6 +9,7 @@ import com.botmaker.studio.project.FileRole;
 import com.botmaker.studio.project.LockedRegions;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
+import com.botmaker.studio.services.launch.BackgroundLauncher;
 import com.botmaker.studio.util.ClassPathManager;
 import com.botmaker.studio.validation.DiagnosticsManager;
 import javafx.application.Platform;
@@ -128,11 +129,11 @@ public class CodeExecutionService {
                 // Tell UI the program has started so the Stop button becomes clickable.
                 eventBus.publish(new CoreApplicationEvents.ProgramStartedEvent());
 
-                // Run the compiled main class directly: java -cp <classes:deps> <mainClass>
-                ProcessBuilder pb = new ProcessBuilder(
-                        config.javaExecutable(),
-                        "-cp", buildRuntimeClasspath(),
-                        config.mainClassName())
+                // Run the compiled main class directly: java [session hand-off] -cp <classes:deps> <mainClass>
+                List<String> command = new ArrayList<>(List.of(config.javaExecutable()));
+                command.addAll(sessionHandoffArguments());
+                command.addAll(List.of("-cp", buildRuntimeClasspath(), config.mainClassName()));
+                ProcessBuilder pb = new ProcessBuilder(command)
                         .directory(config.projectPath().toFile());
 
                 startTelemetry(pb);
@@ -166,6 +167,26 @@ public class CodeExecutionService {
                 eventBus.publish(new CoreApplicationEvents.ProgramStoppedEvent());
             }
         }, "CodeRunner").start();
+    }
+
+    /**
+     * The {@code -D} arguments that offer this project's live background session to the bot, or empty when none is
+     * running.
+     *
+     * <p>Why the bot needs telling at all: it decides on its own whether to isolate, and left to itself it would
+     * bring up a *second* private display and launch the game into it. Every store launcher is single-instance, so
+     * that launch gets handed to the copy already running in the session Studio is showing, and the game ends up on
+     * a display nobody is watching. Offered rather than imposed — the bot still declines if its own isolation
+     * setting says {@code :0}, and {@code AdoptedSession} declines if the display has gone since.
+     */
+    private List<String> sessionHandoffArguments() {
+        try {
+            return BackgroundLauncher.forProject(config.resourcesRoot()).handoffArguments();
+        } catch (Exception e) {
+            // Never block a run over the hand-off: without it the bot just brings up its own session, which is the
+            // behaviour that existed before this existed.
+            return List.of();
+        }
     }
 
     /** Builds {@code <compiledOutput><sep><resources><sep><dep jars...>} for launching/compiling the project. */

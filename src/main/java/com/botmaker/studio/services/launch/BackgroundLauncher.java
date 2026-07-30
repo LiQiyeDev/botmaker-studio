@@ -3,10 +3,12 @@ package com.botmaker.studio.services.launch;
 import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.launch.LaunchIsolation;
 import com.botmaker.shared.launch.LaunchSpec;
+import com.botmaker.shared.session.AdoptedSession;
 import com.botmaker.shared.session.NestedSession;
 import javafx.application.Platform;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -81,6 +83,18 @@ public final class BackgroundLauncher implements AutoCloseable {
 
     public void removeStoppedListener(Runnable listener) {
         onStopped.remove(listener);
+    }
+
+    /**
+     * The JVM arguments that offer the live session to a bot we are about to run, or empty when none is live.
+     *
+     * <p>This is what makes "launch it once, then run the bot" work. Without it the bot brought up a *second*
+     * private display and launched the game into it — and every store launcher is single-instance, so that launch
+     * was handed to the copy already running in this session and the game appeared on a display nobody was
+     * watching. The shape of the hand-off belongs to shared ({@code AdoptedSession}), which also reads it.
+     */
+    public List<String> handoffArguments() {
+        return AdoptedSession.handoffArguments(active);
     }
 
     /** True while a nested session is live (so a UI can show Stop rather than Start). */
