@@ -6,6 +6,15 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-30 — "▶ Launch now" creates the session at the project's resolution, not a hardcoded 1280×720.**
+  `QuickLaunch.launchInBackground` passed `BackgroundLauncher.DEFAULT_WIDTH/HEIGHT` unconditionally, so the
+  Launch button ignored the project's standard resolution while the Remote Pilot path (`UIManager.referenceSize`)
+  honoured it. That is not cosmetic: gamescope's `-w/-h` *is* the screen the game inside sees, so the cap became
+  the game's own maximum resolution option, and the capture was a scaled copy of what the templates were
+  authored from. New `ProjectCreator.readCaptureSize(resourcesDir)` reads `capture.width`/`capture.height` from
+  `botmaker-project.properties` — the same file, and the same shape, as the `launch.target` and
+  `session.isolated` readers this call site already uses — with the old constants as the fallback when unset.
+
 - **2026-07-30 — An Interact tap in a session no longer takes the pointer with it (isolated-launch fixes,
   Phase 10 / A3).** `PilotInputService` TAP used `clickRestoringCursor` unconditionally, which warps the
   pointer back to where it was immediately after the release. On the host `:0` that courtesy is the whole

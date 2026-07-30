@@ -161,6 +161,34 @@ public class ProjectCreator {
     }
 
     /**
+     * The project's standard capture resolution from {@code botmaker-project.properties}, or {@code null} when
+     * either key is absent or unparseable. The inverse of {@link #writeCaptureProperties}.
+     *
+     * <p>It reads the properties file rather than {@code settings.json} so a caller holding nothing but a
+     * resources dir — {@link com.botmaker.studio.project.launch.QuickLaunch} — can ask, exactly as it already
+     * does for {@code launch.target} and {@code session.isolated}. This is the size a background session's
+     * nested display is created at, and therefore the screen resolution the game inside it sees.
+     */
+    public static StudioProjectSettings.Resolution readCaptureSize(Path resourcesDir) {
+        if (resourcesDir == null) return null;
+        Path file = resourcesDir.resolve(ProjectProperties.FILE_NAME);
+        if (!Files.exists(file)) return null;
+        java.util.Properties props = new java.util.Properties();
+        try (var in = Files.newInputStream(file)) {
+            props.load(in);
+        } catch (IOException e) {
+            return null;
+        }
+        try {
+            int w = Integer.parseInt(props.getProperty(ProjectProperties.KEY_CAPTURE_WIDTH, "").trim());
+            int h = Integer.parseInt(props.getProperty(ProjectProperties.KEY_CAPTURE_HEIGHT, "").trim());
+            return (w > 0 && h > 0) ? new StudioProjectSettings.Resolution(w, h) : null;
+        } catch (NumberFormatException e) {
+            return null; // a hand-edited or newer-format value must not stop a launch
+        }
+    }
+
+    /**
      * The current {@code launch.target} spec from {@code botmaker-project.properties}, or {@code null} when the
      * key (or the file) is absent. The inverse of {@link #writeLaunchTarget} — used to seed the Launch Target
      * editor with what's already configured.

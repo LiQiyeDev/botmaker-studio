@@ -5,6 +5,7 @@ import com.botmaker.shared.launch.Launcher;
 import com.botmaker.shared.session.NestedSession;
 import com.botmaker.shared.session.SessionBackends;
 import com.botmaker.studio.project.ProjectCreator;
+import com.botmaker.studio.project.StudioProjectSettings;
 import com.botmaker.studio.services.launch.BackgroundLauncher;
 import javafx.application.Platform;
 import javafx.scene.control.Button;
@@ -129,8 +130,15 @@ public final class QuickLaunch {
                     + ". Turn off \"Run in background\" (Launch Target dialog) to launch on your desktop instead.");
             return;
         }
+        // The session is created at the project's standard resolution, not a fixed 1280x720: gamescope's -w/-h
+        // *is* the screen the game inside sees, so a hardcoded size caps the game's own resolution options at
+        // that size no matter what the project is authored at — and makes the capture a scaled copy of what the
+        // templates were made from.
+        StudioProjectSettings.Resolution size = ProjectCreator.readCaptureSize(resourcesDir);
         BackgroundLauncher.forProject(resourcesDir).start(
-                backend.get(), spec, BackgroundLauncher.DEFAULT_WIDTH, BackgroundLauncher.DEFAULT_HEIGHT,
+                backend.get(), spec,
+                size != null ? size.width() : BackgroundLauncher.DEFAULT_WIDTH,
+                size != null ? size.height() : BackgroundLauncher.DEFAULT_HEIGHT,
                 (ok, message) -> {
                     button.setDisable(false);
                     report.accept(ok, message);
