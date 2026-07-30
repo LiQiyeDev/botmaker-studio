@@ -6,6 +6,12 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-30 — A dead background session is let go of (Phase 11 step 2).** `BackgroundLauncher` now watches its
+  held session (2 s poll on `NestedSession.closeIfDead()`) and drops it when the private display dies, firing the
+  stopped listeners. Before, `isRunning()` kept saying yes, the Launch button kept refusing a second bring-up, and
+  the dead session's slice kept a private `dbus-daemon` alive that the launch probes read as an open launcher — so
+  the next launch was refused too. Studio also sweeps orphaned session slices on boot, off the FX thread
+  (`BotMakerStudio.start`).
 - **2026-07-30 — Refreshed the committed pilot `dist` (`src/main/resources/pilot/`)** so the browser/PWA client
   Studio serves carries the BotPilot tap fix (a tap is sent at the pointer-**down** coordinate — see
   `botmaker-pilot`). The APK bundles its own copy and still needs `npm run dist` + reinstall.

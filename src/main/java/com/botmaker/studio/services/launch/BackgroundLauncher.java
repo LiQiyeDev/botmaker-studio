@@ -37,6 +37,9 @@ public final class BackgroundLauncher implements AutoCloseable {
     public static final int DEFAULT_WIDTH = 1280;
     public static final int DEFAULT_HEIGHT = 720;
 
+    /** How often the held session is checked for a display that has gone away. See {@link #watch}. */
+    private static final long DEAD_SESSION_POLL_MS = 2_000;
+
     /** How a call site shows the outcome — its own status label, always invoked on the FX thread. */
     @FunctionalInterface
     public interface Report {
@@ -146,6 +149,7 @@ public final class BackgroundLauncher implements AutoCloseable {
                 return;
             }
             active = session;
+            watch(session);
             fireStarted(session);
             report(report, true, "Running " + spec.describe() + " on the private " + backend + " display "
                     + session.displayName() + " — your real cursor stays free.");
@@ -156,6 +160,41 @@ public final class BackgroundLauncher implements AutoCloseable {
             String why = e.getMessage() == null ? e.toString() : e.getMessage();
             report(report, false, "Couldn't start background session: " + why);
         }
+    }
+
+    /**
+     * Watch {@code session} for a display that goes away, and let it go when one does.
+     *
+     * <p>Nothing used to notice. A session whose gamescope/Xephyr died stayed held: {@link #isRunning} kept saying
+     * yes, the Launch button kept refusing a second bring-up, and the dead session's slice kept a private
+     * {@code dbus-daemon} alive that the launch probes read as a launcher still open — so the *next* launch was
+     * refused too, on the strength of a session nobody could use. Found live: a
+     * {@code botmaker-sess-…-dbus.scope} still running hours after its display server had gone.
+     *
+     * <p>A poll rather than a callback because that is what the fact is — a process that exited. The interval only
+     * bounds how long a dead session lingers; it costs one {@code isAlive()} per tick.
+     */
+    private void watch(NestedSession session) {
+        Thread watchdog = new Thread(() -> {
+            while (active == session) {
+                try {
+                    Thread.sleep(DEAD_SESSION_POLL_MS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                if (active != session) {
+                    return; // stop() got there first — it fires the listeners itself
+                }
+                if (session.closeIfDead()) {
+                    active = null;
+                    Platform.runLater(this::fireStopped);
+                    return;
+                }
+            }
+        }, "background-session-watchdog");
+        watchdog.setDaemon(true);
+        watchdog.start();
     }
 
     /**

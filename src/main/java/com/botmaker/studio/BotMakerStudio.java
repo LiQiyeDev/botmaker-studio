@@ -1,6 +1,7 @@
 package com.botmaker.studio;
 
 import com.botmaker.shared.capture.linux.X11ErrorTrap;
+import com.botmaker.shared.session.NestedSession;
 import com.botmaker.studio.project.BotProject;
 import com.botmaker.studio.project.ProjectPreferences;
 import com.botmaker.studio.ui.app.ForceX11Notice;
@@ -41,6 +42,12 @@ public class BotMakerStudio extends Application {
     @Override
     public void start(Stage primaryStage) {
         this.primaryStage = primaryStage;
+        // Collect what a previous run (or a killed bot JVM) left behind, before anything asks the process table
+        // whether a launcher is open: a leftover session reads as one, and a launch is then refused on its account.
+        // Off the FX thread — it shells out to systemctl.
+        Thread sweep = new Thread(NestedSession::reapOrphanSessions, "session-orphan-sweep");
+        sweep.setDaemon(true);
+        sweep.start();
         applyAppIcons(primaryStage);
         configureWindow(primaryStage);
         String lastProject = ProjectPreferences.getLastOpened();
