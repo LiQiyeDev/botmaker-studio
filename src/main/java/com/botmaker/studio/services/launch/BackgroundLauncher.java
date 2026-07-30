@@ -3,8 +3,8 @@ package com.botmaker.studio.services.launch;
 import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.launch.LaunchIsolation;
 import com.botmaker.shared.launch.LaunchSpec;
-import com.botmaker.shared.session.AdoptedSession;
-import com.botmaker.shared.session.NestedSession;
+import com.botmaker.session.impl.AdoptedSession;
+import com.botmaker.session.impl.NestedSession;
 import javafx.application.Platform;
 
 import java.nio.file.Path;

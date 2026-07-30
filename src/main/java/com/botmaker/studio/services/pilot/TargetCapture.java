@@ -4,7 +4,7 @@ import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeControllerFactory;
 import com.botmaker.shared.capture.WindowMatch;
 import com.botmaker.shared.ipc.TelemetryEvent;
-import com.botmaker.shared.session.DesktopSession;
+import com.botmaker.session.DesktopSession;
 import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.services.ProjectSettingsService;
 

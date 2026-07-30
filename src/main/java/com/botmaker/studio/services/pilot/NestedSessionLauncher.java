@@ -1,7 +1,7 @@
 package com.botmaker.studio.services.pilot;
 
 import com.botmaker.shared.launch.LaunchSpec;
-import com.botmaker.shared.session.NestedSession;
+import com.botmaker.session.impl.NestedSession;
 import com.botmaker.studio.project.launch.QuickLaunch;
 import com.botmaker.studio.services.launch.BackgroundLauncher;
 

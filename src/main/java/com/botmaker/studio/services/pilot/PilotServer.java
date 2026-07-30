@@ -91,7 +91,7 @@ public final class PilotServer implements AutoCloseable {
      * calls once the game is up. Pass {@code null} (or call {@link #clearActiveSession()}) to return to {@code :0}.
      * Takes effect on the next frame/gesture; safe to call while the server is running.
      */
-    public void setActiveSession(com.botmaker.shared.session.DesktopSession desktopSession) {
+    public void setActiveSession(com.botmaker.session.DesktopSession desktopSession) {
         session.set(desktopSession);
     }
 

@@ -3,10 +3,10 @@ package com.botmaker.studio.services.pilot;
 import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeController;
 import com.botmaker.shared.launch.LaunchSpec;
-import com.botmaker.shared.session.Capability;
-import com.botmaker.shared.session.DesktopSession;
-import com.botmaker.shared.session.SessionKeyboard;
-import com.botmaker.shared.session.SessionPointer;
+import com.botmaker.session.Capability;
+import com.botmaker.session.DesktopSession;
+import com.botmaker.session.SessionKeyboard;
+import com.botmaker.session.SessionPointer;
 
 import java.awt.Rectangle;
 import java.awt.image.BufferedImage;

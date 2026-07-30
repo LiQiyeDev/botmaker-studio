@@ -2,8 +2,8 @@ package com.botmaker.studio.project.launch;
 
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.shared.launch.Launcher;
-import com.botmaker.shared.session.NestedSession;
-import com.botmaker.shared.session.SessionBackends;
+import com.botmaker.session.impl.NestedSession;
+import com.botmaker.session.display.SessionBackends;
 import com.botmaker.studio.project.ProjectCreator;
 import com.botmaker.studio.project.StudioProjectSettings;
 import com.botmaker.studio.services.launch.BackgroundLauncher;

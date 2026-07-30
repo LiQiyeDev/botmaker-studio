@@ -1,7 +1,7 @@
 package com.botmaker.studio;
 
 import com.botmaker.shared.capture.linux.X11ErrorTrap;
-import com.botmaker.shared.session.NestedSession;
+import com.botmaker.session.impl.NestedSession;
 import com.botmaker.studio.project.BotProject;
 import com.botmaker.studio.project.ProjectPreferences;
 import com.botmaker.studio.ui.app.ForceX11Notice;

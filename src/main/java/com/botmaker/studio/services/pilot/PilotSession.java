@@ -1,6 +1,6 @@
 package com.botmaker.studio.services.pilot;
 
-import com.botmaker.shared.session.DesktopSession;
+import com.botmaker.session.DesktopSession;
 
 /**
  * The single switch that decides <em>which display</em> the pilot's capture and Interact input act on: the

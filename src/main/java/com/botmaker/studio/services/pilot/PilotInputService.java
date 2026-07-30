@@ -2,9 +2,9 @@ package com.botmaker.studio.services.pilot;
 
 import com.botmaker.shared.capture.NativeController;
 import com.botmaker.shared.capture.NativeControllerFactory;
-import com.botmaker.shared.session.Capability;
-import com.botmaker.shared.session.DesktopSession;
-import com.botmaker.shared.session.PointerPolicy;
+import com.botmaker.session.Capability;
+import com.botmaker.session.DesktopSession;
+import com.botmaker.session.PointerPolicy;
 
 /**
  * Replays the pilot's manual "Interact" gestures onto the real desktop.

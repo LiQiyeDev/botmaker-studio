@@ -1,6 +1,6 @@
 package com.botmaker.studio.services.launch;
 
-import com.botmaker.shared.session.NestedSession;
+import com.botmaker.session.impl.NestedSession;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

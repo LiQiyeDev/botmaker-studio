@@ -1,7 +1,7 @@
 package com.botmaker.studio.services.pilot;
 
 import com.botmaker.shared.capture.GenericWindow;
-import com.botmaker.shared.session.Capability;
+import com.botmaker.session.Capability;
 import org.junit.jupiter.api.Test;
 
 import java.awt.Rectangle;
