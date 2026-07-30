@@ -6,6 +6,10 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-30 — Refreshed the committed pilot `dist` (`src/main/resources/pilot/`)** so the browser/PWA client
+  Studio serves carries the BotPilot tap fix (a tap is sent at the pointer-**down** coordinate — see
+  `botmaker-pilot`). The APK bundles its own copy and still needs `npm run dist` + reinstall.
+
 - **2026-07-30 — "▶ Launch now" creates the session at the project's resolution, not a hardcoded 1280×720.**
   `QuickLaunch.launchInBackground` passed `BackgroundLauncher.DEFAULT_WIDTH/HEIGHT` unconditionally, so the
   Launch button ignored the project's standard resolution while the Remote Pilot path (`UIManager.referenceSize`)
