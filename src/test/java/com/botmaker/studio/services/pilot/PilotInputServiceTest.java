@@ -59,6 +59,41 @@ class PilotInputServiceTest {
         assertEquals(java.util.List.of("move 100,120", "button 1 true", "button 1 false"), nc.calls);
     }
 
+    /**
+     * The same rule at the end of a drag, which the {@code UP} branch used to break: it restored {@code dragOrigin}
+     * unconditionally, so a drag in a session ended with the pointer warped off the target — the tap's bug one
+     * gesture over. On {@code :0} the restore must still happen (asserted below).
+     */
+    @Test
+    void aSessionDragEndsWhereItEnded() {
+        PilotFakes.RecordingController nc = new PilotFakes.RecordingController();
+        nc.cursor = new java.awt.Point(7, 9);
+        PilotSession session = new PilotSession();
+        session.set(new PilotFakes.FakeSession(nc, null, null, EnumSet.of(Capability.BACKGROUND_CLICK)));
+        PilotInputService input = new PilotInputService(session);
+
+        assertTrue(input.apply(PilotInputService.Kind.DOWN, 10, 10, 1, 0, BOUNDS));
+        assertTrue(input.apply(PilotInputService.Kind.MOVE, 40, 40, 1, 0, BOUNDS));
+        assertTrue(input.apply(PilotInputService.Kind.UP, 50, 50, 1, 0, BOUNDS));
+
+        assertEquals(java.util.List.of("move 10,10", "button 1 true", "move 40,40", "move 50,50",
+                "button 1 false"), nc.calls);
+    }
+
+    /** And on {@code :0} the drag hands the cursor back, since there it is the user's. */
+    @Test
+    void aHostDragPutsTheUsersCursorBack() {
+        PilotFakes.RecordingController hostNc = new PilotFakes.RecordingController();
+        hostNc.cursor = new java.awt.Point(7, 9);
+        NativeControllerFactory.setForTesting(hostNc);
+        PilotInputService input = new PilotInputService(new PilotSession());
+
+        assertTrue(input.apply(PilotInputService.Kind.DOWN, 10, 10, 1, 0, BOUNDS));
+        assertTrue(input.apply(PilotInputService.Kind.UP, 50, 50, 1, 0, BOUNDS));
+
+        assertEquals("move 7,9", hostNc.calls.get(hostNc.calls.size() - 1), hostNc.calls.toString());
+    }
+
     /** The mirror image on {@code :0}, where borrowing the user's cursor silently is the whole point. */
     @Test
     void aHostTapPutsTheUsersCursorBack() {

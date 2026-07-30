@@ -6,6 +6,12 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-30 — Pilot gestures take shared's cursor policy (Phase 12).** `PilotInputService`'s private
+  `sessionOwnsPointer()` moved to shared as `PointerPolicy`, because the SDK's own click path had never implemented
+  the same rule and was warping the pointer off the target after every in-session click (the game showed a hover
+  instead). `TAP` now calls `PointerPolicy.click` and `UP` calls `PointerPolicy.restoreTo` — which also fixes the
+  deferred bug on this side: the drag `UP` used to restore `dragOrigin` even on `:N`, ending a session drag with the
+  pointer somewhere else. Two new tests cover the drag in both directions.
 - **2026-07-30 — Run the bot into the session you already launched (Phase 11 step 3).** `CodeExecutionService` now
   prefixes the bot's argv with `BackgroundLauncher.handoffArguments()` — the live session's display, backend and
   attached window — so the bot joins it instead of bringing up a second private display, which a single-instance

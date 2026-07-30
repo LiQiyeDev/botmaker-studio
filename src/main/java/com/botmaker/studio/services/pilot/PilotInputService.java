@@ -4,6 +4,7 @@ import com.botmaker.shared.capture.NativeController;
 import com.botmaker.shared.capture.NativeControllerFactory;
 import com.botmaker.shared.session.Capability;
 import com.botmaker.shared.session.DesktopSession;
+import com.botmaker.shared.session.PointerPolicy;
 
 /**
  * Replays the pilot's manual "Interact" gestures onto the real desktop.
@@ -28,7 +29,7 @@ import com.botmaker.shared.session.DesktopSession;
  * started. A tap used to take the old {@code postLeftClickScreen} on the theory that it was the one gesture
  * with a cursor-preserving direct-to-window path — that path is exactly the one games drop, which is why taps
  * did nothing while drags (already on {@code mouseMove}/{@code mouseButton}) worked. In a session the
- * restoring warp is dropped as well ({@link #sessionOwnsPointer()}): there is no user cursor to hand back.
+ * restoring warp is dropped as well ({@link PointerPolicy}): there is no user cursor to hand back.
  *
  * <p><b>Bounds are not optional.</b> Every coordinate is clamped to the rect the client was actually shown
  * (the last pushed frame's surface). A pilot session is reachable over a public Funnel URL; without the clamp
@@ -75,14 +76,10 @@ public final class PilotInputService {
         int btn = button <= 0 ? 1 : button;
         try {
             switch (kind) {
-                // A tap on :0 is self-contained, so it puts the pointer back afterwards; in a session it must
-                // not (see sessionOwnsPointer). The drag gestures can't restore mid-gesture either way: the
-                // cursor has to stay with the gesture until the button is released, so UP is where the
-                // pointer is restored (see dragOrigin).
-                case TAP -> {
-                    if (sessionOwnsPointer()) nc.click(x, y, btn);
-                    else nc.clickRestoringCursor(x, y, btn);
-                }
+                // Whether a gesture hands the cursor back is PointerPolicy's call, not this switch's. The drag
+                // gestures can't restore mid-gesture in any case: the cursor has to stay with the gesture until the
+                // button is released, so UP is where the restore belongs (see dragOrigin).
+                case TAP -> PointerPolicy.click(nc, activeSession(), x, y, btn);
                 case DOWN -> {
                     dragOrigin = nc.cursorPosition();
                     nc.mouseMove(x, y);
@@ -92,10 +89,8 @@ public final class PilotInputService {
                 case UP -> {
                     nc.mouseMove(x, y);
                     nc.mouseButton(btn, false);
-                    if (dragOrigin != null) {
-                        nc.mouseMove(dragOrigin.x, dragOrigin.y);
-                        dragOrigin = null;
-                    }
+                    PointerPolicy.restoreTo(nc, activeSession(), dragOrigin);
+                    dragOrigin = null;
                 }
                 case SCROLL -> { nc.mouseMove(x, y); nc.scroll(amount); }
             }
@@ -107,17 +102,13 @@ public final class PilotInputService {
     }
 
     /**
-     * True when the pointer this gesture drives belongs to the session rather than to the user
-     * ({@link Capability#BACKGROUND_CLICK} — only a nested {@code :N} display can offer it).
-     *
-     * <p>It is what decides whether a tap is polite about the cursor. On {@code :0} the warp back is the whole
-     * reason the gesture is tolerable; on {@code :N} there is no user cursor to return, and warping away
-     * immediately after the release is a good way to leave the game rendering a hover highlight where a click
-     * should have registered — the pointer is somewhere else by the time the next frame samples it.
+     * The session these gestures drive, or {@code null} for the host {@code :0} — the input to
+     * {@link PointerPolicy}, which decides whether a gesture hands the cursor back. That decision used to live
+     * here as a private {@code sessionOwnsPointer()}; it moved to shared once it turned out the SDK's own click
+     * path had never implemented it and was throwing every in-session click away.
      */
-    private boolean sessionOwnsPointer() {
-        DesktopSession s = session != null ? session.get() : null;
-        return s != null && s.has(Capability.BACKGROUND_CLICK);
+    private DesktopSession activeSession() {
+        return session != null ? session.get() : null;
     }
 
     /**
