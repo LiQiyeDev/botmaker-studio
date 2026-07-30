@@ -24,10 +24,11 @@ import com.botmaker.shared.session.DesktopSession;
  * escalation is process-wide and sticky, so a bot run in the same Studio session after Interact was used also
  * drives the real pointer.
  *
- * <p><b>Every gesture now drives the real pointer</b>, and each puts it back where it started. A tap used to
- * take {@code postLeftClickScreen} on the theory that it was the one gesture with a cursor-preserving
- * direct-to-window path — that path is exactly the one games drop, which is why taps did nothing while drags
- * (already on {@code mouseMove}/{@code mouseButton}) worked.
+ * <p><b>Every gesture drives the real pointer</b>, and on the host {@code :0} each puts it back where it
+ * started. A tap used to take the old {@code postLeftClickScreen} on the theory that it was the one gesture
+ * with a cursor-preserving direct-to-window path — that path is exactly the one games drop, which is why taps
+ * did nothing while drags (already on {@code mouseMove}/{@code mouseButton}) worked. In a session the
+ * restoring warp is dropped as well ({@link #sessionOwnsPointer()}): there is no user cursor to hand back.
  *
  * <p><b>Bounds are not optional.</b> Every coordinate is clamped to the rect the client was actually shown
  * (the last pushed frame's surface). A pilot session is reachable over a public Funnel URL; without the clamp
@@ -74,10 +75,14 @@ public final class PilotInputService {
         int btn = button <= 0 ? 1 : button;
         try {
             switch (kind) {
-                // A tap is self-contained, so it can put the pointer back afterwards. The drag gestures
-                // can't: the cursor has to stay with the gesture until the button is released, so UP is
-                // where the pointer is restored (see dragOrigin).
-                case TAP -> nc.clickRestoringCursor(x, y, btn);
+                // A tap on :0 is self-contained, so it puts the pointer back afterwards; in a session it must
+                // not (see sessionOwnsPointer). The drag gestures can't restore mid-gesture either way: the
+                // cursor has to stay with the gesture until the button is released, so UP is where the
+                // pointer is restored (see dragOrigin).
+                case TAP -> {
+                    if (sessionOwnsPointer()) nc.click(x, y, btn);
+                    else nc.clickRestoringCursor(x, y, btn);
+                }
                 case DOWN -> {
                     dragOrigin = nc.cursorPosition();
                     nc.mouseMove(x, y);
@@ -99,6 +104,20 @@ public final class PilotInputService {
             System.err.println("Pilot interact " + kind + " failed: " + e.getMessage());
             return false;
         }
+    }
+
+    /**
+     * True when the pointer this gesture drives belongs to the session rather than to the user
+     * ({@link Capability#BACKGROUND_CLICK} — only a nested {@code :N} display can offer it).
+     *
+     * <p>It is what decides whether a tap is polite about the cursor. On {@code :0} the warp back is the whole
+     * reason the gesture is tolerable; on {@code :N} there is no user cursor to return, and warping away
+     * immediately after the release is a good way to leave the game rendering a hover highlight where a click
+     * should have registered — the pointer is somewhere else by the time the next frame samples it.
+     */
+    private boolean sessionOwnsPointer() {
+        DesktopSession s = session != null ? session.get() : null;
+        return s != null && s.has(Capability.BACKGROUND_CLICK);
     }
 
     /**

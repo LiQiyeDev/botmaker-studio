@@ -29,13 +29,14 @@ final class PilotFakes {
         BufferedImage windowFrame;
         boolean background;
         boolean reliableCalled;
+        /** Non-null makes the cursor-restoring paths actually restore — the difference a session tap must not make. */
+        java.awt.Point cursor;
 
         @Override public GenericWindow getForegroundWindow() { return null; }
         @Override public List<GenericWindow> getChildWindows(GenericWindow parent) { return List.of(); }
         @Override public List<GenericWindow> getAllWindows() { return List.of(); }
         @Override public BufferedImage captureWindow(GenericWindow window) { calls.add("capture"); return windowFrame; }
         @Override public void postLeftClick(GenericWindow window, int x, int y) { }
-        @Override public void postLeftClickScreen(int xAbs, int yAbs) { }
         @Override public void focusWindow(GenericWindow window) { }
         @Override public void moveWindow(GenericWindow window, int x, int y) { }
         @Override public void resizeWindow(GenericWindow window, int width, int height) { }
@@ -45,6 +46,7 @@ final class PilotFakes {
         @Override public void mouseMove(int xAbs, int yAbs) { calls.add("move " + xAbs + "," + yAbs); }
         @Override public void mouseButton(int button, boolean press) { calls.add("button " + button + " " + press); }
         @Override public void scroll(int amount) { calls.add("scroll " + amount); }
+        @Override public java.awt.Point cursorPosition() { return cursor; }
         @Override public boolean supportsBackgroundInput() { return background; }
         @Override public boolean useReliableInput() { reliableCalled = true; return true; }
     }

@@ -34,13 +34,43 @@ class PilotInputServiceTest {
 
         assertTrue(input.apply(PilotInputService.Kind.TAP, 100, 120, 1, 0, BOUNDS));
 
-        // TAP goes through clickRestoringCursor → move, press, release (cursorPosition() is null so no restore).
+        // TAP on a session goes through click() → move, press, release, with no warp back.
         assertEquals(3, nc.calls.size());
         assertEquals("move 100,120", nc.calls.get(0));
         assertEquals("button 1 true", nc.calls.get(1));
         assertEquals("button 1 false", nc.calls.get(2));
         // A nested :N controller must never be escalated — it is already device-level and background-safe.
         assertFalse(nc.reliableCalled, "the :N controller must not be asked to useReliableInput()");
+    }
+
+    /**
+     * The session tap must leave the pointer on the target. Warping it back is what leaves a game rendering a
+     * hover highlight instead of registering the click — and on {@code :N} there is no user cursor to return.
+     */
+    @Test
+    void aSessionTapDoesNotWarpThePointerBack() {
+        PilotFakes.RecordingController nc = new PilotFakes.RecordingController();
+        nc.cursor = new java.awt.Point(7, 9); // a readable origin: the restoring path would warp here
+        PilotSession session = new PilotSession();
+        session.set(new PilotFakes.FakeSession(nc, null, null, EnumSet.of(Capability.BACKGROUND_CLICK)));
+
+        assertTrue(new PilotInputService(session).apply(PilotInputService.Kind.TAP, 100, 120, 1, 0, BOUNDS));
+
+        assertEquals(java.util.List.of("move 100,120", "button 1 true", "button 1 false"), nc.calls);
+    }
+
+    /** The mirror image on {@code :0}, where borrowing the user's cursor silently is the whole point. */
+    @Test
+    void aHostTapPutsTheUsersCursorBack() {
+        PilotFakes.RecordingController hostNc = new PilotFakes.RecordingController();
+        hostNc.cursor = new java.awt.Point(7, 9);
+        NativeControllerFactory.setForTesting(hostNc);
+
+        assertTrue(new PilotInputService(new PilotSession())
+                .apply(PilotInputService.Kind.TAP, 100, 120, 1, 0, BOUNDS));
+
+        assertEquals(java.util.List.of("move 100,120", "button 1 true", "button 1 false", "move 7,9"),
+                hostNc.calls);
     }
 
     @Test

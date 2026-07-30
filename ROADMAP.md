@@ -6,6 +6,18 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-30 — An Interact tap in a session no longer takes the pointer with it (isolated-launch fixes,
+  Phase 10 / A3).** `PilotInputService` TAP used `clickRestoringCursor` unconditionally, which warps the
+  pointer back to where it was immediately after the release. On the host `:0` that courtesy is the whole
+  reason the gesture is tolerable; on a session's `:N` there is no user cursor to hand back, and warping away
+  is a good way to leave the game rendering a hover highlight where a click should have registered — the
+  pointer is elsewhere by the time the next frame samples it. The path is now chosen by
+  `Capability.BACKGROUND_CLICK` (`sessionOwnsPointer()`): a session tap takes shared's new
+  `NativeController.click(x, y, button)`, which also holds the button down for the session's ~40 ms instead of
+  releasing in the same instant. Tests: `aSessionTapDoesNotWarpThePointerBack`,
+  `aHostTapPutsTheUsersCursorBack`. Not the root cause of the reported unreliability — the same symptom
+  appears with a real mouse in the session, which never touches this code — but a real defect either way.
+
 - **2026-07-29 — A background launch that can't be isolated now says exactly why, immediately (isolated-launch
   fixes, Phase 7).** `BackgroundLauncher.start`'s up-front guard was only about an open host launcher; it now
   asks shared's `LaunchIsolation.check(spec)`, which also names a kind with no child-launchable command, a
