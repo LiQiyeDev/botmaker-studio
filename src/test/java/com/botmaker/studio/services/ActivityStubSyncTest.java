@@ -170,4 +170,3 @@ class ActivityStubSyncTest {
                 "only run() itself gains one:\n" + synced);
     }
 }
-

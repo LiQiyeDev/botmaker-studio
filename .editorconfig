@@ -1,0 +1,47 @@
+# BotMaker formatting — docs/refactor/00-conventions.md §4.
+#
+# This file is byte-identical in all seven repos (umbrella, shared, session, sdk, studio, pilot,
+# gallery) and it is the authority: IntelliJ, VS Code and most editors honour it natively, so the
+# rule travels with the checkout instead of living in a per-machine IDE setting. The committed
+# IntelliJ scheme in config/codestyle/ only carries what this file cannot express.
+#
+# The winner in each row was measured, not imported: 501 of the 583 Java files were already
+# 4-space, so tabs lost.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+max_line_length = 120
+
+[*.java]
+indent_size = 4
+
+[*.{xml,yml,yaml,json,ts,tsx,js,jsx,mjs,cjs,css,scss,html}]
+indent_size = 2
+
+# Two trailing spaces are a hard line break in Markdown, so trimming them changes rendering.
+[*.md]
+indent_size = 2
+trim_trailing_whitespace = false
+max_line_length = off
+
+# PowerShell and cmd are the one place CRLF is correct — these are run by a Windows shell.
+[*.{ps1,bat,cmd}]
+end_of_line = crlf
+
+[Makefile]
+indent_style = tab
+
+# Not ours to reformat: Gradle's wrapper script and lockfiles are generated.
+[{gradlew,gradlew.bat,package-lock.json}]
+indent_style = unset
+indent_size = unset
+insert_final_newline = unset
+trim_trailing_whitespace = unset
+max_line_length = off
