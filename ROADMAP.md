@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-31 — refactor Phase 3: the test floor for `services/` + `runtime/` (SV3, MISSING 1–8).** Eight
+  new test classes: +60 tests, `runtime` 0.0 → 67.9% (it had never been executed at all, and it is the
+  feature — `CodeExecutionServiceTest` now compiles and runs a real bot JVM end to end from a `@TempDir`),
+  `services.platform` 0.0 → 60.0%, `services.capture` 0.0 → 20.0%, `services` 21.7 → 27.5%, module
+  27.6 → 29.3%. Four tests are `@Disabled` and were each confirmed red first — they gate SV5 (B10, both the
+  CME and the torn read), SV11 (the `EventBus` FX branch) and a new bug. **Found: B17** — a window capture
+  that comes back blank with no working desktop fallback is returned as a *successful* `WindowShot`, and
+  `grabOffThread` hard-codes `blank=false` for window targets, so the "capture came back blank, switch to
+  Xorg" warning cannot fire for the default capture target of a game bot. **Also found:**
+  `ScreenCaptureService` keeps a private copy of `DesktopGrab.cropToBounds` (delete it in SV15, don't move
+  it), and `Executables.onPath` diverges from `which` on a path-shaped argument — so the parity test also
+  asserts every call site passes a bare name, which is SV4's real precondition.
+
 - **2026-07-31 — refactor Phase 3: the test floor for `blocks/` + `parser/` (SP4, SP7).** Seven new test
   classes over the write path, the block converter, the statement factory and the signature handlers: +40
   tests, `parser.factories` 23.0 → 57.2%, `parser.handlers` 25.8 → 39.9%, `blocks.vision` 0.0% → covered,
