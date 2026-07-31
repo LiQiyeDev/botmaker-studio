@@ -6,12 +6,15 @@ import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.CodeBlock;
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
+import com.botmaker.studio.services.SdkDocsService;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.project.ProjectTemplate;
+import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
+import com.botmaker.studio.validation.DiagnosticsManager;
 import org.eclipse.jdt.core.dom.MethodDeclaration;
 import org.eclipse.jdt.core.dom.TypeDeclaration;
 
@@ -43,6 +46,12 @@ public final class EditorFixture {
     public final AbstractCodeBlock root;
     public String lastCode;
 
+    private final EventBus bus;
+    private final BlockConverter converter;
+    private final BlockDragAndDropManager dragAndDrop;
+    private final ProjectAnalyzer analyzer;
+    private CodeEditorService context;
+
     public EditorFixture(String source) {
         this(source, Paths.get("Subject.java").toAbsolutePath());
     }
@@ -59,17 +68,32 @@ public final class EditorFixture {
         state.setTemplate(ProjectTemplate.GAME_BOT);
         state.setCurrentCode(source);
 
-        EventBus bus = new EventBus(false);
+        bus = new EventBus(false);
         bus.subscribe(CoreApplicationEvents.CodeUpdatedEvent.class, e -> lastCode = e.newCode());
 
-        BlockConverter converter = new BlockConverter(CONFIG, state);
+        converter = new BlockConverter(CONFIG, state);
+        dragAndDrop = new BlockDragAndDropManager(bus);
+        analyzer = new ProjectAnalyzer(null, state);
         BlockConverter.ConvertResult result = converter.convert(
-                source, state.getMutableNodeToBlockMap(), new BlockDragAndDropManager(bus), false, false);
+                source, state.getMutableNodeToBlockMap(), dragAndDrop, false, false);
         state.setCompilationUnit(result.cu());
         root = result.root();
         assertNotNull(root, "converter should produce a root block");
 
-        editor = new CodeEditor(CONFIG, state, bus, new ProjectAnalyzer(null, state));
+        editor = new CodeEditor(CONFIG, state, bus, analyzer);
+    }
+
+    /**
+     * The {@link CodeEditorService} the UI layer is handed — every block's {@code getUINode} and every
+     * argument editor takes one. Built lazily because it opens an {@code SdkDocsService} loader thread that
+     * the write-path tests have no use for.
+     */
+    public CodeEditorService context() {
+        if (context == null) {
+            context = new CodeEditorService(CONFIG, state, bus, converter, dragAndDrop,
+                    new DiagnosticsManager(), analyzer, new SdkDocsService(CONFIG, bus));
+        }
+        return context;
     }
 
     /** A path under this project's activities package — a file there is treated as an activity stub. */

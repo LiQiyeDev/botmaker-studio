@@ -38,7 +38,16 @@ public final class FaugusLibraryScanner implements GameLibraryProvider {
     /** All non-hidden Faugus entries, deduplicated by game id and sorted by title. */
     @Override
     public List<InstalledGame> installedGames() {
-        Path root = configRoot();
+        return gamesUnder(configRoot());
+    }
+
+    /**
+     * The scan itself, against an explicit Faugus config root. Split out from {@link #installedGames()} so a
+     * fixture {@code games.json} can stand in for an install — {@link #configRoot()} reads {@code user.home}.
+     *
+     * @param root a Faugus config root, or {@code null} when Faugus isn't installed
+     */
+    static List<InstalledGame> gamesUnder(Path root) {
         if (root == null) return List.of();
 
         JsonNode games = readTree(root.resolve("games.json"));

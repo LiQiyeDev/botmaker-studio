@@ -371,6 +371,19 @@
                         <prism.text>t2k</prism.text>
                         <java.awt.headless>true</java.awt.headless>
                     </systemPropertyVariables>
+                    <!-- Redirect the BotMaker cache dir into target/ for the whole suite. BotMakerDirs
+                         resolves it from the environment (XDG_CACHE_HOME / LOCALAPPDATA / user.home), and
+                         both the jar-index cache and the GitHub credentials file live under it — so without
+                         this, a test that exercises either writes into the developer's real cache, and one
+                         that exercises the sign-in flow would overwrite their actual token. Set here rather
+                         than per-test because the guarantee wanted is "no test can", not "this test does
+                         not". macOS and a bare Linux box with no XDG_CACHE_HOME still fall through to
+                         user.home, which is deliberately not overridden (other tests read ~/.m2 through
+                         it); TypeSummaryManagerCacheTest states that as an assumption and skips. -->
+                    <environmentVariables>
+                        <XDG_CACHE_HOME>${project.build.directory}/test-cache</XDG_CACHE_HOME>
+                        <LOCALAPPDATA>${project.build.directory}/test-cache</LOCALAPPDATA>
+                    </environmentVariables>
                 </configuration>
             </plugin>
         </plugins>

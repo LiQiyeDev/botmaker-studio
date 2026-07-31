@@ -39,9 +39,19 @@ public final class EpicLibraryScanner implements GameLibraryProvider {
     /** All locally-installed Epic games, deduplicated by AppName and sorted by title. Never throws. */
     @Override
     public List<InstalledGame> installedGames() {
+        return gamesIn(manifestsDir());
+    }
+
+    /**
+     * The scan itself, against an explicit manifests directory. Split out from {@link #installedGames()}
+     * because {@link #manifestsDir()} reads {@code PROGRAMDATA} and returns null off Windows, which would
+     * leave the parsing untestable on every machine that runs the suite.
+     *
+     * @param manifests Epic's {@code Manifests} directory, or {@code null} when the launcher isn't installed
+     */
+    static List<InstalledGame> gamesIn(Path manifests) {
         Map<String, InstalledGame> byId = new LinkedHashMap<>();
         try {
-            Path manifests = manifestsDir();
             if (manifests == null) return List.of();
             try (Stream<Path> items = Files.list(manifests)) {
                 items.filter(EpicLibraryScanner::isManifest)

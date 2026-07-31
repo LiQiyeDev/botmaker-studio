@@ -39,9 +39,19 @@ public final class SteamLibraryScanner implements GameLibraryProvider {
     /** All locally-installed Steam games, deduplicated by appId and sorted by name. Never throws. */
     @Override
     public List<InstalledGame> installedGames() {
+        return gamesUnder(steamRoot());
+    }
+
+    /**
+     * The scan itself, against an explicit Steam root. Split out from {@link #installedGames()} because the
+     * root is located from {@code user.home} and the registry: a test (and any caller that already knows
+     * where Steam is) can point this at a fixture tree instead.
+     *
+     * @param root a Steam install root, or {@code null} when none was found
+     */
+    static List<InstalledGame> gamesUnder(Path root) {
         Map<String, InstalledGame> byId = new LinkedHashMap<>();
         try {
-            Path root = steamRoot();
             if (root == null) return List.of();
             for (Path library : libraryFolders(root)) {
                 Path steamapps = library.resolve("steamapps");

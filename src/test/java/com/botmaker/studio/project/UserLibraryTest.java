@@ -1,10 +1,7 @@
 package com.botmaker.studio.project;
 
 import com.botmaker.studio.TestSupport;
-
-import com.botmaker.studio.project.UserLibrary;
 import org.eclipse.jdt.core.dom.CompilationUnit;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -14,9 +11,36 @@ import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+/**
+ * Covers {@code TestSupport}'s multi-file parse harness on both the kinds of source tree Studio reads: its
+ * own, and a library's.
+ *
+ * <p><b>Studio ui MISSING/SU18.</b> The second test used to be {@code @Disabled("Update sdkSourceRootPath to
+ * your local BotMaker-sdk checkout before running")} — a path constant pointing at
+ * {@code ~/path/to/BotMaker-sdk}, which had never resolved on any machine. A test that needs hand-editing is
+ * not disabled, it is deleted or parameterised; this one is parameterised, because the assertion is real and
+ * the path is knowable. The SDK is a sibling submodule of the same umbrella repo, so its source root is
+ * {@code ../botmaker-sdk/src/main/java} from here, overridable with {@code -Dsdk.source.root=…} and skipped
+ * with a message when this is a standalone Studio clone with no sibling checked out.
+ */
 public class UserLibraryTest {
+
+    /** Where the SDK's sources are, given this repo is a submodule of the umbrella. */
+    private static final Path SIBLING_SDK_SOURCES =
+            Paths.get("..", "botmaker-sdk", "src", "main", "java").toAbsolutePath().normalize();
+
+    private static Path sdkSourceRoot() {
+        String override = System.getProperty("sdk.source.root");
+        return override == null || override.isBlank()
+                ? SIBLING_SDK_SOURCES
+                : Paths.get(override).toAbsolutePath().normalize();
+    }
 
     @Test
     void parsesAllProjectSourceFiles() throws IOException {
@@ -26,37 +50,44 @@ public class UserLibraryTest {
                 "Parsed AST count should match the number of source files");
     }
 
-    @Disabled("Update sdkSourceRootPath to your local BotMaker-sdk checkout before running")
+    /**
+     * The same harness against a source tree outside this project — which is what {@code ProjectAnalyzer}
+     * does for every library a user adds. Parsing a foreign tree is where the source-root argument actually
+     * matters: get it wrong and every unit comes back without bindings.
+     */
     @Test
     void parsesExternalSdkLibrarySources() throws IOException {
-        UserLibrary sdkLib = new UserLibrary(
-                "com.github.LiQiyeDev", "BotMaker-sdk", "0.1.1");
-        String sdkPrimaryPackage = "com.botmaker.sdk";
+        Path sdkSources = sdkSourceRoot();
+        assumeTrue(Files.isDirectory(sdkSources),
+                "no botmaker-sdk sources at " + sdkSources + " — this is a standalone Studio clone; "
+                        + "check the sibling submodule out, or pass -Dsdk.source.root=<path>");
 
-        Path sdkSourceRootPath = Paths.get(System.getProperty("user.home"),
-                "path", "to", "BotMaker-sdk", "src", "main", "java").toAbsolutePath();
+        List<String> files = TestSupport.findJavaFiles(sdkSources);
+        assertFalse(files.isEmpty(), "no .java files under " + sdkSources);
 
-        if (!Files.exists(sdkSourceRootPath)) {
-            fail("SDK source root not found: " + sdkSourceRootPath
-                    + " — update the path in this test");
-        }
-
-        List<String> files = TestSupport.findJavaFiles(sdkSourceRootPath);
-        assertFalse(files.isEmpty(), "Should find at least one .java file in the SDK sources");
-
-        Map<String, CompilationUnit> units = TestSupport.createCompilationUnits(
-                TestSupport.runtimeClassPath(), files, sdkSourceRootPath);
+        Map<String, CompilationUnit> units =
+                TestSupport.createCompilationUnits(TestSupport.runtimeClassPath(), files, sdkSources);
 
         assertNotNull(units);
-        assertEquals(files.size(), units.size());
+        assertEquals(files.size(), units.size(), "every source file must yield a CompilationUnit");
 
-        boolean foundPrimaryPackage = units.values().stream()
-                .filter(cu -> cu.getPackage() != null)
-                .anyMatch(cu -> cu.getPackage().getName().getFullyQualifiedName()
-                        .startsWith(sdkPrimaryPackage));
+        assertTrue(units.values().stream()
+                        .filter(cu -> cu.getPackage() != null)
+                        .anyMatch(cu -> cu.getPackage().getName().getFullyQualifiedName()
+                                .startsWith("com.botmaker.sdk")),
+                "at least one unit must be in the SDK's own package — otherwise the parse resolved "
+                        + "something else entirely");
+    }
 
-        assertTrue(foundPrimaryPackage,
-                "At least one CU should be in package " + sdkPrimaryPackage);
-        System.out.println("Parsed " + units.size() + " files from " + sdkLib);
+    /** The record is the whole of a user library: three coordinates, no separate store file. */
+    @Test
+    void aUserLibraryIsItsMavenCoordinate() {
+        UserLibrary lib = new UserLibrary("com.github.LiQiyeDev", "botmaker-sdk", "1.0.7");
+
+        assertEquals("com.github.LiQiyeDev", lib.groupId());
+        assertEquals("botmaker-sdk", lib.artifactId());
+        assertEquals("1.0.7", lib.version());
+        assertEquals(lib, new UserLibrary("com.github.LiQiyeDev", "botmaker-sdk", "1.0.7"),
+                "value identity — the pom is the source of truth and these are compared by content");
     }
 }

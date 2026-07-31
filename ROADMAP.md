@@ -6,6 +6,29 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-31 — refactor Phase 3: the test floor for `ui/` and the remainder (SU4, SC3, SU18).** The last
+  block of the phase and its largest coverage move: +160 tests (454 → 614), module line coverage
+  **29.3 → 35.5%**, and `ui.app` — the package that runs on every launch — **5.9 → 20.0%** (4,703 → 4,000
+  missed lines). `UIManagerSceneTest` is the first test ever to build the main window: the TestFX + Monocle
+  harness existed all along and had only ever been pointed at block rendering. Also new:
+  `MagicWandSessionLifecycleTest` (every native `Mat` released on close, the bounded history's evictions
+  included), `CoordinatePickerLabelTest` (both pickers through one scenario each — the net SU8's merge
+  needs), `ThemeAndLayoutSmokeTest` (what the five live DSL entry points do, before SU5 deletes 55 members),
+  `ErrorTranslatorTest`, `ResolvedTypeTest`, `VariableScopeVisitorTest`,
+  `ProjectAnalyzerStaticSectionsTest`, `GameLibraryScannerTest` and `TypeSummaryManagerCacheTest`.
+  **Found: B20** — `ErrorTranslator`'s 26-entry problem-id table is unreachable, because the only
+  `Diagnostic` Studio ever constructs is the empty-slot message and javac's output goes to the run pane as
+  raw text; **B21** (the enricher double-quotes half its templates); **B22** — `for`, enhanced-`for` and
+  `try`-with-resources push no scope, so their variables are still offered after the statement ends and the
+  generated source will not compile (red-by-design, `@Disabled` with its condition); **B23** (same-named
+  jars share one index cache entry); **B24** (painting over the whole selection throws out of
+  `MagicWand.refine` and is silently swallowed). Three production changes, all additive: the Steam/Epic/
+  Faugus scanners each grew a package-private overload taking their root so a fixture tree can stand in for
+  an install, `EditorFixture` grew a lazily-built `context()`, and Surefire now redirects the BotMaker cache
+  dir into `target/` so no test can write into the developer's real cache or credentials file. **SU18 done:**
+  `UserLibraryTest`'s hand-edit-the-path `@Disabled` is parameterised to the sibling SDK submodule and now
+  runs; every `@Disabled` in the suite carries a bug id and a re-enable condition.
+
 - **2026-07-31 — refactor Phase 3: the BotPilot wire contract, asserted from both repos (P3).**
   `TelemetryWireContractTest` (12 tests) serializes real `TelemetryEvent`s against
   `src/test/resources/pilot/wire-golden.json` — a corpus of every message Studio sends, committed
