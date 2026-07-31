@@ -1,5 +1,6 @@
 package com.botmaker.studio.services;
 
+import com.botmaker.shared.Executables;
 import com.botmaker.studio.config.AppVersion;
 import com.botmaker.studio.sharing.GitHubClient;
 import com.botmaker.studio.sharing.GitHubConfig;
@@ -135,7 +136,7 @@ public final class UpdateService {
             applyAppImageUpdate(installer, Path.of(runningAppImage));
             return;
         }
-        if ((lower.endsWith(".rpm") || lower.endsWith(".deb")) && commandExists("pkexec")) {
+        if ((lower.endsWith(".rpm") || lower.endsWith(".deb")) && Executables.onPath("pkexec")) {
             installWithPackageManager(installer);
             return;
         }
@@ -203,20 +204,12 @@ public final class UpdateService {
         String appImage = System.getenv("APPIMAGE");
         if (appImage != null && !appImage.isBlank()) return new String[]{".appimage"};
         // Otherwise prefer the format whose tooling is installed; fall back to the other, then AppImage.
-        if (commandExists("dpkg")) return new String[]{".deb", ".rpm", ".appimage"};
-        if (commandExists("rpm")) return new String[]{".rpm", ".deb", ".appimage"};
+        if (Executables.onPath("dpkg")) return new String[]{".deb", ".rpm", ".appimage"};
+        if (Executables.onPath("rpm")) return new String[]{".rpm", ".deb", ".appimage"};
         return new String[]{".appimage", ".deb", ".rpm"};
     }
 
     private static boolean isWindows() {
         return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
-    }
-
-    private static boolean commandExists(String cmd) {
-        try {
-            return new ProcessBuilder("which", cmd).start().waitFor() == 0;
-        } catch (Exception e) {
-            return false;
-        }
     }
 }

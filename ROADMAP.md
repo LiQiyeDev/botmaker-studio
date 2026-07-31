@@ -6,6 +6,15 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-01 — refactor Phase 4 · SV4: Studio no longer spawns `which` to ask what is installed (closes
+  B7's Studio shape).** `DesktopGrab.toolExists`, `SessionEnvironment.onPath` and
+  `UpdateService.commandExists` were three private copies of `ProcessBuilder("which", name).waitFor()`, and
+  the last redirected neither stream — an undrained child that blocks in `write()` once the pipe buffer fills.
+  All three are deleted; the six call sites call shared's `Executables.onPath`, which walks `PATH` in pure
+  Java, so there is no child and no pipe. Behaviour-preserving: `OnPathParityTest` (written in Phase 3 for
+  exactly this swap) asserts shared agrees with `which` on every name these sites ask, and now also that no
+  Studio source spawns `which` at all.
+
 - **2026-08-01 — refactor Phase 4 · SC4: `EventBus` logs a handler that throws on *both* branches.** The
   `catch (Exception) → SEVERE` guard — the whole of Studio's error logging — only covered the inline
   delivery; the `runOnFxThread` branch hands the call to `Platform.runLater` and returns, so the throw landed

@@ -1,5 +1,6 @@
 package com.botmaker.studio.services.capture;
 
+import com.botmaker.shared.Executables;
 import com.botmaker.studio.services.platform.SessionEnvironment;
 
 import javax.imageio.ImageIO;
@@ -94,7 +95,7 @@ public final class DesktopGrab {
             Path tmp = Files.createTempFile("botmaker-shot-", ".png");
             try {
                 for (String[] tool : tools) {
-                    if (!toolExists(tool[0])) continue;
+                    if (!Executables.onPath(tool[0])) continue;
                     String[] argv = new String[tool.length + 1];
                     System.arraycopy(tool, 0, argv, 0, tool.length);
                     argv[tool.length] = tmp.toString();
@@ -112,19 +113,6 @@ public final class DesktopGrab {
         System.err.println("No working Wayland screenshot tool found. Install one of: grim "
                 + "(wlroots/Sway/Hyprland), gnome-screenshot (GNOME), or spectacle (KDE).");
         return null;
-    }
-
-    /** True if {@code name} resolves on PATH (via {@code which}). */
-    private static boolean toolExists(String name) {
-        try {
-            return new ProcessBuilder("which", name)
-                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
-                    .redirectError(ProcessBuilder.Redirect.DISCARD)
-                    .start().waitFor() == 0;
-        } catch (IOException | InterruptedException e) {
-            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
-            return false;
-        }
     }
 
     /** Runs {@code argv}, discarding its output, and returns true if it exits 0 within the timeout. */

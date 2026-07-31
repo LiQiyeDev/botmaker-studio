@@ -1,5 +1,7 @@
 package com.botmaker.studio.services.platform;
 
+import com.botmaker.shared.Executables;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -78,20 +80,8 @@ public final class SessionEnvironment {
     /** The first supported package manager found on PATH ({@code dnf}/{@code apt}/{@code pacman}/{@code zypper}), or null. */
     private static String detectPackageManager() {
         for (String pm : new String[]{"dnf", "apt-get", "pacman", "zypper"}) {
-            if (onPath(pm)) return pm.equals("apt-get") ? "apt" : pm;
+            if (Executables.onPath(pm)) return pm.equals("apt-get") ? "apt" : pm;
         }
         return null;
-    }
-
-    private static boolean onPath(String name) {
-        try {
-            return new ProcessBuilder("which", name)
-                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
-                    .redirectError(ProcessBuilder.Redirect.DISCARD)
-                    .start().waitFor() == 0;
-        } catch (Exception e) {
-            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
-            return false;
-        }
     }
 }

@@ -17,23 +17,27 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * <b>Studio services MISSING 5 — the three private {@code which} helpers agree with shared's
- * {@link Executables#onPath}.</b> Gates <b>SV4</b>, which deletes them.
+ * <b>Studio services MISSING 5 — Studio's "is this program installed" answer is shared's
+ * {@link Executables#onPath}, and it still agrees with the {@code which} subprocess it replaced.</b>
  *
- * <p>Studio spawns a {@code which} subprocess to answer "is this program installed" in three places —
- * {@code DesktopGrab.toolExists}, {@code SessionEnvironment.onPath} and {@code UpdateService.commandExists} —
- * all three private, all three byte-for-byte the same {@code ProcessBuilder("which", name)}. shared already
- * owns the answer, in pure Java, and its javadoc records that this exact duplication is why it exists.
+ * <p>Studio used to spawn {@code which} in three places — {@code DesktopGrab.toolExists},
+ * {@code SessionEnvironment.onPath} and {@code UpdateService.commandExists} — all three private, all three
+ * essentially the same {@code ProcessBuilder("which", name)}, and one of them ({@code UpdateService}'s)
+ * redirecting nothing at all, which is B7's shape. <b>SV4 (2026-08-01) deleted all three</b> in favour of
+ * shared, which answers the same question in pure Java and whose javadoc records that this exact duplication
+ * is why it exists.
  *
- * <p>Two things must be true before the three copies can go, and only one of them is "same answer":
+ * <p>Two things had to be true before the copies could go, and only one of them is "same answer":
  *
  * <ol>
- *   <li><b>They agree</b> on the inputs the call sites actually pass. Asserted below by running the copies'
- *       own implementation — the literal {@code which} spawn — against shared's.</li>
+ *   <li><b>They agree</b> on the inputs the call sites actually pass. Asserted below by running the deleted
+ *       copies' implementation — the literal {@code which} spawn, kept here as {@link #viaWhich} — against
+ *       shared's. It stays after the fix as the thing that would catch a divergence, since nothing else in
+ *       the tree compares the two any more.</li>
  *   <li><b>The one input they <em>disagree</em> on is never passed.</b> {@code which /bin/sh} succeeds;
  *       {@code Executables.onPath("/bin/sh")} is false by design, because it searches {@code PATH} for a
  *       directory entry named {@code "/bin/sh"}. shared splits that case out into {@link Executables#exists}
- *       on purpose. So SV4 is only safe while every call site passes a bare name — which the last test
+ *       on purpose. So the swap is only sound while every call site passes a bare name — which the last test
  *       asserts against the sources, so adding a path-shaped call site fails here rather than in the field.</li>
  * </ol>
  *
@@ -41,7 +45,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class OnPathParityTest {
 
-    /** The three helpers' implementation, verbatim — this is what is being replaced. */
+    /** The three deleted helpers' implementation, verbatim — this is what shared replaced. */
     private static boolean viaWhich(String name) {
         try {
             return new ProcessBuilder("which", name)
@@ -59,7 +63,7 @@ class OnPathParityTest {
             "sh", "ls", "env",                                  // certainly present
             "grim", "gnome-screenshot", "spectacle",            // DesktopGrab
             "dnf", "apt-get", "pacman", "zypper",               // SessionEnvironment
-            "dpkg", "rpm",                                      // UpdateService
+            "dpkg", "rpm", "pkexec",                            // UpdateService
             "botmaker-no-such-tool", "definitely-not-installed-xyz");
 
     @Test
@@ -90,7 +94,7 @@ class OnPathParityTest {
 
     /**
      * The documented divergence, asserted so it is a known boundary rather than a surprise: a path is not a
-     * PATH lookup. SV4 is safe only because no Studio call site passes one — see the next test.
+     * PATH lookup. The swap was safe only because no Studio call site passes one — see the next test.
      */
     @Test
     @DisabledOnOs(OS.WINDOWS)
@@ -104,21 +108,45 @@ class OnPathParityTest {
                 "exists() is the method for an argv[0] that may be a path; that is the split SV4 must respect");
     }
 
+    /** The three files SV4 touched; the ones whose arguments have to stay bare names. */
+    private static final List<Path> CALL_SITES = List.of(
+            Path.of("src/main/java/com/botmaker/studio/services/capture/DesktopGrab.java"),
+            Path.of("src/main/java/com/botmaker/studio/services/platform/SessionEnvironment.java"),
+            Path.of("src/main/java/com/botmaker/studio/services/UpdateService.java"));
+
     /**
-     * Reads the three call sites and asserts every argument they pass is a bare program name. This is the
-     * precondition for SV4, and it is checked against the source rather than assumed, because the divergence
-     * above is invisible at the call site: {@code toolExists("/usr/bin/grim")} would compile, run, and start
-     * answering "not installed" the day the helper is swapped.
+     * <b>SV4's gate.</b> No Studio source spawns {@code which} any more — the question is answered in-process.
+     *
+     * <p>This is what was red before the fix, and it is worth keeping as more than a monument: the
+     * {@code UpdateService} copy redirected neither stream, so it was also a live instance of B7 (an
+     * undrained child blocks in {@code write()} once the pipe buffer fills). {@code which} is terse enough
+     * that it never filled one in practice, but the shape is the bug, and the shape is what this forbids
+     * coming back.
+     */
+    @Test
+    void noStudioSourceAsksTheQuestionBySpawningWhich() throws IOException {
+        List<String> offenders = new ArrayList<>();
+        try (var paths = Files.walk(Path.of("src/main/java"))) {
+            for (Path source : paths.filter(p -> p.toString().endsWith(".java")).toList()) {
+                if (Files.readString(source).contains("ProcessBuilder(\"which\"")) {
+                    offenders.add(source.toString());
+                }
+            }
+        }
+        assertTrue(offenders.isEmpty(),
+                "these spawn `which` instead of calling Executables.onPath: " + offenders);
+    }
+
+    /**
+     * Reads the three call sites and asserts every argument they pass is a bare program name. This was the
+     * precondition for SV4 and remains the guard against undoing it, and it is checked against the source
+     * rather than assumed, because the divergence above is invisible at the call site:
+     * {@code Executables.onPath("/usr/bin/grim")} compiles, runs, and quietly answers "not installed".
      */
     @Test
     void everyCallSitePassesABareNameAndNotAPath() throws IOException {
-        List<Path> sources = List.of(
-                Path.of("src/main/java/com/botmaker/studio/services/capture/DesktopGrab.java"),
-                Path.of("src/main/java/com/botmaker/studio/services/platform/SessionEnvironment.java"),
-                Path.of("src/main/java/com/botmaker/studio/services/UpdateService.java"));
-
         List<String> pathShaped = new ArrayList<>();
-        for (Path source : sources) {
+        for (Path source : CALL_SITES) {
             for (String literal : stringLiteralsPassedToOnPathLikeCalls(Files.readString(source))) {
                 if (literal.indexOf('/') >= 0 || literal.indexOf('\\') >= 0) {
                     pathShaped.add(source.getFileName() + ": " + literal);
@@ -131,28 +159,35 @@ class OnPathParityTest {
     }
 
     /**
-     * The string literals handed to the three helpers. Deliberately crude — a regex over the source, matching
-     * the call spellings the three files use — because the alternative is making three private methods public
-     * just to be able to look at them.
+     * The string literals that reach {@code Executables.onPath}. Deliberately crude — regexes over the source
+     * — because two of the three sites don't pass a literal directly and the alternative is a real parser.
+     * Over-matching is harmless here: every extra literal is simply one more string asserted not to be a path.
      */
     private static List<String> stringLiteralsPassedToOnPathLikeCalls(String source) {
         List<String> found = new ArrayList<>();
-        var matcher = java.util.regex.Pattern
-                .compile("(?:toolExists|onPath|commandExists)\\(\"([^\"]*)\"\\)")
+        // The direct site: `Executables.onPath("dpkg")`.
+        var direct = java.util.regex.Pattern
+                .compile("Executables\\.onPath\\(\"([^\"]*)\"\\)")
                 .matcher(source);
-        while (matcher.find()) found.add(matcher.group(1));
+        while (direct.find()) found.add(direct.group(1));
 
-        // The array-driven site: `for (String pm : new String[]{"dnf", "apt-get", …})`.
-        var array = java.util.regex.Pattern
-                .compile("new String\\[\\]\\{([^}]*)}")
-                .matcher(source);
-        while (array.find()) {
-            for (String part : array.group(1).split(",")) {
+        // Every array initializer — which covers both indirect sites: the package-manager loop
+        // `for (String pm : new String[]{"dnf", …})` and DesktopGrab's `String[][] tools = {{"grim"}, …}`,
+        // whose `tool[0]` is what onPath is handed. An initializer is recognised as an innermost brace group
+        // whose parts are *all* string literals, which is what keeps a method body from matching.
+        var braced = java.util.regex.Pattern.compile("\\{([^{}]*)}").matcher(source);
+        while (braced.find()) {
+            List<String> parts = new ArrayList<>();
+            for (String part : braced.group(1).split(",")) {
                 String trimmed = part.trim();
-                if (trimmed.startsWith("\"") && trimmed.endsWith("\"") && trimmed.length() > 1) {
-                    found.add(trimmed.substring(1, trimmed.length() - 1));
+                if (trimmed.length() > 1 && trimmed.startsWith("\"") && trimmed.endsWith("\"")) {
+                    parts.add(trimmed.substring(1, trimmed.length() - 1));
+                } else if (!trimmed.isEmpty()) {
+                    parts.clear();
+                    break;
                 }
             }
+            found.addAll(parts);
         }
         return found;
     }
