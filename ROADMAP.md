@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-31 — refactor Phase 3: the BotPilot wire contract, asserted from both repos (P3).**
+  `TelemetryWireContractTest` (12 tests) serializes real `TelemetryEvent`s against
+  `src/test/resources/pilot/wire-golden.json` — a corpus of every message Studio sends, committed
+  **byte-identically** in `botmaker-pilot` (`web/src/wire-golden.json`), where `wire.test.ts` feeds the same
+  file through the real client. Neither CI job can see the other repo, so **both sides assert the corpus'
+  SHA-256**: change the wire on one side and the other goes red. `TelemetrySerializer` gained
+  `telemetryJson`/`stateJson` so the class whose javadoc claims to own the wire schema actually owns all
+  three messages on it (`PilotServer` delegates). **Found: B18** — a window title containing a control
+  character, or a `NaN` confidence, emits JSON no parser accepts and the client drops the message silently;
+  P10's real JSON writer closes both halves. **Also found: `PilotServerTest` is red at `HEAD`** (B19) —
+  every static path 404s under Surefire though the resources are on the classpath; needs one manual launch
+  to decide whether the server or the test is wrong.
+
 - **2026-07-31 — refactor Phase 3: the test floor for `services/` + `runtime/` (SV3, MISSING 1–8).** Eight
   new test classes: +60 tests, `runtime` 0.0 → 67.9% (it had never been executed at all, and it is the
   feature — `CodeExecutionServiceTest` now compiles and runs a real bot JVM end to end from a `@TempDir`),

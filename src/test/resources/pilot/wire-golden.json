@@ -1,0 +1,90 @@
+{
+  "_comment": [
+    "The BotPilot wire contract, by example. Every message Studio can send a pilot client, in the exact",
+    "shape it goes out on the socket. Two tests read this file and neither one can see the other's repo:",
+    "botmaker-studio's TelemetryWireContractTest serializes real events and asserts they equal these, and",
+    "botmaker-pilot's wire.test.ts feeds these through the real client and asserts what it decodes.",
+    "Both also assert the SHA-256 of this file, so the two copies cannot drift apart silently: change one",
+    "and the other side goes red until it is changed too. Keep the copies byte-identical.",
+    "'ts' is stamped from the wall clock at send time; 0 here is a sentinel the Studio test substitutes."
+  ],
+  "telemetry.match.found": {
+    "type": "telemetry",
+    "event": {
+      "ts": 0,
+      "target": { "title": "Nested Game", "x": 100, "y": 50, "w": 640, "h": 480 },
+      "kind": "Match",
+      "found": true,
+      "confidence": 0.9123,
+      "region": { "x": 110, "y": 60, "w": 200, "h": 100 },
+      "rect": { "x": 150, "y": 80, "w": 32, "h": 24 }
+    }
+  },
+  "telemetry.match.miss": {
+    "type": "telemetry",
+    "event": {
+      "ts": 0,
+      "target": { "title": "Nested Game", "x": 100, "y": 50, "w": 640, "h": 480 },
+      "kind": "Match",
+      "found": false,
+      "confidence": 0.0,
+      "region": null,
+      "rect": null
+    }
+  },
+  "telemetry.click": {
+    "type": "telemetry",
+    "event": {
+      "ts": 0,
+      "target": { "title": "Nested Game", "x": 100, "y": 50, "w": 640, "h": 480 },
+      "kind": "Click",
+      "x": 300,
+      "y": 220,
+      "button": 3
+    }
+  },
+  "telemetry.region": {
+    "type": "telemetry",
+    "event": {
+      "ts": 0,
+      "target": { "title": "Nested Game", "x": 100, "y": 50, "w": 640, "h": 480 },
+      "kind": "Region",
+      "rect": { "x": 0, "y": 0, "w": 640, "h": 480 }
+    }
+  },
+  "telemetry.target.title.quoted": {
+    "type": "telemetry",
+    "event": {
+      "ts": 0,
+      "target": { "title": "He said \"hi\" — C:\\Games\\x", "x": -1920, "y": 0, "w": 1280, "h": 720 },
+      "kind": "Region",
+      "rect": { "x": -1920, "y": 0, "w": 100, "h": 100 }
+    }
+  },
+  "telemetry.target.null": {
+    "type": "telemetry",
+    "event": {
+      "ts": 0,
+      "target": null,
+      "kind": "Click",
+      "x": 10,
+      "y": 20,
+      "button": 1
+    }
+  },
+  "state.running.background": {
+    "type": "state",
+    "run": "running",
+    "backgroundInput": true
+  },
+  "state.paused.foreground": {
+    "type": "state",
+    "run": "paused",
+    "backgroundInput": false
+  },
+  "state.stopped.background": {
+    "type": "state",
+    "run": "stopped",
+    "backgroundInput": true
+  }
+}

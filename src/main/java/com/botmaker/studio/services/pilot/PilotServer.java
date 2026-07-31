@@ -306,7 +306,7 @@ public final class PilotServer implements AutoCloseable {
     private void onTelemetry(TelemetryEvent te) {
         if (te == null) return;
         lastTarget = te.target();
-        broadcastText("{\"type\":\"telemetry\",\"event\":" + TelemetrySerializer.eventJson(te) + "}");
+        broadcastText(TelemetrySerializer.telemetryJson(te));
     }
 
     private void setRunState(String state) {
@@ -314,13 +314,9 @@ public final class PilotServer implements AutoCloseable {
         broadcastText(stateJson());
     }
 
-    /**
-     * {@code backgroundInput} tells the client whether Interact will leave the host's real cursor alone, so
-     * it can warn before the user's pointer visibly gets hijacked (Linux uinput/XTest backends).
-     */
+    /** Built by {@link TelemetrySerializer}, which owns every text message that leaves here. */
     private String stateJson() {
-        return "{\"type\":\"state\",\"run\":\"" + runState + "\",\"backgroundInput\":"
-                + input.supportsBackgroundInput() + "}";
+        return TelemetrySerializer.stateJson(runState, input.supportsBackgroundInput());
     }
 
     private void broadcastText(String text) {

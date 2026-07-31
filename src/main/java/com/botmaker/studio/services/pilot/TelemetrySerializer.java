@@ -6,12 +6,29 @@ import java.util.Locale;
 
 /**
  * Serializes a decoded {@link TelemetryEvent} to the compact JSON shape the pilot client consumes
- * (kind, target, rect/region/click coords, confidence). Kept separate from {@code PilotServer} so the wire
- * schema has one owner — the pilot web app's {@code types.ts} mirrors it field for field.
+ * (kind, target, rect/region/click coords, confidence), and the {@code state} message alongside it — every
+ * text message Studio sends a pilot client is built here, so the wire schema has one owner.
+ *
+ * <p>The pilot web app's {@code types.ts} mirrors it field for field, and what keeps that true is
+ * {@code TelemetryWireContractTest} plus its counterpart in the pilot repo: both read the same
+ * {@code pilot/wire-golden.json} corpus, and both assert its digest, so neither copy can move alone.
  */
 public final class TelemetrySerializer {
 
     private TelemetrySerializer() {}
+
+    /** The full {@code telemetry} text message, as it goes out on the socket. */
+    public static String telemetryJson(TelemetryEvent te) {
+        return "{\"type\":\"telemetry\",\"event\":" + eventJson(te) + "}";
+    }
+
+    /**
+     * The full {@code state} text message. {@code backgroundInput} tells the client whether Interact will
+     * leave the host's real cursor alone, so it can warn before the user's pointer visibly gets hijacked.
+     */
+    public static String stateJson(String runState, boolean backgroundInput) {
+        return "{\"type\":\"state\",\"run\":\"" + runState + "\",\"backgroundInput\":" + backgroundInput + "}";
+    }
 
     /** The event body only (no {@code type} wrapper) — callers wrap it as needed for SSE vs. WS. */
     public static String eventJson(TelemetryEvent te) {
