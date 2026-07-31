@@ -1,3 +1,7 @@
+package com.botmaker.studio.parser;
+
+import com.botmaker.studio.TestSupport;
+
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;

@@ -1,3 +1,5 @@
+package com.botmaker.studio.project.capture;
+
 import com.botmaker.studio.project.StudioProjectSettings;
 import com.botmaker.studio.project.capture.CaptureExpr;
 import com.botmaker.studio.project.capture.CaptureTarget;

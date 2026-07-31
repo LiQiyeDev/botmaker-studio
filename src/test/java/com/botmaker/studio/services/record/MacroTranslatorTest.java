@@ -1,3 +1,5 @@
+package com.botmaker.studio.services.record;
+
 import com.botmaker.shared.input.InputEvent;
 import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.palette.BlockType.LibraryCall;

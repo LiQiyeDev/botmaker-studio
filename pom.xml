@@ -32,6 +32,11 @@
              Platform-specific format required: .png on Linux (default), overridden to .ico on Windows,
              .icns on macOS by the OS profiles below. -->
         <installer.icon>${project.basedir}/src/main/resources/icons/icon.png</installer.icon>
+
+        <!-- Empty default so surefire's <argLine>@{argLine} …</argLine> resolves on a plain build. An
+             agent-based plugin (JaCoCo) overwrites this property with its -javaagent argument; without
+             the default, a build with no such plugin would pass the literal "@{argLine}" to the JVM. -->
+        <argLine></argLine>
     </properties>
 
     <repositories>
@@ -275,12 +280,6 @@
             <version>21.0.2</version>
             <scope>test</scope>
         </dependency>
-        <dependency>
-            <groupId>com.github.LiQiyeDev</groupId>
-            <artifactId>botmaker-shared</artifactId>
-            <version>${botmaker.shared.version}</version>
-            <scope>compile</scope>
-        </dependency>
     </dependencies>
 
     <build>
@@ -349,7 +348,12 @@
                 <configuration>
                     <!-- JVM args translated from your Gradle test task (heap-dump path made
                          portable: lands under target/, so it works on Linux/macOS/Windows). -->
-                    <argLine>-Xmx6096m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=${project.build.directory} -verbose:gc
+                    <!-- @{argLine} first: surefire's argLine is the one channel an agent-based tool
+                         (JaCoCo, a profiler, mutation testing) uses to attach. Overwriting it instead of
+                         extending it discards the agent silently — the build stays green and coverage
+                         reads 0%, indistinguishable from "no tests". The empty <argLine/> property above
+                         keeps this resolvable when no agent set it. -->
+                    <argLine>@{argLine} -Xmx6096m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=${project.build.directory} -verbose:gc
                         --add-exports javafx.graphics/com.sun.glass.ui.monocle=ALL-UNNAMED
                         --add-opens javafx.graphics/com.sun.glass.ui=ALL-UNNAMED
                         --add-opens javafx.graphics/com.sun.glass.ui.monocle=ALL-UNNAMED

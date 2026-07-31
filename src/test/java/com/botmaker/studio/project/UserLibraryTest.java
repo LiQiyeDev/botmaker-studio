@@ -1,3 +1,7 @@
+package com.botmaker.studio.project;
+
+import com.botmaker.studio.TestSupport;
+
 import com.botmaker.studio.project.UserLibrary;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.junit.jupiter.api.Disabled;

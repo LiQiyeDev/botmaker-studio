@@ -1,3 +1,7 @@
+package com.botmaker.studio.suggestions;
+
+import com.botmaker.studio.TestSupport;
+
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.util.VariableScopeVisitor;

@@ -1,3 +1,7 @@
+package com.botmaker.studio.blocks;
+
+import com.botmaker.studio.TestSupport;
+
 import com.botmaker.studio.blocks.ClassBlock;
 import com.botmaker.studio.blocks.expr.MethodReferenceBlock;
 import com.botmaker.studio.blocks.func.MethodInvocationBlock;

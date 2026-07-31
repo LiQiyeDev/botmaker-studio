@@ -1,3 +1,7 @@
+package com.botmaker.studio.parser;
+
+import com.botmaker.studio.TestSupport;
+
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.parser.BlockConverter;

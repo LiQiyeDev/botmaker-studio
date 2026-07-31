@@ -1,3 +1,5 @@
+package com.botmaker.studio.services;
+
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import org.junit.jupiter.api.Test;
 

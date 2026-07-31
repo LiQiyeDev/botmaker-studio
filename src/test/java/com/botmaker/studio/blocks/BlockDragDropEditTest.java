@@ -1,3 +1,7 @@
+package com.botmaker.studio.blocks;
+
+import com.botmaker.studio.TestSupport;
+
 import com.botmaker.studio.core.AbstractCodeBlock;
 import com.botmaker.studio.core.BlockWithChildren;
 import com.botmaker.studio.core.BodyBlock;

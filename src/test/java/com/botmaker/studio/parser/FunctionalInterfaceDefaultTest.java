@@ -1,3 +1,5 @@
+package com.botmaker.studio.parser;
+
 import com.botmaker.studio.parser.factories.InitializerFactory;
 import com.botmaker.studio.parser.handlers.MethodHandler;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;

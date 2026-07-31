@@ -1,3 +1,5 @@
+package com.botmaker.studio;
+
 import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.ASTParser;
@@ -21,7 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 public final class TestSupport {
 
-    static final Path SOURCE_ROOT = Paths.get("src", "main", "java").toAbsolutePath();
+    public static final Path SOURCE_ROOT = Paths.get("src", "main", "java").toAbsolutePath();
 
     private TestSupport() {}
 
