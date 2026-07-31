@@ -27,26 +27,28 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
  * blocks by {@link BlockConverter}, with an {@link EventBus} that captures the {@code CodeUpdatedEvent} so a
  * test can assert on the rewritten source.
  *
- * <p>Shared by the write-path tests so each one is just its source and its assertion.
+ * <p>Shared by the write-path tests so each one is just its source and its assertion. Public because the
+ * block-construction tests in {@code blocks/} drive the same converter — the harness is the module's one
+ * source-to-block-tree entry point for tests, and a second copy of it would drift.
  */
-final class EditorFixture {
+public final class EditorFixture {
 
     private static final Path PROJECTS = Paths.get("/tmp/projects");
     private static final ProjectConfig CONFIG = ProjectConfig.forProject("MyBot", PROJECTS);
     private static final List<String> RUNTIME_CLASSPATH =
             List.of(System.getProperty("java.class.path").split(java.io.File.pathSeparator));
 
-    final CodeEditor editor;
-    final ProjectState state;
-    final AbstractCodeBlock root;
-    String lastCode;
+    public final CodeEditor editor;
+    public final ProjectState state;
+    public final AbstractCodeBlock root;
+    public String lastCode;
 
-    EditorFixture(String source) {
+    public EditorFixture(String source) {
         this(source, Paths.get("Subject.java").toAbsolutePath());
     }
 
     /** As {@link #EditorFixture(String)} but with an explicit file path — e.g. one under the activities dir. */
-    EditorFixture(String source, Path file) {
+    public EditorFixture(String source, Path file) {
         state = new ProjectState();
         state.addFile(new ProjectFile(file, source));
         state.setActiveFile(file);
@@ -71,12 +73,12 @@ final class EditorFixture {
     }
 
     /** A path under this project's activities package — a file there is treated as an activity stub. */
-    static Path activitiesFile(String fileName) {
+    public static Path activitiesFile(String fileName) {
         return CONFIG.activitiesPackageDir().resolve(fileName).toAbsolutePath();
     }
 
     /** The {@link BodyBlock} for {@code methodName}'s body, found the way CodeEditorService finds it: by AST node. */
-    BodyBlock body(String methodName) {
+    public BodyBlock body(String methodName) {
         TypeDeclaration type = (TypeDeclaration) root.getAstNode();
         MethodDeclaration found = null;
         for (MethodDeclaration m : type.getMethods()) {

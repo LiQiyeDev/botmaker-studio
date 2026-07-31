@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-07-31 — refactor Phase 3: the test floor for `blocks/` + `parser/` (SP4, SP7).** Seven new test
+  classes over the write path, the block converter, the statement factory and the signature handlers: +40
+  tests, `parser.factories` 23.0 → 57.2%, `parser.handlers` 25.8 → 39.9%, `blocks.vision` 0.0% → covered,
+  module 25.7 → 27.6%. Six tests are `@Disabled` and were each confirmed red first — they gate SP5/SP6 and a
+  new bug. **Found: B16** — `renameMethod` and `renameMethodParameter` rewrite only the declaration, so a
+  rename from the editor leaves call sites and body references dangling and the file stops compiling; the fix
+  pattern is already in the same file (`renameForEachVariable`). **Also found:** B12 drops seven statement
+  kinds, not five (a plain `try/catch` and a local `class` are dropped *inside* branches that look like they
+  handle them); B11 has a third site that bypasses `CodeEditor.edit`; SP8's target (`Kind.WAIT`, the only
+  `printStackTrace` the factory emits into bot source) is unreachable dead code, so that item is a deletion
+  rather than a coordinated SDK release; and `blocks/misc/ClickBlock` has zero construction sites. SP7 turned
+  `TypeAwareSuggestionTest`'s five `assumeTrue` into assertions — one was skipping on a broken test helper,
+  not a missing capability.
 - **2026-07-30 — Pilot gestures take shared's cursor policy (Phase 12).** `PilotInputService`'s private
   `sessionOwnsPointer()` moved to shared as `PointerPolicy`, because the SDK's own click path had never implemented
   the same rule and was warping the pointer off the target after every in-session click (the game showed a hover

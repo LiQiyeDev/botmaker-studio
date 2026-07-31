@@ -1,8 +1,6 @@
 package com.botmaker.studio.suggestions;
 
 import com.botmaker.studio.TestSupport;
-
-import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.util.VariableScopeVisitor;
 import org.eclipse.jdt.core.dom.*;
@@ -12,7 +10,6 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Verifies that variable and method suggestions are correctly filtered by the
@@ -145,7 +142,9 @@ public class TypeAwareSuggestionTest {
         assertNotNull(init);
 
         ITypeBinding strType = bindingOf("String");
-        assumeTrue(strType != null, "String binding must resolve for this test");
+        assertNotNull(strType, "String binding must resolve. The synthetic source declares String fields, so a "
+                + "null here means bindings did not resolve at all — in which case every assertion below "
+                + "passes vacuously, which is what this used to skip on rather than report.");
 
         List<String> names = VariableScopeVisitor.getAvailableVariables(init, strType)
                 .stream().map(IVariableBinding::getName).toList();
@@ -171,7 +170,7 @@ public class TypeAwareSuggestionTest {
         assertNotNull(init);
 
         ITypeBinding intType = bindingOf("int");
-        assumeTrue(intType != null, "int binding must resolve");
+        assertNotNull(intType, "int binding must resolve — see the note on the String case");
 
         List<String> names = VariableScopeVisitor.getAvailableVariables(init, intType)
                 .stream().map(IVariableBinding::getName).toList();
@@ -198,7 +197,7 @@ public class TypeAwareSuggestionTest {
         assertNotNull(init);
 
         ITypeBinding strType = bindingOf("String");
-        assumeTrue(strType != null);
+        assertNotNull(strType, "String binding must resolve — see the note on the String-variable case");
 
         List<String> methodNames = VariableScopeVisitor.getAvailableMethods(init, strType)
                 .stream().map(IMethodBinding::getName).toList();
@@ -217,7 +216,7 @@ public class TypeAwareSuggestionTest {
         assertNotNull(init);
 
         ITypeBinding intType = bindingOf("int");
-        assumeTrue(intType != null);
+        assertNotNull(intType, "int binding must resolve — see the note on the String-variable case");
 
         List<String> methodNames = VariableScopeVisitor.getAvailableMethods(init, intType)
                 .stream().map(IMethodBinding::getName).toList();
@@ -241,7 +240,7 @@ public class TypeAwareSuggestionTest {
         assertNotNull(init, "Should locate 'result2' initializer");
 
         ITypeBinding listType = bindingOf("List");
-        assumeTrue(listType != null, "List binding must resolve");
+        assertNotNull(listType, "List binding must resolve — see the note on the String-variable case");
 
         List<String> names = VariableScopeVisitor.getAvailableVariables(init, listType)
                 .stream().map(IVariableBinding::getName).toList();
@@ -324,13 +323,17 @@ public class TypeAwareSuggestionTest {
     /**
      * Resolves the {@link ITypeBinding} for a simple type name by scanning the
      * variable declarations in the synthetic source.
+     *
+     * <p>Type arguments are stripped before comparing: the source declares {@code List<String>}, and a caller
+     * asking for {@code "List"} means that declaration. Matching on the raw {@code toString()} instead found
+     * nothing, which the old {@code assumeTrue} turned into a silent skip rather than a failure.
      */
     private ITypeBinding bindingOf(String typeName) {
         ITypeBinding[] found = {null};
         cu.accept(new ASTVisitor() {
             @Override
             public boolean visit(FieldDeclaration node) {
-                if (found[0] == null && node.getType().toString().equals(typeName)) {
+                if (found[0] == null && erasureOf(node.getType()).equals(typeName)) {
                     ITypeBinding b = node.getType().resolveBinding();
                     if (b != null) found[0] = b;
                 }
@@ -339,7 +342,7 @@ public class TypeAwareSuggestionTest {
 
             @Override
             public boolean visit(VariableDeclarationStatement node) {
-                if (found[0] == null && node.getType().toString().equals(typeName)) {
+                if (found[0] == null && erasureOf(node.getType()).equals(typeName)) {
                     ITypeBinding b = node.getType().resolveBinding();
                     if (b != null) found[0] = b;
                 }
@@ -348,7 +351,7 @@ public class TypeAwareSuggestionTest {
 
             @Override
             public boolean visit(SingleVariableDeclaration node) {
-                if (found[0] == null && node.getType().toString().equals(typeName)) {
+                if (found[0] == null && erasureOf(node.getType()).equals(typeName)) {
                     ITypeBinding b = node.getType().resolveBinding();
                     if (b != null) found[0] = b;
                 }
@@ -356,5 +359,12 @@ public class TypeAwareSuggestionTest {
             }
         });
         return found[0];
+    }
+
+    /** {@code List<String>} → {@code "List"}; anything without type arguments is unchanged. */
+    private static String erasureOf(Type type) {
+        String text = type.toString();
+        int generics = text.indexOf('<');
+        return generics < 0 ? text : text.substring(0, generics);
     }
 }
