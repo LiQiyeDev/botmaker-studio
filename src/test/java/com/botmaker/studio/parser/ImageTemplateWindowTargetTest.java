@@ -45,8 +45,8 @@ public class ImageTemplateWindowTargetTest {
         bus.subscribe(CoreApplicationEvents.CodeUpdatedEvent.class, e -> lastCode[0] = e.newCode());
 
         BlockConverter converter = new BlockConverter(null, state);
-        BlockConverter.ConvertResult result = converter.convert(
-                source, state.getMutableNodeToBlockMap(), new BlockDragAndDropManager(bus), false, false);
+        BlockConverter.ConvertResult result = TestSupport.convertAndPublish(
+                converter, state, source, new BlockDragAndDropManager(bus), false, false);
         state.setCompilationUnit(result.cu());
 
         CodeEditor editor = new CodeEditor(null, state, bus, new ProjectAnalyzer(null, state));

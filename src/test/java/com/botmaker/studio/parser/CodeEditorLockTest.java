@@ -1,5 +1,6 @@
 package com.botmaker.studio.parser;
 
+import com.botmaker.studio.TestSupport;
 import com.botmaker.studio.core.AbstractCodeBlock;
 import com.botmaker.studio.core.BlockWithChildren;
 import com.botmaker.studio.core.BodyBlock;
@@ -119,8 +120,8 @@ class CodeEditorLockTest {
             bus.subscribe(CoreApplicationEvents.StatusMessageEvent.class, e -> statusMessages.add(e.message()));
 
             BlockConverter converter = new BlockConverter(CONFIG, state);
-            BlockConverter.ConvertResult result = converter.convert(
-                    source, state.getMutableNodeToBlockMap(), new BlockDragAndDropManager(bus), false, false);
+            BlockConverter.ConvertResult result = TestSupport.convertAndPublish(
+                    converter, state, source, new BlockDragAndDropManager(bus), false, false);
             state.setCompilationUnit(result.cu());
             root = result.root();
             assertNotNull(root, "converter should produce a root block");
@@ -335,8 +336,8 @@ class CodeEditorLockTest {
         bus.subscribe(CoreApplicationEvents.CodeUpdatedEvent.class, e -> last[0] = e.newCode());
 
         BlockConverter converter = new BlockConverter(null, state);
-        BlockConverter.ConvertResult result = converter.convert(
-                GAME_LOOP, state.getMutableNodeToBlockMap(), new BlockDragAndDropManager(bus), false, false);
+        BlockConverter.ConvertResult result = TestSupport.convertAndPublish(
+                converter, state, GAME_LOOP, new BlockDragAndDropManager(bus), false, false);
         state.setCompilationUnit(result.cu());
 
         CodeEditor editor = new CodeEditor(null, state, bus, new ProjectAnalyzer(null, state));

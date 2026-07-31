@@ -59,8 +59,8 @@ public class CursorNavigatorTest {
         state.setResolvedClasspath(TestSupport.runtimeClassPath());
 
         BlockConverter converter = new BlockConverter(null, state);
-        BlockConverter.ConvertResult result = converter.convert(
-                SOURCE, state.getMutableNodeToBlockMap(),
+        BlockConverter.ConvertResult result = TestSupport.convertAndPublish(
+                converter, state, SOURCE,
                 new BlockDragAndDropManager(new EventBus(false)), false, false);
         root = result.root();
         assertNotNull(root, "converter should produce a root block");

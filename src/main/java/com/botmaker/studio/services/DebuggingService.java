@@ -129,22 +129,23 @@ public class DebuggingService {
      */
     public void startDebugging(boolean trace) {
         this.traceMode = trace;
+        // Read the project as one value, here, on the FX thread — the debug thread must not touch ProjectState
+        // (see its javadoc, and bugs.md B10). Everything below maps breakpoints from this revision's AST onto
+        // the classes this revision compiled to, which is only true if they are the same revision.
+        ProjectState.Snapshot snapshot = state.snapshot();
         new Thread(() -> {
             try {
-                String code = state.getCurrentCode();
-
                 // 1. Compile
-                // FIXED: Removed config.mainSourceFile() argument to match new signature
-                if (!codeExecutionService.compileAndWait(code, config.compiledOutputPath())) {
+                if (!codeExecutionService.compileAndWait(snapshot, config.compiledOutputPath())) {
                     eventBus.publish(new CoreApplicationEvents.StatusMessageEvent("Debug aborted due to compilation failure."));
                     return;
                 }
 
                 // 2. Map Breakpoints (AST -> Line Numbers)
-                CompilationUnit cu = state.getCompilationUnit().orElse(null);
-                // Note: getNodeToBlockMap only refers to the ACTIVE file.
+                CompilationUnit cu = snapshot.compilationUnit();
+                // Note: the block registry only refers to the ACTIVE file.
                 // Multi-file debugging requires mapping logic expansion, but this works for the active file.
-                if (cu == null || state.getNodeToBlockMap().isEmpty()) {
+                if (cu == null || snapshot.nodeToBlockMap().isEmpty()) {
                     eventBus.publish(new CoreApplicationEvents.StatusMessageEvent("Error: Could not parse code to get breakpoints."));
                     return;
                 }
@@ -152,7 +153,7 @@ public class DebuggingService {
                 this.lineToBlockMap = new HashMap<>();
                 List<Integer> activeBreakpointLines = new ArrayList<>();
 
-                for (CodeBlock block : state.getNodeToBlockMap().values()) {
+                for (CodeBlock block : snapshot.nodeToBlockMap().values()) {
                     int line = block.getBreakpointLine(cu);
                     if (line > 0) {
                         // Only map StatementBlocks (executable lines)
@@ -201,11 +202,9 @@ public class DebuggingService {
                 // src/main/resources on the classpath so generated code finds /activities.json at runtime.
                 fullClassPath.append(java.io.File.pathSeparator).append(config.resourcesRoot().toString());
 
-                // 2. Add all resolved dependency JARs from Gradle
-                if (state.getResolvedClasspath() != null) {
-                    for (String jarPath : state.getResolvedClasspath()) {
-                        fullClassPath.append(java.io.File.pathSeparator).append(jarPath);
-                    }
+                // 2. Add all resolved dependency JARs — from the same snapshot the code was compiled from
+                for (String jarPath : snapshot.resolvedClasspath()) {
+                    fullClassPath.append(java.io.File.pathSeparator).append(jarPath);
                 }
 
                 // Use the full classpath here. Run from the project root (like CodeExecutionService) so the

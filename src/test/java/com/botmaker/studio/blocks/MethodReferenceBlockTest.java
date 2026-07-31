@@ -53,8 +53,8 @@ public class MethodReferenceBlockTest {
         state.setResolvedClasspath(TestSupport.runtimeClassPath());
 
         BlockConverter converter = new BlockConverter(null, state);
-        BlockConverter.ConvertResult result = converter.convert(
-                source, state.getMutableNodeToBlockMap(),
+        BlockConverter.ConvertResult result = TestSupport.convertAndPublish(
+                converter, state, source,
                 new BlockDragAndDropManager(new EventBus(false)), false, false);
         state.setCompilationUnit(result.cu());
         return result.root();

@@ -31,6 +31,7 @@ import org.eclipse.jdt.core.dom.TypeDeclaration;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
@@ -390,10 +391,14 @@ public class CodeEditorService {
 
     private void refreshUI(String javaCode, boolean markNewIdentifiersAsUnedited) {
         state.setCurrentCode(javaCode);
+
+        // The registry is rebuilt into a fresh map and published once, at the end. Clearing the live one and
+        // refilling it in place is what let a background reader walk a half-built registry (bugs.md B10).
+        Map<ASTNode, CodeBlock> rebuilt = new HashMap<>();
         state.clearNodeToBlockMap();
 
         if (diagnosticsManager != null) {
-            diagnosticsManager.updateSource(state.getMutableNodeToBlockMap(), javaCode);
+            diagnosticsManager.updateSource(rebuilt, javaCode);
         }
 
         // The file's default verdict — see project/LockResolver (the single source of these rules). It is only
@@ -403,11 +408,12 @@ public class CodeEditorService {
 
         BlockConverter.ConvertResult result = blockConverter.convert(
                 javaCode,
-                state.getMutableNodeToBlockMap(),
+                rebuilt,
                 dragAndDropManager,
                 resolver.suppressesInteraction(),
                 markNewIdentifiersAsUnedited
         );
+        state.setNodeToBlockMap(rebuilt);
         AbstractCodeBlock rootBlock = result.root();
         this.lastRootBlock = rootBlock;
 

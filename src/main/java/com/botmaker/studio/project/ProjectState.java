@@ -11,6 +11,12 @@ import java.util.*;
 /**
  * Mutable state for the currently open project.
  * Tracks open files, active file, AST mappings, and UI state.
+ *
+ * <p><b>This object is confined to the FX thread.</b> Every mutator here is called from an editor action, and
+ * nothing synchronises them. A background reader must not call these getters: it takes a {@link #snapshot()}
+ * on the FX thread <em>before</em> it starts and reads that instead. See {@code docs/refactor/bugs.md} B10 for
+ * the two failures the alternative produced — a {@code ConcurrentModificationException} on the debug thread,
+ * and the quiet one, a reader compiling the code from one revision against the classpath from the next.
  */
 public class ProjectState {
 
@@ -31,8 +37,10 @@ public class ProjectState {
     //     FileRole/MethodLock, so it is read on every tree cell and block — resolved eagerly, never re-derived.
     private ProjectTemplate template;
 
-    // --- AST Block Mapping (for active file) ---
-    private Map<ASTNode, CodeBlock> nodeToBlockMap = new HashMap<>();
+    // --- AST Block Mapping (for active file). Replaced wholesale, never mutated in place: a rebuild fills a
+    //     fresh map and publishes it here in one assignment, so a reader iterating the previous one is never
+    //     structurally modified underneath. volatile because that assignment is what publishes it. ---
+    private volatile Map<ASTNode, CodeBlock> nodeToBlockMap = Map.of();
 
     // --- UI State ---
     private CodeBlock highlightedBlock;
@@ -41,6 +49,50 @@ public class ProjectState {
     private final Set<String> breakpointIds = new HashSet<>();
     private final Set<String> collapsedMethods = new HashSet<>();
     private long docVersion = 1;
+
+    // =========================================================================
+    // SNAPSHOT — the only thing a background thread may read
+    // =========================================================================
+
+    /**
+     * One file as it stood when the snapshot was taken. {@link ProjectFile} is mutable and the editor keeps
+     * writing to it, so a background writer of the source tree needs the content copied out, not the object.
+     */
+    public record SourceFile(Path path, String content) {}
+
+    /**
+     * Everything a background reader of {@link ProjectState} needs, read as a single value.
+     *
+     * <p>The point is not that each field is immutable — several were already handed out as copies. It is that
+     * they are read <em>together</em>, on the thread that also writes them, so they cannot describe two
+     * different revisions of the project. A compile that reads the code before an edit and the classpath after
+     * it is a bot built against a dependency set that never existed; breakpoints mapped against a
+     * {@link CompilationUnit} from a different revision attach to lines the user did not choose. Neither
+     * announces itself.
+     */
+    public record Snapshot(String code,
+                           CompilationUnit compilationUnit,
+                           Map<ASTNode, CodeBlock> nodeToBlockMap,
+                           List<String> resolvedClasspath,
+                           List<SourceFile> files,
+                           ProjectTemplate template) {}
+
+    /**
+     * Takes a {@link Snapshot}. <b>Call this on the FX thread</b>, before handing work to a background thread —
+     * that is what makes the result one revision rather than several, since the FX thread is also the only
+     * writer.
+     */
+    public Snapshot snapshot() {
+        return new Snapshot(
+                getCurrentCode(),
+                getCompilationUnit().orElse(null),
+                nodeToBlockMap,                       // already immutable and never mutated in place
+                List.copyOf(resolvedClasspath),
+                openFiles.values().stream()
+                        .map(f -> new SourceFile(f.getPath(), f.getContent()))
+                        .toList(),
+                template);
+    }
 
     // =========================================================================
     // FILE MANAGEMENT
@@ -146,20 +198,27 @@ public class ProjectState {
     // AST BLOCK MAPPING
     // =========================================================================
 
+    /**
+     * The block registry, as an unmodifiable snapshot in its own right — the map returned here is never
+     * mutated again, so it stays safe to hold and to iterate across an edit.
+     */
     public Map<ASTNode, CodeBlock> getNodeToBlockMap() {
-        return Collections.unmodifiableMap(nodeToBlockMap);
-    }
-
-    public Map<ASTNode, CodeBlock> getMutableNodeToBlockMap() {
         return nodeToBlockMap;
     }
 
+    /**
+     * Publishes a freshly built registry. The caller fills its own map and hands it over complete; there is
+     * deliberately no accessor that exposes the live one, because a half-filled registry is what a background
+     * reader used to walk.
+     */
     public void setNodeToBlockMap(Map<ASTNode, CodeBlock> map) {
-        this.nodeToBlockMap = map != null ? new HashMap<>(map) : new HashMap<>();
+        // unmodifiableMap over a copy rather than Map.copyOf: the values are nullable (an unmapped node) and
+        // Map.copyOf rejects nulls.
+        this.nodeToBlockMap = map != null ? Collections.unmodifiableMap(new HashMap<>(map)) : Map.of();
     }
 
     public void clearNodeToBlockMap() {
-        this.nodeToBlockMap.clear();
+        this.nodeToBlockMap = Map.of();
     }
 
     public Optional<CodeBlock> getBlockForNode(ASTNode node) {

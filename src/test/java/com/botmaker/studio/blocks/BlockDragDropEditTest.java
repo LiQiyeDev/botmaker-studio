@@ -71,8 +71,8 @@ public class BlockDragDropEditTest {
         bus.subscribe(CoreApplicationEvents.CodeUpdatedEvent.class, e -> lastCode = e.newCode());
 
         BlockConverter converter = new BlockConverter(null, state);
-        BlockConverter.ConvertResult result = converter.convert(
-                SOURCE, state.getMutableNodeToBlockMap(),
+        BlockConverter.ConvertResult result = TestSupport.convertAndPublish(
+                converter, state, SOURCE,
                 new BlockDragAndDropManager(bus), false, false);
         state.setCompilationUnit(result.cu());
         root = result.root();
@@ -144,8 +144,8 @@ public class BlockDragDropEditTest {
         s.setSourcePath(Paths.get("src", "main", "java").toAbsolutePath());
         s.setResolvedClasspath(TestSupport.runtimeClassPath());
         BlockConverter converter = new BlockConverter(null, s);
-        BlockConverter.ConvertResult reparsed = converter.convert(
-                code, s.getMutableNodeToBlockMap(), new BlockDragAndDropManager(new EventBus(false)), false, false);
+        BlockConverter.ConvertResult reparsed = TestSupport.convertAndPublish(
+                converter, s, code, new BlockDragAndDropManager(new EventBus(false)), false, false);
 
         boolean hasLibraryCall = collect(reparsed.root(), BodyBlock.class).stream()
                 .flatMap(b -> b.getStatements().stream())
@@ -208,8 +208,8 @@ public class BlockDragDropEditTest {
         bus.subscribe(CoreApplicationEvents.CodeUpdatedEvent.class, e -> captured[0] = e.newCode());
 
         BlockConverter converter = new BlockConverter(null, s);
-        BlockConverter.ConvertResult result = converter.convert(
-                source, s.getMutableNodeToBlockMap(), new BlockDragAndDropManager(bus), false, false);
+        BlockConverter.ConvertResult result = TestSupport.convertAndPublish(
+                converter, s, source, new BlockDragAndDropManager(bus), false, false);
         s.setCompilationUnit(result.cu());
         CodeEditor ed = new CodeEditor(null, s, bus, new com.botmaker.studio.suggestions.ProjectAnalyzer(null, s));
 

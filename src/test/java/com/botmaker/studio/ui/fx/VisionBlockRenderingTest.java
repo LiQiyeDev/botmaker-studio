@@ -1,5 +1,6 @@
 package com.botmaker.studio.ui.fx;
 
+import com.botmaker.studio.TestSupport;
 import com.botmaker.studio.core.AbstractCodeBlock;
 import com.botmaker.studio.core.BlockWithChildren;
 import com.botmaker.studio.core.BodyBlock;
@@ -91,8 +92,8 @@ class VisionBlockRenderingTest extends FxHeadlessTest {
         EventBus bus = new EventBus(false);
         BlockConverter converter = new BlockConverter(CONFIG, state);
         BlockDragAndDropManager dnd = new BlockDragAndDropManager(bus);
-        BlockConverter.ConvertResult result = converter.convert(
-                source, state.getMutableNodeToBlockMap(), dnd, false, false);
+        BlockConverter.ConvertResult result = TestSupport.convertAndPublish(
+                converter, state, source, dnd, false, false);
         state.setCompilationUnit(result.cu());
 
         AbstractCodeBlock root = result.root();

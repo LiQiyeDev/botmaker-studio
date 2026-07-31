@@ -1,5 +1,6 @@
 package com.botmaker.studio.parser;
 
+import com.botmaker.studio.TestSupport;
 import com.botmaker.studio.core.AbstractCodeBlock;
 import com.botmaker.studio.core.BlockWithChildren;
 import com.botmaker.studio.core.BodyBlock;
@@ -74,8 +75,8 @@ public final class EditorFixture {
         converter = new BlockConverter(CONFIG, state);
         dragAndDrop = new BlockDragAndDropManager(bus);
         analyzer = new ProjectAnalyzer(null, state);
-        BlockConverter.ConvertResult result = converter.convert(
-                source, state.getMutableNodeToBlockMap(), dragAndDrop, false, false);
+        BlockConverter.ConvertResult result = TestSupport.convertAndPublish(
+                converter, state, source, dragAndDrop, false, false);
         state.setCompilationUnit(result.cu());
         root = result.root();
         assertNotNull(root, "converter should produce a root block");

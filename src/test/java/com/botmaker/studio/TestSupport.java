@@ -4,7 +4,13 @@ import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.ASTParser;
 import org.eclipse.jdt.core.dom.CompilationUnit;
+import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.jdt.core.dom.FileASTRequestor;
+
+import com.botmaker.studio.core.CodeBlock;
+import com.botmaker.studio.parser.BlockConverter;
+import com.botmaker.studio.project.ProjectState;
+import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
 
 import java.io.File;
 import java.io.IOException;
@@ -87,5 +93,24 @@ public final class TestSupport {
         };
         parser.createASTs(filesToParseArray, fileEncodingsArray, new String[0], requestor, null);
         return parsedUnits;
+    }
+
+    /**
+     * Converts {@code source} into blocks and publishes the resulting registry to {@code state} — the same two
+     * steps, in the same order, that {@code CodeEditorService.refreshUI} does.
+     *
+     * <p>Tests used to hand {@code convert} the state's own live map and let it fill in place. That accessor is
+     * gone (bugs.md <b>B10</b>): a registry is built complete and published in one assignment, so a background
+     * reader can never walk a half-built one. Going through here keeps every fixture on the production path.
+     */
+    public static BlockConverter.ConvertResult convertAndPublish(
+            BlockConverter converter, ProjectState state, String source,
+            BlockDragAndDropManager dragAndDrop,
+            boolean suppressInteraction, boolean markNewIdentifiersAsUnedited) {
+        Map<ASTNode, CodeBlock> registry = new HashMap<>();
+        BlockConverter.ConvertResult result = converter.convert(
+                source, registry, dragAndDrop, suppressInteraction, markNewIdentifiersAsUnedited);
+        state.setNodeToBlockMap(registry);
+        return result;
     }
 }

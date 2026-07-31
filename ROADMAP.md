@@ -6,6 +6,16 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-01 — refactor Phase 4 · SV5: `ProjectState` is confined to the FX thread (fixes B10).** Background
+  work now reads a `ProjectState.Snapshot` — code, AST, block registry, classpath, file contents and template
+  as one value — taken on the FX thread *before* the thread is spawned; `DebuggingService.startDebugging`,
+  `CodeExecutionService.runCode`/`compileCode`/`compileAndWait` and `buildRuntimeClasspath` all take it
+  instead of reading the live state. The block registry is published complete
+  (`CodeEditorService.refreshUI` fills a fresh map and assigns it once) and `getMutableNodeToBlockMap()` is
+  deleted, so a debug session no longer dies on a `ConcurrentModificationException` when an edit lands, and a
+  run can no longer compile the code from one revision against the classpath from the next. Held by
+  `ProjectStateConcurrencyTest`; fixtures build registries through `TestSupport.convertAndPublish`.
+
 - **2026-07-31 — refactor Phase 3: the test floor for `ui/` and the remainder (SU4, SC3, SU18).** The last
   block of the phase and its largest coverage move: +160 tests (454 → 614), module line coverage
   **29.3 → 35.5%**, and `ui.app` — the package that runs on every launch — **5.9 → 20.0%** (4,703 → 4,000

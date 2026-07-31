@@ -105,7 +105,7 @@ class CodeExecutionServiceTest extends FxHeadlessTest {
     void aBotIsCompiledRunAndItsOutputReachesTheConsole(@TempDir Path root) throws Exception {
         Harness h = harnessFor(root, PRINTS_AND_EXITS);
 
-        h.service().runCode(PRINTS_AND_EXITS);
+        h.service().runCode(h.state().snapshot());
 
         assertTrue(h.stopped().await(120, TimeUnit.SECONDS), "the run never finished");
         assertTrue(drain(h.output()).contains("hello from the bot"),
@@ -127,7 +127,7 @@ class CodeExecutionServiceTest extends FxHeadlessTest {
         ProjectConfig config = ProjectConfig.forProject("EndToEnd", root);
         assertFalse(Files.exists(config.mainSourceFile()), "nothing on disk before the run");
 
-        assertTrue(h.service().compileAndWait(PRINTS_AND_EXITS, config.compiledOutputPath()),
+        assertTrue(h.service().compileAndWait(h.state().snapshot(), config.compiledOutputPath()),
                 "the fixture must compile");
 
         assertEquals(PRINTS_AND_EXITS, Files.readString(config.mainSourceFile()),
@@ -154,10 +154,10 @@ class CodeExecutionServiceTest extends FxHeadlessTest {
         Harness h = harnessFor(root, DOES_NOT_COMPILE);
         ProjectConfig config = ProjectConfig.forProject("EndToEnd", root);
 
-        assertFalse(h.service().compileAndWait(DOES_NOT_COMPILE, config.compiledOutputPath()),
+        assertFalse(h.service().compileAndWait(h.state().snapshot(), config.compiledOutputPath()),
                 "javac must be believed");
 
-        h.service().runCode(DOES_NOT_COMPILE);
+        h.service().runCode(h.state().snapshot());
 
         assertTrue(h.stopped().await(120, TimeUnit.SECONDS), "the aborted run must still release the UI");
         assertEquals(1, h.started().getCount(), "a build failure must not spawn a bot");
@@ -172,7 +172,7 @@ class CodeExecutionServiceTest extends FxHeadlessTest {
     void theCompilersErrorsAreShownInTheConsole(@TempDir Path root) throws Exception {
         Harness h = harnessFor(root, DOES_NOT_COMPILE);
 
-        h.service().runCode(DOES_NOT_COMPILE);
+        h.service().runCode(h.state().snapshot());
         assertTrue(h.stopped().await(120, TimeUnit.SECONDS), "the aborted run never finished");
 
         String console = drain(h.output());

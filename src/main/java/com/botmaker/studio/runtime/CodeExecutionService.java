@@ -69,9 +69,9 @@ public class CodeExecutionService {
 
     private void setupEventHandlers() {
         eventBus.subscribe(CoreApplicationEvents.CompilationRequestedEvent.class,
-                e -> compileCode(state.getCurrentCode()), false);
+                e -> compileCode(state.snapshot()), false);
         eventBus.subscribe(CoreApplicationEvents.ExecutionRequestedEvent.class,
-                e -> runCode(state.getCurrentCode()), false);
+                e -> runCode(state.snapshot()), false);
         eventBus.subscribe(CoreApplicationEvents.StopRunRequestedEvent.class,
                 e -> stopRunningProgram(), false);
         eventBus.subscribe(CoreApplicationEvents.SendInputEvent.class,
@@ -94,7 +94,15 @@ public class CodeExecutionService {
         Platform.runLater(() -> eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(message)));
     }
 
-    public void runCode(String currentEditorCode) {
+    /**
+     * Compiles and runs the project as {@code snapshot} describes it.
+     *
+     * <p>Takes a {@link ProjectState.Snapshot} rather than reading {@link ProjectState} itself, because
+     * everything below the {@code new Thread} runs off the FX thread: see that class's note, and bugs.md B10.
+     * The caller takes the snapshot on the FX thread; the run is then pinned to one revision of the project
+     * for its whole life, which is also what makes "the console shows what this run compiled" true.
+     */
+    public void runCode(ProjectState.Snapshot snapshot) {
         // Pre-compile block validation: an unfilled argument/condition (a red "Select Expression…" slot) would
         // only surface as a raw javac error. Detect it via BlockValidator, surface it in the Errors panel, and
         // abort before compiling. Always publish (empty list clears any previously shown empty-slot errors).
@@ -118,7 +126,7 @@ public class CodeExecutionService {
                 status("Compiling...");
                 Platform.runLater(() -> eventBus.publish(new CoreApplicationEvents.OutputClearedEvent()));
 
-                if (!compileAndWait(currentEditorCode, config.compiledOutputPath())) {
+                if (!compileAndWait(snapshot, config.compiledOutputPath())) {
                     status("Run aborted due to build failure.");
                     return;
                 }
@@ -132,7 +140,7 @@ public class CodeExecutionService {
                 // Run the compiled main class directly: java [session hand-off] -cp <classes:deps> <mainClass>
                 List<String> command = new ArrayList<>(List.of(config.javaExecutable()));
                 command.addAll(sessionHandoffArguments());
-                command.addAll(List.of("-cp", buildRuntimeClasspath(), config.mainClassName()));
+                command.addAll(List.of("-cp", buildRuntimeClasspath(snapshot), config.mainClassName()));
                 ProcessBuilder pb = new ProcessBuilder(command)
                         .directory(config.projectPath().toFile());
 
@@ -190,25 +198,24 @@ public class CodeExecutionService {
     }
 
     /** Builds {@code <compiledOutput><sep><resources><sep><dep jars...>} for launching/compiling the project. */
-    private String buildRuntimeClasspath() {
+    private String buildRuntimeClasspath(ProjectState.Snapshot snapshot) {
         StringBuilder cp = new StringBuilder(config.compiledOutputPath().toString());
         // Put src/main/resources on the classpath so generated code can read /activities.json (and other
         // bundled resources) at runtime, mirroring Maven's resource-on-classpath semantics.
         cp.append(java.io.File.pathSeparator).append(config.resourcesRoot().toString());
-        if (state.getResolvedClasspath() != null) {
-            for (String jar : state.getResolvedClasspath()) {
-                cp.append(java.io.File.pathSeparator).append(jar);
-            }
+        for (String jar : snapshot.resolvedClasspath()) {
+            cp.append(java.io.File.pathSeparator).append(jar);
         }
         return cp.toString();
     }
 
-    public void compileCode(String code) {
+    /** As {@link #runCode}, minus the run: the snapshot is taken by the caller, on the FX thread. */
+    public void compileCode(ProjectState.Snapshot snapshot) {
         new Thread(() -> {
             try {
                 Platform.runLater(() -> eventBus.publish(new CoreApplicationEvents.OutputClearedEvent()));
                 status("Compiling...");
-                if (compileAndWait(code, config.compiledOutputPath())) {
+                if (compileAndWait(snapshot, config.compiledOutputPath())) {
                     status("Compilation successful.");
                 }
             } catch (IOException | InterruptedException e) {
@@ -217,9 +224,8 @@ public class CodeExecutionService {
         }).start();
     }
 
-    public boolean compileAndWait(String currentActiveCode, Path compiledOutputPath) throws IOException, InterruptedException {
-        state.setCurrentCode(currentActiveCode);
-
+    public boolean compileAndWait(ProjectState.Snapshot snapshot, Path compiledOutputPath)
+            throws IOException, InterruptedException {
         // This loop is the ONLY place edited source reaches disk — the editor keeps every change in memory
         // (ProjectFile.setContent) and never writes as you type.
         //
@@ -228,42 +234,43 @@ public class CodeExecutionService {
         // user's work on every compile. What must not reach disk is a change to the *locked parts* — so that,
         // and only that, is what's checked. This is defense in depth: CodeEditor already refuses those edits,
         // so a refusal here means something upstream let one through.
-        for (ProjectFile file : state.getAllFiles()) {
-            Path path = file.getPath();
+        for (ProjectState.SourceFile file : snapshot.files()) {
+            Path path = file.path();
             if (path == null) continue;
 
-            FileRole role = FileRole.of(config, state.getTemplate(), path);
+            FileRole role = FileRole.of(config, snapshot.template(), path);
             if (role == FileRole.LIBRARY) continue;   // never ours to write
 
-            if (role.isReadOnly() && !lockedPartsUnchanged(path, file)) {
+            if (role.isReadOnly() && !lockedPartsUnchanged(snapshot, path, file.content())) {
                 eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(
                         "Refused to save " + path.getFileName() + ": it changes code BotMaker generates."));
                 continue;
             }
 
             Files.createDirectories(path.getParent());
-            Files.writeString(path, file.getContent());
+            Files.writeString(path, file.content());
         }
 
         Files.createDirectories(compiledOutputPath);
-        return compileSources(compiledOutputPath);
+        return compileSources(snapshot, compiledOutputPath);
     }
 
     /**
-     * True when {@code file}'s in-memory content changes nothing outside the methods the user owns, so it is
-     * safe to write over the scaffolding on disk. A file not yet on disk has no locked parts to protect.
+     * True when {@code content} changes nothing outside the methods the user owns, so it is safe to write over
+     * the scaffolding on disk. A file not yet on disk has no locked parts to protect.
      */
-    private boolean lockedPartsUnchanged(Path path, ProjectFile file) {
+    private boolean lockedPartsUnchanged(ProjectState.Snapshot snapshot, Path path, String content) {
         try {
             if (!Files.exists(path)) return true;
             return LockedRegions.lockedPartsMatch(
-                    config, state.getTemplate(), path, Files.readString(path), file.getContent());
+                    config, snapshot.template(), path, Files.readString(path), content);
         } catch (IOException e) {
             return false;   // can't prove it's safe: don't write
         }
     }
 
-    private boolean compileSources(Path compiledOutputPath) throws IOException, InterruptedException {
+    private boolean compileSources(ProjectState.Snapshot snapshot, Path compiledOutputPath)
+            throws IOException, InterruptedException {
 
         List<String> sourceFiles = ClassPathManager.findJavaFiles(config.sourceRoot());
         if (sourceFiles.isEmpty()) {
@@ -273,7 +280,7 @@ public class CodeExecutionService {
 
         List<String> command = new ArrayList<>(List.of(
                 config.javacExecutable(),
-                "-cp", buildRuntimeClasspath(),
+                "-cp", buildRuntimeClasspath(snapshot),
                 "-d", compiledOutputPath.toString()));
         command.addAll(sourceFiles);
 
