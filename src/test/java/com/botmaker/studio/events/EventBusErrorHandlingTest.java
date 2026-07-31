@@ -5,7 +5,6 @@ import javafx.application.Platform;
 import javafx.stage.Stage;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -30,11 +29,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * try/catch — which is the whole of Studio's error logging — so a panel that throws while rendering does not
  * take the publisher down with it.
  *
- * <p>That guard covers one of the two ways a handler is invoked. The other, {@code runOnFxThread}, hands the
- * call to {@code Platform.runLater} and returns; the throw then happens on the FX thread, <em>outside</em> the
- * try/catch, long after the publisher has moved on. Roughly half of Studio's subscriptions take that branch —
- * they are the UI ones, the handlers most likely to throw — so the module's only error logging does not cover
- * the half that needs it. The last test is that gap, and it is red.
+ * <p>That guard used to cover one of the two ways a handler is invoked. The other, {@code runOnFxThread},
+ * hands the call to {@code Platform.runLater} and returns; the throw then happened on the FX thread,
+ * <em>outside</em> the try/catch, long after the publisher had moved on. Roughly half of Studio's
+ * subscriptions take that branch — they are the UI ones, the handlers most likely to throw — so the module's
+ * only error logging did not cover the half that needs it. <b>SC4 (Phase 4) closed that</b> by moving the
+ * guard into the delivery, so it travels onto whichever thread the handler runs on; the last two tests are
+ * the ones that were red.
  */
 class EventBusErrorHandlingTest extends FxHeadlessTest {
 
@@ -176,15 +177,13 @@ class EventBusErrorHandlingTest extends FxHeadlessTest {
     }
 
     /**
-     * <b>The gap.</b> Same subscription, same throwing handler — published from a background thread, which is
-     * where the services that matter publish from. {@code Platform.runLater(() -> handler.accept(event))}
-     * escapes the try/catch, so the throw lands on the FX thread with no logging, no event name and no cause.
-     * The user sees a panel stop updating and nothing else; Studio's only error logging does not cover it.
+     * <b>The gap, closed by SC4 (Phase 4).</b> Same subscription, same throwing handler — published from a
+     * background thread, which is where the services that matter publish from. The delivery is queued with
+     * {@code Platform.runLater} and runs on the FX thread long after {@code publish} has returned, so a guard
+     * at the call site could never see it; the guard now travels with the delivery instead. Before the fix
+     * the user saw a panel stop updating and nothing else.
      */
     @Test
-    @Disabled("SV11/B-adjacent is unfixed: verified red on this commit — EventBus.EventHandler.handle wraps "
-            + "the FX delivery in Platform.runLater outside publish()'s try/catch, so a throwing FX handler "
-            + "is never logged. Delete this line in Phase 4 with SV11's fix.")
     void anFxSubscriberThatThrowsIsLoggedToo() throws InterruptedException {
         EventBus bus = new EventBus();
         bus.subscribe(Ping.class, e -> { throw new IllegalStateException("panel blew up"); }, true);
@@ -197,5 +196,28 @@ class EventBusErrorHandlingTest extends FxHeadlessTest {
                 "a UI handler that throws must be logged like any other — it is the half most likely to");
         assertTrue(severe.get(0).getThrown() instanceof IllegalStateException,
                 "and with its cause: " + severe.get(0).getThrown());
+        assertTrue(severe.get(0).getMessage().contains("Ping"),
+                "and naming the event, like the inline branch: " + severe.get(0).getMessage());
+    }
+
+    /**
+     * The deferred delivery is also isolated: one FX handler throwing must not stop the ones queued behind
+     * it. Distinct from the inline case above — there the loop provides the isolation, here each delivery is
+     * its own {@code runLater}, so what is being pinned is that the throw does not escape into the FX queue.
+     */
+    @Test
+    void anFxSubscriberThatThrowsDoesNotStopTheOnesBehindIt() throws InterruptedException {
+        EventBus bus = new EventBus();
+        List<String> reached = new ArrayList<>();
+
+        bus.subscribe(Ping.class, e -> { throw new IllegalStateException("panel blew up"); }, true);
+        bus.subscribe(Ping.class, e -> reached.add(e.tag()), true);
+
+        bus.publish(new Ping("one"));
+        bus.publish(new Ping("two"));
+        onFxAndSettle(() -> { /* let both deliveries run */ });
+
+        assertEquals(List.of("one", "two"), reached, "a bad FX handler must not poison the bus");
+        assertEquals(2, severeRecords().size(), "each throw logged once: " + severeRecords());
     }
 }

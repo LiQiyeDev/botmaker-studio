@@ -199,7 +199,7 @@ the serialize/deserialize step is outsourced.
 
 ### Event Bus
 
-`EventBus` is instantiated per project (not a singleton). Events are defined in `CoreApplicationEvents` as nested classes. Subscribe with `eventBus.subscribe(EventClass.class, handler)`. The optional `runOnFxThread` flag wraps delivery in `Platform.runLater()`. `subscribeAll()` receives every event (used by the event log panel).
+`EventBus` is instantiated per project (not a singleton). Events are defined in `CoreApplicationEvents` as nested classes. Subscribe with `eventBus.subscribe(EventClass.class, handler)`. The optional `runOnFxThread` flag wraps delivery in `Platform.runLater()`. A handler that throws is logged at `SEVERE` with the event name and cause and the publish continues — on **both** branches; the guard lives in the delivery, not around the call, because on the `runLater` branch `publish` has already returned by the time the handler runs. `subscribeAll()` receives every event (used by the event log panel).
 
 ### UI Structure
 

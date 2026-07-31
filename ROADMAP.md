@@ -6,6 +6,14 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-01 — refactor Phase 4 · SC4: `EventBus` logs a handler that throws on *both* branches.** The
+  `catch (Exception) → SEVERE` guard — the whole of Studio's error logging — only covered the inline
+  delivery; the `runOnFxThread` branch hands the call to `Platform.runLater` and returns, so the throw landed
+  on the FX thread after `publish` had gone, unlogged. The guard now lives in the delivery itself and travels
+  onto whichever thread runs the handler, so the UI subscriptions — the half most likely to throw — are
+  covered. `publish`'s own catch stays for a failure to *queue* the delivery. Prerequisite for SU13, which
+  removes the pre-marshalling that was masking this. Held by `EventBusErrorHandlingTest`.
+
 - **2026-08-01 — refactor Phase 4 · SV5: `ProjectState` is confined to the FX thread (fixes B10).** Background
   work now reads a `ProjectState.Snapshot` — code, AST, block registry, classpath, file contents and template
   as one value — taken on the FX thread *before* the thread is spawned; `DebuggingService.startDebugging`,

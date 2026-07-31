@@ -19,6 +19,9 @@ import java.util.logging.Logger;
  * {@link ApplicationEvent} receives every event.
  *
  * <p>Thread-safe; each subscription chooses whether its handler runs on the JavaFX thread.
+ *
+ * <p>A handler that throws is logged at {@code SEVERE} with the event's name and the cause, and the
+ * publish continues — <em>on both branches</em>, whichever thread the handler ends up running on.
  */
 public class EventBus {
     private static final Logger LOGGER = Logger.getLogger(EventBus.class.getName());
@@ -72,7 +75,9 @@ public class EventBus {
                 try {
                     handler.handle(event);
                 } catch (Exception e) {
-                    LOGGER.log(Level.SEVERE, "Error handling event: " + eventClass.getSimpleName(), e);
+                    // A handler's own failure is caught by the delivery, below; what is left here is a failure
+                    // to *dispatch* — Platform.runLater rejecting the delivery because the toolkit is gone.
+                    LOGGER.log(Level.SEVERE, "Error dispatching event: " + eventClass.getSimpleName(), e);
                 }
             }
         }
@@ -80,13 +85,27 @@ public class EventBus {
 
     private record EventHandler<T extends ApplicationEvent>(Consumer<T> handler, boolean runOnFxThread) {
 
-        @SuppressWarnings("unchecked")
-            void handle(ApplicationEvent event) {
-                if (runOnFxThread && !Platform.isFxApplicationThread()) {
-                    Platform.runLater(() -> handler.accept((T) event));
-                } else {
-                    handler.accept((T) event);
-                }
+        void handle(ApplicationEvent event) {
+            if (runOnFxThread && !Platform.isFxApplicationThread()) {
+                Platform.runLater(() -> deliver(event));
+            } else {
+                deliver(event);
             }
         }
+
+        /**
+         * The guard travels with the delivery rather than staying at the call site: on the {@code runLater}
+         * branch the handler runs on the FX thread long after {@code publish} has returned, so a try/catch
+         * around {@code handle} cannot see it. That gap covered the UI subscriptions — the half most likely
+         * to throw — and it is the whole of Studio's error logging. See {@code docs/refactor} SC4.
+         */
+        @SuppressWarnings("unchecked")
+        private void deliver(ApplicationEvent event) {
+            try {
+                handler.accept((T) event);
+            } catch (Exception e) {
+                LOGGER.log(Level.SEVERE, "Error handling event: " + event.getClass().getSimpleName(), e);
+            }
+        }
+    }
 }
