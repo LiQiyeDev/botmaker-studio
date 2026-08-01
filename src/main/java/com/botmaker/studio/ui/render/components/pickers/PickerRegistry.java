@@ -11,8 +11,10 @@ import com.botmaker.studio.ui.render.components.GameArgPicker;
 import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
 import com.botmaker.studio.ui.render.components.LaunchOptionPicker;
 import com.botmaker.studio.ui.render.components.LaunchTargetArgPicker;
+import com.botmaker.studio.ui.render.components.MinPixelsArgPicker;
 import com.botmaker.studio.ui.render.components.PointPicker;
 import com.botmaker.studio.ui.render.components.RectPicker;
+import com.botmaker.studio.ui.render.components.ToleranceArgPicker;
 import javafx.scene.Node;
 
 import java.util.List;
@@ -54,6 +56,14 @@ public final class PickerRegistry {
             // LaunchTarget slot → the Steam/Epic/Exe/Emulator target builder (replaces the plain ctor pill).
             SpecialTypePicker.of(ctx -> ctx.isType("LaunchTarget"),
                     ctx -> LaunchTargetArgPicker.create(ctx.context(), ctx.arg())),
+            // The Pixel facade's two precision knobs. Both are SDK value types rather than a bare double/int
+            // precisely so this dispatch can be type-based: an arg-index table would have had to know that
+            // tolerance is index 1 of find/coverage/waitFor but index 3 of matchesAt, and would silently stop
+            // firing the day the SDK gains an overload.
+            SpecialTypePicker.of(ctx -> ctx.isType("Tolerance"),
+                    ctx -> ToleranceArgPicker.create(ctx.context(), ctx.arg())),
+            SpecialTypePicker.of(ctx -> ctx.isType("MinPixels"),
+                    ctx -> MinPixelsArgPicker.create(ctx.context(), ctx.arg())),
             // A java.awt.Color arg → a colour swatch (replaces hand-writing new Color(r, g, b)).
             SpecialTypePicker.of(ctx -> ctx.isType("Color"),
                     ctx -> ColorArgPicker.create(ctx.context(), ctx.arg())),

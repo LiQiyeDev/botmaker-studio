@@ -102,6 +102,21 @@ public class InitializerFactory {
             if (seeded != null) return seeded;
         }
 
+        // 2d. The vision value types are records with a required component, so the generic `new T()` below is
+        // uncompilable for exactly the reason Color is (2c). Both ship a named default that says what the
+        // slot means before the user touches it — Tolerance.DEFAULT rather than a bare 12.0 is the entire
+        // point of the types, so the seed has to be the constant, not a number. Simple names: the two paths
+        // that build argument defaults (palette insert, overload switch) import each parameter's type
+        // alongside this call, and unlike java.awt.Color these resolve through the analyzer's SDK index.
+        String seededConstant = switch (richType.leafType().simpleName()) {
+            case "Tolerance", "MinPixels" -> richType.leafType().simpleName() + ".DEFAULT";
+            default -> null;
+        };
+        if (seededConstant != null) {
+            Expression seeded = parseExpr(ast, seededConstant);
+            if (seeded != null) return seeded;
+        }
+
         // 3. Objects
         if (!richType.isUnknown()) {
             ClassInstanceCreation cic = ast.newClassInstanceCreation();

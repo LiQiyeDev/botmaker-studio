@@ -215,6 +215,16 @@ public class CodeEditor {
     }
 
     /**
+     * Replaces {@code toReplace} with a snippet that names {@code importFqn} by its simple name, adding that
+     * import. Lets a picker commit {@code Tolerance.TIGHT} instead of the fully-qualified form the
+     * import-free {@link #replaceWithRawExpression(Expression, String)} above requires.
+     */
+    public void replaceWithRawExpression(Expression toReplace, String exprCode, String importFqn) {
+        edit(toReplace, EditKind.BODY, false,
+                (cu, code) -> RawExpressionHandler.replaceWithExpression(cu, code, toReplace, exprCode, importFqn));
+    }
+
+    /**
      * Declares a new local variable {@code type name = <default>;} just before the statement enclosing
      * {@code toReplace}, then references it in that slot — a single atomic rewrite. Lets the user create a
      * typed variable (e.g. a {@code Direction}) inline from the Variables submenu. Falls back to a plain

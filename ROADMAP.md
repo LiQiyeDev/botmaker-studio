@@ -6,6 +6,20 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-01 — improvements Phase 8: real editors for `Pixel`'s tolerance and minPixels.**
+  `ToleranceArgPicker` is a slider laid out against the SDK's named anchors (EXACT/TIGHT/DEFAULT/LOOSE) that
+  names the reading rather than showing a bare ΔE, and — when the sibling `Color` argument of the same call is
+  a literal — previews a strip of shades at increasing distance from it, marking which the current tolerance
+  accepts. The distances are measured with shared's `ColorMatcher.deltaE`, the same function the bot runs, so
+  the preview cannot drift from the matcher. `MinPixelsArgPicker` is a spinner over a 1:1 preview that draws
+  the *area* (a blob and its equivalent square on a 10px grid) with the readout "400 px² — about 20×20, or a
+  circle 23 across", because drawing a radius would teach the misreading the picker exists to correct.
+  Both dispatch on `ctx.isType(...)` — the SDK made these value types in the same phase, so no `(method,
+  argIndex)` table duplicating `Pixel`'s overloads exists to go stale. `InitializerFactory` seeds a fresh slot
+  with `Tolerance.DEFAULT`/`MinPixels.DEFAULT` (a record has no no-arg ctor, so the generic `new T()` would
+  have shipped uncompilable Java, exactly the `new Color()` bug at 2c), and `replaceWithRawExpression` gained
+  an import-aware overload so a picker can commit the readable `Tolerance.TIGHT` instead of the FQN.
+
 - **2026-08-01 — improvements Phase 7: no generated `BotSettings.java`; the tuning is project settings.**
   `project/BotSettings` keeps its record shape but loses the generator and the regex reader entirely — it now
   reads and writes shared's eight new `botmaker-project.properties` keys, and `ProjectCreator` seeds them at
