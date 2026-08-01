@@ -52,7 +52,7 @@ final class MenuIcons {
             Map.entry("Pixel", "🎨"),
             Map.entry("Text", "🔤"),
             Map.entry("VisionContext", "👁"),
-            Map.entry("ClickConfig", "⚙"),
+            Map.entry("BotSettings", "⚙"),
             Map.entry("Debug", "🐞"),
             Map.entry("Game", "🎮"),
             Map.entry("Target", "🚀"),

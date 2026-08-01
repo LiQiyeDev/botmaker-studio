@@ -153,10 +153,8 @@ public final class LaunchTargetDialog {
 
     /**
      * Persists the "Run in background" toggle and reports the new state. It goes through
-     * {@link SessionSetting}, not straight to the properties key, because the setting also exists as a
-     * {@code Session} statement in the generated source — and the SDK ranks that statement <em>above</em> the
-     * key, so writing only the key here would let a stale {@code Session.disable()} beat the box just ticked.
-     * The backend the Input &amp; Clicks dialog chose is carried through untouched.
+     * {@link SessionSetting} rather than the isolation key alone because the backend key travels with it: the
+     * pair is one setting, and the backend the Input &amp; Clicks dialog chose is carried through untouched.
      */
     private void applyBackground(boolean isolated) {
         try {

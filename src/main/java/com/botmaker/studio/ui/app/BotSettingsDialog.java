@@ -2,8 +2,6 @@ package com.botmaker.studio.ui.app;
 
 import com.botmaker.studio.project.BotSettings;
 import com.botmaker.studio.project.ProjectConfig;
-import com.botmaker.studio.project.ProjectCreator;
-import com.botmaker.studio.project.SessionSetting;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
@@ -24,26 +22,25 @@ import javafx.stage.Window;
 import javafx.util.StringConverter;
 
 import java.io.IOException;
-import java.util.function.Consumer;
 
 /**
- * Editor for the bot's runtime tuning — the whole of the SDK's {@code ClickConfig} plus the Linux input
- * backend — written straight into the project's generated {@link BotSettings} file.
+ * Editor for the bot's runtime tuning — the whole of the SDK's {@code BotSettings} facade plus the Linux input
+ * backend and the private display — saved into the project's {@code botmaker-project.properties}.
  *
  * <p>Replaces the toolbar's old {@code 🖱 Game} toggle, which could say only "real input on/off". The rest of
  * these knobs were reachable only by hand-editing, which meant nobody changed them; the delays in particular
  * are what decide whether a bot feels sluggish or misses screens, so they belong where they can be seen.
  *
- * <p>Every control writes a statement in {@code BotSettings.java} rather than a settings key: the values have
- * to apply when the bot is run outside the Studio, and the generated file is the only form that travels with
- * the code. Values are read back out of that file each time the dialog opens, so a hand edit isn't lost.
+ * <p>Every control writes a project key rather than a line of generated Java (see {@link BotSettings} for why
+ * that changed); the SDK reads them before the first click, so the values apply when the bot runs outside the
+ * Studio too. Values are read back each time the dialog opens, so a hand edit isn't lost.
  */
-public final class ClickConfigDialog {
+public final class BotSettingsDialog {
 
     private final Window owner;
     private final ProjectConfig config;
-    /** Receives the regenerated {@code BotSettings.java} source, so the editor's in-memory copy stays true. */
-    private final Consumer<String> onWritten;
+    /** Notified after a successful save, so the caller can refresh anything that reflects these settings. */
+    private final Runnable onSaved;
 
     private final CheckBox realInput = new CheckBox("Drive the real mouse and keyboard (turn on for games)");
     private final CheckBox randomizeClicks = new CheckBox("Click a random point inside the match, not its centre");
@@ -59,10 +56,10 @@ public final class ClickConfigDialog {
     private final Label status = new Label();
     private Stage stage;
 
-    public ClickConfigDialog(Window owner, ProjectConfig config, Consumer<String> onWritten) {
+    public BotSettingsDialog(Window owner, ProjectConfig config, Runnable onSaved) {
         this.owner = owner;
         this.config = config;
-        this.onWritten = onWritten;
+        this.onSaved = onSaved;
     }
 
     public void show() {
@@ -71,12 +68,12 @@ public final class ClickConfigDialog {
         stage.initModality(Modality.APPLICATION_MODAL);
         stage.setTitle("Input & Clicks");
 
-        seed(BotSettings.read(BotSettings.fileFor(config.mainSourceFile())));
+        seed(BotSettings.read(config.resourcesRoot()));
 
         Label heading = new Label("How this bot clicks and looks");
         heading.setStyle("-fx-font-weight: bold; -fx-font-size: 15px;");
-        Label intro = new Label("Saved into your project's BotSettings.java and applied at the top of main — "
-                + "so these apply when the bot runs outside the Studio too.");
+        Label intro = new Label("Saved into your project's settings and applied by the SDK before the first "
+                + "click — so these apply when the bot runs outside the Studio too.");
         intro.setWrapText(true);
         intro.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
 
@@ -142,10 +139,8 @@ public final class ClickConfigDialog {
      * The private-display section. This is the setting that decides whether you can keep using the machine
      * while the bot runs, so it says so in those terms rather than in terms of nested X servers.
      *
-     * <p>Unlike every other control here it is saved <b>twice</b>: as a {@code Session} statement in the
-     * generated source (so it travels with the bot) <em>and</em> into {@code botmaker-project.properties}, which
-     * is what Studio's own Launch buttons read — Studio does not depend on the SDK and cannot run the generated
-     * statement. The Launch Target dialog's "Run in background" toggle writes the same key, so the two agree.
+     * <p>It has a second editing surface — the Launch Target dialog's "Run in background" toggle — writing the
+     * same two keys, so the two always agree.
      */
     private VBox buildSessionPane() {
         Label title = new Label("Session");
@@ -233,11 +228,8 @@ public final class ClickConfigDialog {
         setValue(compareMargin, s.compareMargin());
         setValue(maxRetryAttempts, s.maxRetryAttempts());
         linuxInput.setValue(s.linuxInput());
-        // The session part is seeded from the properties file, not from `s`: it is the form both this dialog and
-        // the Launch Target dialog write, and the one Studio's Launch buttons read. See SessionSetting.
-        SessionSetting session = SessionSetting.read(config.resourcesRoot());
-        isolatedSession.setSelected(session.isolated());
-        sessionBackend.setValue(session.backend());
+        isolatedSession.setSelected(s.isolatedSession());
+        sessionBackend.setValue(s.sessionBackend());
     }
 
     private static <T> void setValue(Spinner<T> spinner, T value) {
@@ -258,15 +250,13 @@ public final class ClickConfigDialog {
                 isolatedSession.isSelected(),
                 sessionBackend.getValue() == null ? BotSettings.SessionBackend.AUTO : sessionBackend.getValue());
         try {
-            BotSettings.write(config.mainSourceFile(), config.packageName(), settings);
-            // The session part also lives in botmaker-project.properties, which is what Studio's own Launch
-            // buttons read — BotSettings.write only produces the generated statement.
-            ProjectCreator.writeSessionIsolated(config.resourcesRoot(), settings.isolatedSession());
-            ProjectCreator.writeSessionBackend(config.resourcesRoot(), settings.sessionBackend().id());
-            if (onWritten != null) onWritten.accept(BotSettings.source(config.packageName(), settings));
+            // One write for the lot, session keys included — they are part of this record now rather than a
+            // second form kept in step by SessionSetting.
+            BotSettings.write(config.resourcesRoot(), settings);
+            if (onSaved != null) onSaved.run();
             stage.close();
         } catch (IOException e) {
-            status.setText("Couldn't write BotSettings.java: " + e.getMessage());
+            status.setText("Couldn't save these settings: " + e.getMessage());
             status.setStyle("-fx-font-size: 11px; -fx-text-fill: #c0392b;");
         }
     }

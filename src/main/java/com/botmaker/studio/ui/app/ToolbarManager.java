@@ -69,7 +69,7 @@ public class ToolbarManager {
     private Consumer<Boolean> onToggleDebugOutput;
     /** The debug-output toggle's initial (persisted) state — read by {@link UIManager} before building the bar. */
     private boolean debugOutputInitial = true;
-    /** Opens the Input &amp; Clicks dialog over the project's generated {@code BotSettings}; wired by {@link UIManager}. */
+    /** Opens the Input &amp; Clicks dialog over the project's settings; wired by {@link UIManager}. */
     private Runnable onConfigureInput;
     /** Starts the remote pilot server and shows the pairing dialog; wired by {@link UIManager}. */
     private Runnable onEnableRemotePilot;
@@ -166,7 +166,7 @@ public class ToolbarManager {
     /**
      * Sets the callback that opens the Input &amp; Clicks dialog. It replaced a {@code 🖱 Game} toggle that
      * carried the real-input flag alone: the button now has no state of its own to seed, because the values
-     * live in the project's {@code BotSettings.java} and the dialog reads them when it opens.
+     * live in the project's own settings and the dialog reads them when it opens.
      */
     public void setOnConfigureInput(Runnable callback) {
         this.onConfigureInput = callback;
@@ -274,8 +274,8 @@ public class ToolbarManager {
                         + "Turn real input on when the target is a game. Games ignore the quiet background "
                         + "clicks BotMaker sends by default, so it drives the real mouse and keyboard instead — "
                         + "the pointer moves to each click and returns, and the game window is raised.\n\n"
-                        + "The settings are written into your bot's own BotSettings.java, so they travel with "
-                        + "the code and apply when the bot runs outside the Studio."));
+                        + "The settings are saved with your project, so they travel with the code and apply "
+                        + "when the bot runs outside the Studio."));
         inputConfigButton.setOnAction(e -> {
             if (onConfigureInput != null) onConfigureInput.run();
         });

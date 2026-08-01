@@ -21,12 +21,12 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 
 /**
- * Bounded editor for a single {@code ClickConfig} setter argument, keeping the value inside the setter's
+ * Bounded editor for a single {@code BotSettings} setter argument, keeping the value inside the setter's
  * accepted range instead of letting the user type any number:
  * <ul>
  *   <li>{@code setFoundDelay}/{@code setNotFoundDelay} — a millisecond spinner (≥ 0);</li>
  *   <li>{@code setMaxRetryAttempts} — a count spinner (≥ 1);</li>
- *   <li>{@code setDefaultConfidence} — a 0.0–1.0 spinner;</li>
+ *   <li>{@code setDefaultConfidence}/{@code setCompareMargin} — a 0.0–1.0 spinner;</li>
  *   <li>{@code enableRandomClicks}/{@code enableDebugMode} — an inline on/off checkbox.</li>
  * </ul>
  * The numeric editors open a small OK/Cancel dialog and commit the chosen value; the boolean editors write on
@@ -34,11 +34,11 @@ import java.math.RoundingMode;
  * {@link com.botmaker.studio.parser.CodeEditor#replaceWithRawExpression}.
  *
  * <p>Selected by {@link com.botmaker.studio.ui.render.components.pickers.PickerRegistry} only for the matching
- * {@code ClickConfig} setter (see {@code PickerContext.isClickConfigArg}), so it never hijacks other numbers.
+ * {@code BotSettings} setter (see {@code PickerContext.isBotSettingsArg}), so it never hijacks other numbers.
  */
-public final class ClickConfigArgPicker {
+public final class BotSettingsArgPicker {
 
-    private ClickConfigArgPicker() {}
+    private BotSettingsArgPicker() {}
 
     public static Node create(CodeEditorService context, ExpressionBlock arg, String methodName) {
         return switch (methodName) {
@@ -51,7 +51,7 @@ public final class ClickConfigArgPicker {
 
     private static Node booleanEditor(CodeEditorService context, ExpressionBlock arg, String methodName) {
         CheckBox box = new CheckBox(readableName(methodName));
-        box.getStyleClass().add("clickconfig-picker");
+        box.getStyleClass().add("botsettings-picker");
         box.setSelected(currentBoolean(arg));
         box.setOnAction(e -> context.getCodeEditor()
                 .replaceWithRawExpression(exprNode(arg), String.valueOf(box.isSelected())));
@@ -62,7 +62,7 @@ public final class ClickConfigArgPicker {
 
     private static Node numericEditor(CodeEditorService context, ExpressionBlock arg, String methodName) {
         Button button = new Button();
-        button.getStyleClass().add("clickconfig-picker");
+        button.getStyleClass().add("botsettings-picker");
         button.setText(numericLabel(methodName, arg));
         button.setOnAction(e -> openNumericDialog(context, arg, methodName, button));
         return button;
@@ -70,15 +70,16 @@ public final class ClickConfigArgPicker {
 
     private static void openNumericDialog(CodeEditorService context, ExpressionBlock arg, String methodName,
                                           Button button) {
-        boolean confidence = methodName.equals("setDefaultConfidence");
+        boolean unitInterval = methodName.equals("setDefaultConfidence")
+                || methodName.equals("setCompareMargin");
 
         Dialog<ButtonType> dialog = new Dialog<>();
         dialog.setTitle(readableName(methodName));
         if (button.getScene() != null) dialog.initOwner(button.getScene().getWindow());
         dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
 
-        Spinner<? extends Number> spinner = confidence
-                ? confidenceSpinner(currentDouble(arg, 0.8))
+        Spinner<? extends Number> spinner = unitInterval
+                ? unitIntervalSpinner(currentDouble(arg, defaultReal(methodName)), methodName)
                 : intSpinner(methodName, currentInt(arg, defaultInt(methodName)));
         spinner.setEditable(true);
         spinner.setPrefWidth(140);
@@ -89,7 +90,7 @@ public final class ClickConfigArgPicker {
 
         dialog.showAndWait().filter(bt -> bt == ButtonType.OK).ifPresent(bt -> {
             commitEditor(spinner);
-            String literal = confidence
+            String literal = unitInterval
                     ? formatDouble(((Number) spinner.getValue()).doubleValue())
                     : String.valueOf(((Number) spinner.getValue()).intValue());
             context.getCodeEditor().replaceWithRawExpression(exprNode(arg), literal);
@@ -104,9 +105,11 @@ public final class ClickConfigArgPicker {
                 min, 600_000, Math.max(min, current), step));
     }
 
-    private static Spinner<Double> confidenceSpinner(double current) {
+    /** A 0.0–1.0 spinner; the margin steps finer than the confidence because it lives near the bottom of that range. */
+    private static Spinner<Double> unitIntervalSpinner(double current, String methodName) {
+        double step = methodName.equals("setCompareMargin") ? 0.01 : 0.05;
         return new Spinner<>(new SpinnerValueFactory.DoubleSpinnerValueFactory(
-                0.0, 1.0, Math.max(0.0, Math.min(1.0, current)), 0.05));
+                0.0, 1.0, Math.max(0.0, Math.min(1.0, current)), step));
     }
 
     /** Force a typed-but-not-committed spinner value into the model before we read it. */
@@ -130,6 +133,7 @@ public final class ClickConfigArgPicker {
             case "setNotFoundDelay" -> "Delay after no match";
             case "setMaxRetryAttempts" -> "Max stuck checks";
             case "setDefaultConfidence" -> "Match confidence";
+            case "setCompareMargin" -> "Compare margin";
             case "enableRandomClicks" -> "Randomize click points";
             case "enableDebugMode" -> "Debug logging";
             default -> methodName;
@@ -141,6 +145,7 @@ public final class ClickConfigArgPicker {
             case "setFoundDelay", "setNotFoundDelay" -> "Milliseconds (≥ 0):";
             case "setMaxRetryAttempts" -> "Checks before considered stuck (≥ 1):";
             case "setDefaultConfidence" -> "Confidence (0.0 – 1.0):";
+            case "setCompareMargin" -> "How far the right template must beat a look-alike (0.0 – 1.0):";
             default -> "Value:";
         };
     }
@@ -150,6 +155,10 @@ public final class ClickConfigArgPicker {
         String value = e instanceof NumberLiteral n ? n.getToken() : "…";
         String unit = (methodName.equals("setFoundDelay") || methodName.equals("setNotFoundDelay")) ? " ms" : "";
         return value + unit;
+    }
+
+    private static double defaultReal(String methodName) {
+        return methodName.equals("setCompareMargin") ? 0.05 : 0.8;
     }
 
     private static int defaultInt(String methodName) {

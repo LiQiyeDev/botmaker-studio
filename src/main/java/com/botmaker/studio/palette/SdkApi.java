@@ -44,7 +44,7 @@ public final class SdkApi {
             "Pixel",
             "Text",
             "VisionContext",
-            "ClickConfig",
+            "BotSettings",
             "Debug",
             "Session",
             "Game",

@@ -86,20 +86,21 @@ public record PickerContext(CodeEditorService context, ExpressionBlock arg, Reso
                 || isEmulatorMethod("launch") || isEmulatorMethod("stop"));
     }
 
-    /** True when the enclosing call is on the SDK {@code ClickConfig} facade and names {@code method}. */
-    public boolean isClickConfigMethod(String method) {
+    /** True when the enclosing call is on the SDK {@code BotSettings} facade and names {@code method}. */
+    public boolean isBotSettingsMethod(String method) {
         return method.equals(methodName)
-                && className != null && (className.equals("ClickConfig") || className.endsWith(".ClickConfig"));
+                && className != null && (className.equals("BotSettings") || className.endsWith(".BotSettings"));
     }
 
     /**
-     * The single (index-0) argument of a bounded {@code ClickConfig} setter — a delay/retry count, a 0–1
-     * confidence, or a boolean toggle. Offered the bounded {@code ClickConfigArgPicker} (spinner / slider /
-     * checkbox) instead of a free-typed number so the value stays in the setter's accepted range.
+     * The single (index-0) argument of a bounded {@code BotSettings} setter — a delay/retry count, a 0–1
+     * confidence or margin, or a boolean toggle. Offered the bounded {@code BotSettingsArgPicker} (spinner /
+     * slider / checkbox) instead of a free-typed number so the value stays in the setter's accepted range.
      */
-    public boolean isClickConfigArg() {
-        return argIndex == 0 && (isClickConfigMethod("setFoundDelay") || isClickConfigMethod("setNotFoundDelay")
-                || isClickConfigMethod("setMaxRetryAttempts") || isClickConfigMethod("setDefaultConfidence")
-                || isClickConfigMethod("enableRandomClicks") || isClickConfigMethod("enableDebugMode"));
+    public boolean isBotSettingsArg() {
+        return argIndex == 0 && (isBotSettingsMethod("setFoundDelay") || isBotSettingsMethod("setNotFoundDelay")
+                || isBotSettingsMethod("setMaxRetryAttempts") || isBotSettingsMethod("setDefaultConfidence")
+                || isBotSettingsMethod("setCompareMargin")
+                || isBotSettingsMethod("enableRandomClicks") || isBotSettingsMethod("enableDebugMode"));
     }
 }

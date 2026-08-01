@@ -1,5 +1,6 @@
 package com.botmaker.studio.project;
 
+import com.botmaker.shared.config.ProjectProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -10,105 +11,72 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The generated {@code BotSettings.java} is the storage format for the bot's runtime tuning, so what matters is
- * that every value written can be read back, that a file missing statements degrades to defaults rather than
- * failing, and that a project created before the file existed is migrated without losing its one setting.
+ * {@code botmaker-project.properties} is the storage format for the bot's runtime tuning, so what matters is
+ * that every value written can be read back, that an absent key degrades to its default rather than failing,
+ * and — the part that would bite an existing project — that a project still carrying a generated
+ * {@code BotSettings.java} is migrated without losing what it was tuned to.
  */
 class BotSettingsTest {
 
     private static ProjectConfig project(Path root) throws IOException {
         ProjectConfig config = ProjectConfig.forProject("MyBot", root);
         Files.createDirectories(config.mainSourceFile().getParent());
+        Files.createDirectories(config.resourcesRoot());
         return config;
     }
 
+    private static Path legacyFile(ProjectConfig config) {
+        return config.mainSourceFile().getParent().resolve("BotSettings.java");
+    }
+
     @Test
-    void everySettingRoundTripsThroughTheGeneratedFile(@TempDir Path root) throws IOException {
+    void everySettingRoundTripsThroughTheProjectFile(@TempDir Path root) throws IOException {
         ProjectConfig config = project(root);
         BotSettings written = new BotSettings(true, 750, 125, 0.62, false, 0.11, 7,
                 BotSettings.LinuxInput.UINPUT, false, BotSettings.SessionBackend.GAMESCOPE);
 
-        BotSettings.write(config.mainSourceFile(), config.packageName(), written);
+        BotSettings.write(config.resourcesRoot(), written);
 
-        assertEquals(written, BotSettings.read(BotSettings.fileFor(config.mainSourceFile())));
+        assertEquals(written, BotSettings.read(config.resourcesRoot()));
     }
 
     @Test
-    void theAutomaticBackendWritesNoPropertyAtAll(@TempDir Path root) throws IOException {
+    void theAutomaticChoicesWriteNoKeyAtAll(@TempDir Path root) throws IOException {
         ProjectConfig config = project(root);
-        BotSettings.write(config.mainSourceFile(), config.packageName(), BotSettings.DEFAULTS);
+        BotSettings.write(config.resourcesRoot(), BotSettings.DEFAULTS);
 
-        String source = Files.readString(BotSettings.fileFor(config.mainSourceFile()));
-        // "auto" *is* what the SDK does with no property set, so writing it would add a statement that says
-        // nothing — and the value must still read back as AUTO.
-        assertFalse(source.contains("botmaker.linux.input"), source);
-        assertEquals(BotSettings.LinuxInput.AUTO,
-                BotSettings.read(BotSettings.fileFor(config.mainSourceFile())).linuxInput());
-    }
-
-    @Test
-    void aDefaultProjectMentionsNoSessionAtAll(@TempDir Path root) throws IOException {
-        ProjectConfig config = project(root);
-        BotSettings.write(config.mainSourceFile(), config.packageName(), BotSettings.DEFAULTS);
-
-        String source = Files.readString(BotSettings.fileFor(config.mainSourceFile()));
-        // Isolation on with an automatic backend *is* the SDK's own default, so the generated file carries no
-        // Session statement and — just as important — no unused Session import. This is what keeps regenerating
-        // an existing default project byte-identical.
-        assertFalse(source.contains("Session"), source);
-        BotSettings read = BotSettings.read(BotSettings.fileFor(config.mainSourceFile()));
-        assertTrue(read.isolatedSession());
+        // "auto" *is* what the SDK does with no key set, so writing it would store a value that says nothing —
+        // and both must still read back as AUTO.
+        java.util.Properties props = ProjectCreator.readProjectProperties(config.resourcesRoot());
+        assertNull(props.getProperty(ProjectProperties.KEY_INPUT_LINUX_BACKEND));
+        assertNull(props.getProperty(ProjectProperties.KEY_SESSION_BACKEND));
+        BotSettings read = BotSettings.read(config.resourcesRoot());
+        assertEquals(BotSettings.LinuxInput.AUTO, read.linuxInput());
         assertEquals(BotSettings.SessionBackend.AUTO, read.sessionBackend());
     }
 
     @Test
-    void optingOutEmitsExactlyTheDisableCallAndItsImport(@TempDir Path root) throws IOException {
+    void writingSettingsPreservesTheProjectsOtherKeys(@TempDir Path root) throws IOException {
         ProjectConfig config = project(root);
-        BotSettings.write(config.mainSourceFile(), config.packageName(),
-                BotSettings.DEFAULTS.withSession(false, BotSettings.SessionBackend.XEPHYR));
+        ProjectCreator.writeLaunchTarget(config.resourcesRoot(), "steam:12345");
 
-        String source = Files.readString(BotSettings.fileFor(config.mainSourceFile()));
-        assertTrue(source.contains("import com.botmaker.sdk.api.Session;"), source);
-        assertTrue(source.contains("Session.disable();"), source);
-        assertTrue(source.contains("Session.useBackend(\"xephyr\");"), source);
+        BotSettings.write(config.resourcesRoot(), BotSettings.GAME_DEFAULTS);
+
+        assertEquals("steam:12345", ProjectCreator.readLaunchTarget(config.resourcesRoot()));
     }
 
     @Test
-    void aHandWrittenSessionCallInAnySpellingReadsBack(@TempDir Path root) throws IOException {
-        // All three spellings are real API, so a user hand-editing this file may reach for any of them.
-        record Case(String statement, boolean isolated) {}
-        for (Case c : new Case[]{new Case("Session.disable();", false), new Case("Session.enable();", true),
-                new Case("Session.set(false);", false), new Case("Session.set(true);", true)}) {
-            Path file = root.resolve(c.statement().hashCode() + BotSettings.FILE_NAME);
-            Files.writeString(file, """
-                public final class BotSettings {
-                    public static void apply() {
-                        %s
-                    }
-                }
-                """.formatted(c.statement()));
-            assertEquals(c.isolated(), BotSettings.read(file).isolatedSession(), c.statement());
-        }
-    }
+    void anAbsentKeyReadsBackAsItsDefault(@TempDir Path root) throws IOException {
+        ProjectConfig config = project(root);
+        // One key only — an older Studio's file, or a hand edit that removed the rest.
+        ProjectCreator.writeProjectKeys(config.resourcesRoot(),
+                java.util.Map.of(ProjectProperties.KEY_INPUT_REAL, "true"));
 
-    @Test
-    void aFileMissingStatementsReadsBackAsDefaults(@TempDir Path root) throws IOException {
-        Path file = root.resolve(BotSettings.FILE_NAME);
-        // Only one call left — an older Studio's file, or a user who deleted the lines they didn't want.
-        Files.writeString(file, """
-            package com.mybot;
-            import com.botmaker.sdk.api.vision.ClickConfig;
-            public final class BotSettings {
-                public static void apply() {
-                    ClickConfig.useRealInput(true);
-                }
-            }
-            """);
-
-        BotSettings read = BotSettings.read(file);
+        BotSettings read = BotSettings.read(config.resourcesRoot());
         assertTrue(read.realInput());
         assertEquals(BotSettings.DEFAULTS.foundDelay(), read.foundDelay());
         assertEquals(BotSettings.DEFAULTS.confidence(), read.confidence());
@@ -117,12 +85,89 @@ class BotSettingsTest {
 
     @Test
     void aMissingFileIsAllDefaults(@TempDir Path root) {
-        assertEquals(BotSettings.DEFAULTS, BotSettings.read(root.resolve("nope/BotSettings.java")));
+        assertEquals(BotSettings.DEFAULTS, BotSettings.read(root.resolve("nope")));
+    }
+
+    // --- migration off the generated file ---
+
+    /** A generated {@code BotSettings.java} in the shape the previous Studio wrote. */
+    private static String generatedFile(String body) {
+        return """
+            package com.mybot;
+
+            import com.botmaker.sdk.api.vision.ClickConfig;
+
+            public final class BotSettings {
+
+                public static void apply() {
+            %s    }
+
+                private BotSettings() {}
+            }
+            """.formatted(body);
     }
 
     @Test
-    void migrationCarriesTheInlineRealInputCallIntoTheNewFile(@TempDir Path root) throws IOException {
+    void migrationCarriesEveryTunedValueIntoTheProjectFile(@TempDir Path root) throws IOException {
         ProjectConfig config = project(root);
+        Files.writeString(legacyFile(config), generatedFile("""
+                    System.setProperty("botmaker.linux.input", "uinput");
+                    Session.disable();
+                    Session.useBackend("xephyr");
+                    ClickConfig.useRealInput(true);
+                    ClickConfig.setFoundDelay(750);
+                    ClickConfig.setNotFoundDelay(125);
+                    ClickConfig.setDefaultConfidence(0.62);
+                    ClickConfig.enableRandomClicks(false);
+                    ClickConfig.DEFAULT_COMPARE_MARGIN = 0.11;
+                    ClickConfig.setMaxRetryAttempts(7);
+            """));
+        Files.writeString(config.mainSourceFile(), """
+            package com.mybot;
+
+            import com.botmaker.sdk.api.bot.Bot;
+
+            public class MyBot {
+                public static void main(String[] args) {
+                    BotSettings.apply();
+                    Bot.start(GameLoop::run, GoHome.INSTANCE::execute, Startup::run);
+                }
+            }
+            """);
+
+        String updated = BotSettings.migrate(config);
+
+        assertEquals(new BotSettings(true, 750, 125, 0.62, false, 0.11, 7,
+                        BotSettings.LinuxInput.UINPUT, false, BotSettings.SessionBackend.XEPHYR),
+                BotSettings.read(config.resourcesRoot()),
+                "everything the project was tuned to has to survive the move");
+        assertFalse(Files.exists(legacyFile(config)),
+                "the generated file calls a facade that no longer exists — leaving it breaks the build");
+        assertNotNull(updated, "the entry point is rewritten, so the caller can refresh its cached copy");
+        assertFalse(updated.contains("BotSettings.apply()"), "nothing left to call:\n" + updated);
+        assertTrue(updated.contains("Bot.start("), "the rest of main is untouched:\n" + updated);
+    }
+
+    @Test
+    void migrationLeavesSettingsTheGeneratedFileNeverMentionedAlone(@TempDir Path root) throws IOException {
+        ProjectConfig config = project(root);
+        // Isolation was always written to the properties file too, and that copy is the one Studio read. A
+        // generated file that says nothing about Session must not now reset it to the default.
+        ProjectCreator.writeSessionIsolated(config.resourcesRoot(), false);
+        Files.writeString(legacyFile(config), generatedFile("        ClickConfig.setFoundDelay(750);\n"));
+        Files.writeString(config.mainSourceFile(), "package com.mybot;\npublic class MyBot { }\n");
+
+        BotSettings.migrate(config);
+
+        BotSettings after = BotSettings.read(config.resourcesRoot());
+        assertEquals(750, after.foundDelay());
+        assertFalse(after.isolatedSession(), "the key the generated file never mentioned has to survive");
+    }
+
+    @Test
+    void migrationHandlesTheOlderInlineCallInMain(@TempDir Path root) throws IOException {
+        ProjectConfig config = project(root);
+        // Older still: before the generated file existed, real input was one call in main.
         Files.writeString(config.mainSourceFile(), """
             package com.mybot;
 
@@ -139,44 +184,22 @@ class BotSettingsTest {
 
         String updated = BotSettings.migrate(config);
 
-        assertNotNull(updated, "the entry point is rewritten, so the caller can refresh its cached copy");
-        assertTrue(updated.contains("BotSettings.apply();"), updated);
-        assertFalse(updated.contains("useRealInput"), "the inline call is replaced, not duplicated:\n" + updated);
+        assertTrue(BotSettings.read(config.resourcesRoot()).realInput(),
+                "the setting the project had must survive the move");
+        assertNotNull(updated, updated);
+        assertFalse(updated.contains("useRealInput"), "the inline call is removed, not duplicated:\n" + updated);
         assertFalse(updated.contains("import com.botmaker.sdk.api.vision.ClickConfig;"),
                 "the now-unused import goes with the call it served:\n" + updated);
-        assertTrue(BotSettings.read(BotSettings.fileFor(config.mainSourceFile())).realInput(),
-                "the setting the project had must survive the move");
     }
 
     @Test
-    void migrationIsANoOpOnceTheFileExists(@TempDir Path root) throws IOException {
+    void migrationIsANoOpOnAProjectThatHasNeitherForm(@TempDir Path root) throws IOException {
         ProjectConfig config = project(root);
-        BotSettings.write(config.mainSourceFile(), config.packageName(), BotSettings.DEFAULTS.withRealInput(true));
+        BotSettings.write(config.resourcesRoot(), BotSettings.DEFAULTS.withRealInput(true));
         Files.writeString(config.mainSourceFile(), "package com.mybot;\npublic class MyBot { }\n");
 
-        assertEquals(null, BotSettings.migrate(config), "nothing to migrate — and nothing rewritten");
-        assertTrue(BotSettings.read(BotSettings.fileFor(config.mainSourceFile())).realInput(),
-                "an existing file's values are never re-seeded from the entry point");
-    }
-
-    @Test
-    void aBotWithNoInlineCallStillGetsApplyAtTheTopOfMain(@TempDir Path root) throws IOException {
-        ProjectConfig config = project(root);
-        Files.writeString(config.mainSourceFile(), """
-            package com.mybot;
-            import com.botmaker.sdk.api.BotMaker;
-
-            public class MyBot {
-                public static void main(String[] args) {
-                    BotMaker.print("Hello!");
-                }
-            }
-            """);
-
-        String updated = BotSettings.migrate(config);
-
-        assertNotNull(updated, updated);
-        assertTrue(updated.indexOf("BotSettings.apply();") < updated.indexOf("BotMaker.print"),
-                "apply() must run before anything it configures:\n" + updated);
+        assertNull(BotSettings.migrate(config), "nothing to migrate — and nothing rewritten");
+        assertTrue(BotSettings.read(config.resourcesRoot()).realInput(),
+                "an already-migrated project's values are never re-seeded");
     }
 }

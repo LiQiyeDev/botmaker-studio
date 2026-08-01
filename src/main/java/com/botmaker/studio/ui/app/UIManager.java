@@ -183,22 +183,18 @@ public class UIManager {
                         System.err.println("Failed to save debug setting: " + ex.getMessage());
                     }
                 });
-        // The click/vision tuning lives in the bot's own generated BotSettings.java rather than a side-car
-        // setting, so the bot behaves the way its code reads even when run outside the Studio. Projects made
-        // before that file existed carry only the real-input flag, as an inline ClickConfig call in main —
+        // The click/vision tuning is a project setting the SDK reads before the first click. Older projects
+        // carry it as a generated BotSettings.java (or, older still, an inline ClickConfig call in main) —
         // migrate them here, on open, which is the one moment we know the project and haven't yet built the
-        // file explorer that would otherwise not list the new file.
+        // file explorer that would go on listing a file we are about to delete.
         try {
             String migratedMain = com.botmaker.studio.project.BotSettings.migrate(config);
             if (migratedMain != null) refreshCachedSource(config.mainSourceFile(), migratedMain);
         } catch (java.io.IOException ex) {
-            System.err.println("Could not move this project's input settings into BotSettings.java: "
+            System.err.println("Could not move this project's input settings into its project properties: "
                     + ex.getMessage());
         }
-        this.toolbarManager.setOnConfigureInput(() -> new ClickConfigDialog(primaryStage, config,
-                written -> refreshCachedSource(
-                        com.botmaker.studio.project.BotSettings.fileFor(config.mainSourceFile()), written))
-                .show());
+        this.toolbarManager.setOnConfigureInput(() -> new BotSettingsDialog(primaryStage, config, null).show());
         this.toolbarManager.setOnEnableRemotePilot(this::openRemotePilot);
         this.toolbarManager.setOnCaptureTemplates(this::openOverlayTemplateCapture);
         this.toolbarManager.setOnOverlayEditor(this::openOverlayEditor);
@@ -301,8 +297,8 @@ public class UIManager {
     }
 
     /**
-     * Tells the editor that {@code file} was rewritten on disk behind its back, e.g. by the Input &amp; Clicks
-     * dialog or the one-time {@code BotSettings} migration.
+     * Tells the editor that {@code file} was rewritten on disk behind its back, e.g. by the one-time
+     * {@code BotSettings} migration.
      *
      * <p>The editor caches file contents in memory, so a disk-only write would be invisible — and would be
      * overwritten by the next edit that flushes the stale copy. Update the cached copy, and re-render when it

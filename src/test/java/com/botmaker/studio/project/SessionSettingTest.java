@@ -12,10 +12,14 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The private-display setting exists in two forms — a {@code Session} statement in the generated source and two
- * project-properties keys — and the SDK ranks the statement <em>above</em> the keys. So what has to hold is not
- * that either write works, but that a single write moves <b>both</b>: a stale statement left behind by a
- * properties-only write would silently beat the checkbox the user just ticked.
+ * The private-display setting is a pair of project keys with two editing surfaces (this one and the Launch
+ * Target dialog's "Run in background" toggle), so what has to hold is that a write moves both keys together and
+ * leaves the project's other settings alone.
+ *
+ * <p>It used to exist in a second form as well — a {@code Session} statement in the generated
+ * {@code BotSettings.java}, which the SDK ranked <em>above</em> these keys, so a properties-only write could be
+ * silently beaten by a stale statement. That form is gone; {@link BotSettingsTest} covers migrating a project
+ * that still has one.
  */
 class SessionSettingTest {
 
@@ -32,24 +36,18 @@ class SessionSettingTest {
     }
 
     @Test
-    void oneWriteMovesBothForms(@TempDir Path root) throws IOException {
+    void aWriteRoundTripsThroughBothKeys(@TempDir Path root) throws IOException {
         ProjectConfig config = project(root);
         SessionSetting.write(config, new SessionSetting(false, BotSettings.SessionBackend.XEPHYR));
 
-        // Form 1: the properties keys Studio's own Launch buttons read.
         assertFalse(ProjectCreator.readSessionIsolated(config.resourcesRoot()));
         assertEquals("xephyr", ProjectCreator.readSessionBackend(config.resourcesRoot()));
-        // Form 2: the generated statement that travels with the bot.
-        String source = Files.readString(BotSettings.fileFor(config.mainSourceFile()));
-        assertTrue(source.contains("Session.disable();"), source);
-        assertTrue(source.contains("Session.useBackend(\"xephyr\");"), source);
-        // And it round-trips.
         assertEquals(new SessionSetting(false, BotSettings.SessionBackend.XEPHYR),
                 SessionSetting.read(config.resourcesRoot()));
     }
 
     @Test
-    void goingBackToTheDefaultRemovesBothTheStatementAndTheKey(@TempDir Path root) throws IOException {
+    void goingBackToTheAutomaticBackendRemovesTheKey(@TempDir Path root) throws IOException {
         ProjectConfig config = project(root);
         SessionSetting.write(config, new SessionSetting(false, BotSettings.SessionBackend.GAMESCOPE));
         SessionSetting.write(config, SessionSetting.DEFAULT);
@@ -59,7 +57,6 @@ class SessionSettingTest {
         // make "never chose" and "chose automatic" different bytes.
         assertEquals(null, ProjectCreator.readSessionBackend(config.resourcesRoot()));
         assertTrue(ProjectCreator.readSessionIsolated(config.resourcesRoot()));
-        assertFalse(Files.readString(BotSettings.fileFor(config.mainSourceFile())).contains("Session"));
     }
 
     @Test
@@ -67,13 +64,12 @@ class SessionSettingTest {
         ProjectConfig config = project(root);
         BotSettings tuned = new BotSettings(true, 750, 125, 0.62, false, 0.11, 7,
                 BotSettings.LinuxInput.UINPUT, true, BotSettings.SessionBackend.AUTO);
-        BotSettings.write(config.mainSourceFile(), config.packageName(), tuned);
+        BotSettings.write(config.resourcesRoot(), tuned);
 
         SessionSetting.write(config, new SessionSetting(false, BotSettings.SessionBackend.AUTO));
 
-        // The session toggle regenerates the whole file, so the delays/confidence/backend it didn't touch have
-        // to survive — it reads the current values back before rewriting.
-        BotSettings after = BotSettings.read(BotSettings.fileFor(config.mainSourceFile()));
-        assertEquals(tuned.withSession(false, BotSettings.SessionBackend.AUTO), after);
+        // Both settings live in one file, so the session write must touch its two keys and no others.
+        assertEquals(tuned.withSession(false, BotSettings.SessionBackend.AUTO),
+                BotSettings.read(config.resourcesRoot()));
     }
 }

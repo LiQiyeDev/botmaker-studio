@@ -6,6 +6,22 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-01 — improvements Phase 7: no generated `BotSettings.java`; the tuning is project settings.**
+  `project/BotSettings` keeps its record shape but loses the generator and the regex reader entirely — it now
+  reads and writes shared's eight new `botmaker-project.properties` keys, and `ProjectCreator` seeds them at
+  creation (`GAME_DEFAULTS` for a game bot, which is where real-input-on came from). `BotSettings.java` is
+  gone from both templates and so is the `BotSettings.apply();` at the top of `main`; `ProjectRepair` stops
+  regenerating it by virtue of `sourcesFor` no longer listing it. `migrate` inverted: it now reads a legacy
+  generated file (or the older inline `ClickConfig.useRealInput` call), writes the values into the properties,
+  deletes the file and strips the `apply()` call — falling back per setting to *what the project already has*
+  rather than to `DEFAULTS`, because the session keys were always written to the properties file too and a
+  generated file that never mentioned `Session` must not reset them. Renames: `ClickConfigDialog` →
+  `BotSettingsDialog` (writes one properties file instead of source + two keys), `ClickConfigArgPicker` →
+  `BotSettingsArgPicker` (and it picks up the new `setCompareMargin`), `PickerContext.isClickConfigArg` →
+  `isBotSettingsArg`, plus the facade name in `palette/SdkApi` and `MenuIcons`. `SessionSetting` shrank to
+  the two keys — the hazard it existed for (the SDK ranking a stale generated `Session.disable()` above the
+  key the user just ticked) cannot happen with no generated file.
+
 - **2026-08-01 — improvements Phase 5: the overlay works over a private session.**
   When a nested session is live, `ProgramShapeOverlay` now targets *its* host window instead of the project's
   configured desktop window (`UIManager.liveSessionWindow` → `NestedSessionLauncher.revealHostWindow`, revealing

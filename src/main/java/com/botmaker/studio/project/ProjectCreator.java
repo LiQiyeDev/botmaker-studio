@@ -81,10 +81,13 @@ public class ProjectCreator {
             //    generated bot's runtime scaling defaults to it.
             seedSettings(cfg, referenceResolution, template);
 
-            // 5b. Default new projects to background-isolated launch (private :N display). It is written
-            //     explicitly (rather than relying on the absent-key default) so the toggle in the Launch Target
-            //     dialog shows a concrete state and the SDK/Studio agree from the first run.
-            writeSessionIsolated(cfg.resourcesRoot(), true);
+            // 5b. Seed the runtime tuning — delays, confidence, real input, and background isolation (a private
+            //     :N display). A game bot starts with real input on; that is the whole difference between
+            //     GAME_DEFAULTS and DEFAULTS, and it used to be the difference between the two generated
+            //     BotSettings.java files. Written explicitly rather than left to the absent-key defaults so the
+            //     dialogs show a concrete state and the SDK and Studio agree from the first run.
+            BotSettings.write(cfg.resourcesRoot(),
+                    template == ProjectTemplate.GAME_BOT ? BotSettings.GAME_DEFAULTS : BotSettings.DEFAULTS);
 
             // 6. Initialize local project history (linear VCS) with an initial commit.
             new ProjectVcs(projectPath).init();
@@ -319,20 +322,49 @@ public class ProjectCreator {
      * every other key. The load-modify-store dance was copied per key; one copy is enough.
      */
     private static void writeProjectKey(Path resourcesDir, String key, String value) throws IOException {
+        writeProjectKeys(resourcesDir, java.util.Collections.singletonMap(key, value));
+    }
+
+    /**
+     * Sets (or, for a {@code null} value, removes) several keys at once, preserving every other key. One
+     * load-modify-store for the lot — {@link BotSettings#write} sets nine of them, and writing them one at a
+     * time would reparse and rewrite the file nine times.
+     */
+    static void writeProjectKeys(Path resourcesDir, java.util.Map<String, String> values) throws IOException {
         Files.createDirectories(resourcesDir);
         Path file = resourcesDir.resolve(ProjectProperties.FILE_NAME);
-        java.util.Properties props = new java.util.Properties();
-        if (Files.exists(file)) {
-            try (var in = Files.newInputStream(file)) { props.load(in); }
-        }
-        if (value == null) {
-            props.remove(key);
-        } else {
-            props.setProperty(key, value);
+        java.util.Properties props = readProjectProperties(resourcesDir);
+        for (java.util.Map.Entry<String, String> e : values.entrySet()) {
+            if (e.getValue() == null) {
+                props.remove(e.getKey());
+            } else {
+                props.setProperty(e.getKey(), e.getValue());
+            }
         }
         try (var out = Files.newOutputStream(file)) {
             props.store(out, "BotMaker project defaults");
         }
+    }
+
+    /**
+     * The project's {@code botmaker-project.properties}, or an empty set when it is absent or unreadable —
+     * every caller here treats a missing key as its own default, so an unreadable file is the same as an empty
+     * one rather than an error.
+     */
+    static java.util.Properties readProjectProperties(Path resourcesDir) {
+        java.util.Properties props = new java.util.Properties();
+        if (resourcesDir == null) {
+            return props;
+        }
+        Path file = resourcesDir.resolve(ProjectProperties.FILE_NAME);
+        if (Files.exists(file)) {
+            try (var in = Files.newInputStream(file)) {
+                props.load(in);
+            } catch (IOException ignored) {
+                // unreadable — same as absent
+            }
+        }
+        return props;
     }
 
     /**
@@ -359,33 +391,6 @@ public class ProjectCreator {
     }
 
     /**
-     * Matches the generated {@code ClickConfig.useRealInput(<bool>);} call in a bot's entry point, capturing
-     * the literal so it can be read or rewritten in place. Tolerates whitespace and an optional
-     * {@code com.botmaker.sdk.api.vision.} qualifier, since the statement is the user's to edit.
-     */
-    private static final java.util.regex.Pattern REAL_INPUT_CALL = java.util.regex.Pattern.compile(
-            "((?:com\\.botmaker\\.sdk\\.api\\.vision\\.)?ClickConfig\\s*\\.\\s*useRealInput\\s*\\(\\s*)"
-                    + "(true|false)(\\s*\\))");
-
-    /**
-     * Whether the bot's entry point currently calls {@code ClickConfig.useRealInput(true)} — the "my target
-     * is a game, drive the real mouse and keyboard" switch.
-     *
-     * <p><b>Legacy read only.</b> This inline call is how the setting was stored before {@link BotSettings}
-     * gave the whole of {@code ClickConfig} a generated file of its own; the single remaining caller is
-     * {@link BotSettings#migrate}, which reads it once to seed that file and then rewrites the statement away.
-     * Absent call → {@code false}, matching the SDK default.
-     */
-    public static boolean readRealInput(Path mainSourceFile) {
-        try {
-            java.util.regex.Matcher m = REAL_INPUT_CALL.matcher(Files.readString(mainSourceFile));
-            return m.find() && "true".equals(m.group(2));
-        } catch (IOException e) {
-            return false;
-        }
-    }
-
-    /**
      * The starting sources for {@code template} as {@code fileName -> source}. The single source of truth for
      * both creation and {@link ProjectRepair} — a template's files are defined exactly once, here.
      */
@@ -403,9 +408,11 @@ public class ProjectCreator {
     }
 
     /**
-     * The {@link ProjectTemplate#EMPTY} scaffold: a bare {@code main} that prints a greeting, plus the
-     * {@link BotSettings} file every project gets — the click/vision tuning applies to any bot, not only a
-     * game one, and the Studio's Input &amp; Clicks dialog needs somewhere to write for both templates.
+     * The {@link ProjectTemplate#EMPTY} scaffold: a bare {@code main} that prints a greeting.
+     *
+     * <p>It used to carry a generated {@code BotSettings.java} too, whose {@code apply()} was the first
+     * statement of {@code main}. The tuning now lives in {@code botmaker-project.properties} and the SDK reads
+     * it on first use, so there is nothing to generate and nothing to call — see {@link BotSettings}.
      */
     public static Map<String, String> emptySources(String className, String packageName) {
         Map<String, String> sources = new LinkedHashMap<>();
@@ -415,12 +422,10 @@ public class ProjectCreator {
 
             public class %s {
                 public static void main(String[] args) {
-                    BotSettings.apply();
                     BotMaker.print("Hello from %s!");
                 }
             }
             """, packageName, className, className));
-        sources.put(BotSettings.FILE_NAME, BotSettings.source(packageName, BotSettings.DEFAULTS));
         return sources;
     }
 
@@ -436,10 +441,6 @@ public class ProjectCreator {
     public static Map<String, String> gameBotSources(String className, String packageName) {
         Map<String, String> sources = new LinkedHashMap<>();
 
-        // Runtime tuning, applied first thing in main. A game bot starts with real input on — that is the
-        // whole difference between GAME_DEFAULTS and DEFAULTS.
-        sources.put(BotSettings.FILE_NAME, BotSettings.source(packageName, BotSettings.GAME_DEFAULTS));
-
         // Entry point: supervise the game loop, recovering via goHome → startGame on crash/stuck.
         sources.put(className + ".java", String.format("""
             package com.%s;
@@ -449,9 +450,9 @@ public class ProjectCreator {
             public class %s {
                 public static void main(String[] args) {
                     // Click delays, match confidence, and whether to drive the real mouse and keyboard (which
-                    // is what a game needs — it ignores the quiet background clicks BotMaker sends by default).
-                    // Edit them in the Studio's Input & Clicks dialog, or in BotSettings.java itself.
-                    BotSettings.apply();
+                    // is what a game needs — it ignores the quiet background clicks BotMaker sends by default)
+                    // are project settings, applied by the SDK before the first click. Edit them in the
+                    // Studio's Input & Clicks dialog.
 
                     // Runs GameLoop forever; on a crash or a stuck screen it runs GoHome then Startup and restarts.
                     Bot.start(GameLoop::run, GoHome.INSTANCE::execute, Startup::run);

@@ -3,7 +3,7 @@ package com.botmaker.studio.ui.render.components.pickers;
 import com.botmaker.studio.game.EpicLibraryScanner;
 import com.botmaker.studio.game.SteamLibraryScanner;
 import com.botmaker.studio.ui.render.components.CaptureSourcePicker;
-import com.botmaker.studio.ui.render.components.ClickConfigArgPicker;
+import com.botmaker.studio.ui.render.components.BotSettingsArgPicker;
 import com.botmaker.studio.ui.render.components.ColorArgPicker;
 import com.botmaker.studio.ui.render.components.EmulatorArgPicker;
 import com.botmaker.studio.ui.render.components.ExecutablePicker;
@@ -46,9 +46,9 @@ public final class PickerRegistry {
                     ctx -> ExecutablePicker.create(ctx.context(), ctx.arg())),
             SpecialTypePicker.of(PickerContext::isGameLaunchOptionArg,
                     ctx -> LaunchOptionPicker.create(ctx.context(), ctx.arg())),
-            // ClickConfig setter args get a bounded spinner/slider/checkbox instead of a free-typed number.
-            SpecialTypePicker.of(PickerContext::isClickConfigArg,
-                    ctx -> ClickConfigArgPicker.create(ctx.context(), ctx.arg(), ctx.methodName())),
+            // BotSettings setter args get a bounded spinner/slider/checkbox instead of a free-typed number.
+            SpecialTypePicker.of(PickerContext::isBotSettingsArg,
+                    ctx -> BotSettingsArgPicker.create(ctx.context(), ctx.arg(), ctx.methodName())),
 
             // Type-based.
             // LaunchTarget slot → the Steam/Epic/Exe/Emulator target builder (replaces the plain ctor pill).
