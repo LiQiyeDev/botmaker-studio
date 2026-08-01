@@ -12,20 +12,22 @@ import org.eclipse.jdt.core.dom.SuperMethodReference;
 import org.eclipse.jdt.core.dom.TypeMethodReference;
 
 /**
- * A Java method reference used as an expression — {@code GameLoop::run}, {@code String::valueOf}.
+ * A Java method reference used as an expression — {@code FlowDriver::run}, {@code String::valueOf}.
  *
  * <p>Renders as {@code Target::method}. Clicking navigates to the referenced method when it lives in the
  * user's own project, which is the common case: the generated game-bot entry point is
- * {@code Bot.start(GameLoop::run, GoHome.INSTANCE::execute, Startup::run)}, and each argument is a jump-off
- * point into the file the user actually wants to edit.
+ * {@code Bot.start(FlowDriver::run, GoHome.INSTANCE::execute)}, and each argument is a jump-off point into
+ * the file the user actually wants to edit.
  *
  * <p>Before this block existed, method references matched no branch of {@code BlockConverter}'s expression
- * dispatch, so every one of those three arguments was silently dropped and the call rendered as
- * {@code supervise()} — with the real arguments invisible but still present in the source.
+ * dispatch, so every one of those arguments was silently dropped and the call rendered as
+ * {@code supervise()} — with the real arguments invisible but still present in the source. (The call took
+ * three arguments then; it takes two now that the launch step moved into the SDK, which changes nothing about
+ * why the block has to exist.)
  */
 public class MethodReferenceBlock extends AbstractExpressionBlock {
 
-    private final String targetName;   // the qualifier, e.g. "GameLoop"
+    private final String targetName;   // the qualifier, e.g. "FlowDriver"
     private final String methodName;   // the referenced method, e.g. "run"
 
     public MethodReferenceBlock(String id, MethodReference astNode) {
@@ -34,10 +36,10 @@ public class MethodReferenceBlock extends AbstractExpressionBlock {
         this.methodName = readMethod(astNode);
     }
 
-    /** The qualifier of the reference ({@code GameLoop} in {@code GameLoop::run}), or "" if unresolvable. */
+    /** The qualifier of the reference ({@code FlowDriver} in {@code FlowDriver::run}), or "" if unresolvable. */
     public String getTargetName() { return targetName; }
 
-    /** The referenced method name ({@code run} in {@code GameLoop::run}), or "" if unresolvable. */
+    /** The referenced method name ({@code run} in {@code FlowDriver::run}), or "" if unresolvable. */
     public String getMethodName() { return methodName; }
 
     private static String readTarget(MethodReference ref) {

@@ -50,7 +50,7 @@ class ProjectRepairTest {
 
     @Test
     void anEmptyProjectIsNotMistakenForAGameBot() throws IOException {
-        for (String name : List.of("GameLoop.java", "GoHome.java", "Startup.java", "ActivityRegistry.java")) {
+        for (String name : List.of("FlowDriver.java", "GoHome.java", "ActivityRegistry.java")) {
             Files.delete(mainDir.resolve(name));
         }
         Files.writeString(config.mainSourceFile(), """
@@ -65,8 +65,8 @@ class ProjectRepairTest {
     @Test
     void aStrayScaffoldNameDoesNotMakeAnEmptyProjectAGameBot() throws IOException {
         // One file named like scaffolding used to be enough to guess GAME_BOT. That guess feeds FileRole, so a
-        // user who wrote their own GameLoop.java in an empty project had their only file turned read-only.
-        for (String name : List.of("GameLoop.java", "GoHome.java", "Startup.java", "ActivityRegistry.java")) {
+        // user who wrote their own FlowDriver.java in an empty project had their only file turned read-only.
+        for (String name : List.of("FlowDriver.java", "GoHome.java", "ActivityRegistry.java")) {
             Files.delete(mainDir.resolve(name));
         }
         Files.writeString(config.mainSourceFile(), """
@@ -75,30 +75,30 @@ class ProjectRepairTest {
                     public static void main(String[] args) {}
                 }
                 """);
-        Files.writeString(mainDir.resolve("GameLoop.java"), """
+        Files.writeString(mainDir.resolve("FlowDriver.java"), """
                 package com.mybot;
-                public class GameLoop {
+                public class FlowDriver {
                     public static void run() {}
                 }
                 """);
         assertFalse(ProjectRepair.looksLikeGameBot(config),
-                "a lone GameLoop.java is a file the user wrote, not a scaffold");
+                "a lone FlowDriver.java is a file the user wrote, not a scaffold");
     }
 
     @Test
     void aFileDeletedOutsideStudioIsFoundAndRestored() throws IOException {
-        Path gameLoop = mainDir.resolve("GameLoop.java");
-        Files.delete(gameLoop);   // e.g. an `rm` outside the Studio
+        Path driver = mainDir.resolve("FlowDriver.java");
+        Files.delete(driver);   // e.g. an `rm` outside the Studio
 
         List<ProjectRepair.Missing> missing = ProjectRepair.findMissing(config, ProjectTemplate.GAME_BOT, ActivitiesConfig.empty());
         assertEquals(1, missing.size());
-        assertEquals("GameLoop.java", missing.get(0).fileName());
+        assertEquals("FlowDriver.java", missing.get(0).fileName());
 
         List<Path> written = ProjectRepair.recover(config, missing);
-        assertEquals(List.of(gameLoop), written);
-        assertTrue(Files.exists(gameLoop));
-        assertTrue(Files.readString(gameLoop).contains("class GameLoop"));
-        assertTrue(Files.readString(gameLoop).contains("FlowDriver.run();"));
+        assertEquals(List.of(driver), written);
+        assertTrue(Files.exists(driver));
+        assertTrue(Files.readString(driver).contains("class FlowDriver"));
+        assertTrue(Files.readString(driver).contains("MAX_STEPS"));
     }
 
     @Test
@@ -115,7 +115,7 @@ class ProjectRepairTest {
                 + "}\n";
         Files.writeString(goHome, userEdited);
 
-        Files.delete(mainDir.resolve("GameLoop.java"));   // something else is genuinely missing
+        Files.delete(mainDir.resolve("FlowDriver.java"));   // something else is genuinely missing
         List<ProjectRepair.Missing> missing = ProjectRepair.findMissing(config, ProjectTemplate.GAME_BOT, ActivitiesConfig.empty());
         ProjectRepair.recover(config, missing);
 
@@ -124,16 +124,16 @@ class ProjectRepairTest {
 
     @Test
     void severalMissingFilesAreAllRestored() throws IOException {
-        Files.delete(mainDir.resolve("GameLoop.java"));
-        Files.delete(mainDir.resolve("Startup.java"));
+        Files.delete(mainDir.resolve("FlowDriver.java"));
+        Files.delete(mainDir.resolve("GoHome.java"));
         Files.delete(mainDir.resolve("ActivityRegistry.java"));
 
         List<ProjectRepair.Missing> missing = ProjectRepair.findMissing(config, ProjectTemplate.GAME_BOT, ActivitiesConfig.empty());
         assertEquals(3, missing.size());
 
         ProjectRepair.recover(config, missing);
-        assertTrue(Files.exists(mainDir.resolve("GameLoop.java")));
-        assertTrue(Files.exists(mainDir.resolve("Startup.java")));
+        assertTrue(Files.exists(mainDir.resolve("FlowDriver.java")));
+        assertTrue(Files.exists(mainDir.resolve("GoHome.java")));
         assertTrue(Files.exists(mainDir.resolve("ActivityRegistry.java")));
     }
 
@@ -187,19 +187,20 @@ class ProjectRepairTest {
 
     @Test
     void summariseGroupsByReason() throws IOException {
-        Files.delete(mainDir.resolve("GameLoop.java"));
+        // GoHome, not the driver: with activities present findMissing leaves FlowDriver to ActivityService.
+        Files.delete(mainDir.resolve("GoHome.java"));
         ActivitiesConfig activities = new ActivitiesConfig(
                 List.of(new ActivityDefinition("Mining", true, "", List.of())), List.of());
 
         Map<String, List<String>> summary =
                 ProjectRepair.summarise(ProjectRepair.findMissing(config, ProjectTemplate.GAME_BOT, activities));
-        assertEquals(List.of("GameLoop.java"), summary.get("game-bot scaffold"));
+        assertEquals(List.of("GoHome.java"), summary.get("game-bot scaffold"));
         assertEquals(List.of("Mining.java"), summary.get("activity stub"));
     }
 
     @Test
     void aMissingEntryPointIsRecoveredForANonGameBotProject() throws IOException {
-        for (String name : List.of("GameLoop.java", "GoHome.java", "Startup.java", "ActivityRegistry.java")) {
+        for (String name : List.of("FlowDriver.java", "GoHome.java", "ActivityRegistry.java")) {
             Files.delete(mainDir.resolve(name));
         }
         Files.delete(config.mainSourceFile());

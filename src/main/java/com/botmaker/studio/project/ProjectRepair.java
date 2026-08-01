@@ -27,7 +27,7 @@ import java.util.Map;
 /**
  * Finds and regenerates project files that have gone missing — typically deleted outside the Studio (an
  * {@code rm}, a bad merge, a sync conflict), which nothing else notices: {@code ProjectManager.isValidProject}
- * only checks that {@code src/main/java} and {@code pom.xml} exist, so a project missing {@code GameLoop.java}
+ * only checks that {@code src/main/java} and {@code pom.xml} exist, so a project missing {@code FlowDriver.java}
  * opens happily and then fails to compile.
  *
  * <p>Recovery works at two granularities, because "broken" has two meanings:
@@ -67,7 +67,7 @@ public final class ProjectRepair {
 
     /**
      * Guesses whether {@code config}'s project is a game-bot project, from its sources: the entry point calls
-     * {@code Bot.supervise}, or the scaffold's two co-generated files are both still present.
+     * {@code Bot.start}, or the scaffold's two co-generated files are both still present.
      *
      * <p><b>Prefer the persisted template</b> ({@link StudioProjectSettings#template()}, resolved once into
      * {@link ProjectState#getTemplate()} at open). This heuristic is the fallback for projects created before
@@ -78,8 +78,10 @@ public final class ProjectRepair {
      * <p>A guess costs more than it used to: the answer feeds {@link FileRole}, so guessing GAME_BOT makes the
      * named files read-only. One stray file must therefore not be enough — a user's own {@code GameLoop.java}
      * in an empty project used to be sufficient here, and the reward was that their only file went read-only.
-     * Requiring {@code GameLoop.java} <em>and</em> {@code ActivityRegistry.java} together (a pairing only the
-     * generator produces) keeps the recovery case while dropping the false positive.
+     * Requiring {@code FlowDriver.java} <em>and</em> {@code ActivityRegistry.java} together (a pairing only the
+     * generator produces) keeps the recovery case while dropping the false positive. It was
+     * {@code GameLoop.java} + the registry until that file was retired; the driver is the same shape of
+     * evidence — generated, game-bot-only, and never written by hand.
      */
     public static boolean looksLikeGameBot(ProjectConfig config) {
         Path mainDir = config.mainSourceFile().getParent();
@@ -94,7 +96,7 @@ public final class ProjectRepair {
                 // Unreadable main: fall through to the file-presence check.
             }
         }
-        return Files.exists(mainDir.resolve("GameLoop.java"))
+        return Files.exists(mainDir.resolve(DRIVER_FILE))
                 && Files.exists(mainDir.resolve(REGISTRY_FILE));
     }
 
@@ -210,8 +212,7 @@ public final class ProjectRepair {
             MISSING,
             /** Renamed, re-parameterised, or given a different return type — BotMaker can no longer call it. */
             SIGNATURE_CHANGED,
-            /** A fully generated method whose body has been edited (an activity's {@code isEnabled()},
-             *  {@code GameLoop.run}). */
+            /** A fully generated method whose body has been edited (an activity's {@code isEnabled()}). */
             BODY_CHANGED
         }
 
@@ -395,7 +396,7 @@ public final class ProjectRepair {
             SingleVariableDeclaration pb = (SingleVariableDeclaration) b.parameters().get(i);
             if (!pa.getType().toString().equals(pb.getType().toString())) return false;
         }
-        // static/visibility matter: Bot.supervise binds GoHome::run as a static method reference.
+        // static/visibility matter: Bot.start binds GoHome.INSTANCE::execute as a method reference.
         return modifiers(a).equals(modifiers(b));
     }
 

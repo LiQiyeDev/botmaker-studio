@@ -39,8 +39,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * <p>The mirror-image case matters just as much and is easier to get wrong: an activity's {@code run()} is
  * signature-locked (an {@code @Override} of {@code Activity.run}) but its body is exactly what the user came to
  * write, so "this edit must land" is asserted as carefully as "this edit must not". ({@code GameLoop.run} used
- * to be the example here — it has since been reclassified as fully generated, and its body edits must now be
- * refused like the rest of its file.)
+ * to be the example here — it was reclassified as fully generated, and the file has since been retired
+ * altogether; {@code FlowDriver} is the generated file these tests use now.)
  */
 class CodeEditorLockTest {
 
@@ -50,9 +50,9 @@ class CodeEditorLockTest {
     private static final List<String> RUNTIME_CLASSPATH =
             List.of(System.getProperty("java.class.path").split(java.io.File.pathSeparator));
 
-    private static final String GAME_LOOP = """
+    private static final String FLOW_DRIVER = """
             package com.mybot;
-            public class GameLoop {
+            public class FlowDriver {
                 private static int ticks = 0;
                 public static void run() {
                     int x = 1;
@@ -164,8 +164,8 @@ class CodeEditorLockTest {
         }
     }
 
-    private static Fixture gameLoop() {
-        return new Fixture(CONFIG.mainSourceFile().getParent().resolve("GameLoop.java"), GAME_LOOP);
+    private static Fixture flowDriver() {
+        return new Fixture(CONFIG.flowDriverSourceFile(), FLOW_DRIVER);
     }
 
     private static Fixture activity() {
@@ -174,7 +174,7 @@ class CodeEditorLockTest {
 
     private static Fixture library() {
         return new Fixture(
-                CONFIG.sourceRoot().resolve("com/botmaker/library/Helper.java"), GAME_LOOP);
+                CONFIG.sourceRoot().resolve("com/botmaker/library/Helper.java"), FLOW_DRIVER);
     }
 
     // --- the edit that must LAND (bug: "I can't add any statement, even in run methods") ------------------
@@ -216,43 +216,43 @@ class CodeEditorLockTest {
     // --- the edits that must NOT land ---------------------------------------------------------------------
 
     @Test
-    void theGameLoopsRunBodyRejectsEdits() {
-        // GameLoop.run is the complete generated dispatch loop (MethodLock.FULL), not a stub to fill in —
-        // the user's code goes in the activities it dispatches.
-        Fixture f = gameLoop();
+    void theFlowDriversRunBodyRejectsEdits() {
+        // FlowDriver.run is the complete generated walk over the drawn flow, not a stub to fill in — the user's
+        // code goes in the activities it routes between.
+        Fixture f = flowDriver();
         f.editor.addStatement(f.body("run"), BlockCatalog.PRINT, 0);
-        f.assertRefused("editing the generated dispatch loop");
+        f.assertRefused("editing the generated flow walk");
     }
 
     @Test
     void aLockedMethodsSignatureCannotBeRenamedEvenWithoutTheUi() {
-        Fixture f = gameLoop();
+        Fixture f = flowDriver();
         f.editor.renameMethod(f.method("run"), "tick");
-        f.assertRefused("renaming a Bot.supervise hook");
+        f.assertRefused("renaming a generated method");
     }
 
     @Test
     void aLockedMethodCannotBeDeletedOrReParameterised() {
-        Fixture f = gameLoop();
+        Fixture f = flowDriver();
         f.editor.deleteMethod(f.method("run"));
-        f.assertRefused("deleting a supervise hook");
+        f.assertRefused("deleting a generated method");
 
-        Fixture g = gameLoop();
+        Fixture g = flowDriver();
         g.editor.addParameterToMethod(g.method("run"), com.botmaker.studio.types.ResolvedType.named("int"), "n");
-        g.assertRefused("adding a parameter to a supervise hook");
+        g.assertRefused("adding a parameter to a generated method");
     }
 
     @Test
     void aStatementCannotBeAddedToAGeneratedFilesOtherMethods() {
         // MethodLock.NONE defers to FileRole, and the file is scaffolding.
-        Fixture f = gameLoop();
+        Fixture f = flowDriver();
         f.editor.addStatement(f.body("helper"), BlockCatalog.PRINT, 0);
         f.assertRefused("editing a generated file's own helper");
     }
 
     @Test
     void aGeneratedFilesClassStructureIsLocked() {
-        Fixture f = gameLoop();
+        Fixture f = flowDriver();
         f.editor.addMethodToClass(f.type(), "sneaky", "void", 0);
         f.assertRefused("adding a method to a generated class");
     }
@@ -284,7 +284,7 @@ class CodeEditorLockTest {
     void aVendoredSuperviseHookDoesNotGetItsBodyUnlocked() {
         // SIGNATURE *grants* a body. If hooks were matched on file name alone, a GoHome.java vendored under
         // the library would have a writable run() — the one place nothing may be touched.
-        Fixture f = new Fixture(CONFIG.sourceRoot().resolve("com/botmaker/library/GoHome.java"), GAME_LOOP);
+        Fixture f = new Fixture(CONFIG.sourceRoot().resolve("com/botmaker/library/GoHome.java"), FLOW_DRIVER);
         f.editor.addStatement(f.body("run"), BlockCatalog.PRINT, 0);
         assertNull(f.lastCode);
     }
@@ -294,7 +294,7 @@ class CodeEditorLockTest {
     @Test
     void aStatementCannotBeDraggedOutOfALockedBody() {
         // Checking only the destination would let a drag empty out a generated method.
-        Fixture f = gameLoop();
+        Fixture f = flowDriver();
         f.editor.moveStatement(f.body("helper").getStatements().getFirst(),
                 f.body("helper"), f.body("run"), 0);
         f.assertRefused("dragging a statement out of locked scaffolding");
@@ -325,11 +325,11 @@ class CodeEditorLockTest {
         // that into a locked editor.
         ProjectState state = new ProjectState();
         Path file = Paths.get("Subject.java").toAbsolutePath();
-        state.addFile(new ProjectFile(file, GAME_LOOP));
+        state.addFile(new ProjectFile(file, FLOW_DRIVER));
         state.setActiveFile(file);
         state.setSourcePath(Paths.get("src", "main", "java").toAbsolutePath());
         state.setResolvedClasspath(List.of());
-        state.setCurrentCode(GAME_LOOP);
+        state.setCurrentCode(FLOW_DRIVER);
 
         EventBus bus = new EventBus(false);
         String[] last = new String[1];
@@ -337,7 +337,7 @@ class CodeEditorLockTest {
 
         BlockConverter converter = new BlockConverter(null, state);
         BlockConverter.ConvertResult result = TestSupport.convertAndPublish(
-                converter, state, GAME_LOOP, new BlockDragAndDropManager(bus), false, false);
+                converter, state, FLOW_DRIVER, new BlockDragAndDropManager(bus), false, false);
         state.setCompilationUnit(result.cu());
 
         CodeEditor editor = new CodeEditor(null, state, bus, new ProjectAnalyzer(null, state));

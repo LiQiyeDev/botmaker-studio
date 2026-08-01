@@ -20,8 +20,11 @@ import static org.junit.jupiter.api.Assertions.*;
  * <p>The two cases that matter most are the ones where the method's verdict must beat the file's: an activity's
  * {@code isEnabled()} ({@link MethodLock#FULL} inside an {@link FileRole#EDITABLE} file — locks), and an
  * activity's / GoHome's {@code run()} ({@link MethodLock#SIGNATURE} — keeps its body editable however the
- * signature is bound). {@code GameLoop.run} is deliberately <em>not</em> such a grant: it is the generated
- * dispatch loop, {@link MethodLock#FULL}, locked with the rest of its file.
+ * signature is bound). {@code FlowDriver.run} is deliberately <em>not</em> such a grant: it is the generated
+ * walk over the drawn flow, and {@link MethodLock#NONE} defers to a file that is {@link FileRole#GENERATED} —
+ * so it is locked with the rest of that file. (The stand-in here used to be {@code GameLoop.run}, which was
+ * {@link MethodLock#FULL} inside the same generated file until the file itself was retired; the driver is the
+ * same case and the only one left.)
  */
 class LockResolverTest {
 
@@ -32,7 +35,7 @@ class LockResolverTest {
         return CONFIG.mainSourceFile().getParent().resolve(fileName);
     }
 
-    private static final Path GAME_LOOP = inMainPackage("GameLoop.java");
+    private static final Path FLOW_DRIVER = inMainPackage("FlowDriver.java");
     private static final Path GO_HOME = inMainPackage("GoHome.java");
     private static final Path HELPER = inMainPackage("MyHelper.java");
     private static final Path ACTIVITY_STUB = CONFIG.activitiesPackageDir().resolve("Mining.java");
@@ -41,7 +44,7 @@ class LockResolverTest {
 
     private static final String SOURCE = """
             package com.mybot;
-            public class GameLoop {
+            public class FlowDriver {
                 private int field = 1;
                 public static void run() { System.out.println("hi"); }
                 public boolean isEnabled() { return true; }
@@ -93,20 +96,20 @@ class LockResolverTest {
         assertTrue(reader.suppressesInteraction(), "reader mode suppresses interaction across the file");
     }
 
-    // --- the game loop: fully generated, fully locked ------------------------------------------------------
+    // --- the flow driver: fully generated, fully locked ------------------------------------------------------
 
     @Test
-    void theGameLoopsRunIsLockedBodyAndAll() {
-        LockResolver r = resolver(GAME_LOOP);
+    void theFlowDriversRunIsLockedBodyAndAll() {
+        LockResolver r = resolver(FLOW_DRIVER);
         assertEquals(FileRole.GENERATED, r.role(), "precondition: the file really is scaffolding");
-        assertFalse(r.bodyEditable(statementIn("run")), "the dispatch loop is generated wiring");
+        assertFalse(r.bodyEditable(statementIn("run")), "the flow walk is generated wiring");
         assertFalse(r.permits(statementIn("run"), EditKind.BODY));
-        assertFalse(r.permits(method("run"), EditKind.SIGNATURE), "Bot.supervise binds GameLoop::run");
+        assertFalse(r.permits(method("run"), EditKind.SIGNATURE), "Bot.start binds FlowDriver::run");
     }
 
     @Test
-    void theGameLoopsOwnScaffoldingIsLocked() {
-        LockResolver r = resolver(GAME_LOOP);
+    void theFlowDriversOwnScaffoldingIsLocked() {
+        LockResolver r = resolver(FLOW_DRIVER);
         // Everything in the file that isn't the granted run() body: the class itself, and any other method.
         assertFalse(r.permits(type(), EditKind.SIGNATURE), "no adding members to a generated class");
         assertFalse(r.permits(statementIn("helper"), EditKind.BODY),
@@ -164,7 +167,7 @@ class LockResolverTest {
 
     @Test
     void aNodeOutsideAnyMethodIsJudgedByItsFileAlone() {
-        assertFalse(resolver(GAME_LOOP).permits(type().getFields()[0], EditKind.SIGNATURE));
+        assertFalse(resolver(FLOW_DRIVER).permits(type().getFields()[0], EditKind.SIGNATURE));
         assertTrue(resolver(HELPER).permits(type().getFields()[0], EditKind.SIGNATURE));
     }
 
@@ -183,14 +186,14 @@ class LockResolverTest {
     void aMissingTargetIsDeniedNotWavedThrough() {
         // The "we don't know the project" hatch belongs on config. A caller that forgot to say what it is
         // editing must fail loudly here, not silently rewrite locked code.
-        LockResolver.Verdict v = resolver(GAME_LOOP).check(null, EditKind.BODY);
+        LockResolver.Verdict v = resolver(FLOW_DRIVER).check(null, EditKind.BODY);
         assertFalse(v.allowed());
         assertNotNull(v.reason());
     }
 
     @Test
     void aRefusalAlwaysCarriesAReasonToShowTheUser() {
-        for (Path file : java.util.List.of(GAME_LOOP, ACTIVITY_STUB, LIBRARY_FILE)) {
+        for (Path file : java.util.List.of(FLOW_DRIVER, ACTIVITY_STUB, LIBRARY_FILE)) {
             for (EditKind kind : EditKind.values()) {
                 for (var node : java.util.List.of(method("isEnabled"), statementIn("isEnabled"), type())) {
                     LockResolver.Verdict v = resolver(file).check(node, kind);

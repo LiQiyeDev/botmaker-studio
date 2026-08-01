@@ -14,12 +14,11 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Locks in which methods the user may change. The contract being protected is the SDK's:
- * {@code Bot.start(GameLoop::run, GoHome.INSTANCE::execute, Startup::run)} binds each hook, so those signatures
- * are not the user's to rename or re-parameterise. The three hooks differ on the body: {@code GoHome} is now an
- * {@code Activity} subclass shipped as a TODO stub whose {@code run()} body is the whole point (its
- * {@code isEnabled()} is generated wiring), while {@code GameLoop.run} (the dispatch loop) and
- * {@code Startup.run} ({@code Target.start()} over the configured launch target) are complete generated wiring —
- * all of it BotMaker's.
+ * {@code Bot.start(FlowDriver::run, GoHome.INSTANCE::execute)} binds the hook, so its signature is not the
+ * user's to rename or re-parameterise. {@code GoHome} is an {@code Activity} subclass shipped as a TODO stub
+ * whose {@code run()} body is the whole point, while its {@code isEnabled()} is generated wiring. It is the
+ * only file this class claims now: {@code GameLoop.java} and {@code Startup.java} were the other two hooks and
+ * both have been retired.
  *
  * <p>Note the asymmetry these tests pin down: {@link MethodLock#NONE} <b>defers</b> to {@link FileRole}, while
  * {@link MethodLock#SIGNATURE} <b>grants</b> the body regardless of the file — which is why a {@code SIGNATURE}
@@ -77,7 +76,7 @@ class MethodLockTest {
     void goHomeRunHasALockedSignatureButAnEditableBody() {
         // GoHome is now an Activity subclass shipped as a TODO stub: run() is an @Override of Activity.run, so
         // its signature is BotMaker's (the entry point / driver call it via GoHome.INSTANCE.execute()), but its
-        // body is the whole point. (GameLoop and Startup are generated wiring — FULL, tested below.)
+        // body is the whole point.
         MethodLock lock = MethodLock.of(CONFIG, ProjectTemplate.GAME_BOT, inMainPackage("GoHome.java"),
                 methodNamed(GO_HOME, "run"));
         assertEquals(MethodLock.SIGNATURE, lock);
@@ -96,15 +95,17 @@ class MethodLockTest {
     }
 
     @Test
-    void theGameLoopAndStartupRunsAreFullyLocked() {
-        // Unlike GoHome, GameLoop.run and Startup.run are not stubs: GameLoop ships the complete activity
-        // dispatch loop and Startup ships `Target.start()` over the configured launch target. An edited body is
-        // damage for ProjectRepair to restore, not user code.
+    void theRetiredScaffoldFilesAreNoLongerClaimed() {
+        // GameLoop.run and Startup.run were both FULL here. The files are no longer generated — the entry point
+        // binds FlowDriver::run and the SDK supplies the launch step — so a copy still sitting in a project is
+        // one the user chose to keep, and claiming it would lock a file BotMaker no longer writes or repairs.
         for (String file : java.util.List.of("GameLoop.java", "Startup.java")) {
-            MethodLock lock = MethodLock.of(CONFIG, ProjectTemplate.GAME_BOT, inMainPackage(file),
-                    methodNamed(GO_HOME, "run"));
-            assertEquals(MethodLock.FULL, lock, file + ".run is generated wiring");
-            assertTrue(lock.locksBody(), file + " is generated — the user's code goes elsewhere");
+            assertEquals(MethodLock.NONE,
+                    MethodLock.of(CONFIG, ProjectTemplate.GAME_BOT, inMainPackage(file),
+                            methodNamed(GO_HOME, "run")),
+                    file + " is not scaffolding any more");
+            assertEquals(FileRole.EDITABLE, FileRole.of(CONFIG, ProjectTemplate.GAME_BOT, inMainPackage(file)),
+                    file + " is the user's now, so nothing may lock it");
         }
     }
 
@@ -135,8 +136,8 @@ class MethodLockTest {
     void aSuperviseHookNameOutsideTheMainPackageIsNotAHook() {
         // SIGNATURE *grants* body edits, so matching on the bare file name would unlock a run() body inside a
         // bundled library file — the one place nothing may be touched.
-        Path vendored = Paths.get("/tmp/projects/MyBot/src/main/java/com/botmaker/library/GameLoop.java");
-        Path userSubpackage = CONFIG.mainSourceFile().getParent().resolve("util").resolve("GameLoop.java");
+        Path vendored = Paths.get("/tmp/projects/MyBot/src/main/java/com/botmaker/library/GoHome.java");
+        Path userSubpackage = CONFIG.mainSourceFile().getParent().resolve("util").resolve("GoHome.java");
         assertEquals(MethodLock.NONE,
                 MethodLock.of(CONFIG, ProjectTemplate.GAME_BOT, vendored, methodNamed(GO_HOME, "run")));
         assertEquals(MethodLock.NONE,

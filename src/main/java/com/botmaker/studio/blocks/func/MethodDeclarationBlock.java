@@ -71,7 +71,13 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
      * read-only blocks, since {@code ReadOnlyDecorator} only styles the node and {@code InteractionDecorator}
      * only suppresses the right-click menu.
      */
-    private boolean canEditSignature() {
+    /**
+     * Whether the header may offer signature edits. Protected because {@link ConstructorBlock} builds its own
+     * header and must answer this the same way — it did not ask at all, so a generated file's private
+     * constructor (every {@code FlowDriver} and {@code ActivityRegistry} has one) kept a live delete and
+     * add-parameter button.
+     */
+    protected boolean canEditSignature() {
         return isDeletable && !isReadOnly();
     }
 

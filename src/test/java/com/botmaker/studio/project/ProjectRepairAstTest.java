@@ -130,68 +130,24 @@ class ProjectRepairAstTest {
     }
 
     @Test
-    void anEditedGameLoopBodyIsDamageAndIsRestored() throws IOException {
-        // GameLoop.run is MethodLock.FULL: the hook into the generated driver is BotMaker's, so an edited one
-        // (the reported "I changed it and Recover didn't notice") must be found and put back.
-        Path gameLoop = mainDir.resolve("GameLoop.java");
-        Files.writeString(gameLoop, Files.readString(gameLoop)
-                .replace("FlowDriver.run();", "somethingElse();"));
+    void anEditedGeneratedBodyIsDamageAndIsRestored() throws IOException {
+        // GoHome.isEnabled() is MethodLock.FULL: it is wiring to the generated Activities flag, not a stub, so
+        // an edited one (the reported "I changed it and Recover didn't notice") must be found and put back. It
+        // is the last FULL-locked body in the scaffold — GameLoop.run and Startup.run were the others, and both
+        // files have since been retired (see ScaffoldMigration), which is why this case is now checked here.
+        Files.writeString(goHome, Files.readString(goHome)
+                .replace("return true;   // recovery hook — always available", "return false;"));
 
         List<ProjectRepair.Damage> damaged = findDamaged();
         assertEquals(1, damaged.size(), "" + damaged);
-        assertEquals("run", damaged.getFirst().methodName());
+        assertEquals("isEnabled", damaged.getFirst().methodName());
         assertEquals(ProjectRepair.Damage.Kind.BODY_CHANGED, damaged.getFirst().kind());
 
         repair(damaged);
-        String repaired = Files.readString(gameLoop);
+        String repaired = Files.readString(goHome);
         // The rewrite re-prints the replaced method, so compare tokens rather than exact whitespace.
-        assertTrue(repaired.contains("FlowDriver.run();"), "the canonical hook is back:\n" + repaired);
-        assertFalse(repaired.contains("somethingElse"));
+        assertTrue(repaired.contains("return true;"), "the canonical body is back:\n" + repaired);
         assertEquals(List.of(), findDamaged(), "sameBody compares printed forms, so the repair must read as clean");
-    }
-
-    @Test
-    void aLegacyDispatchLoopGameLoopIsUpgradedToTheFlowDriverHook() throws IOException {
-        // The migration that matters for every existing bot. A project scaffolded before conditional flow has
-        // the whole old dispatch loop inline in GameLoop.run — iterate ActivityRegistry.ALL, run each enabled
-        // activity, disable it, stop when none ran. That loop can't branch and can't cycle, so it has to be
-        // replaced wholesale; because run() is FULL-locked, Recover is what does it.
-        Path gameLoop = mainDir.resolve("GameLoop.java");
-        Files.writeString(gameLoop, """
-                package com.mybot;
-
-                import com.botmaker.sdk.api.bot.Activity;
-                import com.botmaker.sdk.api.bot.Bot;
-                import com.botmaker.sdk.api.bot.Watchdog;
-
-                public class GameLoop {
-                    public static void run() {
-                        boolean anyActive = false;
-                        for (Activity activity : ActivityRegistry.ALL) {
-                            if (activity.active()) {
-                                anyActive = true;
-                                activity.execute();
-                                activity.disable();
-                                Watchdog.checkpoint();
-                            }
-                        }
-                        if (!ActivityRegistry.ALL.isEmpty() && !anyActive) {
-                            Bot.stop();
-                        }
-                    }
-                }
-                """);
-
-        List<ProjectRepair.Damage> damaged = findDamaged();
-        assertEquals(1, damaged.size(), "" + damaged);
-        assertEquals(ProjectRepair.Damage.Kind.BODY_CHANGED, damaged.getFirst().kind());
-
-        repair(damaged);
-        String repaired = Files.readString(gameLoop);
-        assertTrue(repaired.contains("FlowDriver.run();"), "the loop must be upgraded:\n" + repaired);
-        assertFalse(repaired.contains("activity.disable()"),
-                "the one-shot rule is gone — it is what made a cycle impossible:\n" + repaired);
-        assertEquals(List.of(), findDamaged());
     }
 
     @Test

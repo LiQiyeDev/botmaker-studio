@@ -36,7 +36,7 @@ import java.util.function.Consumer;
  * The project-level "Launch Target" editor: configures <em>what the bot launches</em> at startup —
  * a Steam game, an Epic game, a plain executable, or an app inside an Android emulator — and bakes it into
  * {@code botmaker-project.properties} ({@code launch.target}) via {@link ProjectCreator#writeLaunchTarget}, so
- * the generated {@code Startup.run()} ({@code Target.start()}) launches it. Each kind is chosen through the same
+ * the SDK's {@code Bot.start} launch step ({@code Target.startIfNotRunning()}) launches it. Each kind is chosen through the same
  * reusable picker dialog the in-block {@code LaunchTarget} picker uses ({@link GameLibraryPickerDialog} / OS file
  * chooser / {@link EmulatorPickerDialog}).
  *
@@ -81,7 +81,7 @@ public final class LaunchTargetDialog {
 
         Label heading = new Label("What should the bot launch?");
         heading.setStyle("-fx-font-weight: bold; -fx-font-size: 14px;");
-        Label hint = new Label("Baked into the project (launch.target) so the generated Startup launches it when the "
+        Label hint = new Label("Baked into the project (launch.target) so the bot launches it when it "
                 + "bot runs. Choose a game from a launcher's library (Steam, Epic, Heroic, Faugus), an "
                 + "executable or command, or an app inside an emulator.");
         hint.setWrapText(true);

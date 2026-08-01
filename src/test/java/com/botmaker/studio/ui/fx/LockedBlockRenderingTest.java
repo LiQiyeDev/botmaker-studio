@@ -49,10 +49,10 @@ class LockedBlockRenderingTest extends FxHeadlessTest {
     private static final List<String> RUNTIME_CLASSPATH =
             List.of(System.getProperty("java.class.path").split(java.io.File.pathSeparator));
 
-    /** A generated file, locked wholesale: run() is the generated dispatch loop, helper defers to the file. */
-    private static final String GAME_LOOP = """
+    /** A generated file, locked wholesale: run() is the generated flow walk, helper defers to the file. */
+    private static final String FLOW_DRIVER = """
             package com.mybot;
-            public class GameLoop {
+            public class FlowDriver {
                 public static void run() {
                     BotMaker.print("mine");
                 }
@@ -201,23 +201,23 @@ class LockedBlockRenderingTest extends FxHeadlessTest {
     }
 
     @Test
-    void theGameLoopsRunBodyOffersNoControlsAtAll() {
-        // The reported bug: GameLoop.run's calls kept live class/method selectors and the ⚙ overload button.
-        // run() is the complete generated dispatch loop (MethodLock.FULL) — nothing in it is clickable.
-        Rendered r = render(CONFIG.mainSourceFile().getParent().resolve("GameLoop.java"), GAME_LOOP);
+    void theFlowDriversRunBodyOffersNoControlsAtAll() {
+        // The reported bug: the generated loop's calls kept live class/method selectors and the ⚙ overload
+        // button. run() is the complete generated flow walk — nothing in it is clickable.
+        Rendered r = render(CONFIG.flowDriverSourceFile(), FLOW_DRIVER);
         BodyBlock run = bodyOf(r.root(), "run");
-        assertTrue(run.isReadOnly(), "the dispatch loop is generated wiring, not a stub to fill in");
+        assertTrue(run.isReadOnly(), "the flow walk is generated wiring, not a stub to fill in");
 
         Node[] node = new Node[1];
         interact(() -> node[0] = run.getUINode(r.context()));
 
         assertEquals(List.of(), interactiveControls(node[0]),
-                "no selector, overload picker, add or delete on the generated game loop");
+                "no selector, overload picker, add or delete on the generated flow driver");
     }
 
     @Test
     void aGeneratedFilesOtherMethodsAreInert() {
-        Rendered r = render(CONFIG.mainSourceFile().getParent().resolve("GameLoop.java"), GAME_LOOP);
+        Rendered r = render(CONFIG.flowDriverSourceFile(), FLOW_DRIVER);
         BodyBlock helper = bodyOf(r.root(), "helper");
         assertTrue(helper.isReadOnly(), "MethodLock.NONE defers to the file, and the file is generated");
 
@@ -250,14 +250,14 @@ class LockedBlockRenderingTest extends FxHeadlessTest {
         // was also unguarded; both must be absent on a locked field.
         String withField = """
                 package com.mybot;
-                public class GameLoop {
+                public class FlowDriver {
                     private int ticks;
                     public static void run() {
                         BotMaker.print("mine");
                     }
                 }
                 """;
-        Rendered r = render(CONFIG.mainSourceFile().getParent().resolve("GameLoop.java"), withField);
+        Rendered r = render(CONFIG.flowDriverSourceFile(), withField);
 
         AbstractCodeBlock field = null;
         for (CodeBlock b : flatten(r.root())) {
@@ -276,22 +276,48 @@ class LockedBlockRenderingTest extends FxHeadlessTest {
     }
 
     @Test
-    void theRealGeneratedGameLoopRendersInertEndToEnd() {
+    void theRealGeneratedFlowDriverRendersInertEndToEnd() {
         // Not a synthetic snippet: the exact source ProjectCreator writes, rendered whole-file. This is the
         // page the bug reports keep coming from — an unguarded null button in any block it contains aborts
         // the entire render pass ("no blocks visible"), and any surviving control is an edit leak.
         String source = com.botmaker.studio.project.ProjectCreator
                 .sourcesFor(com.botmaker.studio.project.ProjectTemplate.GAME_BOT,
                         CONFIG.projectName(), CONFIG.packageName())
-                .get("GameLoop.java");
-        assertNotNull(source, "precondition: the game-bot template generates GameLoop.java");
+                .get("FlowDriver.java");
+        assertNotNull(source, "precondition: the game-bot template generates FlowDriver.java");
 
-        Rendered r = render(CONFIG.mainSourceFile().getParent().resolve("GameLoop.java"), source);
+        Rendered r = render(CONFIG.flowDriverSourceFile(), source);
         Node[] node = new Node[1];
         assertDoesNotThrow(() -> interact(() -> node[0] = r.root().getUINode(r.context())),
-                "the generated GameLoop must render, not crash the pass");
+                "the generated FlowDriver must render, not crash the pass");
         assertEquals(List.of(), editingControls(node[0]),
-                "nothing in the generated game loop may be editable");
+                "nothing in the generated flow driver may be editable");
+    }
+
+    @Test
+    void aLockedPrivateConstructorAndANullLiteralOfferNothing() {
+        // Both leaks the whole-file pass above caught the moment it started rendering FlowDriver instead of the
+        // retired GameLoop. ConstructorBlock built its own header and never asked whether the file was locked,
+        // so every generated utility class (FlowDriver, ActivityRegistry) shipped a live delete and
+        // add-parameter button on its private constructor. And a null literal rendered as the red
+        // "Select Expression..." slot — right for an unfilled argument, wrong for `String node = null;`, which
+        // is the flow's own "nowhere to go" and not a hole to fill.
+        String source = """
+                package com.mybot;
+                public final class FlowDriver {
+                    public static String step() {
+                        String node = null;
+                        return node;
+                    }
+                    private FlowDriver() {}
+                }
+                """;
+        Rendered r = render(CONFIG.flowDriverSourceFile(), source);
+        Node[] node = new Node[1];
+        interact(() -> node[0] = r.root().getUINode(r.context()));
+
+        assertEquals(List.of(), editingControls(node[0]),
+                "a locked constructor and a locked null must both render inert");
     }
 
     @Test
@@ -302,7 +328,7 @@ class LockedBlockRenderingTest extends FxHeadlessTest {
         String source = """
                 package com.mybot;
                 import java.util.List;
-                public class GameLoop {
+                public class FlowDriver {
                     public static void run() {}
                     public static void helper(int n) {
                         int x = n + 1;
@@ -328,7 +354,7 @@ class LockedBlockRenderingTest extends FxHeadlessTest {
                     }
                 }
                 """;
-        Rendered r = render(CONFIG.mainSourceFile().getParent().resolve("GameLoop.java"), source);
+        Rendered r = render(CONFIG.flowDriverSourceFile(), source);
         BodyBlock helper = bodyOf(r.root(), "helper");
         assertTrue(helper.isReadOnly(), "precondition: everything in the file is locked");
 
@@ -342,12 +368,12 @@ class LockedBlockRenderingTest extends FxHeadlessTest {
     void aLockedEmptyBodyDoesNotInviteAClick() {
         String emptyRun = """
                 package com.mybot;
-                public class GameLoop {
+                public class FlowDriver {
                     public static void helper() {
                     }
                 }
                 """;
-        Rendered r = render(CONFIG.mainSourceFile().getParent().resolve("GameLoop.java"), emptyRun);
+        Rendered r = render(CONFIG.flowDriverSourceFile(), emptyRun);
         BodyBlock helper = bodyOf(r.root(), "helper");
         assertTrue(helper.isReadOnly());
 

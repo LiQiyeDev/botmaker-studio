@@ -12,7 +12,7 @@ import java.nio.file.Path;
  * needs to know "may the user change this?" asks {@link #of} — do not re-derive it from a path.
  *
  * <p>This is a <b>file</b>-level verdict. "This whole file is the user's, but one method in it is load-bearing"
- * is {@link MethodLock}'s job — see {@code GoHome.run}, which the SDK's {@code Bot.supervise} binds as a
+ * is {@link MethodLock}'s job — see {@code GoHome.run}, which the SDK's {@code Bot.start} binds as a
  * {@code Runnable} even though the file around it is {@link #EDITABLE}.
  */
 public enum FileRole {
@@ -22,7 +22,7 @@ public enum FileRole {
 
     /**
      * Scaffolding the Studio generates and owns: the game-bot entry point, {@code ActivityRegistry},
-     * {@code Activities}, the game loop, and {@code Startup} (generated {@code StartMode}-driven target launch).
+     * {@code Activities}, and {@code FlowDriver} (the generated walk over the drawn Activity Flow).
      *
      * <p>Locked by default: no menus, no drop targets, no edits. Interactivity is not a gentler contract than a
      * lock — an edit that appears to work, survives until the next reload and then vanishes with no warning is
@@ -31,9 +31,9 @@ public enum FileRole {
      * <p><b>But "the file is generated" does not mean "every method in it is".</b> A
      * {@link MethodLock#SIGNATURE} method inside a generated file keeps an editable body; only its signature
      * and the code around it are locked. (No game-bot scaffold file currently carries such a grant —
-     * {@code GameLoop.run} used to, wrongly, before the dispatch loop was recognised as generated wiring — but
-     * the rule is the mechanism, not today's file list.) So the rule is <em>this file's locked parts can't be
-     * saved</em>, not <em>this file can't be saved</em> — see {@code LockedRegions}, which decides what may be
+     * {@code GameLoop.run} used to, wrongly, before the dispatch loop was recognised as generated wiring and
+     * that file was retired altogether — but the rule is the mechanism, not today's file list.) So the rule is
+     * <em>this file's locked parts can't be saved</em>, not <em>this file can't be saved</em> — see {@code LockedRegions}, which decides what may be
      * flushed, and {@code LockResolver}, which combines this verdict with {@link MethodLock}'s. Do not
      * reintroduce a whole-file skip.
      *
@@ -71,18 +71,14 @@ public enum FileRole {
         };
     }
 
-    /** The file names the game-bot template generates and owns, alongside the entry point. */
-    private static final String GAME_LOOP_FILE = "GameLoop.java";
-    private static final String STARTUP_FILE = "Startup.java";
-
     /**
      * Classifies {@code file} for {@code config}, given the project's {@code template}. Never null; unknown
      * files are {@link #EDITABLE}, so a file the Studio doesn't recognise always belongs to the user.
      *
      * <p>{@code template} decides <b>all</b> of it: only the {@link ProjectTemplate#GAME_BOT} template generates
-     * any of these files (the entry point is just {@code Bot.supervise(GameLoop::run, GoHome::run, Startup::run)}).
+     * any of these files (the entry point is just {@code Bot.start(FlowDriver::run, GoHome.INSTANCE::execute)}).
      * An {@link ProjectTemplate#EMPTY} project's {@code main} is the user's only file and must stay editable, and
-     * so must a {@code GameLoop.java} the user happened to write themselves — a null {@code template} (legacy
+     * so must a {@code FlowDriver.java} the user happened to write themselves — a null {@code template} (legacy
      * project, or a caller that doesn't know) is therefore treated as EMPTY and nothing is scaffolding.
      */
     public static FileRole of(ProjectConfig config, ProjectTemplate template, Path file) {
@@ -96,29 +92,10 @@ public enum FileRole {
         if (sameFile(abs, config.mainSourceFile())
                 || sameFile(abs, config.activitiesSourceFile())
                 || sameFile(abs, config.activityRegistrySourceFile())
-                || sameFile(abs, config.flowDriverSourceFile())
-                || sameFile(abs, gameLoopSourceFile(config))
-                || sameFile(abs, startupSourceFile(config))) {
+                || sameFile(abs, config.flowDriverSourceFile())) {
             return GENERATED;
         }
         return EDITABLE;
-    }
-
-    /** {@code GameLoop.java}, which sits beside the entry point in the main package. */
-    public static Path gameLoopSourceFile(ProjectConfig config) {
-        Path mainDir = config.mainSourceFile().getParent();
-        return mainDir == null ? null : mainDir.resolve(GAME_LOOP_FILE);
-    }
-
-    /**
-     * {@code Startup.java}, which sits beside the entry point in the main package. It is generated wiring now —
-     * its {@code run(StartMode)} drives the project's configured launch target (skip-if-running on a cold start,
-     * force-stop-then-relaunch on a restart) — so it is locked like {@code GameLoop.java} rather than left as a
-     * user-editable stub.
-     */
-    public static Path startupSourceFile(ProjectConfig config) {
-        Path mainDir = config.mainSourceFile().getParent();
-        return mainDir == null ? null : mainDir.resolve(STARTUP_FILE);
     }
 
     private static boolean sameFile(Path abs, Path other) {

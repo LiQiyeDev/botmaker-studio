@@ -42,10 +42,12 @@ public class ConstructorBlock extends MethodDeclarationBlock {
                 .addNode(nameLabel)
                 .addNode(BlockUIComponents.createSpacer());
 
-        Button deleteBtn = new Button("×");
-        deleteBtn.getStyleClass().add("header-delete-button");
-        deleteBtn.setOnAction(e -> context.getCodeEditor().deleteMethod(md));
-        topRowBuilder.addNode(deleteBtn);
+        if (canEditSignature()) {
+            Button deleteBtn = new Button("×");
+            deleteBtn.getStyleClass().add("header-delete-button");
+            deleteBtn.setOnAction(e -> context.getCodeEditor().deleteMethod(md));
+            topRowBuilder.addNode(deleteBtn);
+        }
 
         headerBox.getChildren().add(topRowBuilder.build());
 
@@ -61,13 +63,15 @@ public class ConstructorBlock extends MethodDeclarationBlock {
             paramRowBuilder.addNode(super.createParamNode((SingleVariableDeclaration) params.get(i), i, context));
         }
 
-        Button addParamBtn = new Button("+");
-        addParamBtn.getStyleClass().add("add-param-button");
-        addParamBtn.setOnAction(e -> com.botmaker.studio.ui.render.menu.ExpressionMenu.showTypeMenu(
-                addParamBtn, null, context, null, false, false,
-                type -> context.getCodeEditor().addParameterToMethod(md, type,
-                        DefaultNames.forType(type.simpleName()))));
-        paramRowBuilder.addNode(addParamBtn);
+        if (canEditSignature()) {
+            Button addParamBtn = new Button("+");
+            addParamBtn.getStyleClass().add("add-param-button");
+            addParamBtn.setOnAction(e -> com.botmaker.studio.ui.render.menu.ExpressionMenu.showTypeMenu(
+                    addParamBtn, null, context, null, false, false,
+                    type -> context.getCodeEditor().addParameterToMethod(md, type,
+                            DefaultNames.forType(type.simpleName()))));
+            paramRowBuilder.addNode(addParamBtn);
+        }
 
         headerBox.getChildren().add(paramRowBuilder.build());
         container.getChildren().add(headerBox);

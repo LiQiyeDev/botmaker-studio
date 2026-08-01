@@ -10,21 +10,21 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * What may be written over a generated file: everything except the parts BotMaker owns.
  *
- * <p>In {@code GameLoop.java} that is now <em>everything</em>: {@code run()} is the generated dispatch loop
- * ({@link MethodLock#FULL}), so no edit to the file may reach disk. The "an editable body inside a locked file
- * must be flushable" mechanism these tests once exercised through {@code GameLoop.run} survives via
- * {@link MethodLock#SIGNATURE} generally — see {@code lockedPartsMatch}'s skeleton, which blanks any
- * body-editable method.
+ * <p>In {@code FlowDriver.java} that is <em>everything</em>: it is the generated walk over the drawn flow, and
+ * {@link MethodLock#NONE} defers to a file that is {@link FileRole#GENERATED}, so no edit to it may reach disk.
+ * The "an editable body inside a locked file must be flushable" mechanism these tests once exercised through
+ * {@code GameLoop.run} survives via {@link MethodLock#SIGNATURE} generally — see {@code lockedPartsMatch}'s
+ * skeleton, which blanks any body-editable method.
  */
 class LockedRegionsTest {
 
     private static final ProjectConfig CONFIG =
             ProjectConfig.forProject("MyBot", Paths.get("/tmp/projects"));
-    private static final Path GAME_LOOP = CONFIG.mainSourceFile().getParent().resolve("GameLoop.java");
+    private static final Path FLOW_DRIVER = CONFIG.flowDriverSourceFile();
 
     private static final String ORIGINAL = """
             package com.mybot;
-            public class GameLoop {
+            public class FlowDriver {
                 private static int ticks = 0;
                 public static void run() {
                     ActivityRegistry.ALL.forEach(Activity::execute);
@@ -36,16 +36,16 @@ class LockedRegionsTest {
             """;
 
     private static boolean matches(String a, String b) {
-        return LockedRegions.lockedPartsMatch(CONFIG, ProjectTemplate.GAME_BOT, GAME_LOOP, a, b);
+        return LockedRegions.lockedPartsMatch(CONFIG, ProjectTemplate.GAME_BOT, FLOW_DRIVER, a, b);
     }
 
     @Test
-    void aGameLoopRunBodyEditIsNotPersistable() {
-        // run() is the generated dispatch loop (MethodLock.FULL) — an edited one is damage, not user code.
+    void aFlowDriverRunBodyEditIsNotPersistable() {
+        // run() is the generated flow walk — the file is generated, so an edit to it is damage.
         String edited = ORIGINAL.replace(
                 "ActivityRegistry.ALL.forEach(Activity::execute);",
                 "BotMaker.print(\"mine\");\n        ActivityRegistry.ALL.forEach(Activity::execute);");
-        assertFalse(matches(ORIGINAL, edited), "the dispatch loop is BotMaker's — it must not be overwritten");
+        assertFalse(matches(ORIGINAL, edited), "the flow walk is BotMaker's — it must not be overwritten");
         assertFalse(matches(ORIGINAL,
                 ORIGINAL.replace("ActivityRegistry.ALL.forEach(Activity::execute);", "")));
     }
@@ -65,7 +65,7 @@ class LockedRegionsTest {
     @Test
     void aChangeToTheClassOrItsFieldsIsNotPersistable() {
         assertFalse(matches(ORIGINAL, ORIGINAL.replace("private static int ticks = 0;", "")));
-        assertFalse(matches(ORIGINAL, ORIGINAL.replace("class GameLoop", "class GameLoop2")));
+        assertFalse(matches(ORIGINAL, ORIGINAL.replace("class FlowDriver", "class FlowDriver2")));
         assertFalse(matches(ORIGINAL, ORIGINAL.replace("public static void helper() {", "public static void sneaky() {")));
     }
 
@@ -75,7 +75,7 @@ class LockedRegionsTest {
         String reformatted = ORIGINAL
                 .replace("    private static", "\tprivate static")
                 .replace("\n", "\r\n")
-                .replace("public class GameLoop {", "public class GameLoop\n{");
+                .replace("public class FlowDriver {", "public class FlowDriver\n{");
         assertTrue(matches(ORIGINAL, reformatted));
     }
 

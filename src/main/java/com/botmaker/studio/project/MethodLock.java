@@ -43,13 +43,14 @@ public enum MethodLock {
     SIGNATURE,
 
     /**
-     * The whole method is generated wiring: an activity's {@code isEnabled()}, {@code GameLoop.run} (the
-     * generated activity-dispatch loop), and {@code Startup.run} (generated {@code StartMode}-driven launch of
-     * the project's configured launch target). {@code GameLoop.run} was briefly {@link #SIGNATURE} on
-     * the theory that the game loop was the user's to fill in, but the generator ships it complete and the
-     * user's workspace is the activities. {@code Startup.run} likewise ships complete — the game/target is
-     * chosen in the Studio, not hand-coded — so an edited body is damage for {@code ProjectRepair} to restore,
-     * not user code to preserve.
+     * The whole method is generated wiring: an activity's {@code isEnabled()}, and {@code GoHome.isEnabled()}.
+     * An edited body is damage for {@code ProjectRepair} to restore, not user code to preserve.
+     *
+     * <p>{@code GameLoop.run} and {@code Startup.run} used to be the other two, and the argument for both was
+     * the same: the generator ships them complete, and the user's workspace is the activities. Which was the
+     * tell that neither belonged in the project at all — a file whose every line is BotMaker's, in every
+     * project, is the SDK's. Both are gone; the reasoning survives here because it is what identifies the next
+     * one.
      */
     FULL;
 
@@ -75,9 +76,12 @@ public enum MethodLock {
         };
     }
 
-    /** The {@code Bot.supervise} recovery hooks, whose {@code run()} is bound as a {@code Runnable}. */
-    private static final java.util.Set<String> SUPERVISED_HOOKS =
-            java.util.Set.of("GoHome.java", "Startup.java", "GameLoop.java");
+    /**
+     * The {@code Bot.start} recovery hooks, whose {@code run()} is bound as a {@code Runnable}. Just the one
+     * now: {@code GameLoop.java} and {@code Startup.java} were retired — the entry point binds
+     * {@code FlowDriver::run} directly, and the SDK's 2-arg {@code Bot.start} supplies the launch step.
+     */
+    private static final java.util.Set<String> SUPERVISED_HOOKS = java.util.Set.of("GoHome.java");
 
     /**
      * Classifies {@code method} of {@code file}. Never null; anything unrecognised is {@link #NONE}, so a method
@@ -98,13 +102,7 @@ public enum MethodLock {
             return NONE;
         }
         if (isSuperviseHook(config, file)) {
-            // GameLoop.run (the generated dispatch loop) and Startup.run (generated StartMode-driven launch of
-            // the project's configured launch target) are both wholly BotMaker's — body and all.
-            String fileName = file.getFileName().toString();
-            if ("GameLoop.java".equals(fileName) || "Startup.java".equals(fileName)) {
-                return "run".equals(methodName) ? FULL : NONE;
-            }
-            // GoHome is now an Activity subclass, so it is shaped exactly like an activity stub: its run() is an
+            // GoHome is an Activity subclass, so it is shaped exactly like an activity stub: its run() is an
             // @Override the user fills in (BotMaker owns the signature — Activity.run's contract and the outcome
             // it routes on), and its isEnabled() is generated wiring the user shouldn't hand-edit.
             if ("run".equals(methodName)) return SIGNATURE;
@@ -125,7 +123,7 @@ public enum MethodLock {
     }
 
     /**
-     * True when {@code file} is a {@code Bot.supervise} hook <em>of this project</em> — i.e. it sits beside the
+     * True when {@code file} is a {@code Bot.start} hook <em>of this project</em> — i.e. it sits beside the
      * entry point in the main package.
      *
      * <p>Matching on the bare file name is not enough. {@link #SIGNATURE} <em>grants</em> body edits, so a

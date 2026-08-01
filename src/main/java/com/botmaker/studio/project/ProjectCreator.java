@@ -140,9 +140,9 @@ public class ProjectCreator {
     }
 
     /**
-     * Writes/updates the {@code launch.target} key in {@code botmaker-project.properties} — the spec the
-     * generated {@code Startup.run()} ({@code Target.start()}) launches at runtime. Accepts a spec in the SDK's
-     * {@code LaunchTarget} form ({@code steam:<id>} / {@code epic:<name>} / {@code exe:<path>} /
+     * Writes/updates the {@code launch.target} key in {@code botmaker-project.properties} — the spec the SDK's
+     * {@code Bot.start} start-up step ({@code Target.startIfNotRunning()}) launches at runtime. Accepts a spec
+     * in the SDK's {@code LaunchTarget} form ({@code steam:<id>} / {@code epic:<name>} / {@code exe:<path>} /
      * {@code emu-app:<pkg>@<instance>}); a null/blank {@code spec} removes the key (no configured target).
      * Preserves the other properties (capture resolution/source) already in the file.
      */
@@ -430,9 +430,15 @@ public class ProjectCreator {
     }
 
     /**
-     * The full "Game bot" scaffold as {@code fileName -> source}: a supervised entry point, the
-     * {@code GameLoop} that dispatches over the (initially empty) activity registry, editable
-     * {@code GoHome}/{@code Startup} recovery hooks, and an initial empty {@code ActivityRegistry}.
+     * The full "Game bot" scaffold as {@code fileName -> source}: a supervised entry point, the generated
+     * {@code FlowDriver} that walks the drawn Activity Flow, an editable {@code GoHome} recovery hook, and an
+     * initial empty {@code ActivityRegistry}.
+     *
+     * <p>Two files the scaffold used to write are gone, because neither held anything about <em>this</em>
+     * project: {@code GameLoop.java} was a one-line {@code FlowDriver.run()} hop, and {@code Startup.java} was a
+     * two-branch switch over {@link com.botmaker.sdk.api.launch.Target} — the launch target itself lives in
+     * {@code botmaker-project.properties}, not in that file. The SDK's 2-arg {@code Bot.start} now supplies the
+     * launch step, and the entry point binds {@code FlowDriver::run} directly.
      *
      * <p>Exposed as data rather than written inline so {@link ProjectRepair} can regenerate an individual
      * missing file from the same source of truth — the templates must not be duplicated. Reached via
@@ -454,33 +460,14 @@ public class ProjectCreator {
                     // are project settings, applied by the SDK before the first click. Edit them in the
                     // Studio's Input & Clicks dialog.
 
-                    // Runs GameLoop forever; on a crash or a stuck screen it runs GoHome then Startup and restarts.
-                    Bot.start(GameLoop::run, GoHome.INSTANCE::execute, Startup::run);
+                    // Walks the Activity Flow forever; on a crash or a stuck screen it runs GoHome and
+                    // restarts the game you picked in the Studio.
+                    Bot.start(FlowDriver::run, GoHome.INSTANCE::execute);
                 }
             }
             """, packageName, className));
 
-        // The game loop: hand off to the generated walk over the drawn Activity Flow.
-        sources.put("GameLoop.java", String.format("""
-            package com.%s;
-
-            /**
-             * One pass of the bot: walk the Activity Flow drawn in the Studio. {@code FlowDriver} starts at the
-             * flow's start card, runs that activity, and follows the wire matching the outcome it reported,
-             * until it reports an outcome with nowhere to go.
-             *
-             * <p>This stays a separate one-line hook because {@code Bot.start} binds {@code GameLoop::run} in
-             * the entry point, which is yours to edit — so the generated driver can be regenerated freely
-             * without ever rewriting your main class.
-             */
-            public class GameLoop {
-                public static void run() {
-                    FlowDriver.run();
-                }
-            }
-            """, packageName));
-
-        // Initial (empty) flow driver so GameLoop compiles before any activity is added.
+        // Initial (empty) flow driver so the entry point compiles before any activity is added.
         sources.put("FlowDriver.java", String.format("""
             package com.%s;
 
@@ -537,8 +524,8 @@ public class ProjectCreator {
             import com.botmaker.sdk.api.bot.Activity;
 
             /**
-             * Navigate back to a known-good "home" screen. Called by the supervisor before Startup during
-             * recovery, and before any activity whose "go home first" tick is on. Fill in {@link #run()} for
+             * Navigate back to a known-good "home" screen. Called by the supervisor before it relaunches the
+             * game during recovery, and before any activity whose "go home first" tick is on. Fill in {@link #run()} for
              * your game, e.g.:
              * <pre>
              *   while (!ImageFinder.find(home)) {
@@ -568,33 +555,7 @@ public class ProjectCreator {
             }
             """, packageName));
 
-        // (Re)start the configured game/target. GENERATED — the launch target is chosen in the Studio and baked
-        // into botmaker-project.properties (launch.target). The StartMode tells a first COLD launch (don't
-        // relaunch an already-open game) from a RESTART recovery (shut a frozen game down first).
-        sources.put("Startup.java", String.format("""
-            package com.%s;
-
-            import com.botmaker.sdk.api.bot.StartMode;
-            import com.botmaker.sdk.api.launch.Target;
-
-            /**
-             * (Re)start the game for the supervisor. GENERATED by BotMaker Studio — do not edit by hand; choose
-             * the game/target in the Studio and it is baked into the project. On a {@link StartMode#COLD} first
-             * launch it brings the configured target up only if it isn't already running; on a {@link
-             * StartMode#RESTART} recovery it shuts a (possibly frozen) game down first, then relaunches. Does
-             * nothing when no target is set yet.
-             */
-            public class Startup {
-                public static void run(StartMode mode) {
-                    switch (mode) {
-                        case COLD -> Target.startIfNotRunning();
-                        case RESTART -> Target.restart();
-                    }
-                }
-            }
-            """, packageName));
-
-        // Initial (empty) activity registry so GameLoop compiles before any activity is added.
+        // Initial (empty) activity registry so the flow driver compiles before any activity is added.
         sources.put("ActivityRegistry.java", String.format("""
             package com.%s;
 

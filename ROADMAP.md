@@ -6,6 +6,23 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-02 — improvements Phase 9: two generated files that held no project data are gone.**
+  `GameLoop.java` was a one-line `FlowDriver.run()` hop and `Startup.java` a two-branch switch over `Target`;
+  neither said anything about *this* project, and both were `MethodLock.FULL`, so the Studio never let anyone
+  put work in them. The entry point now binds `FlowDriver::run` directly and the SDK's 2-arg `Bot.start`
+  supplies the launch step. `ProjectCreator` stops writing both, `FileRole`/`MethodLock` stop claiming them
+  (`GoHome.java` is the only supervise hook left), and `ProjectRepair.looksLikeGameBot` keys its file-presence
+  fallback on `FlowDriver.java` + `ActivityRegistry.java`. New `ScaffoldMigration` runs at project open beside
+  `BotSettings.migrate`: it rewrites the legacy 3-arg call (carrying the user's own goHome argument over) and
+  then deletes the two files — all of it gated on finding *our* generated call, so a `GameLoop.java` someone
+  wrote themselves in an empty project is never touched.
+  **Two read-only leaks fell out of it**, both found the moment the whole-file render test started rendering
+  `FlowDriver` instead of the retired `GameLoop`: `ConstructorBlock` built its own header and never asked
+  whether the file was locked, so every generated utility class shipped a live delete and add-parameter button
+  on its private constructor (`canEditSignature()` is now `protected` and both ask it); and a `null` literal
+  rendered as the red "Select Expression..." slot, which is right for an unfilled argument and wrong for
+  `String node = null;`, the flow's own "nowhere to go". 628 → 635 tests.
+
 - **2026-08-01 — improvements Phase 8: real editors for `Pixel`'s tolerance and minPixels.**
   `ToleranceArgPicker` is a slider laid out against the SDK's named anchors (EXACT/TIGHT/DEFAULT/LOOSE) that
   names the reading rather than showing a bare ΔE, and — when the sibling `Color` argument of the same call is

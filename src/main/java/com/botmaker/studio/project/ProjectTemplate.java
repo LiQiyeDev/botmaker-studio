@@ -8,14 +8,14 @@ package com.botmaker.studio.project;
  * — comes first.
  *
  * <ul>
- *   <li>{@link #GAME_BOT} — a full game-bot scaffold: a supervised entry point ({@code Bot.supervise}),
- *       a {@code GameLoop} that dispatches over the activity registry, and editable {@code GoHome} /
- *       {@code Startup} recovery hooks, plus an initial (empty) {@code ActivityRegistry}.</li>
+ *   <li>{@link #GAME_BOT} — a full game-bot scaffold: a supervised entry point ({@code Bot.start}), the
+ *       generated {@code FlowDriver} that walks the drawn Activity Flow, an editable {@code GoHome} recovery
+ *       hook, plus an initial (empty) {@code ActivityRegistry}.</li>
  *   <li>{@link #EMPTY} — a bare {@code main} that prints a greeting.</li>
  * </ul>
  */
 public enum ProjectTemplate {
-    GAME_BOT("Game bot", "Supervised loop, activity dispatch, go-home + startup recovery hooks."),
+    GAME_BOT("Game bot", "Supervised loop, activity flow, go-home recovery hook."),
     EMPTY("Empty", "A bare main() — start from scratch.");
 
     private final String displayName;

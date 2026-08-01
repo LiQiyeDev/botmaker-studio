@@ -194,6 +194,15 @@ public class UIManager {
             System.err.println("Could not move this project's input settings into its project properties: "
                     + ex.getMessage());
         }
+        // Same moment, same reason: a project created before GameLoop.java and Startup.java were retired binds
+        // a 3-arg Bot.start the SDK no longer has, so it doesn't compile until this runs.
+        try {
+            String migratedMain = com.botmaker.studio.project.ScaffoldMigration.migrate(config);
+            if (migratedMain != null) refreshCachedSource(config.mainSourceFile(), migratedMain);
+        } catch (java.io.IOException ex) {
+            System.err.println("Could not update this project's entry point to the current scaffold: "
+                    + ex.getMessage());
+        }
         this.toolbarManager.setOnConfigureInput(() -> new BotSettingsDialog(primaryStage, config, null).show());
         this.toolbarManager.setOnEnableRemotePilot(this::openRemotePilot);
         this.toolbarManager.setOnCaptureTemplates(this::openOverlayTemplateCapture);

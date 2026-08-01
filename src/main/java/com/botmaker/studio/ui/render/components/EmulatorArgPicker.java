@@ -23,8 +23,8 @@ import java.nio.file.Path;
  * <p>When the user drills into a specific app inside an emulator, that additionally points the project at it:
  * {@code launch.target = emu-app:<pkg>@<instance>} and {@code capture.source = emulator:<instance>} are written to
  * {@code botmaker-project.properties} (Phase 3 plumbing — {@link ProjectCreator#writeLaunchTarget} /
- * {@link ProjectCreator#writeCaptureSource}), so the generated {@code Startup.run()} launches the app and no-source
- * vision/click calls target the emulator.
+ * {@link ProjectCreator#writeCaptureSource}), so the SDK's {@code Bot.start} launch step brings the app up and
+ * no-source vision/click calls target the emulator.
  *
  * <p>Selected by {@link com.botmaker.studio.ui.render.components.pickers.PickerRegistry} only for the emulator name
  * argument (see {@code PickerContext.isEmulatorNameArg}), so it never hijacks other {@code String} arguments.

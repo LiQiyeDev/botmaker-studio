@@ -130,7 +130,7 @@ class BotSettingsTest {
             public class MyBot {
                 public static void main(String[] args) {
                     BotSettings.apply();
-                    Bot.start(GameLoop::run, GoHome.INSTANCE::execute, Startup::run);
+                    Bot.start(FlowDriver::run, GoHome.INSTANCE::execute);
                 }
             }
             """);
@@ -177,7 +177,7 @@ class BotSettingsTest {
             public class MyBot {
                 public static void main(String[] args) {
                     ClickConfig.useRealInput(true);
-                    Bot.start(GameLoop::run, GoHome.INSTANCE::execute, Startup::run);
+                    Bot.start(FlowDriver::run, GoHome.INSTANCE::execute);
                 }
             }
             """);

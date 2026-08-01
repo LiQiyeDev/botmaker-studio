@@ -26,10 +26,10 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Regression cover for the "{@code supervise()} renders with empty parentheses" bug.
  *
- * <p>The generated game-bot entry point is {@code Bot.start(GameLoop::run, GoHome.INSTANCE::execute, Startup::run)}.
+ * <p>The generated game-bot entry point is {@code Bot.start(FlowDriver::run, GoHome.INSTANCE::execute)}.
  * {@code Bot} is an SDK facade, so the call becomes a {@code LibraryCallBlock} whose arguments are populated
  * via {@code parseExpression(...).ifPresent(block::addArgument)}. Method references matched no branch of
- * {@code dispatchExpression}, so all three arguments resolved to {@code Optional.empty()} and were silently
+ * {@code dispatchExpression}, so every argument resolved to {@code Optional.empty()} and was silently
  * dropped — the block rendered as {@code supervise()} while the source kept the real arguments.
  */
 public class MethodReferenceBlockTest {
@@ -39,7 +39,7 @@ public class MethodReferenceBlockTest {
 
             public class Subject {
                 public static void main(String[] args) {
-                    Bot.start(GameLoop::run, GoHome.INSTANCE::execute, Startup::run);
+                    Bot.start(FlowDriver::run, GoHome.INSTANCE::execute);
                 }
             }
             """;
@@ -79,7 +79,7 @@ public class MethodReferenceBlockTest {
     }
 
     @Test
-    void superviseKeepsItsThreeMethodReferenceArguments() {
+    void startKeepsItsMethodReferenceArguments() {
         AbstractCodeBlock root = parse(GAME_BOT_MAIN);
         assertNotNull(root);
 
@@ -89,8 +89,8 @@ public class MethodReferenceBlockTest {
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("no start call block was produced"));
 
-        assertEquals(3, start.getArgumentBlocks().size(),
-                "start(a, b, c) must expose three argument blocks, not render as start()");
+        assertEquals(2, start.getArgumentBlocks().size(),
+                "start(a, b) must expose both argument blocks, not render as start()");
     }
 
     @Test
@@ -98,15 +98,14 @@ public class MethodReferenceBlockTest {
         AbstractCodeBlock root = parse(GAME_BOT_MAIN);
 
         List<MethodReferenceBlock> refs = collect(root, MethodReferenceBlock.class);
-        assertEquals(3, refs.size(),
-                "expected a block for each of GameLoop::run, GoHome.INSTANCE::execute, Startup::run");
+        assertEquals(2, refs.size(),
+                "expected a block for each of FlowDriver::run, GoHome.INSTANCE::execute");
 
         List<String> rendered = refs.stream()
                 .map(r -> r.getTargetName() + "::" + r.getMethodName())
                 .toList();
-        assertTrue(rendered.contains("GameLoop::run"), "got " + rendered);
+        assertTrue(rendered.contains("FlowDriver::run"), "got " + rendered);
         assertTrue(rendered.contains("GoHome.INSTANCE::execute"), "got " + rendered);
-        assertTrue(rendered.contains("Startup::run"), "got " + rendered);
     }
 
     @Test

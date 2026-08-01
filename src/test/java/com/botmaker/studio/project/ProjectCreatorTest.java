@@ -68,39 +68,39 @@ class ProjectCreatorTest {
     void theGameBotTemplateScaffoldsTheSuperviseContract() {
         Map<String, String> sources = ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "MyBot", "mybot");
 
-        assertEquals(java.util.List.of("MyBot.java", "GameLoop.java", "FlowDriver.java",
-                "GoHome.java", "Startup.java", "ActivityRegistry.java"), java.util.List.copyOf(sources.keySet()));
+        assertEquals(java.util.List.of("MyBot.java", "FlowDriver.java", "GoHome.java", "ActivityRegistry.java"),
+                java.util.List.copyOf(sources.keySet()));
         // The click/vision tuning is a project setting the SDK reads before the first click, so there is no
         // generated BotSettings.java and nothing for main to call. See BotSettingsTest.
         assertFalse(sources.containsKey("BotSettings.java"), sources.keySet().toString());
         assertFalse(sources.get("MyBot.java").contains("BotSettings.apply()"), sources.get("MyBot.java"));
         assertTrue(sources.get("MyBot.java")
-                .contains("Bot.start(GameLoop::run, GoHome.INSTANCE::execute, Startup::run)"));
-        // GameLoop::run binds as a Runnable (static, no-arg, void); GoHome is an Activity so its instance
-        // execute() binds as a Runnable too (a value-returning method ref is void-compatible); Startup::run
-        // binds as a Consumer<StartMode>, so it stays static+void but takes the StartMode the supervisor hands it.
+                .contains("Bot.start(FlowDriver::run, GoHome.INSTANCE::execute)"));
+        // FlowDriver::run binds as a Runnable (static, no-arg, void); GoHome is an Activity so its instance
+        // execute() binds as a Runnable too (a value-returning method ref is void-compatible).
         assertTrue(sources.get("GoHome.java").contains("extends Activity<GoHome.Outcome>"));
         assertTrue(sources.get("GoHome.java").contains("public Outcome run()"));
-        assertTrue(sources.get("Startup.java").contains("public static void run(StartMode mode)"));
-        // Startup is generated wiring: it launches the project's configured target, choosing skip-if-running on
-        // a cold start vs. force-stop-then-relaunch on a recovery restart — not a TODO stub.
-        String startup = sources.get("Startup.java");
-        assertTrue(startup.contains("Target.startIfNotRunning()"), startup);
-        assertTrue(startup.contains("Target.restart()"), startup);
-        assertTrue(startup.contains("import com.botmaker.sdk.api.launch.Target;"), startup);
-        assertTrue(startup.contains("import com.botmaker.sdk.api.bot.StartMode;"), startup);
     }
 
     @Test
-    void theGameLoopIsOnlyAHookIntoTheGeneratedFlowDriver() {
+    void theTwoFilesThatHeldNoProjectDataAreNotGeneratedAtAll() {
         Map<String, String> sources = ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "MyBot", "mybot");
 
-        String loop = sources.get("GameLoop.java");
-        // GameLoop stays a file of its own only because the entry point binds GameLoop::run and the entry point
-        // is the user's to edit. All the dispatch moved to FlowDriver, which ActivityService regenerates on
-        // every save — so nothing here may know anything about activities.
-        assertTrue(loop.contains("FlowDriver.run();"), loop);
-        assertFalse(loop.contains("ActivityRegistry"), "the loop no longer iterates a list:\n" + loop);
+        // GameLoop.java was `FlowDriver.run();` and Startup.java was a two-branch switch over Target — neither
+        // held anything about *this* project (the launch target lives in botmaker-project.properties, not in
+        // Startup), so both were per-project copies of SDK behaviour. The entry point binds FlowDriver directly
+        // and the SDK's 2-arg Bot.start supplies the launch step.
+        assertFalse(sources.containsKey("GameLoop.java"), sources.keySet().toString());
+        assertFalse(sources.containsKey("Startup.java"), sources.keySet().toString());
+        String main = sources.get("MyBot.java");
+        assertFalse(main.contains("GameLoop"), main);
+        assertFalse(main.contains("Startup"), main);
+        // Nothing else may name them either — a scaffold file referring to a class that is never written is a
+        // project that doesn't compile.
+        sources.forEach((name, src) -> {
+            assertFalse(src.contains("GameLoop"), name + " still names GameLoop:\n" + src);
+            assertFalse(src.contains("Startup"), name + " still names Startup:\n" + src);
+        });
     }
 
     @Test
@@ -123,7 +123,6 @@ class ProjectCreatorTest {
         // reaching Stop or an outcome with no wire, and MAX_STEPS is what bounds a loop with no exit.
         Map<String, String> sources = ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "MyBot", "mybot");
 
-        assertFalse(sources.get("GameLoop.java").contains("disable()"), sources.get("GameLoop.java"));
         assertFalse(sources.get("FlowDriver.java").contains("disable()"), sources.get("FlowDriver.java"));
         assertTrue(sources.get("FlowDriver.java").contains("MAX_STEPS"), sources.get("FlowDriver.java"));
     }

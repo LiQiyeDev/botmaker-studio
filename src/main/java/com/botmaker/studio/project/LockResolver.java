@@ -13,8 +13,8 @@ import java.nio.file.Path;
  * combined, for one file.
  *
  * <p><b>Why this exists.</b> The two verdicts used to be consulted separately and contradicted each other:
- * {@code MethodLock} documented {@code GameLoop.run}'s body as the user's (it has since been reclassified as
- * fully generated) while {@code FileRole} locked the file around it, and whichever caller asked last won. The
+ * {@code MethodLock} documented {@code GameLoop.run}'s body as the user's (it was later reclassified as fully
+ * generated, and the file has since been retired entirely) while {@code FileRole} locked the file around it, and whichever caller asked last won. The
  * render path asked {@code FileRole}; nothing asked on the write path at all. Both now ask here, so they
  * cannot drift apart again — if
  * you find yourself calling {@code FileRole.of} or {@code MethodLock.of} outside this class to decide whether an
