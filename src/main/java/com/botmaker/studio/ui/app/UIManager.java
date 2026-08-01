@@ -995,7 +995,7 @@ public class UIManager {
      */
     public void openProjectSetup() {
         new ProjectSetupDialog(primaryStage, config, projectSettingsService, projectAnalyzer, eventBus,
-                this::openOverlayTemplateCapture).show();
+                this::openOverlayTemplateCapture, toolbarManager::setLaunchTarget).show();
     }
 
     /** Opens the Help ▸ Getting Started guide, whose section jump-buttons reuse the toolbar/menu open actions. */

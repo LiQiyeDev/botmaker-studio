@@ -6,6 +6,15 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-01 — improvements Phase 1: the launch-target button shows its cover art after Project Setup.**
+  `ProjectSetupDialog` opened `LaunchTargetDialog` with `spec -> refresh()`, a callback that only re-ticked
+  its own checklist rows. `ToolbarManager.setLaunchTarget` is the sole path that re-labels the toolbar button
+  and kicks off `resolveLaunchArtwork`, so a target picked through the Setup hub ticked green while the button
+  behind it still read "🚀 Launch Target" with no thumbnail until the project was reopened. The dialog now
+  takes a `Consumer<String> onLaunchTargetChanged` and `UIManager.openProjectSetup` passes
+  `toolbarManager::setLaunchTarget` — the same wiring the toolbar button (`UIManager:172`) and Getting Started
+  (`UIManager:1007`) already used; the checklist still re-ticks alongside it.
+
 - **2026-08-01 — refactor Phase 4 · SV4: Studio no longer spawns `which` to ask what is installed (closes
   B7's Studio shape).** `DesktopGrab.toolExists`, `SessionEnvironment.onPath` and
   `UpdateService.commandExists` were three private copies of `ProcessBuilder("which", name).waitFor()`, and

@@ -26,6 +26,8 @@ import javafx.scene.layout.VBox;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
 
+import java.util.function.Consumer;
+
 /**
  * The "Project Setup" hub — a single checklist that walks the user through everything a fresh project needs
  * to actually run: <b>what to launch</b> ({@link LaunchTargetDialog}), <b>what to capture</b>
@@ -48,6 +50,13 @@ public final class ProjectSetupDialog {
     private final EventBus eventBus;
     /** Opens the live overlay template capture (owned by {@link UIManager}, which knows the capture service). */
     private final Runnable onCaptureTemplates;
+    /**
+     * Where a launch target picked in <em>this</em> dialog is announced — {@code ToolbarManager::setLaunchTarget},
+     * the only path that re-labels the toolbar button and resolves its cover art. Without it the checklist row
+     * ticked green while the button behind the dialog still read "Launch Target" with no artwork until the
+     * project was reopened.
+     */
+    private final Consumer<String> onLaunchTargetChanged;
 
     private Stage stage;
     private VBox rows;
@@ -60,13 +69,15 @@ public final class ProjectSetupDialog {
     private Label launchStatus;
 
     public ProjectSetupDialog(Stage owner, ProjectConfig config, ProjectSettingsService settings,
-                              ProjectAnalyzer analyzer, EventBus eventBus, Runnable onCaptureTemplates) {
+                              ProjectAnalyzer analyzer, EventBus eventBus, Runnable onCaptureTemplates,
+                              Consumer<String> onLaunchTargetChanged) {
         this.owner = owner;
         this.config = config;
         this.settings = settings;
         this.analyzer = analyzer;
         this.eventBus = eventBus;
         this.onCaptureTemplates = onCaptureTemplates;
+        this.onLaunchTargetChanged = onLaunchTargetChanged;
     }
 
     public void show() {
@@ -136,7 +147,10 @@ public final class ProjectSetupDialog {
         rows.getChildren().setAll(
                 row(launchDone, false, "Launch target",
                         launchDone ? describeLaunch() : "Not set — pick what the bot should open.",
-                        "Set…", () -> new LaunchTargetDialog(owner, config, spec -> refresh()).show(),
+                        "Set…", () -> new LaunchTargetDialog(owner, config, spec -> {
+                            onLaunchTargetChanged.accept(spec);
+                            refresh();
+                        }).show(),
                         quickLaunchButton()),
                 row(captureDone, false, "Capture target",
                         describeCapture(s),
