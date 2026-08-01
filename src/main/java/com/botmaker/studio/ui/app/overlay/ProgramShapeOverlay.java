@@ -7,8 +7,11 @@ import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.CodeBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.core.StatementBlock;
+import com.botmaker.studio.blocks.func.MethodDeclarationBlock;
 import com.botmaker.studio.project.StudioProjectSettings;
+import com.botmaker.studio.project.activity.ActivityDefinition;
 import com.botmaker.studio.project.capture.CaptureTarget;
+import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.services.ScreenCaptureService.WindowShot;
@@ -36,6 +39,7 @@ import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Tooltip;
@@ -78,6 +82,14 @@ import java.util.List;
  * real clicks/keys/waits via a {@link RecordingSession}, and Stop translates them ({@link MacroTranslator}) and
  * inserts the resulting blocks <em>at the cursor</em>, progressively — so recording grows the same tree that
  * hand-authoring does.
+ *
+ * <p><b>Where the blocks land.</b> The HUD names its target: an activity picker switches the editor to
+ * {@code activities/<Name>.java} and parks the cursor inside that activity's {@code run()}. It has to, because
+ * the target used to be implicit — whatever file was last rendered, at {@link CursorNavigator#defaultCursor}.
+ * In a GAME_BOT project every file that opens by default is generated scaffolding, so every body is read-only,
+ * the default cursor finds nothing editable, and {@link #insertBelowCursor} returns without a word: recording
+ * appeared to do nothing at all. A project with no activities disables recording and says so, rather than
+ * repeating that silence.
  */
 public final class ProgramShapeOverlay {
 
@@ -92,6 +104,7 @@ public final class ProgramShapeOverlay {
     private final ProjectState state;
     private final ProjectSettingsService settings;
     private final ScreenCaptureService capture;
+    private final ActivityService activities;
     /** The default capture target: a window, a monitor, or the whole desktop. */
     private final CaptureTarget target;
 
@@ -113,6 +126,9 @@ public final class ProgramShapeOverlay {
 
     /** When on, inserting a call opens its argument config popover as soon as the re-parsed block is available. */
     private CheckBox autoFillArgs;
+
+    /** The activity being authored into; picking one switches the editor to its file and re-homes the cursor. */
+    private ComboBox<String> activityBox;
 
     // ── Record mode ──────────────────────────────────────────────────────────────────────────────────────
     private RecordingSession session;
@@ -137,11 +153,12 @@ public final class ProgramShapeOverlay {
     private PendingInsert pendingInsert;
 
     private ProgramShapeOverlay(CodeEditorService context, ProjectSettingsService settings,
-                                ScreenCaptureService capture, CaptureTarget target) {
+                                ScreenCaptureService capture, ActivityService activities, CaptureTarget target) {
         this.context = context;
         this.state = context.getState();
         this.settings = settings;
         this.capture = capture;
+        this.activities = activities;
         this.target = target;
     }
 
@@ -151,7 +168,7 @@ public final class ProgramShapeOverlay {
      * as soon as the overlay is shown (used by the "Record Macro" toolbar button). Must be called on the FX thread.
      */
     public static void open(Window owner, CodeEditorService context, ProjectSettingsService settings,
-                            ScreenCaptureService capture, boolean startRecording) {
+                            ScreenCaptureService capture, ActivityService activities, boolean startRecording) {
         if (active != null && active.stage != null && active.stage.isShowing()) {
             active.stage.toFront();
             if (startRecording && active.session != null && !active.session.isRecording()) active.startRecording();
@@ -168,7 +185,7 @@ public final class ProgramShapeOverlay {
                     + "monitor or the desktop as the default first.");
             return;
         }
-        ProgramShapeOverlay overlay = new ProgramShapeOverlay(context, settings, capture, target);
+        ProgramShapeOverlay overlay = new ProgramShapeOverlay(context, settings, capture, activities, target);
         overlay.autoStartRecording = startRecording;
         active = overlay;
         overlay.start(owner);
@@ -279,6 +296,15 @@ public final class ProgramShapeOverlay {
             }
         });
 
+        // The handler is installed *after* the initial value, so the one explicit call below is the only one —
+        // ComboBox.setValue's action-firing behaviour is not something to have two code paths depend on.
+        String initial = preferredActivity(activityNames());
+        if (initial != null) {
+            activityBox.setValue(initial);
+            selectActivity(initial);
+        }
+        activityBox.setOnAction(e -> selectActivity(activityBox.getValue()));
+
         root = context.getRootBlock().orElse(null);
         ensureCursor();
         render();
@@ -340,6 +366,11 @@ public final class ProgramShapeOverlay {
             // Recording translates clicks to window-relative coordinates, so it needs a window target.
             recordBtn.setDisable(true);
             recordBtn.setTooltip(new Tooltip("Recording targets a window — set a window as the default capture target"));
+        } else if (activityNames().isEmpty()) {
+            // Say so up front. There is nowhere editable to put the blocks, and the failure downstream is silent.
+            recordBtn.setDisable(true);
+            recordBtn.setTooltip(new Tooltip(
+                    "Nowhere to record into — add an activity in Project ▸ Activity Flow first"));
         } else {
             recordBtn.setTooltip(new Tooltip("Record real clicks/keys and insert them at the cursor"));
         }
@@ -352,10 +383,83 @@ public final class ProgramShapeOverlay {
         autoFillArgs.setTooltip(new Tooltip(
                 "When on, adding an action immediately opens its argument editor (draw rect / pick template)"));
 
-        VBox controls = new VBox(6, paletteBar, stepRow, recordRow, autoFillArgs);
+        VBox controls = new VBox(6, buildActivityRow(), paletteBar, stepRow, recordRow, autoFillArgs);
         controls.setPadding(new Insets(8));
         controls.setStyle(PANEL);
         return controls;
+    }
+
+    // ── target activity ─────────────────────────────────────────────────────────────────────────────────
+
+    /** The picker naming the activity every insert goes into, plus a nudge when the project has none. */
+    private HBox buildActivityRow() {
+        List<String> names = activityNames();
+        activityBox = new ComboBox<>(javafx.collections.FXCollections.observableArrayList(names));
+        activityBox.setTooltip(new Tooltip("The activity that new and recorded blocks are inserted into"));
+        HBox row = new HBox(6, label("Activity:"), activityBox);
+        if (names.isEmpty()) {
+            activityBox.setDisable(true);
+            activityBox.setPromptText("none yet");
+            row.getChildren().add(dimLabel("add one in Project ▸ Activity Flow"));
+        }
+        row.setAlignment(Pos.CENTER_LEFT);
+        return row;
+    }
+
+    /** The non-archived activities, in flow order — the ones that have a stub file and actually run. */
+    private List<String> activityNames() {
+        return activities.current().liveActivities().stream().map(ActivityDefinition::name).toList();
+    }
+
+    /**
+     * Which activity to open on: the one last authored into, else the flow's start node, else the first. The
+     * last-used one is remembered per project so reopening the overlay resumes where the last session stopped.
+     */
+    private String preferredActivity(List<String> names) {
+        if (names.isEmpty()) return null;
+        String last = settings.current().lastRecordedActivity();
+        if (last != null && names.contains(last)) return last;
+        String start = activities.current().flow().resolvedStart(names);
+        return names.contains(start) ? start : names.get(0);
+    }
+
+    /** Switches the editor to {@code activities/<name>.java}, parks the cursor in its {@code run()}, remembers it. */
+    private void selectActivity(String name) {
+        if (name == null) return;
+        java.nio.file.Path file = context.getConfig().activitiesPackageDir().resolve(name + ".java");
+        if (!java.nio.file.Files.isRegularFile(file)) {
+            warn(stage, "Couldn't open " + name + ".java.\n\nUse File ▸ Recover Project Files to restore it.");
+            return;
+        }
+        context.switchToFile(file);   // synchronous: re-parses, republishes the tree, and returns
+        root = context.getRootBlock().orElse(null);
+        InsertionCursor c = runCursor(root);
+        if (c != null) state.setInsertionCursor(c);
+        render();
+        settings.update(settings.current().withLastRecordedActivity(name));
+    }
+
+    /**
+     * The caret inside an activity's {@code run()}: the slot just <em>before</em> a trailing {@code return}, so
+     * a recorded block lands where it will actually execute — the stub's body is only {@code return
+     * Outcome.NEXT;}, and inserting below that would produce unreachable code, which is the same silent
+     * nothing-happened this picker exists to fix. Falls back to the tree's default cursor for a stub whose
+     * {@code run()} has been renamed or removed by hand.
+     */
+    // Package-private for ProgramShapeOverlayCursorTest: this rule fails silently when it is wrong.
+    static InsertionCursor runCursor(CodeBlock root) {
+        for (CodeBlock b : CursorNavigator.collectAll(root)) {
+            if (!(b instanceof MethodDeclarationBlock m) || !"run".equals(m.getMethodName())) continue;
+            for (CodeBlock child : m.getChildren()) {
+                if (!(child instanceof BodyBlock body) || body.isReadOnly()) continue;
+                List<StatementBlock> statements = body.getStatements();
+                boolean endsWithReturn = !statements.isEmpty()
+                        && statements.get(statements.size() - 1).getAstNode()
+                                instanceof org.eclipse.jdt.core.dom.ReturnStatement;
+                return new InsertionCursor(body, statements.size() - (endsWithReturn ? 2 : 1));
+            }
+        }
+        return CursorNavigator.defaultCursor(root);
     }
 
     /**
@@ -685,6 +789,9 @@ public final class ProgramShapeOverlay {
             rows.getChildren().add(emptyRow(body, depth));
             return;
         }
+        // A caret sitting before the first statement has no row to highlight, so it gets one of its own —
+        // otherwise the HUD shows a tree with no focus anywhere and looks like it lost the cursor.
+        if (c != null && c.body() == body && c.index() < 0) rows.getChildren().add(caretRow(depth));
         for (int i = 0; i < statements.size(); i++) {
             StatementBlock stmt = statements.get(i);
             boolean focused = c != null && c.body() == body && c.index() == i;
@@ -723,6 +830,16 @@ public final class ProgramShapeOverlay {
             config.setMinWidth(26);
             row.getChildren().addAll(spring, config);
         }
+        return row;
+    }
+
+    /** The caret's own row, drawn when it sits before a body's first statement. */
+    private static HBox caretRow(int depth) {
+        Label text = new Label("▸ next block goes here");
+        text.setStyle("-fx-font-style: italic; -fx-text-fill: #9fc0ff;");
+        HBox row = new HBox(6, indent(depth), text);
+        row.setPadding(new Insets(3, 6, 3, 6));
+        row.setStyle("-fx-background-color: rgba(74,144,226,0.35); -fx-background-radius: 4;");
         return row;
     }
 

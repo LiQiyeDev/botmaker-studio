@@ -74,6 +74,8 @@ public class UIManager {
     private final ProjectState state;
     private final ScreenCaptureService screenCaptureService;
     private final ProjectSettingsService projectSettingsService;
+    /** Held for the overlay editor, which needs the activity list to know where to insert. */
+    private final ActivityService activityService;
     private final ProjectAnalyzer projectAnalyzer;
 
     private final ToolbarManager toolbarManager;
@@ -134,6 +136,7 @@ public class UIManager {
         this.config = config;
         this.state = state;
         this.projectAnalyzer = projectAnalyzer;
+        this.activityService = activityService;
 
         // Editor settings (capture targets + default). Stateless over (config, state, eventBus); the
         // capture service honors the default target so pickers stop re-asking which screen to use.
@@ -1021,7 +1024,8 @@ public class UIManager {
     /** Opens the program-shape overlay authoring editor (compact clickable block tree + insertion cursor). */
     private void openOverlayEditor() {
         com.botmaker.studio.ui.app.overlay.ProgramShapeOverlay.open(
-                primaryStage, codeEditorService, projectSettingsService, screenCaptureService, false);
+                primaryStage, codeEditorService, projectSettingsService, screenCaptureService, activityService,
+                false);
     }
 
     private void setupEventHandlers() {

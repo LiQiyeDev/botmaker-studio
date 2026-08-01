@@ -12,8 +12,14 @@ import com.botmaker.studio.core.StatementBlock;
  * step / step-into / step-out buttons move around, and where its "add below" / palette inserts write to
  * (see {@code CursorNavigator} and {@code ProgramShapeOverlay}).
  *
+ * <p>{@code index} spans {@code -1 .. size}. Both ends are real positions rather than clamping artefacts:
+ * {@code size} is "at the very end", and {@code -1} is "above every statement" — the only caret that puts an
+ * inserted block <em>before</em> a body's first statement, since inserts go <em>below</em> the caret. An
+ * activity stub whose body is nothing but {@code return Outcome.NEXT;} needs exactly that, or every recorded
+ * block lands after the return and never runs.
+ *
  * @param body  the body the caret sits in
- * @param index the slot before {@code statements[index]} ({@code == size} → end of body)
+ * @param index the slot before {@code statements[index]} ({@code == size} → end of body, {@code -1} → above all)
  */
 public record InsertionCursor(BodyBlock body, int index) {
 

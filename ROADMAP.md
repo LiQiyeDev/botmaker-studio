@@ -6,6 +6,15 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-01 — improvements Phase 4: the overlay names the activity it records into.**
+  `ui/app/overlay/ProgramShapeOverlay` gains an activity picker (constructor-injected `ActivityService` from
+  `UIManager`): choosing one switches the editor to `activities/<Name>.java` and parks the caret above that
+  activity's trailing `return`, so recorded and hand-added blocks actually land somewhere that runs. Previously
+  the target was implicit — whatever file was last rendered — which in a GAME_BOT project is always generated
+  scaffolding, so `insertBelowCursor` returned silently and recording appeared to do nothing. The choice is
+  remembered per project (`StudioProjectSettings.lastRecordedActivity`); a project with no activities disables
+  recording with a reason instead. `InsertionCursor` index `-1` is now documented as a real position.
+
 - **2026-08-01 — improvements Phase 3: object capture zooms.** `ui/app/capture/ObjectCaptureSurface` puts its
   four layers (frozen frame, mask preview, stroke trail, rubber band) in a `Group` carrying a `Scale`+`Translate`
   pair: Ctrl+scroll zooms about the cursor (0.4×–8×, step 1.1), middle-drag pans, Ctrl+0 or a click on the new

@@ -38,12 +38,16 @@ import java.util.Map;
  *                            guessing from the sources. {@code null} for projects created before this was
  *                            persisted — callers fall back to {@code ProjectRepair.looksLikeGameBot}
  *                            (backward-compatible; absent → null)
+ * @param lastRecordedActivity the activity the overlay editor last authored into, preselected the next time it
+ *                            opens so a recording session resumes where the previous one left off. {@code null}
+ *                            until the overlay has been used, and ignored once the activity is gone
+ *                            (backward-compatible; absent → null)
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex,
                                     List<String> knownWindowTitles, Map<String, String> favoriteOverloads,
                                     Resolution referenceResolution, Map<String, List<String>> favoriteMethods,
-                                    ProjectTemplate template) {
+                                    ProjectTemplate template, String lastRecordedActivity) {
 
     /** A target-window size in logical screen pixels. */
     public record Resolution(int width, int height) {}
@@ -71,12 +75,21 @@ public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer 
         return Map.copyOf(out);
     }
 
+    /** Convenience constructor for callers that manage the template but not the overlay's last activity. */
+    public StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex,
+                                 List<String> knownWindowTitles, Map<String, String> favoriteOverloads,
+                                 Resolution referenceResolution, Map<String, List<String>> favoriteMethods,
+                                 ProjectTemplate template) {
+        this(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads, referenceResolution,
+                favoriteMethods, template, null);
+    }
+
     /** Convenience constructor for callers that manage favorite methods but not the template. */
     public StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex,
                                  List<String> knownWindowTitles, Map<String, String> favoriteOverloads,
                                  Resolution referenceResolution, Map<String, List<String>> favoriteMethods) {
         this(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads, referenceResolution,
-                favoriteMethods, null);
+                favoriteMethods, null, null);
     }
 
     /** Convenience constructor for callers that manage favorite overloads + resolution but not favorite methods. */
@@ -121,31 +134,37 @@ public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer 
     /** This settings with the target list replaced (keeps the default if still in range). */
     public StudioProjectSettings withTargets(List<CaptureTarget> targets) {
         return new StudioProjectSettings(targets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
-                referenceResolution, favoriteMethods, template);
+                referenceResolution, favoriteMethods, template, lastRecordedActivity);
     }
 
     /** This settings with the default index replaced. */
     public StudioProjectSettings withDefaultIndex(Integer index) {
         return new StudioProjectSettings(captureTargets, index, knownWindowTitles, favoriteOverloads,
-                referenceResolution, favoriteMethods, template);
+                referenceResolution, favoriteMethods, template, lastRecordedActivity);
     }
 
     /** This settings with the remembered window titles replaced. */
     public StudioProjectSettings withKnownWindowTitles(List<String> titles) {
         return new StudioProjectSettings(captureTargets, defaultTargetIndex, titles, favoriteOverloads,
-                referenceResolution, favoriteMethods, template);
+                referenceResolution, favoriteMethods, template, lastRecordedActivity);
     }
 
     /** This settings with the capture reference resolution replaced ({@code null} clears it). */
     public StudioProjectSettings withReferenceResolution(Resolution resolution) {
         return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
-                resolution, favoriteMethods, template);
+                resolution, favoriteMethods, template, lastRecordedActivity);
     }
 
     /** This settings with the originating template recorded ({@code null} clears it). */
     public StudioProjectSettings withTemplate(ProjectTemplate template) {
         return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
-                referenceResolution, favoriteMethods, template);
+                referenceResolution, favoriteMethods, template, lastRecordedActivity);
+    }
+
+    /** This settings with the overlay editor's last authored activity recorded ({@code null} clears it). */
+    public StudioProjectSettings withLastRecordedActivity(String activityName) {
+        return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
+                referenceResolution, favoriteMethods, template, activityName);
     }
 
     /**
@@ -157,7 +176,7 @@ public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer 
         if (signatureKey == null) next.remove(methodKey);
         else next.put(methodKey, signatureKey);
         return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, next,
-                referenceResolution, favoriteMethods, template);
+                referenceResolution, favoriteMethods, template, lastRecordedActivity);
     }
 
     /** The chosen overload signature key for {@code methodKey}, or {@code null} if no favorite is set. */
@@ -175,7 +194,7 @@ public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer 
         if (methods == null || methods.isEmpty()) next.remove(className);
         else next.put(className, List.copyOf(methods));
         return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
-                referenceResolution, next, template);
+                referenceResolution, next, template, lastRecordedActivity);
     }
 
     /** The favorite method names for {@code className} (preference order), or an empty list if none. */

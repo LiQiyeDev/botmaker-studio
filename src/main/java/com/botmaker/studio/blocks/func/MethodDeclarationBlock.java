@@ -89,6 +89,11 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
         this.body = body;
     }
 
+    /** The declared method's name — mirrors {@code MethodInvocationBlock.getMethodName()} on the call side. */
+    public String getMethodName() {
+        return methodName;
+    }
+
     @Override
     public List<CodeBlock> getChildren() {
         return body != null ? Collections.singletonList(body) : Collections.emptyList();
