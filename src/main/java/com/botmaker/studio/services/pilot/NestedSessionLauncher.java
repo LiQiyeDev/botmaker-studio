@@ -60,6 +60,15 @@ public final class NestedSessionLauncher implements AutoCloseable {
         return launcher.attachedTitle();
     }
 
+    /**
+     * Un-minimize the live session's host window and return its X id, or {@code 0} when nothing is running or the
+     * window isn't known yet — the overlay editor's way of pointing at a session instead of a desktop window.
+     * See {@link BackgroundLauncher#revealHostWindow}.
+     */
+    public long revealHostWindow() {
+        return launcher.revealHostWindow();
+    }
+
     /** The project's configured launch target, or {@code null} when none is set — for the UI's availability/label. */
     public LaunchSpec configuredTarget() {
         return QuickLaunch.specOf(resourcesDir);

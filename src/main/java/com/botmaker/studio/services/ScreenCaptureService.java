@@ -352,7 +352,7 @@ public final class ScreenCaptureService {
      * this falls back to a full-desktop grab cropped to the window bounds (Wayland-capable, lossless).
      */
     public WindowShot captureWindow(WindowTarget target) {
-        GenericWindow win = resolveWindow(target.titleSubstring());
+        GenericWindow win = resolveWindow(target);
         if (win == null) {
             System.err.println("No window matching \"" + target.titleSubstring() + "\" was found.");
             return null;
@@ -368,7 +368,7 @@ public final class ScreenCaptureService {
             System.err.println("Could not focus window: " + t.getMessage());
         }
         // Re-resolve after focus (bounds may change when a minimized window is restored/raised).
-        GenericWindow refreshed = resolveWindow(target.titleSubstring());
+        GenericWindow refreshed = resolveWindow(target);
         if (refreshed != null) win = refreshed;
         java.awt.Rectangle bounds = win.getRect();
 
@@ -433,6 +433,44 @@ public final class ScreenCaptureService {
     }
 
     /**
+     * The window {@code target} names: its exact {@link WindowTarget#windowId() windowId} when it carries one and
+     * that window still exists, otherwise its title substring.
+     *
+     * <p>The fallback is the whole point of the id being optional. An id belongs to one live process — a session
+     * that has since been closed, or a settings file written yesterday, leaves an id that resolves to nothing, and
+     * a target that silently captures nothing is the failure mode this service is worst at reporting. Falling back
+     * to the title makes a stale id no worse than not having one.
+     */
+    private static GenericWindow resolveWindow(WindowTarget target) {
+        if (target == null) return null;
+        Long id = target.windowId();
+        if (id != null) {
+            GenericWindow byId = resolveWindowById(id);
+            if (byId != null) return byId;
+        }
+        return resolveWindow(target.titleSubstring());
+    }
+
+    /** The window whose native handle is {@code windowId}, or {@code null} when no live window has that id. */
+    private static GenericWindow resolveWindowById(long windowId) {
+        try {
+            for (GenericWindow w : NativeControllerFactory.get().getAllWindows(true)) {
+                if (nativeIdOf(w) == windowId) return w;
+            }
+        } catch (Throwable t) {
+            System.err.println("Window enumeration failed: " + t.getMessage());
+        }
+        return null;
+    }
+
+    /** A window's platform handle as a plain long — a JNA {@code Pointer} on X11, a {@code Number} elsewhere. */
+    private static long nativeIdOf(GenericWindow w) {
+        Object handle = w.getNativeHandle();
+        if (handle instanceof com.sun.jna.Pointer p) return com.sun.jna.Pointer.nativeValue(p);
+        return handle instanceof Number n ? n.longValue() : 0;
+    }
+
+    /**
      * First window (case-insensitive) whose title contains {@code titleSubstring}, or {@code null}. Includes
      * currently-minimized windows so a minimized target can be found and then de-iconified/raised.
      */
@@ -455,7 +493,7 @@ public final class ScreenCaptureService {
      * Best-effort; used by the macro recorder so the target is raised when recording begins.
      */
     public void raiseWindow(WindowTarget target) {
-        GenericWindow win = resolveWindow(target.titleSubstring());
+        GenericWindow win = resolveWindow(target);
         if (win == null) return;
         try {
             NativeControllerFactory.get().restoreWindow(win);
@@ -472,7 +510,7 @@ public final class ScreenCaptureService {
      */
     public void resizeTarget(WindowTarget target, int width, int height) {
         if (width <= 0 || height <= 0) return;
-        GenericWindow win = resolveWindow(target.titleSubstring());
+        GenericWindow win = resolveWindow(target);
         if (win == null) return;
         java.awt.Rectangle r = win.getRect();
         if (r != null && r.width == width && r.height == height) return; // already canonical

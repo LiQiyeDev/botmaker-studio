@@ -40,7 +40,7 @@ public final class TargetThumbnail {
      */
     public static Result grab(CaptureTarget target) {
         try {
-            if (target instanceof WindowTarget(String titleSubstring)) {
+            if (target instanceof WindowTarget(String titleSubstring, Long ignoredId)) {
                 GenericWindow win = findWindow(titleSubstring);
                 if (win == null) return new Result(null, false);
                 BufferedImage img = null;

@@ -39,8 +39,23 @@ public sealed interface CaptureTarget
         }
     }
 
-    /** A specific application window, matched at capture time by a case-insensitive title substring. */
-    record WindowTarget(String titleSubstring) implements CaptureTarget {
+    /**
+     * A specific application window, matched at capture time by a case-insensitive title substring — or, when
+     * {@code windowId} is set, by that exact X window id with the title kept only as a label and a fallback.
+     *
+     * <p><b>{@code windowId} is a live handle, not saved state.</b> It exists for a target a title cannot name:
+     * a running gamescope session's host window, which gamescope renames after whatever app is inside it, and
+     * which shares its {@code WM_CLASS} with a second, unmanaged window of its own. Ids do not survive the
+     * process that owned them, so a persisted one is meaningless — {@code ScreenCaptureService} treats a
+     * {@code windowId} that no longer resolves as absent and falls back to the title rather than failing.
+     */
+    record WindowTarget(String titleSubstring, Long windowId) implements CaptureTarget {
+
+        /** A window named the ordinary way: by title alone. The shape every persisted target has. */
+        public WindowTarget(String titleSubstring) {
+            this(titleSubstring, null);
+        }
+
         @Override
         public String label() {
             return "Window: " + (titleSubstring == null || titleSubstring.isBlank() ? "(any)" : titleSubstring);

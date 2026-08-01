@@ -119,6 +119,23 @@ public final class BackgroundLauncher implements AutoCloseable {
     }
 
     /**
+     * Un-minimize the live session's host window and return its X id, or {@code 0} when there is no session or its
+     * window isn't known yet. The pair is one call because a caller only ever wants an id it can then look at.
+     *
+     * <p>For Studio's overlay editor, which draws over the session rather than over a window on the real desktop.
+     * See {@link NestedSession#hostWindowId} for why the id and not a title, and why {@code 0} is an ordinary
+     * answer for the first seconds of a session rather than a failure.
+     */
+    public long revealHostWindow() {
+        NestedSession session = active;
+        if (session == null) {
+            return 0;
+        }
+        session.revealHostWindow();
+        return session.hostWindowId();
+    }
+
+    /**
      * Bring up a nested session on {@code backend}, launch {@code spec} into it, and notify the started
      * listeners. No-ops (reporting why) when a session is already running. The caller has already chosen the
      * backend (via {@code SessionBackends}) and confirmed a target — this method owns only the bring-up and the

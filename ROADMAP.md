@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-01 — improvements Phase 5: the overlay works over a private session.**
+  When a nested session is live, `ProgramShapeOverlay` now targets *its* host window instead of the project's
+  configured desktop window (`UIManager.liveSessionWindow` → `NestedSessionLauncher.revealHostWindow`, revealing
+  it first since bring-up minimizes it). Two things the phase turned up: a gamescope host window **cannot be
+  named by title** — gamescope renames its output window after the app inside it, and a second window of its own
+  shares its `WM_CLASS` — so `CaptureTarget.WindowTarget` gained an optional live `windowId` and
+  `ScreenCaptureService.resolveWindow` prefers it, falling back to the title when the id is stale. And a session
+  window is **never resized**: gamescope's output (`-W/-H`) and internal (`-w/-h`) sizes are launched equal on
+  purpose, and resizing is what would break the 1:1 mapping recorded coordinates depend on. Input needed no work
+  — gamescope forwards host input into its Xwayland. The premise (a host-side X capture of the host window reads
+  real pixels, rather than black) was **verified before building**, and is now pinned by
+  `SessionHostWindowLiveTest.theHostWindowReadsRealPixelsFromTheHostSide` on both backends.
+
 - **2026-08-01 — improvements Phase 4: the overlay names the activity it records into.**
   `ui/app/overlay/ProgramShapeOverlay` gains an activity picker (constructor-injected `ActivityService` from
   `UIManager`): choosing one switches the editor to `activities/<Name>.java` and parks the caret above that

@@ -73,6 +73,16 @@ import java.util.List;
  * {@link ScreenCaptureService#resizeTarget}). The stage itself is {@link StageStyle#TRANSPARENT} with rounded
  * semi-opaque panels (matching {@code OverlayToolbars}), so the app shows through the gaps.
  *
+ * <p><b>Over a private session.</b> When a nested session is live the overlay targets <em>its</em> host window
+ * instead of the configured desktop window — see {@link #sessionTarget}. The session's host window is a real
+ * host-desktop window whose pixels an ordinary X capture reads (verified against a gamescope session on the
+ * dev box), so nothing about the drawing or the capture path changes. Two things do: the window is named by
+ * <em>id</em> rather than title, because gamescope renames its output window after the app inside it; and it is
+ * never resized, because gamescope's output and internal sizes are launched equal on purpose and a resize is
+ * what would break the 1:1 mapping the recorded coordinates depend on. Input needs no routing — gamescope
+ * forwards host input into its Xwayland, so the existing global {@code :0} recording already sees the right
+ * coordinates.
+ *
  * <p>An {@link InsertionCursor} (kept on {@link ProjectState}) marks the <em>focused</em> block; the toolbar's
  * <b>step</b> buttons move it and the palette inserts a new block just beneath it. The palette has two modes:
  * <b>Basic</b> exposes only the core bot actions ({@link BlockCatalog#botActions()}); <b>Advanced</b> adds an
@@ -168,17 +178,20 @@ public final class ProgramShapeOverlay {
      * as soon as the overlay is shown (used by the "Record Macro" toolbar button). Must be called on the FX thread.
      */
     public static void open(Window owner, CodeEditorService context, ProjectSettingsService settings,
-                            ScreenCaptureService capture, ActivityService activities, boolean startRecording) {
+                            ScreenCaptureService capture, ActivityService activities,
+                            java.util.function.LongSupplier sessionWindow, boolean startRecording) {
         if (active != null && active.stage != null && active.stage.isShowing()) {
             active.stage.toFront();
             if (startRecording && active.session != null && !active.session.isRecording()) active.startRecording();
             return;
         }
-        CaptureTarget target = null;
-        try {
-            target = settings.defaultTarget();
-        } catch (Exception ignored) {
-            // no default configured
+        CaptureTarget target = sessionTarget(sessionWindow);
+        if (target == null) {
+            try {
+                target = settings.defaultTarget();
+            } catch (Exception ignored) {
+                // no default configured
+            }
         }
         if (target == null) {
             warn(owner, "Overlay editor needs a capture target.\n\nOpen \"Capture Targets\" and set a window, "
@@ -189,6 +202,24 @@ public final class ProgramShapeOverlay {
         overlay.autoStartRecording = startRecording;
         active = overlay;
         overlay.start(owner);
+    }
+
+    /**
+     * The live private session's host window as a capture target, or {@code null} when no session is running (or
+     * its window isn't up yet) — in which case the project's configured default target is used as before.
+     *
+     * <p>A running session <em>outranks</em> the configured default deliberately: while a session is up, that is
+     * where the game is, and the configured window target names something on the real desktop that either isn't
+     * running or isn't the thing the user is looking at. The target carries the window <em>id</em> because a
+     * gamescope host window cannot be named by title — gamescope renames it after whatever app is inside it, and
+     * a second window of its own carries the same {@code WM_CLASS}. The title here is a label, not a key.
+     */
+    private static CaptureTarget sessionTarget(java.util.function.LongSupplier sessionWindow) {
+        if (sessionWindow == null) {
+            return null;
+        }
+        long id = sessionWindow.getAsLong();
+        return id == 0 ? null : new CaptureTarget.WindowTarget("private session", id);
     }
 
     /**
@@ -215,7 +246,14 @@ public final class ProgramShapeOverlay {
                     ref = new StudioProjectSettings.Resolution(shot.bounds().width, shot.bounds().height);
                     settings.update(settings.current().withReferenceResolution(ref));
                 }
-                capture.resizeTarget(wt, ref.width(), ref.height());
+                // Never resize a private session's host window. gamescope is launched with its output size
+                // (-W/-H) and its internal size (-w/-h) both set to the project resolution, which is what makes
+                // the captured pixels 1:1 with what the bot sees and its click coordinates need no mapping.
+                // Resizing the host window changes one of those two and silently breaks that identity — the
+                // overlay would still draw, the clicks would just land somewhere else.
+                if (wt.windowId() == null) {
+                    capture.resizeTarget(wt, ref.width(), ref.height());
+                }
                 WindowShot after = capture.captureWindow(wt);
                 java.awt.Rectangle bounds = after != null ? after.bounds() : shot.bounds();
                 Platform.runLater(() -> show(bounds));

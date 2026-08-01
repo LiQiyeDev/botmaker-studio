@@ -1025,7 +1025,18 @@ public class UIManager {
     private void openOverlayEditor() {
         com.botmaker.studio.ui.app.overlay.ProgramShapeOverlay.open(
                 primaryStage, codeEditorService, projectSettingsService, screenCaptureService, activityService,
-                false);
+                this::liveSessionWindow, false);
+    }
+
+    /**
+     * The live private session's host window id for the overlay to draw over, or {@code 0} when there is none —
+     * revealing it first, since bring-up minimizes it and an overlay over a minimized window shows nothing.
+     *
+     * <p>{@code nestedLauncher} is created lazily by the private-display dialog, so a {@code null} one means no
+     * session has ever been started in this project and there is nothing to look at.
+     */
+    private long liveSessionWindow() {
+        return nestedLauncher == null ? 0 : nestedLauncher.revealHostWindow();
     }
 
     private void setupEventHandlers() {
