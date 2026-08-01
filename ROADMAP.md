@@ -6,6 +6,16 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-01 — improvements Phase 3: object capture zooms.** `ui/app/capture/ObjectCaptureSurface` puts its
+  four layers (frozen frame, mask preview, stroke trail, rubber band) in a `Group` carrying a `Scale`+`Translate`
+  pair: Ctrl+scroll zooms about the cursor (0.4×–8×, step 1.1), middle-drag pans, Ctrl+0 or a click on the new
+  `%` readout in the control bar resets. Only `toContent(MouseEvent)` knows about the zoom, so `solve`,
+  `paintAt`, `showPreview` and `finalizeSelection` keep receiving unscaled surface-logical coordinates and the
+  extracted crop is unaffected. The band's stroke is divided by the scale to stay a hairline, and image
+  smoothing is switched off above 1× so magnified pixels look like pixels. A press now only starts a gesture
+  when it lands on the image, which also stops a miss on the control bar from opening a rubber band behind it.
+  The sibling `CaptureSurface` (capture one/many) is deliberately untouched — it is a transparent window onto
+  the *live* desktop, where a zoomed view would no longer line up with what is underneath it.
 - **2026-08-01 — improvements Phase 2: the Activity Flow arranges itself, and new activities get a real
   dialog.** Three changes to `ActivityFlowDialog` / `FlowCanvas`. (1) A flow whose saved layout carries *no*
   card positions is auto-arranged on open, in the same post-layout `Platform.runLater` that redraws the wires
