@@ -45,6 +45,10 @@ public class BotMakerStudio extends Application {
         // Collect what a previous run (or a killed bot JVM) left behind, before anything asks the process table
         // whether a launcher is open: a leftover session reads as one, and a launch is then refused on its account.
         // Off the FX thread — it shells out to systemctl.
+        //
+        // It also warms the `systemd-run --user --scope` probe every SessionReaper needs, which is cached per JVM
+        // but costs a spawn and a waitFor the first time. Paying it here, while the user is still opening a
+        // project, keeps it off the first session launch — which is why this thread starts before the UI is built.
         Thread sweep = new Thread(NestedSession::reapOrphanSessions, "session-orphan-sweep");
         sweep.setDaemon(true);
         sweep.start();
