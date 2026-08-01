@@ -13,6 +13,8 @@ import com.botmaker.studio.ui.app.flow.ActivityDraft;
 import com.botmaker.studio.ui.app.flow.ActivityValueWidgets;
 import com.botmaker.studio.ui.app.flow.ActivityValueWidgets.ValueEditor;
 import com.botmaker.studio.ui.app.flow.FlowCanvas;
+import com.botmaker.studio.ui.app.flow.FlowNames;
+import com.botmaker.studio.ui.app.flow.NewActivityDialog;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Point2D;
@@ -80,6 +82,14 @@ public class ActivityFlowDialog {
 
     /** Whether a newly added activity starts with its "go home first" tick on. */
     private boolean goHomeByDefault = true;
+
+    /**
+     * Set by {@link #loadCurrent()} when the saved flow carries no card positions at all, so the canvas is
+     * arranged for the user on open instead of stacking every card in one column. Deliberately <em>not</em> an
+     * unconditional auto-arrange: positions are persisted, and a layout someone placed by hand must survive
+     * being looked at.
+     */
+    private boolean arrangeOnOpen;
     private final Label orderLabel = new Label();
     private final ProgressIndicator progress = new ProgressIndicator();
     private final VBox sidePanel = new VBox(10);
@@ -112,25 +122,35 @@ public class ActivityFlowDialog {
 
         canvas.setOnMessage(this::error);
         canvas.setOnChainChanged(this::refreshOrderLabel);
+        canvas.setOnCanvasDoubleClick(this::createActivityAt);
         canvas.selectedProperty().addListener((o, was, is) -> showInSidePanel(is));
         showInSidePanel(null);
         refreshOrderLabel();
 
         stage.setScene(new Scene(root, 1040, 680));
         stage.show();
-        // Cards have real bounds only after the first layout pass; re-draw so the wires land on the ports.
-        Platform.runLater(canvas::refresh);
+        // Cards have real bounds only after the first layout pass; re-draw so the wires land on the ports —
+        // and auto-arrange there too, since it stacks cards by their real heights and would otherwise lay the
+        // first-ever open out against the fallback height.
+        Platform.runLater(() -> {
+            if (arrangeOnOpen) canvas.autoArrange();
+            else canvas.refresh();
+        });
     }
 
     /** Seeds the canvas from the saved config: a card per activity, at its stored spot or a fresh one. */
     private void loadCurrent() {
         ActivitiesConfig current = activityService.current();
         ActivityFlow flow = current.flow();
+        boolean anyPlaced = false;
         for (ActivityDefinition a : current.liveActivities()) {
             Optional<FlowNode> placed = flow.node(a.name());
+            anyPlaced |= placed.isPresent();
             Point2D at = placed.map(n -> new Point2D(n.x(), n.y())).orElseGet(canvas::nextFreeSpot);
             canvas.add(ActivityDraft.of(a, at.getX(), at.getY()));
         }
+        // Only when nothing at all was placed: one saved position is enough to mean someone laid this out.
+        arrangeOnOpen = !anyPlaced && !current.liveActivities().isEmpty();
         canvas.edges().setAll(flow.edges());
         canvas.setStart(flow.start());
         maxSteps = flow.maxSteps();
@@ -165,17 +185,11 @@ public class ActivityFlowDialog {
         Button savePreset = new Button("Save selection as preset…");
         savePreset.setOnAction(e -> saveCurrentSelectionAsPreset());
 
-        TextField newName = new TextField();
-        newName.setPromptText("new activity (e.g. Resources)");
-        newName.setPrefWidth(200);
         Button addActivity = new Button("Add activity");
-        addActivity.setOnAction(e -> addActivity(newName));
-        // Consumed, or the un-consumed ActionEvent reaches the default Save button and closes the dialog —
-        // pressing Enter after typing a name would save the project instead of adding the activity.
-        newName.setOnAction(e -> {
-            addActivity(newName);
-            e.consume();
-        });
+        addActivity.setTooltip(new javafx.scene.control.Tooltip(
+                "Name it and declare its outcomes up front. Double-clicking empty canvas opens the same "
+                        + "dialog, and drops the card where you clicked."));
+        addActivity.setOnAction(e -> createActivityAt(canvas.nextFreeSpot()));
 
         Button recenter = new Button("⌖ Recenter");
         recenter.setTooltip(new javafx.scene.control.Tooltip("Reset the zoom and scroll back to the cards"));
@@ -192,27 +206,30 @@ public class ActivityFlowDialog {
 
         HBox bar = new HBox(8, new Label("Presets:"), presetCombo, applyPreset, savePreset,
                 new Separator(javafx.geometry.Orientation.VERTICAL), recenter, arrange,
-                spacer, newName, addActivity);
+                spacer, addActivity);
         bar.setAlignment(Pos.CENTER_LEFT);
         bar.setPadding(new Insets(10));
         return bar;
     }
 
-    private void addActivity(TextField nameField) {
-        String name = nameField.getText() == null ? "" : nameField.getText().trim();
-        if (!isValidIdentifier(name)) {
-            error("Enter a valid activity name (letters, digits, _; not starting with a digit).");
-            return;
-        }
-        if (canvas.drafts().stream().anyMatch(d -> d.name().equals(name))) {
-            error("Activity '" + name + "' already exists.");
-            return;
-        }
-        Point2D at = canvas.nextFreeSpot();
-        canvas.add(new ActivityDraft(name, "", false, List.of(), List.of(), goHomeByDefault,
-                at.getX(), at.getY()));
-        nameField.clear();
+    /**
+     * Opens the new-activity prompt and drops the resulting card at {@code at}. Both entry points come through
+     * here: the "Add activity" button (at the next free spot) and a double-click on empty canvas (under the
+     * cursor). The dialog itself owns the name and outcome validation.
+     */
+    private void createActivityAt(Point2D at) {
+        Optional<ActivityDraft> made =
+                new NewActivityDialog(stage, placedNames(), goHomeByDefault).showAt(at.getX(), at.getY());
+        if (made.isEmpty()) return;
+        canvas.add(made.get());
+        refreshPresetCombo();   // the built-in "Everything" preset is derived from what's on the canvas
         error("");
+    }
+
+    private Set<String> placedNames() {
+        Set<String> names = new HashSet<>();
+        for (ActivityDraft d : canvas.drafts()) names.add(d.name());
+        return names;
     }
 
     private void saveCurrentSelectionAsPreset() {
@@ -360,8 +377,8 @@ public class ActivityFlowDialog {
         newOutcome.setPromptText("new outcome (e.g. bag full)");
         Button add = new Button("Add");
         Runnable addOutcome = () -> {
-            String candidate = normalizeOutcome(newOutcome.getText());
-            String problem = outcomeProblem(draft, candidate, null);
+            String candidate = FlowNames.normalizeOutcome(newOutcome.getText());
+            String problem = FlowNames.outcomeProblem(draft.outcomes(), draft.name(), candidate, null);
             if (problem != null) { error(problem); return; }
             draft.outcomes().add(candidate);
             newOutcome.clear();
@@ -382,12 +399,12 @@ public class ActivityFlowDialog {
 
     /** Renames an outcome, carrying its wire across — as renaming an activity carries its wires. */
     private void renameOutcome(ActivityDraft draft, String oldName, String typed, TextField field) {
-        String candidate = normalizeOutcome(typed);
+        String candidate = FlowNames.normalizeOutcome(typed);
         if (candidate.equals(oldName)) {
             field.setText(oldName);   // normalisation may have changed the text without changing the outcome
             return;
         }
-        String problem = outcomeProblem(draft, candidate, oldName);
+        String problem = FlowNames.outcomeProblem(draft.outcomes(), draft.name(), candidate, oldName);
         if (problem != null) {
             error(problem);
             field.setText(oldName);
@@ -405,35 +422,6 @@ public class ActivityFlowDialog {
         canvas.edges().setAll(rewired);
         error("");
         canvas.refresh();
-    }
-
-    /**
-     * An outcome name in the shape Java wants: trimmed, upper-cased, with runs of spaces, dots and dashes
-     * collapsed to {@code _}. "bag full" becomes {@code BAG_FULL} rather than being rejected — the user is
-     * naming a result, not writing an enum constant, and the one mechanical step between the two is ours to
-     * take. {@link #isValidIdentifier} still guards what this can't fix (a leading digit, punctuation).
-     */
-    static String normalizeOutcome(String typed) {
-        if (typed == null) return "";
-        String cleaned = typed.trim().replaceAll("[\\s.\\-]+", "_");
-        return cleaned.toUpperCase();
-    }
-
-    /** Why {@code candidate} can't be an outcome of {@code draft}, or null when it can. */
-    private static String outcomeProblem(ActivityDraft draft, String candidate, String replacing) {
-        if (candidate.isEmpty()) return "Give the outcome a name.";
-        if (!isValidIdentifier(candidate)) {
-            return "'" + candidate + "' isn't a valid name — it becomes an enum constant in Java.";
-        }
-        if (FlowEdge.NEXT_OUTCOME.equals(candidate)) {
-            return "Every activity already has a NEXT outcome — that's the \"then\" port.";
-        }
-        for (String existing : draft.outcomes()) {
-            if (existing.equals(candidate) && !existing.equals(replacing)) {
-                return "'" + candidate + "' is already an outcome of " + draft.name() + ".";
-            }
-        }
-        return null;
     }
 
     /**
@@ -585,7 +573,7 @@ public class ActivityFlowDialog {
 
     private void renameDraft(ActivityDraft draft, String candidate, TextField field) {
         if (candidate.equals(draft.name())) return;
-        if (!isValidIdentifier(candidate)) {
+        if (!FlowNames.isValidIdentifier(candidate)) {
             error("Invalid activity name — reverted.");
             field.setText(draft.name());
             return;
@@ -647,7 +635,7 @@ public class ActivityFlowDialog {
         Button add = new Button("Add");
         add.setOnAction(e -> {
             String candidate = name.getText() == null ? "" : name.getText().trim();
-            if (!isValidIdentifier(candidate)) {
+            if (!FlowNames.isValidIdentifier(candidate)) {
                 error("Enter a valid name (letters, digits, _; not starting with a digit).");
                 return;
             }
@@ -766,7 +754,7 @@ public class ActivityFlowDialog {
         Set<String> actNames = new HashSet<>();
         Set<String> registryFields = new HashSet<>();
         for (ActivityDefinition a : cfg.activities()) {
-            if (!isValidIdentifier(a.name())) return "Invalid activity name: '" + a.name() + "'.";
+            if (!FlowNames.isValidIdentifier(a.name())) return "Invalid activity name: '" + a.name() + "'.";
             if (!actNames.add(a.name())) return "Duplicate activity name: '" + a.name() + "'.";
             // The registry's singleton per activity is named by upper-casing, so two activities differing only
             // in case would generate one field twice. (Their stub files would also collide on a
@@ -776,7 +764,7 @@ public class ActivityFlowDialog {
             }
             Set<String> paramNames = new HashSet<>();
             for (ActivityVariable p : a.params()) {
-                if (!isValidIdentifier(p.name())) return "Invalid param name in " + a.name() + ": '" + p.name() + "'.";
+                if (!FlowNames.isValidIdentifier(p.name())) return "Invalid param name in " + a.name() + ": '" + p.name() + "'.";
                 if (!paramNames.add(p.name())) return "Duplicate param '" + p.name() + "' in " + a.name() + ".";
             }
             // Outcomes become constants of the activity's generated Outcome enum. Checked against the declared
@@ -785,7 +773,7 @@ public class ActivityFlowDialog {
             Set<String> outcomeNames = new HashSet<>();
             outcomeNames.add(FlowEdge.NEXT_OUTCOME);
             for (String outcome : a.outcomes()) {
-                if (!isValidIdentifier(outcome)) {
+                if (!FlowNames.isValidIdentifier(outcome)) {
                     return "Invalid outcome in " + a.name() + ": '" + outcome + "'.";
                 }
                 if (!outcomeNames.add(outcome)) {
@@ -798,7 +786,7 @@ public class ActivityFlowDialog {
         // Every generated Activities.<field> name must be a unique valid identifier.
         Set<String> fields = new HashSet<>();
         for (ActivityVariable v : cfg.allVariables()) {
-            if (!isValidIdentifier(v.name())) return "Invalid generated field name: '" + v.name() + "'.";
+            if (!FlowNames.isValidIdentifier(v.name())) return "Invalid generated field name: '" + v.name() + "'.";
             if (!fields.add(v.name())) return "Name collision on generated field '" + v.name()
                     + "'. Rename an activity, param or global.";
         }
@@ -820,14 +808,6 @@ public class ActivityFlowDialog {
     private void error(String message) {
         statusLabel.setStyle("-fx-text-fill: #b00020;");
         statusLabel.setText(message);
-    }
-
-    static boolean isValidIdentifier(String s) {
-        if (s == null || s.isEmpty() || !Character.isJavaIdentifierStart(s.charAt(0))) return false;
-        for (int i = 1; i < s.length(); i++) {
-            if (!Character.isJavaIdentifierPart(s.charAt(i))) return false;
-        }
-        return true;
     }
 
     private static String rootMessage(Throwable err) {

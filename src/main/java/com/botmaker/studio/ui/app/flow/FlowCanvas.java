@@ -109,6 +109,8 @@ public final class FlowCanvas extends StackPane {
     private Consumer<String> onMessage = m -> {};
     /** Fired whenever the wiring changes, so the dialog can refresh its reachability summary. */
     private Runnable onChainChanged = () -> {};
+    /** Fired on a double-click on empty canvas, with the point in unscaled canvas coordinates. */
+    private Consumer<Point2D> onCanvasDoubleClick = p -> {};
 
     private CubicCurve pendingWire;
     private ActivityDraft pendingFrom;
@@ -190,6 +192,11 @@ public final class FlowCanvas extends StackPane {
     public void setOnMessage(Consumer<String> onMessage) { this.onMessage = onMessage; }
 
     public void setOnChainChanged(Runnable onChainChanged) { this.onChainChanged = onChainChanged; }
+
+    /** Where a double-click on empty canvas goes — the dialog opens its "new activity" prompt there. */
+    public void setOnCanvasDoubleClick(Consumer<Point2D> onCanvasDoubleClick) {
+        this.onCanvasDoubleClick = onCanvasDoubleClick;
+    }
 
     /** Adds a card for {@code draft} at its stored position and selects it. */
     public void add(ActivityDraft draft) {
@@ -550,6 +557,13 @@ public final class FlowCanvas extends StackPane {
     private void beginCanvasGesture(MouseEvent e) {
         if (e.getButton() == MouseButton.PRIMARY) {
             if (e.getTarget() != content) return;   // a card handles its own press
+            if (e.getClickCount() == 2) {
+                // The first click of the pair already ran this method and its band was cleared on release, so
+                // there is nothing to undo — just don't start a second one on top of the dialog.
+                onCanvasDoubleClick.accept(new Point2D(e.getX(), e.getY()));
+                e.consume();
+                return;
+            }
             select(null);
             bandOrigin = new Point2D(e.getX(), e.getY());
             rubberBand.setX(bandOrigin.getX());

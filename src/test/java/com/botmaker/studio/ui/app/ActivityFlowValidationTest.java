@@ -2,6 +2,7 @@ package com.botmaker.studio.ui.app;
 
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityDefinition;
+import com.botmaker.studio.ui.app.flow.FlowNames;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -53,11 +54,11 @@ class ActivityFlowValidationTest {
     @Test
     void anOutcomeTypedWithSpacesIsNormalisedRatherThanRejected() {
         // "bag full" is a perfectly clear thing to type; turning it into the enum constant is our job.
-        assertEquals("BAG_FULL", ActivityFlowDialog.normalizeOutcome("bag full"));
-        assertEquals("BAG_FULL", ActivityFlowDialog.normalizeOutcome("  bag-full "));
-        assertEquals("NO_ORE", ActivityFlowDialog.normalizeOutcome("no.ore"));
+        assertEquals("BAG_FULL", FlowNames.normalizeOutcome("bag full"));
+        assertEquals("BAG_FULL", FlowNames.normalizeOutcome("  bag-full "));
+        assertEquals("NO_ORE", FlowNames.normalizeOutcome("no.ore"));
         assertNull(ActivityFlowDialog.validate(of(activity("Mining",
-                ActivityFlowDialog.normalizeOutcome("bag full")))));
+                FlowNames.normalizeOutcome("bag full")))));
     }
 
     @Test

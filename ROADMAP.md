@@ -6,6 +6,23 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-01 — improvements Phase 2: the Activity Flow arranges itself, and new activities get a real
+  dialog.** Three changes to `ActivityFlowDialog` / `FlowCanvas`. (1) A flow whose saved layout carries *no*
+  card positions is auto-arranged on open, in the same post-layout `Platform.runLater` that redraws the wires
+  (so cards stack by their real heights, not the fallback). One saved position is enough to mean somebody laid
+  this out by hand, and then nothing moves — positions are persisted and stomping them would be unrecoverable.
+  (2) New `ui/app/flow/NewActivityDialog`: name, description, go-home tick and an editable outcome list, with
+  the implicit `NEXT` shown as a fixed, non-removable first row (it isn't part of `ActivityDraft.outcomes()`,
+  so an ordinary row would either lose it on save or duplicate it — but hiding it makes the card grow a port
+  the dialog never mentioned). It replaces the top bar's bare name field, which could only produce an activity
+  with no outcomes at all. (3) Both entry points go through `createActivityAt(Point2D)`: the "Add activity"
+  button at `nextFreeSpot()`, and a double-click on empty canvas under the cursor — `beginCanvasGesture` now
+  guards `getClickCount() == 2` on the primary button and returns before starting a rubber-band. The point is
+  `content`-local, which is already pre-`Scale` canvas space, so the card lands under the cursor at any zoom.
+  The naming rules moved to `ui/app/flow/FlowNames` (identifier, outcome normalisation, name-collision
+  messages) now that two dialogs in two packages apply them; a lenient second copy would admit a name that
+  only breaks later, in the generator.
+
 - **2026-08-01 — improvements Phase 1: the launch-target button shows its cover art after Project Setup.**
   `ProjectSetupDialog` opened `LaunchTargetDialog` with `spec -> refresh()`, a callback that only re-ticked
   its own checklist rows. `ToolbarManager.setLaunchTarget` is the sole path that re-labels the toolbar button
