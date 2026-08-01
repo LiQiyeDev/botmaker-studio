@@ -24,8 +24,6 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Rectangle;
-import javafx.scene.transform.Scale;
-import javafx.scene.transform.Translate;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import javafx.stage.Window;
@@ -53,22 +51,16 @@ import java.util.function.Consumer;
  * <p>GrabCut takes hundreds of milliseconds, so every solve runs on a worker thread with a busy indicator;
  * input is ignored while one is in flight.
  *
- * <p><b>Zoom.</b> Ctrl+scroll zooms about the cursor and middle-drag pans; Ctrl+0 resets. Only this surface
- * zooms — the sibling {@link CaptureSurface} is a transparent window onto the <em>live</em> desktop, where a
- * zoomed view would no longer line up with what is underneath it. Here the frame is frozen and copied into the
- * scene graph, so it can be magnified freely. All of it rides on a {@link Scale}/{@link Translate} pair on the
- * layer group, which means every coordinate the rest of the class handles stays in unscaled surface-logical
- * space: only {@link #toContent(MouseEvent)} knows the zoom exists.
+ * <p><b>Zoom.</b> Ctrl+scroll zooms about the cursor and middle-drag pans; Ctrl+0 resets — all of it owned by
+ * {@link ZoomPan}, which keeps every coordinate the rest of this class handles in unscaled surface-logical
+ * space. The sibling {@link CaptureSurface} deliberately does not zoom: it is a transparent window onto the
+ * <em>live</em> desktop, where a magnified view would no longer line up with what is underneath it. Here the
+ * frame is frozen and copied into the scene graph, so it can be magnified freely.
  */
 public final class ObjectCaptureSurface {
 
     /** Brush radius in image pixels for refinement strokes. */
     private static final int BRUSH_RADIUS = 6;
-
-    private static final double MIN_ZOOM = 0.4;
-    /** Deliberately higher than the flow canvas's 2×: picking a single pixel's worth of edge is the point here. */
-    private static final double MAX_ZOOM = 8.0;
-    private static final double ZOOM_STEP = 1.1;
 
     private final Stage stage;
     private final BufferedImage frame;      // the frozen window snapshot, physical pixels
@@ -83,8 +75,7 @@ public final class ObjectCaptureSurface {
     private final Canvas strokeLayer;                    // transient stroke trail
     private final Rectangle band = new Rectangle();      // rubber band while boxing
     private final Group layers;                          // everything that zooms, in surface-logical coordinates
-    private final Scale zoom = new Scale(1, 1);
-    private final Translate pan = new Translate();
+    private final ZoomPan zoomPan;
     private final Label hud = new Label();
     private final Label zoomLabel = new Label();
     private final Button captureBtn = new Button("✓ Capture");
@@ -96,8 +87,6 @@ public final class ObjectCaptureSurface {
     private double dragStartX, dragStartY;  // content coordinates of the press that began the gesture
     private boolean paintingForeground = true;
     private boolean gesturing = false;      // a box/paint drag is in flight (the press landed on the image)
-    private boolean panning = false;
-    private double panStartX, panStartY, panOriginX, panOriginY;
 
     private ObjectCaptureSurface(Window owner, java.awt.Rectangle bounds, BufferedImage frame,
                                  Consumer<BufferedImage> onExtract, Runnable onCancel) {
@@ -125,11 +114,11 @@ public final class ObjectCaptureSurface {
         band.setMouseTransparent(true);
 
         layers = new Group(background, preview, strokeLayer, band);
-        // Order matters: local→parent applies the list front-to-back, so a point is scaled and then translated.
-        layers.getTransforms().addAll(pan, zoom);
 
         pane.getChildren().addAll(layers, buildControlBar(bounds));
         pane.setStyle("-fx-background-color: rgba(10,14,20,0.15);");
+        zoomPan = ZoomPan.attach(pane, layers);
+        zoomPan.zoomProperty().addListener((obs, o, n) -> applyZoom());
         installHandlers();
         applyZoom();
 
@@ -164,7 +153,7 @@ public final class ObjectCaptureSurface {
         hud.setTextFill(Color.web("#e8eefb"));
 
         zoomLabel.setTextFill(Color.web("#9fb0cc"));
-        zoomLabel.setOnMouseClicked(e -> resetZoom());
+        zoomLabel.setOnMouseClicked(e -> zoomPan.reset());
         zoomLabel.setTooltip(new javafx.scene.control.Tooltip("Click to reset zoom (Ctrl+0)"));
 
         busySpinner.setPrefSize(16, 16);
@@ -191,14 +180,6 @@ public final class ObjectCaptureSurface {
             // Only the image starts a gesture: the control bar sits in the same pane, and a press that misses
             // a button there used to open a rubber band behind it.
             if (e.getTarget() != background) return;
-            if (e.getButton() == MouseButton.MIDDLE) {
-                panning = true;
-                panStartX = e.getX();
-                panStartY = e.getY();
-                panOriginX = pan.getX();
-                panOriginY = pan.getY();
-                return;
-            }
             if (busy) return;
             gesturing = true;
             Point2D p = toContent(e);
@@ -218,11 +199,6 @@ public final class ObjectCaptureSurface {
         });
 
         pane.setOnMouseDragged(e -> {
-            if (panning) {
-                pan.setX(panOriginX + e.getX() - panStartX);
-                pan.setY(panOriginY + e.getY() - panStartY);
-                return;
-            }
             if (busy || !gesturing) return;
             Point2D p = toContent(e);
             if (!boxed) {
@@ -236,7 +212,6 @@ public final class ObjectCaptureSurface {
         });
 
         pane.setOnMouseReleased(e -> {
-            if (panning) { panning = false; return; }
             if (busy || !gesturing) return;
             gesturing = false;
             Point2D p = toContent(e);
@@ -251,46 +226,16 @@ public final class ObjectCaptureSurface {
                 solve(() -> session.refine(MagicWand.DEFAULT_ITERATIONS));
             }
         });
-
-        pane.setOnScroll(e -> {
-            // Ctrl-gated: a bare wheel event on a touchpad is easy to fire by accident mid-drag.
-            if (!e.isControlDown() || e.getDeltaY() == 0) return;
-            zoomAt(e.getX(), e.getY(), e.getDeltaY() > 0 ? ZOOM_STEP : 1 / ZOOM_STEP);
-            e.consume();
-        });
     }
 
-    /**
-     * A mouse point in pane coordinates, in the unscaled surface-logical space the rest of the class works in —
-     * so {@code * scaleX} still lands on the right image pixel at any zoom.
-     */
+    /** A mouse point in the unscaled surface-logical space the rest of the class works in. */
     private Point2D toContent(MouseEvent e) {
-        return layers.parentToLocal(e.getX(), e.getY());
-    }
-
-    /** Scales by {@code factor} about the pane point {@code (px, py)}, so the pixel under the cursor stays put. */
-    private void zoomAt(double px, double py, double factor) {
-        double next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom.getX() * factor));
-        if (next == zoom.getX()) return;
-        Point2D anchor = layers.parentToLocal(px, py);
-        zoom.setX(next);
-        zoom.setY(next);
-        pan.setX(px - next * anchor.getX());
-        pan.setY(py - next * anchor.getY());
-        applyZoom();
-    }
-
-    private void resetZoom() {
-        zoom.setX(1);
-        zoom.setY(1);
-        pan.setX(0);
-        pan.setY(0);
-        applyZoom();
+        return zoomPan.toContent(e);
     }
 
     /** Keeps the readout, the band's hairline and the image filtering in step with the current scale. */
     private void applyZoom() {
-        double s = zoom.getX();
+        double s = zoomPan.zoom();
         zoomLabel.setText(Math.round(s * 100) + "%");
         // The band is an overlay marker, not content — it should stay one pixel wide however far we are zoomed.
         band.setStrokeWidth(1.5 / s);
@@ -396,7 +341,7 @@ public final class ObjectCaptureSurface {
         if (e.getCode() == KeyCode.ESCAPE) { cancel(); return; }
         if (!e.isControlDown()) return;
         if (e.getCode() == KeyCode.DIGIT0 || e.getCode() == KeyCode.NUMPAD0) {
-            resetZoom();
+            zoomPan.reset();
             e.consume();
             return;
         }

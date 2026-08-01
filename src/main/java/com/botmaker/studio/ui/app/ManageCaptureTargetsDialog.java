@@ -88,6 +88,17 @@ public class ManageCaptureTargetsDialog {
     }
 
     public void show() {
+        show(null);
+    }
+
+    /**
+     * As {@link #show()}, additionally running {@code onClosed} on the FX thread once the window is gone.
+     *
+     * <p>The stage is modal but {@code show()} does not block, so a caller that opened this dialog to fix
+     * something — {@code GameFrame} sending a user here when there is no capture target to sample — has no
+     * other way to know when to look again.
+     */
+    public void show(Runnable onClosed) {
         stage = new Stage();
         stage.initOwner(owner);
         stage.initModality(Modality.APPLICATION_MODAL);
@@ -109,7 +120,10 @@ public class ManageCaptureTargetsDialog {
         root.getChildren().addAll(buildList(), buildAddRow(), buildButtonBar());
 
         stage.setScene(new Scene(root, 560, 520));
-        stage.setOnHidden(e -> thumbExec.shutdownNow());
+        stage.setOnHidden(e -> {
+            thumbExec.shutdownNow();
+            if (onClosed != null) onClosed.run();
+        });
         stage.show();
     }
 

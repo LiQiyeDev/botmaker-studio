@@ -6,6 +6,32 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-02 — an eyedropper, and one `Precision` editor that only shows the knobs the call can use.**
+  There was no way to pick a colour *from the game*: `ColorArgPicker` opened the OS palette, which answers
+  "which colour do I want" when a bot author already has a pixel on screen and needs the value that matches
+  it — and game art is shaded and compressed, so a health bar's red is never `Color.RED`. New
+  `ui/app/capture/ColorSampler` is an eyedropper over a frozen frame with an 8× loupe on the exact pixel, and
+  it reports the **ΔE spread of the 5×5 neighbourhood** — the honest suggested tolerance, and the number the
+  ΔE slider never had any way to justify. `ColorArgPicker` gained the button; both paths commit the same
+  fully-qualified `new java.awt.Color(r, g, b)`.
+  `ToleranceArgPicker` + `MinPixelsArgPicker` collapse into one **`PrecisionArgPicker`**, following the SDK's
+  collapse of `Tolerance` + `MinPixels` into `Precision(deltaE, minArea, minCount)`. It keeps the anchor
+  slider with its swatch strip and the to-scale blob-on-a-grid, adds the `minCount` spinner, and — with a
+  frame in hand — reports what the current settings actually do to it ("3 blobs match, largest 812 px²"),
+  naming *which* gate rejected a miss. That search is debounced 150 ms and run off the FX thread; it is real
+  OpenCV work over a full frame. It **reads `PickerContext.methodName()` to hide the knobs the call cannot
+  act on**, so a `Precision` on `matchesAt`/`coverage` offers the tolerance alone and one on `findInRange`
+  only the quantity gates — the SDK's "some fields are ignored here" javadoc turned into something the UI
+  enforces. Committed source is the shortest exact form (`Precision.TIGHT.minArea(400)`), and every form it
+  writes reads back as the values it was given, wither chains included.
+  New `ui/app/capture/GameFrame` is the single way to get a frozen frame, so the no-frame path is written
+  once: it distinguishes **no capture target** from **a target that grabbed blank** (a real Wayland case that
+  a message blaming the configuration sends the user to fix the wrong thing), offers *Choose target…* into
+  `ManageCaptureTargetsDialog`, and retries on close — never a silent desktop fallback.
+  New `ui/app/capture/ZoomPan` extracts the Ctrl+scroll/middle-drag gesture out of `ObjectCaptureSurface`;
+  installed as event *filters*, it consumes what it uses, so that surface lost its `panning` bookkeeping
+  entirely rather than gaining a second caller's worth of guards. 635 → 637 tests.
+
 - **2026-08-02 — improvements Phase 9: two generated files that held no project data are gone.**
   `GameLoop.java` was a one-line `FlowDriver.run()` hop and `Startup.java` a two-branch switch over `Target`;
   neither said anything about *this* project, and both were `MethodLock.FULL`, so the Studio never let anyone

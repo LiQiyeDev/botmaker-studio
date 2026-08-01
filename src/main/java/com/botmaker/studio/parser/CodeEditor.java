@@ -216,7 +216,7 @@ public class CodeEditor {
 
     /**
      * Replaces {@code toReplace} with a snippet that names {@code importFqn} by its simple name, adding that
-     * import. Lets a picker commit {@code Tolerance.TIGHT} instead of the fully-qualified form the
+     * import. Lets a picker commit {@code Precision.TIGHT} instead of the fully-qualified form the
      * import-free {@link #replaceWithRawExpression(Expression, String)} above requires.
      */
     public void replaceWithRawExpression(Expression toReplace, String exprCode, String importFqn) {

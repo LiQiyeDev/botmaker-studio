@@ -26,8 +26,8 @@ public final class RawExpressionHandler {
 
     /**
      * As above, additionally importing {@code importFqn} — for a snippet that names a type by its
-     * <em>simple</em> name ({@code Tolerance.TIGHT}). The fully-qualified alternative needs no import but puts
-     * {@code com.botmaker.sdk.api.vision.Tolerance.TIGHT} in the user's source, and these two read as
+     * <em>simple</em> name ({@code Precision.TIGHT}). The fully-qualified alternative needs no import but puts
+     * {@code com.botmaker.sdk.api.vision.Precision.TIGHT} in the user's source, and these two read as
      * documentation at the call site or they are not worth being types at all.
      */
     public static String replaceWithExpression(CompilationUnit cu, String originalCode,
