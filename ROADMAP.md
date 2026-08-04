@@ -6,6 +6,21 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-04 — pickers for durations and the clock.** Improvements plan phase 5, the Studio half of the
+  SDK's new `Duration`. `ui/render/components/pickers/DurationPicker` is registered **by type** in
+  `PickerRegistry` beside `Precision`: a value, a unit dropdown (ms/s/min) and a *random range* toggle that
+  commits `Duration.between(…)`. The unit shown is the one the source names — `Duration.seconds(1.5)` and
+  `Duration.ms(1500)` are the same value, so reading the number back would silently rewrite what the user
+  typed. `palette/BlockCatalog.WAIT` now inserts `Wait.time(Duration.seconds(1))` rather than
+  `Wait.milliseconds(1000)`, so the block the menu adds is the one the picker can edit.
+  `ui/render/components/pickers/TimeArgPicker` covers the `Time` facade: a 24-hour clock for a `LocalTime`
+  slot (`LocalTime.of(5, 30)` vs `LocalTime.of(5, 3)` is one keystroke and both compile), a day dropdown for
+  `DayOfWeek` — `EnumPicker` can't resolve `java.time` constants, so it would otherwise be a text pill — and,
+  as the one `(method, argIndex)` hook here, an 0–23 dropdown for the bare hours of `Time.isBetween(int, int)`.
+  `InitializerFactory` seeds all three types (each is constructor-less, so the generic `new T()` would be
+  uncompilable in the user's project); the `java.time` seeds are fully qualified because those types aren't in
+  the SDK jar the analyzer indexes. +12 tests (663 total).
+
 - **2026-08-04 — a popup detector the user configures by editing it.** Improvements plan phase 4, the Studio
   half of the SDK's `PopupGuard`. The game-bot scaffold now generates an editable `Popups.java` beside
   `GoHome.java` (`project/ProjectCreator.gameBotSources`), and the entry point installs it with

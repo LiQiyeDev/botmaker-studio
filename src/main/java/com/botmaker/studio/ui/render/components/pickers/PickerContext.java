@@ -86,6 +86,24 @@ public record PickerContext(CodeEditorService context, ExpressionBlock arg, Reso
                 || isEmulatorMethod("launch") || isEmulatorMethod("stop"));
     }
 
+    /** True when the enclosing call is on the SDK {@code Time} facade and names {@code method}. */
+    public boolean isTimeMethod(String method) {
+        return method.equals(methodName)
+                && className != null && (className.equals("Time") || className.endsWith(".Time"));
+    }
+
+    /**
+     * An hour argument of {@code Time.isBetween(startHour, endHour)} / {@code isBetweenUtc(…)} — offered the
+     * 0–23 dropdown. This is a {@code (method, argIndex)} hook rather than a type-based one because these two
+     * overloads take bare {@code int}s; the minute-precision {@code isBetween(LocalTime, LocalTime)} beside
+     * them is dispatched on its type instead, which is why it does not appear here.
+     */
+    public boolean isTimeHourArg() {
+        return (argIndex == 0 || argIndex == 1)
+                && (isTimeMethod("isBetween") || isTimeMethod("isBetweenUtc"))
+                && paramType != null && "int".equals(paramType.simpleName());
+    }
+
     /** True when the enclosing call is on the SDK {@code BotSettings} facade and names {@code method}. */
     public boolean isBotSettingsMethod(String method) {
         return method.equals(methodName)

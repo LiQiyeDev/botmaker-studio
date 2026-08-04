@@ -186,7 +186,7 @@ class StatementFactoryTest {
      * <p>SP8 is listed as a cross-module item — "{@code StatementFactory} stops emitting
      * {@code printStackTrace} into bot source", with the SDK's {@code Debug} channel as the replacement, which
      * would make it the only blocks/parser item needing a coordinated SDK release. It doesn't: the palette's
-     * {@code WAIT} entry is a {@code LibraryCall} onto the SDK's {@code Wait.milliseconds}, and
+     * {@code WAIT} entry is a {@code LibraryCall} onto the SDK's {@code Wait.time}, and
      * {@code Kind.WAIT} — the only route to {@code createWaitStatement}, the only place in the factory that
      * emits {@code printStackTrace} — has <b>no reference anywhere in the module</b>.
      *
@@ -197,8 +197,8 @@ class StatementFactoryTest {
     void theWaitBlockInsertsAnSdkCallAndNotARawThreadSleep() {
         String inserted = text(BlockCatalog.WAIT);
 
-        assertTrue(inserted.startsWith("Wait.milliseconds("),
-                "the palette's Wait must insert the SDK call: " + inserted);
+        assertTrue(inserted.startsWith("Wait.time(Duration."),
+                "the palette's Wait must insert the SDK call, in its editable Duration form: " + inserted);
         assertTrue(!inserted.contains("Thread.sleep"), inserted);
         assertTrue(!inserted.contains("printStackTrace"),
                 "no generated bot source may carry a printStackTrace: " + inserted);

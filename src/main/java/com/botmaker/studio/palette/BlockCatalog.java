@@ -51,11 +51,13 @@ public final class BlockCatalog {
     // Activity enable/disable and stop-the-bot are standard SDK facade calls now — Activity.enable/disable("X")
     // and Bot.stop() come from the Activity/Bot facade submenus and render with the normal SDK-block chrome, so
     // there are no bespoke CONTROL blocks for them (they used to be DISABLE_ACTIVITY/ENABLE_ACTIVITY/STOP_BOT).
-    // "Wait" is a standard SDK block on the Wait facade (Wait.milliseconds/seconds), so the user gets the
-    // class/method/overload chrome — not a raw Thread.sleep. (Existing Thread.sleep bots still round-trip via
-    // WaitBlock; this only changes what the menu inserts.)
-    public static final BlockType WAIT = new LibraryCall("WAIT", "Wait", CONTROL, "Wait", "milliseconds",
-            List.of(new IntLit("1000")));
+    // "Wait" is a standard SDK block on the Wait facade, so the user gets the class/method/overload chrome —
+    // not a raw Thread.sleep. (Existing Thread.sleep bots still round-trip via WaitBlock; this only changes
+    // what the menu inserts.) It inserts the Duration overload rather than milliseconds(int) because that is
+    // the one the Studio gives a real editor to — a unit dropdown and the random-range toggle — where a bare
+    // int is only ever a text pill whose unit lives in the method name.
+    public static final BlockType WAIT = new LibraryCall("WAIT", "Wait", CONTROL, "Wait", "time",
+            List.of(new StaticCall("Duration", "seconds", List.of(new IntLit("1")))));
 
     // --- Variables ---
     public static final BlockType DECLARE_INT =

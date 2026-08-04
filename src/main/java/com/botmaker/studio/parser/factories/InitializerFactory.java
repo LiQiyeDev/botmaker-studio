@@ -110,6 +110,16 @@ public class InitializerFactory {
         // unlike java.awt.Color it resolves through the analyzer's SDK index.
         String seededConstant = switch (richType.leafType().simpleName()) {
             case "Precision" -> "Precision.DEFAULT";
+            // Same reason again: a record with required components. A duration has no meaningful "named
+            // default", so the seed is a plausible literal wait instead — one second, in the unit the picker
+            // will show it in, so the control opens reading back exactly what is in the source.
+            case "Duration" -> "Duration.seconds(1)";
+            // java.time values, for the Time facade's window predicates — neither has a public constructor, so
+            // the generic `new T()` below is uncompilable for them too. Fully qualified like java.awt.Color
+            // and unlike Precision: these come from the JDK, not the SDK jar the analyzer indexes, so the
+            // import the argument-default paths add alongside this seed would not resolve.
+            case "LocalTime" -> "java.time.LocalTime.of(12, 0)";
+            case "DayOfWeek" -> "java.time.DayOfWeek.MONDAY";
             default -> null;
         };
         if (seededConstant != null) {
