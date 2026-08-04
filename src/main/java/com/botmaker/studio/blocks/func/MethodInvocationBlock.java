@@ -275,8 +275,12 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
         if (isStatementContext && !isReadOnly()) {
             container.getChildren().addAll(
                     BlockUIComponents.createSpacer(),
-                    BlockUIComponents.createDeleteButton(() ->
-                            context.getCodeEditor().deleteStatement((Statement) this.astNode.getParent()))
+                    BlockUIComponents.createDeleteButton(() -> {
+                        // enclosingStatement(), not astNode.getParent(): this block's node is the
+                        // MethodInvocation, and the wrapping ExpressionStatement is not always its direct parent.
+                        Statement statement = enclosingStatement();
+                        if (statement != null) context.getCodeEditor().deleteStatement(statement);
+                    })
             );
         }
 

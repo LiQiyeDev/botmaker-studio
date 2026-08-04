@@ -87,6 +87,16 @@ public enum MethodLock {
             java.util.Set.of("GoHome.java", "Popups.java");
 
     /**
+     * {@link #SUPERVISED_HOOKS}, for callers that need to <em>offer</em> the hooks rather than classify one —
+     * the overlay's activity picker lists them beside the real activities. They live directly beside the
+     * project's main source file, not under {@code activities/}, and they have no {@code ActivityDefinition},
+     * which is why a picker built from the activity flow alone can never reach them.
+     */
+    public static java.util.Set<String> superviseHookFiles() {
+        return SUPERVISED_HOOKS;
+    }
+
+    /**
      * Classifies {@code method} of {@code file}. Never null; anything unrecognised is {@link #NONE}, so a method
      * the Studio doesn't know about is left to {@link FileRole} to judge.
      */

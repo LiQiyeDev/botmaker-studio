@@ -34,9 +34,7 @@ public abstract class AbstractStatementBlock extends AbstractCodeBlock implement
     /** The delete button, or null when this block may not be deleted. */
     protected Button createDeleteButton(CodeEditorService context) {
         if (isReadOnly()) return null;
-        return BlockUIComponents.createDeleteButton(() ->
-                context.getCodeEditor().deleteStatement((Statement) this.astNode)
-        );
+        return BlockUIComponents.createDeleteButton(() -> deleteSelf(context));
     }
 
     protected Label createKeywordLabel(String text) {
@@ -55,7 +53,18 @@ public abstract class AbstractStatementBlock extends AbstractCodeBlock implement
     /** What deleting this block does, or null when it may not be deleted (builders then omit the control). */
     protected Runnable deleteAction(CodeEditorService context) {
         if (isReadOnly()) return null;
-        return () -> context.getCodeEditor().deleteStatement((Statement) this.astNode);
+        return () -> deleteSelf(context);
+    }
+
+    /**
+     * Removes this block's statement. Goes through {@link #enclosingStatement()} rather than casting
+     * {@code astNode}: the cast holds for every block whose own node <em>is</em> a {@link Statement}, which is
+     * most of them, but a subclass backed by an expression would throw here — the same confusion that made the
+     * overlay's delete a silent no-op.
+     */
+    private void deleteSelf(CodeEditorService context) {
+        Statement statement = enclosingStatement();
+        if (statement != null) context.getCodeEditor().deleteStatement(statement);
     }
 
     /** The "+" button, or null when this block is read-only. */

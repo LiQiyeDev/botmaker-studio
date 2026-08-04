@@ -6,6 +6,22 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-04 — Overlay editor: delete, a live argument popup, and the scaffold hooks.** Improvements round 2
+  phase 1. **Delete worked on nothing that mattered**: `ProgramShapeOverlay.delete` tested the block's *own*
+  node for `instanceof Statement`, which is false for every method-call row — `MethodInvocationBlock` holds the
+  `MethodInvocation`, not its `ExpressionStatement` — so both ✕ and Del returned silently. The target is now
+  resolved by `CodeBlock.enclosingStatement()` (new default method), and the two other spellings that had grown
+  around the same confusion (`AbstractStatementBlock`'s `(Statement) astNode` cast, `MethodInvocationBlock`'s
+  `astNode.getParent()` one) go through it too. **The argument popup no longer goes stale**: it was built once
+  from block/AST nodes that every picker write replaces, so it showed old values and dropped every edit after
+  the first — `configContent` is now rebuilt in place (same `Stage`, same position) on each re-parse via
+  `refreshConfig`, located by body-ordinal coordinates, and it closes only when its call is gone. Plus an
+  explicit **Done** button, since `setAlwaysOnTop` + `promoteAboveFullscreen` can leave no title bar to close
+  it with. **`GoHome`/`Popups` are selectable**: they have no `ActivityDefinition` and live beside the main
+  source rather than under `activities/`, so a picker built from the flow could never reach them —
+  `targetNames()` appends the on-disk hooks under a disabled `— scaffolds —` caption
+  (`MethodLock.superviseHookFiles()`), and `selectActivity` resolves either location.
+
 - **2026-08-04 — Waydroid troubleshooting in the emulator picker.** Improvements plan phase 6, Studio half.
   `ui/render/components/WaydroidDiagnosticsDialog` renders shared's `WaydroidDiagnostics` findings — symptom,
   remedy, and the commands in a read-only monospace area with a **Copy** button and *no Run button*, because

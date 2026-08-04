@@ -132,6 +132,16 @@ public final class ProgramShapeOverlay {
 
     /** The open per-argument config popover (if any), tracked so it can be hidden while a capture overlay is up. */
     private Stage configDlg;
+    /**
+     * Where the open popover's call sits, and the pane holding its rows — the two halves of keeping it live
+     * across a re-parse. Every picker writes through {@code CodeEditor}, which republishes the whole tree, so
+     * the {@code MethodInvocationBlock} and every argument node the popover was built from are dead the moment
+     * the first argument is set. The popover used to keep them anyway: it showed stale values and dropped every
+     * edit after the first. {@link #refreshConfig} re-resolves the call from these coordinates and rebuilds the
+     * rows in place, so the window itself (and its position) survives.
+     */
+    private PendingInsert configTarget;
+    private ScrollPane configScroll;
     /** Unsubscribes the capture-overlay visibility listener when the overlay closes. */
     private AutoCloseable captureVisibility;
     /** Event-bus subscriptions taken out in {@link #show}, dropped on close so a reopen doesn't stack another set. */
@@ -414,7 +424,7 @@ public final class ProgramShapeOverlay {
 
         // The handler is installed *after* the initial value, so the one explicit call below is the only one —
         // ComboBox.setValue's action-firing behaviour is not something to have two code paths depend on.
-        String initial = preferredActivity(activityNames());
+        String initial = preferredTarget();
         if (initial != null) {
             activityBox.setValue(initial);
             selectActivity(initial);
@@ -510,12 +520,21 @@ public final class ProgramShapeOverlay {
 
     /** The picker naming the activity every insert goes into, plus a nudge when the project has none. */
     private HBox buildActivityRow() {
-        List<String> names = activityNames();
-        activityBox = new ComboBox<>(javafx.collections.FXCollections.observableArrayList(names));
+        List<String> items = targetNames();
+        activityBox = new ComboBox<>(javafx.collections.FXCollections.observableArrayList(items));
         activityBox.setTooltip(new Tooltip("The activity that new and recorded blocks are inserted into"));
+        activityBox.setCellFactory(lv -> new javafx.scene.control.ListCell<>() {
+            @Override protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty ? null : item);
+                boolean header = SCAFFOLD_HEADER.equals(item);
+                setDisable(header);   // a caption, not a choice
+                setStyle(header ? "-fx-font-style: italic; -fx-opacity: 0.7;" : "");
+            }
+        });
         HBox row = new HBox(6, label("Activity:"), activityBox);
-        if (names.isEmpty()) {
-            activityBox.setDisable(true);
+        activityBox.setDisable(items.isEmpty());
+        if (activityNames().isEmpty()) {
             activityBox.setPromptText("none yet");
             row.getChildren().add(dimLabel("add one in Project ▸ Activity Flow"));
         }
@@ -528,6 +547,37 @@ public final class ProgramShapeOverlay {
         return activities.current().liveActivities().stream().map(ActivityDefinition::name).toList();
     }
 
+    /** Caption separating the flow's activities from the scaffold hooks; disabled in the list, never selectable. */
+    private static final String SCAFFOLD_HEADER = "— scaffolds —";
+
+    /**
+     * Everything the overlay can author into: the activities, then the supervised scaffold hooks
+     * ({@code GoHome}, {@code Popups}) that exist on disk. The hooks are as much a place for blocks as any
+     * activity — their {@code run()} body is the user's by {@link com.botmaker.studio.project.MethodLock}'s
+     * design, and {@code Popups} in particular is where the popup-dismissal steps belong — but they have no
+     * {@link ActivityDefinition}, so a list built from the flow alone could never reach them.
+     */
+    private List<String> targetNames() {
+        List<String> out = new ArrayList<>(activityNames());
+        List<String> hooks = hookNames();
+        if (!hooks.isEmpty()) {
+            out.add(SCAFFOLD_HEADER);
+            out.addAll(hooks);
+        }
+        return out;
+    }
+
+    /** The scaffold hooks present in this project, by class name. Empty for a template that has none. */
+    private List<String> hookNames() {
+        java.nio.file.Path dir = context.getConfig().mainSourceFile().getParent();
+        if (dir == null) return List.of();
+        return com.botmaker.studio.project.MethodLock.superviseHookFiles().stream()
+                .sorted()
+                .filter(f -> java.nio.file.Files.isRegularFile(dir.resolve(f)))
+                .map(f -> f.substring(0, f.length() - ".java".length()))
+                .toList();
+    }
+
     /**
      * Refreshes {@link #activityBox}'s items after an {@link ActivitiesChangedEvent} (an activity was
      * created/renamed/removed elsewhere). Leaves an already-valid selection alone — creating an unrelated
@@ -536,37 +586,52 @@ public final class ProgramShapeOverlay {
      */
     private void refreshActivityBox() {
         if (activityBox == null) return;
-        List<String> names = activityNames();
-        activityBox.getItems().setAll(names);
-        activityBox.setDisable(names.isEmpty());
-        if (names.isEmpty()) {
+        List<String> items = targetNames();
+        activityBox.getItems().setAll(items);
+        activityBox.setDisable(items.isEmpty());
+        if (items.isEmpty()) {
             activityBox.setPromptText("none yet");
             return;
         }
+        // A scaffold hook is a valid selection, so the still-valid test is against the whole item list —
+        // otherwise creating an unrelated activity would yank a user editing Popups back into the flow.
         String current = activityBox.getValue();
-        if (current == null || !names.contains(current)) {
-            String next = preferredActivity(names);
+        if (current == null || !items.contains(current)) {
+            String next = preferredTarget();
             activityBox.setValue(next);
             selectActivity(next);
         }
     }
 
     /**
-     * Which activity to open on: the one last authored into, else the flow's start node, else the first. The
-     * last-used one is remembered per project so reopening the overlay resumes where the last session stopped.
+     * Which target to open on: the one last authored into (activity <em>or</em> scaffold hook — the last-used
+     * one is remembered per project so reopening the overlay resumes where the last session stopped), else the
+     * flow's start node, else the first activity, else a hook for a project that has no activities yet.
      */
-    private String preferredActivity(List<String> names) {
-        if (names.isEmpty()) return null;
+    private String preferredTarget() {
         String last = settings.current().lastRecordedActivity();
-        if (last != null && names.contains(last)) return last;
+        if (last != null && !SCAFFOLD_HEADER.equals(last) && targetNames().contains(last)) return last;
+        List<String> names = activityNames();
+        if (names.isEmpty()) {
+            List<String> hooks = hookNames();
+            return hooks.isEmpty() ? null : hooks.get(0);
+        }
         String start = activities.current().flow().resolvedStart(names);
         return names.contains(start) ? start : names.get(0);
     }
 
-    /** Switches the editor to {@code activities/<name>.java}, parks the cursor in its {@code run()}, remembers it. */
+    /**
+     * Switches the editor to the picked target's file, parks the cursor in its {@code run()}, remembers it.
+     * The file is {@code activities/<name>.java} for an activity and {@code <name>.java} beside the main source
+     * for a scaffold hook — {@link #targetNames} offers both, so this resolves both.
+     */
     private void selectActivity(String name) {
-        if (name == null) return;
+        if (name == null || SCAFFOLD_HEADER.equals(name)) return;
         java.nio.file.Path file = context.getConfig().activitiesPackageDir().resolve(name + ".java");
+        if (!java.nio.file.Files.isRegularFile(file)) {
+            java.nio.file.Path pkg = context.getConfig().mainSourceFile().getParent();
+            if (pkg != null) file = pkg.resolve(name + ".java");
+        }
         if (!java.nio.file.Files.isRegularFile(file)) {
             warn(stage, "Couldn't open " + name + ".java.\n\nUse File ▸ Recover Project Files to restore it.");
             return;
@@ -875,9 +940,15 @@ public final class ProgramShapeOverlay {
      * re-implemented. The caret is re-homed onto the slot <em>above</em> first: the re-parse replaces every
      * block object, and a caret left on the index the deleted block occupied would silently point at whatever
      * slid up into it.
+     *
+     * <p>The target is resolved with {@link CodeBlock#enclosingStatement()}. Testing the block's <em>own</em>
+     * node for {@code instanceof Statement} — what this did — is false for every method-call row, because
+     * {@code MethodInvocationBlock} holds the {@code MethodInvocation} rather than its {@code ExpressionStatement}:
+     * both ✕ and Delete returned here without a word on exactly the rows the overlay is used to build.
      */
     private void delete(StatementBlock stmt, BodyBlock body, int index) {
-        if (stmt.isReadOnly() || !(stmt.getAstNode() instanceof org.eclipse.jdt.core.dom.Statement s)) return;
+        org.eclipse.jdt.core.dom.Statement s = stmt.enclosingStatement();
+        if (stmt.isReadOnly() || s == null) return;
         state.setInsertionCursor(new InsertionCursor(body, Math.max(-1, index - 1)));
         context.getCodeEditor().deleteStatement(s);
     }
@@ -962,6 +1033,8 @@ public final class ProgramShapeOverlay {
     private void onBlocksUpdated() {
         refreshMethodBox();   // pick up a method added/removed by hand; keeps a still-valid selection as-is
         render();
+        // Before the pending handling below, which may open a popover of its own over the top of this one.
+        refreshConfig();
         if (pendingInsert != null) {
             PendingInsert p = pendingInsert;
             pendingInsert = null;
@@ -1160,8 +1233,56 @@ public final class ProgramShapeOverlay {
      * chooser — via {@link PickerRegistry}), otherwise a generic expression picker, so <em>every</em> argument
      * is editable — not only the drawable ones. Opens as a small always-on-top window so drawing overlays it
      * while the target app stays visible.
+     *
+     * <p>It stays open until dismissed: the rows are rebuilt by {@link #refreshConfig} after each edit rather
+     * than the window being closed, so several arguments can be filled in one visit and each shows its new
+     * value as it lands.
      */
     private void openConfig(MethodInvocationBlock mib) {
+        // One popover at a time; a second would orphan the first (its onHidden clears the tracking fields, so
+        // it must close before the new target is recorded).
+        if (configDlg != null) configDlg.close();
+        configTarget = locate(mib);
+
+        // Capped in a ScrollPane so a call with many parameters (e.g. Fill) scrolls instead of growing the
+        // popover taller than the screen, with the bottom rows landing off-screen and unreachable.
+        ScrollPane scroll = new ScrollPane(configContent(mib));
+        scroll.setFitToWidth(true);
+        scroll.setStyle("-fx-background: transparent; -fx-background-color: transparent;");
+        double maxHeight = javafx.stage.Screen.getPrimary().getVisualBounds().getHeight() * 0.7;
+        scroll.setMaxHeight(maxHeight);
+        configScroll = scroll;
+
+        Stage dlg = new Stage();
+        dlg.setTitle("Configure arguments");
+        dlg.setAlwaysOnTop(true);
+        Scene sc = new Scene(scroll);
+        java.net.URL css = getClass().getResource("/css/blocks.css");
+        if (css != null) sc.getStylesheets().add(css.toExternalForm());
+        applyThemeClass(sc.getRoot());
+        dlg.setScene(sc);
+        configDlg = dlg;
+        dlg.setOnHidden(e -> {
+            if (configDlg == dlg) { configDlg = null; configScroll = null; configTarget = null; }
+            // A popover closed while dimmed for a capture would otherwise leave the flag armed, and the next
+            // real close of the HUD would skip its teardown entirely.
+            suppressHideTeardown = false;
+        });
+        dlg.show();
+        // After show(): the dialog has no width/height to place against until it has been sized to its scene.
+        placeBesideHud(dlg);
+        // The HUD stands down from its own re-raise while this is open (see show()), so promoting the popover
+        // is what actually keeps it above both the HUD and a fullscreen game.
+        OverlayToolbars.promoteAboveFullscreen(dlg);
+        dlg.toFront();
+    }
+
+    /**
+     * The popover's rows for {@code mib}: the header, the overload selector, one editor per argument and the
+     * Done button. Built fresh on open and again after every re-parse, because each picker's write replaces the
+     * block and all of its argument nodes.
+     */
+    private VBox configContent(MethodInvocationBlock mib) {
         List<ExpressionBlock> args = mib.getArgumentBlocks();
         List<ResolvedType> paramTypes = mib.resolveParamTypes(context);
 
@@ -1170,20 +1291,17 @@ public final class ProgramShapeOverlay {
         content.setStyle(PANEL);
         content.getChildren().add(label("Configure  " + mib.getScope() + "." + mib.getMethodName() + "(…)"));
 
-        // Overload selector: switch this call to a different overload. The re-parse replaces the block, so the
-        // popover is closed after switching — the user reopens (⚙ / Enter) to edit the new overload's slots.
+        // Overload selector: switch this call to a different overload. The re-parse that follows replaces the
+        // block, and the rebuild redraws these rows against the new overload's parameters.
         List<MethodSignature> overloads = mib.overloadSignatures(context);
         if (overloads.size() > 1) {
-            javafx.scene.control.ComboBox<MethodSignature> overloadBox =
-                    new javafx.scene.control.ComboBox<>(javafx.collections.FXCollections.observableArrayList(overloads));
+            ComboBox<MethodSignature> overloadBox =
+                    new ComboBox<>(javafx.collections.FXCollections.observableArrayList(overloads));
             overloadBox.setValue(mib.currentSignature(context));
             overloadBox.setMaxWidth(Double.MAX_VALUE);
             overloadBox.setOnAction(e -> {
                 MethodSignature sel = overloadBox.getValue();
-                if (sel != null && !sel.equals(mib.currentSignature(context))) {
-                    mib.switchToOverload(context, sel);
-                    if (configDlg != null) configDlg.close();
-                }
+                if (sel != null && !sel.equals(mib.currentSignature(context))) mib.switchToOverload(context, sel);
             });
             HBox line = new HBox(8, label("Overload:"), overloadBox);
             line.setAlignment(Pos.CENTER_LEFT);
@@ -1206,36 +1324,41 @@ public final class ProgramShapeOverlay {
             content.getChildren().add(dimLabel("This call takes no arguments."));
         }
 
-        // Capped in a ScrollPane so a call with many parameters (e.g. Fill) scrolls instead of growing the
-        // popover taller than the screen, with the bottom rows landing off-screen and unreachable.
-        ScrollPane scroll = new ScrollPane(content);
-        scroll.setFitToWidth(true);
-        scroll.setStyle("-fx-background: transparent; -fx-background-color: transparent;");
-        double maxHeight = javafx.stage.Screen.getPrimary().getVisualBounds().getHeight() * 0.7;
-        scroll.setMaxHeight(maxHeight);
+        // An explicit dismissal. The window's own title bar is the only other way out, and between
+        // setAlwaysOnTop and promoteAboveFullscreen there are window managers that don't leave one.
+        Button done = new Button("Done");
+        done.setDefaultButton(true);
+        done.setOnAction(e -> { if (configDlg != null) configDlg.close(); });
+        Region spring = new Region();
+        HBox.setHgrow(spring, Priority.ALWAYS);
+        HBox actions = new HBox(8, spring, done);
+        actions.setAlignment(Pos.CENTER_RIGHT);
+        content.getChildren().add(actions);
+        return content;
+    }
 
-        Stage dlg = new Stage();
-        dlg.setTitle("Configure arguments");
-        dlg.setAlwaysOnTop(true);
-        Scene sc = new Scene(scroll);
-        java.net.URL css = getClass().getResource("/css/blocks.css");
-        if (css != null) sc.getStylesheets().add(css.toExternalForm());
-        applyThemeClass(sc.getRoot());
-        dlg.setScene(sc);
-        configDlg = dlg;
-        dlg.setOnHidden(e -> {
-            if (configDlg == dlg) configDlg = null;
-            // A popover closed while dimmed for a capture would otherwise leave the flag armed, and the next
-            // real close of the HUD would skip its teardown entirely.
-            suppressHideTeardown = false;
-        });
-        dlg.show();
-        // After show(): the dialog has no width/height to place against until it has been sized to its scene.
-        placeBesideHud(dlg);
-        // The HUD stands down from its own re-raise while this is open (see show()), so promoting the popover
-        // is what actually keeps it above both the HUD and a fullscreen game.
-        OverlayToolbars.promoteAboveFullscreen(dlg);
-        dlg.toFront();
+    /**
+     * Rebuilds the open popover against the re-parsed tree, or closes it when its call is gone (deleted, or its
+     * body edited out from under it). Same {@link Stage} either way — the window keeps its position, so filling
+     * a second argument doesn't move the popover out from under the pointer.
+     */
+    private void refreshConfig() {
+        if (configDlg == null || configScroll == null || configTarget == null) return;
+        if (statementAt(configTarget) instanceof MethodInvocationBlock mib) {
+            configScroll.setContent(configContent(mib));
+        } else {
+            configDlg.close();
+        }
+    }
+
+    /** Where {@code stmt} sits in the current tree, in the body-ordinal coordinates a re-parse survives. */
+    private PendingInsert locate(StatementBlock stmt) {
+        List<BodyBlock> bodies = allBodies(root);
+        for (int b = 0; b < bodies.size(); b++) {
+            int index = bodies.get(b).getStatements().indexOf(stmt);
+            if (index >= 0) return new PendingInsert(b, index);
+        }
+        return null;
     }
 
     /**
@@ -1274,7 +1397,8 @@ public final class ProgramShapeOverlay {
     /**
      * A generic editor for a parameter that has no specialized picker: a button showing the current expression
      * that opens the type-aware expression menu and rewrites the argument via {@link ExpressionMenu}.
-     * Closes the popover after a pick, since the re-parse replaces the argument node.
+     * The re-parse a pick triggers replaces the argument node; {@link #refreshConfig} redraws this row against
+     * the new one rather than the popover closing.
      */
     private javafx.scene.Node genericArgEditor(MethodInvocationBlock mib, ExpressionBlock arg, ResolvedType paramType) {
         ASTNode node = arg.getAstNode();
@@ -1286,10 +1410,7 @@ public final class ProgramShapeOverlay {
             if (!(arg.getAstNode() instanceof org.eclipse.jdt.core.dom.Expression expr)) return;
             var menu = ExpressionMenu.create(
                     paramType == null ? ResolvedType.UNKNOWN : paramType, false, context, mib.getAstNode(), null,
-                    sel -> {
-                        ExpressionMenu.applySelection(context, expr, sel);
-                        if (configDlg != null) configDlg.close();
-                    });
+                    sel -> ExpressionMenu.applySelection(context, expr, sel));
             menu.show(b, Side.BOTTOM, 0, 0);
         });
         return b;
