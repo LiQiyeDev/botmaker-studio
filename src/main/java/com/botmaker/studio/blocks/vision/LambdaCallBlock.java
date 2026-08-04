@@ -5,7 +5,9 @@ import com.botmaker.studio.core.BlockWithChildren;
 import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.CodeBlock;
 import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.palette.SdkApi;
 import com.botmaker.studio.palette.SdkDocs;
+import com.botmaker.studio.parser.ExpressionChoice;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.types.ResolvedType;
@@ -13,8 +15,11 @@ import com.botmaker.studio.ui.render.components.BlockUIComponents;
 import com.botmaker.studio.ui.render.components.TextFieldComponents;
 import com.botmaker.studio.ui.render.layout.BlockLayout;
 import com.botmaker.studio.ui.render.layout.SentenceLayoutBuilder;
+import com.botmaker.studio.util.MethodSignature;
 import javafx.scene.Node;
+import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
+import javafx.scene.control.ButtonType;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.Tooltip;
@@ -128,10 +133,7 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
         sdkBadge.getStyleClass().add("sdk-badge");
         sentence.addNode(sdkBadge);
 
-        Label classChip = new Label(SDK_CLASS);
-        classChip.getStyleClass().add("sdk-class-selector");
-        classChip.setStyle("-fx-font-size: 11px; -fx-font-weight: bold;");
-        sentence.addNode(classChip);
+        sentence.addNode(createClassSelector(context));
 
         sentence.addLabel(".")
                 .addNode(createMethodSelector(context))
@@ -158,6 +160,77 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
         container.getChildren().add(createIndentedBody(body, context, "sdk-lambda-body"));
 
         return container;
+    }
+
+    /**
+     * The facade dropdown — the same {@code SdkApi.FACADE_CLASSES} selector every other SDK call block carries.
+     * It was a plain {@link Label} until now, which made this block a one-way door: a call that became a vision
+     * loop could never be pointed anywhere else, because nothing else on the block names the class.
+     *
+     * <p>Picking another facade rewrites the statement into an ordinary call on it
+     * ({@code CodeEditor.replaceLambdaCallWithFacadeCall}) — the lambda has no meaning off {@code ImageFinder},
+     * so it goes, and a body with statements in it is confirmed away first rather than deleted silently.
+     */
+    private Node createClassSelector(CodeEditorService context) {
+        if (isReadOnly()) {
+            Label chip = new Label(SDK_CLASS);
+            chip.getStyleClass().add("sdk-class-selector");
+            chip.setStyle("-fx-font-size: 11px; -fx-font-weight: bold;");
+            return chip;
+        }
+        ComboBox<String> selector = new ComboBox<>();
+        selector.getStyleClass().add("sdk-class-selector");
+        selector.getItems().addAll(SdkApi.FACADE_CLASSES);
+        if (!selector.getItems().contains(SDK_CLASS)) selector.getItems().add(0, SDK_CLASS);
+        selector.setValue(SDK_CLASS);
+        selector.setStyle("-fx-font-size: 11px; -fx-font-weight: bold;");
+        selector.setTooltip(new Tooltip("Point this call at another SDK class (the action body is dropped)"));
+        selector.setOnAction(e -> {
+            String picked = selector.getValue();
+            if (picked == null || picked.equals(SDK_CLASS)) return;
+            if (!confirmBodyDiscard(picked)) {
+                selector.setValue(SDK_CLASS);
+                return;
+            }
+            switchFacade(context, picked);
+        });
+        return selector;
+    }
+
+    /**
+     * Asks before throwing away a body the user has written. An empty body is discarded without a prompt —
+     * there is nothing to lose, and a confirmation on every pick would train the user to click through the one
+     * that matters.
+     */
+    private boolean confirmBodyDiscard(String newClass) {
+        if (body == null || body.getChildren().isEmpty()) return true;
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
+                "Only ImageFinder's loop helpers take an action body.\n\n"
+                        + "Switching to " + newClass + " will delete the " + body.getChildren().size()
+                        + " statement(s) inside this loop.",
+                ButtonType.CANCEL, ButtonType.OK);
+        confirm.setHeaderText("Discard the action body?");
+        confirm.setTitle("Change SDK class");
+        return confirm.showAndWait().filter(ButtonType.OK::equals).isPresent();
+    }
+
+    /**
+     * Rewrites the call onto {@code newClass}: keeps the method name when that class declares one too, else its
+     * first method — the same rule {@code MethodInvocationBlock.switchSdkClass} follows, so the two SDK class
+     * dropdowns behave identically. Arity 0 because nothing of this call's arguments survives the move.
+     */
+    private void switchFacade(CodeEditorService context, String newClass) {
+        List<MethodSignature> methods = context.getProjectAnalyzer().getMethods(newClass, true);
+        String targetMethod = methods.stream().map(MethodSignature::name).anyMatch(n -> n.equals(method))
+                ? method
+                : methods.stream().map(MethodSignature::name).sorted().findFirst().orElse(method);
+
+        MethodSignature best = MethodSignature.bestForArity(
+                methods.stream().filter(m -> m.name().equals(targetMethod)).toList(), 0);
+        List<ResolvedType> paramTypes = best != null ? best.paramTypes() : List.of();
+
+        context.getCodeEditor().replaceLambdaCallWithFacadeCall((Statement) this.astNode,
+                new ExpressionChoice.Method(newClass, targetMethod, paramTypes, true));
     }
 
     /**

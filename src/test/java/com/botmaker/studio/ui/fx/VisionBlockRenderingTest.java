@@ -148,10 +148,16 @@ class VisionBlockRenderingTest extends FxHeadlessTest {
 
         assertNotNull(ui, "the block produced no UI node");
         List<String> labels = labelTexts(ui);
-        assertTrue(labels.contains("ImageFinder"),
-                "the facade the call is on must be visible: " + labels);
         assertTrue(labels.contains("(") && labels.contains(")"),
                 "the argument slot must read as a call: " + labels);
+
+        // The facade is a dropdown, not a label: it was a Label, which made this block a one-way door — a call
+        // that became a vision loop could never be pointed at another SDK class again.
+        List<ComboBox> facades = nodesOfType(ui, ComboBox.class).stream()
+                .filter(cb -> cb.getItems().contains("Mouse")).toList();
+        assertEquals(1, facades.size(), "exactly one facade dropdown");
+        assertEquals("ImageFinder", facades.get(0).getValue(),
+                "the facade the call is actually on must be the one selected");
     }
 
     // ---- The dropdown ----

@@ -6,6 +6,23 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-04 — The vision loop's variant switch actually rewrites, and its facade is re-pointable.**
+  Improvements round 2 phase 5. **The variant switch was throwing, not no-op'ing:** a parameter-count change
+  (`untilFindAll → ifFindAll`) paired a `ListRewrite` on `PARAMETERS_PROPERTY` with a `PARENTHESES_PROPERTY`
+  flip, which JDT cannot do at once — it scanned for the parameter list at offsets the parenthesis change had
+  invalidated and threw `"Document does not match the AST"` off the end of the file. `AstRewriteHelper`
+  catches that and keeps the original source, which is exactly why the dropdown looked inert. Diagnosis was
+  written as a failing test **before** the fix (`LambdaVariantSwitchTest`). `adjustLambdaParam` now builds a
+  fresh `LambdaExpression` with the parameters and parentheses already right and `rewriter.replace`s the whole
+  node, carrying the body over with `createCopyTarget` so the user's statements, comments and indentation are
+  moved verbatim rather than re-printed; the in-place path stays for a pure rename, where it works.
+  **`LambdaCallBlock`'s facade is now a `ComboBox`** over `SdkApi.FACADE_CLASSES` instead of a `Label` — the
+  block was a one-way door, since nothing else on it names the class. Picking another facade goes through the
+  new `CodeEditor.replaceLambdaCallWithFacadeCall`, which *replaces* the call rather than reusing
+  `updateMethodInvocation` (that syncs arguments positionally and would try to fit the old image and lambda
+  into the new signature). A body with statements in it is confirmed away first; an empty one is not, so the
+  prompt that matters isn't trained away.
+
 - **2026-08-04 — Every `Time` argument is dispatched by type; the `(method, argIndex)` hook is gone.**
   Improvements round 2 phase 4. Added a `Month` picker beside the `DayOfWeek` one (`TimeArgPicker.month`,
   registered in `PickerRegistry`, seeded `java.time.Month.JANUARY` by `InitializerFactory`), and **deleted

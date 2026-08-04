@@ -116,6 +116,51 @@ public class LambdaVariantSwitchTest {
                 () -> "expected first template unwrapped from the group: " + result);
     }
 
+    /**
+     * The other direction of {@link #anyToUntilDropsTheParameter}: a parameterless {@code untilFind…} body gains
+     * one. This is the switch the user reported as doing nothing, and it is the one that pairs an insert into
+     * {@code PARAMETERS_PROPERTY} with a {@code PARENTHESES_PROPERTY} flip — the combination JDT's rewriter is
+     * suspected of handling badly (leaving the original {@code ()} in place, so the result doesn't parse).
+     */
+    @Test
+    void untilToIfAddsTheParameterAndDropsTheEmptyParentheses() {
+        String source = """
+                package test;
+                public class Subject {
+                    void run() {
+                        ImageFinder.untilFindAll(ImageTemplateGroup.of(coin), () -> {});
+                    }
+                }
+                """;
+        String result = switchTo(source, "untilFindAll", "ifFindAll", true, "found").replace(" ", "");
+        assertTrue(result.contains("ifFindAll(ImageTemplateGroup.of(coin),found->{}"),
+                () -> "expected the no-arg lambda to gain its Matches parameter: " + result);
+    }
+
+    /**
+     * A parameter-count change rebuilds the lambda, so the body has to be carried across — and carried as its
+     * own source text, not re-printed. A switch that silently emptied the body would be worse than the no-op
+     * this replaced.
+     */
+    @Test
+    void aParameterCountChangeCarriesTheBodyAcrossVerbatim() {
+        String source = """
+                package test;
+                public class Subject {
+                    void run() {
+                        ImageFinder.untilFindAll(ImageTemplateGroup.of(coin), () -> {
+                            // keep me
+                            Mouse.click(10, 20);
+                        });
+                    }
+                }
+                """;
+        String result = switchTo(source, "untilFindAll", "ifFindAll", true, "found");
+        assertTrue(result.contains("// keep me"), () -> "the body's comment was dropped: " + result);
+        assertTrue(result.contains("Mouse.click(10, 20);"),
+                () -> "the body's statement was re-printed or dropped: " + result);
+    }
+
     /** A user-renamed parameter survives a switch that doesn't change the value's type (group → group). */
     @Test
     void aRenamedParameterIsCarriedAcrossASameShapeSwitch() {

@@ -132,6 +132,16 @@ public final class LambdaCallHandler {
      * {@code switchVariant} also changes the parameter's <em>type</em>, so a body written against the old
      * value has to be revisited by the user anyway; {@code AstRewriteHelper.renameLambdaParameter} is the
      * path for a pure rename, and it does carry the references.
+     *
+     * <p><b>A parameter-count change replaces the whole lambda rather than editing it in place.</b> Editing it
+     * meant pairing a {@code ListRewrite} on {@code PARAMETERS_PROPERTY} with a {@code PARENTHESES_PROPERTY}
+     * flip, and JDT's rewriter cannot do both at once: it scans for the parameter list's tokens at offsets the
+     * parentheses change invalidates, and threw {@code "Document does not match the AST"} off the end of the
+     * file. {@code AstRewriteHelper.applyRewrite} catches that and keeps the original source, which is why
+     * {@code untilFindAll → ifFindAll} appeared to do nothing at all rather than to fail. A fresh
+     * {@link LambdaExpression} with the parameters and parentheses already right, its body carried over by
+     * {@code copySubtree}, sidesteps the property entirely. The in-place path stays for a pure rename, where
+     * there is no parenthesis change and it works.
      */
     private static void adjustLambdaParam(AST ast, ASTRewrite rewriter, LambdaExpression lambda, String wantName) {
         boolean wantParam = wantName != null && !wantName.isBlank();
@@ -147,19 +157,18 @@ public final class LambdaCallHandler {
         }
         if (wantParam == hasParam) return;
 
-        org.eclipse.jdt.core.dom.rewrite.ListRewrite lr =
-                rewriter.getListRewrite(lambda, LambdaExpression.PARAMETERS_PROPERTY);
+        LambdaExpression replacement = ast.newLambdaExpression();
         if (wantParam) {
             VariableDeclarationFragment p = ast.newVariableDeclarationFragment();
             p.setName(ast.newSimpleName(wantName));
-            lr.insertLast(p, null);
-            rewriter.set(lambda, LambdaExpression.PARENTHESES_PROPERTY, Boolean.FALSE, null); // found -> {}
-        } else {
-            for (Object o : params) {
-                lr.remove((ASTNode) o, null);
-            }
-            rewriter.set(lambda, LambdaExpression.PARENTHESES_PROPERTY, Boolean.TRUE, null); // () -> {}
+            replacement.parameters().add(p);
         }
+        replacement.setParentheses(!wantParam);   // found -> {} versus () -> {}
+        // createCopyTarget, not copySubtree: it moves the body's ORIGINAL SOURCE TEXT across, so the user's
+        // statements keep their formatting, comments and indentation. A copied subtree would be re-printed by
+        // the rewriter, reformatting a body the user never touched.
+        replacement.setBody(rewriter.createCopyTarget(lambda.getBody()));
+        rewriter.replace(lambda, replacement, null);
     }
 
     /** The {@link SimpleName} a lambda parameter declares, inferred ({@code found}) or explicit ({@code Matches found}). */

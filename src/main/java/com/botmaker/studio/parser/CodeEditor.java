@@ -369,6 +369,31 @@ public class CodeEditor {
         });
     }
 
+    /**
+     * Re-points a vision-loop statement at a different SDK facade — the class dropdown on
+     * {@code LambdaCallBlock}. The whole call is <em>replaced</em>, not edited: the lambda body means nothing
+     * on another facade (only {@code ImageFinder}'s loop helpers take one), so the trailing lambda and the
+     * image argument both go, and the target's arguments are seeded from its own parameter types the same way
+     * an inserted call's are. {@code updateMethodInvocation} is deliberately not reused — it syncs arguments
+     * positionally and would try to fit the old image and lambda into the new signature's slots.
+     *
+     * <p>The caller warns before discarding a non-empty body; by the time this runs, that is decided.
+     */
+    public void replaceLambdaCallWithFacadeCall(Statement lambdaStmt, ExpressionChoice.Method choice) {
+        edit(lambdaStmt, EditKind.BODY, true, (cu, code) -> {
+            if (!(lambdaStmt instanceof ExpressionStatement es
+                    && es.getExpression() instanceof MethodInvocation mi)) {
+                return code;
+            }
+            AST ast = cu.getAST();
+            ASTRewrite rewriter = ASTRewrite.create(ast);
+            MethodInvocation replacement =
+                    MethodHandler.createMethodInvocation(ast, choice, cu, rewriter, analyzer, state);
+            rewriter.replace(mi, replacement, null);
+            return AstRewriteHelper.applyRewrite(rewriter, code);
+        });
+    }
+
     /** Replaces {@code toReplace} with {@code new Rect(x, y, w, h)} — the screen-region arg picker. */
     public void setRect(Expression toReplace, int x, int y, int w, int h) {
         replaceWithIntCtor(toReplace, "Rect", x, y, w, h);
