@@ -57,7 +57,7 @@ public final class BlockCatalog {
     // the one the Studio gives a real editor to — a unit dropdown and the random-range toggle — where a bare
     // int is only ever a text pill whose unit lives in the method name.
     public static final BlockType WAIT = new LibraryCall("WAIT", "Wait", CONTROL, "Wait", "time",
-            List.of(new StaticCall("Duration", "seconds", List.of(new IntLit("1")))));
+            List.of(new StaticCall("Duration", "ofSeconds", List.of(new IntLit("1")))));
 
     // --- Variables ---
     public static final BlockType DECLARE_INT =

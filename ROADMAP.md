@@ -6,6 +6,21 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-04 — The duration picker edits `java.time.Duration`, and the range restructures the call.**
+  Improvements round 2 phase 3, following the SDK dropping its own `Duration` record. `DurationPicker` now
+  reads/writes `Duration.ofMillis/ofSeconds/ofMinutes`, and `InitializerFactory` + `BlockCatalog.WAIT` seed
+  `Duration.ofSeconds(1)`. Two consequences worth remembering. **Fractions change unit rather than truncate:**
+  `java.time`'s factories take `long`, so 1.5 seconds is committed as `ofMillis(1500)` and 1.5 minutes as
+  `ofSeconds(90)` — the largest unit that still expresses the value exactly, which also keeps a whole number in
+  the unit it was typed in. **The random range is now a different call, not a nested expression:** ticking the
+  toggle rewrites the enclosing statement `Wait.time(x)` → `Wait.between(x, y)` and back, so the picker edits
+  the `MethodInvocation`, not just its own slot. Each end of a `between` then gets its own button labelled with
+  its own length (the range is already legible from the method name) while opening either edits both — and a
+  call with an end this control can't show (a variable) is left whole, since restructuring would discard it.
+  Outside a `Wait` call the toggle is hidden: there is no statement to restructure. This also retires a live
+  hazard — `ImportManager` already mapped the bare name `Duration` to `java.time.Duration`, contradicting the
+  SDK type the picker used to insert.
+
 - **2026-08-04 — App icons in the emulator picker, and an honest empty-list note.** A package list is a list
   of reverse-DNS strings; `com.supercell.clashofclans` only reads as a game if you already know it. Each app
   row now carries its launcher icon, read out of the installed APK by shared's new `ApkIcon` (four bounded
