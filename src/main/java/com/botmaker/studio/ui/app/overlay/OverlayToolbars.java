@@ -63,6 +63,21 @@ public final class OverlayToolbars {
      * Safe to call on any {@link Stage}.
      */
     public static void promoteAboveFullscreen(Stage stage) {
+        promoteAboveFullscreen(stage, () -> true);
+    }
+
+    /**
+     * As {@link #promoteAboveFullscreen(Stage)}, but the periodic re-raise is skipped while {@code enabled}
+     * returns false.
+     *
+     * <p>This exists because the re-assert is what makes two promoted overlays unstackable: the overlay editor's
+     * HUD raises itself every 750 ms, so a second window opened <em>from</em> it — its argument-config popover —
+     * was shoved back underneath within the second, no matter where it was placed or how it was promoted. The
+     * owner it should logically have is not an option either: JavaFX hides owned windows with their owner, and
+     * the HUD is deliberately hidden while a capture surface is up, with the popover kept alive to host it.
+     * So the HUD stands down instead, for as long as the popover is open.
+     */
+    public static void promoteAboveFullscreen(Stage stage, java.util.function.BooleanSupplier enabled) {
         String existing = stage.getTitle();
         final String title = (existing == null || existing.isEmpty())
                 ? "__bm_overlay_" + Long.toHexString(System.nanoTime()) : existing;
@@ -78,7 +93,9 @@ public final class OverlayToolbars {
         Platform.runLater(promote);
         stage.focusedProperty().addListener((o, was, now) -> { if (now) promote.run(); });
         // Continuously re-assert while shown — defends against the fullscreen app re-raising itself.
-        Timeline keepOnTop = new Timeline(new KeyFrame(javafx.util.Duration.millis(750), e -> promote.run()));
+        Timeline keepOnTop = new Timeline(new KeyFrame(javafx.util.Duration.millis(750), e -> {
+            if (enabled.getAsBoolean()) promote.run();
+        }));
         keepOnTop.setCycleCount(Animation.INDEFINITE);
         keepOnTop.play();
         // Stop when the overlay is no longer showing (an additive listener — won't clobber a caller's onHidden).

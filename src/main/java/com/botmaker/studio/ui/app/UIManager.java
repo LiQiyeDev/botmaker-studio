@@ -1043,7 +1043,17 @@ public class UIManager {
     private void openOverlayEditor() {
         com.botmaker.studio.ui.app.overlay.ProgramShapeOverlay.open(
                 primaryStage, codeEditorService, projectSettingsService, screenCaptureService, activityService,
-                this::liveSessionWindow, false);
+                this::liveSessionWindow, false, this::chooseLaunchTargetThen);
+    }
+
+    /**
+     * Shows the Launch Target dialog and runs {@code retry} once it closes — the recovery the overlay editor
+     * takes when there is nothing to draw over (no private session up, no default capture target). The dialog
+     * is where the game is both chosen and started ("▶ Launch now"), so it is the one place that can turn "no
+     * window" into a window.
+     */
+    private void chooseLaunchTargetThen(Runnable retry) {
+        new LaunchTargetDialog(primaryStage, config, toolbarManager::setLaunchTarget).show(retry);
     }
 
     /**

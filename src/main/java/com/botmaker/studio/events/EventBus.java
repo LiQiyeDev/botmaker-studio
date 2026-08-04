@@ -37,23 +37,38 @@ public class EventBus {
         this.enableLogging = enableLogging;
     }
 
+    /**
+     * A registered subscription, kept so it can be undone. Most subscribers live as long as the project and
+     * ignore the returned handle; a subscriber with a shorter life than the bus — a dialog or overlay that is
+     * opened and closed repeatedly — must {@link #close()} it, or every reopen stacks another live handler on
+     * the same bus.
+     */
+    public interface Subscription extends AutoCloseable {
+        /** Removes the handler. Idempotent; never throws. */
+        @Override
+        void close();
+    }
+
     /** Subscribe to events of a specific type (or family), delivered on the publishing thread. */
-    public <T extends ApplicationEvent> void subscribe(Class<T> eventType, Consumer<T> handler) {
-        subscribe(eventType, handler, false);
+    public <T extends ApplicationEvent> Subscription subscribe(Class<T> eventType, Consumer<T> handler) {
+        return subscribe(eventType, handler, false);
     }
 
     /** Subscribe with the option to run the handler on the JavaFX application thread. */
-    public <T extends ApplicationEvent> void subscribe(
+    public <T extends ApplicationEvent> Subscription subscribe(
             Class<T> eventType,
             Consumer<T> handler,
             boolean runOnFxThread) {
 
-        handlers.computeIfAbsent(eventType, k -> new CopyOnWriteArrayList<>())
-                .add(new EventHandler<>(handler, runOnFxThread));
+        List<EventHandler<?>> registered =
+                handlers.computeIfAbsent(eventType, k -> new CopyOnWriteArrayList<>());
+        EventHandler<T> entry = new EventHandler<>(handler, runOnFxThread);
+        registered.add(entry);
 
         if (enableLogging) {
             LOGGER.info("Subscribed to " + eventType.getSimpleName());
         }
+        return () -> registered.remove(entry);
     }
 
     /** Publish an event to all handlers registered on its type or any of its supertypes. */

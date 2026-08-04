@@ -20,6 +20,7 @@ import com.botmaker.studio.services.record.RecordingSession;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.ui.render.components.pickers.PickerContext;
 import com.botmaker.studio.ui.render.components.pickers.PickerRegistry;
+import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.events.CoreApplicationEvents.ActivitiesChangedEvent;
 import com.botmaker.studio.events.CoreApplicationEvents.UIBlocksUpdatedEvent;
 import com.botmaker.studio.palette.BlockCatalog;
@@ -133,6 +134,8 @@ public final class ProgramShapeOverlay {
     private Stage configDlg;
     /** Unsubscribes the capture-overlay visibility listener when the overlay closes. */
     private AutoCloseable captureVisibility;
+    /** Event-bus subscriptions taken out in {@link #show}, dropped on close so a reopen doesn't stack another set. */
+    private final List<EventBus.Subscription> subscriptions = new ArrayList<>();
     /** While true, a {@code stage.hide()} is a temporary capture-hide, not a real close — skip teardown. */
     private boolean suppressHideTeardown;
 
@@ -173,6 +176,25 @@ public final class ProgramShapeOverlay {
     private record PendingInsert(int bodyOrdinal, int index) {}
     private PendingInsert pendingInsert;
 
+    /**
+     * A block whose config popover should open on the <em>next</em> re-parse, rather than this one. Applying a
+     * palette-picked overload ({@link #pendingOverload}) is itself an edit, so the block resolved from
+     * {@link #pendingInsert} is replaced again before the user could touch it — which is why "Fill arguments
+     * after adding" silently did nothing for every method with more than one overload, i.e. most of the palette.
+     */
+    private PendingInsert pendingConfig;
+
+    /**
+     * The HUD's screen bounds, republished from the FX thread whenever the stage moves or resizes. The recorder
+     * polls this from its native listener thread to drop clicks on the HUD's own buttons, and JavaFX properties
+     * cannot be read from there — so it is a plain snapshot, not a live {@code stage.getX()} read.
+     */
+    private volatile java.awt.Rectangle hudBounds;
+
+    /** Set while a coalesced record-status refresh is already queued, so one FX runnable serves a burst of input. */
+    private final java.util.concurrent.atomic.AtomicBoolean recStatusQueued =
+            new java.util.concurrent.atomic.AtomicBoolean();
+
     private ProgramShapeOverlay(CodeEditorService context, ProjectSettingsService settings,
                                 ScreenCaptureService capture, ActivityService activities, CaptureTarget target) {
         this.context = context;
@@ -184,13 +206,19 @@ public final class ProgramShapeOverlay {
     }
 
     /**
-     * Opens (or focuses) the overlay editor for the active file. Requires the project's default capture target
-     * to be a window (warns and does nothing otherwise). When {@code startRecording} is true, recording begins
-     * as soon as the overlay is shown (used by the "Record Macro" toolbar button). Must be called on the FX thread.
+     * Opens (or focuses) the overlay editor for the active file. When {@code startRecording} is true, recording
+     * begins as soon as the overlay is shown (used by the "Record Macro" toolbar button). Must be called on the
+     * FX thread.
+     *
+     * @param chooseTarget invoked when nothing can be drawn over, with a callback to re-attempt the open; the
+     *                     caller shows the Launch Target dialog and runs it once that closes. The retry passes
+     *                     {@code null} here, so a user who closes the dialog without choosing gets one
+     *                     explanatory warning rather than the same dialog again.
      */
     public static void open(Window owner, CodeEditorService context, ProjectSettingsService settings,
                             ScreenCaptureService capture, ActivityService activities,
-                            java.util.function.LongSupplier sessionWindow, boolean startRecording) {
+                            java.util.function.LongSupplier sessionWindow, boolean startRecording,
+                            java.util.function.Consumer<Runnable> chooseTarget) {
         if (active != null && active.stage != null && active.stage.isShowing()) {
             active.stage.toFront();
             if (startRecording && active.session != null && !active.session.isRecording()) active.startRecording();
@@ -205,8 +233,17 @@ public final class ProgramShapeOverlay {
             }
         }
         if (target == null) {
-            warn(owner, "Overlay editor needs a capture target.\n\nOpen \"Capture Targets\" and set a window, "
-                    + "monitor or the desktop as the default first.");
+            // Nothing to draw over: no private session is up and no default capture target is configured. Send
+            // the user to the Launch Target dialog and come back when it closes, rather than the dead-end
+            // warning this used to be — the button's whole job is "let me author against the running game", and
+            // on a fresh app run the session path always misses (the launcher is created lazily elsewhere).
+            if (chooseTarget != null) {
+                chooseTarget.accept(() -> open(owner, context, settings, capture, activities,
+                        sessionWindow, startRecording, null));
+                return;
+            }
+            warn(owner, "Overlay editor needs something to draw over.\n\nPick what the bot launches in "
+                    + "\"Launch Target\" (and start it), or set a default window in \"Capture Targets\".");
             return;
         }
         ProgramShapeOverlay overlay = new ProgramShapeOverlay(context, settings, capture, activities, target);
@@ -285,8 +322,7 @@ public final class ProgramShapeOverlay {
 
     private void show(java.awt.Rectangle windowBounds) {
         this.windowBounds = windowBounds;
-        session = new RecordingSession(this::overlayScreenBounds,
-                count -> Platform.runLater(this::updateRecStatus));
+        session = new RecordingSession(this::overlayScreenBounds, count -> requestRecStatusRefresh());
 
         VBox rootPane = buildRoot();
         rootPane.setMinWidth(340);
@@ -314,10 +350,20 @@ public final class ProgramShapeOverlay {
                 try { captureVisibility.close(); } catch (Exception ignored) {}
                 captureVisibility = null;
             }
+            subscriptions.forEach(EventBus.Subscription::close);
+            subscriptions.clear();
             if (session != null && session.isRecording()) session.stop();
             if (active == this) active = null;
         });
-        // Keyboard navigation of the compact block tree: → step into, ← step out, ↑/↓ move, Enter configure.
+        // The recorder polls hudBounds from its native thread, so keep the snapshot current here — on the FX
+        // thread — for every way the HUD can move or resize: the header drag, sizeToScene, the Show-lines spinner.
+        stage.xProperty().addListener((o, a, b) -> updateHudBounds());
+        stage.yProperty().addListener((o, a, b) -> updateHudBounds());
+        stage.widthProperty().addListener((o, a, b) -> updateHudBounds());
+        stage.heightProperty().addListener((o, a, b) -> updateHudBounds());
+        // Keyboard navigation of the compact block tree: → step into, ← step out, ↑/↓ move, Enter configure,
+        // Delete/Backspace remove. Without the last pair a mis-recorded or mis-picked block could only be
+        // removed by leaving the overlay for the main block editor.
         scene.setOnKeyPressed(e -> {
             if (scene.getFocusOwner() instanceof javafx.scene.control.TextInputControl) return;  // don't steal typing
             switch (e.getCode()) {
@@ -328,14 +374,18 @@ public final class ProgramShapeOverlay {
                 case ENTER -> {
                     if (focusedStatement() instanceof MethodInvocationBlock mib) openConfig(mib);
                 }
+                case DELETE, BACK_SPACE -> deleteFocused();
                 default -> { return; }
             }
             e.consume();
         });
 
         stage.show();
+        updateHudBounds();                             // the listeners above only fire on later changes
         OverlayToolbars.installDrag(header, stage);   // borderless: drag by the header bar
-        OverlayToolbars.promoteAboveFullscreen(stage); // stay above fullscreen games (X11)
+        // Stay above fullscreen games (X11) — but stand down while the argument-config popover is open, or the
+        // periodic re-raise puts the HUD back on top of the very window it just opened.
+        OverlayToolbars.promoteAboveFullscreen(stage, () -> configDlg == null);
 
         // Hide the HUD (and any open config popover) while a capture draw surface is up, so it doesn't sit
         // over the region/point/template selection — restored when the overlay closes.
@@ -344,21 +394,23 @@ public final class ProgramShapeOverlay {
             @Override public void onHidden() { hideForCapture(false); }
         });
 
-        // Re-render on every editor update; guard so a stale subscription (no unsubscribe API) no-ops.
-        context.getEventBus().subscribe(UIBlocksUpdatedEvent.class, e -> {
+        // Re-render on every editor update. Both subscriptions are kept and closed in setOnHidden — the overlay
+        // is opened and closed repeatedly over one project's lifetime, so without that every reopen left another
+        // live handler on the bus re-rendering a dead HUD.
+        subscriptions.add(context.getEventBus().subscribe(UIBlocksUpdatedEvent.class, e -> {
             if (stage != null && stage.isShowing()) {
                 root = e.rootBlock();
                 Platform.runLater(this::onBlocksUpdated);
             }
-        });
+        }));
 
         // Keep the activity picker current when an activity is created/renamed/removed elsewhere in the app —
         // it otherwise only ever reflects the list captured at the moment the overlay was opened.
-        context.getEventBus().subscribe(ActivitiesChangedEvent.class, e -> {
+        subscriptions.add(context.getEventBus().subscribe(ActivitiesChangedEvent.class, e -> {
             if (stage != null && stage.isShowing()) {
                 Platform.runLater(this::refreshActivityBox);
             }
-        });
+        }));
 
         // The handler is installed *after* the initial value, so the one explicit call below is the only one —
         // ComboBox.setValue's action-firing behaviour is not something to have two code paths depend on.
@@ -769,10 +821,31 @@ public final class ProgramShapeOverlay {
                 : (session.isPaused() ? "Paused" : "Recording") + " — " + session.actionCount() + " actions");
     }
 
+    /**
+     * Queues one status refresh per FX pulse. The recorder reports every press from its native thread, and a
+     * {@code Platform.runLater} apiece floods the FX queue during a fast burst — starving the same queue the
+     * insert/re-parse handoff runs on. The count is read when the runnable finally executes, so coalescing
+     * loses nothing but the intermediate frames.
+     */
+    private void requestRecStatusRefresh() {
+        if (recStatusQueued.compareAndSet(false, true)) {
+            Platform.runLater(() -> {
+                recStatusQueued.set(false);
+                updateRecStatus();
+            });
+        }
+    }
+
+    /** Republishes {@link #hudBounds} from the FX thread; see that field for why it is a snapshot. */
+    private void updateHudBounds() {
+        hudBounds = (stage == null) ? null
+                : new java.awt.Rectangle((int) stage.getX(), (int) stage.getY(),
+                        (int) stage.getWidth(), (int) stage.getHeight());
+    }
+
+    /** The HUD's last known screen bounds. Called from the recorder's native thread — no FX property reads. */
     private java.awt.Rectangle overlayScreenBounds() {
-        if (stage == null) return null;
-        return new java.awt.Rectangle((int) stage.getX(), (int) stage.getY(),
-                (int) stage.getWidth(), (int) stage.getHeight());
+        return hudBounds;
     }
 
     // ── insertion ────────────────────────────────────────────────────────────────────────────────────────
@@ -787,6 +860,26 @@ public final class ProgramShapeOverlay {
         int insertIndex = Math.min(c.index() + 1, c.body().getStatements().size());
         pendingInsert = new PendingInsert(bodyOrdinal(c.body()), insertIndex);
         context.getCodeEditor().addStatement(c.body(), type, insertIndex);
+    }
+
+    /** Removes the block the cursor sits on (Delete/Backspace), leaving the caret on the slot above it. */
+    private void deleteFocused() {
+        InsertionCursor c = cursor();
+        StatementBlock stmt = focusedStatement();
+        if (c != null && stmt != null) delete(stmt, c.body(), c.index());
+    }
+
+    /**
+     * Removes {@code stmt} through the same {@code CodeEditor.deleteStatement} the main editor's per-block ✕
+     * uses, so its read-only / pinned-return guards ({@code canDelete}) apply here too rather than being
+     * re-implemented. The caret is re-homed onto the slot <em>above</em> first: the re-parse replaces every
+     * block object, and a caret left on the index the deleted block occupied would silently point at whatever
+     * slid up into it.
+     */
+    private void delete(StatementBlock stmt, BodyBlock body, int index) {
+        if (stmt.isReadOnly() || !(stmt.getAstNode() instanceof org.eclipse.jdt.core.dom.Statement s)) return;
+        state.setInsertionCursor(new InsertionCursor(body, Math.max(-1, index - 1)));
+        context.getCodeEditor().deleteStatement(s);
     }
 
     private void addBelow(javafx.scene.Node anchor) {
@@ -884,14 +977,20 @@ public final class ProgramShapeOverlay {
                     render();
                     StatementBlock inserted = statements.get(p.index());
                     if (ov != null && inserted instanceof MethodInvocationBlock mib) {
-                        // A specific overload was picked in the palette bar — apply it to the fresh call.
+                        // A specific overload was picked in the palette bar — apply it to the fresh call. That
+                        // is another edit, so the block we'd open the popover on is about to be replaced;
+                        // defer to the next pulse instead of opening a popover onto a dead block.
                         mib.switchToOverload(context, ov);
-                    } else if (!suppressAutoFill && autoFillArgs != null && autoFillArgs.isSelected()
-                            && inserted instanceof MethodInvocationBlock mib) {
+                        if (autoFillEnabled()) pendingConfig = p;
+                    } else if (autoFillEnabled() && inserted instanceof MethodInvocationBlock mib) {
                         openConfig(mib);
                     }
                 }
             }
+        } else if (pendingConfig != null) {
+            PendingInsert p = pendingConfig;
+            pendingConfig = null;
+            if (statementAt(p) instanceof MethodInvocationBlock mib) openConfig(mib);
         }
         // Continue draining a recorded batch after the cursor has re-homed onto the last insert.
         if (draining) {
@@ -936,6 +1035,19 @@ public final class ProgramShapeOverlay {
 
     private int bodyOrdinal(BodyBlock body) {
         return allBodies(root).indexOf(body);
+    }
+
+    /** The statement a {@link PendingInsert} points at in the freshly re-parsed tree, or {@code null}. */
+    private StatementBlock statementAt(PendingInsert p) {
+        List<BodyBlock> bodies = allBodies(root);
+        if (p.bodyOrdinal() < 0 || p.bodyOrdinal() >= bodies.size()) return null;
+        List<StatementBlock> statements = bodies.get(p.bodyOrdinal()).getStatements();
+        return (p.index() >= 0 && p.index() < statements.size()) ? statements.get(p.index()) : null;
+    }
+
+    /** Whether a freshly inserted call should have its argument editor opened for it. */
+    private boolean autoFillEnabled() {
+        return !suppressAutoFill && autoFillArgs != null && autoFillArgs.isSelected();
     }
 
     /**
@@ -998,14 +1110,23 @@ public final class ProgramShapeOverlay {
         row.setOnMouseClicked(e -> move(new InsertionCursor(body, index)));
         row.setPickOnBounds(true);
 
+        Region spring = new Region();
+        HBox.setHgrow(spring, Priority.ALWAYS);
+        row.getChildren().add(spring);
+
         // Config (⚙) button for SDK/method calls: lets the user draw the rect / pick the template for the
         // call's arguments without leaving the overlay (reuses the standard argument pickers).
         if (stmt instanceof MethodInvocationBlock mib) {
-            Region spring = new Region();
-            HBox.setHgrow(spring, Priority.ALWAYS);
             Button config = iconButton("⚙", "Configure arguments (draw rect / pick template)", () -> openConfig(mib));
             config.setMinWidth(26);
-            row.getChildren().addAll(spring, config);
+            row.getChildren().add(config);
+        }
+        // Delete (✕), the row-level twin of the main editor's per-block delete. Generated scaffolding is not
+        // the user's to remove, so a read-only row simply doesn't offer it.
+        if (!stmt.isReadOnly()) {
+            Button remove = iconButton("✕", "Delete this block (Del)", () -> delete(stmt, body, index));
+            remove.setMinWidth(26);
+            row.getChildren().add(remove);
         }
         return row;
     }
@@ -1101,10 +1222,42 @@ public final class ProgramShapeOverlay {
         if (css != null) sc.getStylesheets().add(css.toExternalForm());
         applyThemeClass(sc.getRoot());
         dlg.setScene(sc);
-        if (stage != null) { dlg.setX(stage.getX() + 40); dlg.setY(stage.getY() + 80); }
         configDlg = dlg;
-        dlg.setOnHidden(e -> { if (configDlg == dlg) configDlg = null; });
+        dlg.setOnHidden(e -> {
+            if (configDlg == dlg) configDlg = null;
+            // A popover closed while dimmed for a capture would otherwise leave the flag armed, and the next
+            // real close of the HUD would skip its teardown entirely.
+            suppressHideTeardown = false;
+        });
         dlg.show();
+        // After show(): the dialog has no width/height to place against until it has been sized to its scene.
+        placeBesideHud(dlg);
+        // The HUD stands down from its own re-raise while this is open (see show()), so promoting the popover
+        // is what actually keeps it above both the HUD and a fullscreen game.
+        OverlayToolbars.promoteAboveFullscreen(dlg);
+        dlg.toFront();
+    }
+
+    /**
+     * Puts the config popover immediately to the <b>right</b> of the HUD, top-aligned with it — the HUD is
+     * tucked into the target window's top-left corner, so the space to its right is the one place a second
+     * window neither covers the HUD nor the region the user is about to draw on. Falls back to the HUD's left
+     * when there isn't room, and finally clamps into the screen so no row lands off-display.
+     */
+    private void placeBesideHud(Stage dlg) {
+        if (stage == null) return;
+        javafx.geometry.Rectangle2D screen = javafx.stage.Screen.getScreensForRectangle(
+                        stage.getX(), stage.getY(), stage.getWidth(), stage.getHeight()).stream()
+                .findFirst().orElse(javafx.stage.Screen.getPrimary()).getVisualBounds();
+
+        double x = stage.getX() + stage.getWidth() + 12;
+        if (x + dlg.getWidth() > screen.getMaxX()) {
+            double left = stage.getX() - dlg.getWidth() - 12;
+            x = (left >= screen.getMinX()) ? left : screen.getMaxX() - dlg.getWidth();
+        }
+        double y = Math.min(stage.getY(), screen.getMaxY() - dlg.getHeight());
+        dlg.setX(Math.max(screen.getMinX(), x));
+        dlg.setY(Math.max(screen.getMinY(), y));
     }
 
     /** Adds the app's current theme style class to {@code node}, mirroring {@code UIManager.applyThemeToScene}. */

@@ -8,6 +8,7 @@ import java.awt.Rectangle;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.IntConsumer;
 import java.util.function.Supplier;
 
@@ -25,8 +26,9 @@ import java.util.function.Supplier;
  *       as the old {@code MacroRecorder} did).</li>
  *   <li><b>Exclusion region</b> — because the overlay sits <em>inside</em> the target window (unlike the old
  *       recorder toolbar, which floated above it), clicking the overlay's own Record/Stop buttons would be
- *       recorded as clicks on the app. {@code exclusion} supplies the overlay's current screen bounds; pointer
- *       events inside it are dropped from the returned stream.</li>
+ *       recorded as clicks on the app. {@code exclusion} supplies the overlay's current screen bounds, and
+ *       pointer events inside it are dropped as they arrive — see {@link #onEvent}. It is polled from the
+ *       native listener thread, so it must not read JavaFX properties directly.</li>
  * </ul>
  */
 public final class RecordingSession {
@@ -38,7 +40,8 @@ public final class RecordingSession {
     private InputListener listener;
     private volatile boolean recording;
     private volatile boolean paused;
-    private volatile int actionCount;
+    /** Incremented from the native listener thread — an {@code int++} there loses presses under a fast burst. */
+    private final AtomicInteger actionCount = new AtomicInteger();
 
     public RecordingSession(Supplier<Rectangle> exclusion, IntConsumer onActionCount) {
         this.exclusion = exclusion;
@@ -50,15 +53,29 @@ public final class RecordingSession {
         return InputListenerFactory.isSupported();
     }
 
-    /** Starts a fresh recording (no-op if already recording). Throws if the listener can't be created/started. */
+    /**
+     * Starts a fresh recording (no-op if already recording). Throws if the listener can't be created/started.
+     *
+     * <p><b>Arm before starting the listener, not after.</b> The listener delivers on its own native thread the
+     * moment it is started, so starting it first left a window in which {@code recording} was still false (the
+     * user's first click after pressing Record was dropped) and the previous run's {@code buffer} had not yet
+     * been cleared (its leftovers could be appended to). Both are why recording appeared to work only some of
+     * the time.
+     */
     public void start() {
         if (recording) return;
-        listener = InputListenerFactory.create();
-        listener.start(this::onEvent);
         buffer.clear();
-        actionCount = 0;
-        recording = true;
+        actionCount.set(0);
         paused = false;
+        recording = true;
+        try {
+            listener = InputListenerFactory.create();
+            listener.start(this::onEvent);
+        } catch (RuntimeException | Error e) {
+            recording = false;   // never leave the session armed with no listener behind it
+            listener = null;
+            throw e;
+        }
     }
 
     public void setPaused(boolean value) {
@@ -74,10 +91,17 @@ public final class RecordingSession {
     }
 
     public int actionCount() {
-        return actionCount;
+        return actionCount.get();
     }
 
-    /** Stops the listener and returns the buffered events, minus any that fall inside the exclusion region. */
+    /**
+     * Stops the listener and returns the buffered events.
+     *
+     * <p>The listener is closed <em>first</em>, so no further event can be appended, and the copy is then taken
+     * while holding the buffer's own monitor: {@code Collections.synchronizedList} guards each mutation, not the
+     * iteration a copy-constructor performs, so copying it alongside a live native thread could throw
+     * {@code ConcurrentModificationException} and lose the whole recording.
+     */
     public List<InputEvent> stop() {
         recording = false;
         if (listener != null) {
@@ -88,27 +112,27 @@ public final class RecordingSession {
             }
             listener = null;
         }
-        return filterExcluded(new ArrayList<>(buffer));
+        synchronized (buffer) {
+            return new ArrayList<>(buffer);
+        }
     }
 
-    /** Called on the native listener thread — keep it cheap; the caller marshals UI updates to the FX thread. */
+    /**
+     * Called on the native listener thread — keep it cheap; the caller marshals UI updates to the FX thread.
+     *
+     * <p>The exclusion region is applied <em>here</em> rather than over the finished buffer, because the HUD is
+     * draggable: filtering at {@code stop()} tested every event against the overlay's <em>final</em> position,
+     * so blocks recorded before a drag were kept and real clicks over where the HUD ended up were thrown away.
+     */
     private void onEvent(InputEvent e) {
         if (!recording || paused) return;
+        Rectangle ex = exclusion != null ? exclusion.get() : null;
+        if (ex != null && insideExclusion(e, ex)) return;
         buffer.add(e);
         if (e instanceof InputEvent.ButtonPress || e instanceof InputEvent.KeyPress) {
-            actionCount++;
-            if (onActionCount != null) onActionCount.accept(actionCount);
+            int count = actionCount.incrementAndGet();
+            if (onActionCount != null) onActionCount.accept(count);
         }
-    }
-
-    private List<InputEvent> filterExcluded(List<InputEvent> events) {
-        Rectangle ex = exclusion != null ? exclusion.get() : null;
-        if (ex == null) return events;
-        List<InputEvent> out = new ArrayList<>(events.size());
-        for (InputEvent e : events) {
-            if (!insideExclusion(e, ex)) out.add(e);
-        }
-        return out;
     }
 
     /** True for pointer events whose absolute coordinates fall inside {@code ex}; key events are never excluded. */

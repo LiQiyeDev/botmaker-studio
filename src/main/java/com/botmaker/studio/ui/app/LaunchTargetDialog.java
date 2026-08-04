@@ -72,8 +72,20 @@ public final class LaunchTargetDialog {
     }
 
     public void show() {
+        show(null);
+    }
+
+    /**
+     * As {@link #show()}, additionally running {@code onClosed} on the FX thread once the window is gone.
+     * Mirrors {@link ManageCaptureTargetsDialog#show(Runnable)} and exists for the same reason: the stage is
+     * modal but {@code show()} does not block, so a caller that sent the user here to fix something — the
+     * overlay editor, which has no window to draw over until a target exists — has no other way to know when
+     * to look again.
+     */
+    public void show(Runnable onClosed) {
         stage = new Stage();
         if (owner != null) stage.initOwner(owner);
+        if (onClosed != null) stage.setOnHidden(e -> onClosed.run());
         stage.initModality(Modality.APPLICATION_MODAL);
         stage.setTitle("Launch Target");
 

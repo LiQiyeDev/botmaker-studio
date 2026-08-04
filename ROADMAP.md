@@ -6,6 +6,36 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-04 — the overlay editor's five broken affordances.** Improvements plan phase 1; five defects that
+  between them made the HUD unusable for the job it exists for.
+  **(a) "Fill arguments after adding" never fired for most of the palette.** Applying a palette-picked overload
+  is itself an edit, so the block resolved from `pendingInsert` was replaced again before the popover could
+  open — every method with more than one overload silently skipped the popover. A new `pendingConfig` defers
+  the open to the next re-parse.
+  **(b) The popover opened behind the HUD.** Not a positioning bug: `promoteAboveFullscreen` re-raises the HUD
+  every 750 ms, so any window opened *from* it was shoved back under within the second. `OverlayToolbars`
+  gained a gated overload and the HUD now stands down while the popover is up; the popover is promoted
+  instead, and `placeBesideHud` puts it to the HUD's right, screen-clamped, flipping left when there is no
+  room. (`initOwner` was the obvious fix and is wrong here — JavaFX hides owned windows with their owner, and
+  the HUD is deliberately hidden while a capture surface is up with the popover kept alive to host it.)
+  **(c) Blocks could not be deleted at all** — a mis-recorded block meant leaving the overlay for the main
+  editor. Added a per-row `✕` and Delete/Backspace, both routed through `CodeEditor.deleteStatement` so the
+  read-only/pinned-return guards apply rather than being re-implemented; the caret steps back first.
+  **(d) Macro recording worked about half the time.** `RecordingSession.start` armed the listener *before*
+  clearing the buffer and setting `recording`, so the first click after pressing Record was dropped and the
+  previous run's events could leak in; `stop()` copied the `synchronizedList` without holding its monitor
+  while the native thread was still appending; `actionCount++` on a `volatile int` lost presses; and one
+  `Platform.runLater` per event flooded the FX queue that the insert handoff runs on. Also, the exclusion
+  region was applied at `stop()` against the HUD's *final* position, so a drag mid-recording kept the wrong
+  events and dropped the right ones — it is now applied per event against an FX-thread-published snapshot.
+  **(e) The Overlay Editor button no longer pulled up the launch target.** `liveSessionWindow` returns 0
+  whenever `nestedLauncher` is null, and it is created lazily by the Remote Pilot dialog, so on a fresh run
+  the session path always missed and the user hit a dead-end warning. It now opens `LaunchTargetDialog`
+  (which gained the `show(Runnable onClosed)` overload `ManageCaptureTargetsDialog` already had) and retries
+  once, falling back to the warning rather than looping.
+  Also: `EventBus.subscribe` returns a closeable `Subscription`, and the overlay drops its two subscriptions
+  on close — the acknowledged leak that had every reopen stacking another handler re-rendering a dead HUD.
+
 - **2026-08-04 — B19: the wire corpus was shadowing the BotPilot dist it was filed next to.**
   `PilotServerTest` 404'd on every static path — red on CI and locally, since 2026-07-31. Two directories
   claimed the classpath name `pilot/`: `src/main/resources/pilot/` (the committed BotPilot dist that
