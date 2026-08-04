@@ -6,6 +6,18 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-04 — Waydroid troubleshooting in the emulator picker.** Improvements plan phase 6, Studio half.
+  `ui/render/components/WaydroidDiagnosticsDialog` renders shared's `WaydroidDiagnostics` findings — symptom,
+  remedy, and the commands in a read-only monospace area with a **Copy** button and *no Run button*, because
+  every fix needs `sudo` and reaches outside anything BotMaker owns (the host packet filter, the Android
+  system image). Reached two ways, offered rather than forced: a `Diagnose…` button on the Waydroid row in
+  `EmulatorPickerDialog` (with a click filter, so asking why it is broken doesn't also select it), and
+  automatically from the no-instances summary when Waydroid is installed but discovery found nothing — the
+  moment the user has a symptom and no explanation. The empty result is worded as a conclusion ("no problems
+  found, the cause is somewhere else"), since ruling the setup out is what makes running the check worthwhile.
+  The picker itself needed no other change: Waydroid arrives through `Platforms.discoverAll()` like any
+  product.
+
 - **2026-08-04 — pickers for durations and the clock.** Improvements plan phase 5, the Studio half of the
   SDK's new `Duration`. `ui/render/components/pickers/DurationPicker` is registered **by type** in
   `PickerRegistry` beside `Precision`: a value, a unit dropdown (ms/s/min) and a *random range* toggle that

@@ -1,6 +1,7 @@
 package com.botmaker.studio.ui.render.components;
 
 import com.botmaker.shared.emulator.EmulatorInstance;
+import com.botmaker.shared.emulator.PlatformId;
 import com.botmaker.shared.emulator.Platforms.PlatformStatus;
 import com.botmaker.studio.emulator.EmulatorInstanceScanner;
 import com.botmaker.studio.emulator.EmulatorProbe;
@@ -16,6 +17,7 @@ import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextInputDialog;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
@@ -84,7 +86,7 @@ public final class EmulatorPickerDialog {
                 if (scan.instances().isEmpty()) {
                     // No instances — show what each product's discovery actually saw so the user can tell
                     // "not installed" from "installed but nothing running / ADB off".
-                    rows.getChildren().add(buildStatusSummary(scan.statuses()));
+                    rows.getChildren().add(buildStatusSummary(scan.statuses(), dialog));
                     return;
                 }
                 for (EmulatorInstance instance : scan.instances()) rows.getChildren().add(buildRow(instance, dialog));
@@ -122,6 +124,18 @@ public final class EmulatorPickerDialog {
         state.getStyleClass().add("emulator-picker-state");
 
         HBox header = new HBox(8, thumbHolder, dot, brand, name, spacer, state);
+        if (instance.platformId() == PlatformId.WAYDROID) {
+            // Waydroid is the one platform whose common failures are host configuration rather than "it isn't
+            // started" — no NAT, no ARM translation layer. Offer the explanation from the row itself; the
+            // button consumes the click so it doesn't also pick the instance.
+            Button diagnose = new Button("Diagnose…");
+            diagnose.getStyleClass().add("emulator-picker-state");
+            diagnose.setOnAction(e -> WaydroidDiagnosticsDialog.show(windowOf(dialog)));
+            // The row itself is the "pick this instance" click target, so the button has to swallow the click
+            // that reaches it — otherwise asking why Waydroid is broken would also select it and close.
+            diagnose.addEventFilter(MouseEvent.MOUSE_CLICKED, MouseEvent::consume);
+            header.getChildren().add(diagnose);
+        }
         header.setAlignment(Pos.CENTER_LEFT);
         header.setPadding(new Insets(6, 8, 6, 8));
         header.getStyleClass().add("emulator-picker-row");
@@ -225,7 +239,7 @@ public final class EmulatorPickerDialog {
      * When no instance was found, a per-product summary so the user can see what discovery detected — "MuMu:
      * installed", "BlueStacks: not installed", "LDPlayer: scan error" — rather than a bare "nothing found".
      */
-    private static VBox buildStatusSummary(List<PlatformStatus> statuses) {
+    private static VBox buildStatusSummary(List<PlatformStatus> statuses, Dialog<Selection> dialog) {
         VBox box = new VBox(4);
         box.setPadding(new Insets(8));
         Label title = new Label("No emulator instances found.");
@@ -238,7 +252,20 @@ public final class EmulatorPickerDialog {
         hint.setWrapText(true);
         hint.getStyleClass().add("emulator-picker-state");
         box.getChildren().add(hint);
+        // Waydroid installed but nothing discovered is the exact moment the user has a symptom and no
+        // explanation — the second of the two ways the diagnostics are reached (the other is the row button).
+        boolean waydroidInstalled = statuses.stream()
+                .anyMatch(s -> s.platformId() == PlatformId.WAYDROID && s.installed());
+        if (waydroidInstalled) {
+            Button diagnose = new Button("Diagnose Waydroid…");
+            diagnose.setOnAction(e -> WaydroidDiagnosticsDialog.show(windowOf(dialog)));
+            box.getChildren().add(diagnose);
+        }
         return box;
     }
 
+    /** The dialog's window, for parenting a child dialog — null before it is shown. */
+    private static Window windowOf(Dialog<Selection> dialog) {
+        return dialog.getDialogPane().getScene() == null ? null : dialog.getDialogPane().getScene().getWindow();
+    }
 }
