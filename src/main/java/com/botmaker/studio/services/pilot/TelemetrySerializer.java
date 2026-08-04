@@ -11,7 +11,7 @@ import java.util.Locale;
  *
  * <p>The pilot web app's {@code types.ts} mirrors it field for field, and what keeps that true is
  * {@code TelemetryWireContractTest} plus its counterpart in the pilot repo: both read the same
- * {@code pilot/wire-golden.json} corpus, and both assert its digest, so neither copy can move alone.
+ * {@code pilot-wire/wire-golden.json} corpus, and both assert its digest, so neither copy can move alone.
  */
 public final class TelemetrySerializer {
 

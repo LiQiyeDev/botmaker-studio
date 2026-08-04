@@ -26,14 +26,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * The Studio half of the pilot wire contract. {@code types.ts} names every field of every message; this
  * side concatenates strings, and the only thing that has ever claimed the two agree is a javadoc sentence.
  *
- * <p>Both halves read the <em>same</em> corpus — {@code pilot/wire-golden.json} here,
+ * <p>Both halves read the <em>same</em> corpus — {@code pilot-wire/wire-golden.json} here,
  * {@code web/src/wire-golden.json} in the pilot repo — and both assert its SHA-256. Neither test can see
  * the other's repo, but the digest means neither copy can move alone: change the wire on one side and the
  * other side goes red until it is changed too. That, not the javadoc, is what keeps the clone honest.
  */
 class TelemetryWireContractTest {
 
-    private static final String GOLDEN = "/pilot/wire-golden.json";
+    /**
+     * Deliberately not under {@code /pilot} — that classpath directory belongs to the served BotPilot dist in
+     * {@code src/main/resources}, and Surefire puts {@code target/test-classes} ahead of {@code target/classes},
+     * so a test resource of the same name shadows the whole dist and every static path 404s (B19).
+     */
+    private static final String GOLDEN = "/pilot-wire/wire-golden.json";
 
     /**
      * The corpus, byte for byte. Update this together with {@code GOLDEN_SHA256} in the pilot repo's
@@ -156,7 +161,7 @@ class TelemetryWireContractTest {
     @Test
     void theGoldenCorpusIsTheOneThePilotRepoHas() throws Exception {
         assertEquals(GOLDEN_SHA256, sha256(goldenBytes()),
-                "pilot/wire-golden.json changed. The pilot repo has a byte-identical copy and asserts the "
+                "pilot-wire/wire-golden.json changed. The pilot repo has a byte-identical copy and asserts the "
                         + "same digest — update both files and both constants, or the wire has silently forked.");
     }
 

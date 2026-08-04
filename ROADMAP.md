@@ -6,6 +6,20 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-04 — B19: the wire corpus was shadowing the BotPilot dist it was filed next to.**
+  `PilotServerTest` 404'd on every static path — red on CI and locally, since 2026-07-31. Two directories
+  claimed the classpath name `pilot/`: `src/main/resources/pilot/` (the committed BotPilot dist that
+  `PilotServer` serves as `directory = "/pilot", location = CLASSPATH`) and `src/test/resources/pilot/`
+  (`wire-golden.json`, added the same day B19 was noted). Surefire puts `target/test-classes` ahead of
+  `target/classes`, so `/pilot` resolved to the test copy — which has no `index.html`. So neither the server
+  nor the test was wrong; the corpus was in the wrong place. Moved to `src/test/resources/pilot-wire/`,
+  bytes untouched, so the asserted SHA-256 and the pilot repo's byte-identical copy are unaffected and the
+  served path is unchanged. A real app run has no `target/test-classes`, which is why the UI always worked.
+  Also: `FileExplorerManager.collectByRole` walks a directory that need not exist yet (`refreshTree` falls
+  back to the main source file's parent exactly when `src/main/java` is missing, and that parent is missing
+  too), so it now returns early instead of printing a `NoSuchFileException` trace four times a run; the
+  genuinely-exceptional path left behind logs at `WARNING` rather than `printStackTrace`.
+
 - **2026-08-02 — an eyedropper, and one `Precision` editor that only shows the knobs the call can use.**
   There was no way to pick a colour *from the game*: `ColorArgPicker` opened the OS palette, which answers
   "which colour do I want" when a bot author already has a pixel on screen and needs the value that matches
@@ -198,7 +212,8 @@ whenever work lands here (see CLAUDE.md → Roadmap).
   character, or a `NaN` confidence, emits JSON no parser accepts and the client drops the message silently;
   P10's real JSON writer closes both halves. **Also found: `PilotServerTest` is red at `HEAD`** (B19) —
   every static path 404s under Surefire though the resources are on the classpath; needs one manual launch
-  to decide whether the server or the test is wrong.
+  to decide whether the server or the test is wrong. **(B19 fixed 2026-08-04 — neither: this very corpus,
+  filed under `pilot/`, was shadowing the served dist. See the entry at the top.)**
 
 - **2026-07-31 — refactor Phase 3: the test floor for `services/` + `runtime/` (SV3, MISSING 1–8).** Eight
   new test classes: +60 tests, `runtime` 0.0 → 67.9% (it had never been executed at all, and it is the
