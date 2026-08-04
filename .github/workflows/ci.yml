@@ -1,12 +1,25 @@
-name: Release
+name: CI
 
-# Build self-contained, per-OS app-images and publish them to a GitHub Release.
-# Triggered by pushing a version tag (e.g. `v1.0.0`); workflow_dispatch allows a
-# manual dry run (no Release is created on dispatch — artifacts only).
+# One workflow per repo, three jobs distinguished by trigger, not by file:
+#
+#   build    — every push and PR: compiles Studio. The gate.
+#   package  — version tags (and a manual dispatch dry run): the per-OS app-images and installers.
+#   release  — version tags only: publishes them as a GitHub Release.
+#
+# `package`/`release` were a separate file (release.yml) purely because their trigger differs, which a
+# job-level `if:` expresses just as well — and with one file there is one entry in the Actions tab.
+#
+# Tests are deliberately NOT run (`-DskipTests`): CI is a compile gate, and the suite is run locally.
+# -DskipTests still *compiles* the tests, so test code that no longer builds is still caught. (The release
+# half always skipped them — packaging an artifact was never the place to discover a red suite.)
+#
+# botmaker-shared and botmaker-session are resolved from source in `build`, and from their newest published
+# JitPack tag in `package`: this pom pins both at 0.0.0-SNAPSHOT — the version the umbrella reactor and a
+# local `mvn install` produce — so there is no published artifact under those coordinates to download.
+
 on:
   push:
-    tags:
-      - 'v*'
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -14,6 +27,41 @@ permissions:
 
 jobs:
   build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out botmaker-shared
+        uses: actions/checkout@v4
+        with:
+          repository: LiQiyeDev/botmaker-shared
+          path: .deps/botmaker-shared
+
+      - name: Check out botmaker-session
+        uses: actions/checkout@v4
+        with:
+          repository: LiQiyeDev/botmaker-session
+          path: .deps/botmaker-session
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Install botmaker-shared and botmaker-session (0.0.0-SNAPSHOT)
+        run: |
+          mvn -B -f .deps/botmaker-shared/pom.xml install -DskipTests
+          mvn -B -f .deps/botmaker-session/pom.xml install -DskipTests
+
+      # Deliberately not `-Pdist`: the native installers are the `package` job's business, not the gate's.
+      - name: Build
+        run: mvn -B -DskipTests package
+
+  # Build self-contained, per-OS app-images. Runs on a version tag; a manual dispatch is a dry run that
+  # produces artifacts but no Release (see the `release` job's condition).
+  package:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
@@ -115,8 +163,6 @@ jobs:
         # -Dapp.version=<tag> bakes the real version into the jpackage --app-version + manifest
         # Implementation-Version, so the installed app reports its true version (else the updater
         # always sees itself as the pom default 1.0.0 and re-prompts).
-        # Tests are skipped here: the release pipeline only packages the artifact; the test
-        # suite runs on push/PR CI. (Avoids gating releases on known-red tests.)
         # -Dbotmaker.shared.version=<tag> resolves shared from JitPack (the SNAPSHOT pom default won't resolve
         # on a clean runner without the reactor).
         shell: bash
@@ -172,10 +218,10 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: build
+    needs: package
     runs-on: ubuntu-latest
     # Only publish a Release for actual tag pushes, not manual dry runs.
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
