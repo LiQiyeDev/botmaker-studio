@@ -6,6 +6,29 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-04 — the vision loop's found value is now reachable in the block editor.** Improvements plan
+  phase 3, the Studio half of the SDK's `Matches`. The value a `whileFindAny(group, found -> …)` hands its body
+  was invisible: the header rendered the call, the body rendered underneath, and nothing named what crossed
+  between them — so a bot author could only reach it out-of-band via `VisionContext.getLastMatch()`.
+  **(a) A parameter chip.** `blocks/vision/LambdaCallBlock` renders the lambda parameter as an editable name
+  field plus the `→` it stands for, reading the name off the AST; committing one goes through the new
+  `CodeEditor.renameLambdaParameter` → `AstRewriteHelper.renameLambdaParameter`, which carries the body's
+  references along (identifier-scoped, not binding-keyed — see (c) — skipping method/field names and stopping
+  at a shadowing nested lambda).
+  **(b) The group variants lost their `Runnable` shape.** `Variant` now carries the parameter *name* rather
+  than a boolean; all four `…Any`/`…All` forms take a `Consumer<Matches>` to match the SDK, leaving only
+  `untilFind…` parameterless (it loops while nothing is found — there is nothing to hand over).
+  `LambdaCallHandler.switchVariant` takes a name and renames in place, keeping a user's own name across a
+  same-shape switch and resetting it when the value's type changes (`MatchResult` ↔ `Matches`).
+  **(c) Scope registration — the change that actually makes it reachable.** `ProjectAnalyzer` now adds
+  enclosing lambda parameters to `getVisibleVariables` from the AST, typed from the binding when there is one
+  and otherwise by reading the functional interface's type argument (`Consumer<Matches>` → `Matches`) out of
+  the library index. This is deliberately not binding-backed: an inferred lambda parameter only gets an
+  `IVariableBinding` once JDT resolves the target type from the SDK jar, which in the editor is routinely
+  absent, and the binding-only scope walker then reports no such variable at all. `ExpressionMenu`'s "Call
+  Function" section reads that list instead of `scope.variables()`, so `found.has(…)`/`.get(…)`/`.best()` are
+  offered inside the body. +8 tests (646 total).
+
 - **2026-08-04 — the overlay editor's five broken affordances.** Improvements plan phase 1; five defects that
   between them made the HUD unusable for the job it exists for.
   **(a) "Fill arguments after adding" never fired for most of the palette.** Applying a palette-picked overload

@@ -118,6 +118,74 @@ public class AstRewriteHelper {
         return applyRewrite(rewriter, originalCode);
     }
 
+    /**
+     * Renames a lambda parameter — the name chip on {@code LambdaCallBlock} — updating the declaration
+     * <em>and</em> every reference to it inside the lambda body, so the body still compiles.
+     *
+     * <p>Unlike {@link #renameForEachVariable} this cannot lean on binding keys: an inferred-type lambda
+     * parameter has a binding only once JDT resolved the target type, which in the editor is routinely
+     * unavailable — and a rename that silently dropped the body references would break the user's code. So
+     * the walk matches by identifier within the lambda, skipping the names that are never a variable
+     * reference (a method's own name, the field of a {@code x.y} access, the tail of a qualified name) and
+     * stopping at a nested lambda that redeclares the same name.
+     */
+    public static String renameLambdaParameter(CompilationUnit cu, String originalCode,
+                                               SimpleName declName, String newName) {
+        LambdaExpression lambda = enclosingLambda(declName);
+        if (lambda == null) return renameSimpleName(cu, originalCode, declName, newName);
+
+        AST ast = cu.getAST();
+        ASTRewrite rewriter = ASTRewrite.create(ast);
+        String oldName = declName.getIdentifier();
+        rewriter.set(declName, SimpleName.IDENTIFIER_PROPERTY, newName, null);
+
+        if (lambda.getBody() != null) {
+            lambda.getBody().accept(new ASTVisitor() {
+                @Override
+                public boolean visit(LambdaExpression nested) {
+                    // A nested lambda re-declaring the same name shadows ours — leave its subtree alone.
+                    return nested.parameters().stream()
+                            .map(AstRewriteHelper::lambdaParamIdentifier)
+                            .noneMatch(oldName::equals);
+                }
+
+                @Override
+                public boolean visit(SimpleName node) {
+                    if (node.getIdentifier().equals(oldName) && isVariableReference(node)) {
+                        rewriter.set(node, SimpleName.IDENTIFIER_PROPERTY, newName, null);
+                    }
+                    return true;
+                }
+            });
+        }
+        return applyRewrite(rewriter, originalCode);
+    }
+
+    private static String lambdaParamIdentifier(Object parameter) {
+        return switch (parameter) {
+            case VariableDeclarationFragment frag -> frag.getName().getIdentifier();
+            case SingleVariableDeclaration svd -> svd.getName().getIdentifier();
+            default -> null;
+        };
+    }
+
+    /** False for the names that can never denote a variable: {@code foo()}, {@code x.foo}, {@code a.b}. */
+    private static boolean isVariableReference(SimpleName node) {
+        StructuralPropertyDescriptor location = node.getLocationInParent();
+        return location != MethodInvocation.NAME_PROPERTY
+                && location != FieldAccess.NAME_PROPERTY
+                && location != SuperFieldAccess.NAME_PROPERTY
+                && location != QualifiedName.NAME_PROPERTY
+                && location != MethodDeclaration.NAME_PROPERTY;
+    }
+
+    private static LambdaExpression enclosingLambda(ASTNode node) {
+        for (ASTNode n = node; n != null; n = n.getParent()) {
+            if (n instanceof LambdaExpression lambda) return lambda;
+        }
+        return null;
+    }
+
     private static EnhancedForStatement enclosingEnhancedFor(ASTNode node) {
         for (ASTNode n = node; n != null; n = n.getParent()) {
             if (n instanceof EnhancedForStatement efs) return efs;

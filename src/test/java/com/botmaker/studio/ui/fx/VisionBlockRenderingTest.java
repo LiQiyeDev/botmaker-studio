@@ -18,6 +18,7 @@ import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.TextField;
 import javafx.stage.Stage;
 import org.junit.jupiter.api.Test;
 
@@ -78,8 +79,12 @@ class VisionBlockRenderingTest extends FxHeadlessTest {
 
     /** Converts {@link #botUsing} and returns the {@code LambdaCallBlock} in it, plus the service it renders with. */
     private static Rendered visionBlock(String method) {
+        return visionBlock(method, botUsing(method));
+    }
+
+    /** As {@link #visionBlock(String)}, for a caller that needs a body shape {@link #botUsing} doesn't produce. */
+    private static Rendered visionBlock(String method, String source) {
         Path file = Paths.get("Subject.java").toAbsolutePath();
-        String source = botUsing(method);
 
         ProjectState state = new ProjectState();
         state.addFile(new ProjectFile(file, source));
@@ -178,6 +183,52 @@ class VisionBlockRenderingTest extends FxHeadlessTest {
     private static Node render(String method) {
         Rendered r = visionBlock(method);
         return r.block().getUINode(r.context());
+    }
+
+    // ---- The lambda parameter ----
+
+    /**
+     * The value the body is handed used to be invisible — the header rendered the call, the body rendered
+     * underneath, and nothing named what crossed between them, so there was no way to reach it in the editor.
+     * It must render as an editable field carrying the source's own name.
+     */
+    @Test
+    void theLambdaParameterIsRenderedAsAnEditableNameChip() {
+        Node header = header(render("whileFindAny"));
+
+        List<String> chips = nodesOfType(header, TextField.class).stream().map(TextField::getText).toList();
+        assertEquals(List.of("m"), chips,
+                "the body's value must be named by an editable chip carrying the source's own name, "
+                        + "or the user cannot reach it");
+        assertTrue(labelTexts(header).contains("→"), "the chip reads as the lambda arrow it stands for");
+    }
+
+    /** {@code untilFind…} loops while nothing is found, so there is no value to name — and no chip. */
+    @Test
+    void aRunnableBodyCarriesNoParameterChip() {
+        String source = "package com.mybot;\n"
+                + "public class Subject {\n"
+                + "    public void run() {\n"
+                + "        ImageTemplate button = new ImageTemplate(\"button.png\");\n"
+                + "        ImageFinder.untilFind(button, () -> {\n"
+                + "            BotMaker.print(\"waiting\");\n"
+                + "        });\n"
+                + "    }\n"
+                + "}\n";
+        Rendered r = visionBlock("untilFind", source);
+        Node header = header(r.block().getUINode(r.context()));
+
+        assertTrue(nodesOfType(header, TextField.class).isEmpty(),
+                "a Runnable body has no value to name, so no chip: "
+                        + nodesOfType(header, TextField.class).stream().map(TextField::getText).toList());
+    }
+
+    /**
+     * The block's header row — the call itself. The search is scoped to it because the <em>body</em> renders
+     * its own text fields (a string literal is one), which would otherwise be mistaken for the parameter chip.
+     */
+    private static Node header(Node blockUi) {
+        return ((Parent) blockUi).getChildrenUnmodifiable().get(0);
     }
 
     // ---- The body ----

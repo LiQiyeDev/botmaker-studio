@@ -18,15 +18,19 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Round-trip coverage for the ⚙ vision-loop overload switch ({@link LambdaCallHandler#switchVariant}):
- * single → {@code …Any} wraps the leading image into {@code ImageTemplateGroup.of(…)} and keeps the
- * {@code Consumer<MatchResult>} lambda parameter; {@code …Any} → {@code …All} unwraps back to a single
- * template and drops the parameter (the target is a {@code Runnable}).
+ * Round-trip coverage for the vision-loop variant switch ({@link LambdaCallHandler#switchVariant}): it moves
+ * the leading image argument between a single template and an {@code ImageTemplateGroup.of(…)}, and adds,
+ * renames or removes the lambda parameter to match the target's shape.
+ *
+ * <p>The parameter is the part that changed with the SDK's {@code Matches}: the {@code …Any}/{@code …All} group
+ * forms take a {@code Consumer<Matches>} now, not a {@code Runnable}, so switching to one must <em>rename</em>
+ * the parameter (the value's type changed from {@code MatchResult} to {@code Matches}) rather than drop it.
+ * Only the {@code untilFind…} forms are still parameterless.
  */
 public class LambdaVariantSwitchTest {
 
     /** Rewrite {@code call}'s method to {@code newMethod} via switchVariant and return the new source. */
-    private static String switchTo(String source, String call, String newMethod, boolean group, boolean param) {
+    private static String switchTo(String source, String call, String newMethod, boolean group, String param) {
         ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
         parser.setSource(source.toCharArray());
         CompilationUnit cu = (CompilationUnit) parser.createAST(null);
@@ -50,34 +54,51 @@ public class LambdaVariantSwitchTest {
     }
 
     @Test
-    void singleToAnyWrapsGroupAndKeepsParam() {
+    void singleToAnyWrapsGroupAndRenamesTheParamToTheGroupValue() {
         String source = """
                 package test;
                 public class Subject {
                     void run() {
-                        ImageFinder.whileFind(coin, m -> {});
+                        ImageFinder.whileFind(coin, match -> {});
                     }
                 }
                 """;
-        String result = switchTo(source, "whileFind", "whileFindAny", true, true).replace(" ", "");
-        assertTrue(result.contains("whileFindAny(ImageTemplateGroup.of(coin),m->{}"),
-                () -> "expected group-wrapped call keeping the match param: " + result);
+        String result = switchTo(source, "whileFind", "whileFindAny", true, "found").replace(" ", "");
+        // The body's value went from one MatchResult to the whole Matches, so the name goes with it.
+        assertTrue(result.contains("whileFindAny(ImageTemplateGroup.of(coin),found->{}"),
+                () -> "expected group-wrapped call with the renamed param: " + result);
     }
 
     @Test
-    void anyToAllUnwrapsGroupAndDropsParam() {
+    void anyToAllKeepsTheGroupAndTheParameter() {
         String source = """
                 package test;
                 public class Subject {
                     void run() {
-                        ImageFinder.whileFindAny(ImageTemplateGroup.of(coin), m -> {});
+                        ImageFinder.whileFindAny(ImageTemplateGroup.of(coin), found -> {});
                     }
                 }
                 """;
-        String result = switchTo(source, "whileFindAny", "whileFindAll", true, false).replace(" ", "");
-        // still a group (All takes a group) but the lambda loses its parameter (Runnable target).
-        assertTrue(result.contains("whileFindAll(ImageTemplateGroup.of(coin),()->{}"),
-                () -> "expected group kept and a no-arg lambda: " + result);
+        String result = switchTo(source, "whileFindAny", "whileFindAll", true, "found").replace(" ", "");
+        // Both group forms take a Consumer<Matches> now — this used to drop the param for a Runnable body.
+        assertTrue(result.contains("whileFindAll(ImageTemplateGroup.of(coin),found->{}"),
+                () -> "expected group kept and the Matches param kept: " + result);
+    }
+
+    @Test
+    void anyToUntilDropsTheParameter() {
+        String source = """
+                package test;
+                public class Subject {
+                    void run() {
+                        ImageFinder.whileFindAny(ImageTemplateGroup.of(coin), found -> {});
+                    }
+                }
+                """;
+        String result = switchTo(source, "whileFindAny", "untilFindAny", true, null).replace(" ", "");
+        // untilFind… loops while nothing is found, so there is no value to hand over — a Runnable body.
+        assertTrue(result.contains("untilFindAny(ImageTemplateGroup.of(coin),()->{}"),
+                () -> "expected a no-arg lambda: " + result);
     }
 
     @Test
@@ -86,12 +107,28 @@ public class LambdaVariantSwitchTest {
                 package test;
                 public class Subject {
                     void run() {
-                        ImageFinder.whileFindAny(ImageTemplateGroup.of(coin, gem), m -> {});
+                        ImageFinder.whileFindAny(ImageTemplateGroup.of(coin, gem), found -> {});
                     }
                 }
                 """;
-        String result = switchTo(source, "whileFindAny", "whileFind", false, true).replace(" ", "");
-        assertTrue(result.contains("whileFind(coin,m->{}"),
+        String result = switchTo(source, "whileFindAny", "whileFind", false, "match").replace(" ", "");
+        assertTrue(result.contains("whileFind(coin,match->{}"),
                 () -> "expected first template unwrapped from the group: " + result);
+    }
+
+    /** A user-renamed parameter survives a switch that doesn't change the value's type (group → group). */
+    @Test
+    void aRenamedParameterIsCarriedAcrossASameShapeSwitch() {
+        String source = """
+                package test;
+                public class Subject {
+                    void run() {
+                        ImageFinder.ifFindAny(ImageTemplateGroup.of(coin), popups -> {});
+                    }
+                }
+                """;
+        String result = switchTo(source, "ifFindAny", "whileFindAny", true, "popups").replace(" ", "");
+        assertTrue(result.contains("whileFindAny(ImageTemplateGroup.of(coin),popups->{}"),
+                () -> "expected the user's own parameter name kept: " + result);
     }
 }

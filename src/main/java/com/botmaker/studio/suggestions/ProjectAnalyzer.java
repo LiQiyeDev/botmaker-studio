@@ -483,6 +483,10 @@ public class ProjectAnalyzer {
     /**
      * Variables visible at {@code node}, optionally filtered to those assignable to
      * {@code requiredType}. Binding-backed (via {@link VariableScopeVisitor}); de-duplicated by name.
+     *
+     * <p>Enclosing lambda parameters are then added from the AST — see
+     * {@link #enclosingLambdaParameters}. They are a scope the binding pass routinely misses, and missing
+     * them is what made {@code whileFindAny(group, found -> …)}'s {@code found} unreachable in the editor.
      */
     public List<VariableOption> getVisibleVariables(ASTNode node, ResolvedType requiredType) {
         if (node == null) return List.of();
@@ -497,7 +501,104 @@ public class ProjectAnalyzer {
                 results.add(new VariableOption(name, varType, b.isField()));
             }
         }
+        for (VariableOption param : enclosingLambdaParameters(node)) {
+            if (!isCompatible(param.type(), requiredType)) continue;
+            if (seen.add(param.name())) results.add(param);
+        }
         return results;
+    }
+
+    /**
+     * The parameters of every {@link LambdaExpression} enclosing {@code node}, innermost first.
+     *
+     * <p>Why this exists rather than relying on {@link VariableScopeVisitor}: an inferred-type lambda
+     * parameter ({@code found -> …}) has a binding only once JDT has resolved the <em>target</em> type,
+     * which needs the SDK jar on the parse classpath. In the editor that resolution is routinely absent
+     * (a freshly generated project, an unresolved classpath, a file mid-edit), and when it is, the
+     * parameter simply does not exist as far as the scope walker is concerned — so the body of a vision
+     * loop offered no way to reach what was found. Here the parameter is read off the AST, which is always
+     * there, and only its <em>type</em> falls back to {@link #lambdaParameterType}.
+     */
+    private List<VariableOption> enclosingLambdaParameters(ASTNode node) {
+        List<VariableOption> out = new ArrayList<>();
+        for (ASTNode cur = node; cur != null; cur = cur.getParent()) {
+            if (!(cur instanceof LambdaExpression lambda)) continue;
+            for (Object p : lambda.parameters()) {
+                String name = parameterName(p);
+                if (name == null || HIDDEN_VARIABLES.contains(name)) continue;
+                out.add(new VariableOption(name, lambdaParameterType(lambda, p), false));
+            }
+        }
+        return out;
+    }
+
+    /** The declared name of a lambda parameter, inferred ({@code found}) or explicit ({@code Matches found}). */
+    private static String parameterName(Object parameter) {
+        return switch (parameter) {
+            case VariableDeclarationFragment frag -> frag.getName().getIdentifier();
+            case SingleVariableDeclaration svd -> svd.getName().getIdentifier();
+            default -> null;
+        };
+    }
+
+    /**
+     * The type of a lambda parameter: its binding when JDT resolved one, else the explicit declared type,
+     * else the functional interface's type argument read off the invoked method in the library index —
+     * {@code ImageFinder.whileFindAny(ImageTemplateGroup, Consumer<Matches>)} yields {@code Matches}.
+     * {@link ResolvedType#UNKNOWN} when nothing answers, which still leaves the name usable.
+     */
+    private ResolvedType lambdaParameterType(LambdaExpression lambda, Object parameter) {
+        if (parameter instanceof VariableDeclarationFragment frag
+                && frag.resolveBinding() instanceof IVariableBinding vb && vb.getType() != null) {
+            ResolvedType bound = ResolvedType.of(vb.getType());
+            if (!bound.isUnknown()) return bound;
+        }
+        if (parameter instanceof SingleVariableDeclaration svd) return resolveType(svd.getType());
+        return functionalArgumentType(lambda);
+    }
+
+    /**
+     * Reads the type argument of the functional-interface parameter the {@code lambda} is passed to
+     * ({@code Consumer<Matches>} → {@code Matches}) from the library index. Generic arguments are only
+     * available on the raw ClassGraph signature — {@link #resolveLibraryType} deliberately strips them —
+     * so the descriptor string is parsed here rather than going through {@link MethodSignature}.
+     */
+    private ResolvedType functionalArgumentType(LambdaExpression lambda) {
+        if (libraryIndex == null
+                || !(lambda.getParent() instanceof MethodInvocation mi)
+                || mi.getExpression() == null) {
+            return ResolvedType.UNKNOWN;
+        }
+        String receiver = mi.getExpression().toString();
+        Optional<ClassInfo> ci = libraryIndex.findBySimpleName(receiver);
+        if (ci.isEmpty()) ci = libraryIndex.findByQualifiedName(receiver);
+        if (ci.isEmpty()) return ResolvedType.UNKNOWN;
+
+        int position = mi.arguments().indexOf(lambda);
+        String name = mi.getName().getIdentifier();
+        for (MethodInfo info : ci.get().getMethodInfo(name)) {
+            var params = info.getParameterInfo();
+            if (params.length != mi.arguments().size() || position < 0 || position >= params.length) continue;
+            String arg = firstTypeArgument(params[position].getTypeSignatureOrTypeDescriptor().toString());
+            if (arg != null) return resolveLibraryType(arg);
+        }
+        return ResolvedType.UNKNOWN;
+    }
+
+    /** {@code java.util.function.Consumer<com.…Matches>} → {@code com.…Matches}; null when not generic. */
+    private static String firstTypeArgument(String descriptor) {
+        int open = descriptor.indexOf('<');
+        int close = descriptor.lastIndexOf('>');
+        if (open < 0 || close <= open) return null;
+        String args = descriptor.substring(open + 1, close);
+        int depth = 0;
+        for (int i = 0; i < args.length(); i++) {
+            char c = args.charAt(i);
+            if (c == '<') depth++;
+            else if (c == '>') depth--;
+            else if (c == ',' && depth == 0) return args.substring(0, i).trim();
+        }
+        return args.isBlank() ? null : args.trim();
     }
 
     /**

@@ -25,8 +25,11 @@ public final class SdkApi {
      * then capture wiring (Source/Window) and observation (Bots).
      *
      * <p>{@code VisionContext} exposes the {@code MatchResult} stored by the last find/click/wait call
-     * (the vision API returns {@code boolean}/{@code int} now, not {@code MatchResult}) and, likewise, the
-     * {@code ColorMatch} stored by the last {@code Pixel} call. {@code Target} is the current launch target
+     * (the vision API returns {@code boolean}/{@code int} now, not {@code MatchResult}), the {@code Matches}
+     * stored by the last group check ({@code getLastMatches()}) and, likewise, the {@code ColorMatch} stored by
+     * the last {@code Pixel} call. It is the out-of-band escape hatch: a group lambda hands its body the
+     * {@code Matches} directly, as the named parameter {@code LambdaCallBlock} renders — prefer that.
+     * {@code Target} is the current launch target
      * holder ({@code start()}/{@code restart()}). {@code Screen} is intentionally absent — it is no longer a
      * user-facing {@code CaptureSource} facade.
      *

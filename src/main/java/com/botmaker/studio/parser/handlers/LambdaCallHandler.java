@@ -65,17 +65,23 @@ public final class LambdaCallHandler {
     }
 
     /**
-     * Switches a lambda-call to a sibling overload/variant — the {@code ⚙} selector on
+     * Switches a lambda-call to a sibling overload/variant — the method dropdown on
      * {@code LambdaCallBlock} (e.g. {@code whileFind ↔ whileFindAny ↔ whileFindAll}). It renames the
      * method, converts the leading image argument single↔group ({@code new ImageTemplate("x")} ↔
-     * {@code ImageTemplateGroup.of(new ImageTemplate("x"))}), and adds/removes the lambda's {@code match}
-     * parameter to match the target's {@code Consumer<MatchResult>} vs {@code Runnable} shape.
+     * {@code ImageTemplateGroup.of(new ImageTemplate("x"))}), and adds, removes or <em>renames</em> the
+     * lambda's parameter to match the target's shape — {@code Consumer<MatchResult>} for the single-template
+     * forms, {@code Consumer<Matches>} for the group forms, {@code Runnable} for {@code untilFind…}.
+     *
+     * <p>The rename matters because the parameter's type changes with the variant: switching
+     * {@code whileFind} → {@code whileFindAny} turns a {@code MatchResult match} into a {@code Matches found},
+     * and a stale name would read as the wrong thing in the body.
      *
      * @param group      the target takes an {@code ImageTemplateGroup} (an {@code …Any}/{@code …All} variant)
-     * @param lambdaParam the target's body receives the match ({@code m -> {}}) vs a bare {@code () -> {}}
+     * @param lambdaParam the name the target's body receives the value under ({@code found -> {}}); {@code null}
+     *                    or blank for a bare {@code () -> {}} ({@link Runnable} target)
      */
     public static void switchVariant(AST ast, CompilationUnit cu, ASTRewrite rewriter, ProjectAnalyzer analyzer,
-                                     MethodInvocation mi, String newMethod, boolean group, boolean lambdaParam) {
+                                     MethodInvocation mi, String newMethod, boolean group, String lambdaParam) {
         rewriter.set(mi, MethodInvocation.NAME_PROPERTY, ast.newSimpleName(newMethod), null);
 
         List<?> args = mi.arguments();
@@ -120,23 +126,56 @@ public final class LambdaCallHandler {
         return null;
     }
 
-    /** Add or remove the single {@code match} lambda parameter so the body shape matches the target variant. */
-    private static void adjustLambdaParam(AST ast, ASTRewrite rewriter, LambdaExpression lambda, boolean wantParam) {
-        boolean hasParam = !lambda.parameters().isEmpty();
+    /**
+     * Adds, removes or renames the single lambda parameter so the body shape matches the target variant.
+     * A rename rewrites the declaration only — references in the body are left alone here, because
+     * {@code switchVariant} also changes the parameter's <em>type</em>, so a body written against the old
+     * value has to be revisited by the user anyway; {@code AstRewriteHelper.renameLambdaParameter} is the
+     * path for a pure rename, and it does carry the references.
+     */
+    private static void adjustLambdaParam(AST ast, ASTRewrite rewriter, LambdaExpression lambda, String wantName) {
+        boolean wantParam = wantName != null && !wantName.isBlank();
+        List<?> params = lambda.parameters();
+        boolean hasParam = !params.isEmpty();
+
+        if (wantParam && hasParam) {
+            SimpleName declared = declaredName(params.get(0));
+            if (declared != null && !declared.getIdentifier().equals(wantName)) {
+                rewriter.set(declared, SimpleName.IDENTIFIER_PROPERTY, wantName, null);
+            }
+            return;
+        }
         if (wantParam == hasParam) return;
+
         org.eclipse.jdt.core.dom.rewrite.ListRewrite lr =
                 rewriter.getListRewrite(lambda, LambdaExpression.PARAMETERS_PROPERTY);
         if (wantParam) {
             VariableDeclarationFragment p = ast.newVariableDeclarationFragment();
-            p.setName(ast.newSimpleName("match"));
+            p.setName(ast.newSimpleName(wantName));
             lr.insertLast(p, null);
-            rewriter.set(lambda, LambdaExpression.PARENTHESES_PROPERTY, Boolean.FALSE, null); // match -> {}
+            rewriter.set(lambda, LambdaExpression.PARENTHESES_PROPERTY, Boolean.FALSE, null); // found -> {}
         } else {
-            for (Object o : lambda.parameters()) {
+            for (Object o : params) {
                 lr.remove((ASTNode) o, null);
             }
             rewriter.set(lambda, LambdaExpression.PARENTHESES_PROPERTY, Boolean.TRUE, null); // () -> {}
         }
+    }
+
+    /** The {@link SimpleName} a lambda parameter declares, inferred ({@code found}) or explicit ({@code Matches found}). */
+    public static SimpleName declaredName(Object parameter) {
+        return switch (parameter) {
+            case VariableDeclarationFragment frag -> frag.getName();
+            case SingleVariableDeclaration svd -> svd.getName();
+            default -> null;
+        };
+    }
+
+    /** The {@link SimpleName} declared by {@code mi}'s trailing lambda, or {@code null} if it has no parameter. */
+    public static SimpleName lambdaParamName(MethodInvocation mi) {
+        LambdaExpression lambda = lambdaArg(mi);
+        if (lambda == null || lambda.parameters().isEmpty()) return null;
+        return declaredName(lambda.parameters().get(0));
     }
 
     /** True when {@code mi}'s last argument is a lambda with a {@code { … }} block body. */

@@ -20,7 +20,6 @@ import javafx.scene.control.MenuItem;
 import javafx.scene.control.SeparatorMenuItem;
 import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.jdt.core.dom.ITypeBinding;
-import org.eclipse.jdt.core.dom.IVariableBinding;
 import org.eclipse.jdt.core.dom.MethodInvocation;
 import org.eclipse.jdt.core.dom.SimpleName;
 import org.eclipse.jdt.core.dom.TypeDeclaration;
@@ -525,15 +524,20 @@ public final class ExpressionMenu {
 
         // 2. Visible variables (instance members) + 3. in-scope static classes. Each submenu is dropped when
         // it has no members compatible with the slot type (buildScopeMenu returns null).
-        if (scope != null) {
-            for (IVariableBinding var : scope.variables()) {
-                if (!ProjectAnalyzer.isUserVariable(var.getName())) continue; // hide args/this/super/scanner/…
-                ResolvedType varType = ResolvedType.of(var.getType());
+        // Variables come from getVisibleVariables, not scope.variables(): the latter is binding-only, and an
+        // inferred lambda parameter (`found -> …`) usually has no binding — which is exactly the receiver the
+        // user needs here, to reach found.has(…)/get(…). See ProjectAnalyzer#enclosingLambdaParameters.
+        if (analyzer != null && contextNode != null) {
+            for (ProjectAnalyzer.VariableOption var : analyzer.getVisibleVariables(contextNode, ResolvedType.UNKNOWN)) {
+                if (!ProjectAnalyzer.isUserVariable(var.name())) continue; // hide args/this/super/scanner/…
+                ResolvedType varType = var.type();
                 if (varType.isArray()) continue;                  // arrays have no meaningful instance members
                 if (varType.isPrimitive() && !varType.isString()) continue;
                 MenuBuilders.addIfNonNull(scopeMenus, MenuBuilders.buildScopeMenu(
-                        var.getName(), var.getName(), var.getType().getQualifiedName(), false, expectedType, analyzer, onSelect));
+                        var.name(), var.name(), varType.qualifiedName(), false, expectedType, analyzer, onSelect));
             }
+        }
+        if (scope != null) {
             for (ITypeBinding type : scope.types()) {
                 if (type.getName().equals(enclosingClass)) continue; // already covered as "This (...)"
                 MenuBuilders.addIfNonNull(scopeMenus, MenuBuilders.buildScopeMenu(

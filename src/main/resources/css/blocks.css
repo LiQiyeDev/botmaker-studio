@@ -482,6 +482,23 @@
     -fx-font-weight: bold;
 }
 
+/* The "found →" lambda parameter chip: it names the value the body is handed, so it sits between the call
+   and the indented body and reads as the arrow in the source. The name itself is a plain variable-name field
+   (editable, renaming through CodeEditor); only the arrow is styled, muted so it doesn't compete with the
+   method dropdown. */
+.sdk-call-block .sdk-lambda-arrow {
+    -fx-text-fill: #8e44ad;
+    -fx-font-family: monospace;
+    -fx-font-weight: bold;
+    -fx-padding: 0 2 0 0;
+}
+
+/* A lambda parameter field is narrower than a declaration's: it holds one short word ("found"), and the
+   default 100px pushes the body arrow off to the right of the header. */
+.sdk-call-block .variable-name-field {
+    -fx-pref-width: 72;
+}
+
 /* "→ ReturnType" badge on an SDK call: tells the user whether the call yields a boolean guard,
    an int count, or a MatchResult. Muted (informational, not interactive). */
 .return-type-badge {

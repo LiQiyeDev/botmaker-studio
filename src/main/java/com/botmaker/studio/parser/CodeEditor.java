@@ -349,11 +349,14 @@ public class CodeEditor {
     }
 
     /**
-     * Switches a vision loop statement between its single / {@code …Any} / {@code …All} variants (the ⚙
-     * overload picker on {@code LambdaCallBlock}). Delegates to {@link LambdaCallHandler#switchVariant}:
-     * renames the method, converts the image arg single↔group, and adjusts the lambda parameter.
+     * Switches a vision loop statement between its single / {@code …Any} / {@code …All} variants (the method
+     * dropdown on {@code LambdaCallBlock}). Delegates to {@link LambdaCallHandler#switchVariant}: renames the
+     * method, converts the image arg single↔group, and adds/removes/renames the lambda parameter — a group
+     * variant's body receives a {@code Matches}, a single one's a {@code MatchResult}.
+     *
+     * @param lambdaParam the name the body receives the value under, or {@code null} for a {@code () -> {}} body
      */
-    public void switchLambdaVariant(Statement lambdaStmt, String newMethod, boolean group, boolean lambdaParam) {
+    public void switchLambdaVariant(Statement lambdaStmt, String newMethod, boolean group, String lambdaParam) {
         edit(lambdaStmt, EditKind.BODY, true, (cu, code) -> {
             if (!(lambdaStmt instanceof ExpressionStatement es
                     && es.getExpression() instanceof MethodInvocation mi)) {
@@ -657,6 +660,14 @@ public class CodeEditor {
 
     public void replaceSimpleName(SimpleName toReplace, String newName) {
         edit(toReplace, EditKind.BODY, false, (cu, code) -> AstRewriteHelper.renameSimpleName(cu, code, toReplace, newName));
+    }
+
+    /**
+     * Renames a lambda parameter (the name chip on {@code LambdaCallBlock}), carrying its references in the
+     * lambda body along — same reason as {@link #renameForEachVariable}.
+     */
+    public void renameLambdaParameter(SimpleName toRename, String newName) {
+        edit(toRename, EditKind.BODY, false, (cu, code) -> AstRewriteHelper.renameLambdaParameter(cu, code, toRename, newName));
     }
 
     /**

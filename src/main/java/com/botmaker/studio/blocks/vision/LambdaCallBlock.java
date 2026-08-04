@@ -6,9 +6,11 @@ import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.CodeBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.palette.SdkDocs;
+import com.botmaker.studio.parser.handlers.LambdaCallHandler;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.ui.render.components.BlockUIComponents;
+import com.botmaker.studio.ui.render.components.TextFieldComponents;
 import com.botmaker.studio.ui.render.layout.BlockLayout;
 import com.botmaker.studio.ui.render.layout.SentenceLayoutBuilder;
 import javafx.scene.Node;
@@ -20,6 +22,9 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.jdt.core.dom.Expression;
+import org.eclipse.jdt.core.dom.ExpressionStatement;
+import org.eclipse.jdt.core.dom.MethodInvocation;
+import org.eclipse.jdt.core.dom.SimpleName;
 import org.eclipse.jdt.core.dom.Statement;
 
 import java.util.ArrayList;
@@ -36,25 +41,48 @@ import java.util.List;
  * <p>Selecting a different method in the dropdown rewrites the call via
  * {@code parser.handlers.LambdaCallHandler#switchVariant}: it renames the method, swaps the image slot between a
  * single {@code ImageTemplate} and an {@code ImageTemplateGroup} (engaging the multi-image group picker), and
- * fixes the lambda parameter ({@code Consumer<MatchResult>} vs {@code Runnable}) — rewriting <em>in place</em> so
- * the user's body survives the switch. (The generic method-invocation overload path can't be reused here: it
- * syncs arguments positionally and would clobber the trailing lambda.)
+ * fixes the lambda parameter — rewriting <em>in place</em> so the user's body survives the switch. (The generic
+ * method-invocation overload path can't be reused here: it syncs arguments positionally and would clobber the
+ * trailing lambda.)
+ *
+ * <p><b>The parameter chip.</b> The value the body is handed — a {@code MatchResult} for the single-template
+ * forms, a {@code Matches} for the group forms — used to be invisible: the header rendered the call and the body
+ * rendered underneath, with nothing between them naming what crossed the boundary, so in the block editor there
+ * was literally no way to reach it. It is now an editable chip rendering the source's own {@code found ->}, and
+ * the name it carries is registered as an in-scope variable for the body (see
+ * {@code suggestions.ProjectAnalyzer#enclosingLambdaParameters}), which is what puts {@code found} and its
+ * {@code has}/{@code hasAll}/{@code get}/{@code best} members in the body's expression menu.
  */
 public class LambdaCallBlock extends AbstractStatementBlock implements BlockWithChildren {
 
-    /** One selectable form of a vision loop: its method, whether it takes a group, and whether its lambda has a param. */
-    private record Variant(String method, boolean group, boolean hasParam) {}
+    /**
+     * One selectable form of a vision loop: its method, whether it takes a group, and the name its lambda
+     * parameter defaults to ({@code null} = no parameter, a {@link Runnable} body).
+     *
+     * <p>The {@code …Any}/{@code …All} group forms used to be parameterless: the SDK passed the body a bare
+     * {@code Runnable} because "every template is present" has no single meaningful {@code MatchResult}. The
+     * SDK's {@code Matches} value answers that — all four group forms now take a {@code Consumer<Matches>} and
+     * hand over the whole combination — so only {@code untilFind…} remains parameterless, and correctly so:
+     * those loop <em>while nothing is found</em>, so there is nothing to hand over.
+     */
+    private record Variant(String method, boolean group, String param) {
+        boolean hasParam() { return param != null; }
+    }
+
+    /** The single-template forms hand over the one hit; the group forms hand over the whole combination. */
+    private static final String MATCH_PARAM = "match";
+    private static final String MATCHES_PARAM = "found";
 
     private static final List<Variant> VARIANTS = List.of(
-            new Variant("ifFind", false, true),
-            new Variant("ifFindAny", true, true),
-            new Variant("ifFindAll", true, false),
-            new Variant("whileFind", false, true),
-            new Variant("whileFindAny", true, true),
-            new Variant("whileFindAll", true, false),
-            new Variant("untilFind", false, false),
-            new Variant("untilFindAny", true, false),
-            new Variant("untilFindAll", true, false));
+            new Variant("ifFind", false, MATCH_PARAM),
+            new Variant("ifFindAny", true, MATCHES_PARAM),
+            new Variant("ifFindAll", true, MATCHES_PARAM),
+            new Variant("whileFind", false, MATCH_PARAM),
+            new Variant("whileFindAny", true, MATCHES_PARAM),
+            new Variant("whileFindAll", true, MATCHES_PARAM),
+            new Variant("untilFind", false, null),
+            new Variant("untilFindAny", true, null),
+            new Variant("untilFindAll", true, null));
 
     /** The vision loop helpers all live on the SDK's {@code ImageFinder} facade. */
     private static final String SDK_CLASS = "ImageFinder";
@@ -113,6 +141,7 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
                 .addLabel(")");
 
         addReturnBadge(sentence);
+        addParamChip(sentence, context);
         addInfoButton(sentence, context);
 
         HBox headerContent = sentence.build();
@@ -148,9 +177,60 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
             if (picked == null || picked.equals(method)) return;
             VARIANTS.stream().filter(v -> v.method().equals(picked)).findFirst().ifPresent(v ->
                     context.getCodeEditor()
-                            .switchLambdaVariant((Statement) this.astNode, v.method(), v.group(), v.hasParam()));
+                            .switchLambdaVariant((Statement) this.astNode, v.method(), v.group(), targetParamName(v)));
         });
         return selector;
+    }
+
+    /**
+     * The name the body's value keeps after a variant switch: the user's own name when they renamed it
+     * <em>and</em> the value's type is unchanged (single→single, group→group), otherwise the target's default.
+     * Carrying a {@code match} across {@code whileFind} → {@code whileFindAny} would name a {@code Matches}
+     * after a {@code MatchResult}.
+     */
+    private String targetParamName(Variant target) {
+        if (!target.hasParam()) return null;
+        String current = paramName();
+        Variant self = current();
+        boolean sameShape = self.hasParam() && self.group() == target.group();
+        return sameShape && current != null ? current : target.param();
+    }
+
+    /**
+     * The editable chip naming the value handed to the body — rendered as it reads in the source
+     * ({@code found →}), immediately before the indented body it scopes over. Committing a new name goes
+     * through {@code CodeEditor.renameLambdaParameter}, which carries the body's references along.
+     */
+    private void addParamChip(SentenceLayoutBuilder sentence, CodeEditorService context) {
+        String name = paramName();
+        if (name == null) return;
+
+        Node chip = TextFieldComponents.createVariableName(name, !isReadOnly(), newName -> {
+            SimpleName declared = declaredParamName();
+            if (declared == null || newName.isBlank() || newName.equals(name)) return;
+            context.getCodeEditor().renameLambdaParameter(declared, newName.trim());
+        });
+        Tooltip.install(chip, new Tooltip(
+                "The " + (current().group() ? "Matches" : "MatchResult") + " the body receives.\n"
+                        + "Use it inside the body — e.g. " + name + (current().group() ? ".has(image)" : ".getCenter()")));
+        sentence.addNode(chip);
+
+        Label arrow = new Label("→");
+        arrow.getStyleClass().add("sdk-lambda-arrow");
+        sentence.addNode(arrow);
+    }
+
+    /** The trailing lambda's declared parameter name as it stands in the source, or {@code null} if it has none. */
+    private String paramName() {
+        SimpleName declared = declaredParamName();
+        return declared != null ? declared.getIdentifier() : null;
+    }
+
+    private SimpleName declaredParamName() {
+        if (this.astNode instanceof ExpressionStatement es && es.getExpression() instanceof MethodInvocation mi) {
+            return LambdaCallHandler.lambdaParamName(mi);
+        }
+        return null;
     }
 
     /** {@code → boolean} badge for the {@code if…} variants (they return a boolean); the {@code while…}/{@code until…} forms are void. */
@@ -192,6 +272,6 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
 
     private Variant current() {
         return VARIANTS.stream().filter(v -> v.method().equals(method)).findFirst()
-                .orElse(new Variant(method, false, true));
+                .orElse(new Variant(method, false, MATCH_PARAM));
     }
 }
