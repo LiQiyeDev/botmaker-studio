@@ -50,10 +50,6 @@ public final class PickerRegistry {
             // BotSettings setter args get a bounded spinner/slider/checkbox instead of a free-typed number.
             SpecialTypePicker.of(PickerContext::isBotSettingsArg,
                     ctx -> BotSettingsArgPicker.create(ctx.context(), ctx.arg(), ctx.methodName())),
-            // Time.isBetween(int, int)'s bare hours. The minute-precision LocalTime overload beside it needs
-            // no entry here — it is picked up by type below.
-            SpecialTypePicker.of(PickerContext::isTimeHourArg,
-                    ctx -> TimeArgPicker.hourOfDay(ctx.context(), ctx.arg())),
 
             // Type-based.
             // LaunchTarget slot → the Steam/Epic/Exe/Emulator target builder (replaces the plain ctor pill).
@@ -70,11 +66,15 @@ public final class PickerRegistry {
             // milliseconds read identically), and the type is what carries the "random range" the humanized
             // wait needs. Type-based, so every future overload taking one is covered.
             DurationPicker.asSpecialType(),
-            // The clock and calendar of the Time facade's daily-reset predicates.
+            // The clock and calendar of the Time facade's daily-reset predicates. All three are type-based:
+            // the facade's bare-hour isBetween(int, int) overloads — the only Time arguments that ever needed
+            // a (method, argIndex) hook — are gone, and PickerContext no longer carries one.
             SpecialTypePicker.of(ctx -> ctx.isType("LocalTime"),
                     ctx -> TimeArgPicker.localTime(ctx.context(), ctx.arg())),
             SpecialTypePicker.of(ctx -> ctx.isType("DayOfWeek"),
                     ctx -> TimeArgPicker.dayOfWeek(ctx.context(), ctx.arg())),
+            SpecialTypePicker.of(ctx -> ctx.isType("Month"),
+                    ctx -> TimeArgPicker.month(ctx.context(), ctx.arg())),
             // A java.awt.Color arg → a colour swatch (replaces hand-writing new Color(r, g, b)).
             SpecialTypePicker.of(ctx -> ctx.isType("Color"),
                     ctx -> ColorArgPicker.create(ctx.context(), ctx.arg())),

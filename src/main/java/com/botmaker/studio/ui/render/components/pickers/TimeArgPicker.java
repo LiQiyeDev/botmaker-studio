@@ -20,25 +20,27 @@ import org.eclipse.jdt.core.dom.MethodInvocation;
 
 import java.time.DayOfWeek;
 import java.time.LocalTime;
+import java.time.Month;
 import java.time.format.TextStyle;
 import java.util.Locale;
 
 /**
  * The three editors the SDK's {@code Time} facade needs — the clock and calendar behind daily-reset logic
- * ("only farm between 05:30 and 07:00", "the weekly boss is on Sunday").
+ * ("only farm between 05:30 and 07:00", "the weekly boss is on Sunday", "the event runs in December").
  *
  * <ul>
- *   <li><b>A {@code LocalTime} slot</b> ({@code Time.isBetween(start, end)}) → a 24-hour clock, committing
- *       {@code LocalTime.of(h, m)}. Hand-writing that is where the off-by-one lives: {@code LocalTime.of(5, 30)}
- *       is half past five, {@code LocalTime.of(5, 3)} is three minutes past — one keystroke apart, and both
- *       compile.</li>
- *   <li><b>A {@code DayOfWeek} slot</b> ({@code Time.isDay(…)}) → the seven days by their display name. This
- *       is a plain enum dropdown in spirit, but {@code java.time} types are not in the project's type index,
- *       so {@link EnumPicker} cannot resolve their constants and would fall through to a text pill.</li>
- *   <li><b>The bare hour arguments</b> of {@code Time.isBetween(int, int)} / {@code isBetweenUtc} → an 0–23
- *       dropdown. These predate the typed overload and are the one place in the facade where a number means
- *       an hour with nothing in the type to say so.</li>
+ *   <li><b>A {@code LocalTime} slot</b> ({@code Time.isBetween(start, end)}, {@code isBetweenUtc}) → a
+ *       24-hour clock, committing {@code LocalTime.of(h, m)}. Hand-writing that is where the off-by-one
+ *       lives: {@code LocalTime.of(5, 30)} is half past five, {@code LocalTime.of(5, 3)} is three minutes
+ *       past — one keystroke apart, and both compile.</li>
+ *   <li><b>A {@code DayOfWeek} slot</b> ({@code Time.isDay(…)}) → the seven days by their display name.</li>
+ *   <li><b>A {@code Month} slot</b> ({@code Time.isMonth(…)}) → the twelve months, likewise.</li>
  * </ul>
+ *
+ * <p>Every one of them is dispatched on its <em>type</em>. The facade used to carry
+ * {@code isBetween(int startHour, int endHour)} overloads whose bare hours could only be reached by a
+ * {@code (method, argIndex)} hook — the kind that stops firing the day a facade gains an overload, silently,
+ * because nothing tests a picker that merely fails to appear. Those overloads are gone and so is the hook.
  */
 public final class TimeArgPicker {
 
@@ -46,6 +48,7 @@ public final class TimeArgPicker {
 
     private static final String LOCAL_TIME_FQN = "java.time.LocalTime";
     private static final String DAY_OF_WEEK_FQN = "java.time.DayOfWeek";
+    private static final String MONTH_FQN = "java.time.Month";
 
     // --- LocalTime ---
 
@@ -113,27 +116,46 @@ public final class TimeArgPicker {
         return LocalTime.of(hour, minute);
     }
 
-    // --- DayOfWeek ---
+    // --- DayOfWeek and Month ---
 
     public static Node dayOfWeek(CodeEditorService context, ExpressionBlock arg) {
-        ComboBox<DayOfWeek> combo = new ComboBox<>();
-        combo.getStyleClass().add("day-of-week-picker");
-        combo.getItems().addAll(DayOfWeek.values());
-        combo.setValue(currentDay(expr(arg)));
+        return constants(context, arg, DayOfWeek.values(), "DayOfWeek", DAY_OF_WEEK_FQN, "day-of-week-picker",
+                day -> day.getDisplayName(TextStyle.FULL, Locale.getDefault()));
+    }
+
+    public static Node month(CodeEditorService context, ExpressionBlock arg) {
+        return constants(context, arg, Month.values(), "Month", MONTH_FQN, "month-picker",
+                month -> month.getDisplayName(TextStyle.FULL, Locale.getDefault()));
+    }
+
+    /**
+     * A dropdown over a {@code java.time} enum's constants, shown by display name and committed as
+     * {@code Type.CONSTANT}. Both callers exist because {@link EnumPicker} cannot serve them: it resolves an
+     * enum's constants through the project's type index, which covers the SDK jar and the user's own sources
+     * but not the JDK — so a {@code java.time} slot would fall through to a text pill.
+     */
+    private static <E extends Enum<E>> Node constants(CodeEditorService context, ExpressionBlock arg,
+                                                      E[] values, String simpleName, String fqn,
+                                                      String styleClass,
+                                                      java.util.function.Function<E, String> display) {
+        ComboBox<E> combo = new ComboBox<>();
+        combo.getStyleClass().add(styleClass);
+        combo.getItems().addAll(values);
+        combo.setValue(currentConstant(expr(arg), values));
         combo.setStyle("-fx-font-size: 11px;");
         combo.setConverter(new javafx.util.StringConverter<>() {
-            @Override public String toString(DayOfWeek day) {
-                return day == null ? "" : day.getDisplayName(TextStyle.FULL, Locale.getDefault());
+            @Override public String toString(E constant) {
+                return constant == null ? "" : display.apply(constant);
             }
-            @Override public DayOfWeek fromString(String s) {
+            @Override public E fromString(String s) {
                 return null;   // not editable
             }
         });
         combo.setOnAction(e -> {
-            DayOfWeek day = combo.getValue();
-            if (day != null) {
+            E picked = combo.getValue();
+            if (picked != null) {
                 context.getCodeEditor().replaceWithRawExpression(
-                        expr(arg), "DayOfWeek." + day.name(), DAY_OF_WEEK_FQN);
+                        expr(arg), simpleName + "." + picked.name(), fqn);
             }
         });
         return combo;
@@ -141,38 +163,23 @@ public final class TimeArgPicker {
 
     /** Reads the constant out of {@code DayOfWeek.MONDAY} or a bare {@code MONDAY}; null if it is neither. */
     static DayOfWeek currentDay(Expression node) {
+        return currentConstant(node, DayOfWeek.values());
+    }
+
+    /** Reads the constant out of {@code Month.JANUARY} or a bare {@code JANUARY}; null if it is neither. */
+    static Month currentMonth(Expression node) {
+        return currentConstant(node, Month.values());
+    }
+
+    /** The named constant a qualified or bare reference names, or null when the slot holds something else. */
+    private static <E extends Enum<E>> E currentConstant(Expression node, E[] values) {
         String text = node.toString();
         int dot = text.lastIndexOf('.');
         String name = (dot >= 0 ? text.substring(dot + 1) : text).trim();
-        for (DayOfWeek day : DayOfWeek.values()) {
-            if (day.name().equals(name)) return day;
+        for (E constant : values) {
+            if (constant.name().equals(name)) return constant;
         }
         return null;
-    }
-
-    // --- Bare hour arguments ---
-
-    public static Node hourOfDay(CodeEditorService context, ExpressionBlock arg) {
-        ComboBox<Integer> combo = new ComboBox<>();
-        combo.getStyleClass().add("hour-picker");
-        for (int h = 0; h <= 23; h++) combo.getItems().add(h);
-        combo.setValue(intLiteral(expr(arg).toString()));
-        combo.setStyle("-fx-font-size: 11px;");
-        combo.setConverter(new javafx.util.StringConverter<>() {
-            @Override public String toString(Integer hour) {
-                return hour == null ? "" : String.format(Locale.ROOT, "%02d:00", hour);
-            }
-            @Override public Integer fromString(String s) {
-                return null;   // not editable
-            }
-        });
-        combo.setOnAction(e -> {
-            Integer hour = combo.getValue();
-            if (hour != null) {
-                context.getCodeEditor().replaceLiteralValue(expr(arg), Integer.toString(hour));
-            }
-        });
-        return combo;
     }
 
     private static Integer intLiteral(String raw) {

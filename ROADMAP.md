@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-04 — Every `Time` argument is dispatched by type; the `(method, argIndex)` hook is gone.**
+  Improvements round 2 phase 4. Added a `Month` picker beside the `DayOfWeek` one (`TimeArgPicker.month`,
+  registered in `PickerRegistry`, seeded `java.time.Month.JANUARY` by `InitializerFactory`), and **deleted
+  `PickerContext.isTimeHourArg` plus `TimeArgPicker.hourOfDay`** — the SDK's bare-hour `isBetween(int, int)` /
+  `isBetweenUtc(int, int)` overloads they served no longer exist. That hook was the last per-method picker
+  entry for `Time` and the exact failure mode this codebase avoids: an argument-index table stops firing the
+  day a facade gains an overload, and a picker that merely fails to appear breaks no test. `TimeArgPickerTest`
+  now asserts the *absence* of a picker on an `int` argument of `Time.isBetween`, so reintroducing a hook is a
+  red test rather than a silent regression. The two enum dropdowns share one generic `constants(…)` builder;
+  they exist at all because `EnumPicker` resolves constants through the project type index, which covers the
+  SDK jar and the user's sources but not the JDK, so a `java.time` slot would otherwise fall through to a text
+  pill.
+
 - **2026-08-04 — The duration picker edits `java.time.Duration`, and the range restructures the call.**
   Improvements round 2 phase 3, following the SDK dropping its own `Duration` record. `DurationPicker` now
   reads/writes `Duration.ofMillis/ofSeconds/ofMinutes`, and `InitializerFactory` + `BlockCatalog.WAIT` seed

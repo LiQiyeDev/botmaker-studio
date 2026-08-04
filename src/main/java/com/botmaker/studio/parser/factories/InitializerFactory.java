@@ -122,6 +122,7 @@ public class InitializerFactory {
             // import the argument-default paths add alongside this seed would not resolve.
             case "LocalTime" -> "java.time.LocalTime.of(12, 0)";
             case "DayOfWeek" -> "java.time.DayOfWeek.MONDAY";
+            case "Month" -> "java.time.Month.JANUARY";
             default -> null;
         };
         if (seededConstant != null) {
