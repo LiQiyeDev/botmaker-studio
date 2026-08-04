@@ -349,6 +349,39 @@ public class CodeEditor {
     }
 
     /**
+     * Rewrites the trailing {@code ImageTemplate...} varargs of {@code call} to exactly {@code paths} — the
+     * chip row an image varargs slot renders instead of one fixed picker per existing argument
+     * ({@code Matches.hasAny(a, b, c)}, {@code ImageFinder.findAny(…)}).
+     *
+     * <p>It takes the whole desired list and replaces the tail, the same shape as
+     * {@link #setImageTemplateGroup}: add, remove and change are then one uniform rewrite rather than three
+     * argument-list surgeries, and the empty list is a legal state (the call keeps its fixed arguments and
+     * the row falls back to its "Choose images…" prompt). Arguments before {@code fromIndex} are untouched.
+     */
+    public void setImageTemplateArgs(MethodInvocation call, int fromIndex, java.util.List<String> paths) {
+        edit(call, EditKind.BODY, true, (cu, code) -> {
+            AST ast = cu.getAST();
+            ASTRewrite rewriter = ASTRewrite.create(ast);
+            ListRewrite args = rewriter.getListRewrite(call, MethodInvocation.ARGUMENTS_PROPERTY);
+
+            List<?> existing = call.arguments();
+            for (int i = fromIndex; i < existing.size(); i++) {
+                args.remove((ASTNode) existing.get(i), null);
+            }
+            for (String path : paths) {
+                ClassInstanceCreation cic = ast.newClassInstanceCreation();
+                cic.setType(ast.newSimpleType(ast.newSimpleName("ImageTemplate")));
+                StringLiteral lit = ast.newStringLiteral();
+                lit.setLiteralValue(path == null ? "" : path);
+                cic.arguments().add(lit);
+                args.insertLast(cic, null);
+            }
+            ImportManager.addImportForSimpleName(cu, rewriter, "ImageTemplate", analyzer, null);
+            return AstRewriteHelper.applyRewrite(rewriter, code);
+        });
+    }
+
+    /**
      * Switches a vision loop statement between its single / {@code …Any} / {@code …All} variants (the method
      * dropdown on {@code LambdaCallBlock}). Delegates to {@link LambdaCallHandler#switchVariant}: renames the
      * method, converts the image arg single↔group, and adds/removes/renames the lambda parameter — a group

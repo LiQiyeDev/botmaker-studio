@@ -14,7 +14,9 @@ import com.botmaker.studio.ui.render.layout.BlockLayout;
 import com.botmaker.studio.ui.render.layout.SentenceLayoutBuilder;
 import com.botmaker.studio.ui.render.components.ArgumentEditors;
 import com.botmaker.studio.ui.render.components.BlockUIComponents;
+import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
 import com.botmaker.studio.ui.render.components.PickAllSession;
+import com.botmaker.studio.ui.render.components.pickers.ImageTemplateGroupPicker;
 import com.botmaker.studio.ui.render.menu.MenuComponents;
 import com.botmaker.studio.util.MethodSignature;
 import com.botmaker.studio.types.ResolvedType;
@@ -586,7 +588,13 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
         // the pills (e.g. findCompare(good, bad)) instead of the bare type. Empty for non-SDK calls.
         List<SdkDocs.Param> docParams = sdkDocParams(context, targetType, currentSignature);
 
+        int imageVarargsFrom = imageVarargsStart(currentSignature);
+
         for (int i = 0; i < arguments.size(); i++) {
+            if (i == imageVarargsFrom) {
+                builder.addNode(imageVarargsRow(context, imageVarargsFrom));
+                break;
+            }
             ExpressionBlock arg = arguments.get(i);
 
             // paramTypeAt stretches a trailing varargs parameter over every trailing argument, so e.g. every
@@ -614,6 +622,53 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
             Label typeLabel = argLabel(argName != null ? argName : paramType.simpleName(), argDesc);
             builder.addNode(createArgumentPill(context, arg, paramType, typeLabel, true));
         }
+
+        // An image varargs call that has no templates yet — hasAny(), findAll() — renders nothing above,
+        // because the loop walks the arguments that exist. The row still has to appear, or the slot is
+        // unfillable.
+        if (imageVarargsFrom == arguments.size()) {
+            builder.addNode(imageVarargsRow(context, imageVarargsFrom));
+        }
+    }
+
+    /**
+     * The argument index at which this call's trailing {@code ImageTemplate...} varargs begin, or {@code -1}
+     * when it has none — or when the templates already there are not all plain
+     * {@code new ImageTemplate("…")} literals.
+     *
+     * <p>That last condition is the guard: the chip row edits the tail as a list of paths, so an argument
+     * holding a variable, a field or a call has no path to show and would be overwritten by the next chip
+     * edit. Those calls keep the ordinary one-picker-per-argument rendering, which represents them
+     * faithfully.
+     */
+    private int imageVarargsStart(MethodSignature signature) {
+        if (signature == null || !signature.varargs() || signature.paramTypes().isEmpty()) return -1;
+        int from = signature.paramTypes().size() - 1;
+        ResolvedType element = signature.paramTypes().get(from);
+        if (element == null || !ImageTemplatePicker.isImageTemplateType(element)) return -1;
+        if (from > arguments.size()) return -1;
+        for (int i = from; i < arguments.size(); i++) {
+            if (ImageTemplateGroupPicker.templatePath(arguments.get(i).getAstNode()).isEmpty()) return -1;
+        }
+        return from;
+    }
+
+    /**
+     * The multi-image chip row standing in for the whole varargs tail — the same control an
+     * {@code ImageTemplateGroup} slot gets. A varargs slot used to render one single-image picker per
+     * argument that already existed, so {@code found.hasAny(coin)} could never become
+     * {@code found.hasAny(coin, gem)}: the picker was fine, there was simply no affordance that added a
+     * second slot. The row's add/remove hand back the whole list, which
+     * {@code CodeEditor.setImageTemplateArgs} writes over the tail.
+     */
+    private Node imageVarargsRow(CodeEditorService context, int from) {
+        List<String> paths = new ArrayList<>();
+        for (int i = from; i < arguments.size(); i++) {
+            ImageTemplateGroupPicker.templatePath(arguments.get(i).getAstNode()).ifPresent(paths::add);
+        }
+        return ImageTemplateGroupPicker.chipRow(context, paths,
+                updated -> context.getCodeEditor()
+                        .setImageTemplateArgs((MethodInvocation) this.astNode, from, updated));
     }
 
     /**

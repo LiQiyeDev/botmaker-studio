@@ -6,6 +6,17 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-05 — An `ImageTemplate...` varargs slot gets the group picker's chip row, so a call can hold more
+  than one template.** A varargs image slot rendered one single-image picker per argument *that already
+  existed*, so `found.hasAny(coin)` had no affordance that could ever produce `found.hasAny(coin, gem)` — the
+  picker was never the problem, there was simply no way to add a slot. `ImageTemplateGroupPicker.chipRow` is
+  now the shared control (paths in, whole new list out); the group expression and the varargs tail are just
+  two writers of it, the second being the new `CodeEditor.setImageTemplateArgs`.
+  `MethodInvocationBlock.imageVarargsStart` claims the tail **only** when every argument in it is a plain
+  `new ImageTemplate("…")` — a variable or call in a varargs slot has no path to show and would be
+  overwritten by the next chip edit, so those calls keep the per-argument pickers. An empty tail
+  (`hasAny()`) still renders the row, or the slot would be unfillable. `ImageTemplateVarargsTest`.
+
 - **2026-08-04 — The vision loop's variant switch actually rewrites, and its facade is re-pointable.**
   Improvements round 2 phase 5. **The variant switch was throwing, not no-op'ing:** a parameter-count change
   (`untilFindAll → ifFindAll`) paired a `ListRewrite` on `PARAMETERS_PROPERTY` with a `PARENTHESES_PROPERTY`

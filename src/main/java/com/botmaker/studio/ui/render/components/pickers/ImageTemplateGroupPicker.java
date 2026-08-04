@@ -21,6 +21,7 @@ import org.eclipse.jdt.core.dom.StringLiteral;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * A row of template chips standing in for an {@code ImageTemplateGroup.of(new ImageTemplate("…"), …)}
@@ -40,24 +41,37 @@ public final class ImageTemplateGroupPicker {
     }
 
     public static Node create(CodeEditorService context, ExpressionBlock arg) {
-        ProjectConfig config = context.getConfig();
         Expression node = (Expression) ((AbstractCodeBlock) arg).getAstNode();
-        List<String> paths = currentPaths(node);
+        return chipRow(context, currentPaths(node),
+                paths -> context.getCodeEditor().setImageTemplateGroup(node, paths));
+    }
+
+    /**
+     * The chip row itself, over an arbitrary list of template paths: one chip per path (thumbnail + change /
+     * remove menu) and a trailing add button. Every edit hands {@code apply} the <em>whole</em> new list, so
+     * the writer decides what shape it lands in — an {@code ImageTemplateGroup.of(…)} expression here, a run
+     * of {@code ImageTemplate...} varargs arguments in {@code MethodInvocationBlock}. Splitting it out is
+     * what let an image varargs slot ({@code Matches.hasAny(a, b, c)}) offer the same multi-image editing as
+     * a group: it rendered one single-image picker per argument that already existed, so a call could never
+     * grow a second template.
+     */
+    public static Node chipRow(CodeEditorService context, List<String> paths, Consumer<List<String>> apply) {
+        ProjectConfig config = context.getConfig();
 
         HBox row = new HBox(4);
         row.setAlignment(Pos.CENTER_LEFT);
         row.getStyleClass().add("image-template-group-picker");
 
         for (int i = 0; i < paths.size(); i++) {
-            row.getChildren().add(chip(context, config, node, paths, i));
+            row.getChildren().add(chip(context, config, apply, paths, i));
         }
-        row.getChildren().add(addButton(context, config, node, paths));
+        row.getChildren().add(addButton(context, config, apply, paths));
         return row;
     }
 
     /** One template chip: thumbnail + name, with a menu to change (from the library) or remove it. */
     private static MenuButton chip(CodeEditorService context, ProjectConfig config,
-                                   Expression node, List<String> paths, int index) {
+                                   Consumer<List<String>> apply, List<String> paths, int index) {
         MenuButton button = new MenuButton();
         button.getStyleClass().add("image-template-picker");
         String path = paths.get(index);
@@ -69,12 +83,12 @@ public final class ImageTemplateGroupPicker {
             button.getItems().clear();
             for (Path lib : ImageTemplateLibrary.list(config)) {
                 MenuItem item = new MenuItem(ImageTemplateLibrary.baseName(lib), ImageTemplatePicker.thumbnail(lib, 18));
-                item.setOnAction(a -> apply(context, node, replace(paths, index, ImageTemplateLibrary.pathFor(config, lib))));
+                item.setOnAction(a -> apply.accept(replace(paths, index, ImageTemplateLibrary.pathFor(config, lib))));
                 button.getItems().add(item);
             }
             if (!button.getItems().isEmpty()) button.getItems().add(new SeparatorMenuItem());
             MenuItem remove = new MenuItem("Remove");
-            remove.setOnAction(a -> apply(context, node, without(paths, index)));
+            remove.setOnAction(a -> apply.accept(without(paths, index)));
             MenuItem openManager = new MenuItem("Open Resource Manager…");
             openManager.setOnAction(a ->
                     context.getEventBus().publish(new CoreApplicationEvents.OpenResourceManagerEvent()));
@@ -85,20 +99,20 @@ public final class ImageTemplateGroupPicker {
 
     /** The trailing "add another template" button, populated from the library. */
     private static MenuButton addButton(CodeEditorService context, ProjectConfig config,
-                                        Expression node, List<String> paths) {
+                                        Consumer<List<String>> apply, List<String> paths) {
         MenuButton add = new MenuButton(paths.isEmpty() ? "Choose images…" : "＋");
         add.getStyleClass().add("image-template-group-add");
         add.setOnShowing(e -> {
             add.getItems().clear();
             for (Path lib : ImageTemplateLibrary.list(config)) {
                 MenuItem item = new MenuItem(ImageTemplateLibrary.baseName(lib), ImageTemplatePicker.thumbnail(lib, 18));
-                item.setOnAction(a -> apply(context, node, append(paths, ImageTemplateLibrary.pathFor(config, lib))));
+                item.setOnAction(a -> apply.accept(append(paths, ImageTemplateLibrary.pathFor(config, lib))));
                 add.getItems().add(item);
             }
             if (!add.getItems().isEmpty()) add.getItems().add(new SeparatorMenuItem());
             MenuItem capture = new MenuItem("Capture new…");
             capture.setOnAction(a -> ImageTemplatePicker.captureAndSave(context, add,
-                    path -> apply(context, node, append(paths, path))));
+                    path -> apply.accept(append(paths, path))));
             MenuItem openManager = new MenuItem("Open Resource Manager…");
             openManager.setOnAction(a ->
                     context.getEventBus().publish(new CoreApplicationEvents.OpenResourceManagerEvent()));
@@ -107,25 +121,35 @@ public final class ImageTemplateGroupPicker {
         return add;
     }
 
-    private static void apply(CodeEditorService context, Expression node, List<String> newPaths) {
-        context.getCodeEditor().setImageTemplateGroup(node, newPaths);
-    }
-
     /** Reads the template paths from an {@code ImageTemplateGroup.of("…", …)} call, or empty if not one yet. */
-    private static List<String> currentPaths(Expression node) {
+    public static List<String> currentPaths(Expression node) {
         List<String> out = new ArrayList<>();
         if (node instanceof MethodInvocation mi
                 && "of".equals(mi.getName().getIdentifier())
                 && mi.getExpression() != null
                 && mi.getExpression().toString().endsWith("ImageTemplateGroup")) {
             for (Object a : mi.arguments()) {
-                if (a instanceof ClassInstanceCreation cic && !cic.arguments().isEmpty()
-                        && cic.arguments().get(0) instanceof StringLiteral sl) {
-                    out.add(sl.getLiteralValue());
-                }
+                templatePath(a).ifPresent(out::add);
             }
         }
         return out;
+    }
+
+    /**
+     * The path inside {@code new ImageTemplate("…")}, or empty for anything else.
+     *
+     * <p>"Anything else" is the important half: a varargs slot holding a variable, a field or a call is a
+     * reference the chip row cannot represent and must not overwrite, so its caller keeps the ordinary
+     * per-argument pickers instead.
+     */
+    public static java.util.Optional<String> templatePath(Object expression) {
+        if (expression instanceof ClassInstanceCreation cic
+                && "ImageTemplate".equals(cic.getType().toString())
+                && !cic.arguments().isEmpty()
+                && cic.arguments().get(0) instanceof StringLiteral sl) {
+            return java.util.Optional.of(sl.getLiteralValue());
+        }
+        return java.util.Optional.empty();
     }
 
     private static List<String> append(List<String> base, String path) {
