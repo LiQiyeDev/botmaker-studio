@@ -126,7 +126,7 @@ public final class FlowCanvas extends StackPane {
 
     public FlowCanvas() {
         content.setPrefSize(CANVAS_W, CANVAS_H);
-        content.setStyle("-fx-background-color: #fafafa;");
+        content.getStyleClass().add("flow-canvas-content");
         content.getTransforms().add(zoom);
         content.getChildren().addAll(gridBackground(), wires, rubberBand());
 

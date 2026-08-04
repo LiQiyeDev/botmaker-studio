@@ -64,9 +64,19 @@
  * Row state (folder / library / active file) is set via style classes rather than inline styles.
  */
 .file-explorer {
-    -fx-background-color: #fafafa;
+    -fx-background-color: -fx-control-inner-background;
     -fx-padding: 6;
     -fx-spacing: 6;
+}
+
+/* Main toolbar (UIManager): token-driven so it follows theme without a per-theme override. */
+.main-toolbar {
+    -fx-background-color: -fx-control-inner-background;
+}
+
+/* Activity Flow canvas (FlowCanvas) — the "class" surface where Activities are laid out. */
+.flow-canvas-content {
+    -fx-background-color: -fx-control-inner-background;
 }
 
 .file-explorer .sidebar-header {
@@ -790,4 +800,134 @@
 /* Class header inheritance clause (`extends Activity`) — ClassBlock.createHeader. */
 .class-inheritance {
     -fx-text-fill: #5d6d7e;
+}
+
+/* ============================================================================================================
+ * THEME OVERLAYS
+ * ============================================================================================================
+ *
+ * Each theme class below redefines the design tokens from :root for that theme only.
+ * To apply a theme, add the corresponding class to the scene's root node.
+ */
+
+/* Dark Theme */
+.dark-theme {
+    /* JavaFX/Modena chrome tokens — drive the menu bar, toolbars, split panes, lists/trees and canvas. The
+       -bm-* tokens above only recolour block fills; without these the rest of Studio stays Modena's default
+       white no matter which theme class is applied. */
+    -fx-base: #2b2b2b;
+    -fx-background: #313131;
+    -fx-control-inner-background: #3c3c3c;
+    -fx-control-inner-background-alt: #424242;
+    -fx-text-background-color: #e0e0e0;
+    -fx-accent: #4a90d9;
+    -fx-focus-color: #4a90d9;
+    -fx-faint-focus-color: #4a90d922;
+    -fx-selection-bar-non-focused: #454545;
+
+    /* Accents */
+    -bm-primary: #4a90d9;
+    -bm-danger: #e74c3c;
+    -bm-accent: #1abc9c;
+    -bm-accent-dark: #16a085;
+    -bm-muted: #95a5a6;
+
+    /* Per-category block colours */
+    -bm-cat-output: #4a90d9;
+    -bm-cat-input: #a569bd;
+    -bm-cat-variables: #f5b041;
+    -bm-cat-flow: #e88e32;
+    -bm-cat-loops: #31d077;
+    -bm-cat-control: #e95c4c;
+    -bm-cat-functions: #9e54bd;
+    -bm-cat-vision: #1dccaa;
+    -bm-cat-game: #19a883;
+    -bm-cat-utility: #95a5a6;
+
+    /* Block surfaces */
+    -bm-text-on-color: #ffffff;
+    -bm-text-dim: rgba(255, 255, 255, 0.8);
+
+    /* Read-only */
+    -bm-locked-fill: rgba(149, 165, 166, 0.20);
+}
+
+/* Black Theme */
+.black-theme {
+    /* JavaFX/Modena chrome tokens — see .dark-theme for why these are needed. */
+    -fx-base: #121212;
+    -fx-background: #000000;
+    -fx-control-inner-background: #0a0a0a;
+    -fx-control-inner-background-alt: #141414;
+    -fx-text-background-color: #e0e0e0;
+    -fx-accent: #2196f3;
+    -fx-focus-color: #2196f3;
+    -fx-faint-focus-color: #2196f322;
+    -fx-selection-bar-non-focused: #2a2a2a;
+
+    /* Accents */
+    -bm-primary: #2196f3;
+    -bm-danger: #f44336;
+    -bm-accent: #00bcd4;
+    -bm-accent-dark: #0097a7;
+    -bm-muted: #b0bec5;
+
+    /* Per-category block colours */
+    -bm-cat-output: #2196f3;
+    -bm-cat-input: #9c27b0;
+    -bm-cat-variables: #ffc107;
+    -bm-cat-flow: #ff9800;
+    -bm-cat-loops: #4caf50;
+    -bm-cat-control: #f44336;
+    -bm-cat-functions: #673ab7;
+    -bm-cat-vision: #00bcd4;
+    -bm-cat-game: #009688;
+    -bm-cat-utility: #b0bec5;
+
+    /* Block surfaces */
+    -bm-text-on-color: #ffffff;
+    -bm-text-dim: rgba(255, 255, 255, 0.9);
+
+    /* Read-only */
+    -bm-locked-fill: rgba(176, 190, 197, 0.25);
+}
+
+/* High Contrast Theme — pure black/white/yellow, maximised text and border contrast. */
+.high-contrast-theme {
+    /* JavaFX/Modena chrome tokens — see .dark-theme for why these are needed. */
+    -fx-base: #000000;
+    -fx-background: #000000;
+    -fx-control-inner-background: #000000;
+    -fx-control-inner-background-alt: #1a1a1a;
+    -fx-text-background-color: #ffffff;
+    -fx-accent: #ffff00;
+    -fx-focus-color: #ffff00;
+    -fx-faint-focus-color: #ffff0044;
+    -fx-selection-bar-non-focused: #3a3a3a;
+
+    /* Accents */
+    -bm-primary: #ffff00;
+    -bm-danger: #ff4040;
+    -bm-accent: #00ffff;
+    -bm-accent-dark: #00cccc;
+    -bm-muted: #ffffff;
+
+    /* Per-category block colours — kept maximally distinct rather than thematically consistent */
+    -bm-cat-output: #00ffff;
+    -bm-cat-input: #ff00ff;
+    -bm-cat-variables: #ffff00;
+    -bm-cat-flow: #ff8000;
+    -bm-cat-loops: #00ff00;
+    -bm-cat-control: #ff4040;
+    -bm-cat-functions: #bf80ff;
+    -bm-cat-vision: #00ffff;
+    -bm-cat-game: #00ff80;
+    -bm-cat-utility: #ffffff;
+
+    /* Block surfaces */
+    -bm-text-on-color: #000000;
+    -bm-text-dim: rgba(255, 255, 255, 0.85);
+
+    /* Read-only */
+    -bm-locked-fill: rgba(255, 255, 255, 0.15);
 }

@@ -20,6 +20,7 @@ import com.botmaker.studio.services.record.RecordingSession;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.ui.render.components.pickers.PickerContext;
 import com.botmaker.studio.ui.render.components.pickers.PickerRegistry;
+import com.botmaker.studio.events.CoreApplicationEvents.ActivitiesChangedEvent;
 import com.botmaker.studio.events.CoreApplicationEvents.UIBlocksUpdatedEvent;
 import com.botmaker.studio.palette.BlockCatalog;
 import com.botmaker.studio.palette.BlockType;
@@ -42,6 +43,7 @@ import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.Spinner;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
@@ -139,6 +141,15 @@ public final class ProgramShapeOverlay {
 
     /** The activity being authored into; picking one switches the editor to its file and re-homes the cursor. */
     private ComboBox<String> activityBox;
+
+    /** The method the tree is scoped to (its statements are the only ones rendered); picking one re-homes the cursor. */
+    private ComboBox<String> methodBox;
+    /** Name of the method currently rendered/edited, or {@code null} to fall back to every top-level body. */
+    private String selectedMethod;
+
+    /** The tree's visible-row-count control, and the pixel height one row (incl. spacing) costs. */
+    private static final double ROW_HEIGHT_PX = 24;
+    private Spinner<Integer> visibleLines;
 
     // ── Record mode ──────────────────────────────────────────────────────────────────────────────────────
     private RecordingSession session;
@@ -278,10 +289,17 @@ public final class ProgramShapeOverlay {
                 count -> Platform.runLater(this::updateRecStatus));
 
         VBox rootPane = buildRoot();
+        rootPane.setMinWidth(340);
+        rootPane.setPrefWidth(340);
+        rootPane.setMaxWidth(340);
 
-        Scene scene = new Scene(rootPane, 340, 480, Color.TRANSPARENT);
+        // No fixed height: the window sizes to content (header + controls + tree), so a growing controls
+        // panel doesn't squeeze the tree panel out — the tree's own ScrollPane (buildTreePanel) is capped
+        // instead, so a long program scrolls internally rather than pushing the window past the screen.
+        Scene scene = new Scene(rootPane, Color.TRANSPARENT);
         java.net.URL css = getClass().getResource("/css/blocks.css");
         if (css != null) scene.getStylesheets().add(css.toExternalForm());
+        applyThemeClass(scene.getRoot());
 
         stage = new Stage(StageStyle.TRANSPARENT);
         stage.setAlwaysOnTop(true);              // stays above the target app
@@ -334,6 +352,14 @@ public final class ProgramShapeOverlay {
             }
         });
 
+        // Keep the activity picker current when an activity is created/renamed/removed elsewhere in the app —
+        // it otherwise only ever reflects the list captured at the moment the overlay was opened.
+        context.getEventBus().subscribe(ActivitiesChangedEvent.class, e -> {
+            if (stage != null && stage.isShowing()) {
+                Platform.runLater(this::refreshActivityBox);
+            }
+        });
+
         // The handler is installed *after* the initial value, so the one explicit call below is the only one —
         // ComboBox.setValue's action-firing behaviour is not something to have two code paths depend on.
         String initial = preferredActivity(activityNames());
@@ -344,6 +370,7 @@ public final class ProgramShapeOverlay {
         activityBox.setOnAction(e -> selectActivity(activityBox.getValue()));
 
         root = context.getRootBlock().orElse(null);
+        refreshMethodBox();
         ensureCursor();
         render();
 
@@ -421,7 +448,7 @@ public final class ProgramShapeOverlay {
         autoFillArgs.setTooltip(new Tooltip(
                 "When on, adding an action immediately opens its argument editor (draw rect / pick template)"));
 
-        VBox controls = new VBox(6, buildActivityRow(), paletteBar, stepRow, recordRow, autoFillArgs);
+        VBox controls = new VBox(6, buildActivityRow(), buildMethodRow(), paletteBar, stepRow, recordRow, autoFillArgs);
         controls.setPadding(new Insets(8));
         controls.setStyle(PANEL);
         return controls;
@@ -450,6 +477,29 @@ public final class ProgramShapeOverlay {
     }
 
     /**
+     * Refreshes {@link #activityBox}'s items after an {@link ActivitiesChangedEvent} (an activity was
+     * created/renamed/removed elsewhere). Leaves an already-valid selection alone — creating an unrelated
+     * activity shouldn't yank the user off what they're editing — but picks a default when the box was
+     * previously empty or its selection no longer exists.
+     */
+    private void refreshActivityBox() {
+        if (activityBox == null) return;
+        List<String> names = activityNames();
+        activityBox.getItems().setAll(names);
+        activityBox.setDisable(names.isEmpty());
+        if (names.isEmpty()) {
+            activityBox.setPromptText("none yet");
+            return;
+        }
+        String current = activityBox.getValue();
+        if (current == null || !names.contains(current)) {
+            String next = preferredActivity(names);
+            activityBox.setValue(next);
+            selectActivity(next);
+        }
+    }
+
+    /**
      * Which activity to open on: the one last authored into, else the flow's start node, else the first. The
      * last-used one is remembered per project so reopening the overlay resumes where the last session stopped.
      */
@@ -471,8 +521,8 @@ public final class ProgramShapeOverlay {
         }
         context.switchToFile(file);   // synchronous: re-parses, republishes the tree, and returns
         root = context.getRootBlock().orElse(null);
-        InsertionCursor c = runCursor(root);
-        if (c != null) state.setInsertionCursor(c);
+        selectedMethod = null;        // a different file — the previous selection doesn't apply here
+        refreshMethodBox();
         render();
         settings.update(settings.current().withLastRecordedActivity(name));
     }
@@ -486,8 +536,13 @@ public final class ProgramShapeOverlay {
      */
     // Package-private for ProgramShapeOverlayCursorTest: this rule fails silently when it is wrong.
     static InsertionCursor runCursor(CodeBlock root) {
+        return methodCursor(root, "run");
+    }
+
+    /** {@link #runCursor(CodeBlock)} generalized to any method name — the caret inside {@code methodName}'s body. */
+    static InsertionCursor methodCursor(CodeBlock root, String methodName) {
         for (CodeBlock b : CursorNavigator.collectAll(root)) {
-            if (!(b instanceof MethodDeclarationBlock m) || !"run".equals(m.getMethodName())) continue;
+            if (!(b instanceof MethodDeclarationBlock m) || !java.util.Objects.equals(methodName, m.getMethodName())) continue;
             for (CodeBlock child : m.getChildren()) {
                 if (!(child instanceof BodyBlock body) || body.isReadOnly()) continue;
                 List<StatementBlock> statements = body.getStatements();
@@ -500,6 +555,64 @@ public final class ProgramShapeOverlay {
         return CursorNavigator.defaultCursor(root);
     }
 
+    // ── target method ───────────────────────────────────────────────────────────────────────────────────
+
+    /** The picker naming the method whose statements are the only ones rendered/edited. */
+    private HBox buildMethodRow() {
+        methodBox = new ComboBox<>();
+        methodBox.setTooltip(new Tooltip("Show only this method's blocks — new/recorded blocks land here too"));
+        methodBox.setOnAction(e -> selectMethod(methodBox.getValue()));
+        HBox row = new HBox(6, label("Method:"), methodBox);
+        row.setAlignment(Pos.CENTER_LEFT);
+        return row;
+    }
+
+    /** Every method declared in the current file, in tree (DFS) order. */
+    private List<String> methodNames() {
+        if (root == null) return List.of();
+        List<String> names = new ArrayList<>();
+        for (CodeBlock b : CursorNavigator.collectAll(root)) {
+            if (b instanceof MethodDeclarationBlock m) names.add(m.getMethodName());
+        }
+        return names;
+    }
+
+    /** The body of the method named {@code methodName}, or {@code null} if no such method exists. */
+    private static BodyBlock methodBody(CodeBlock root, String methodName) {
+        if (root == null || methodName == null) return null;
+        for (CodeBlock b : CursorNavigator.collectAll(root)) {
+            if (!(b instanceof MethodDeclarationBlock m) || !methodName.equals(m.getMethodName())) continue;
+            for (CodeBlock child : m.getChildren()) {
+                if (child instanceof BodyBlock body) return body;
+            }
+        }
+        return null;
+    }
+
+    /** Switches which method's blocks are rendered/edited, re-homing the cursor into it. */
+    private void selectMethod(String name) {
+        selectedMethod = name;
+        InsertionCursor c = methodCursor(root, name);
+        if (c != null) state.setInsertionCursor(c);
+        render();
+    }
+
+    /**
+     * Repopulates {@link #methodBox}'s items from the current file. Leaves an already-valid selection alone
+     * (so an edit elsewhere in the file doesn't yank the view away from what the user is looking at); picks
+     * {@code run} (or the first method) when the selection is unset or no longer exists.
+     */
+    private void refreshMethodBox() {
+        List<String> names = methodNames();
+        if (methodBox != null) methodBox.getItems().setAll(names);
+        if (selectedMethod == null || !names.contains(selectedMethod)) {
+            selectedMethod = names.contains("run") ? "run" : (names.isEmpty() ? null : names.get(0));
+            InsertionCursor c = methodCursor(root, selectedMethod);
+            if (c != null) state.setInsertionCursor(c);
+        }
+        if (methodBox != null) methodBox.setValue(selectedMethod);
+    }
+
     /**
      * The palette bar: one hover-expanding chip per SDK facade category laid out in a line — hovering a chip
      * lists its methods, and a method with several overloads fans out into its overloads (favourite methods
@@ -509,7 +622,7 @@ public final class ProgramShapeOverlay {
      */
     private VBox buildPaletteBar() {
         FlowPane chips = new FlowPane(6, 6);
-        for (String facade : com.botmaker.studio.palette.SdkApi.FACADE_CLASSES) {
+        for (String facade : com.botmaker.studio.palette.SdkApi.MENU_FACADE_CLASSES) {
             chips.getChildren().add(facadeMenuButton(facade));
         }
         Button addBlock = new Button("＋ Add block");
@@ -579,7 +692,27 @@ public final class ProgramShapeOverlay {
         ScrollPane scroll = new ScrollPane(rows);
         scroll.setFitToWidth(true);
         scroll.setStyle("-fx-background: transparent; -fx-background-color: transparent;");
-        VBox treePanel = new VBox(scroll);
+
+        // How many rows are visible before the pane scrolls internally. This is a *preferred* height, not
+        // just a cap: with the HUD's fixed Scene size gone (see show()), the window sizes to the sum of its
+        // children's preferred heights, so a ScrollPane with no explicit prefHeight falls back to its own
+        // tiny default — that's what made only one row visible before this control existed.
+        visibleLines = new Spinner<>(3, 30, 8);
+        visibleLines.setEditable(true);
+        visibleLines.setPrefWidth(60);
+        visibleLines.setTooltip(new Tooltip("How many rows are visible at once before the tree scrolls"));
+        scroll.setPrefHeight(visibleLines.getValue() * ROW_HEIGHT_PX + 12);
+        scroll.setMinHeight(Region.USE_PREF_SIZE);
+        visibleLines.valueProperty().addListener((obs, old, val) -> {
+            scroll.setPrefHeight(val * ROW_HEIGHT_PX + 12);
+            // The Scene only auto-sizes to content once, at first show(); a later pref-height change needs
+            // an explicit resize to actually grow/shrink the window instead of just clipping/under-filling.
+            if (stage != null) Platform.runLater(stage::sizeToScene);
+        });
+        HBox linesRow = new HBox(6, label("Show:"), visibleLines, label("lines"));
+        linesRow.setAlignment(Pos.CENTER_LEFT);
+
+        VBox treePanel = new VBox(6, linesRow, scroll);
         treePanel.setStyle(PANEL);
         VBox.setVgrow(scroll, Priority.ALWAYS);
         VBox.setVgrow(treePanel, Priority.ALWAYS);
@@ -734,6 +867,7 @@ public final class ProgramShapeOverlay {
 
     /** Handles a republished block tree: re-render, resolve any pending insertion, continue a recorded batch. */
     private void onBlocksUpdated() {
+        refreshMethodBox();   // pick up a method added/removed by hand; keeps a still-valid selection as-is
         render();
         if (pendingInsert != null) {
             PendingInsert p = pendingInsert;
@@ -773,9 +907,14 @@ public final class ProgramShapeOverlay {
             rows.getChildren().add(dimLabel("No open file."));
             return;
         }
-        // Render each render-root body (a body not nested inside another body); nested control-flow bodies are
-        // drawn indented by renderBody's recursion. This makes method bodies (children of a method block, not of
-        // a body) the entry points — otherwise no body qualifies and the list shows empty.
+        // Scoped to the selected method (buildMethodRow) when there is one, so unrelated methods' statements
+        // don't appear mixed into one flat list. Falls back to every top-level body when none is selected
+        // (e.g. a file with no methods) — the old "Program is empty." path stays reachable either way.
+        BodyBlock scoped = methodBody(root, selectedMethod);
+        if (scoped != null) {
+            renderBody(scoped, 0);
+            return;
+        }
         boolean any = false;
         for (CodeBlock b : CursorNavigator.collectAll(root)) {
             if (b instanceof BodyBlock body && !isNestedInBody(body)) {
@@ -907,7 +1046,8 @@ public final class ProgramShapeOverlay {
 
         VBox content = new VBox(10);
         content.setPadding(new Insets(12));
-        content.getChildren().add(new Label("Configure  " + mib.getScope() + "." + mib.getMethodName() + "(…)"));
+        content.setStyle(PANEL);
+        content.getChildren().add(label("Configure  " + mib.getScope() + "." + mib.getMethodName() + "(…)"));
 
         // Overload selector: switch this call to a different overload. The re-parse replaces the block, so the
         // popover is closed after switching — the user reopens (⚙ / Enter) to edit the new overload's slots.
@@ -924,7 +1064,7 @@ public final class ProgramShapeOverlay {
                     if (configDlg != null) configDlg.close();
                 }
             });
-            HBox line = new HBox(8, new Label("Overload:"), overloadBox);
+            HBox line = new HBox(8, label("Overload:"), overloadBox);
             line.setAlignment(Pos.CENTER_LEFT);
             HBox.setHgrow(overloadBox, Priority.ALWAYS);
             content.getChildren().add(line);
@@ -937,7 +1077,7 @@ public final class ProgramShapeOverlay {
             javafx.scene.Node editor = PickerRegistry.pickerNodeFor(ctx);
             if (editor == null) editor = genericArgEditor(mib, arg, pt);   // every arg editable, not just drawable ones
             String name = paramLabel(mib, i, pt);
-            HBox line = new HBox(8, new Label(name + ":"), editor);
+            HBox line = new HBox(8, label(name + ":"), editor);
             line.setAlignment(Pos.CENTER_LEFT);
             content.getChildren().add(line);
         }
@@ -945,17 +1085,37 @@ public final class ProgramShapeOverlay {
             content.getChildren().add(dimLabel("This call takes no arguments."));
         }
 
+        // Capped in a ScrollPane so a call with many parameters (e.g. Fill) scrolls instead of growing the
+        // popover taller than the screen, with the bottom rows landing off-screen and unreachable.
+        ScrollPane scroll = new ScrollPane(content);
+        scroll.setFitToWidth(true);
+        scroll.setStyle("-fx-background: transparent; -fx-background-color: transparent;");
+        double maxHeight = javafx.stage.Screen.getPrimary().getVisualBounds().getHeight() * 0.7;
+        scroll.setMaxHeight(maxHeight);
+
         Stage dlg = new Stage();
         dlg.setTitle("Configure arguments");
         dlg.setAlwaysOnTop(true);
-        Scene sc = new Scene(content);
+        Scene sc = new Scene(scroll);
         java.net.URL css = getClass().getResource("/css/blocks.css");
         if (css != null) sc.getStylesheets().add(css.toExternalForm());
+        applyThemeClass(sc.getRoot());
         dlg.setScene(sc);
         if (stage != null) { dlg.setX(stage.getX() + 40); dlg.setY(stage.getY() + 80); }
         configDlg = dlg;
         dlg.setOnHidden(e -> { if (configDlg == dlg) configDlg = null; });
         dlg.show();
+    }
+
+    /** Adds the app's current theme style class to {@code node}, mirroring {@code UIManager.applyThemeToScene}. */
+    private static void applyThemeClass(javafx.scene.Parent node) {
+        String styleClass = switch (com.botmaker.studio.ui.render.theme.BlockTheme.getCurrentThemeType()) {
+            case DEFAULT -> "default-theme";
+            case DARK -> "dark-theme";
+            case BLACK -> "black-theme";
+            case HIGH_CONTRAST -> "high-contrast-theme";
+        };
+        node.getStyleClass().add(styleClass);
     }
 
     /**

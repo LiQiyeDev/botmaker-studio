@@ -18,6 +18,7 @@ import com.botmaker.studio.services.MavenCentralSearch;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.sharing.BotInstaller;
+import com.botmaker.studio.ui.render.theme.BlockTheme;
 import com.botmaker.studio.sharing.BotPublisher;
 import com.botmaker.studio.sharing.BotSource;
 import com.botmaker.studio.sharing.GitHubAuth;
@@ -36,6 +37,7 @@ import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
+import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.image.Image;
@@ -86,6 +88,10 @@ public class UIManager {
     /** Produces + tears down the bot-owned {@code :N} session the pilot streams; created lazily with the server. */
     private com.botmaker.studio.services.pilot.NestedSessionLauncher nestedLauncher;
     private final FileExplorerManager fileExplorerManager;
+
+    // Theme management
+    private Scene scene;
+    private Parent root;
 
     // Sharing / GitHub services — promoted to fields so the toolbar VCS/account buttons and the VCS bottom
     // tab can reach them at scene-build time, not just the menu wiring in the constructor.
@@ -227,6 +233,13 @@ public class UIManager {
                 .map(s -> "https://github.com/" + s.slug()).orElse(null));
         this.menuBarManager.setOnEnableRemotePilot(this::openRemotePilot);
         this.fileExplorerManager = new FileExplorerManager(config, codeEditorService, state, activityService, eventBus);
+
+        // Initialize theme system and set up theme change listener
+        BlockTheme.initialize();
+        BlockTheme.addThemeChangeListener(themeType -> {
+            // This will be called when theme changes - apply it to the scene
+            applyThemeToScene();
+        });
 
         setupEventHandlers();
     }
@@ -1145,7 +1158,7 @@ public class UIManager {
                 () -> Math.max(EXEC_MIN_WRAP_PX, topBar.getWidth() * EXEC_WIDTH_SHARE), topBar.widthProperty()));
         topBar.setPrefHeight(Region.USE_COMPUTED_SIZE);
         topBar.setMinHeight(Region.USE_PREF_SIZE);
-        topBar.setStyle("-fx-border-color: #dcdcdc; -fx-border-width: 0 0 1 0; -fx-background-color: #f4f4f4;");
+        topBar.setStyle("-fx-border-color: #dcdcdc; -fx-border-width: 0 0 1 0;");
 
         VBox toolbarColumn = new VBox(topBar);
         toolbarColumn.setMinWidth(0);
@@ -1242,7 +1255,12 @@ public class UIManager {
 
         VBox root = new VBox(menuBarManager.getMenuBar(), toolbarColumn, mainSplit, statusLabel);
         VBox.setVgrow(mainSplit, Priority.ALWAYS);
-        root.getStyleClass().add("light-theme");
+        // Initialize with the current theme - add the appropriate theme class
+        applyThemeToScene(root);
+
+        // Store references for theme switching
+        this.root = root;
+
         // The only clamp the Stage actually reads: JavaFX derives a window's minimum size from the scene
         // root's computed minimum. Clamping here is therefore both necessary and sufficient — the children's
         // own honest minimums never reach the Stage through it, which is why the toolbar above keeps its.
@@ -1252,6 +1270,7 @@ public class UIManager {
         primaryStage.setOnHidden(e -> eventLogManager.shutdown());
 
         Scene scene = new Scene(root, 1000, 700);
+        this.scene = scene;
 
         // Block "state" styling (highlight / error / breakpoint / read-only) via pseudo-classes.
         var blocksCss = UIManager.class.getResource("/css/blocks.css");
@@ -1334,7 +1353,7 @@ public class UIManager {
         gitHub.setOnAction(e -> showGitHubAccountPopup(gitHub));
         refreshGitHubButton(gitHub);
 
-        HBox cluster = new HBox(6, vcsButton, gitHub, googleButton());
+        HBox cluster = new HBox(6, vcsButton, gitHub, themeDropdown(), googleButton());
         cluster.setAlignment(Pos.CENTER_RIGHT);
         return cluster;
     }
@@ -1395,6 +1414,57 @@ public class UIManager {
         box.setPadding(new Insets(14));
         popup.setScene(new Scene(box));
         popup.show();
+    }
+
+    /**
+     * The toolbar's theme picker — a dropdown of all four themes, wired straight to {@link BlockTheme}. Kept
+     * in sync with the <b>View ▸ Theme</b> menu ({@link MenuBarManager}) via {@link BlockTheme}'s own
+     * listener list, since both controls read/write the same static state.
+     */
+    private ComboBox<BlockTheme.ThemeType> themeDropdown() {
+        ComboBox<BlockTheme.ThemeType> box = new ComboBox<>(
+                javafx.collections.FXCollections.observableArrayList(BlockTheme.ThemeType.values()));
+        box.setConverter(new javafx.util.StringConverter<>() {
+            @Override public String toString(BlockTheme.ThemeType type) {
+                return switch (type) {
+                    case DEFAULT -> "Default";
+                    case DARK -> "Dark";
+                    case BLACK -> "Black";
+                    case HIGH_CONTRAST -> "High Contrast";
+                };
+            }
+            @Override public BlockTheme.ThemeType fromString(String s) { return null; }
+        });
+        box.setValue(BlockTheme.getCurrentThemeType());
+        box.setOnAction(e -> BlockTheme.setTheme(box.getValue()));
+        BlockTheme.addThemeChangeListener(type -> {
+            if (box.getValue() != type) box.setValue(type);
+        });
+        box.setTooltip(new Tooltip("Theme"));
+        return box;
+    }
+
+    /** Applies the current theme CSS class to the specified root node. */
+    private void applyThemeToScene(Parent rootNode) {
+        if (rootNode == null) return;
+
+        BlockTheme.ThemeType current = BlockTheme.getCurrentThemeType();
+
+        // Remove all theme classes
+        rootNode.getStyleClass().removeAll("default-theme", "dark-theme", "black-theme", "high-contrast-theme", "light-theme");
+
+        // Add the current theme class
+        switch (current) {
+            case DEFAULT -> rootNode.getStyleClass().add("default-theme");
+            case DARK -> rootNode.getStyleClass().add("dark-theme");
+            case BLACK -> rootNode.getStyleClass().add("black-theme");
+            case HIGH_CONTRAST -> rootNode.getStyleClass().add("high-contrast-theme");
+        }
+    }
+
+    /** Applies the current theme CSS class to the stored scene root. */
+    private void applyThemeToScene() {
+        applyThemeToScene(root);
     }
 
     private VBox createErrorPanel() {

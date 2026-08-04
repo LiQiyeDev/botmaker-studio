@@ -2,11 +2,14 @@ package com.botmaker.studio.ui.app;
 
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
+import com.botmaker.studio.ui.render.theme.BlockTheme;
 import com.botmaker.studio.util.BrowserLauncher;
 import javafx.scene.control.Menu;
 import javafx.scene.control.MenuBar;
 import javafx.scene.control.MenuItem;
+import javafx.scene.control.RadioMenuItem;
 import javafx.scene.control.SeparatorMenuItem;
+import javafx.scene.control.ToggleGroup;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
@@ -276,12 +279,46 @@ public class MenuBarManager {
         MenuItem remotePilotItem = new MenuItem("Enable Remote Pilot…");
         remotePilotItem.setOnAction(e -> { if (onEnableRemotePilot != null) onEnableRemotePilot.run(); });
 
+        // Theme submenu
+        Menu themeMenu = new Menu("Theme");
+        ToggleGroup themeGroup = new ToggleGroup();
+
+        RadioMenuItem defaultThemeItem = new RadioMenuItem("Default");
+        defaultThemeItem.setToggleGroup(themeGroup);
+        defaultThemeItem.setSelected(true); // Default theme is selected initially
+        defaultThemeItem.setOnAction(e -> BlockTheme.setTheme(BlockTheme.ThemeType.DEFAULT));
+
+        RadioMenuItem darkThemeItem = new RadioMenuItem("Dark");
+        darkThemeItem.setToggleGroup(themeGroup);
+        darkThemeItem.setOnAction(e -> BlockTheme.setTheme(BlockTheme.ThemeType.DARK));
+
+        RadioMenuItem blackThemeItem = new RadioMenuItem("Black");
+        blackThemeItem.setToggleGroup(themeGroup);
+        blackThemeItem.setOnAction(e -> BlockTheme.setTheme(BlockTheme.ThemeType.BLACK));
+
+        RadioMenuItem highContrastItem = new RadioMenuItem("High Contrast");
+        highContrastItem.setToggleGroup(themeGroup);
+        highContrastItem.setOnAction(e -> BlockTheme.setTheme(BlockTheme.ThemeType.HIGH_CONTRAST));
+
+        // Set the selected item based on current theme
+        BlockTheme.ThemeType currentTheme = BlockTheme.getCurrentThemeType();
+        switch (currentTheme) {
+            case DARK -> darkThemeItem.setSelected(true);
+            case BLACK -> blackThemeItem.setSelected(true);
+            case HIGH_CONTRAST -> highContrastItem.setSelected(true);
+            default -> defaultThemeItem.setSelected(true);
+        }
+
+        themeMenu.getItems().addAll(defaultThemeItem, darkThemeItem, blackThemeItem, highContrastItem);
+
         viewMenu.getItems().addAll(
                 zoomInItem,
                 zoomOutItem,
                 resetZoomItem,
                 new SeparatorMenuItem(),
-                remotePilotItem
+                remotePilotItem,
+                new SeparatorMenuItem(),
+                themeMenu
         );
 
         return viewMenu;

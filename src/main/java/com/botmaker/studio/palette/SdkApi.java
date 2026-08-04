@@ -55,7 +55,8 @@ public final class SdkApi {
             "Activity",
             "Source",
             "Window",
-            "Bots");
+            "Bots",
+            "Time");
 
     private static final Set<String> FACADE_SET = Set.copyOf(FACADE_CLASSES);
 
@@ -66,7 +67,7 @@ public final class SdkApi {
      * shouldn't reach for directly: bot supervision is driven by {@code Bot.start}, capture by the
      * capture-source picker, and the watchdog by the generated loop.
      */
-    private static final Set<String> MENU_HIDDEN = Set.of("Bots", "Window", "Watchdog");
+    private static final Set<String> MENU_HIDDEN = Set.of("Bots", "Window", "Watchdog", "Debug", "Session");
 
     /**
      * The facades shown as submenus in the statement/expression insert menus — {@link #FACADE_CLASSES} minus

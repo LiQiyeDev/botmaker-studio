@@ -44,4 +44,58 @@ public class ColorPalette {
     public String primary() { return primaryAccent; }
     public String hover() { return hoverAccent; }
 
+    // Theme application methods
+
+    /**
+     * Applies the black theme color scheme.
+     * True black background with appropriate contrast colors for maximum legibility.
+     */
+    public void applyBlackTheme() {
+        this.backgroundColor = "#000000";  // True black
+        this.textColor = "#E0E0E0";      // Light gray for text on black
+        this.keywordColor = "#BB86FC";    // Purple accent for keywords
+        this.operatorColor = "#808080";    // Medium gray for operators
+        this.typeColor = "#03DAC6";       // Teal for types
+        this.errorColor = "#FF5555";      // Bright red for errors
+        this.warningColor = "#FFA726";    // Orange for warnings
+        this.successColor = "#4CAF50";    // Green for success
+        this.primaryAccent = "#BB86FC";    // Primary accent (purple)
+        this.secondaryAccent = "#666666";  // Secondary accent (dark gray)
+        this.hoverAccent = "#9953E8";      // Hover accent (darker purple)
+    }
+
+    /**
+     * Applies the default light theme color scheme.
+     */
+    public void applyDefaultTheme() {
+        this.backgroundColor = "#FFFFFF";
+        this.textColor = "#2C3E50";
+        this.keywordColor = "#34495E";
+        this.operatorColor = "#7F8C8D";
+        this.typeColor = "#8E44AD";
+        this.errorColor = "#E74C3C";
+        this.warningColor = "#F39C12";
+        this.successColor = "#2ECC71";
+        this.primaryAccent = "#3498DB";
+        this.secondaryAccent = "#95A5A6";
+        this.hoverAccent = "#2980B9";
+    }
+
+    /**
+     * Applies the dark theme color scheme.
+     */
+    public void applyDarkTheme() {
+        this.backgroundColor = "#1E1E1E";  // Dark gray background
+        this.textColor = "#D4D4D4";      // Light text
+        this.keywordColor = "#569CD6";    // Blue for keywords
+        this.operatorColor = "#9CDCFE";    // Light blue for operators
+        this.typeColor = "#4EC9B0";      // Teal for types
+        this.errorColor = "#F44747";      // Red for errors
+        this.warningColor = "#CE9178";    // Orange for warnings
+        this.successColor = "#6A9955";    // Green for success
+        this.primaryAccent = "#569CD6";    // Primary accent
+        this.secondaryAccent = "#484848";  // Secondary accent
+        this.hoverAccent = "#7CE7F4";      // Hover accent
+    }
+
 }
