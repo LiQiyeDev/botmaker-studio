@@ -61,6 +61,11 @@ class FlowDriverGenerationTest {
             }
             """, """
             package com.botmaker.sdk.api.bot;
+            public final class PopupGuard {
+                public static void enabled(boolean on) {}
+            }
+            """, """
+            package com.botmaker.sdk.api.bot;
             public final class Watchdog {
                 public static void checkpoint() {}
             }
@@ -148,11 +153,38 @@ class FlowDriverGenerationTest {
         assertFalse(source.contains(afterActiveCheck("MINING", "\"Smelt\"")), source);
     }
 
-    /** The generated "skip if disabled, else go home" pair, at the driver's own indentation. */
+    /**
+     * The generated "skip if disabled, set the popup flag, else go home" run, at the driver's own indentation.
+     * The popup line sits between the two because it is emitted for every activity — the flag is
+     * process-global, so an activity that said nothing would inherit the previous one's setting.
+     */
     private static String afterActiveCheck(String constant, String fallthrough) {
         String indent = " ".repeat(16);
         return indent + "if (!ActivityRegistry." + constant + ".active()) return " + fallthrough + ";\n"
+                + indent + "PopupGuard.enabled(true);\n"
                 + indent + "GoHome.INSTANCE.execute();";
+    }
+
+    /**
+     * The popup flag is written for every activity, not only the ones that opt out. {@code PopupGuard.enabled}
+     * is process-global: an activity that emitted nothing would run under whatever the activity before it left
+     * set, which is the one behaviour a per-activity tick must not have.
+     */
+    @Test
+    void thePopupFlagIsWrittenForEveryActivityIncludingTheOnesThatKeepIt(@TempDir Path root) {
+        ActivitiesConfig cfg = branchingFlow();
+        ActivitiesConfig mixed = new ActivitiesConfig(
+                List.of(cfg.activities().getFirst().withPopupCheck(false), cfg.activities().get(1),
+                        cfg.activities().get(2), cfg.activities().get(3)),
+                List.of(), cfg.flow(), List.of());
+
+        String source = serviceFor(root).generateDriverSource(mixed);
+
+        assertTrue(source.contains("PopupGuard.enabled(false);"),
+                "the activity that opted out must switch the guard off:\n" + source);
+        assertTrue(source.contains("PopupGuard.enabled(true);"),
+                "and the next one must switch it back on rather than inherit:\n" + source);
+        assertTrue(source.contains("import com.botmaker.sdk.api.bot.PopupGuard;"), source);
     }
 
     @Test

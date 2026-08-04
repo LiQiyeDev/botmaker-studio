@@ -33,6 +33,12 @@ import java.util.List;
  * a boxed {@code Boolean}: a primitive would read a missing JSON property as {@code false}, silently turning
  * the default off for every project written before the field existed.
  *
+ * <p>{@link #popupCheck()} is the same shape for the SDK's {@code PopupGuard}: on by default (popups are the
+ * reason it exists), and turned off for an activity that works through a popup-shaped screen <em>itself</em> —
+ * where a guard dismissing it mid-activity is the bug, not the fix. The driver emits one
+ * {@code PopupGuard.enabled(…)} per activity rather than only for the off ones, because the flag is
+ * process-global: an activity that didn't set it would inherit whatever the previous one left behind.
+ *
  * @param name        activity name / generated class name (a valid Java identifier)
  * @param enabled     the default value of the enable flag
  * @param description optional human-readable note (may be empty)
@@ -40,16 +46,24 @@ import java.util.List;
  * @param archived    retired: keeps its file and fields, but doesn't appear on the canvas or run
  * @param outcomes    the named results this activity can report, excluding the implicit NEXT
  * @param goHome      run {@code GoHome.run()} before this activity; null (absent) ⇒ true
+ * @param popupCheck  let the popup guard dismiss popups during this activity; null (absent) ⇒ true
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record ActivityDefinition(String name, boolean enabled, String description, List<ActivityVariable> params,
-                                 boolean archived, List<String> outcomes, Boolean goHome) {
+                                 boolean archived, List<String> outcomes, Boolean goHome, Boolean popupCheck) {
 
     public ActivityDefinition {
         if (description == null) description = "";
         params = params == null ? List.of() : List.copyOf(params);
         outcomes = outcomes == null ? List.of() : List.copyOf(outcomes);
         if (goHome == null) goHome = Boolean.TRUE;
+        if (popupCheck == null) popupCheck = Boolean.TRUE;
+    }
+
+    /** Convenience for an activity the popup guard runs during; a pre-popupCheck file loads this way. */
+    public ActivityDefinition(String name, boolean enabled, String description, List<ActivityVariable> params,
+                              boolean archived, List<String> outcomes, Boolean goHome) {
+        this(name, enabled, description, params, archived, outcomes, goHome, Boolean.TRUE);
     }
 
     /** Convenience for an activity that goes home first; a pre-goHome file loads this way. */
@@ -99,26 +113,30 @@ public record ActivityDefinition(String name, boolean enabled, String descriptio
     }
 
     public ActivityDefinition withEnabled(boolean newEnabled) {
-        return new ActivityDefinition(name, newEnabled, description, params, archived, outcomes, goHome);
+        return new ActivityDefinition(name, newEnabled, description, params, archived, outcomes, goHome, popupCheck);
     }
 
     public ActivityDefinition withDescription(String newDescription) {
-        return new ActivityDefinition(name, enabled, newDescription, params, archived, outcomes, goHome);
+        return new ActivityDefinition(name, enabled, newDescription, params, archived, outcomes, goHome, popupCheck);
     }
 
     public ActivityDefinition withParams(List<ActivityVariable> newParams) {
-        return new ActivityDefinition(name, enabled, description, newParams, archived, outcomes, goHome);
+        return new ActivityDefinition(name, enabled, description, newParams, archived, outcomes, goHome, popupCheck);
     }
 
     public ActivityDefinition withArchived(boolean newArchived) {
-        return new ActivityDefinition(name, enabled, description, params, newArchived, outcomes, goHome);
+        return new ActivityDefinition(name, enabled, description, params, newArchived, outcomes, goHome, popupCheck);
     }
 
     public ActivityDefinition withOutcomes(List<String> newOutcomes) {
-        return new ActivityDefinition(name, enabled, description, params, archived, newOutcomes, goHome);
+        return new ActivityDefinition(name, enabled, description, params, archived, newOutcomes, goHome, popupCheck);
     }
 
     public ActivityDefinition withGoHome(boolean newGoHome) {
-        return new ActivityDefinition(name, enabled, description, params, archived, outcomes, newGoHome);
+        return new ActivityDefinition(name, enabled, description, params, archived, outcomes, newGoHome, popupCheck);
+    }
+
+    public ActivityDefinition withPopupCheck(boolean newPopupCheck) {
+        return new ActivityDefinition(name, enabled, description, params, archived, outcomes, goHome, newPopupCheck);
     }
 }

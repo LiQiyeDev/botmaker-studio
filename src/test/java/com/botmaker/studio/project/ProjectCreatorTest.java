@@ -68,7 +68,8 @@ class ProjectCreatorTest {
     void theGameBotTemplateScaffoldsTheSuperviseContract() {
         Map<String, String> sources = ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "MyBot", "mybot");
 
-        assertEquals(java.util.List.of("MyBot.java", "FlowDriver.java", "GoHome.java", "ActivityRegistry.java"),
+        assertEquals(java.util.List.of("MyBot.java", "FlowDriver.java", "GoHome.java", "Popups.java",
+                        "ActivityRegistry.java"),
                 java.util.List.copyOf(sources.keySet()));
         // The click/vision tuning is a project setting the SDK reads before the first click, so there is no
         // generated BotSettings.java and nothing for main to call. See BotSettingsTest.
@@ -80,6 +81,27 @@ class ProjectCreatorTest {
         // execute() binds as a Runnable too (a value-returning method ref is void-compatible).
         assertTrue(sources.get("GoHome.java").contains("extends Activity<GoHome.Outcome>"));
         assertTrue(sources.get("GoHome.java").contains("public Outcome run()"));
+    }
+
+    /**
+     * The popup check is the same shape as GoHome — an Activity the entry point binds by method reference, not
+     * a flow node — and it ships <em>empty</em>: a scaffold cannot know this game's popups, and a guard that
+     * dismissed something the user never configured would be worse than none.
+     */
+    @Test
+    void theGameBotTemplateScaffoldsAnEditablePopupCheck() {
+        Map<String, String> sources = ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "MyBot", "mybot");
+
+        String popups = sources.get("Popups.java");
+        assertTrue(popups.contains("class Popups extends Activity<Popups.Outcome>"), popups);
+        assertTrue(popups.contains("public Outcome run()"), popups);
+        assertTrue(popups.contains("TODO"), "the body is the user's to write: " + popups);
+        assertFalse(popups.contains("ImageTemplateGroup.of()"),
+                "an empty group throws at class-init — the scaffold must not declare one: " + popups);
+        assertTrue(sources.get("MyBot.java").contains("PopupGuard.install(Popups.INSTANCE::execute);"),
+                sources.get("MyBot.java"));
+        assertTrue(sources.get("MyBot.java").contains("import com.botmaker.sdk.api.bot.PopupGuard;"),
+                sources.get("MyBot.java"));
     }
 
     @Test

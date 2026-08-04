@@ -14,9 +14,10 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The migration off {@code GameLoop.java} / {@code Startup.java}. Both failure directions are silent, which is
- * why they are pinned here: not migrating leaves a project calling a 3-arg {@code Bot.start} the SDK no longer
- * has (it stops compiling), and over-migrating deletes a file in a project that was never ours.
+ * The migrations that bring an older project onto the current scaffold — off {@code GameLoop.java} /
+ * {@code Startup.java}, and onto the popup guard. Both failure directions are silent, which is why they are
+ * pinned here: not migrating leaves a project calling a 3-arg {@code Bot.start} the SDK no longer has (it stops
+ * compiling), and over-migrating deletes a file, or rewrites an entry point, in a project that was never ours.
  */
 class ScaffoldMigrationTest {
 
@@ -109,8 +110,11 @@ class ScaffoldMigrationTest {
         Files.writeString(config.mainSourceFile(), """
                 package com.mybot;
                 import com.botmaker.sdk.api.bot.Bot;
+                import com.botmaker.sdk.api.bot.PopupGuard;
                 public class MyBot {
                     public static void main(String[] args) {
+                        PopupGuard.install(Popups.INSTANCE::execute);
+
                         Bot.start(FlowDriver::run, GoHome.INSTANCE::execute);
                     }
                 }
@@ -119,6 +123,42 @@ class ScaffoldMigrationTest {
 
         assertNull(ScaffoldMigration.migrate(config), "nothing to do reports nothing to do");
         assertEquals(before, Files.readString(config.mainSourceFile()));
+    }
+
+    /**
+     * A project generated before the popup guard existed gets both halves of it — the install line and the
+     * {@code Popups.java} it names. Half a migration is a project that doesn't compile, so the file is written
+     * first and the line that references it second.
+     */
+    @Test
+    void aProjectFromBeforeThePopupGuardGainsTheCallAndTheFile() throws IOException {
+        Files.writeString(config.mainSourceFile(), """
+                package com.mybot;
+                import com.botmaker.sdk.api.bot.Bot;
+                public class MyBot {
+                    public static void main(String[] args) {
+                        Bot.start(FlowDriver::run, GoHome.INSTANCE::execute);
+                    }
+                }
+                """);
+
+        String migrated = ScaffoldMigration.migrate(config);
+
+        assertTrue(migrated.contains("import com.botmaker.sdk.api.bot.PopupGuard;"), migrated);
+        assertTrue(migrated.contains("PopupGuard.install(Popups.INSTANCE::execute);"), migrated);
+        assertTrue(migrated.indexOf("PopupGuard.install") < migrated.indexOf("Bot.start("),
+                "the guard must be installed before the loop it guards: " + migrated);
+        assertEquals(migrated, Files.readString(config.mainSourceFile()));
+        assertTrue(Files.exists(mainDir.resolve("Popups.java")),
+                "the line names a file that has to exist, or the project stops compiling");
+        assertTrue(Files.readString(mainDir.resolve("Popups.java")).contains("class Popups extends Activity"));
+    }
+
+    /** An entry point the user wrote themselves has no BotMaker import to anchor to, and is left untouched. */
+    @Test
+    void anEntryPointThatIsNotOursIsNotGivenAGuard() {
+        String theirs = "public class MyBot { public static void main(String[] a) { Bot.start(x, y); } }";
+        assertEquals(theirs, ScaffoldMigration.installPopupGuard(theirs));
     }
 
     @Test

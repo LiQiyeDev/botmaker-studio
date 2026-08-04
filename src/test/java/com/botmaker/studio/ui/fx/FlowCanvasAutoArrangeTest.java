@@ -42,7 +42,7 @@ class FlowCanvasAutoArrangeTest extends FxHeadlessTest {
     private void addActivities(int count) {
         interact(() -> {
             for (int i = 0; i < count; i++) {
-                canvas.add(new ActivityDraft("Act" + i, "", true, List.of(), List.of(), true,
+                canvas.add(new ActivityDraft("Act" + i, "", true, List.of(), List.of(), true, true,
                         60 + i * 20, 60 + i * 20));
             }
         });

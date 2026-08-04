@@ -452,6 +452,7 @@ public class ProjectCreator {
             package com.%s;
 
             import com.botmaker.sdk.api.bot.Bot;
+            import com.botmaker.sdk.api.bot.PopupGuard;
 
             public class %s {
                 public static void main(String[] args) {
@@ -459,6 +460,11 @@ public class ProjectCreator {
                     // is what a game needs — it ignores the quiet background clicks BotMaker sends by default)
                     // are project settings, applied by the SDK before the first click. Edit them in the
                     // Studio's Input & Clicks dialog.
+
+                    // Runs Popups.run() before every vision step, so a daily reward or a mail popup is
+                    // dismissed instead of hiding whatever the next find was looking for. Popups.java is
+                    // yours: it decides which templates mean "a popup is up", and how to close each one.
+                    PopupGuard.install(Popups.INSTANCE::execute);
 
                     // Walks the Activity Flow forever; on a crash or a stuck screen it runs GoHome and
                     // restarts the game you picked in the Studio.
@@ -550,6 +556,58 @@ public class ProjectCreator {
                 @Override
                 public Outcome run() {
                     // TODO: navigate back to your game's home screen.
+                    return Outcome.NEXT;
+                }
+            }
+            """, packageName));
+
+        // The popup guard's body. Like GoHome: a real Activity (so it self-registers and gets the hooks) that
+        // isn't on the canvas — the SDK calls it through INSTANCE::execute, here before every vision step.
+        // Ships empty on purpose: a scaffold cannot guess this game's popups, and an empty check costs one
+        // no-op call rather than dismissing things the user never asked it to.
+        sources.put("Popups.java", String.format("""
+            package com.%s;
+
+            import com.botmaker.sdk.api.bot.Activity;
+
+            /**
+             * Dismiss whatever the game has interrupted us with. BotMaker runs this before every vision step
+             * (see the {@code PopupGuard.install} line in the entry point), so no activity has to open with
+             * its own defensive dismissal code.
+             *
+             * <p>Fill in {@link #run()} for your game. The shape that works is "which combination is on
+             * screen", not "click anything that looks like a cross": the same close button often belongs to
+             * the screen the bot is actually working on, and a popup's body usually isn't clickable at all.
+             * <pre>
+             *   ImageTemplateGroup POPUPS = ImageTemplateGroup.of(mail, claimAll, tapToClose);
+             *
+             *   ImageFinder.whileFindAny(POPUPS, found -&gt; {
+             *       if (found.has(mail) &amp;&amp; found.has(claimAll)) ImageClicker.click(found.get(claimAll));
+             *       else if (found.has(tapToClose))              ImageClicker.click(found.get(tapToClose));
+             *   });
+             * </pre>
+             * The loop keeps going while any popup is still up, so a reward stacked behind a mail is cleared
+             * too — and the finds inside it are not themselves guarded, so this cannot recurse.
+             *
+             * <p>Each activity has a "check for popups" tick in Project &rarr; Activity Flow; turn it off for
+             * one that works through a popup-shaped screen itself.
+             */
+            public class Popups extends Activity<Popups.Outcome> {
+
+                /** The one instance; the entry point installs it as the popup guard. */
+                public static final Popups INSTANCE = new Popups();
+
+                /** Popups reports nothing to route on — it is called by the guard, not wired into the flow. */
+                public enum Outcome { NEXT }
+
+                @Override
+                public boolean isEnabled() {
+                    return true;   // guard hook — always available
+                }
+
+                @Override
+                public Outcome run() {
+                    // TODO: dismiss your game's popups. Until you do, this is a no-op and nothing changes.
                     return Outcome.NEXT;
                 }
             }

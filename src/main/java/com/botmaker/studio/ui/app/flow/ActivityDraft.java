@@ -37,17 +37,21 @@ public final class ActivityDraft {
     /** Run the project's {@code GoHome.run()} before this activity. On by default; see the card's tick. */
     private final BooleanProperty goHome = new SimpleBooleanProperty(true);
 
+    /** Let the popup guard dismiss popups during this activity. On by default; see the card's tick. */
+    private final BooleanProperty popupCheck = new SimpleBooleanProperty(true);
+
     private double x;
     private double y;
 
     public ActivityDraft(String name, String description, boolean enabled, List<ActivityVariable> params,
-                         List<String> outcomes, boolean goHome, double x, double y) {
+                         List<String> outcomes, boolean goHome, boolean popupCheck, double x, double y) {
         this.name.set(name);
         this.description.set(description == null ? "" : description);
         this.enabled.set(enabled);
         this.params.setAll(params);
         this.outcomes.setAll(outcomes);
         this.goHome.set(goHome);
+        this.popupCheck.set(popupCheck);
         this.x = x;
         this.y = y;
     }
@@ -55,13 +59,13 @@ public final class ActivityDraft {
     /** A draft of an existing activity, placed at {@code (x, y)}. */
     public static ActivityDraft of(ActivityDefinition def, double x, double y) {
         return new ActivityDraft(def.name(), def.description(), def.enabled(), def.params(), def.outcomes(),
-                def.goHome(), x, y);
+                def.goHome(), def.popupCheck(), x, y);
     }
 
     /** The immutable definition this draft currently describes. */
     public ActivityDefinition toDefinition() {
         return new ActivityDefinition(name.get(), enabled.get(), description.get(), List.copyOf(params),
-                false, List.copyOf(outcomes), goHome.get());
+                false, List.copyOf(outcomes), goHome.get(), popupCheck.get());
     }
 
     /**
@@ -81,6 +85,8 @@ public final class ActivityDraft {
     public StringProperty descriptionProperty() { return description; }
     public BooleanProperty enabledProperty() { return enabled; }
     public BooleanProperty goHomeProperty() { return goHome; }
+
+    public BooleanProperty popupCheckProperty() { return popupCheck; }
     public ObservableList<ActivityVariable> params() { return params; }
     public ObservableList<String> outcomes() { return outcomes; }
 
@@ -88,6 +94,8 @@ public final class ActivityDraft {
     public String description() { return description.get(); }
     public boolean enabled() { return enabled.get(); }
     public boolean goHome() { return goHome.get(); }
+
+    public boolean popupCheck() { return popupCheck.get(); }
 
     public double x() { return x; }
     public double y() { return y; }

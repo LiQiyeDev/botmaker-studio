@@ -7,10 +7,16 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Brings a game-bot project created before the scaffold shrank onto the current one: the entry point binds
- * {@code FlowDriver::run} directly and the launch step comes from the SDK, so {@code GameLoop.java} and
- * {@code Startup.java} are no longer generated — and a project still carrying them keeps compiling against a
- * 3-arg {@code Bot.start} overload that no longer exists.
+ * Brings a game-bot project created before the current scaffold onto it. Two migrations so far, both keyed off
+ * the generated entry point:
+ * <ul>
+ *   <li><b>The retired files.</b> The entry point binds {@code FlowDriver::run} directly and the launch step
+ *       comes from the SDK, so {@code GameLoop.java} and {@code Startup.java} are no longer generated — and a
+ *       project still carrying them keeps compiling against a 3-arg {@code Bot.start} that no longer exists.</li>
+ *   <li><b>The popup guard.</b> {@link #installPopupGuard} adds the {@code PopupGuard.install(...)} line and
+ *       restores {@code Popups.java}, so an older project gets the before-every-vision-step popup check
+ *       instead of being the one project where the feature quietly doesn't exist.</li>
+ * </ul>
  *
  * <p>Run at project open, next to {@link BotSettings#migrate}, for the same reason: it is the one moment we
  * know the project and haven't yet built the file explorer that would go on listing files we are about to
@@ -51,13 +57,61 @@ public final class ScaffoldMigration {
 
         String source = Files.readString(main);
         String updated = rewriteEntryPoint(source);
-        if (updated.equals(source)) return null;   // not our entry point (or already migrated): touch nothing
+        if (!updated.equals(source)) {
+            Files.writeString(main, updated);
+            deleteIfRetired(dir.resolve(GAME_LOOP_FILE), updated, "GameLoop");
+            deleteIfRetired(dir.resolve(STARTUP_FILE), updated, "Startup");
+        }
 
-        Files.writeString(main, updated);
-        deleteIfRetired(dir.resolve(GAME_LOOP_FILE), updated, "GameLoop");
-        deleteIfRetired(dir.resolve(STARTUP_FILE), updated, "Startup");
-        return updated;
+        String guarded = installPopupGuard(updated);
+        if (!guarded.equals(updated)) {
+            // The file first, then the line that names it: a failure between the two leaves a project with an
+            // unused Popups.java, not one that doesn't compile.
+            writePopupsIfAbsent(config, dir);
+            Files.writeString(main, guarded);
+        }
+        return guarded.equals(source) ? null : guarded;   // null: nothing needed doing
     }
+
+    /**
+     * Adds the popup guard to an entry point generated before it existed:
+     * {@code PopupGuard.install(Popups.INSTANCE::execute);} above the {@code Bot.start} call, plus its import.
+     *
+     * <p>Gated on both the import and the call being the ones we generate — a user who rewrote their own entry
+     * point owns it, and the import anchor is also what tells a game bot from an empty project. Idempotent: a
+     * source that already names {@code PopupGuard} is returned untouched, whether we put it there or the user
+     * did.
+     */
+    static String installPopupGuard(String source) {
+        if (source.contains(POPUP_GUARD_TYPE) || !source.contains(BOT_IMPORT)) return source;
+
+        int call = source.indexOf("Bot.start(");
+        if (call < 0) return source;
+        int lineStart = source.lastIndexOf('\n', call) + 1;
+        String indent = source.substring(lineStart, call);
+        if (!indent.isBlank()) return source;   // not a statement of its own: leave it alone
+
+        String withImport = source.replace(BOT_IMPORT, BOT_IMPORT + "\nimport " + POPUP_GUARD_FQN + ";");
+        int at = withImport.indexOf("Bot.start(");
+        int insertAt = withImport.lastIndexOf('\n', at) + 1;
+        return withImport.substring(0, insertAt)
+                + indent + "// Dismiss popups before every vision step; Popups.java is yours to fill in.\n"
+                + indent + "PopupGuard.install(Popups.INSTANCE::execute);\n\n"
+                + withImport.substring(insertAt);
+    }
+
+    /** Restores the scaffold's {@code Popups.java} when the project predates it. Never overwrites. */
+    private static void writePopupsIfAbsent(ProjectConfig config, Path dir) throws IOException {
+        Path file = dir.resolve(POPUPS_FILE);
+        if (Files.exists(file)) return;
+        String source = ProjectCreator.gameBotSources(config.className(), config.packageName()).get(POPUPS_FILE);
+        if (source != null) Files.writeString(file, source);
+    }
+
+    private static final String POPUPS_FILE = "Popups.java";
+    private static final String POPUP_GUARD_TYPE = "PopupGuard";
+    private static final String POPUP_GUARD_FQN = "com.botmaker.sdk.api.bot.PopupGuard";
+    private static final String BOT_IMPORT = "import com.botmaker.sdk.api.bot.Bot;";
 
     /**
      * {@code Bot.start(GameLoop::run, goHome, Startup::run)} → {@code Bot.start(FlowDriver::run, goHome)}.

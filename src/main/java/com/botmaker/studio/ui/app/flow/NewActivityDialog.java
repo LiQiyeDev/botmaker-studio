@@ -50,6 +50,7 @@ public final class NewActivityDialog {
     private final TextField name = new TextField();
     private final TextField description = new TextField();
     private final CheckBox goHome = new CheckBox("Go home first");
+    private final CheckBox popupCheck = new CheckBox("Check for popups");
     private final Label error = new Label();
     private final VBox outcomeRows = new VBox(6);
 
@@ -77,6 +78,10 @@ public final class NewActivityDialog {
         goHome.setSelected(goHomeByDefault);
         goHome.setTooltip(new Tooltip(
                 "Call GoHome.run() immediately before this activity, so it starts from a known screen."));
+        popupCheck.setSelected(true);
+        popupCheck.setTooltip(new Tooltip(
+                "Let Popups.run() dismiss popups before each vision step of this activity. Turn it off for an "
+                        + "activity that works through a popup itself — otherwise the guard closes it underneath."));
 
         GridPane head = new GridPane();
         head.setHgap(8);
@@ -84,6 +89,7 @@ public final class NewActivityDialog {
         head.addRow(0, new Label("Name"), name);
         head.addRow(1, new Label("Description"), description);
         head.add(goHome, 1, 2);
+        head.add(popupCheck, 1, 3);
         GridPane.setHgrow(name, Priority.ALWAYS);
         GridPane.setHgrow(description, Priority.ALWAYS);
 
@@ -186,7 +192,7 @@ public final class NewActivityDialog {
         // Enabled from the start: an activity you just asked for and then have to tick on is a papercut, and the
         // canvas already shows a disabled card greyed out if you change your mind.
         created = new ActivityDraft(candidate, text, true, List.of(), List.copyOf(outcomes),
-                goHome.isSelected(), x, y);
+                goHome.isSelected(), popupCheck.isSelected(), x, y);
         stage.close();
     }
 

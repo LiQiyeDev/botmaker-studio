@@ -6,6 +6,28 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-04 — a popup detector the user configures by editing it.** Improvements plan phase 4, the Studio
+  half of the SDK's `PopupGuard`. The game-bot scaffold now generates an editable `Popups.java` beside
+  `GoHome.java` (`project/ProjectCreator.gameBotSources`), and the entry point installs it with
+  `PopupGuard.install(Popups.INSTANCE::execute)` — the SDK then runs it before every vision step.
+  **(a) It ships empty.** A scaffold can't know this game's popups, and `ImageTemplateGroup.of()` throws at
+  class-init, so declaring a placeholder `POPUPS` constant would break the project before the user ever opened
+  it; the body is a TODO with the working shape in its javadoc, exactly the GoHome model. The user builds the
+  real `whileFindAny(POPUPS, found -> …)` branching in the block editor, with the group edited by the existing
+  `ImageTemplateGroupPicker` — no new picker.
+  **(b) It is protected like GoHome.** `project/MethodLock.SUPERVISED_HOOKS` gains `Popups.java`, so `run()` is
+  `SIGNATURE`-locked (the entry point binds it by method reference) and `isEnabled()` is `FULL` — which gets
+  missing-file recovery and damaged-method repair from `ProjectRepair` for free, carrying the user's body over.
+  **(c) Older projects are migrated.** `project/ScaffoldMigration.installPopupGuard` adds the install line and
+  its import to an entry point generated before the guard, writing `Popups.java` first so a failure between the
+  two leaves an unused file rather than a project that doesn't compile. Gated on our own generated import and
+  call, and idempotent.
+  **(d) A per-activity opt-out.** `ActivityDefinition` gains `popupCheck` (boxed `Boolean`, absent ⇒ true, in
+  `activities.json`), with a tick on the flow card and in the new-activity dialog; `ActivityService.driverCase`
+  emits `PopupGuard.enabled(<bool>);` for **every** activity, not just the ones opting out — the flag is
+  process-global, so an activity that said nothing would inherit the previous one's setting. +5 tests
+  (651 total).
+
 - **2026-08-04 — the vision loop's found value is now reachable in the block editor.** Improvements plan
   phase 3, the Studio half of the SDK's `Matches`. The value a `whileFindAny(group, found -> …)` hands its body
   was invisible: the header rendered the call, the body rendered underneath, and nothing named what crossed

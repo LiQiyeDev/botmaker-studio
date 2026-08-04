@@ -77,11 +77,14 @@ public enum MethodLock {
     }
 
     /**
-     * The {@code Bot.start} recovery hooks, whose {@code run()} is bound as a {@code Runnable}. Just the one
-     * now: {@code GameLoop.java} and {@code Startup.java} were retired — the entry point binds
-     * {@code FlowDriver::run} directly, and the SDK's 2-arg {@code Bot.start} supplies the launch step.
+     * The hooks the generated entry point binds as a method reference, so their signature is BotMaker's while
+     * their body is the user's: {@code GoHome} (the {@code Bot.start} recovery) and {@code Popups} (the
+     * {@code PopupGuard.install} check). {@code GameLoop.java} and {@code Startup.java} were retired — the
+     * entry point binds {@code FlowDriver::run} directly, and the SDK's 2-arg {@code Bot.start} supplies the
+     * launch step.
      */
-    private static final java.util.Set<String> SUPERVISED_HOOKS = java.util.Set.of("GoHome.java");
+    private static final java.util.Set<String> SUPERVISED_HOOKS =
+            java.util.Set.of("GoHome.java", "Popups.java");
 
     /**
      * Classifies {@code method} of {@code file}. Never null; anything unrecognised is {@link #NONE}, so a method

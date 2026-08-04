@@ -312,12 +312,20 @@ public class ActivityFlowDialog {
                 "Call GoHome.run() immediately before this activity, so it starts from a known screen. Same "
                         + "tick as the ⌂ on the card."));
 
+        CheckBox popupCheck = new CheckBox("Check for popups");
+        popupCheck.selectedProperty().bindBidirectional(draft.popupCheckProperty());
+        popupCheck.setTooltip(new javafx.scene.control.Tooltip(
+                "Let Popups.run() dismiss popups before each vision step of this activity. Turn it off for an "
+                        + "activity that works through a popup itself — otherwise the guard closes it "
+                        + "underneath."));
+
         GridPane head = new GridPane();
         head.setHgap(8);
         head.setVgap(6);
         head.addRow(0, new Label("Name"), name);
         head.addRow(1, new Label("Description"), description);
         head.add(goHome, 1, 2);
+        head.add(popupCheck, 1, 3);
         GridPane.setHgrow(name, Priority.ALWAYS);
         GridPane.setHgrow(description, Priority.ALWAYS);
 

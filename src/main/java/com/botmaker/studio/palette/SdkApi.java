@@ -55,6 +55,7 @@ public final class SdkApi {
             "Emulators",
             "Bot",
             "Watchdog",
+            "PopupGuard",
             "Activity",
             "Source",
             "Window",
@@ -68,9 +69,12 @@ public final class SdkApi {
      * (so existing calls to them render with the standard SDK-block chrome and are excluded from the generic
      * "Library (static)" listings). {@code Bots}/{@code Window}/{@code Watchdog} are internal wiring the user
      * shouldn't reach for directly: bot supervision is driven by {@code Bot.start}, capture by the
-     * capture-source picker, and the watchdog by the generated loop.
+     * capture-source picker, and the watchdog by the generated loop. {@code PopupGuard} is the same kind of
+     * wiring — the entry point installs it and the flow driver toggles it from each activity's "check for
+     * popups" tick; what the user edits is {@code Popups.run()}, not the guard.
      */
-    private static final Set<String> MENU_HIDDEN = Set.of("Bots", "Window", "Watchdog", "Debug", "Session");
+    private static final Set<String> MENU_HIDDEN =
+            Set.of("Bots", "Window", "Watchdog", "PopupGuard", "Debug", "Session");
 
     /**
      * The facades shown as submenus in the statement/expression insert menus — {@link #FACADE_CLASSES} minus

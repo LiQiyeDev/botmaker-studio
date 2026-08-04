@@ -302,6 +302,7 @@ public final class ActivityService {
 
                 import com.botmaker.sdk.api.Debug;
                 import com.botmaker.sdk.api.bot.Bot;
+                import com.botmaker.sdk.api.bot.PopupGuard;
                 import com.botmaker.sdk.api.bot.Watchdog;
                 import com.botmaker.sdk.api.interaction.Wait;
                 %s
@@ -370,6 +371,9 @@ public final class ActivityService {
         FlowEdge fallthrough = edgeFor(flow, a.name(), FlowEdge.NEXT_OUTCOME);
         out.append("                if (!").append(constant).append(".active()) return ")
                 .append(fallthrough == null ? "null" : target(fallthrough)).append(";\n");
+        // Emitted for every activity, not just the ones opting out: PopupGuard.enabled is process-global, so
+        // an activity that said nothing would inherit whatever the previous one left it set to.
+        out.append("                PopupGuard.enabled(").append(a.popupCheck()).append(");\n");
         // After the active() check, not before: there is nothing to go home for if the activity won't run.
         if (a.goHome()) out.append("                GoHome.INSTANCE.execute();\n");
         out.append("                switch (").append(constant).append(".execute()) {\n");

@@ -56,6 +56,17 @@ class MethodLockTest {
             }
             """;
 
+    private static final String POPUPS = """
+            package com.mybot;
+            import com.botmaker.sdk.api.bot.Activity;
+            public class Popups extends Activity<Popups.Outcome> {
+                public static final Popups INSTANCE = new Popups();
+                public enum Outcome { NEXT }
+                @Override public boolean isEnabled() { return true; }
+                @Override public Outcome run() { return Outcome.NEXT; }
+            }
+            """;
+
     private static final String ACTIVITY = """
             package com.mybot.activities;
             public class Mining extends Activity {
@@ -92,6 +103,20 @@ class MethodLockTest {
                 methodNamed(GO_HOME, "isEnabled"));
         assertEquals(MethodLock.FULL, lock);
         assertTrue(lock.locksBody(), "isEnabled is generated wiring");
+    }
+
+    /**
+     * {@code Popups} is the second hook of this shape: the entry point binds {@code Popups.INSTANCE::execute}
+     * as the popup guard, so its signature is BotMaker's for exactly the reason GoHome's is — and its body,
+     * the logic that decides which combination of templates means "a popup is up", is the user's.
+     */
+    @Test
+    void popupsIsLockedLikeGoHome() {
+        Path file = inMainPackage("Popups.java");
+        assertEquals(MethodLock.SIGNATURE,
+                MethodLock.of(CONFIG, ProjectTemplate.GAME_BOT, file, methodNamed(POPUPS, "run")));
+        assertEquals(MethodLock.FULL,
+                MethodLock.of(CONFIG, ProjectTemplate.GAME_BOT, file, methodNamed(POPUPS, "isEnabled")));
     }
 
     @Test
