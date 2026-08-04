@@ -209,14 +209,28 @@ public final class EmulatorPickerDialog {
                 ui.state().setText(running ? "running" : "stopped");
                 if (preview != null) ui.thumb().setImage(preview);
                 if (running && live != null) APP_CACHE.put(instance.identity(), live);
-                List<String> show = running ? live : APP_CACHE.get(instance.identity());
-                String emptyNote = running
-                        ? "No third-party apps found on this instance."
-                        : "Instance stopped — start it to list apps, or enter a package below.";
-                renderApps(ui.apps(), instance, show, emptyNote, dialog);
+                List<String> show = running && live != null ? live : APP_CACHE.get(instance.identity());
+                renderApps(ui.apps(), instance, show, emptyNote(running, live), dialog);
                 showAction(instance, ui, dialog, running);
             });
         }, "emulator-probe-" + instance.name()).start();
+    }
+
+    /**
+     * What to say when a row lists no apps — three different situations that used to share one sentence.
+     *
+     * <p>The one worth naming is the middle case. Android's {@code adbd} prompts the user to trust a new host
+     * key, and a <em>refused</em> prompt is invisible from here: the ADB port still accepts a connection, so
+     * the instance reads as running while every query fails. Reporting that as "no third-party apps found"
+     * blames the device for the user's own dismissed dialog, and leaves the one action that fixes it unsaid.
+     */
+    private static String emptyNote(boolean running, List<String> live) {
+        if (!running) return "Instance stopped — start it to list apps, or enter a package below.";
+        if (live == null) {
+            return "The instance is up but ADB wouldn't answer — usually the \"Allow USB debugging?\" prompt "
+                    + "inside Android was declined or is still waiting. Accept it there, then reopen this picker.";
+        }
+        return "No third-party apps found on this instance.";
     }
 
     /**
@@ -307,12 +321,14 @@ public final class EmulatorPickerDialog {
                 appButton.getStyleClass().add("emulator-picker-app");
                 appButton.setMaxWidth(Double.MAX_VALUE);
                 appButton.setAlignment(Pos.CENTER_LEFT);
+                appButton.setGraphic(iconView());
                 appButton.setOnAction(e -> {
                     dialog.setResult(new Selection(instance, pkg));
                     dialog.close();
                 });
                 apps.getChildren().add(appButton);
             }
+            loadIcons(instance, List.copyOf(packages), apps);
         } else if (emptyNote != null) {
             Label note = new Label(emptyNote);
             note.getStyleClass().add("emulator-picker-state");
@@ -325,6 +341,62 @@ public final class EmulatorPickerDialog {
         manual.setAlignment(Pos.CENTER_LEFT);
         manual.setOnAction(e -> promptForPackage(instance, dialog));
         apps.getChildren().add(manual);
+    }
+
+    /** Edge of a launcher-icon thumbnail, sized to sit inside a list row without changing its height. */
+    private static final double ICON_SIZE = 24;
+
+    /**
+     * Launcher icons already read, keyed {@code <instance identity>/<package>}. An {@link Optional#empty()}
+     * is a remembered <em>failure</em> — an app whose APK carries no icon we can decode must not be re-fetched
+     * on every re-render, and there are three of those per row (initial, post-probe, post-start).
+     */
+    private static final Map<String, Optional<Image>> ICON_CACHE = new ConcurrentHashMap<>();
+
+    /** A fixed-size holder so a row's text lines up whether or not its icon ever arrives. */
+    private static ImageView iconView() {
+        ImageView view = new ImageView();
+        view.setPreserveRatio(true);
+        view.setFitWidth(ICON_SIZE);
+        view.setFitHeight(ICON_SIZE);
+        return view;
+    }
+
+    /**
+     * Fills in each listed app's icon, off the FX thread, in list order.
+     *
+     * <p>A package name is a reverse-DNS string and frequently says nothing about the game it belongs to; the
+     * icon is what makes the list readable. One thread walks the packages sequentially rather than one thread
+     * per app: each icon is several ADB round-trips (see {@code ApkIcon}) and a row with twenty apps would
+     * otherwise open twenty connections to the same device at once.
+     *
+     * <p>It writes back by <em>position</em>, and re-checks that the button under that index is still the one
+     * it fetched for — a start/stop or a re-probe can rebuild the list underneath a fetch in flight.
+     */
+    private static void loadIcons(EmulatorInstance instance, List<String> packages, VBox apps) {
+        new Thread(() -> {
+            for (int i = 0; i < packages.size(); i++) {
+                String pkg = packages.get(i);
+                String key = instance.identity() + "/" + pkg;
+                Optional<Image> cached = ICON_CACHE.get(key);
+                if (cached == null) {
+                    cached = Optional.ofNullable(ScreenCaptureService.toFxImage(
+                            EmulatorProbe.appIcon(instance, pkg)));
+                    ICON_CACHE.put(key, cached);
+                }
+                if (cached.isEmpty()) continue;
+                Image icon = cached.get();
+                int index = i;
+                Platform.runLater(() -> {
+                    if (index >= apps.getChildren().size()) return;
+                    if (apps.getChildren().get(index) instanceof Button button
+                            && pkg.equals(button.getText())
+                            && button.getGraphic() instanceof ImageView view) {
+                        view.setImage(icon);
+                    }
+                });
+            }
+        }, "emulator-icons-" + instance.name()).start();
     }
 
     /** Prompts for a package name and, if given, resolves the dialog to {@code (instance, package)}. */

@@ -46,9 +46,22 @@ public final class EmulatorProbe {
         return withDevice(instance, AdbDevice::screencap, null);
     }
 
-    /** The instance's installed third-party apps; empty if it isn't up or the query fails. */
+    /**
+     * The instance's installed third-party apps, or {@code null} when we could not talk to it at all.
+     *
+     * <p>The null is load-bearing, and the reason is the ADB authorization prompt. Android's {@code adbd}
+     * asks the user to trust a new host key, and a <em>refused</em> prompt looks exactly like a running
+     * instance from the outside: {@link #isRunning} is a TCP probe, so the port answers and the dot goes
+     * green, while every actual query fails. Collapsing that into an empty list told the user "no apps
+     * installed", which is a lie about their device. Empty now means "asked, and there are none".
+     */
     public static List<String> installedApps(EmulatorInstance instance) {
-        return withDevice(instance, AdbDevice::installedApps, List.of());
+        return withDevice(instance, AdbDevice::installedApps, null);
+    }
+
+    /** One app's launcher icon, read out of its APK over ADB; {@code null} when it has none we can decode. */
+    public static BufferedImage appIcon(EmulatorInstance instance, String packageName) {
+        return withDevice(instance, device -> device.appIcon(packageName), null);
     }
 
     /**

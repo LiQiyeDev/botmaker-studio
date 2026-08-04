@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-04 — App icons in the emulator picker, and an honest empty-list note.** A package list is a list
+  of reverse-DNS strings; `com.supercell.clashofclans` only reads as a game if you already know it. Each app
+  row now carries its launcher icon, read out of the installed APK by shared's new `ApkIcon` (four bounded
+  byte ranges, no file pull) via `EmulatorProbe.appIcon`. One background thread walks a row's packages in
+  order rather than one per app — each icon is several ADB round-trips — and results are cached per
+  `identity/package` **including the failures**, since a row re-renders three times (initial, post-probe,
+  post-start). The write-back checks the button still under that index is the one it fetched for, because a
+  start/stop can rebuild the list under a fetch in flight. Separately, `EmulatorProbe.installedApps` now
+  returns **null** for "couldn't talk to it" as distinct from an empty list: a *declined* ADB authorization
+  prompt looks exactly like a healthy instance from outside (the TCP probe answers, the dot goes green) while
+  every query fails, and reporting that as "no third-party apps found" blamed the device for the user's own
+  dismissed dialog. The note now names the prompt and what to do about it.
+
 - **2026-08-04 — Start and stop an emulator from the picker.** Improvements round 2 phase 2. Every discovered
   instance has carried its host `launchCommand`/`stopCommand` since the emulator work began and **Studio had
   never called `EmulatorLauncher`** — so a stopped instance showed "start it to list apps" and offered no way
