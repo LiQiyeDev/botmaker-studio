@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-04 — Start and stop an emulator from the picker.** Improvements round 2 phase 2. Every discovered
+  instance has carried its host `launchCommand`/`stopCommand` since the emulator work began and **Studio had
+  never called `EmulatorLauncher`** — so a stopped instance showed "start it to list apps" and offered no way
+  to, which on Waydroid (no other route to bring it up) meant no launch target could be chosen at all. Each row
+  in `EmulatorPickerDialog` now carries a **Start**/**Stop** button, hidden when the product ships no console
+  tool for that direction (`canLaunch`/`canStop`). Because `EmulatorLauncher` is fire-and-forget by contract —
+  `true` means *dispatched*, not *up* — readiness is established here: `waitFor` polls the ADB port to a
+  bounded ceiling behind a `starting…` state, then the row re-probes itself, so the app list fills in without
+  reopening the picker. Waydroid gets a 4-minute ceiling against 90s for the rest (container + session +
+  Android boot, not a process start), and a poll that expires there opens `WaydroidDiagnosticsDialog` — the
+  precise on-failure trigger the diagnostics were built for. *Not done:* applying a framebuffer resolution
+  before the spawn, see backlog.
+
 - **2026-08-04 — Overlay editor: delete, a live argument popup, and the scaffold hooks.** Improvements round 2
   phase 1. **Delete worked on nothing that mattered**: `ProgramShapeOverlay.delete` tested the block's *own*
   node for `instanceof Statement`, which is false for every method-call row — `MethodInvocationBlock` holds the
@@ -2027,6 +2040,18 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 - [ ] **Richer recorded gestures** — right/middle/double-click and drag (deferred in `MacroTranslator` v1).
 - [ ] **Collapse/expand** control-flow bodies in the tree for long programs.
 - [ ] **Global hotkey** to toggle record without reaching for the overlay.
+
+## Emulator backlog
+
+- [ ] **A configured Waydroid framebuffer resolution.** `WaydroidResolution.apply()` exists in shared and
+  **nothing calls it**, because there is nowhere to author the target: the only value available is
+  `WaydroidResolution.read()`, and applying what you just read is a tautology. The Start button therefore does
+  *not* apply a resolution — it would be a no-op at best, and at worst `apply()`'s deliberate session
+  stop/start cycle would tear down the session the button is bringing up. What this actually needs is a
+  BotMaker-owned expected size (a project or emulator setting), at which point `apply()` before the spawn is
+  both meaningful and safe. Until then the gamescope sizing flags come from whatever the container was last
+  configured with, read at discovery — and a mismatch is already surfaced, not silent, by
+  `WaydroidDiagnostics.resolutionMismatch`.
 
 ## PC-game feature backlog (SDK + Studio)
 

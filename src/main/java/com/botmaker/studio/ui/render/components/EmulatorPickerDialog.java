@@ -1,6 +1,7 @@
 package com.botmaker.studio.ui.render.components;
 
 import com.botmaker.shared.emulator.EmulatorInstance;
+import com.botmaker.shared.emulator.EmulatorLauncher;
 import com.botmaker.shared.emulator.PlatformId;
 import com.botmaker.shared.emulator.Platforms.PlatformStatus;
 import com.botmaker.studio.emulator.EmulatorInstanceScanner;
@@ -43,6 +44,13 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>Discovery + liveness + app queries all run off the FX thread (registry/config reads, TCP probes, ADB). App
  * lists are {@link #APP_CACHE cached per instance name}, so a stopped instance still shows its last-known apps
  * even though we can't query it while it's down.
+ *
+ * <p><b>A stopped instance is startable from its own row.</b> Every discovered instance carries the host
+ * console command that brings it up ({@link EmulatorInstance#launchCommand()}), and the row already knew it was
+ * down — it just had nothing to offer but the words "start it to list apps". Now it offers Start / Stop, and
+ * because {@link EmulatorLauncher} is fire-and-forget by contract (a {@code true} means "dispatched", not
+ * "up"), establishing readiness is this dialog's job: {@link #waitFor} polls the ADB port to a bounded ceiling
+ * and the row re-probes itself when it settles, so the apps appear without reopening the picker.
  */
 public final class EmulatorPickerDialog {
 
@@ -101,6 +109,25 @@ public final class EmulatorPickerDialog {
     private static final double THUMB_W = 64;
     private static final double THUMB_H = 40;
 
+    /** How often {@link #waitFor} re-probes the ADB port while an instance is coming up or going down. */
+    private static final long POLL_INTERVAL_MS = 1_500;
+
+    /** How long to wait for a console-tool launch to answer on ADB before giving up on it. */
+    private static final long START_TIMEOUT_MS = 90_000;
+
+    /**
+     * Waydroid's ceiling. It is not a process start but a container start, a session start and an Android boot
+     * behind a compositor, so it routinely takes minutes on a cold machine where every other product takes
+     * seconds — a shared ceiling would either cut Waydroid off or leave a dead LDPlayer spinning for four.
+     */
+    private static final long WAYDROID_START_TIMEOUT_MS = 240_000;
+
+    /** Stopping only has to tear a process down, so it never wants the launch ceiling. */
+    private static final long STOP_TIMEOUT_MS = 60_000;
+
+    /** The mutable widgets of one instance row, so the probe and the start/stop poll can refresh them in place. */
+    private record RowUi(Circle dot, Label state, Button action, ImageView thumb, VBox apps) {}
+
     /** One instance row: a clickable header (preview + dot + brand + name) plus a lazily-filled installed-apps list. */
     private static VBox buildRow(EmulatorInstance instance, Dialog<Selection> dialog) {
         ImageView thumb = new ImageView();
@@ -123,7 +150,16 @@ public final class EmulatorPickerDialog {
         Label state = new Label("checking…");
         state.getStyleClass().add("emulator-picker-state");
 
-        HBox header = new HBox(8, thumbHolder, dot, brand, name, spacer, state);
+        // Start / Stop. Hidden until the liveness probe says which of the two this row is offering — and left
+        // hidden for an instance whose product ships no console tool we can drive. Like Diagnose below, it has
+        // to swallow its own click or starting an instance would also select it and close the dialog.
+        Button action = new Button();
+        action.getStyleClass().add("emulator-picker-state");
+        action.setVisible(false);
+        action.setManaged(false);
+        action.addEventFilter(MouseEvent.MOUSE_CLICKED, MouseEvent::consume);
+
+        HBox header = new HBox(8, thumbHolder, dot, brand, name, spacer, state, action);
         if (instance.platformId() == PlatformId.WAYDROID) {
             // Waydroid is the one platform whose common failures are host configuration rather than "it isn't
             // started" — no NAT, no ARM translation layer. Offer the explanation from the row itself; the
@@ -153,33 +189,107 @@ public final class EmulatorPickerDialog {
         // Show any cached apps immediately (so a stopped instance still lists its last scan), then probe liveness
         // and — if up — refresh the apps from the live device and fill in the preview thumbnail.
         renderApps(apps, instance, APP_CACHE.get(instance.identity()), null, dialog);
-        probeAndLoad(instance, dot, state, apps, thumb, dialog);
+        probeAndLoad(instance, new RowUi(dot, state, action, thumb, apps), dialog);
         return row;
     }
 
     /**
      * Off-FX: TCP-probe the ADB port; if up, connect and list installed apps + grab one screencap for the row
-     * preview, caching + rendering the result.
+     * preview, caching + rendering the result. Also the row's way back to the truth after a start or a stop —
+     * {@link #transition} re-runs it once the poll settles rather than assuming what it asked for happened.
      */
-    private static void probeAndLoad(EmulatorInstance instance, Circle dot, Label state, VBox apps,
-                                     ImageView thumb, Dialog<Selection> dialog) {
+    private static void probeAndLoad(EmulatorInstance instance, RowUi ui, Dialog<Selection> dialog) {
         new Thread(() -> {
             boolean running = EmulatorProbe.isRunning(instance);
             List<String> live = running ? EmulatorProbe.installedApps(instance) : null;
             BufferedImage shot = running ? EmulatorProbe.screencap(instance) : null;
             Image preview = shot != null ? ScreenCaptureService.toFxImage(shot) : null;
             Platform.runLater(() -> {
-                dot.setFill(running ? Color.web("#34a853") : Color.web("#9aa0a6"));
-                state.setText(running ? "running" : "stopped");
-                if (preview != null) thumb.setImage(preview);
+                ui.dot().setFill(running ? Color.web("#34a853") : Color.web("#9aa0a6"));
+                ui.state().setText(running ? "running" : "stopped");
+                if (preview != null) ui.thumb().setImage(preview);
                 if (running && live != null) APP_CACHE.put(instance.identity(), live);
                 List<String> show = running ? live : APP_CACHE.get(instance.identity());
                 String emptyNote = running
                         ? "No third-party apps found on this instance."
                         : "Instance stopped — start it to list apps, or enter a package below.";
-                renderApps(apps, instance, show, emptyNote, dialog);
+                renderApps(ui.apps(), instance, show, emptyNote, dialog);
+                showAction(instance, ui, dialog, running);
             });
         }, "emulator-probe-" + instance.name()).start();
+    }
+
+    /**
+     * Puts Start (on a stopped row) or Stop (on a running one) in place, and hides the control entirely when
+     * the product has no command for that direction — {@link EmulatorInstance#canLaunch()} /
+     * {@link EmulatorInstance#canStop()} are false when discovery couldn't locate the console tool, and a
+     * button that can only ever fail is worse than no button.
+     */
+    private static void showAction(EmulatorInstance instance, RowUi ui, Dialog<Selection> dialog, boolean running) {
+        boolean available = running ? instance.canStop() : instance.canLaunch();
+        ui.action().setVisible(available);
+        ui.action().setManaged(available);
+        ui.action().setDisable(false);
+        if (!available) return;
+        ui.action().setText(running ? "Stop" : "Start");
+        ui.action().setOnAction(e -> transition(instance, ui, dialog, !running));
+    }
+
+    /**
+     * Dispatches the host start/stop command and waits for the ADB port to agree, then re-probes the row.
+     *
+     * <p>The waiting is the point. {@link EmulatorLauncher} returns as soon as the console tool is spawned, so
+     * without the poll the row would flip back to "stopped" a fraction of a second later and the user would
+     * conclude the button did nothing. The poll expiring is a real outcome too, and for Waydroid it is the
+     * exact moment {@link WaydroidDiagnosticsDialog} was written for: the command dispatched fine and the
+     * container still never appeared, which is host configuration the diagnostics can name.
+     */
+    private static void transition(EmulatorInstance instance, RowUi ui, Dialog<Selection> dialog, boolean start) {
+        ui.action().setDisable(true);
+        ui.state().setText(start ? "starting…" : "stopping…");
+        ui.dot().setFill(Color.web("#fbbc04"));
+        long timeout = start ? startTimeoutMs(instance) : STOP_TIMEOUT_MS;
+        new Thread(() -> {
+            boolean dispatched = start ? EmulatorLauncher.launch(instance) : EmulatorLauncher.stop(instance);
+            boolean settled = dispatched && waitFor(instance, start, timeout);
+            Platform.runLater(() -> {
+                if (!dispatched) {
+                    // Nothing was spawned, so there is nothing to re-probe — leave the row as it was.
+                    ui.state().setText(start ? "couldn't start" : "couldn't stop");
+                    ui.action().setDisable(false);
+                    ui.dot().setFill(Color.web("#ea4335"));
+                    return;
+                }
+                if (!settled && start && instance.platformId() == PlatformId.WAYDROID) {
+                    WaydroidDiagnosticsDialog.show(windowOf(dialog));
+                }
+                probeAndLoad(instance, ui, dialog);
+            });
+        }, "emulator-" + (start ? "start-" : "stop-") + instance.name()).start();
+    }
+
+    /** How long this instance gets to come up — {@link #WAYDROID_START_TIMEOUT_MS} for the container. */
+    private static long startTimeoutMs(EmulatorInstance instance) {
+        return instance.platformId() == PlatformId.WAYDROID ? WAYDROID_START_TIMEOUT_MS : START_TIMEOUT_MS;
+    }
+
+    /**
+     * Polls the ADB port until it reports {@code wantRunning}, or the ceiling elapses. Off-FX (each probe is a
+     * blocking connect), and it stops early on an interrupt so a closed dialog doesn't leave a thread counting
+     * out four minutes.
+     */
+    private static boolean waitFor(EmulatorInstance instance, boolean wantRunning, long timeoutMs) {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            if (EmulatorProbe.isRunning(instance) == wantRunning) return true;
+            try {
+                Thread.sleep(POLL_INTERVAL_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return EmulatorProbe.isRunning(instance) == wantRunning;
     }
 
     /**
