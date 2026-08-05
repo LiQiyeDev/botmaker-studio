@@ -86,7 +86,7 @@ public final class MatchesSwitchHandler {
     public record Guard(boolean all, List<String> paths, MethodInvocation call) {}
 
     /** The path inside {@code new ImageTemplate("…")}, or empty for anything else. */
-    private static Optional<String> templatePath(Object node) {
+    public static Optional<String> templatePath(Object node) {
         if (node instanceof ClassInstanceCreation cic
                 && "ImageTemplate".equals(cic.getType().toString())
                 && !cic.arguments().isEmpty()
@@ -200,6 +200,17 @@ public final class MatchesSwitchHandler {
         switchStmt.statements().add(defaultCase);
         switchStmt.statements().add(ast.newBlock());
         return switchStmt;
+    }
+
+    /**
+     * A {@link Block} holding nothing but a seeded switch — the body a group-lambda call is born with, so
+     * picking {@code whileFindAny} lands you on the question that variant exists to ask instead of an empty
+     * block. Only ever used to fill a body that <em>is</em> empty; see {@code LambdaCallHandler.switchVariant}.
+     */
+    public static Block newSeededBody(AST ast, String subject, String templatePath) {
+        Block body = ast.newBlock();
+        body.statements().add(newMatchesSwitch(ast, ast.newSimpleName(subject), false, List.of(templatePath)));
+        return body;
     }
 
     /** {@code case Matches m when m.hasAny(new ImageTemplate("…"), …) ->} */

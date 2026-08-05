@@ -87,10 +87,23 @@ public final class MatchesGroupScope {
         return null;
     }
 
-    /** The paths of a group argument, whether written inline or held in a constant. */
-    private static List<String> groupPaths(Expression group) {
+    /**
+     * The template paths a find call's leading image argument names, or {@code null} when it names none that
+     * can be read from source.
+     *
+     * <p>The single owner of "what images can this call produce?", which is asked from two directions: the
+     * chip narrowing here, and {@code LambdaCallHandler} seeding a group form's body with the first of them.
+     * It accepts all three shapes that argument takes — an inline {@code ImageTemplateGroup.of(…)}, a constant
+     * holding one, and a bare {@code new ImageTemplate("…")} from the single-template form being converted.
+     */
+    public static List<String> groupPaths(Expression group) {
         List<String> inline = ImageTemplateGroupPicker.currentPaths(group);
         if (!inline.isEmpty()) return inline;
+
+        // A single template, i.e. the pre-conversion shape of a `whileFind` becoming a `whileFindAny`.
+        String single = ImageTemplateGroupPicker.templatePath(group).orElse(null);
+        if (single != null) return List.of(single);
+
         if (group instanceof SimpleName name) {
             Expression initializer = constantInitializer(name);
             if (initializer != null) {

@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -51,6 +52,88 @@ public class LambdaVariantSwitchTest {
         TextEdit edits = rewriter.rewriteAST(doc, null);
         assertDoesNotThrow(() -> edits.apply(doc));
         return doc.get();
+    }
+
+    // ---- Seeding a group form's body ----
+
+    /**
+     * Switching to a group form fills an <b>empty</b> body with the {@code Matches} switch, seeded from the
+     * group's first template. The variant exists to ask "which of these are on screen together?", so landing
+     * on that question beats landing on an empty block the user then has to know to fill.
+     */
+    @Test
+    void switchingToAGroupFormSeedsTheMatchesSwitch() {
+        String source = """
+                package test;
+                public class Subject {
+                    void run() {
+                        ImageFinder.whileFind(new ImageTemplate("popups/mail.png"), match -> {});
+                    }
+                }
+                """;
+        String result = switchTo(source, "whileFind", "whileFindAny", true, "found").replaceAll("\\s+", "");
+
+        assertTrue(result.contains("found->{switch(found){caseMatchesmwhenm.hasAny(newImageTemplate(\"popups/mail.png\"))->{}default->{}}}"),
+                () -> "expected a seeded switch over the new parameter: " + result);
+    }
+
+    /**
+     * A group held in a constant seeds too, resolved through the same reader that narrows the switch's chip
+     * menus — {@code whileFindAny(POPUPS, …)} is the idiom, so reading only inline groups would have meant
+     * the feature never fired in the case it was asked for.
+     */
+    @Test
+    void aGroupHeldInAConstantSeedsFromItsFirstTemplate() {
+        String source = """
+                package test;
+                public class Subject {
+                    static final ImageTemplateGroup POPUPS = ImageTemplateGroup.of(
+                            new ImageTemplate("popups/mail.png"),
+                            new ImageTemplate("popups/gift.png"));
+                    void run() {
+                        ImageFinder.whileFind(POPUPS, match -> {});
+                    }
+                }
+                """;
+        String result = switchTo(source, "whileFind", "whileFindAny", true, "found").replaceAll("\\s+", "");
+
+        assertTrue(result.contains("hasAny(newImageTemplate(\"popups/mail.png\"))"),
+                () -> "expected the constant's first template: " + result);
+    }
+
+    /** A body with anything in it is left exactly as it was — seeding must never displace the user's work. */
+    @Test
+    void aNonEmptyBodyIsNeverSeeded() {
+        String source = """
+                package test;
+                public class Subject {
+                    void run() {
+                        ImageFinder.whileFind(new ImageTemplate("popups/mail.png"), match -> {
+                            ImageClicker.click(match);
+                        });
+                    }
+                }
+                """;
+        String result = switchTo(source, "whileFind", "whileFindAny", true, "found");
+
+        assertTrue(result.contains("ImageClicker.click(match)"), () -> "the body must survive: " + result);
+        assertFalse(result.contains("switch"), () -> "an occupied body must not be seeded: " + result);
+    }
+
+    /** {@code untilFind…} takes a {@code Runnable} — there is no value to switch on, so nothing is seeded. */
+    @Test
+    void aParameterlessVariantIsNotSeeded() {
+        String source = """
+                package test;
+                public class Subject {
+                    void run() {
+                        ImageFinder.whileFind(new ImageTemplate("popups/mail.png"), match -> {});
+                    }
+                }
+                """;
+        String result = switchTo(source, "whileFind", "untilFindAny", true, null);
+
+        assertFalse(result.contains("switch"), () -> "a Runnable body has no Matches to switch on: " + result);
     }
 
     @Test

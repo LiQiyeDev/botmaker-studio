@@ -1,5 +1,6 @@
 package com.botmaker.studio.parser.handlers;
 
+import com.botmaker.studio.blocks.flow.MatchesGroupScope;
 import com.botmaker.studio.parser.ImportManager;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import org.eclipse.jdt.core.dom.*;
@@ -98,8 +99,44 @@ public final class LambdaCallHandler {
 
         LambdaExpression lambda = lambdaArg(mi);
         if (lambda != null) {
-            adjustLambdaParam(ast, rewriter, lambda, lambdaParam);
+            adjustLambdaParam(ast, rewriter, lambda, lambdaParam,
+                    seededBody(ast, cu, rewriter, analyzer, lambda, leading, group, lambdaParam));
         }
+    }
+
+    /**
+     * The body a group form is born with: a {@code Matches} switch over the lambda's value, seeded with the
+     * group's first template — so picking {@code whileFindAny} lands on the question that variant exists to
+     * ask rather than on an empty block.
+     *
+     * <p>Returns null — leave the body alone — unless <b>all</b> of: the target is a group form that actually
+     * hands over a {@code Matches} ({@code untilFind…} takes a {@link Runnable} and has no value to switch
+     * on); the body is <em>empty</em>, so nothing the user wrote can be displaced; and a literal template is
+     * readable from the leading argument, since a guard with no template would not compile.
+     */
+    private static Block seededBody(AST ast, CompilationUnit cu, ASTRewrite rewriter, ProjectAnalyzer analyzer,
+                                    LambdaExpression lambda, Expression leading, boolean group,
+                                    String lambdaParam) {
+        if (!group || lambdaParam == null || lambdaParam.isBlank()) return null;
+        if (!(lambda.getBody() instanceof Block body) || !body.statements().isEmpty()) return null;
+
+        String template = firstTemplatePath(leading);
+        if (template == null) return null;
+
+        ImportManager.addImportForSimpleName(cu, rewriter, "Matches", analyzer, null);
+        ImportManager.addImportForSimpleName(cu, rewriter, "ImageTemplate", analyzer, null);
+        return MatchesSwitchHandler.newSeededBody(ast, lambdaParam, template);
+    }
+
+    /**
+     * The first template the leading image argument names — inline group, constant, or the single template
+     * being converted. {@code MatchesGroupScope} owns reading that argument, because the seeded switch's chip
+     * menus are narrowed by the very same answer and two readers would drift.
+     */
+    private static String firstTemplatePath(Expression leading) {
+        if (leading == null) return null;
+        List<String> paths = MatchesGroupScope.groupPaths(leading);
+        return paths == null || paths.isEmpty() ? null : paths.getFirst();
     }
 
     /** Wrap a single image into {@code ImageTemplateGroup.of(...)} or unwrap the group's first element; null = leave as-is. */
@@ -143,19 +180,24 @@ public final class LambdaCallHandler {
      * {@code copySubtree}, sidesteps the property entirely. The in-place path stays for a pure rename, where
      * there is no parenthesis change and it works.
      */
-    private static void adjustLambdaParam(AST ast, ASTRewrite rewriter, LambdaExpression lambda, String wantName) {
+    private static void adjustLambdaParam(AST ast, ASTRewrite rewriter, LambdaExpression lambda, String wantName,
+                                          Block seededBody) {
         boolean wantParam = wantName != null && !wantName.isBlank();
         List<?> params = lambda.parameters();
         boolean hasParam = !params.isEmpty();
 
-        if (wantParam && hasParam) {
-            SimpleName declared = declaredName(params.get(0));
-            if (declared != null && !declared.getIdentifier().equals(wantName)) {
-                rewriter.set(declared, SimpleName.IDENTIFIER_PROPERTY, wantName, null);
+        if (wantParam == hasParam) {
+            if (wantParam) {
+                SimpleName declared = declaredName(params.get(0));
+                if (declared != null && !declared.getIdentifier().equals(wantName)) {
+                    rewriter.set(declared, SimpleName.IDENTIFIER_PROPERTY, wantName, null);
+                }
             }
+            // The parameter list is unchanged, so the body can be swapped on its own — and it is only ever
+            // swapped when it was empty, so this replaces nothing the user wrote.
+            if (seededBody != null) rewriter.replace(lambda.getBody(), seededBody, null);
             return;
         }
-        if (wantParam == hasParam) return;
 
         LambdaExpression replacement = ast.newLambdaExpression();
         if (wantParam) {
@@ -166,8 +208,9 @@ public final class LambdaCallHandler {
         replacement.setParentheses(!wantParam);   // found -> {} versus () -> {}
         // createCopyTarget, not copySubtree: it moves the body's ORIGINAL SOURCE TEXT across, so the user's
         // statements keep their formatting, comments and indentation. A copied subtree would be re-printed by
-        // the rewriter, reformatting a body the user never touched.
-        replacement.setBody(rewriter.createCopyTarget(lambda.getBody()));
+        // the rewriter, reformatting a body the user never touched. A seeded body replaces it outright, which
+        // is only ever offered for an empty one.
+        replacement.setBody(seededBody != null ? seededBody : (Block) rewriter.createCopyTarget(lambda.getBody()));
         rewriter.replace(lambda, replacement, null);
     }
 

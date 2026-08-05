@@ -49,6 +49,23 @@ whenever work lands here (see CLAUDE.md → Roadmap).
   have lost the `new ImageTemplate("…")` chip rendering that already works end to end. +19 tests
   (`MatchesSwitchHandlerTest`, `MatchesSwitchBlockTest`).
 
+- **2026-08-06 — The `Matches` switch takes its subject from the lambda, and a group form is born holding
+  one.** Two follow-ups to the above, both found by using it. (1) Dropping the block into a `whileFindAny`
+  body inserted `switch (null)`: the subject came from asking `ProjectAnalyzer` for a visible variable of type
+  `Matches`, but a lambda parameter's type is inferred and Studio doesn't compile against the SDK, so that
+  lookup resolves to nothing in precisely the place the answer is certain — the parameter of a
+  `whileFindAny`-shaped call *is* the `Matches`, by the signature. New `MatchesGroupScope.matchesVariable`
+  reads it off the enclosing call using the same walk that does the chip narrowing, falling back to the type
+  lookup only when there is no such call. Same reasoning as `isMatchesSwitch` testing label shape rather than
+  a binding. (2) `LambdaCallHandler.switchVariant` now **seeds** a group form's body with the switch, one
+  branch on the group's first template plus `otherwise` — so picking `whileFindAny` from the method dropdown
+  lands on the question that variant exists to ask instead of an empty block. Guarded three ways: only a form
+  that actually hands over a `Matches` (`untilFind…` is a `Runnable`), only an **empty** body (a non-empty one
+  is never displaced), and only when a template is readable. `MatchesGroupScope.groupPaths` became the single
+  owner of "what images can this call produce?" — inline group, constant, or the single template being
+  converted — because the seed and the chip narrowing ask the same question and two readers would drift.
+  +6 tests.
+
 - **2026-08-05 — The pilot can stream and touch an emulator, so BotPilot works against Waydroid.**
   BotPilot was unusable against an emulator, and it had never been wired for one: `TargetCapture` handled
   window/screen/desktop targets and simply fell through for an `EmulatorTarget`, so the phone was shown the
