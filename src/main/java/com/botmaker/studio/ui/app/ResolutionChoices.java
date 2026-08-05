@@ -60,4 +60,26 @@ public final class ResolutionChoices {
         if (windowBounds == null) return screen;
         return "▧ " + windowBounds.width + "×" + windowBounds.height + "  ·  " + screen;
     }
+
+    /**
+     * The same readout, but naming the project's {@code reference} resolution instead of the screen when the
+     * target window isn't at it: {@code "▧ 1600×900  ·  ref 1920×1080 ⚠"}.
+     *
+     * <p>The mismatch is worth a line of its own because nothing else reveals it. Recorded coordinates are raw
+     * window-relative pixels — {@code MacroTranslator} scales nothing — while the bot replays against the
+     * reference resolution, so authoring over a window at the wrong size silently produces a bot that clicks
+     * the wrong places. It is not a rare state either: a private session's host window is deliberately never
+     * resized, and the resize of an ordinary window target is best-effort.
+     */
+    public static String readout(java.awt.Rectangle windowBounds, Resolution reference) {
+        if (!mismatched(windowBounds, reference)) return readout(windowBounds);
+        return "▧ " + windowBounds.width + "×" + windowBounds.height
+                + "  ·  ref " + reference.width() + "×" + reference.height() + " ⚠";
+    }
+
+    /** Whether the target window's size differs from the reference resolution the bot will replay against. */
+    public static boolean mismatched(java.awt.Rectangle windowBounds, Resolution reference) {
+        return windowBounds != null && reference != null
+                && (windowBounds.width != reference.width() || windowBounds.height != reference.height());
+    }
 }

@@ -489,6 +489,17 @@ public final class ScreenCaptureService {
     }
 
     /**
+     * The current absolute bounds of the window matching {@code target}, or {@code null} when no window
+     * matches. A bounds-only probe: unlike {@link #captureWindow} it neither raises the window, nor sleeps for
+     * the compositor, nor grabs any pixels, so it is cheap enough to call from the FX thread. That is what the
+     * overlay recorder needs when a session starts — the origin its coordinates are relative to, nothing else.
+     */
+    public static java.awt.Rectangle windowBounds(WindowTarget target) {
+        GenericWindow win = resolveWindow(target);
+        return win == null ? null : win.getRect();
+    }
+
+    /**
      * Brings the window matching {@code target} to the front (de-iconifying if minimized) without capturing.
      * Best-effort; used by the macro recorder so the target is raised when recording begins.
      */

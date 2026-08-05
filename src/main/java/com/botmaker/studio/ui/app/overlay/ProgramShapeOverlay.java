@@ -1,6 +1,5 @@
 package com.botmaker.studio.ui.app.overlay;
 
-import com.botmaker.shared.input.InputEvent;
 import com.botmaker.studio.blocks.func.MethodInvocationBlock;
 import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.CodeBlock;
@@ -11,7 +10,6 @@ import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.services.ScreenCaptureService.WindowShot;
-import com.botmaker.studio.services.record.MacroTranslator;
 import com.botmaker.studio.services.record.RecordingSession;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.events.CoreApplicationEvents.ActivitiesChangedEvent;
@@ -22,6 +20,7 @@ import com.botmaker.studio.project.InsertionCursor;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.CursorNavigator;
+import com.botmaker.studio.ui.app.ResolutionChoices;
 import com.botmaker.studio.ui.render.menu.StatementMenu;
 import com.botmaker.studio.util.MethodSignature;
 import javafx.application.Platform;
@@ -43,9 +42,7 @@ import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import javafx.stage.Window;
 
-import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Deque;
 import java.util.List;
 
 import static com.botmaker.studio.ui.app.overlay.OverlayStyles.LABEL;
@@ -84,7 +81,7 @@ import static com.botmaker.studio.ui.app.overlay.OverlayStyles.warn;
  * <em>Add block</em> button opening the full categorized statement menu (control flow, variables, print, …).
  *
  * <p><b>Record mode</b> (Linux/X11 only) merges the former standalone macro recorder: pressing Record observes
- * real clicks/keys/waits via a {@link RecordingSession}, and Stop translates them ({@link MacroTranslator}) and
+ * real clicks/keys/waits via a {@link RecordingSession}, and Stop translates them ({@code MacroTranslator}) and
  * inserts the resulting blocks <em>at the cursor</em>, progressively — so recording grows the same tree that
  * hand-authoring does.
  *
@@ -111,6 +108,8 @@ public final class ProgramShapeOverlay {
 
     private Stage stage;
     private HBox header;
+    /** The header's size readout: the window being authored against, and whether it matches the reference. */
+    private Label resolution;
     /** The compact tree — the rows themselves, their look and their controls. See {@link OverlayTreeView}. */
     private final OverlayTreeView tree;
     private CodeBlock root;
@@ -142,9 +141,11 @@ public final class ProgramShapeOverlay {
     private final OverlayPalette palette;
 
     // ── Record mode ──────────────────────────────────────────────────────────────────────────────────────
-    private RecordingSession session;
-    private Button recordBtn;
-    private Button stopBtn;
+    /** Record/Pause/Stop and the session behind them; hands finished batches to {@link #inserter}. */
+    private OverlayRecorder recorder;
+    /** Inserts a recorded batch one block per re-parse. See {@link RecordedBatchInserter}. */
+    private final RecordedBatchInserter inserter =
+            new RecordedBatchInserter(this::insertBelowCursor, Platform::runLater);
     /**
      * The HUD's one-line readout: what the last action did, or why it did nothing. Recording overwrites it with
      * a live count while a session runs. Every silent return in this class used to be exactly that — silent —
@@ -153,11 +154,6 @@ public final class ProgramShapeOverlay {
     private Label status;
     /** Set when the overlay should begin recording as soon as it is shown (opened via the Record Macro button). */
     private boolean autoStartRecording;
-    /** Blocks from a finished recording, drained one-per-pulse; {@link #draining} guards the continuation. */
-    private final Deque<BlockType> recordQueue = new ArrayDeque<>();
-    private boolean draining;
-    /** While true, inserts skip the auto-fill config popover (recorded calls already carry concrete args). */
-    private boolean suppressAutoFill;
 
     /**
      * A just-requested insertion, resolved after the next {@link UIBlocksUpdatedEvent}. It is a
@@ -181,10 +177,6 @@ public final class ProgramShapeOverlay {
      * cannot be read from there — so it is a plain snapshot, not a live {@code stage.getX()} read.
      */
     private volatile java.awt.Rectangle hudBounds;
-
-    /** Set while a coalesced record-status refresh is already queued, so one FX runnable serves a burst of input. */
-    private final java.util.concurrent.atomic.AtomicBoolean recStatusQueued =
-            new java.util.concurrent.atomic.AtomicBoolean();
 
     private ProgramShapeOverlay(CodeEditorService context, ProjectSettingsService settings,
                                 ScreenCaptureService capture, ActivityService activities, CaptureTarget target) {
@@ -227,7 +219,7 @@ public final class ProgramShapeOverlay {
                             java.util.function.Consumer<Runnable> chooseTarget) {
         if (active != null && active.stage != null && active.stage.isShowing()) {
             active.stage.toFront();
-            if (startRecording && active.session != null && !active.session.isRecording()) active.startRecording();
+            if (startRecording && active.recorder != null) active.recorder.start();
             return;
         }
         CaptureTarget target = sessionTarget(sessionWindow);
@@ -328,7 +320,9 @@ public final class ProgramShapeOverlay {
 
     private void show(java.awt.Rectangle windowBounds) {
         this.windowBounds = windowBounds;
-        session = new RecordingSession(this::overlayScreenBounds, count -> requestRecStatusRefresh());
+        recorder = new OverlayRecorder(capture, target, windowBounds, new OverlayRecorder.Callbacks(
+                this::status, this::onRecordWindowBounds, this::insertRecordedBatch,
+                picker::hasTargets, this::overlayScreenBounds, () -> stage));
 
         VBox rootPane = buildRoot();
         rootPane.setMinWidth(340);
@@ -358,7 +352,7 @@ public final class ProgramShapeOverlay {
             }
             subscriptions.forEach(EventBus.Subscription::close);
             subscriptions.clear();
-            if (session != null && session.isRecording()) session.stop();
+            if (recorder != null) recorder.abandon();
             if (active == this) active = null;
         });
         // The recorder polls hudBounds from its native thread, so keep the snapshot current here — on the FX
@@ -421,7 +415,7 @@ public final class ProgramShapeOverlay {
                     picker.refreshActivities();
                     // Record's disabled state was computed once, at build time, so adding the project's first
                     // activity left the button permanently grey behind a tooltip that no longer applied.
-                    refreshRecordAvailability();
+                    recorder.refreshAvailability();
                 });
             }
         }));
@@ -433,7 +427,7 @@ public final class ProgramShapeOverlay {
         ensureCursor();
         render();
 
-        if (autoStartRecording && RecordingSession.isSupported()) startRecording();
+        if (autoStartRecording) recorder.start();
     }
 
     /** The translucent HUD root: a header bar, the controls panel, and the program-tree panel, with gaps. */
@@ -448,18 +442,39 @@ public final class ProgramShapeOverlay {
         Label title = new Label("Overlay Editor");
         title.setStyle("-fx-text-fill: #c9d4e6; -fx-font-weight: bold;");
         // Current window/screen resolution so the author knows the size they're building against.
-        Label res = new Label(com.botmaker.studio.ui.app.ResolutionChoices.readout(windowBounds));
-        res.setStyle("-fx-text-fill: #8fa3bf; -fx-font-size: 11px;");
+        resolution = new Label();
+        refreshResolutionReadout();
         Region spring = new Region();
         HBox.setHgrow(spring, Priority.ALWAYS);
         Button close = new Button("✕");
         close.setTooltip(new Tooltip("Close overlay"));
         close.setOnAction(e -> { if (stage != null) stage.close(); });
-        header = new HBox(8, title, res, spring, close);
+        header = new HBox(8, title, resolution, spring, close);
         header.setAlignment(Pos.CENTER_LEFT);
         header.setPadding(new Insets(6, 8, 6, 10));
         header.setStyle(PANEL);
         return header;
+    }
+
+    /**
+     * Re-states the size being authored against, flagged amber when the target window isn't at the project's
+     * reference resolution — the coordinates recorded over a 1600×900 window are replayed against a 1920×1080
+     * reference and land somewhere else, and until now the header showed only the window size, so there was
+     * nothing on screen that said the two disagreed.
+     */
+    private void refreshResolutionReadout() {
+        if (resolution == null) return;
+        StudioProjectSettings.Resolution ref = settings.current().referenceResolution();
+        resolution.setText(ResolutionChoices.readout(windowBounds, ref));
+        resolution.setStyle(ResolutionChoices.mismatched(windowBounds, ref)
+                ? "-fx-text-fill: #e0a33a; -fx-font-size: 11px;"
+                : "-fx-text-fill: #8fa3bf; -fx-font-size: 11px;");
+    }
+
+    /** Fresh target-window bounds re-probed by the recorder when a session starts (see {@link OverlayRecorder}). */
+    private void onRecordWindowBounds(java.awt.Rectangle bounds) {
+        windowBounds = bounds;
+        refreshResolutionReadout();
     }
 
     /** Palette (SDK category bar) + step nav + record controls + options, all in one translucent panel. */
@@ -477,15 +492,7 @@ public final class ProgramShapeOverlay {
         HBox stepRow = new HBox(6, label("Step:"), up, down, into, branch, out, refresh);
         stepRow.setAlignment(Pos.CENTER_LEFT);
 
-        // Record controls (merged macro recorder).
-        recordBtn = new Button("● Record");
-        recordBtn.setOnAction(e -> toggleRecordPrimary());
-        stopBtn = new Button("■ Stop");
-        stopBtn.setDisable(true);
-        stopBtn.setOnAction(e -> stopRecordingAndInsert());
-        refreshRecordAvailability();
-        HBox recordRow = new HBox(6, recordBtn, stopBtn);
-        recordRow.setAlignment(Pos.CENTER_LEFT);
+        HBox recordRow = recorder.node();
 
         status = new Label("");
         status.setStyle(LABEL);
@@ -502,30 +509,6 @@ public final class ProgramShapeOverlay {
         controls.setPadding(new Insets(8));
         controls.setStyle(PANEL);
         return controls;
-    }
-
-    /**
-     * Enables Record when there is a supported recorder, a window to record against and somewhere to put the
-     * blocks — and when there isn't, says which. Re-run whenever the project's activities change, since the
-     * last of those three answers is the one that changes while the HUD is open.
-     */
-    private void refreshRecordAvailability() {
-        if (recordBtn == null || (session != null && session.isRecording())) return;
-        String blocker;
-        if (!RecordingSession.isSupported()) {
-            blocker = "Recording is available on Linux (X11) only";
-        } else if (!(target instanceof CaptureTarget.WindowTarget)) {
-            // Recording translates clicks to window-relative coordinates, so it needs a window target.
-            blocker = "Recording targets a window — set a window as the default capture target";
-        } else if (!picker.hasTargets()) {
-            // Say so up front. There is nowhere editable to put the blocks, and the failure downstream is silent.
-            blocker = "Nowhere to record into — add an activity in Project ▸ Activity Flow first";
-        } else {
-            blocker = null;
-        }
-        recordBtn.setDisable(blocker != null);
-        recordBtn.setTooltip(new Tooltip(
-                blocker != null ? blocker : "Record real clicks/keys and insert them at the cursor"));
     }
 
     // ── where blocks go ─────────────────────────────────────────────────────────────────────────────────
@@ -574,70 +557,6 @@ public final class ProgramShapeOverlay {
 
     private VBox buildTreePanel() {
         return tree.node();
-    }
-
-    // ── Record mode ─────────────────────────────────────────────────────────────────────────────────────
-
-    private void toggleRecordPrimary() {
-        if (session == null) return;
-        if (!session.isRecording()) {
-            startRecording();
-        } else {
-            session.setPaused(!session.isPaused());
-            recordBtn.setText(session.isPaused() ? "▶ Resume" : "⏸ Pause");
-            updateRecStatus();
-        }
-    }
-
-    private void startRecording() {
-        if (session == null || session.isRecording() || !RecordingSession.isSupported()) return;
-        if (target instanceof CaptureTarget.WindowTarget wt) {
-            capture.raiseWindow(wt);   // interact with the target window, not whatever was focused
-        }
-        try {
-            session.start();
-        } catch (Exception ex) {
-            warn(stage, "Couldn't start input recording: " + ex.getMessage());
-            return;
-        }
-        recordBtn.setText("⏸ Pause");
-        stopBtn.setDisable(false);
-        updateRecStatus();
-    }
-
-    /** Stops recording, translates the buffered input, and inserts the blocks at the cursor progressively. */
-    private void stopRecordingAndInsert() {
-        if (session == null || !session.isRecording()) return;
-        List<InputEvent> events = session.stop();
-        recordBtn.setText("● Record");
-        stopBtn.setDisable(true);
-        updateRecStatus();
-
-        String title = (target instanceof CaptureTarget.WindowTarget wt) ? wt.titleSubstring() : null;
-        MacroTranslator.WindowRef ref = new MacroTranslator.WindowRef(
-                title, windowBounds.x, windowBounds.y, windowBounds.width, windowBounds.height);
-        insertRecordedBatch(MacroTranslator.translate(events, ref));
-    }
-
-    /** While a session runs the status line is the recorder's; stopping leaves whatever the insert reported. */
-    private void updateRecStatus() {
-        if (session == null || !session.isRecording()) return;
-        status((session.isPaused() ? "Paused" : "Recording") + " — " + session.actionCount() + " actions");
-    }
-
-    /**
-     * Queues one status refresh per FX pulse. The recorder reports every press from its native thread, and a
-     * {@code Platform.runLater} apiece floods the FX queue during a fast burst — starving the same queue the
-     * insert/re-parse handoff runs on. The count is read when the runnable finally executes, so coalescing
-     * loses nothing but the intermediate frames.
-     */
-    private void requestRecStatusRefresh() {
-        if (recStatusQueued.compareAndSet(false, true)) {
-            Platform.runLater(() -> {
-                recStatusQueued.set(false);
-                updateRecStatus();
-            });
-        }
     }
 
     /** Republishes {@link #hudBounds} from the FX thread; see that field for why it is a snapshot. */
@@ -718,27 +637,16 @@ public final class ProgramShapeOverlay {
         menu.show(anchor, Side.BOTTOM, 0, 0);
     }
 
-    /** Queues a recorded block sequence for one-per-pulse insertion at the cursor, without arg popovers. */
+    /** Queues a recorded block sequence for one-per-re-parse insertion at the cursor, without arg popovers. */
     private void insertRecordedBatch(List<BlockType> blocks) {
         if (blocks == null || blocks.isEmpty()) {
             status("Nothing to insert — no recognizable actions were recorded.");
             return;
         }
+        // Before the enqueue: it inserts the batch's first block straight away, and that insert may have a
+        // more specific thing to say (a read-only body, no caret) which this line must not overwrite.
         status("Recorded — inserting " + blocks.size() + (blocks.size() == 1 ? " block" : " blocks") + "…");
-        recordQueue.addAll(blocks);
-        draining = true;
-        suppressAutoFill = true;
-        drainRecordQueue();
-    }
-
-    private void drainRecordQueue() {
-        BlockType next = recordQueue.poll();
-        if (next == null) {
-            draining = false;
-            suppressAutoFill = false;
-            return;
-        }
-        insertBelowCursor(next);   // continuation happens in onBlocksUpdated once the re-parse lands
+        inserter.enqueue(blocks);
     }
 
     // ── cursor ───────────────────────────────────────────────────────────────────────────────────────────
@@ -820,7 +728,7 @@ public final class ProgramShapeOverlay {
                     state.setInsertionCursor(new InsertionCursor(body, p.index()));
                     render();
                     StatementBlock inserted = statements.get(p.index());
-                    if (!draining) status("Inserted " + OverlayTreeView.compactLabel(inserted));
+                    if (!inserter.isDraining()) status("Inserted " + OverlayTreeView.compactLabel(inserted));
                     if (ov != null && inserted instanceof MethodInvocationBlock mib) {
                         // A specific overload was picked in the palette bar — apply it to the fresh call. That
                         // is another edit, so the block we'd open the popover on is about to be replaced;
@@ -838,10 +746,7 @@ public final class ProgramShapeOverlay {
             if (index().statementAt(p) instanceof MethodInvocationBlock mib) config.open(mib);
         }
         // Continue draining a recorded batch after the cursor has re-homed onto the last insert.
-        if (draining) {
-            if (!recordQueue.isEmpty()) Platform.runLater(this::drainRecordQueue);
-            else { draining = false; suppressAutoFill = false; }
-        }
+        inserter.tick();
     }
 
     private void render() {
@@ -874,6 +779,6 @@ public final class ProgramShapeOverlay {
 
     /** Whether a freshly inserted call should have its argument editor opened for it. */
     private boolean autoFillEnabled() {
-        return !suppressAutoFill && autoFillArgs != null && autoFillArgs.isSelected();
+        return !inserter.suppressesAutoFill() && autoFillArgs != null && autoFillArgs.isSelected();
     }
 }
