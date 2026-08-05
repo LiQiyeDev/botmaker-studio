@@ -6,6 +6,18 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-05 — The emulator's app list survives a restart, and a start waits for Android, not for a port.**
+  `EmulatorPickerDialog`'s `APP_CACHE`/`ICON_CACHE` were `static` maps, so the promise that a stopped instance
+  still shows its last-known apps held only within one run — after restarting Studio a stopped Waydroid went
+  back to "start it to list apps". New `emulator/EmulatorAppCache` writes both through to
+  `BotMakerDirs.getCacheDir()/emulators` (one text file per instance, icons as PNGs); the maps stay as the
+  in-process layer. Remembered icon *failures* stay in memory — a permanent negative on disk would outlive
+  its reason. Separately the picker now polls shared's `EmulatorReadiness.isReady` (port **and**
+  `sys.boot_completed`) when starting, and takes its ceiling from `PlatformId.bootTimeout()` instead of two
+  local constants — querying `pm list packages` at port-open is why a freshly started row could come back
+  empty. `QuickLaunch` narrates the emulator boot through the launcher's new progress consumer and ends on
+  what actually happened. `EmulatorAppCacheTest`.
+
 - **2026-08-05 — An `emu-app:` launch target can now actually be launched.** "▶ Launch now" never started an
   app inside an emulator: `session.isolated` defaults to **on**, so every launch went through
   `BackgroundLauncher` → `LaunchIsolation.check`, which refuses `emu-app:` (empty child ladder — there is no

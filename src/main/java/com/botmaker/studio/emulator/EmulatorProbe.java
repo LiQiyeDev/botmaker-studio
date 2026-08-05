@@ -2,10 +2,9 @@ package com.botmaker.studio.emulator;
 
 import com.botmaker.shared.emulator.AdbDevice;
 import com.botmaker.shared.emulator.EmulatorInstance;
+import com.botmaker.shared.emulator.EmulatorReadiness;
 
 import java.awt.image.BufferedImage;
-import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.util.List;
 
 /**
@@ -22,23 +21,20 @@ import java.util.List;
  */
 public final class EmulatorProbe {
 
-    /** How long to wait for the ADB port to accept a connection before calling the instance stopped. */
-    private static final int CONNECT_TIMEOUT_MS = 300;
-
     private EmulatorProbe() {}
 
     /**
      * Whether the instance's ADB port accepts a connection — the quick "is it up?" check behind a picker's
      * running/stopped dot. A TCP probe rather than an ADB handshake, so it stays cheap enough to run for
-     * every listed instance. Mirrors the SDK's {@code EmulatorRef.running()}.
+     * every listed instance.
+     *
+     * <p>Delegates to shared's {@link EmulatorReadiness#portOpen}: this was a byte-identical copy of the
+     * launcher's own probe, and the pair disagreeing about what "running" means is what let an app launch
+     * fire into a half-booted Android. Note the distinction that survives the merge — a port that answers is
+     * <em>not</em> a device that can be driven; that question is {@link EmulatorReadiness#isReady}.
      */
     public static boolean isRunning(EmulatorInstance instance) {
-        try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress(instance.host(), instance.adbPort()), CONNECT_TIMEOUT_MS);
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
+        return EmulatorReadiness.portOpen(instance);
     }
 
     /** One ADB {@code screencap} of a running instance; {@code null} if it isn't up or the grab fails. */

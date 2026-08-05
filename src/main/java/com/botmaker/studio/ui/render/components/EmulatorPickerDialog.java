@@ -2,8 +2,10 @@ package com.botmaker.studio.ui.render.components;
 
 import com.botmaker.shared.emulator.EmulatorInstance;
 import com.botmaker.shared.emulator.EmulatorLauncher;
+import com.botmaker.shared.emulator.EmulatorReadiness;
 import com.botmaker.shared.emulator.PlatformId;
 import com.botmaker.shared.emulator.Platforms.PlatformStatus;
+import com.botmaker.studio.emulator.EmulatorAppCache;
 import com.botmaker.studio.emulator.EmulatorInstanceScanner;
 import com.botmaker.studio.emulator.EmulatorProbe;
 import com.botmaker.studio.services.ScreenCaptureService;
@@ -61,8 +63,25 @@ public final class EmulatorPickerDialog {
         }
     }
 
-    /** Last-known installed apps per instance name — survives a stop so a down instance still lists its apps. */
+    /**
+     * Last-known installed apps per instance — survives a stop so a down instance still lists its apps, and
+     * (through {@link #DISK}) survives a Studio restart, which this map alone did not.
+     */
     private static final Map<String, List<String>> APP_CACHE = new ConcurrentHashMap<>();
+
+    /** The on-disk half of both caches; the maps above are only the in-process layer over it. */
+    private static final EmulatorAppCache DISK = EmulatorAppCache.shared();
+
+    /** The remembered app list for {@code instance}: the in-process map, falling back to disk. */
+    private static List<String> cachedApps(EmulatorInstance instance) {
+        return APP_CACHE.computeIfAbsent(instance.identity(), key -> DISK.packages(instance));
+    }
+
+    /** Records a live app-list query in both layers. */
+    private static void cacheApps(EmulatorInstance instance, List<String> packages) {
+        APP_CACHE.put(instance.identity(), packages);
+        DISK.putPackages(instance, packages);
+    }
 
     private EmulatorPickerDialog() {}
 
@@ -109,18 +128,8 @@ public final class EmulatorPickerDialog {
     private static final double THUMB_W = 64;
     private static final double THUMB_H = 40;
 
-    /** How often {@link #waitFor} re-probes the ADB port while an instance is coming up or going down. */
+    /** How often {@link #waitFor} re-probes while an instance is coming up or going down. */
     private static final long POLL_INTERVAL_MS = 1_500;
-
-    /** How long to wait for a console-tool launch to answer on ADB before giving up on it. */
-    private static final long START_TIMEOUT_MS = 90_000;
-
-    /**
-     * Waydroid's ceiling. It is not a process start but a container start, a session start and an Android boot
-     * behind a compositor, so it routinely takes minutes on a cold machine where every other product takes
-     * seconds — a shared ceiling would either cut Waydroid off or leave a dead LDPlayer spinning for four.
-     */
-    private static final long WAYDROID_START_TIMEOUT_MS = 240_000;
 
     /** Stopping only has to tear a process down, so it never wants the launch ceiling. */
     private static final long STOP_TIMEOUT_MS = 60_000;
@@ -188,7 +197,7 @@ public final class EmulatorPickerDialog {
 
         // Show any cached apps immediately (so a stopped instance still lists its last scan), then probe liveness
         // and — if up — refresh the apps from the live device and fill in the preview thumbnail.
-        renderApps(apps, instance, APP_CACHE.get(instance.identity()), null, dialog);
+        renderApps(apps, instance, cachedApps(instance), null, dialog);
         probeAndLoad(instance, new RowUi(dot, state, action, thumb, apps), dialog);
         return row;
     }
@@ -208,8 +217,8 @@ public final class EmulatorPickerDialog {
                 ui.dot().setFill(running ? Color.web("#34a853") : Color.web("#9aa0a6"));
                 ui.state().setText(running ? "running" : "stopped");
                 if (preview != null) ui.thumb().setImage(preview);
-                if (running && live != null) APP_CACHE.put(instance.identity(), live);
-                List<String> show = running && live != null ? live : APP_CACHE.get(instance.identity());
+                if (running && live != null) cacheApps(instance, live);
+                List<String> show = running && live != null ? live : cachedApps(instance);
                 renderApps(ui.apps(), instance, show, emptyNote(running, live), dialog);
                 showAction(instance, ui, dialog, running);
             });
@@ -262,7 +271,7 @@ public final class EmulatorPickerDialog {
         ui.action().setDisable(true);
         ui.state().setText(start ? "starting…" : "stopping…");
         ui.dot().setFill(Color.web("#fbbc04"));
-        long timeout = start ? startTimeoutMs(instance) : STOP_TIMEOUT_MS;
+        long timeout = start ? instance.platformId().bootTimeout().toMillis() : STOP_TIMEOUT_MS;
         new Thread(() -> {
             boolean dispatched = start ? EmulatorLauncher.launch(instance) : EmulatorLauncher.stop(instance);
             boolean settled = dispatched && waitFor(instance, start, timeout);
@@ -282,20 +291,19 @@ public final class EmulatorPickerDialog {
         }, "emulator-" + (start ? "start-" : "stop-") + instance.name()).start();
     }
 
-    /** How long this instance gets to come up — {@link #WAYDROID_START_TIMEOUT_MS} for the container. */
-    private static long startTimeoutMs(EmulatorInstance instance) {
-        return instance.platformId() == PlatformId.WAYDROID ? WAYDROID_START_TIMEOUT_MS : START_TIMEOUT_MS;
-    }
-
     /**
-     * Polls the ADB port until it reports {@code wantRunning}, or the ceiling elapses. Off-FX (each probe is a
-     * blocking connect), and it stops early on an interrupt so a closed dialog doesn't leave a thread counting
-     * out four minutes.
+     * Polls until the instance reports {@code wantRunning}, or the ceiling elapses. Off-FX (each probe blocks),
+     * and it stops early on an interrupt so a closed dialog doesn't leave a thread counting out four minutes.
+     *
+     * <p><b>Starting waits for readiness, stopping only for the port.</b> They are different questions:
+     * a started instance is only useful once Android has booted far enough to answer {@code pm list packages}
+     * ({@link EmulatorReadiness#isReady}) — polling the port alone is what made a freshly-started row come
+     * back with an empty app list — while a stopped one is gone the moment nothing is listening.
      */
     private static boolean waitFor(EmulatorInstance instance, boolean wantRunning, long timeoutMs) {
         long deadline = System.currentTimeMillis() + timeoutMs;
         while (System.currentTimeMillis() < deadline) {
-            if (EmulatorProbe.isRunning(instance) == wantRunning) return true;
+            if (settled(instance, wantRunning)) return true;
             try {
                 Thread.sleep(POLL_INTERVAL_MS);
             } catch (InterruptedException e) {
@@ -303,7 +311,11 @@ public final class EmulatorPickerDialog {
                 return false;
             }
         }
-        return EmulatorProbe.isRunning(instance) == wantRunning;
+        return settled(instance, wantRunning);
+    }
+
+    private static boolean settled(EmulatorInstance instance, boolean wantRunning) {
+        return wantRunning ? EmulatorReadiness.isReady(instance) : !EmulatorProbe.isRunning(instance);
     }
 
     /**
@@ -350,6 +362,10 @@ public final class EmulatorPickerDialog {
      * Launcher icons already read, keyed {@code <instance identity>/<package>}. An {@link Optional#empty()}
      * is a remembered <em>failure</em> — an app whose APK carries no icon we can decode must not be re-fetched
      * on every re-render, and there are three of those per row (initial, post-probe, post-start).
+     *
+     * <p>The successes are also written through to {@link #DISK}; the failures deliberately are not. A
+     * permanent negative on disk would outlive the reason for it (an app updated, an ADB query that happened
+     * to fail), and re-deriving one costs a single query.
      */
     private static final Map<String, Optional<Image>> ICON_CACHE = new ConcurrentHashMap<>();
 
@@ -380,8 +396,13 @@ public final class EmulatorPickerDialog {
                 String key = instance.identity() + "/" + pkg;
                 Optional<Image> cached = ICON_CACHE.get(key);
                 if (cached == null) {
-                    cached = Optional.ofNullable(ScreenCaptureService.toFxImage(
-                            EmulatorProbe.appIcon(instance, pkg)));
+                    // Disk first: an icon is several ADB round-trips through the APK, and it doesn't change.
+                    BufferedImage stored = DISK.icon(instance, pkg);
+                    if (stored == null) {
+                        stored = EmulatorProbe.appIcon(instance, pkg);
+                        DISK.putIcon(instance, pkg, stored);
+                    }
+                    cached = Optional.ofNullable(ScreenCaptureService.toFxImage(stored));
                     ICON_CACHE.put(key, cached);
                 }
                 if (cached.isEmpty()) continue;

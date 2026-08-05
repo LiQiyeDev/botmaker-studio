@@ -123,20 +123,31 @@ public final class QuickLaunch {
         report.accept(true, "Launching " + spec.describe() + "…");
         Thread worker = new Thread(() -> {
             String failure = null;
+            // The last thing the launcher said about its own progress. An emulator app narrates ("starting
+            // Waydroid…", "waiting for Android…", "Started com.x on Waydroid."); every other kind says
+            // nothing, and falls back to the generic line below. Written on this thread, read on FX after
+            // the join point, so no synchronisation is owed.
+            String[] note = new String[1];
             try {
-                Launcher.start(spec);
+                Launcher.start(spec, message -> {
+                    note[0] = message;
+                    Platform.runLater(() -> report.accept(true, message));
+                });
             } catch (Exception ex) {
-                // Launcher.start propagates the underlying failure (Steam not installed, no protocol handler)
-                // precisely so it can be shown here instead of vanishing into a log.
+                // Launcher.start propagates the underlying failure (Steam not installed, no protocol handler,
+                // an emulator that never finished booting) precisely so it can be shown here.
                 failure = ex.getMessage() == null ? ex.toString() : ex.getMessage();
             }
             String message = failure;
+            String last = note[0];
             Platform.runLater(() -> {
                 button.setDisable(false);
-                if (message == null) {
-                    report.accept(true, "Launched " + spec.describe() + "." + offDesktopNote(spec));
-                } else {
+                if (message != null) {
                     report.accept(false, "Couldn't launch: " + message);
+                } else if (last != null) {
+                    report.accept(true, last + offDesktopNote(spec));
+                } else {
+                    report.accept(true, "Launched " + spec.describe() + "." + offDesktopNote(spec));
                 }
             });
         }, "quick-launch");
