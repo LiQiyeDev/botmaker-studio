@@ -3,7 +3,10 @@ package com.botmaker.studio.parser.factories;
 import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.palette.Initializer;
 import com.botmaker.studio.parser.ImportManager;
+import com.botmaker.studio.blocks.flow.MatchesGroupScope;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
+import com.botmaker.studio.parser.handlers.MatchesSwitchHandler;
+import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.types.ResolvedType;
@@ -47,6 +50,7 @@ public class StatementFactory {
             case FOR -> createForStatement(ast, analyzer, context);
             case DO_WHILE -> createDoWhileStatement(ast);
             case SWITCH -> createSwitchStatement(ast, analyzer, context);
+            case MATCHES_SWITCH -> createMatchesSwitchStatement(ast, cu, rewriter, state, analyzer, context);
             case BREAK -> ast.newBreakStatement();
             case CONTINUE -> ast.newContinueStatement();
             case RETURN -> ast.newReturnStatement();
@@ -376,6 +380,38 @@ public class StatementFactory {
         switchStmt.statements().add(defaultCase);
         switchStmt.statements().add(ast.newBreakStatement());
         return switchStmt;
+    }
+
+    /**
+     * A {@code switch} over the first {@code Matches} variable in scope — the value a group-lambda body is
+     * handed — seeded with one branch plus the {@code default} rule a pattern switch needs to be exhaustive.
+     *
+     * <p>The seed template is the enclosing find call's first, so the branch is born testing something the
+     * group can actually produce; outside such a call there is nothing to narrow to and it falls back to the
+     * project's default template. Either way it is never an empty guard, which wouldn't compile.
+     *
+     * <p>{@code Matches} is deliberately absent from {@link #SWITCHABLE_TYPES}: the ordinary colon-form switch
+     * must keep rejecting it, or dropping "Switch" here would produce source that doesn't build.
+     */
+    private static Statement createMatchesSwitchStatement(AST ast, CompilationUnit cu, ASTRewrite rewriter,
+                                                          ProjectState state, ProjectAnalyzer analyzer,
+                                                          ASTNode context) {
+        ProjectAnalyzer.VariableOption subject = firstVisibleVariable(analyzer, context,
+                v -> v.type() != null && "Matches".equals(v.type().simpleName()));
+
+        // `Matches` is named in every case label, so the file needs it even though the variable it switches on
+        // came from a lambda parameter whose type is inferred and therefore never imported by anything else.
+        ImportManager.addImportForSimpleName(cu, rewriter, "Matches", analyzer, state);
+        ImportManager.addImportForSimpleName(cu, rewriter, "ImageTemplate", analyzer, state);
+
+        List<String> allowed = MatchesGroupScope.allowedPaths(context);
+        String seed = (allowed != null && !allowed.isEmpty())
+                ? allowed.getFirst()
+                : ImageTemplateLibrary.DEFAULT_TEMPLATE_PATH;
+
+        return MatchesSwitchHandler.newMatchesSwitch(ast,
+                subject == null ? emptySlot(ast) : ast.newSimpleName(subject.name()),
+                false, List.of(seed));
     }
 
     /** What Java lets you switch on: the integral types (and their boxes), {@code String}, {@code char}, enums. */

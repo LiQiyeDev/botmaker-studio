@@ -38,6 +38,11 @@ public final class BlockCatalog {
     // --- Flow control ---
     public static final BlockType IF = cf("IF", "If Statement", FLOW, Kind.IF);
     public static final BlockType SWITCH = cf("SWITCH", "Switch", FLOW, Kind.SWITCH);
+    // Named for what it does, not for the Java it emits: the user is choosing between combinations of images,
+    // and "switch" is the mechanism. It only builds something meaningful inside a group-lambda body (where a
+    // Matches variable is in scope), which is exactly where StatementFactory looks for its subject.
+    public static final BlockType MATCHES_SWITCH =
+            cf("MATCHES_SWITCH", "Check Image Combinations", FLOW, Kind.MATCHES_SWITCH);
 
     // --- Loops ---
     public static final BlockType WHILE = cf("WHILE", "While Loop", LOOPS, Kind.WHILE);
@@ -150,7 +155,7 @@ public final class BlockCatalog {
 
     private static final List<BlockType> ALL = List.of(
             PRINT,
-            IF, SWITCH,
+            IF, SWITCH, MATCHES_SWITCH,
             WHILE, FOR, DO_WHILE,
             BREAK, CONTINUE, RETURN, WAIT,
             DECLARE_INT, DECLARE_DOUBLE, DECLARE_BOOLEAN, DECLARE_STRING, DECLARE_ARRAY, ASSIGNMENT,

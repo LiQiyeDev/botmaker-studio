@@ -22,6 +22,7 @@ import com.botmaker.studio.blocks.var.DeclareEnumBlock;
 import com.botmaker.studio.blocks.var.VariableDeclarationBlock;
 import com.botmaker.studio.core.*;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
+import com.botmaker.studio.parser.handlers.MatchesSwitchHandler;
 import com.botmaker.studio.project.LockResolver;
 import com.botmaker.studio.project.MethodLock;
 import com.botmaker.studio.project.ProjectConfig;
@@ -276,6 +277,12 @@ public class BlockConverter {
             if (stmt instanceof WhileStatement w) return parseWhile(w, ctx);
             if (stmt instanceof EnhancedForStatement f) return parseFor(f, ctx);
             if (stmt instanceof DoStatement d) return parseDoWhile(d, ctx);
+            // Ahead of the ordinary switch: a Matches switch is the arrow/guarded form, which parseSwitch's
+            // colon-form walk would render as an unreadable expression label. Anything that isn't exactly the
+            // shape MatchesSwitchHandler writes falls through to it unchanged.
+            if (stmt instanceof SwitchStatement s && MatchesSwitchHandler.isMatchesSwitch(s)) {
+                return parseMatchesSwitch(s, ctx);
+            }
             if (stmt instanceof SwitchStatement s) return parseSwitch(s, ctx);
             if (stmt instanceof BreakStatement b) return Optional.of(new BreakBlock(BlockId.of(b), b));
             if (stmt instanceof ContinueStatement c) return Optional.of(new ContinueBlock(BlockId.of(c), c));
@@ -420,6 +427,35 @@ public class BlockConverter {
         ctx.nodeToBlockMap().put(stmt, block);
         parseExpression(stmt.getExpression(), ctx).ifPresent(block::setCondition);
         if (stmt.getBody() instanceof Block b) block.setBody(parseBodyBlock(b, ctx));
+        return Optional.of(block);
+    }
+
+    /**
+     * The guarded-arrow {@code switch (found) { case Matches m when … -> { … } }}.
+     *
+     * <p>Unlike {@link #parseSwitch}, a case's label contributes no block: it is entirely described by the
+     * {@code Guard} the block renders as a toggle and a chip row, so there is nothing for the user to drag or
+     * to fill. Only the bodies become blocks, which is what makes the branches ordinary drop targets.
+     */
+    private Optional<StatementBlock> parseMatchesSwitch(SwitchStatement stmt, ParseContext ctx) {
+        MatchesSwitchBlock block = new MatchesSwitchBlock(BlockId.of(stmt), stmt);
+        ctx.nodeToBlockMap().put(stmt, block);
+        block.setSubject(MatchesSwitchHandler.subjectOf(stmt));
+
+        for (Object o : stmt.statements()) {
+            if (!(o instanceof SwitchCase sc)) continue;
+            // The body is the case's single braced Block, so a branch is a real BodyBlock with the same drop
+            // zones as an `if` — the switch's own statement list is never a drop target.
+            Block braced = MatchesSwitchHandler.singleBlockBody(stmt, sc);
+            BodyBlock body = braced == null ? null : parseBodyBlock(braced, ctx);
+            if (body != null) applyReadOnly(body, ctx);
+
+            if (sc.isDefault()) {
+                block.setDefault(sc, body);
+            } else {
+                MatchesSwitchHandler.guardOf(sc).ifPresent(guard -> block.addCase(sc, guard, body));
+            }
+        }
         return Optional.of(block);
     }
 

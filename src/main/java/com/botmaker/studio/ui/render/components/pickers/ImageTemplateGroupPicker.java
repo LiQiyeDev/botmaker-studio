@@ -56,22 +56,64 @@ public final class ImageTemplateGroupPicker {
      * grow a second template.
      */
     public static Node chipRow(CodeEditorService context, List<String> paths, Consumer<List<String>> apply) {
+        return chipRow(context, paths, Restrictions.NONE, apply);
+    }
+
+    /**
+     * What a chip row is allowed to offer and to leave behind.
+     *
+     * @param allowed the only template paths the change / add menus may offer, or {@code null} for the whole
+     *                project library. The {@code Matches} switch narrows to the templates its enclosing find
+     *                call can actually produce, so a case cannot be written that is dead by construction —
+     *                but {@code null} stays the default because an over-wide menu beats an empty one.
+     * @param minimum how many chips the row refuses to go below, so Remove is disabled rather than absent at
+     *                the floor. A guarded case needs it: {@code case Matches m} with no guard is unconditional
+     *                and would dominate every case after it, i.e. not compile.
+     */
+    public record Restrictions(List<String> allowed, int minimum) {
+        public static final Restrictions NONE = new Restrictions(null, 0);
+
+        /** Narrowed to {@code allowed} (null for all), never dropping below {@code minimum} chips. */
+        public static Restrictions of(List<String> allowed, int minimum) {
+            return new Restrictions(allowed, minimum);
+        }
+    }
+
+    public static Node chipRow(CodeEditorService context, List<String> paths, Restrictions restrictions,
+                               Consumer<List<String>> apply) {
         ProjectConfig config = context.getConfig();
+        Restrictions limits = restrictions == null ? Restrictions.NONE : restrictions;
 
         HBox row = new HBox(4);
         row.setAlignment(Pos.CENTER_LEFT);
         row.getStyleClass().add("image-template-group-picker");
 
         for (int i = 0; i < paths.size(); i++) {
-            row.getChildren().add(chip(context, config, apply, paths, i));
+            row.getChildren().add(chip(context, config, apply, paths, i, limits));
         }
-        row.getChildren().add(addButton(context, config, apply, paths));
+        row.getChildren().add(addButton(context, config, apply, paths, limits));
         return row;
+    }
+
+    /**
+     * The library, narrowed to what {@code limits} allows. Order follows the library rather than the
+     * restriction so the menu reads the same as everywhere else, and an allowed path the library no longer
+     * holds simply doesn't appear.
+     */
+    private static List<Path> offerable(ProjectConfig config, Restrictions limits) {
+        List<Path> all = ImageTemplateLibrary.list(config);
+        if (limits.allowed() == null) return all;
+        List<Path> narrowed = new ArrayList<>();
+        for (Path file : all) {
+            if (limits.allowed().contains(ImageTemplateLibrary.pathFor(config, file))) narrowed.add(file);
+        }
+        return narrowed;
     }
 
     /** One template chip: thumbnail + name, with a menu to change (from the library) or remove it. */
     private static MenuButton chip(CodeEditorService context, ProjectConfig config,
-                                   Consumer<List<String>> apply, List<String> paths, int index) {
+                                   Consumer<List<String>> apply, List<String> paths, int index,
+                                   Restrictions limits) {
         MenuButton button = new MenuButton();
         button.getStyleClass().add("image-template-picker");
         String path = paths.get(index);
@@ -81,13 +123,20 @@ public final class ImageTemplateGroupPicker {
 
         button.setOnShowing(e -> {
             button.getItems().clear();
-            for (Path lib : ImageTemplateLibrary.list(config)) {
+            for (Path lib : offerable(config, limits)) {
                 MenuItem item = new MenuItem(ImageTemplateLibrary.baseName(lib), ImageTemplatePicker.thumbnail(lib, 18));
                 item.setOnAction(a -> apply.accept(replace(paths, index, ImageTemplateLibrary.pathFor(config, lib))));
                 button.getItems().add(item);
             }
             if (!button.getItems().isEmpty()) button.getItems().add(new SeparatorMenuItem());
             MenuItem remove = new MenuItem("Remove");
+            // Disabled rather than hidden at the floor: the row still shows removal exists, and the tooltip
+            // says why this one can't go — silently omitting it reads as a missing feature.
+            if (paths.size() <= limits.minimum()) {
+                remove.setDisable(true);
+                remove.setText("Remove (this branch needs at least "
+                        + limits.minimum() + (limits.minimum() == 1 ? " image)" : " images)"));
+            }
             remove.setOnAction(a -> apply.accept(without(paths, index)));
             MenuItem openManager = new MenuItem("Open Resource Manager…");
             openManager.setOnAction(a ->
@@ -99,24 +148,40 @@ public final class ImageTemplateGroupPicker {
 
     /** The trailing "add another template" button, populated from the library. */
     private static MenuButton addButton(CodeEditorService context, ProjectConfig config,
-                                        Consumer<List<String>> apply, List<String> paths) {
+                                        Consumer<List<String>> apply, List<String> paths,
+                                        Restrictions limits) {
         MenuButton add = new MenuButton(paths.isEmpty() ? "Choose images…" : "＋");
         add.getStyleClass().add("image-template-group-add");
         add.setOnShowing(e -> {
             add.getItems().clear();
-            for (Path lib : ImageTemplateLibrary.list(config)) {
+            for (Path lib : offerable(config, limits)) {
+                String path = ImageTemplateLibrary.pathFor(config, lib);
+                // Within a closed group, adding a template the row already holds says nothing new — so a
+                // narrowed row offers only what's left. An unrestricted row keeps allowing repeats.
+                if (limits.allowed() != null && paths.contains(path)) continue;
                 MenuItem item = new MenuItem(ImageTemplateLibrary.baseName(lib), ImageTemplatePicker.thumbnail(lib, 18));
-                item.setOnAction(a -> apply.accept(append(paths, ImageTemplateLibrary.pathFor(config, lib))));
+                item.setOnAction(a -> apply.accept(append(paths, path)));
                 add.getItems().add(item);
             }
             if (!add.getItems().isEmpty()) add.getItems().add(new SeparatorMenuItem());
-            MenuItem capture = new MenuItem("Capture new…");
-            capture.setOnAction(a -> ImageTemplatePicker.captureAndSave(context, add,
-                    path -> apply.accept(append(paths, path))));
             MenuItem openManager = new MenuItem("Open Resource Manager…");
             openManager.setOnAction(a ->
                     context.getEventBus().publish(new CoreApplicationEvents.OpenResourceManagerEvent()));
-            add.getItems().addAll(capture, openManager);
+            // Capture is offered only on an unrestricted row. A freshly captured image is by definition not in
+            // the enclosing group, so adding it to a narrowed row would build exactly the dead branch the
+            // narrowing exists to prevent — the image has to join the group first.
+            if (limits.allowed() == null) {
+                MenuItem capture = new MenuItem("Capture new…");
+                capture.setOnAction(a -> ImageTemplatePicker.captureAndSave(context, add,
+                        path -> apply.accept(append(paths, path))));
+                add.getItems().add(capture);
+            }
+            add.getItems().add(openManager);
+            if (limits.allowed() != null && add.getItems().size() == 1) {
+                MenuItem none = new MenuItem("Every image in this group is already on this branch");
+                none.setDisable(true);
+                add.getItems().addFirst(none);
+            }
         });
         return add;
     }

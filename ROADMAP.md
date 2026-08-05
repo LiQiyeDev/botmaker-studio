@@ -6,6 +6,28 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-05 — A `switch` over `Matches`: branch on image combinations, with the chips narrowed to the
+  group.** Multi-template conditions were expressible but not organisable, and the chip menus offered every
+  template in the project — including ones the enclosing `whileFindAny` group can never produce, so a branch
+  could be written that was dead by construction. New `blocks/flow/MatchesSwitchBlock` renders a real Java 21
+  guarded switch (`case Matches m when m.hasAny(new ImageTemplate("…"), …) -> { … }`) as one row per branch:
+  an any/all toggle plus the existing `ImageTemplateGroupPicker` chip row. New
+  `parser/handlers/MatchesSwitchHandler` owns the four writes; `BlockConverter` claims the guarded arrow form
+  ahead of the ordinary `SwitchStatement` branch, purely on label *shape* — Studio doesn't compile against the
+  SDK, so `Matches` routinely has no binding and a type-based test would never fire. New
+  `blocks/flow/MatchesGroupScope` walks out to the enclosing find call (inline group or constant) for the
+  narrowing, returning `null` — unrestricted — when it can't resolve one, because an empty menu is worse than
+  a wide one. `ImageTemplateGroupPicker.chipRow` gained a `Restrictions(allowed, minimum)` overload (the
+  3-arg form delegates, so the image-varargs caller is unchanged); "Capture new…" is hidden on a narrowed row
+  since a fresh image is by definition not in the group. **Two rules are enforced where they're edited, not
+  validated after, because both are compile errors:** the `default` rule is undeletable chrome (a pattern
+  switch must be exhaustive) and a branch can't drop to zero templates (an unguarded `case Matches m` is
+  unconditional and collides with `default`). Both verified with `javac --release 21`. Deliberately **no SDK
+  change** — the planned `has(String)`/`hasAny(String…)` overloads would have been keyed on `templateId` (the
+  basename, `"mail"`) while every caller passes a path, so they'd have silently matched nothing, and they'd
+  have lost the `new ImageTemplate("…")` chip rendering that already works end to end. +19 tests
+  (`MatchesSwitchHandlerTest`, `MatchesSwitchBlockTest`).
+
 - **2026-08-05 — The pilot can stream and touch an emulator, so BotPilot works against Waydroid.**
   BotPilot was unusable against an emulator, and it had never been wired for one: `TargetCapture` handled
   window/screen/desktop targets and simply fell through for an `EmulatorTarget`, so the phone was shown the

@@ -30,7 +30,7 @@ public sealed interface BlockType
     /** One-off statements whose AST shape is bespoke; built by {@code StatementFactory} keyed on {@link Kind}. */
     record ControlFlow(String id, String displayName, BlockCategory category, Kind kind) implements BlockType {
         public enum Kind {
-            PRINT, IF, WHILE, FOR, DO_WHILE, SWITCH,
+            PRINT, IF, WHILE, FOR, DO_WHILE, SWITCH, MATCHES_SWITCH,
             BREAK, CONTINUE, RETURN, WAIT, ASSIGNMENT, FUNCTION_CALL, COMMENT, ARRAY
         }
     }

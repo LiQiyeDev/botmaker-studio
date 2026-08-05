@@ -11,6 +11,7 @@ import com.botmaker.studio.parser.handlers.EnumManipulationHandler;
 import com.botmaker.studio.parser.handlers.InstantiationHandler;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
 import com.botmaker.studio.parser.handlers.ListHandler;
+import com.botmaker.studio.parser.handlers.MatchesSwitchHandler;
 import com.botmaker.studio.parser.handlers.MethodHandler;
 import com.botmaker.studio.parser.handlers.OperatorReplacementHandler;
 import com.botmaker.studio.parser.handlers.RawExpressionHandler;
@@ -829,6 +830,34 @@ public class CodeEditor {
 
     public void moveSwitchCase(SwitchCase caseNode, boolean moveUp) {
         edit(caseNode, EditKind.BODY, false, (cu, code) -> moveSwitchCase(cu, code, caseNode, moveUp));
+    }
+
+    // --- The Matches switch (guarded arrow rules; see MatchesSwitchHandler) ---
+
+    /** Rewrites one branch's templates to exactly {@code paths}, keeping its any/all mode. */
+    public void setMatchesCaseTemplates(SwitchCase caseNode, List<String> paths) {
+        edit(caseNode, EditKind.BODY, true,
+                (cu, code) -> MatchesSwitchHandler.setCaseTemplates(cu, code, caseNode, paths));
+    }
+
+    /** Flips one branch between "any of" ({@code hasAny}) and "all of" ({@code hasAll}). */
+    public void setMatchesCaseMode(SwitchCase caseNode, boolean all) {
+        edit(caseNode, EditKind.BODY, true,
+                (cu, code) -> MatchesSwitchHandler.setCaseMode(cu, code, caseNode, all));
+    }
+
+    /**
+     * Adds a branch seeded with {@code templatePath}, before the {@code default} rule. A null path is a no-op:
+     * a guard with no templates wouldn't compile, so there is nothing to insert.
+     */
+    public void addMatchesCase(SwitchStatement switchStmt, String templatePath) {
+        if (templatePath == null) return;
+        edit(switchStmt, EditKind.BODY, true,
+                (cu, code) -> MatchesSwitchHandler.addCase(cu, code, switchStmt, false, List.of(templatePath)));
+    }
+
+    public void removeMatchesCase(SwitchCase caseNode) {
+        edit(caseNode, EditKind.BODY, true, (cu, code) -> MatchesSwitchHandler.removeCase(cu, code, caseNode));
     }
 
     // =================================================================================
