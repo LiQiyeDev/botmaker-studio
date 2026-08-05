@@ -18,6 +18,7 @@ import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
@@ -57,6 +58,8 @@ public final class LaunchTargetDialog {
     private Label statusLabel;
     /** "▶ Launch now" — rebound after every save, so it never launches the target the user just replaced. */
     private Button launchNow;
+    /** "Run in background" — greyed for a target it can't apply to, so it is re-evaluated on every save. */
+    private CheckBox background;
     private String currentSpec;
 
     /**
@@ -127,9 +130,10 @@ public final class LaunchTargetDialog {
 
         VBox choices = new VBox(6, steam, epic, heroic, faugus, exe, cli, emu);
 
-        CheckBox background = new CheckBox("Run in background (private display)");
+        background = new CheckBox("Run in background (private display)");
         background.setSelected(ProjectCreator.readSessionIsolated(resourcesDir));
         background.setOnAction(e -> applyBackground(background.isSelected()));
+        refreshBackgroundAvailability();
         Label backgroundHint = new Label("On: the game runs in a private nested display the bot alone drives "
                 + "(gamescope for Steam/Epic/Heroic/Faugus/exe games, Xephyr for a CLI command) so your real "
                 + "cursor stays free. Off: it launches on your real desktop (:0).");
@@ -178,6 +182,24 @@ public final class LaunchTargetDialog {
         } catch (IOException ex) {
             error("Couldn't save: " + ex.getMessage());
         }
+    }
+
+    /**
+     * Greys the "Run in background" toggle for a target it cannot apply to — today an {@code emu-app:}, which
+     * runs inside the emulator over ADB and never on a display of ours. The persisted key is left untouched, so
+     * the user's setting is exactly as they left it once the target is a game again.
+     *
+     * <p>An enabled toggle that changes nothing is worse than a disabled one: the launch already ignores it
+     * (see {@code QuickLaunch.usesBackgroundSession}), and this is the only place that says so before the fact.
+     */
+    private void refreshBackgroundAvailability() {
+        LaunchSpec spec = (currentSpec == null || currentSpec.isBlank()) ? null : LaunchSpec.parse(currentSpec);
+        boolean offDesktop = spec != null && spec.kind().runsOffDesktop();
+        background.setDisable(offDesktop);
+        background.setTooltip(offDesktop
+                ? new Tooltip("Doesn't apply to an emulator app: it runs inside the emulator and is driven over "
+                        + "ADB, so it is already off your desktop.")
+                : null);
     }
 
     private void pickGame(GameLibraryProvider provider, String kind) {
@@ -239,6 +261,7 @@ public final class LaunchTargetDialog {
             refreshCurrentLabel();
             report(true, currentSpec == null ? "Launch target cleared." : "Launch target saved.");
             QuickLaunch.bind(launchNow, resourcesDir, this::report);
+            refreshBackgroundAvailability();
             if (onChanged != null) onChanged.accept(currentSpec);
         } catch (IOException ex) {
             error("Couldn't save: " + ex.getMessage());

@@ -1,5 +1,6 @@
 package com.botmaker.studio.services.pilot;
 
+import com.botmaker.shared.launch.LaunchIsolation;
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.session.impl.NestedSession;
 import com.botmaker.studio.project.launch.QuickLaunch;
@@ -83,6 +84,13 @@ public final class NestedSessionLauncher implements AutoCloseable {
         LaunchSpec spec = configuredTarget();
         if (spec == null) {
             report.accept(false, "No launch target configured — set one in the Launch Target dialog first.");
+            return;
+        }
+        if (spec.kind().runsOffDesktop()) {
+            // Refused here rather than three layers down, where it comes back as a generic isolation failure.
+            // The refusal itself is right — this box is an explicit request for a nested display, and an
+            // emulator app has no use for one — so only the explanation is ours to get right.
+            report.accept(false, LaunchIsolation.check(spec).reason());
             return;
         }
         launcher.start(backend, spec, width, height, report::accept);

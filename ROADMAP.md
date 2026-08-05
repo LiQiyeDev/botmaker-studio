@@ -6,6 +6,16 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-05 — An `emu-app:` launch target can now actually be launched.** "▶ Launch now" never started an
+  app inside an emulator: `session.isolated` defaults to **on**, so every launch went through
+  `BackgroundLauncher` → `LaunchIsolation.check`, which refuses `emu-app:` (empty child ladder — there is no
+  process of ours to hand a private `DISPLAY` to). The refusal was the button's only outcome. `QuickLaunch`
+  now routes on shared's new `LaunchKind.runsOffDesktop()` via the testable
+  `usesBackgroundSession(spec, isolated)`: an emulator app takes the direct `Launcher.start` path whatever
+  the toggle says, and says why on success. The Launch Target dialog greys "Run in background" for such a
+  target (persisted key untouched), and the pilot's background box refuses it up front with shared's wording
+  instead of a generic isolation failure. `QuickLaunchRoutingTest`.
+
 - **2026-08-05 — Phase 6: a variable's *members* reach an expression slot, and any varargs call can grow.**
   The Variables menu listed only variables assignable to the slot, so a `Matches found` never appeared under
   a `boolean` condition and the combination logic `Matches` exists for was reachable only through the

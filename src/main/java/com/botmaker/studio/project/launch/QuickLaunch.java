@@ -30,6 +30,10 @@ import java.util.Optional;
  * {@link SessionBackends}), so your real cursor stays free and the Remote Pilot's Stop/status reflect the same
  * live session. Turning the toggle off returns to a {@code :0} {@link Launcher#start}.
  *
+ * <p>A target that doesn't run on a desktop at all — an {@code emu-app:}, driven over ADB inside the emulator
+ * — takes the direct path whatever the toggle says ({@link #usesBackgroundSession}). It has no child process to
+ * hand a private {@code DISPLAY} to, so the background path could only ever refuse it.
+ *
  * <p>Two things every call site gets for free by going through here rather than wiring its own button:
  * the launch runs <b>off the FX thread</b> (a protocol hand-off blocks on process spawns, and an
  * {@code emu-app:} target polls an emulator to its boot timeout — seconds of frozen UI otherwise), and a
@@ -84,9 +88,35 @@ public final class QuickLaunch {
         return (spec == null || spec.isBlank()) ? null : LaunchSpec.parse(spec);
     }
 
+    /**
+     * Whether a launch of {@code spec} should go through a private nested display: the project's
+     * {@code session.isolated} setting, <em>except</em> for a target that doesn't run on a desktop at all.
+     *
+     * <p>That exception is the whole point of this predicate. An {@code emu-app:} target is started, captured
+     * and clicked over ADB inside the emulator; there is no child process of ours to hand a {@code DISPLAY} to,
+     * so {@code LaunchIsolation} refuses it — and with isolation on by default that refusal was the <b>only</b>
+     * thing the Launch button ever did for an emulator app. It isn't a failure to route around: the target is
+     * already off the user's desktop, which is what background mode is for. Kept static and pure so the routing
+     * is unit-testable without an FX button.
+     */
+    public static boolean usesBackgroundSession(LaunchSpec spec, boolean isolated) {
+        return isolated && spec != null && !spec.kind().runsOffDesktop();
+    }
+
+    /**
+     * The trailing half-sentence explaining why an off-desktop target ignored the "Run in background" toggle,
+     * or empty for every other kind. Said on success rather than hidden: the toggle is on by default, so
+     * without it the user is left to wonder whether the launch respected the setting they can see.
+     */
+    private static String offDesktopNote(LaunchSpec spec) {
+        return spec.kind().runsOffDesktop()
+                ? " It runs inside the emulator over ADB, so background mode doesn't apply to it."
+                : "";
+    }
+
     private static void launch(Button button, LaunchSpec spec, Report report, Path resourcesDir) {
         button.setDisable(true);
-        if (ProjectCreator.readSessionIsolated(resourcesDir)) {
+        if (usesBackgroundSession(spec, ProjectCreator.readSessionIsolated(resourcesDir))) {
             launchInBackground(button, spec, report, resourcesDir);
             return;
         }
@@ -104,7 +134,7 @@ public final class QuickLaunch {
             Platform.runLater(() -> {
                 button.setDisable(false);
                 if (message == null) {
-                    report.accept(true, "Launched " + spec.describe() + ".");
+                    report.accept(true, "Launched " + spec.describe() + "." + offDesktopNote(spec));
                 } else {
                     report.accept(false, "Couldn't launch: " + message);
                 }
