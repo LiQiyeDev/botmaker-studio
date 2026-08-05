@@ -1,10 +1,5 @@
 package com.botmaker.studio.ui.app;
 
-import com.botmaker.shared.capture.GenericWindow;
-import com.botmaker.shared.capture.NativeControllerFactory;
-import com.botmaker.shared.launch.LaunchSpec;
-import com.botmaker.session.impl.NestedSession;
-import com.botmaker.session.display.SessionBackends;
 import com.botmaker.studio.runtime.CodeExecutionService;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
 import com.botmaker.studio.ui.dnd.BlockEvent;
@@ -41,8 +36,6 @@ import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
-import javafx.scene.image.Image;
-import javafx.scene.image.ImageView;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
@@ -85,9 +78,8 @@ public class UIManager {
     private final EventLogManager eventLogManager;
     private final MenuBarManager menuBarManager;
     private final com.botmaker.studio.runtime.CodeExecutionService codeExecutionService;
-    private com.botmaker.studio.services.pilot.PilotServer pilotServer;
-    /** Produces + tears down the bot-owned {@code :N} session the pilot streams; created lazily with the server. */
-    private com.botmaker.studio.services.pilot.NestedSessionLauncher nestedLauncher;
+    /** Remote Pilot in full: the server, the private-display launcher, and every dialog they put on screen. */
+    private final com.botmaker.studio.ui.app.pilot.RemotePilotUi remotePilot;
     private final FileExplorerManager fileExplorerManager;
 
     // Theme management
@@ -149,6 +141,8 @@ public class UIManager {
         // capture service honors the default target so pickers stop re-asking which screen to use.
         this.projectSettingsService = new ProjectSettingsService(config, state, eventBus);
         this.screenCaptureService = new ScreenCaptureService(projectSettingsService);
+        this.remotePilot = new com.botmaker.studio.ui.app.pilot.RemotePilotUi(
+                primaryStage, eventBus, config, projectSettingsService, codeExecutionService);
 
         this.toolbarManager = new ToolbarManager(eventBus, projectSettingsService);
         this.eventLogManager = new EventLogManager(eventBus);
@@ -211,7 +205,7 @@ public class UIManager {
                     + ex.getMessage());
         }
         this.toolbarManager.setOnConfigureInput(() -> new BotSettingsDialog(primaryStage, config, null).show());
-        this.toolbarManager.setOnEnableRemotePilot(this::openRemotePilot);
+        this.toolbarManager.setOnEnableRemotePilot(remotePilot::open);
         this.toolbarManager.setOnCaptureTemplates(this::openOverlayTemplateCapture);
         this.toolbarManager.setOnOverlayEditor(this::openOverlayEditor);
         this.toolbarManager.setOnRecordMacro(this::openOverlayEditorRecording);
@@ -233,7 +227,7 @@ public class UIManager {
         this.menuBarManager.setOnShowHistory(openVcsDialog);
         this.menuBarManager.setProjectRepoUrl(BotSource.read(config.projectPath())
                 .map(s -> "https://github.com/" + s.slug()).orElse(null));
-        this.menuBarManager.setOnEnableRemotePilot(this::openRemotePilot);
+        this.menuBarManager.setOnEnableRemotePilot(remotePilot::open);
         this.fileExplorerManager = new FileExplorerManager(config, codeEditorService, state, activityService, eventBus);
 
         // Initialize theme system and set up theme change listener
@@ -405,647 +399,6 @@ public class UIManager {
         mainSplit.widthProperty().addListener((obs, ov, nv) -> clamp.run());
     }
 
-    /** Stable "latest release" permalink the install-app QR points at; the botmaker-pilot CI attaches this. */
-    private static final String APK_URL =
-            "https://github.com/LiQiyeDev/botmaker-pilot/releases/latest/download/botpilot.apk";
-
-    /** Tailscale admin console where the one-time Funnel node-attribute is granted (computer/account side).
-     *  The attribute lives in the tailnet policy file on the Access Controls page (there is no
-     *  {@code /admin/settings/funnel} page — that 404s). */
-    private static final String TAILSCALE_FUNNEL_ADMIN_URL =
-            "https://login.tailscale.com/admin/acls";
-    /** Tailscale admin DNS page where HTTPS certificates are enabled for the tailnet. */
-    private static final String TAILSCALE_DNS_ADMIN_URL =
-            "https://login.tailscale.com/admin/dns";
-    /** Where a user without Tailscale installs it. */
-    private static final String TAILSCALE_DOWNLOAD_URL = "https://tailscale.com/download";
-    /** The ACL policy snippet that grants the Funnel node-attribute (paste into the admin policy editor). */
-    private static final String FUNNEL_ACL_SNIPPET =
-            "\"nodeAttrs\": [{ \"target\": [\"autogroup:member\"], \"attr\": [\"funnel\"] }]";
-
-    /** How the pilot ended up exposed — drives the dialog header, QR URL, and warning. */
-    private enum PilotMode { FUNNEL_HTTPS, TAILNET_DIRECT, ALL_INTERFACES }
-
-    /** The specific reason Funnel isn't live, so the wizard can point at the exact one-time fix. */
-    private enum FunnelIssue { NONE, NOT_INSTALLED, LOGGED_OUT, NOT_ENABLED, NO_HTTPS_CERT, NEEDS_OPERATOR, OTHER }
-
-    /** Snapshot of the Tailscale/Funnel state, computed off the FX thread, that drives the setup wizard. */
-    private record FunnelDiag(boolean cliPresent, boolean loggedIn, FunnelIssue issue) {}
-
-    /** Result of a pilot bring-up ({@link #startRemotePilotDirect()} / {@link #startRemotePilotFunnel()}) —
-     *  enough to render the pairing dialog on the FX thread. */
-    private record PilotOutcome(String url, String token, PilotMode mode, String funnelError, FunnelDiag diag) {}
-
-    /** The last successful bring-up, so re-clicking the toolbar just re-shows the same dialog instead of
-     *  restarting the server on a fresh port (which would drop an already-paired phone). */
-    private PilotOutcome lastPilotOutcome;
-
-    /**
-     * Starts (once) the remote BotPilot server and shows a pairing dialog. The <b>default</b> path is a direct
-     * bind on the Tailscale tailnet interface: the phone reaches it by running Tailscale signed into the same
-     * account (zero computer-side setup, no public URL, more private). Exposing the pilot publicly over
-     * <b>Tailscale Funnel</b> ({@code https://<machine>.ts.net}, so the phone needs nothing) is an opt-in
-     * "Advanced" action ({@link #enableFunnelExposure()}) because it requires one-time HTTPS-cert/ACL/operator
-     * setup on this machine's account.
-     *
-     * <p>The tailnet bind is cheap, but the (opt-in) Funnel bring-up runs the {@code tailscale} CLI (which can
-     * block for seconds), so both go through a background thread; only the resulting dialog is marshalled back
-     * to the FX thread. Doing it inline would freeze (and, if the CLI hangs, appear to crash) the UI.
-     */
-    private void openRemotePilot() {
-        openRemotePilot(false);
-    }
-
-    /**
-     * @param forceRestart when {@code false} (toolbar/menu click) and the server is already running, this is
-     *   idempotent — it just re-shows the existing pairing dialog, keeping the paired phone connected on the
-     *   same URL/port/token. When {@code true} it tears the server down and re-runs the bring-up, deliberately
-     *   rebinding. The default bring-up is the direct tailnet bind (no Funnel); {@link #enableFunnelExposure()}
-     *   is the opt-in path that attempts Funnel.
-     */
-    private void openRemotePilot(boolean forceRestart) {
-        bringUpRemotePilot(forceRestart, false);
-    }
-
-    /**
-     * Opt-in "Advanced" action: (re)bring up the pilot attempting <b>Tailscale Funnel</b> so the phone needs
-     * nothing installed. Always rebinds (Funnel fronts a loopback bind, unlike the default tailnet bind), then
-     * shows the pairing dialog — with the guided setup wizard if Funnel couldn't be enabled.
-     */
-    private void enableFunnelExposure() {
-        bringUpRemotePilot(true, true);
-    }
-
-    /**
-     * Shared bring-up scaffold: (optionally) tear down a running server, ensure one exists, then run the chosen
-     * bring-up ({@code funnel ? }{@link #startRemotePilotFunnel()}{@code : }{@link #startRemotePilotDirect()})
-     * off the FX thread and marshal the pairing dialog back.
-     */
-    private void bringUpRemotePilot(boolean forceRestart, boolean funnel) {
-        // Already up and we're not deliberately restarting → re-show the same dialog, don't rebind the port.
-        if (!forceRestart && pilotServer != null && pilotServer.isRunning() && lastPilotOutcome != null) {
-            showRemotePilotDialog(lastPilotOutcome.url(), lastPilotOutcome.token(), lastPilotOutcome.mode(),
-                    lastPilotOutcome.funnelError(), lastPilotOutcome.diag());
-            return;
-        }
-        if (forceRestart && pilotServer != null) {
-            pilotServer.close();
-            lastPilotOutcome = null;
-        }
-        if (pilotServer == null) {
-            var control = new com.botmaker.studio.services.pilot.PilotControlService(codeExecutionService);
-            pilotServer = new com.botmaker.studio.services.pilot.PilotServer(
-                    eventBus, projectSettingsService, control, config.resourcesRoot());
-        }
-        eventBus.publish(new CoreApplicationEvents.StatusMessageEvent("Starting Remote Pilot…"));
-        Alert progress = buildPilotProgressDialog();
-        progress.show();
-        Thread t = new Thread(() -> {
-            PilotOutcome o = null;
-            String error = null;
-            try {
-                o = funnel ? startRemotePilotFunnel() : startRemotePilotDirect();
-            } catch (Exception e) {
-                error = e.getMessage();
-            }
-            final PilotOutcome outcome = o;
-            final String err = error;
-            javafx.application.Platform.runLater(() -> {
-                progress.setResult(ButtonType.CANCEL); // let close() dismiss a button-less alert
-                progress.close();
-                if (outcome != null) {
-                    lastPilotOutcome = outcome;
-                    eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(
-                            (outcome.mode() == PilotMode.FUNNEL_HTTPS ? "Remote Pilot (HTTPS) at " : "Remote Pilot at ")
-                                    + outcome.url()));
-                    showRemotePilotDialog(outcome.url(), outcome.token(), outcome.mode(),
-                            outcome.funnelError(), outcome.diag());
-                } else {
-                    eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(
-                            "Could not start Remote Pilot: " + err));
-                }
-            });
-        }, "remote-pilot-start");
-        t.setDaemon(true);
-        t.start();
-    }
-
-    /** Indeterminate spinner shown while the (possibly multi-second) Tailscale bring-up runs off-thread. */
-    private Alert buildPilotProgressDialog() {
-        Alert a = new Alert(Alert.AlertType.NONE);
-        a.initOwner(primaryStage);
-        a.setTitle("Remote Pilot");
-        ProgressIndicator spinner = new ProgressIndicator();
-        spinner.setPrefSize(30, 30);
-        Label msg = new Label("Starting Remote Pilot…\nContacting Tailscale (this can take a few seconds).");
-        msg.setWrapText(true);
-        HBox box = new HBox(12, spinner, msg);
-        box.setAlignment(Pos.CENTER_LEFT);
-        box.setStyle("-fx-padding: 10;");
-        a.getDialogPane().setContent(box);
-        a.getButtonTypes().setAll(ButtonType.CANCEL); // present so the pane is valid; we close it programmatically
-        return a;
-    }
-
-    /**
-     * Default bring-up: a direct bind on the Tailscale tailnet interface (phone runs Tailscale, same account),
-     * or all interfaces (LAN, with a warning) when Tailscale isn't up. No {@code tailscale} CLI call, so it's
-     * instant and never surfaces the Funnel wizard. Must run off the FX thread (server bind).
-     */
-    private PilotOutcome startRemotePilotDirect() {
-        String tailscale = com.botmaker.studio.services.pilot.PilotServer.detectTailscaleHost();
-        boolean allInterfaces = tailscale == null;
-        var endpoint = pilotServer.start(allInterfaces ? "0.0.0.0" : tailscale);
-
-        String displayHost = allInterfaces ? hostForUrl() : tailscale;
-        String url = "http://" + displayHost + ":" + endpoint.port() + "/?token=" + endpoint.token();
-        return new PilotOutcome(url, endpoint.token(),
-                allInterfaces ? PilotMode.ALL_INTERFACES : PilotMode.TAILNET_DIRECT, null, null);
-    }
-
-    /**
-     * Opt-in bring-up: attempt Tailscale Funnel (public HTTPS, phone needs nothing). On success →
-     * {@link PilotMode#FUNNEL_HTTPS}; on any failure fall back to a direct bind but carry the reason
-     * ({@code funnelError}/{@link FunnelDiag}) so {@link #showRemotePilotDialog} shows the setup wizard.
-     * Blocking (Tailscale CLI + server bind); must run off the FX thread.
-     */
-    private PilotOutcome startRemotePilotFunnel() {
-        var funnel = new com.botmaker.studio.services.pilot.TailscaleFunnelService();
-        boolean cli = funnel.isAvailable();
-        boolean loggedIn = cli && funnel.isLoggedIn();
-        String funnelError;
-        FunnelIssue issue;
-        if (cli && loggedIn && funnel.dnsName().isPresent()) {
-            var ep = pilotServer.start("127.0.0.1"); // loopback — only Funnel fronts it
-            var result = funnel.enable(ep.port());
-            if (result.ok()) {
-                var pub = pilotServer.attachFunnel(funnel, result.publicBase());
-                return new PilotOutcome(pub.url(), pub.token(), PilotMode.FUNNEL_HTTPS, null,
-                        new FunnelDiag(true, true, FunnelIssue.NONE));
-            }
-            // Funnel present but couldn't be enabled (e.g. HTTPS certs / ACL / operator): tear the loopback
-            // server down and fall through to a directly-bound one, surfacing the reason.
-            funnelError = result.error();
-            issue = classifyFunnel(result.error());
-            pilotServer.close();
-        } else {
-            issue = !cli ? FunnelIssue.NOT_INSTALLED : (!loggedIn ? FunnelIssue.LOGGED_OUT : FunnelIssue.OTHER);
-            funnelError = switch (issue) {
-                case NOT_INSTALLED -> "Tailscale isn't installed on this computer.";
-                case LOGGED_OUT -> "Tailscale isn't signed in on this computer.";
-                default -> "Tailscale Funnel is unavailable.";
-            };
-        }
-
-        String tailscale = com.botmaker.studio.services.pilot.PilotServer.detectTailscaleHost();
-        boolean allInterfaces = tailscale == null;
-        var endpoint = pilotServer.start(allInterfaces ? "0.0.0.0" : tailscale);
-
-        String displayHost = allInterfaces ? hostForUrl() : tailscale;
-        String url = "http://" + displayHost + ":" + endpoint.port() + "/?token=" + endpoint.token();
-        return new PilotOutcome(url, endpoint.token(),
-                allInterfaces ? PilotMode.ALL_INTERFACES : PilotMode.TAILNET_DIRECT, funnelError,
-                new FunnelDiag(cli, loggedIn, issue));
-    }
-
-    /** Maps a {@code tailscale funnel} stderr line to the specific one-time fix the wizard should surface. */
-    private static FunnelIssue classifyFunnel(String err) {
-        if (err == null) return FunnelIssue.OTHER;
-        String e = err.toLowerCase();
-        if (e.contains("operator")) return FunnelIssue.NEEDS_OPERATOR;
-        if (e.contains("https") || e.contains("cert")) return FunnelIssue.NO_HTTPS_CERT;
-        if (e.contains("not enabled")) return FunnelIssue.NOT_ENABLED;
-        if (e.contains("not logged in") || e.contains("logged out")) return FunnelIssue.LOGGED_OUT;
-        return FunnelIssue.OTHER;
-    }
-
-    /** Best-effort local IPv4 for the displayed URL when binding all interfaces (no Tailscale). */
-    private static String hostForUrl() {
-        try {
-            return java.net.InetAddress.getLocalHost().getHostAddress();
-        } catch (Exception e) {
-            return "127.0.0.1";
-        }
-    }
-
-    private void showRemotePilotDialog(String url, String token, PilotMode mode, String funnelError,
-                                       FunnelDiag diag) {
-        boolean funnelLive = mode == PilotMode.FUNNEL_HTTPS;
-        Alert alert = new Alert(Alert.AlertType.INFORMATION);
-        alert.initOwner(primaryStage);
-        alert.setTitle("Remote Pilot");
-        alert.setHeaderText(switch (mode) {
-            case FUNNEL_HTTPS -> "Remote Pilot is live over HTTPS — your phone needs nothing installed.";
-            case TAILNET_DIRECT -> "Remote Pilot is running on your tailnet.";
-            case ALL_INTERFACES -> "Tailscale not detected — bound to ALL interfaces.";
-        });
-
-        VBox content = new VBox(10);
-        content.setStyle("-fx-padding: 4;");
-
-        // The user explicitly tried "expose publicly" (Advanced) and Funnel couldn't be enabled → lead with
-        // the guided, re-checkable setup wizard rather than a dead-end error line. The default (VPN) open never
-        // sets funnelError, so this only appears after the Advanced action.
-        if (!funnelLive && funnelError != null) {
-            content.getChildren().addAll(funnelWizardBox(diag, funnelError, alert), new Separator());
-            content.getChildren().add(wrapped("Meanwhile you can connect right now over Tailscale with the link "
-                    + "below — the phone just needs Tailscale signed in to the same account."));
-        } else if (funnelLive) {
-            content.getChildren().add(wrapped(
-                    "Scan the LEFT QR (or tap the link) to open Remote Pilot on your phone — no app, account "
-                    + "or VPN needed there. The RIGHT QR installs the optional BotPilot Android app."));
-        } else {
-            // Default path: VPN over the tailnet. Present the phone's 3 steps as the intended flow, not a
-            // fallback apology.
-            content.getChildren().add(wrapped("On your phone: ① install Tailscale, ② sign in to THIS same "
-                    + "account, ③ scan the LEFT QR (or open the link). The RIGHT QR installs the optional "
-                    + "BotPilot app."));
-            content.getChildren().add(linkBtn("Get Tailscale for your phone ▸", TAILSCALE_DOWNLOAD_URL));
-        }
-
-        // Lead with the input-mode choice: background (isolated :N) vs. mirroring the real desktop. This is the
-        // recommended path (cursor stays free) and used to be buried at the very bottom of the dialog where the
-        // user never found it — hence every click went through the cursor-moving :0 controller.
-        content.getChildren().addAll(isolatedSessionBox(), new Separator());
-
-        // The URL as a real clickable link (opens the system browser).
-        Hyperlink link = new Hyperlink(url);
-        link.setOnAction(e -> com.botmaker.studio.util.BrowserLauncher.open(url));
-        link.setWrapText(true);
-        // Editable field kept as a selectable copy fallback, in case the clipboard write is swallowed by the
-        // window system (e.g. some Wayland setups).
-        TextField urlField = new TextField(url);
-        urlField.setPrefColumnCount(44);
-        urlField.setEditable(false);
-        Button copy = new Button("Copy URL");
-        copy.setOnAction(e -> {
-            urlField.requestFocus();
-            urlField.selectAll();
-            copyToClipboard(url);
-            copy.setText("Copied ✓");
-        });
-        Button reset = new Button("Reset pairing token");
-        reset.setTooltip(new Tooltip(
-                "Revoke the current token so previously-paired phones must scan again."));
-        reset.setOnAction(e -> {
-            if (pilotServer == null) return;
-            String fresh = pilotServer.resetToken();
-            String newUrl = url.replaceFirst("token=[^&]*$", "token=" + fresh);
-            alert.close();
-            showRemotePilotDialog(newUrl, fresh, mode, funnelError, diag);
-        });
-
-        content.getChildren().addAll(link, new Label("Token: " + token), new HBox(8, copy, reset), qrRow(url));
-
-        if (mode == PilotMode.ALL_INTERFACES) {
-            Label warn = wrapped("⚠ Anyone who can reach this machine's IP can view/control the bot with this "
-                    + "token. Prefer connecting over Tailscale.");
-            warn.setStyle("-fx-text-fill: #e67e22;");
-            content.getChildren().add(warn);
-        }
-
-        // Advanced, opt-in: expose publicly over HTTPS so the phone needs no Tailscale/VPN. Only offered when
-        // we're not already Funnel-live and the setup wizard isn't already on screen.
-        if (!funnelLive && funnelError == null) {
-            Hyperlink advanced = new Hyperlink("Advanced: expose publicly over HTTPS (no VPN needed on the phone)…");
-            advanced.setTooltip(new Tooltip("Uses Tailscale Funnel. Needs a one-time setup on this computer's "
-                    + "Tailscale account; Studio will guide you."));
-            advanced.setOnAction(e -> { alert.close(); enableFunnelExposure(); });
-            content.getChildren().addAll(new Separator(), advanced);
-        }
-
-        alert.getDialogPane().setContent(content);
-        alert.setResizable(true); // let the user grow it if the QR codes crowd the buttons on small screens
-        alert.show();
-    }
-
-    /**
-     * The "Background mode" controls — the pilot's <b>recommended</b> input path: launch the project's configured
-     * game into a bot-owned nested display ({@code :N}) and route the pilot through it (flawless background input),
-     * versus mirroring the real {@code :0} desktop (where Interact moves your real cursor). Carries one persistent,
-     * colour-coded status line — green "Isolated on :N — <game> attached" vs amber "Mirroring your real desktop
-     * :0" — so the user can always tell which path is live. The producer is
-     * {@link com.botmaker.studio.services.pilot.NestedSessionLauncher} — created lazily here bound to the
-     * (already-constructed) {@link #pilotServer}, and reused across dialog reopens so Stop and the status still
-     * reflect a session started earlier.
-     */
-    private Node isolatedSessionBox() {
-        if (nestedLauncher == null) {
-            nestedLauncher = new com.botmaker.studio.services.pilot.NestedSessionLauncher(
-                    config.resourcesRoot(), pilotServer);
-        }
-        VBox box = new VBox(6);
-        Label title = new Label("Background mode — run the game in a private display (recommended)");
-        title.setStyle("-fx-font-weight: bold;");
-        Label help = wrapped("Launches the configured game into a private nested display the bot alone drives, so "
-                + "the pilot previews and controls that window while your real cursor stays free. The launched "
-                + "window is the target — no capture source to pick. Otherwise the pilot mirrors your real "
-                + "desktop and Interact moves your actual cursor.");
-
-        ChoiceBox<NestedSession.Backend> backend = new ChoiceBox<>();
-        backend.getItems().addAll(NestedSession.Backend.XEPHYR, NestedSession.Backend.GAMESCOPE);
-        // Preselect the backend the configured target actually needs (gamescope for a game, Xephyr otherwise),
-        // single-sourced through SessionBackends so the pilot and the Launch buttons can't disagree.
-        backend.setValue(SessionBackends.preferredBackend(nestedLauncher.configuredTarget()));
-        backend.setTooltip(new Tooltip(
-                "Xephyr: 2D targets. gamescope: hardware-3D (Proton/DXVK/Vulkan) — needs a GPU box."));
-
-        Button start = new Button("Start background mode");
-        Button stop = new Button("Stop");
-        Button showWin = new Button("Show display window");
-        showWin.setTooltip(new Tooltip(
-                "Raise the Xephyr host window on your desktop so you can watch the private display."));
-        Label status = wrapped("");
-
-        // Button/visibility state only — never touches the status text, so a transient start/failure message set
-        // by the async callback isn't clobbered when we re-enable the buttons.
-        Runnable refreshButtons = () -> {
-            boolean running = nestedLauncher.isRunning();
-            boolean backendOk = SessionBackends.isAvailable(backend.getValue());
-            LaunchSpec configured = nestedLauncher.configuredTarget();
-            // An emulator app is already off the desktop, so there is nothing for a private display to add and
-            // NestedSessionLauncher would refuse anyway — don't offer a button whose only outcome is a refusal.
-            boolean offDesktop = configured != null && configured.kind().runsOffDesktop();
-            boolean canStart = configured != null && backendOk && !offDesktop;
-            start.setDisable(running || !canStart);
-            stop.setDisable(!running);
-            backend.setDisable(running);
-            boolean xephyr = backend.getValue() == NestedSession.Backend.XEPHYR;
-            showWin.setVisible(xephyr);
-            showWin.setManaged(xephyr);
-            showWin.setDisable(!running);
-        };
-        // The persistent resting status line: green when isolated, amber when mirroring / unavailable.
-        Runnable refreshStatus = () -> {
-            if (nestedLauncher.isRunning()) {
-                String disp = nestedLauncher.activeDisplay();
-                String game = nestedLauncher.attachedTitle();
-                status.setText("● Isolated on " + disp + (game != null ? " — " + game + " attached" : " — attached")
-                        + ". Interact drives it; your real cursor stays free.");
-                status.setStyle("-fx-text-fill: #27ae60;"); // green — the good, isolated state
-                return;
-            }
-            LaunchSpec spec = nestedLauncher.configuredTarget();
-            if (spec != null && spec.kind().runsOffDesktop()) {
-                emulatorIsolationStatus(spec, status);
-                return;
-            }
-            if (spec == null) {
-                status.setText("● Set a launch target (Run ▸ Launch Target…) to enable background mode.");
-            } else if (!SessionBackends.isAvailable(backend.getValue())) {
-                status.setText("● To use this backend for background mode, "
-                        + SessionBackends.installHint(backend.getValue()) + ".");
-            } else {
-                status.setText("● Mirroring your real desktop :0 — Interact moves your real cursor. Start "
-                        + "background mode to run " + spec.describe() + " isolated.");
-            }
-            status.setStyle("-fx-text-fill: #e67e22;"); // amber — cursor-moving / not-yet-isolated
-        };
-        backend.setOnAction(e -> { refreshButtons.run(); refreshStatus.run(); });
-        refreshButtons.run();
-        refreshStatus.run();
-
-        start.setOnAction(e -> {
-            int[] size = referenceSize();
-            start.setDisable(true);
-            nestedLauncher.start(backend.getValue(), size[0], size[1], (ok, msg) -> {
-                if (!ok) {
-                    // Loud failure (e.g. a host launcher stole the game onto :0) — show it, stay amber.
-                    status.setText("● " + msg);
-                    status.setStyle("-fx-text-fill: #e67e22;");
-                } else if (nestedLauncher.isRunning()) {
-                    refreshStatus.run(); // terminal success → green "Isolated on :N"
-                } else {
-                    status.setText(msg); // interim "Bringing up…"
-                    status.setStyle("-fx-text-fill: #7f8c8d;");
-                }
-                refreshButtons.run();
-            });
-        });
-        stop.setOnAction(e -> {
-            nestedLauncher.stop();
-            refreshButtons.run();
-            refreshStatus.run();
-        });
-        showWin.setOnAction(e -> raiseXephyrHostWindow(nestedLauncher.activeDisplay(), status));
-
-        box.getChildren().addAll(title, help,
-                new HBox(8, new Label("Backend:"), backend, start, stop, showWin), status);
-        return box;
-    }
-
-    /**
-     * The status line for a target that already runs off the desktop — an emulator app.
-     *
-     * <p>The box used to tell such a target it was "mirroring your real desktop :0" and offer it a private
-     * display, which was wrong twice over: the pilot doesn't mirror the desktop for these (it streams the
-     * emulator over ADB, {@code PilotRoutes}), and a nested display has nothing to give a surface that was
-     * never on a display of ours. The isolated state is the <em>resting</em> state here, so this is green.
-     *
-     * <p>Whether the emulator is actually up is a TCP probe, so it runs off the FX thread and only upgrades
-     * the line when it comes back — the box never blocks on it.
-     */
-    private void emulatorIsolationStatus(LaunchSpec spec, Label status) {
-        String instance = spec.emulatorInstance();
-        String app = spec.emulatorPackage();
-        status.setText("● Already isolated — " + app + " runs inside " + instance
-                + ". The pilot streams the emulator over ADB and Interact taps land inside it; your real "
-                + "cursor stays free.");
-        status.setStyle("-fx-text-fill: #27ae60;"); // green — this target is isolated by construction
-        Thread probe = new Thread(() -> {
-            boolean up = com.botmaker.shared.emulator.EmulatorInstances.byName(instance)
-                    .map(com.botmaker.studio.emulator.EmulatorProbe::isRunning)
-                    .orElse(false);
-            if (up) return;
-            javafx.application.Platform.runLater(() -> {
-                status.setText("● " + instance + " isn't running — start it with ▶ Launch now (or the emulator "
-                        + "picker). The pilot streams it over ADB as soon as it's up; no background mode needed.");
-                status.setStyle("-fx-text-fill: #e67e22;");
-            });
-        }, "emulator-liveness");
-        probe.setDaemon(true);
-        probe.start();
-    }
-
-    /**
-     * Raise the Xephyr host window (it lives on the real {@code :0} desktop, titled "Xephyr on :N …") so the user
-     * can watch the private display directly. gamescope has no such host window — there the pilot preview is the
-     * only view, which is why this affordance is Xephyr-only. Best-effort: reports into {@code status} if the
-     * window can't be found.
-     */
-    private void raiseXephyrHostWindow(String display, Label status) {
-        GenericWindow host = null;
-        for (GenericWindow w : NativeControllerFactory.get().getAllWindows()) {
-            String t = w.getTitle();
-            if (t != null && t.toLowerCase().contains("xephyr") && (display == null || t.contains(display))) {
-                host = w;
-                break;
-            }
-        }
-        if (host != null) {
-            NativeControllerFactory.get().focusWindow(host);
-        } else {
-            status.setText("● Couldn't find the Xephyr host window to raise — it may have been closed.");
-            status.setStyle("-fx-text-fill: #e67e22;");
-        }
-    }
-
-    /**
-     * The project's reference resolution (what image templates were authored at) as {@code [width, height]},
-     * or the launcher's default when unset — the nested display is sized to match so captures line up with the
-     * templates.
-     */
-    private int[] referenceSize() {
-        try {
-            var res = projectSettingsService.current().referenceResolution();
-            if (res != null && res.width() > 0 && res.height() > 0) {
-                return new int[]{res.width(), res.height()};
-            }
-        } catch (Exception ignored) {
-            // fall through to the launcher default
-        }
-        return new int[]{
-                com.botmaker.studio.services.pilot.NestedSessionLauncher.DEFAULT_WIDTH,
-                com.botmaker.studio.services.pilot.NestedSessionLauncher.DEFAULT_HEIGHT};
-    }
-
-    /**
-     * The one-time "make Funnel work so the phone needs nothing" checklist. Rendered from the off-thread
-     * {@link FunnelDiag} snapshot (no blocking CLI calls here), with the current blocker highlighted and a
-     * Re-check button that re-runs the whole bring-up.
-     */
-    private Node funnelWizardBox(FunnelDiag diag, String funnelError, Alert owner) {
-        VBox box = new VBox(6);
-        Label title = wrapped("Set up Tailscale Funnel once on THIS computer's account — then any phone "
-                + "connects by just opening the link (no Tailscale, no VPN, nothing to install on the phone):");
-        title.setStyle("-fx-font-weight: bold;");
-        box.getChildren().add(title);
-
-        boolean step1ok = diag != null && diag.cliPresent() && diag.loggedIn();
-        FunnelIssue issue = diag == null ? FunnelIssue.OTHER : diag.issue();
-
-        // 1. Installed & signed in
-        HBox s1 = stepRow(step1ok, "Tailscale installed & signed in on this computer",
-                issue == FunnelIssue.NOT_INSTALLED || issue == FunnelIssue.LOGGED_OUT);
-        if (diag != null && !diag.cliPresent()) s1.getChildren().add(linkBtn("Install Tailscale ▸", TAILSCALE_DOWNLOAD_URL));
-        else if (diag != null && !diag.loggedIn()) s1.getChildren().add(copyCmdBtn("tailscale up"));
-        box.getChildren().add(s1);
-
-        // 2. HTTPS certificates — can't reliably probe, but the CLI error names it (NO_HTTPS_CERT) when it's
-        // the blocker, so highlight it then. This is the most common blocker once the ACL grant is in place.
-        HBox s2 = stepRow(step1ok, "HTTPS certificates enabled for your tailnet",
-                issue == FunnelIssue.NO_HTTPS_CERT);
-        s2.getChildren().add(linkBtn("Open DNS settings ▸", TAILSCALE_DNS_ADMIN_URL));
-        box.getChildren().add(s2);
-
-        // 3. Funnel node-attribute granted in the ACL
-        HBox s3 = stepRow(false, "\"funnel\" attribute granted in your tailnet ACL",
-                issue == FunnelIssue.NOT_ENABLED);
-        s3.getChildren().addAll(linkBtn("Open Access Controls ▸", TAILSCALE_FUNNEL_ADMIN_URL),
-                copyCmdBtn(FUNNEL_ACL_SNIPPET, "Copy ACL snippet"));
-        box.getChildren().add(s3);
-
-        // 4. Operator (so Studio, running as you, can drive Funnel without sudo)
-        HBox s4 = stepRow(false, "Let Studio manage Funnel without root (run once)",
-                issue == FunnelIssue.NEEDS_OPERATOR);
-        String operatorCmd = "sudo tailscale set --operator=" + System.getProperty("user.name", "$USER");
-        s4.getChildren().add(copyCmdBtn(operatorCmd, "Copy command"));
-        box.getChildren().add(s4);
-
-        // Always surface the literal CLI reason (not just for OTHER) — it's the fastest way to tell HTTPS-cert
-        // vs ACL vs operator apart when the checklist guesses wrong.
-        if (funnelError != null && !funnelError.isBlank()) {
-            Label raw = wrapped("Tailscale said: " + funnelError.trim());
-            raw.setStyle("-fx-text-fill: #e67e22;");
-            box.getChildren().add(raw);
-        }
-
-        Button recheck = new Button("Re-check & enable");
-        recheck.setDefaultButton(true);
-        recheck.setOnAction(e -> { owner.close(); enableFunnelExposure(); });
-        box.getChildren().add(recheck);
-        return box;
-    }
-
-    /** One wizard checklist row: a ✓/✗ status glyph + label; highlighted orange when it's the active blocker. */
-    private static HBox stepRow(boolean done, String text, boolean isBlocker) {
-        Label glyph = new Label(done ? "✓" : "✗");
-        glyph.setStyle("-fx-font-weight: bold; -fx-text-fill: " + (done ? "#27ae60" : "#e67e22") + ";");
-        Label label = new Label(text);
-        label.setWrapText(true);
-        if (isBlocker) label.setStyle("-fx-text-fill: #e67e22; -fx-font-weight: bold;");
-        HBox row = new HBox(8, glyph, label);
-        row.setAlignment(Pos.CENTER_LEFT);
-        return row;
-    }
-
-    private static Hyperlink linkBtn(String text, String url) {
-        Hyperlink h = new Hyperlink(text);
-        h.setOnAction(e -> com.botmaker.studio.util.BrowserLauncher.open(url));
-        return h;
-    }
-
-    private static Button copyCmdBtn(String command) { return copyCmdBtn(command, "Copy"); }
-
-    /** A small button that copies {@code command} to the clipboard (for shell commands / ACL snippets). */
-    private static Button copyCmdBtn(String command, String label) {
-        Button b = new Button(label);
-        b.setTooltip(new Tooltip(command));
-        b.setOnAction(e -> { copyToClipboard(command); b.setText("Copied ✓"); });
-        return b;
-    }
-
-    private static Label wrapped(String text) {
-        Label l = new Label(text);
-        l.setWrapText(true);
-        l.setMaxWidth(460);
-        return l;
-    }
-
-    private static void copyToClipboard(String text) {
-        var cc = new javafx.scene.input.ClipboardContent();
-        cc.putString(text);
-        javafx.scene.input.Clipboard.getSystemClipboard().setContent(cc);
-    }
-
-    /** Side-by-side QR codes with clear separation: left pairs the pilot URL, right downloads the APK. */
-    private static Node qrRow(String pairingUrl) {
-        HBox row = new HBox(40);
-        row.setAlignment(Pos.TOP_CENTER);
-        row.setStyle("-fx-padding: 8 0 0 0;");
-        Node pairing = qrCell(pairingUrl, "① Open on phone", "Scan to control the bot");
-        if (pairing != null) row.getChildren().add(pairing);
-        Node install = qrCell(APK_URL, "② Get the app (optional)", "Installs BotPilot for Android");
-        if (install != null) row.getChildren().add(install);
-        return row;
-    }
-
-    /** On-screen QR edge in px. The bitmap is encoded at exactly this size and shown 1:1 (no resample) so the
-     *  modules stay crisp — a fractional downscale blurs the edges enough to defeat phone-camera decoding. */
-    private static final int QR_PX = 240;
-
-    /** A titled, captioned QR image in its own bordered card, or {@code null} if the code couldn't encode. */
-    private static Node qrCell(String text, String title, String caption) {
-        Image code = com.botmaker.studio.ui.util.QrCodes.qr(text, QR_PX);
-        if (code == null) return null;
-        Label heading = new Label(title);
-        heading.setStyle("-fx-font-weight: bold;");
-        ImageView iv = new ImageView(code);
-        iv.setFitWidth(QR_PX);
-        iv.setFitHeight(QR_PX);
-        iv.setSmooth(false); // keep module edges sharp if the platform ever scales it
-        // White backing so the encoded quiet zone survives against the dark card background/border.
-        StackPane qrFrame = new StackPane(iv);
-        qrFrame.setStyle("-fx-background-color: white; -fx-padding: 8; -fx-background-radius: 4;");
-        Label cap = new Label(caption);
-        cap.setWrapText(true);
-        cap.setStyle("-fx-text-fill: #8b93a1;");
-        VBox cell = new VBox(6, heading, qrFrame, cap);
-        cell.setAlignment(Pos.CENTER);
-        cell.setMaxWidth(QR_PX + 40);
-        cell.setStyle("-fx-padding: 10; -fx-border-color: #3a3f4b; -fx-border-radius: 8; -fx-border-width: 1;");
-        return cell;
-    }
 
     /** Opens the Resource Manager dialog. Reused by the Project menu and the block image-picker shortcut. */
     private void openResourceManager() {
@@ -1071,7 +424,7 @@ public class UIManager {
                         primaryStage, config, toolbarManager::setLaunchTarget).show(),
                 this::openOverlayTemplateCapture,
                 this::openResourceManager,
-                this::openRemotePilot,
+                remotePilot::open,
                 onManageLibraries);
         new GettingStartedDialog(primaryStage, actions).show();
     }
@@ -1099,7 +452,7 @@ public class UIManager {
     private void openOverlayEditor(boolean startRecording) {
         com.botmaker.studio.ui.app.overlay.ProgramShapeOverlay.open(
                 primaryStage, codeEditorService, projectSettingsService, screenCaptureService, activityService,
-                this::liveSessionWindow, startRecording, this::chooseLaunchTargetThen);
+                remotePilot::liveSessionWindow, startRecording, this::chooseLaunchTargetThen);
     }
 
     /**
@@ -1110,17 +463,6 @@ public class UIManager {
      */
     private void chooseLaunchTargetThen(Runnable retry) {
         new LaunchTargetDialog(primaryStage, config, toolbarManager::setLaunchTarget).show(retry);
-    }
-
-    /**
-     * The live private session's host window id for the overlay to draw over, or {@code 0} when there is none —
-     * revealing it first, since bring-up minimizes it and an overlay over a minimized window shows nothing.
-     *
-     * <p>{@code nestedLauncher} is created lazily by the private-display dialog, so a {@code null} one means no
-     * session has ever been started in this project and there is nothing to look at.
-     */
-    private long liveSessionWindow() {
-        return nestedLauncher == null ? 0 : nestedLauncher.revealHostWindow();
     }
 
     private void setupEventHandlers() {
