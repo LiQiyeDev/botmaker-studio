@@ -18,6 +18,7 @@ import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextInputDialog;
+import javafx.scene.control.Tooltip;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.input.MouseEvent;
@@ -67,20 +68,20 @@ public final class EmulatorPickerDialog {
      * Last-known installed apps per instance — survives a stop so a down instance still lists its apps, and
      * (through {@link #DISK}) survives a Studio restart, which this map alone did not.
      */
-    private static final Map<String, List<String>> APP_CACHE = new ConcurrentHashMap<>();
+    private static final Map<String, List<EmulatorProbe.InstalledApp>> APP_CACHE = new ConcurrentHashMap<>();
 
     /** The on-disk half of both caches; the maps above are only the in-process layer over it. */
     private static final EmulatorAppCache DISK = EmulatorAppCache.shared();
 
     /** The remembered app list for {@code instance}: the in-process map, falling back to disk. */
-    private static List<String> cachedApps(EmulatorInstance instance) {
+    private static List<EmulatorProbe.InstalledApp> cachedApps(EmulatorInstance instance) {
         return APP_CACHE.computeIfAbsent(instance.identity(), key -> DISK.packages(instance));
     }
 
     /** Records a live app-list query in both layers. */
-    private static void cacheApps(EmulatorInstance instance, List<String> packages) {
-        APP_CACHE.put(instance.identity(), packages);
-        DISK.putPackages(instance, packages);
+    private static void cacheApps(EmulatorInstance instance, List<EmulatorProbe.InstalledApp> apps) {
+        APP_CACHE.put(instance.identity(), apps);
+        DISK.putPackages(instance, apps);
     }
 
     private EmulatorPickerDialog() {}
@@ -210,7 +211,7 @@ public final class EmulatorPickerDialog {
     private static void probeAndLoad(EmulatorInstance instance, RowUi ui, Dialog<Selection> dialog) {
         new Thread(() -> {
             boolean running = EmulatorProbe.isRunning(instance);
-            List<String> live = running ? EmulatorProbe.installedApps(instance) : null;
+            List<EmulatorProbe.InstalledApp> live = running ? EmulatorProbe.installedAppsDetailed(instance) : null;
             BufferedImage shot = running ? EmulatorProbe.screencap(instance) : null;
             Image preview = shot != null ? ScreenCaptureService.toFxImage(shot) : null;
             Platform.runLater(() -> {
@@ -218,7 +219,7 @@ public final class EmulatorPickerDialog {
                 ui.state().setText(running ? "running" : "stopped");
                 if (preview != null) ui.thumb().setImage(preview);
                 if (running && live != null) cacheApps(instance, live);
-                List<String> show = running && live != null ? live : cachedApps(instance);
+                List<EmulatorProbe.InstalledApp> show = running && live != null ? live : cachedApps(instance);
                 renderApps(ui.apps(), instance, show, emptyNote(running, live), dialog);
                 showAction(instance, ui, dialog, running);
             });
@@ -233,7 +234,7 @@ public final class EmulatorPickerDialog {
      * the instance reads as running while every query fails. Reporting that as "no third-party apps found"
      * blames the device for the user's own dismissed dialog, and leaves the one action that fixes it unsaid.
      */
-    private static String emptyNote(boolean running, List<String> live) {
+    private static String emptyNote(boolean running, List<EmulatorProbe.InstalledApp> live) {
         if (!running) return "Instance stopped — start it to list apps, or enter a package below.";
         if (live == null) {
             return "The instance is up but ADB wouldn't answer — usually the \"Allow USB debugging?\" prompt "
@@ -324,23 +325,26 @@ public final class EmulatorPickerDialog {
      * achievable even when the live app list is empty (stopped instance, launcher-only app, or ADB blocked).
      * {@code emptyNote} of {@code null} suppresses the note (used for the initial cached render, before probing).
      */
-    private static void renderApps(VBox apps, EmulatorInstance instance, List<String> packages, String emptyNote,
-                                   Dialog<Selection> dialog) {
+    private static void renderApps(VBox apps, EmulatorInstance instance, List<EmulatorProbe.InstalledApp> packages,
+                                   String emptyNote, Dialog<Selection> dialog) {
         apps.getChildren().clear();
         if (packages != null && !packages.isEmpty()) {
-            for (String pkg : packages) {
-                Button appButton = new Button(pkg);
+            for (EmulatorProbe.InstalledApp app : packages) {
+                // The app's own name where the platform gave us one — `com.HolydayStudios.Firestone` is not
+                // what the user calls it. The package stays in the tooltip: it is what the target stores.
+                Button appButton = new Button(app.display());
                 appButton.getStyleClass().add("emulator-picker-app");
                 appButton.setMaxWidth(Double.MAX_VALUE);
                 appButton.setAlignment(Pos.CENTER_LEFT);
                 appButton.setGraphic(iconView());
+                appButton.setTooltip(new Tooltip(app.packageName()));
                 appButton.setOnAction(e -> {
-                    dialog.setResult(new Selection(instance, pkg));
+                    dialog.setResult(new Selection(instance, app.packageName()));
                     dialog.close();
                 });
                 apps.getChildren().add(appButton);
             }
-            loadIcons(instance, List.copyOf(packages), apps);
+            loadIcons(instance, packages.stream().map(EmulatorProbe.InstalledApp::packageName).toList(), apps);
         } else if (emptyNote != null) {
             Label note = new Label(emptyNote);
             note.getStyleClass().add("emulator-picker-state");
@@ -410,8 +414,10 @@ public final class EmulatorPickerDialog {
                 int index = i;
                 Platform.runLater(() -> {
                     if (index >= apps.getChildren().size()) return;
+                    // Identified by the tooltip, not the label: the label is now the app's display name, and
+                    // two apps can legitimately share one. The package is the identity.
                     if (apps.getChildren().get(index) instanceof Button button
-                            && pkg.equals(button.getText())
+                            && button.getTooltip() != null && pkg.equals(button.getTooltip().getText())
                             && button.getGraphic() instanceof ImageView view) {
                         view.setImage(icon);
                     }

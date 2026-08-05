@@ -23,12 +23,34 @@ class EmulatorAppCacheTest {
     private static final EmulatorInstance WAYDROID =
             new EmulatorInstance(PlatformId.WAYDROID, "Waydroid", "192.168.240.112", 5555);
 
-    @Test
-    void aPackageListSurvivesARoundTrip(@TempDir Path dir) {
-        EmulatorAppCache cache = new EmulatorAppCache(dir);
-        cache.putPackages(WAYDROID, List.of("com.supercell.clashofclans", "com.example.app"));
+    private static EmulatorProbe.InstalledApp app(String pkg, String label) {
+        return new EmulatorProbe.InstalledApp(pkg, label);
+    }
 
-        assertEquals(List.of("com.supercell.clashofclans", "com.example.app"),
+    @Test
+    void aPackageListSurvivesARoundTripWithItsLabels(@TempDir Path dir) {
+        EmulatorAppCache cache = new EmulatorAppCache(dir);
+        cache.putPackages(WAYDROID, List.of(
+                app("com.HolydayStudios.Firestone", "Firestone"),
+                app("com.example.app", null)));
+
+        List<EmulatorProbe.InstalledApp> read = new EmulatorAppCache(dir).packages(WAYDROID);
+        assertEquals(List.of(app("com.HolydayStudios.Firestone", "Firestone"), app("com.example.app", null)),
+                read);
+        // The one without a label still displays as something: the package is the fallback.
+        assertEquals("com.example.app", read.get(1).display());
+    }
+
+    /** A cache written before labels existed is one package per line — it must still read. */
+    @Test
+    void theOlderLabelLessFormatStillReads(@TempDir Path dir) throws Exception {
+        EmulatorAppCache cache = new EmulatorAppCache(dir);
+        cache.putPackages(WAYDROID, List.of(app("com.example.app", "Example")));
+        java.nio.file.Path file = java.util.Arrays.stream(dir.toFile().listFiles())
+                .filter(java.io.File::isFile).findFirst().orElseThrow().toPath();
+        java.nio.file.Files.writeString(file, "com.example.app\ncom.other.app\n");
+
+        assertEquals(List.of(app("com.example.app", null), app("com.other.app", null)),
                 new EmulatorAppCache(dir).packages(WAYDROID));
     }
 
@@ -42,10 +64,10 @@ class EmulatorAppCacheTest {
         // The key is `waydroid@192.168.240.112:5555` — a colon is not a legal file name character on Windows,
         // and the cache must not be the thing that breaks there.
         EmulatorAppCache cache = new EmulatorAppCache(dir);
-        cache.putPackages(WAYDROID, List.of("com.example.app"));
+        cache.putPackages(WAYDROID, List.of(app("com.example.app", null)));
 
         assertTrue(dir.toFile().listFiles().length > 0, "expected a cache file to be written");
-        assertEquals(List.of("com.example.app"), cache.packages(WAYDROID));
+        assertEquals(List.of(app("com.example.app", null)), cache.packages(WAYDROID));
     }
 
     @Test
@@ -64,10 +86,10 @@ class EmulatorAppCacheTest {
     void writingNothingIsANoOpRatherThanAClearedCache(@TempDir Path dir) {
         // A live query that failed comes back empty, and must not erase what we knew before it.
         EmulatorAppCache cache = new EmulatorAppCache(dir);
-        cache.putPackages(WAYDROID, List.of("com.example.app"));
+        cache.putPackages(WAYDROID, List.of(app("com.example.app", "Example")));
         cache.putPackages(WAYDROID, List.of());
         cache.putIcon(WAYDROID, "com.example.app", null);
 
-        assertEquals(List.of("com.example.app"), cache.packages(WAYDROID));
+        assertEquals(List.of(app("com.example.app", "Example")), cache.packages(WAYDROID));
     }
 }

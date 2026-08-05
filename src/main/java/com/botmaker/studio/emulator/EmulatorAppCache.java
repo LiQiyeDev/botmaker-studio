@@ -39,8 +39,14 @@ public final class EmulatorAppCache {
         return new EmulatorAppCache(BotMakerDirs.getCacheDir().resolve("emulators"));
     }
 
-    /** The packages last seen on {@code instance}, or an empty list when nothing was ever cached. */
-    public List<String> packages(EmulatorInstance instance) {
+    /**
+     * The apps last seen on {@code instance}, or an empty list when nothing was ever cached.
+     *
+     * <p>Each line is {@code package} or {@code package<TAB>label}. The tab-less form is what earlier builds
+     * wrote, and it still reads — a cache is not worth a migration, but silently dropping every remembered
+     * app the first time a user upgrades would undo the whole point of it.
+     */
+    public List<EmulatorProbe.InstalledApp> packages(EmulatorInstance instance) {
         Path file = packageFile(instance);
         try {
             if (!Files.isRegularFile(file)) {
@@ -49,21 +55,37 @@ public final class EmulatorAppCache {
             return Files.readAllLines(file, StandardCharsets.UTF_8).stream()
                     .map(String::trim)
                     .filter(line -> !line.isEmpty())
+                    .map(EmulatorAppCache::parseLine)
                     .toList();
         } catch (Exception e) {
             return List.of();
         }
     }
 
-    /** Records the packages currently installed on {@code instance}. A null/empty list clears nothing. */
-    public void putPackages(EmulatorInstance instance, List<String> packages) {
-        if (packages == null || packages.isEmpty()) {
+    private static EmulatorProbe.InstalledApp parseLine(String line) {
+        int tab = line.indexOf('\t');
+        return tab < 0
+                ? new EmulatorProbe.InstalledApp(line, null)
+                : new EmulatorProbe.InstalledApp(line.substring(0, tab).trim(), line.substring(tab + 1).trim());
+    }
+
+    /** Records the apps currently installed on {@code instance}. A null/empty list clears nothing. */
+    public void putPackages(EmulatorInstance instance, List<EmulatorProbe.InstalledApp> apps) {
+        if (apps == null || apps.isEmpty()) {
             return;
         }
         try {
             Path file = packageFile(instance);
             Files.createDirectories(file.getParent());
-            Files.writeString(file, String.join("\n", packages) + "\n", StandardCharsets.UTF_8);
+            StringBuilder out = new StringBuilder();
+            for (EmulatorProbe.InstalledApp app : apps) {
+                out.append(app.packageName());
+                if (app.label() != null && !app.label().isBlank()) {
+                    out.append('\t').append(app.label());
+                }
+                out.append('\n');
+            }
+            Files.writeString(file, out.toString(), StandardCharsets.UTF_8);
         } catch (IOException e) {
             // A cache that can't be written is a cache that isn't there — never a reason to fail a picker.
         }

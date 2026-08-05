@@ -6,6 +6,15 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-05 — The emulator picker shows apps by name, and asks Waydroid rather than ADB.**
+  `EmulatorProbe.installedAppsDetailed` returns `(package, label)` pairs and sources them from
+  `WaydroidApps.list()` for a Waydroid instance — the host CLI answers when ADB is refused by the in-guest
+  trust prompt, and it knows the app is called "Firestone" rather than `com.HolydayStudios.Firestone`. The
+  picker labels each row with that name and keeps the package in its tooltip (it is what the launch target
+  stores, and what the icon loader now identifies rows by). `EmulatorAppCache` lines grow an optional
+  tab-separated label; the older package-only files still read, because a cache isn't worth a migration but
+  silently forgetting everything on upgrade would defeat it.
+
 - **2026-08-05 — The emulator's app list survives a restart, and a start waits for Android, not for a port.**
   `EmulatorPickerDialog`'s `APP_CACHE`/`ICON_CACHE` were `static` maps, so the promise that a stopped instance
   still shows its last-known apps held only within one run — after restarting Studio a stopped Waydroid went

@@ -3,6 +3,8 @@ package com.botmaker.studio.emulator;
 import com.botmaker.shared.emulator.AdbDevice;
 import com.botmaker.shared.emulator.EmulatorInstance;
 import com.botmaker.shared.emulator.EmulatorReadiness;
+import com.botmaker.shared.emulator.PlatformId;
+import com.botmaker.shared.emulator.WaydroidApps;
 
 import java.awt.image.BufferedImage;
 import java.util.List;
@@ -52,7 +54,42 @@ public final class EmulatorProbe {
      * installed", which is a lie about their device. Empty now means "asked, and there are none".
      */
     public static List<String> installedApps(EmulatorInstance instance) {
-        return withDevice(instance, AdbDevice::installedApps, null);
+        List<InstalledApp> apps = installedAppsDetailed(instance);
+        return apps == null ? null : apps.stream().map(InstalledApp::packageName).toList();
+    }
+
+    /** One installed app: the package a launch target stores, plus the display name when we know it. */
+    public record InstalledApp(String packageName, String label) {
+
+        /** The text to show for it — the app's own name where there is one, else the package. */
+        public String display() {
+            return (label == null || label.isBlank()) ? packageName : label;
+        }
+    }
+
+    /**
+     * {@link #installedApps} with display names where the platform can give them.
+     *
+     * <p><b>Waydroid is asked through its own CLI</b> ({@code waydroid app list}) rather than over ADB. That
+     * is not a preference: Waydroid ships {@code ro.adb.secure=1}, so an unanswered trust prompt inside
+     * Android makes every ADB query fail while the port stays open — the exact case the null above describes.
+     * The CLI answers regardless, filters to apps that actually declare a launcher activity, and hands back
+     * the names a human recognises instead of reverse-DNS strings.
+     */
+    public static List<InstalledApp> installedAppsDetailed(EmulatorInstance instance) {
+        if (instance != null && instance.platformId() == PlatformId.WAYDROID) {
+            List<WaydroidApps.InstalledApp> apps = WaydroidApps.list();
+            if (!apps.isEmpty()) {
+                return apps.stream()
+                        .filter(WaydroidApps.InstalledApp::launchable)
+                        .map(app -> new InstalledApp(app.packageName(), app.label()))
+                        .toList();
+            }
+            // Fall through to ADB: the CLI can be unavailable (no session and no container service), and an
+            // ADB answer is better than none.
+        }
+        List<String> packages = withDevice(instance, AdbDevice::installedApps, null);
+        return packages == null ? null : packages.stream().map(pkg -> new InstalledApp(pkg, null)).toList();
     }
 
     /** One app's launcher icon, read out of its APK over ADB; {@code null} when it has none we can decode. */
