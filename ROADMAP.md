@@ -6,6 +6,18 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-05 — Phase 6: a variable's *members* reach an expression slot, and any varargs call can grow.**
+  The Variables menu listed only variables assignable to the slot, so a `Matches found` never appeared under
+  a `boolean` condition and the combination logic `Matches` exists for was reachable only through the
+  type-unfiltered "Call Function" escape hatch. `ExpressionMenu.memberSubmenus` now fans a non-fitting
+  variable out into its type-compatible members via the same `MenuBuilders.buildScopeMenu` the SDK facades
+  use — `found ▸ has(…)`, `hasAny(…)`, `isEmpty()` — and the search view qualifies those leaves by receiver
+  (`found.hasAny`). Separately, `MethodInvocationBlock` renders a `✕` on each varargs argument and a trailing
+  `＋`, backed by the new `CodeEditor.addVarargsArgument` / `deleteArgumentFromMethodInvocation`:
+  `MethodSignature` always modelled the trailing parameter correctly, but `addArgument` had no UI caller, so
+  a call was frozen at the arguments it was created with. Image varargs keep the chip row instead.
+  `VarargsArgumentEditTest`.
+
 - **2026-08-05 — An `ImageTemplate...` varargs slot gets the group picker's chip row, so a call can hold more
   than one template.** A varargs image slot rendered one single-image picker per argument *that already
   existed*, so `found.hasAny(coin)` had no affordance that could ever produce `found.hasAny(coin, gem)` — the

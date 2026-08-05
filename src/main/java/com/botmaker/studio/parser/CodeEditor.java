@@ -544,6 +544,21 @@ public class CodeEditor {
         });
     }
 
+    /**
+     * Appends one more argument of {@code elementType} to {@code mi} — the writer behind the {@code ＋} a
+     * varargs slot renders. The new argument is the type's default initializer, so it lands as an editable
+     * slot rather than a compile error.
+     */
+    public void addVarargsArgument(MethodInvocation mi, ResolvedType elementType) {
+        edit(mi, EditKind.BODY, true, (cu, code) ->
+                MethodHandler.addVarargsArgument(cu, code, mi, elementType, analyzer, state));
+    }
+
+    /** Drops the argument at {@code index} from {@code mi} — the {@code ✕} on a varargs argument. */
+    public void deleteArgumentFromMethodInvocation(MethodInvocation mi, int index) {
+        edit(mi, EditKind.BODY, false, (cu, code) -> MethodHandler.deleteArgument(cu, code, mi, index));
+    }
+
     public void replaceWithMethodCall(Expression toReplace, ExpressionChoice.Method choice) {
         // If we're inside an ArrayCreation (new int[]{...}) replace the whole creation, not just the initializer.
         ASTNode targetNode = toReplace;

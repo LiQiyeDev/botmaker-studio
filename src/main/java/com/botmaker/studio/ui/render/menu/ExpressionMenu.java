@@ -304,7 +304,7 @@ public final class ExpressionMenu {
         List<MenuItem> leaves = new ArrayList<>();
         for (ExpressionType expr : available) {
             if (expr == ExpressionCatalog.VARIABLE) {
-                if (contextNode != null) MenuBuilders.collectMenuLeaves(variableSubmenu(expectedType, context, contextNode, onSelect), leaves);
+                if (contextNode != null) collectVariableLeaves(expectedType, context, contextNode, onSelect, leaves);
             } else if (expr == ExpressionCatalog.ACTIVITY) {
                 MenuBuilders.collectMenuLeaves(activitiesSubmenu(expectedType, context, onSelect), leaves);
             } else if (expr == ExpressionCatalog.ENUM_CONSTANT && expectedType.isEnum()) {
@@ -390,16 +390,68 @@ public final class ExpressionMenu {
             varMenu.getItems().add(new SeparatorMenuItem());
         }
 
-        if (vars.isEmpty()) {
+        for (ProjectAnalyzer.VariableOption var : vars) {
+            MenuItem item = new MenuItem(var.name() + (var.isField() ? " (Field)" : ""));
+            item.setOnAction(e -> onSelect.accept(new ExpressionChoice.Variable(var.name())));
+            varMenu.getItems().add(item);
+        }
+
+        List<Menu> members = memberSubmenus(expectedType, context, contextNode, vars, onSelect);
+        if (!members.isEmpty() && !vars.isEmpty()) varMenu.getItems().add(new SeparatorMenuItem());
+        varMenu.getItems().addAll(members);
+
+        if (vars.isEmpty() && members.isEmpty()) {
             varMenu.getItems().add(MenuBuilders.disabledItem("(No existing variables)"));
-        } else {
-            for (ProjectAnalyzer.VariableOption var : vars) {
-                MenuItem item = new MenuItem(var.name() + (var.isField() ? " (Field)" : ""));
-                item.setOnAction(e -> onSelect.accept(new ExpressionChoice.Variable(var.name())));
-                varMenu.getItems().add(item);
-            }
         }
         return varMenu;
+    }
+
+    /**
+     * The Variables menu flattened for the search view: a variable that fits the slot keeps its own label, and
+     * a member fan-out is qualified by its receiver ({@code found.hasAny}) — {@link MenuBuilders#collectMenuLeaves}
+     * alone would surface a bare {@code hasAny} with nothing saying whose it is.
+     */
+    private static void collectVariableLeaves(ResolvedType expectedType, CodeEditorService context, ASTNode contextNode,
+                                              Consumer<Object> onSelect, List<MenuItem> out) {
+        for (MenuItem item : variableSubmenu(expectedType, context, contextNode, onSelect).getItems()) {
+            if (item instanceof Menu sub) {
+                List<MenuItem> nested = new ArrayList<>();
+                MenuBuilders.collectMenuLeaves(sub, nested);
+                for (MenuItem leaf : nested) leaf.setText(sub.getText() + "." + leaf.getText());
+                out.addAll(nested);
+            } else if (!item.isDisable() && item.getText() != null) {
+                out.add(item);
+            }
+        }
+    }
+
+    /**
+     * One submenu per visible variable whose <em>own</em> type doesn't fit the slot but whose members do —
+     * {@code found ▸ has(…)}, {@code hasAny(…)}, {@code isEmpty()} for a {@code Matches found} in a
+     * {@code boolean} slot.
+     *
+     * <p>Without this the Variables menu only ever offered a variable usable as a whole, so the combination
+     * logic {@code Matches} exists for was reachable only through "Call Function" — the type-unfiltered escape
+     * hatch. Variables already listed as leaves are skipped: they fit as they are, and their members would
+     * bury that under a submenu.
+     */
+    private static List<Menu> memberSubmenus(ResolvedType expectedType, CodeEditorService context, ASTNode contextNode,
+                                             List<ProjectAnalyzer.VariableOption> alreadyListed, Consumer<Object> onSelect) {
+        ProjectAnalyzer analyzer = (context != null) ? context.getProjectAnalyzer() : null;
+        if (analyzer == null || contextNode == null || expectedType == null || expectedType.isUnknown()) return List.of();
+
+        Set<String> listed = alreadyListed.stream().map(ProjectAnalyzer.VariableOption::name).collect(Collectors.toSet());
+        List<Menu> out = new ArrayList<>();
+        for (ProjectAnalyzer.VariableOption var : analyzer.getVisibleVariables(contextNode, ResolvedType.UNKNOWN)) {
+            if (listed.contains(var.name())) continue;
+            if (!ProjectAnalyzer.isUserVariable(var.name())) continue;
+            ResolvedType varType = var.type();
+            if (varType.isArray()) continue;                  // arrays have no meaningful instance members
+            if (varType.isPrimitive() && !varType.isString()) continue;
+            MenuBuilders.addIfNonNull(out, MenuBuilders.buildScopeMenu(
+                    var.name(), var.name(), varType.qualifiedName(), false, expectedType, analyzer, onSelect));
+        }
+        return out;
     }
 
     /** A lowercase-simple-name-based variable name (e.g. {@code direction}), suffixed to avoid clashing with

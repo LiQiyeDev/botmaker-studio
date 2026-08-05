@@ -589,6 +589,8 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
         List<SdkDocs.Param> docParams = sdkDocParams(context, targetType, currentSignature);
 
         int imageVarargsFrom = imageVarargsStart(currentSignature);
+        // Everything the image chip row doesn't claim falls back to the generic grow/shrink affordance.
+        int varargsFrom = imageVarargsFrom >= 0 ? -1 : varargsTailStart(currentSignature);
 
         for (int i = 0; i < arguments.size(); i++) {
             if (i == imageVarargsFrom) {
@@ -616,12 +618,16 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
                 Button changeBtn = createChangeButton(e ->
                         showExpressionMenuAndReplace((Button) e.getSource(), context, finalParamType, (Expression) arg.getAstNode()));
                 builder.addNode(BlockUIComponents.createArgumentPill(pickerLabel, editor, changeBtn, true));
+                addRemoveVarargsButton(builder, context, varargsFrom, i);
                 continue;
             }
 
             Label typeLabel = argLabel(argName != null ? argName : paramType.simpleName(), argDesc);
             builder.addNode(createArgumentPill(context, arg, paramType, typeLabel, true));
+            addRemoveVarargsButton(builder, context, varargsFrom, i);
         }
+
+        if (varargsFrom >= 0) addVarargsButton(builder, context, currentSignature);
 
         // An image varargs call that has no templates yet — hasAny(), findAll() — renders nothing above,
         // because the loop walks the arguments that exist. The row still has to appear, or the slot is
@@ -629,6 +635,46 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
         if (imageVarargsFrom == arguments.size()) {
             builder.addNode(imageVarargsRow(context, imageVarargsFrom));
         }
+    }
+
+    /**
+     * The argument index at which this call's trailing varargs begin, or {@code -1} when the resolved overload
+     * isn't varargs. Unlike {@link #imageVarargsStart} this makes no demand on what the arguments hold — the
+     * generic affordance adds and removes whole slots, it never reads or rewrites their contents.
+     */
+    private int varargsTailStart(MethodSignature signature) {
+        if (signature == null || !signature.varargs() || signature.paramTypes().isEmpty()) return -1;
+        return signature.paramTypes().size() - 1;
+    }
+
+    /**
+     * The {@code ✕} that drops argument {@code index}, rendered only on arguments inside the varargs tail —
+     * a fixed parameter can't be removed without breaking the call.
+     */
+    private void addRemoveVarargsButton(SentenceLayoutBuilder builder, CodeEditorService context, int varargsFrom, int index) {
+        if (varargsFrom < 0 || index < varargsFrom || isReadOnly) return;
+        Button remove = new Button("✕");
+        remove.getStyleClass().add("icon-button");
+        remove.setTooltip(new Tooltip("Remove this argument"));
+        remove.setOnAction(e ->
+                context.getCodeEditor().deleteArgumentFromMethodInvocation((MethodInvocation) this.astNode, index));
+        builder.addNode(remove);
+    }
+
+    /**
+     * The trailing {@code ＋} that appends one more varargs argument. Its absence is why
+     * {@code MethodSignature} could model varargs correctly since the beginning and a call still never grew
+     * past the arguments it was created with: {@code CodeEditor.addVarargsArgument} had no caller.
+     */
+    private void addVarargsButton(SentenceLayoutBuilder builder, CodeEditorService context, MethodSignature signature) {
+        if (isReadOnly) return;
+        ResolvedType element = signature.paramTypes().get(signature.paramTypes().size() - 1);
+        Button add = new Button("＋");
+        add.getStyleClass().addAll("icon-button", "expression-add-button");
+        add.setTooltip(new Tooltip("Add another " + (element != null ? element.simpleName() : "argument")));
+        add.setOnAction(e ->
+                context.getCodeEditor().addVarargsArgument((MethodInvocation) this.astNode, element));
+        builder.addNode(add);
     }
 
     /**

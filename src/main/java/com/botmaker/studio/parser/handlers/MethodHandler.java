@@ -337,6 +337,33 @@ public class MethodHandler {
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
     }
 
+    /**
+     * Appends a default-valued argument of {@code elementType} — one more slot in a varargs tail. Same node
+     * factory {@link #syncArguments} uses when an overload switch grows the argument list, so a hand-added
+     * varargs argument and a generated one look identical.
+     */
+    public static String addVarargsArgument(CompilationUnit cu, String originalCode, MethodInvocation mi,
+                                            ResolvedType elementType, ProjectAnalyzer analyzer, ProjectState state) {
+        AST ast = cu.getAST();
+        ASTRewrite rewriter = ASTRewrite.create(ast);
+        Expression newArg = NodeCreator.createDefaultInitializer(ast, elementType, cu, state);
+        if (newArg != null) {
+            rewriter.getListRewrite(mi, MethodInvocation.ARGUMENTS_PROPERTY).insertLast(newArg, null);
+            ImportManager.addImportForType(cu, rewriter, elementType, analyzer, state);
+        }
+        return AstRewriteHelper.applyRewrite(rewriter, originalCode);
+    }
+
+    /** Removes the argument at {@code index}; a no-op when the index is out of range. */
+    public static String deleteArgument(CompilationUnit cu, String originalCode, MethodInvocation mi, int index) {
+        ASTRewrite rewriter = ASTRewrite.create(cu.getAST());
+        List<?> args = mi.arguments();
+        if (index >= 0 && index < args.size()) {
+            rewriter.getListRewrite(mi, MethodInvocation.ARGUMENTS_PROPERTY).remove((ASTNode) args.get(index), null);
+        }
+        return AstRewriteHelper.applyRewrite(rewriter, originalCode);
+    }
+
     private static void syncArguments(AST ast, ASTRewrite rewriter, MethodInvocation mi, List<ResolvedType> targetTypes,
                                       CompilationUnit cu, ProjectAnalyzer analyzer, ProjectState state) {
         ListRewrite argsRewrite = rewriter.getListRewrite(mi, MethodInvocation.ARGUMENTS_PROPERTY);
