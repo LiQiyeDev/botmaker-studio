@@ -396,8 +396,16 @@ public class StatementFactory {
     private static Statement createMatchesSwitchStatement(AST ast, CompilationUnit cu, ASTRewrite rewriter,
                                                           ProjectState state, ProjectAnalyzer analyzer,
                                                           ASTNode context) {
-        ProjectAnalyzer.VariableOption subject = firstVisibleVariable(analyzer, context,
-                v -> v.type() != null && "Matches".equals(v.type().simpleName()));
+        // The enclosing find call's lambda parameter first, and only then a type lookup. A lambda parameter's
+        // inferred type routinely resolves to nothing at edit time (Studio doesn't compile against the SDK),
+        // so asking the analyzer for "a variable of type Matches" comes back empty in precisely the place the
+        // answer is certain — and the block then inserted `switch (null)`.
+        String subject = MatchesGroupScope.matchesVariable(context);
+        if (subject == null) {
+            ProjectAnalyzer.VariableOption typed = firstVisibleVariable(analyzer, context,
+                    v -> v.type() != null && "Matches".equals(v.type().simpleName()));
+            subject = typed == null ? null : typed.name();
+        }
 
         // `Matches` is named in every case label, so the file needs it even though the variable it switches on
         // came from a lambda parameter whose type is inferred and therefore never imported by anything else.
@@ -410,7 +418,7 @@ public class StatementFactory {
                 : ImageTemplateLibrary.DEFAULT_TEMPLATE_PATH;
 
         return MatchesSwitchHandler.newMatchesSwitch(ast,
-                subject == null ? emptySlot(ast) : ast.newSimpleName(subject.name()),
+                subject == null ? emptySlot(ast) : ast.newSimpleName(subject),
                 false, List.of(seed));
     }
 

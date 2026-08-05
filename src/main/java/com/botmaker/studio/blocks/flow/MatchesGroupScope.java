@@ -9,6 +9,7 @@ import org.eclipse.jdt.core.dom.IBinding;
 import org.eclipse.jdt.core.dom.LambdaExpression;
 import org.eclipse.jdt.core.dom.MethodInvocation;
 import org.eclipse.jdt.core.dom.SimpleName;
+import org.eclipse.jdt.core.dom.SingleVariableDeclaration;
 import org.eclipse.jdt.core.dom.VariableDeclarationFragment;
 
 import java.util.List;
@@ -43,6 +44,33 @@ public final class MatchesGroupScope {
         MethodInvocation call = enclosingGroupCall(node);
         if (call == null || call.arguments().isEmpty()) return null;
         return groupPaths((Expression) call.arguments().getFirst());
+    }
+
+    /**
+     * The name of the {@code Matches} value in scope at {@code node} — the enclosing find call's lambda
+     * parameter — or {@code null} when there is no such call.
+     *
+     * <p>Taken from the lambda rather than from a type lookup on purpose. Studio does not compile against the
+     * SDK, so a lambda parameter's inferred type routinely resolves to nothing at edit time and a search for
+     * "a variable of type {@code Matches}" comes back empty in exactly the place the answer is certain: the
+     * parameter of a {@code whileFindAny}-shaped call <em>is</em> the {@code Matches}, by the signature. The
+     * symptom when this was a type lookup was a switch inserted over {@code null}.
+     */
+    public static String matchesVariable(ASTNode node) {
+        MethodInvocation call = enclosingGroupCall(node);
+        if (call == null) return null;
+        for (Object arg : call.arguments()) {
+            if (arg instanceof LambdaExpression lambda && lambda.parameters().size() == 1) {
+                Object parameter = lambda.parameters().getFirst();
+                if (parameter instanceof VariableDeclarationFragment fragment) {
+                    return fragment.getName().getIdentifier();
+                }
+                if (parameter instanceof SingleVariableDeclaration declared) {
+                    return declared.getName().getIdentifier();
+                }
+            }
+        }
+        return null;
     }
 
     /** The nearest enclosing {@code ImageFinder.whileFindAny(group, found -> …)}-shaped call, or null. */

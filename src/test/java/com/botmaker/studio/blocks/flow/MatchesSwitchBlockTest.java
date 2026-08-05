@@ -3,6 +3,7 @@ package com.botmaker.studio.blocks.flow;
 import com.botmaker.studio.core.BlockWithChildren;
 import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.CodeBlock;
+import com.botmaker.studio.palette.BlockCatalog;
 import com.botmaker.studio.parser.EditorFixture;
 import org.eclipse.jdt.core.dom.ASTVisitor;
 import org.eclipse.jdt.core.dom.SwitchStatement;
@@ -125,6 +126,54 @@ class MatchesSwitchBlockTest {
         long bodies = ((BlockWithChildren) block).getChildren().stream()
                 .filter(c -> c instanceof BodyBlock).count();
         assertEquals(2, bodies, "one body for the branch, one for `otherwise`");
+    }
+
+    // ---- Inserting it ----
+
+    /**
+     * Dropping the block into a group-lambda body switches over that lambda's parameter.
+     *
+     * <p>The regression this pins produced {@code switch (null)}: the subject came from asking the analyzer
+     * for a variable of type {@code Matches}, and a lambda parameter's inferred type resolves to nothing at
+     * edit time because Studio doesn't compile against the SDK. The parameter of a {@code whileFindAny}-shaped
+     * call <em>is</em> the {@code Matches} by the signature, so it is read off the call instead.
+     */
+    @Test
+    void droppingItIntoAFindLambdaSwitchesOverThatLambdasValue() {
+        List<org.junit.jupiter.api.function.Executable> checks = new ArrayList<>();
+        for (String call : List.of("whileFindAny", "ifFindAny", "whileFindAll", "ifFindAll")) {
+            checks.add(() -> {
+                EditorFixture fixture = new EditorFixture("""
+                        package com.mybot;
+                        public class Subject {
+                            static final ImageTemplateGroup POPUPS =
+                                    ImageTemplateGroup.of(new ImageTemplate("popups/mail.png"));
+                            public void run() {
+                                ImageFinder.%s(POPUPS, found -> {
+                                    System.out.println(1);
+                                });
+                            }
+                        }
+                        """.formatted(call));
+
+                // By parent node, not by body text: a method body stringifies to include the whole lambda, so
+                // a text match picks the enclosing body and the drop lands outside the call entirely.
+                BodyBlock lambdaBody = (BodyBlock) flatten(fixture.root).stream()
+                        .filter(b -> b instanceof BodyBlock bb
+                                && bb.getAstNode().getParent() instanceof org.eclipse.jdt.core.dom.LambdaExpression)
+                        .findFirst().orElseThrow(() -> new AssertionError("no lambda body for " + call));
+
+                fixture.editor.addStatement(lambdaBody, BlockCatalog.MATCHES_SWITCH, 0);
+
+                assertNotNull(fixture.lastCode, call + " inserted nothing");
+                assertTrue(fixture.lastCode.contains("switch (found)"),
+                        () -> call + " switched over the wrong thing: " + fixture.lastCode);
+                // And it is seeded from the group, so the branch tests something that can actually appear.
+                assertTrue(fixture.lastCode.contains("m.hasAny(new ImageTemplate(\"popups/mail.png\"))"),
+                        () -> call + " did not seed from the group: " + fixture.lastCode);
+            });
+        }
+        assertAll(checks);
     }
 
     // ---- The narrowing ----
