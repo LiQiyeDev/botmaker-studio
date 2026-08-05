@@ -7,7 +7,6 @@ import com.botmaker.studio.core.CodeBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.core.StatementBlock;
 import com.botmaker.studio.project.StudioProjectSettings;
-import com.botmaker.studio.project.activity.ActivityDefinition;
 import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.ProjectSettingsService;
@@ -63,7 +62,6 @@ import static com.botmaker.studio.ui.app.overlay.OverlayStyles.PANEL;
 import static com.botmaker.studio.ui.app.overlay.OverlayStyles.applyThemeClass;
 import static com.botmaker.studio.ui.app.overlay.OverlayStyles.dimLabel;
 import static com.botmaker.studio.ui.app.overlay.OverlayStyles.iconButton;
-import static com.botmaker.studio.ui.app.overlay.OverlayStyles.info;
 import static com.botmaker.studio.ui.app.overlay.OverlayStyles.label;
 import static com.botmaker.studio.ui.app.overlay.OverlayStyles.warn;
 
@@ -158,19 +156,19 @@ public final class ProgramShapeOverlay {
     /** When on, inserting a call opens its argument config popover as soon as the re-parsed block is available. */
     private CheckBox autoFillArgs;
 
-    /** The activity being authored into; picking one switches the editor to its file and re-homes the cursor. */
-    private ComboBox<String> activityBox;
-
-    /** The method the tree is scoped to (its statements are the only ones rendered); picking one re-homes the cursor. */
-    private ComboBox<String> methodBox;
-    /** Name of the method currently rendered/edited, or {@code null} to fall back to every top-level body. */
-    private String selectedMethod;
+    /** Where blocks go: the activity file and the method within it. See {@link OverlayTargetPicker}. */
+    private final OverlayTargetPicker picker;
 
     // ── Record mode ──────────────────────────────────────────────────────────────────────────────────────
     private RecordingSession session;
     private Button recordBtn;
     private Button stopBtn;
-    private Label recStatus;
+    /**
+     * The HUD's one-line readout: what the last action did, or why it did nothing. Recording overwrites it with
+     * a live count while a session runs. Every silent return in this class used to be exactly that — silent —
+     * on a surface that has no other channel: there is no console, no status bar and no undo visible from here.
+     */
+    private Label status;
     /** Set when the overlay should begin recording as soon as it is shown (opened via the Record Macro button). */
     private boolean autoStartRecording;
     /** Blocks from a finished recording, drained one-per-pulse; {@link #draining} guards the continuation. */
@@ -215,6 +213,13 @@ public final class ProgramShapeOverlay {
         this.activities = activities;
         this.target = target;
         this.tree.setDiagnostics(context.getDiagnosticsManager());
+        this.picker = new OverlayTargetPicker(context, settings, activities,
+                new OverlayTargetPicker.Callbacks(this::openTargetFile, this::scopeToMethod, this::status));
+    }
+
+    /** Sets the HUD's one-line readout. See {@link #status}. */
+    private void status(String message) {
+        if (status != null) status.setText(message == null ? "" : message);
     }
 
     /**
@@ -423,21 +428,19 @@ public final class ProgramShapeOverlay {
         // it otherwise only ever reflects the list captured at the moment the overlay was opened.
         subscriptions.add(context.getEventBus().subscribe(ActivitiesChangedEvent.class, e -> {
             if (stage != null && stage.isShowing()) {
-                Platform.runLater(this::refreshActivityBox);
+                Platform.runLater(() -> {
+                    picker.refreshActivities();
+                    // Record's disabled state was computed once, at build time, so adding the project's first
+                    // activity left the button permanently grey behind a tooltip that no longer applied.
+                    refreshRecordAvailability();
+                });
             }
         }));
 
-        // The handler is installed *after* the initial value, so the one explicit call below is the only one —
-        // ComboBox.setValue's action-firing behaviour is not something to have two code paths depend on.
-        String initial = preferredTarget();
-        if (initial != null) {
-            activityBox.setValue(initial);
-            selectActivity(initial);
-        }
-        activityBox.setOnAction(e -> selectActivity(activityBox.getValue()));
+        picker.selectInitialTarget();
 
         root = context.getRootBlock().orElse(null);
-        refreshMethodBox();
+        refreshMethods();
         ensureCursor();
         render();
 
@@ -491,25 +494,13 @@ public final class ProgramShapeOverlay {
         stopBtn = new Button("■ Stop");
         stopBtn.setDisable(true);
         stopBtn.setOnAction(e -> stopRecordingAndInsert());
-        recStatus = new Label("");
-        recStatus.setStyle(LABEL);
-        if (!RecordingSession.isSupported()) {
-            recordBtn.setDisable(true);
-            recordBtn.setTooltip(new Tooltip("Recording is available on Linux (X11) only"));
-        } else if (!(target instanceof CaptureTarget.WindowTarget)) {
-            // Recording translates clicks to window-relative coordinates, so it needs a window target.
-            recordBtn.setDisable(true);
-            recordBtn.setTooltip(new Tooltip("Recording targets a window — set a window as the default capture target"));
-        } else if (activityNames().isEmpty()) {
-            // Say so up front. There is nowhere editable to put the blocks, and the failure downstream is silent.
-            recordBtn.setDisable(true);
-            recordBtn.setTooltip(new Tooltip(
-                    "Nowhere to record into — add an activity in Project ▸ Activity Flow first"));
-        } else {
-            recordBtn.setTooltip(new Tooltip("Record real clicks/keys and insert them at the cursor"));
-        }
-        HBox recordRow = new HBox(6, recordBtn, stopBtn, recStatus);
+        refreshRecordAvailability();
+        HBox recordRow = new HBox(6, recordBtn, stopBtn);
         recordRow.setAlignment(Pos.CENTER_LEFT);
+
+        status = new Label("");
+        status.setStyle(LABEL);
+        status.setWrapText(true);
 
         autoFillArgs = new CheckBox("Fill arguments after adding");
         autoFillArgs.setSelected(true);
@@ -517,179 +508,66 @@ public final class ProgramShapeOverlay {
         autoFillArgs.setTooltip(new Tooltip(
                 "When on, adding an action immediately opens its argument editor (draw rect / pick template)"));
 
-        VBox controls = new VBox(6, buildActivityRow(), buildMethodRow(), paletteBar, stepRow, recordRow, autoFillArgs);
+        VBox controls = new VBox(6, picker.activityRow(), picker.methodRow(), paletteBar, stepRow, recordRow,
+                autoFillArgs, status);
         controls.setPadding(new Insets(8));
         controls.setStyle(PANEL);
         return controls;
     }
 
-    // ── target activity ─────────────────────────────────────────────────────────────────────────────────
-
-    /** The picker naming the activity every insert goes into, plus a nudge when the project has none. */
-    private HBox buildActivityRow() {
-        List<String> items = targetNames();
-        activityBox = new ComboBox<>(javafx.collections.FXCollections.observableArrayList(items));
-        activityBox.setTooltip(new Tooltip("The activity that new and recorded blocks are inserted into"));
-        activityBox.setCellFactory(lv -> new javafx.scene.control.ListCell<>() {
-            @Override protected void updateItem(String item, boolean empty) {
-                super.updateItem(item, empty);
-                setText(empty ? null : item);
-                boolean header = SCAFFOLD_HEADER.equals(item);
-                setDisable(header);   // a caption, not a choice
-                setStyle(header ? "-fx-font-style: italic; -fx-opacity: 0.7;" : "");
-            }
-        });
-        HBox row = new HBox(6, label("Activity:"), activityBox);
-        activityBox.setDisable(items.isEmpty());
-        if (activityNames().isEmpty()) {
-            activityBox.setPromptText("none yet");
-            row.getChildren().add(dimLabel("add one in Project ▸ Activity Flow"));
+    /**
+     * Enables Record when there is a supported recorder, a window to record against and somewhere to put the
+     * blocks — and when there isn't, says which. Re-run whenever the project's activities change, since the
+     * last of those three answers is the one that changes while the HUD is open.
+     */
+    private void refreshRecordAvailability() {
+        if (recordBtn == null || (session != null && session.isRecording())) return;
+        String blocker;
+        if (!RecordingSession.isSupported()) {
+            blocker = "Recording is available on Linux (X11) only";
+        } else if (!(target instanceof CaptureTarget.WindowTarget)) {
+            // Recording translates clicks to window-relative coordinates, so it needs a window target.
+            blocker = "Recording targets a window — set a window as the default capture target";
+        } else if (!picker.hasTargets()) {
+            // Say so up front. There is nowhere editable to put the blocks, and the failure downstream is silent.
+            blocker = "Nowhere to record into — add an activity in Project ▸ Activity Flow first";
+        } else {
+            blocker = null;
         }
-        row.setAlignment(Pos.CENTER_LEFT);
-        return row;
+        recordBtn.setDisable(blocker != null);
+        recordBtn.setTooltip(new Tooltip(
+                blocker != null ? blocker : "Record real clicks/keys and insert them at the cursor"));
     }
 
-    /** The non-archived activities, in flow order — the ones that have a stub file and actually run. */
-    private List<String> activityNames() {
-        return activities.current().liveActivities().stream().map(ActivityDefinition::name).toList();
-    }
-
-    /** Caption separating the flow's activities from the scaffold hooks; disabled in the list, never selectable. */
-    private static final String SCAFFOLD_HEADER = "— scaffolds —";
+    // ── where blocks go ─────────────────────────────────────────────────────────────────────────────────
 
     /**
-     * Everything the overlay can author into: the activities, then the supervised scaffold hooks
-     * ({@code GoHome}, {@code Popups}) that exist on disk. The hooks are as much a place for blocks as any
-     * activity — their {@code run()} body is the user's by {@link com.botmaker.studio.project.MethodLock}'s
-     * design, and {@code Popups} in particular is where the popup-dismissal steps belong — but they have no
-     * {@link ActivityDefinition}, so a list built from the flow alone could never reach them.
+     * Opens the file the activity picker resolved and re-homes onto its default method. {@code switchToFile} is
+     * synchronous: it re-parses, republishes the tree and returns, so the tree read back here is the new one.
      */
-    private List<String> targetNames() {
-        List<String> out = new ArrayList<>(activityNames());
-        List<String> hooks = hookNames();
-        if (!hooks.isEmpty()) {
-            out.add(SCAFFOLD_HEADER);
-            out.addAll(hooks);
-        }
-        return out;
-    }
-
-    /** The scaffold hooks present in this project, by class name. Empty for a template that has none. */
-    private List<String> hookNames() {
-        java.nio.file.Path dir = context.getConfig().mainSourceFile().getParent();
-        if (dir == null) return List.of();
-        return com.botmaker.studio.project.MethodLock.superviseHookFiles().stream()
-                .sorted()
-                .filter(f -> java.nio.file.Files.isRegularFile(dir.resolve(f)))
-                .map(f -> f.substring(0, f.length() - ".java".length()))
-                .toList();
-    }
-
-    /**
-     * Refreshes {@link #activityBox}'s items after an {@link ActivitiesChangedEvent} (an activity was
-     * created/renamed/removed elsewhere). Leaves an already-valid selection alone — creating an unrelated
-     * activity shouldn't yank the user off what they're editing — but picks a default when the box was
-     * previously empty or its selection no longer exists.
-     */
-    private void refreshActivityBox() {
-        if (activityBox == null) return;
-        List<String> items = targetNames();
-        activityBox.getItems().setAll(items);
-        activityBox.setDisable(items.isEmpty());
-        if (items.isEmpty()) {
-            activityBox.setPromptText("none yet");
-            return;
-        }
-        // A scaffold hook is a valid selection, so the still-valid test is against the whole item list —
-        // otherwise creating an unrelated activity would yank a user editing Popups back into the flow.
-        String current = activityBox.getValue();
-        if (current == null || !items.contains(current)) {
-            String next = preferredTarget();
-            activityBox.setValue(next);
-            selectActivity(next);
-        }
-    }
-
-    /**
-     * Which target to open on: the one last authored into (activity <em>or</em> scaffold hook — the last-used
-     * one is remembered per project so reopening the overlay resumes where the last session stopped), else the
-     * flow's start node, else the first activity, else a hook for a project that has no activities yet.
-     */
-    private String preferredTarget() {
-        String last = settings.current().lastRecordedActivity();
-        if (last != null && !SCAFFOLD_HEADER.equals(last) && targetNames().contains(last)) return last;
-        List<String> names = activityNames();
-        if (names.isEmpty()) {
-            List<String> hooks = hookNames();
-            return hooks.isEmpty() ? null : hooks.get(0);
-        }
-        String start = activities.current().flow().resolvedStart(names);
-        return names.contains(start) ? start : names.get(0);
-    }
-
-    /**
-     * Switches the editor to the picked target's file, parks the cursor in its {@code run()}, remembers it.
-     * The file is {@code activities/<name>.java} for an activity and {@code <name>.java} beside the main source
-     * for a scaffold hook — {@link #targetNames} offers both, so this resolves both.
-     */
-    private void selectActivity(String name) {
-        if (name == null || SCAFFOLD_HEADER.equals(name)) return;
-        java.nio.file.Path file = context.getConfig().activitiesPackageDir().resolve(name + ".java");
-        if (!java.nio.file.Files.isRegularFile(file)) {
-            java.nio.file.Path pkg = context.getConfig().mainSourceFile().getParent();
-            if (pkg != null) file = pkg.resolve(name + ".java");
-        }
-        if (!java.nio.file.Files.isRegularFile(file)) {
-            warn(stage, "Couldn't open " + name + ".java.\n\nUse File ▸ Recover Project Files to restore it.");
-            return;
-        }
-        context.switchToFile(file);   // synchronous: re-parses, republishes the tree, and returns
+    private void openTargetFile(java.nio.file.Path file) {
+        context.switchToFile(file);
         root = context.getRootBlock().orElse(null);
-        selectedMethod = null;        // a different file — the previous selection doesn't apply here
-        refreshMethodBox();
+        refreshMethods();
         render();
-        settings.update(settings.current().withLastRecordedActivity(name));
     }
 
-    // ── target method ───────────────────────────────────────────────────────────────────────────────────
-
-    /** The picker naming the method whose statements are the only ones rendered/edited. */
-    private HBox buildMethodRow() {
-        methodBox = new ComboBox<>();
-        methodBox.setTooltip(new Tooltip("Show only this method's blocks — new/recorded blocks land here too"));
-        methodBox.setOnAction(e -> selectMethod(methodBox.getValue()));
-        HBox row = new HBox(6, label("Method:"), methodBox);
-        row.setAlignment(Pos.CENTER_LEFT);
-        return row;
-    }
-
-    /** Every method declared in the current file, in tree (DFS) order. */
-    private List<String> methodNames() {
-        return root == null ? List.of() : index().methodNames();
-    }
-
-    /** Switches which method's blocks are rendered/edited, re-homing the cursor into it. */
-    private void selectMethod(String name) {
-        selectedMethod = name;
-        InsertionCursor c = index().methodCursor(name);
+    /** Scopes the tree to a method the user picked, parking the caret inside it. */
+    private void scopeToMethod(String label) {
+        InsertionCursor c = index().methodCursor(label);
         if (c != null) state.setInsertionCursor(c);
         render();
     }
 
     /**
-     * Repopulates {@link #methodBox}'s items from the current file. Leaves an already-valid selection alone
-     * (so an edit elsewhere in the file doesn't yank the view away from what the user is looking at); picks
-     * {@code run} (or the first method) when the selection is unset or no longer exists.
+     * Repopulates the method picker from the current file, re-homing the caret when that changed which method
+     * is scoped — the picker owns the selection, but only the tree index can say where inside it to park.
      */
-    private void refreshMethodBox() {
-        List<String> names = methodNames();
-        if (methodBox != null) methodBox.getItems().setAll(names);
-        if (selectedMethod == null || !names.contains(selectedMethod)) {
-            selectedMethod = names.contains("run") ? "run" : (names.isEmpty() ? null : names.get(0));
-            InsertionCursor c = index().methodCursor(selectedMethod);
+    private void refreshMethods() {
+        if (picker.refreshMethods(root == null ? List.of() : index().methodLabels())) {
+            InsertionCursor c = index().methodCursor(picker.selectedMethod());
             if (c != null) state.setInsertionCursor(c);
         }
-        if (methodBox != null) methodBox.setValue(selectedMethod);
     }
 
     /**
@@ -812,11 +690,10 @@ public final class ProgramShapeOverlay {
         insertRecordedBatch(MacroTranslator.translate(events, ref));
     }
 
+    /** While a session runs the status line is the recorder's; stopping leaves whatever the insert reported. */
     private void updateRecStatus() {
-        if (recStatus == null) return;
-        recStatus.setText(session == null || !session.isRecording()
-                ? ""
-                : (session.isPaused() ? "Paused" : "Recording") + " — " + session.actionCount() + " actions");
+        if (session == null || !session.isRecording()) return;
+        status((session.isPaused() ? "Paused" : "Recording") + " — " + session.actionCount() + " actions");
     }
 
     /**
@@ -851,10 +728,17 @@ public final class ProgramShapeOverlay {
     /** Inserts {@code type} in the slot just below the cursor, arming the post-reparse cursor/config handoff. */
     private void insertBelowCursor(BlockType type) {
         InsertionCursor c = cursor();
-        if (c == null || type == null) return;
+        if (type == null) return;
+        if (c == null) {
+            status("Nowhere to insert — click a row to place the caret first.");
+            return;
+        }
         // The caret should never be parked in scaffolding (CursorNavigator skips read-only bodies), but the
         // overlay reaches CodeEditor without going through a block, so don't rely on that alone.
-        if (c.body().isReadOnly()) return;
+        if (c.body().isReadOnly()) {
+            status("Can't insert here — this is generated code. Pick an activity method.");
+            return;
+        }
         int insertIndex = Math.min(c.index() + 1, c.body().getStatements().size());
         pendingInsert = new BlockTree.Position(index().ordinalOf(c.body()), insertIndex);
         context.getCodeEditor().addStatement(c.body(), type, insertIndex);
@@ -864,7 +748,11 @@ public final class ProgramShapeOverlay {
     private void deleteFocused() {
         InsertionCursor c = cursor();
         StatementBlock stmt = focusedStatement();
-        if (c != null && stmt != null) delete(stmt, c.body(), c.index());
+        if (c == null || stmt == null) {
+            status("Nothing to delete — the caret is on an empty slot.");
+            return;
+        }
+        delete(stmt, c.body(), c.index());
     }
 
     /**
@@ -881,7 +769,14 @@ public final class ProgramShapeOverlay {
      */
     private void delete(StatementBlock stmt, BodyBlock body, int index) {
         org.eclipse.jdt.core.dom.Statement s = stmt.enclosingStatement();
-        if (stmt.isReadOnly() || s == null) return;
+        if (stmt.isReadOnly()) {
+            status("Can't delete generated code — it's maintained by Studio.");
+            return;
+        }
+        if (s == null) {
+            status("Can't delete this row on its own.");
+            return;
+        }
         state.setInsertionCursor(new InsertionCursor(body, Math.max(-1, index - 1)));
         context.getCodeEditor().deleteStatement(s);
     }
@@ -897,9 +792,10 @@ public final class ProgramShapeOverlay {
     /** Queues a recorded block sequence for one-per-pulse insertion at the cursor, without arg popovers. */
     private void insertRecordedBatch(List<BlockType> blocks) {
         if (blocks == null || blocks.isEmpty()) {
-            info(stage, "Nothing to insert — no recognizable actions were recorded.");
+            status("Nothing to insert — no recognizable actions were recorded.");
             return;
         }
+        status("Recorded — inserting " + blocks.size() + (blocks.size() == 1 ? " block" : " blocks") + "…");
         recordQueue.addAll(blocks);
         draining = true;
         suppressAutoFill = true;
@@ -933,9 +829,15 @@ public final class ProgramShapeOverlay {
     /** Seeds the cursor from the tree if none is set (or the current one dangles after a re-parse). */
     private void ensureCursor() {
         InsertionCursor c = cursor();
-        if (c == null || !index().contains(c.body())) {
-            state.setInsertionCursor(CursorNavigator.defaultCursor(root));
-        }
+        BodyBlock scope = index().methodBody(picker.selectedMethod());
+        boolean live = c != null && index().contains(c.body());
+        // Staying inside the scoped method matters as much as being live. Reseeding with defaultCursor could
+        // land the caret in a *different* method than the tree is scoped to: the render then showed no focus
+        // anywhere — the caret was real, just not on screen — and every insert landed in the wrong method.
+        if (live && (scope == null || BlockTree.containsDescendant(scope, c.body()))) return;
+        state.setInsertionCursor(scope != null
+                ? index().methodCursor(picker.selectedMethod())
+                : CursorNavigator.defaultCursor(root));
     }
 
     private void move(InsertionCursor next) {
@@ -964,7 +866,7 @@ public final class ProgramShapeOverlay {
 
     /** Handles a republished block tree: re-render, resolve any pending insertion, continue a recorded batch. */
     private void onBlocksUpdated() {
-        refreshMethodBox();   // pick up a method added/removed by hand; keeps a still-valid selection as-is
+        refreshMethods();   // pick up a method added/removed by hand; keeps a still-valid selection as-is
         render();
         // Before the pending handling below, which may open a popover of its own over the top of this one.
         refreshConfig();
@@ -981,6 +883,7 @@ public final class ProgramShapeOverlay {
                     state.setInsertionCursor(new InsertionCursor(body, p.index()));
                     render();
                     StatementBlock inserted = statements.get(p.index());
+                    if (!draining) status("Inserted " + OverlayTreeView.compactLabel(inserted));
                     if (ov != null && inserted instanceof MethodInvocationBlock mib) {
                         // A specific overload was picked in the palette bar — apply it to the fresh call. That
                         // is another edit, so the block we'd open the popover on is about to be replaced;
@@ -1013,7 +916,7 @@ public final class ProgramShapeOverlay {
         // Scoped to the selected method (buildMethodRow) when there is one, so unrelated methods' statements
         // don't appear mixed into one flat list. Falls back to every top-level body when none is selected
         // (e.g. a file with no methods) — the old "Program is empty." path stays reachable either way.
-        BodyBlock scoped = index().methodBody(selectedMethod);
+        BodyBlock scoped = index().methodBody(picker.selectedMethod());
         if (scoped != null) {
             tree.render(List.of(scoped), cursor());
             return;

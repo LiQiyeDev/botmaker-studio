@@ -133,20 +133,24 @@ public final class BlockTree {
             return null;
         }
 
-        /** Every method declared in the tree, in DFS order. */
-        public List<String> methodNames() {
-            List<String> names = new ArrayList<>();
+        /**
+         * Every method declared in the tree, in DFS order, labelled with its parameter list — {@code run()},
+         * {@code aim(Rect area, int tries)}. The bare name is not an identity: two overloads collapsed to one
+         * picker entry, and every lookup below then silently answered with whichever came first.
+         */
+        public List<String> methodLabels() {
+            List<String> labels = new ArrayList<>();
             for (CodeBlock b : all) {
-                if (b instanceof MethodDeclarationBlock m) names.add(m.getMethodName());
+                if (b instanceof MethodDeclarationBlock m) labels.add(methodLabel(m));
             }
-            return names;
+            return labels;
         }
 
-        /** The body of the method named {@code methodName}, or {@code null} if there is no such method. */
-        public BodyBlock methodBody(String methodName) {
-            if (methodName == null) return null;
+        /** The body of the method labelled {@code label}, or {@code null} if there is no such method. */
+        public BodyBlock methodBody(String label) {
+            if (label == null) return null;
             for (CodeBlock b : all) {
-                if (!(b instanceof MethodDeclarationBlock m) || !methodName.equals(m.getMethodName())) continue;
+                if (!(b instanceof MethodDeclarationBlock m) || !label.equals(methodLabel(m))) continue;
                 for (CodeBlock child : m.getChildren()) {
                     if (child instanceof BodyBlock body) return body;
                 }
@@ -161,10 +165,10 @@ public final class BlockTree {
          * experiences as the insert having done nothing. Falls back to {@link CursorNavigator#defaultCursor}
          * for a file whose method was renamed or removed by hand, or whose body is read-only scaffolding.
          */
-        public InsertionCursor methodCursor(String methodName) {
+        public InsertionCursor methodCursor(String label) {
             for (CodeBlock b : all) {
                 if (!(b instanceof MethodDeclarationBlock m)
-                        || !Objects.equals(methodName, m.getMethodName())) continue;
+                        || !Objects.equals(label, methodLabel(m))) continue;
                 for (CodeBlock child : m.getChildren()) {
                     if (!(child instanceof BodyBlock body) || body.isReadOnly()) continue;
                     List<StatementBlock> statements = body.getStatements();
@@ -176,6 +180,35 @@ public final class BlockTree {
             }
             return CursorNavigator.defaultCursor(root);
         }
+    }
+
+    /**
+     * How the method picker names a method: {@code run()}, {@code aim(Rect area, int tries)}. Built from the
+     * declaration's own AST node rather than from {@link com.botmaker.studio.util.MethodSignature}, which models
+     * a <em>resolved SDK</em> method — these are the user's own, and may not compile at all while being edited.
+     */
+    static String methodLabel(MethodDeclarationBlock m) {
+        StringBuilder sb = new StringBuilder(m.getMethodName()).append('(');
+        if (m.getAstNode() instanceof org.eclipse.jdt.core.dom.MethodDeclaration decl) {
+            List<?> params = decl.parameters();
+            for (int i = 0; i < params.size(); i++) {
+                if (i > 0) sb.append(", ");
+                sb.append(params.get(i));
+            }
+        }
+        return sb.append(')').toString();
+    }
+
+    /**
+     * Whether {@code body} lies inside {@code scope} — the test behind "has the caret escaped the method the HUD
+     * is scoped to". It walks {@code scope} rather than the whole tree, so it costs the subtree, not the file.
+     */
+    public static boolean containsDescendant(CodeBlock scope, BodyBlock body) {
+        if (scope == null || body == null) return false;
+        for (CodeBlock b : CursorNavigator.collectAll(scope)) {
+            if (b == body) return true;
+        }
+        return false;
     }
 
     // ── the flattened row model ──────────────────────────────────────────────────────────────────────────
@@ -281,12 +314,12 @@ public final class BlockTree {
     }
 
     /** {@link Index#methodCursor} for callers that hold only a root — chiefly the headless placement tests. */
-    public static InsertionCursor methodCursor(CodeBlock root, String methodName) {
-        return index(root).methodCursor(methodName);
+    public static InsertionCursor methodCursor(CodeBlock root, String label) {
+        return index(root).methodCursor(label);
     }
 
-    /** The caret inside an activity's {@code run()}. See {@link Index#methodCursor}. */
+    /** The caret inside an activity's no-arg {@code run()}. See {@link Index#methodCursor}. */
     public static InsertionCursor runCursor(CodeBlock root) {
-        return methodCursor(root, "run");
+        return methodCursor(root, "run()");
     }
 }
