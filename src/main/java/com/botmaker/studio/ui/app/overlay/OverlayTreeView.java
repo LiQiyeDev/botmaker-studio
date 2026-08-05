@@ -22,6 +22,7 @@ import org.eclipse.jdt.core.dom.ASTNode;
 
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 /**
  * The HUD's <b>compact tree</b>: the scrolling list of one-line rows that <em>is</em> the overlay's view of the
@@ -40,12 +41,21 @@ final class OverlayTreeView {
 
     /** What the coordinator does when a row is used. */
     record Callbacks(Consumer<InsertionCursor> onFocus,
-                     Delete onDelete,
-                     Consumer<MethodInvocationBlock> onConfig) {
+                     RowAction onDelete,
+                     Consumer<MethodInvocationBlock> onConfig,
+                     Move onMove,
+                     Consumer<StatementBlock> onToggleFold) {
 
+        /** Something done to one row, addressed the way an edit needs it: the block, its body and its slot. */
         @FunctionalInterface
-        interface Delete {
-            void delete(StatementBlock stmt, BodyBlock body, int index);
+        interface RowAction {
+            void run(StatementBlock stmt, BodyBlock body, int index);
+        }
+
+        /** Reorder within the row's own body: {@code delta} is -1 for up, +1 for down. */
+        @FunctionalInterface
+        interface Move {
+            void move(StatementBlock stmt, BodyBlock body, int index, int delta);
         }
     }
 
@@ -118,11 +128,14 @@ final class OverlayTreeView {
         rows.getChildren().setAll(OverlayStyles.dimLabel(message));
     }
 
-    /** Draws {@code bodies} (each a render root) against {@code cursor}, replacing whatever was there. */
-    void render(List<BodyBlock> bodies, InsertionCursor cursor) {
+    /**
+     * Draws {@code bodies} (each a render root) against {@code cursor}, replacing whatever was there.
+     * {@code collapsed} answers which statements are folded shut — see {@link BlockTree#flatten}.
+     */
+    void render(List<BodyBlock> bodies, InsertionCursor cursor, Predicate<StatementBlock> collapsed) {
         rows.getChildren().clear();
         for (BodyBlock body : bodies) {
-            List<BlockTree.Row> flat = BlockTree.flatten(body, 0);
+            List<BlockTree.Row> flat = BlockTree.flatten(body, 0, collapsed);
             for (int i = 0; i < flat.size(); i++) {
                 BlockTree.Row row = flat.get(i);
                 // A caret sitting *before* a body's first statement owns no row, so it gets one of its own —
@@ -160,15 +173,21 @@ final class OverlayTreeView {
         boolean incomplete = BlockValidator.hasEmptySlot(stmt);
         boolean broken = diagnostics != null && diagnostics.hasError(stmt);
         boolean locked = stmt.isReadOnly();
+        boolean focused = focused(row, cursor);
 
+        // A collapsed row ends in "…" as well as carrying the ▸: a fold is the one case where the HUD is
+        // deliberately not showing the whole program, and that has to be visible in the row, not just in a
+        // control the eye skips.
         String suffix = incomplete ? "   ⚠ missing value" : (broken ? "   ✖ error" : "");
+        if (row.fold() == BlockTree.Fold.COLLAPSED) suffix += "   …";
         Label text = new Label((locked ? "🔒 " : "") + compactLabel(stmt) + suffix);
         // An empty slot or a compile error shows red before the user has to go looking for it; scaffolding is
         // dimmed, because "why is there no ✕ on this row" was the only signal that it wasn't the user's to edit.
         String colour = (incomplete || broken) ? "#ff6b6b;" : (locked ? "#8b93a1;" : "#dfe6f2;");
         text.setStyle("-fx-font-family: monospace; -fx-font-size: 12px; -fx-text-fill: " + colour);
 
-        HBox node = shell(row, focused(row, cursor));
+        HBox node = shell(row, focused);
+        if (row.fold() != BlockTree.Fold.NONE) node.getChildren().add(foldToggle(row));
         node.getChildren().add(text);
         Tooltip.install(node, new Tooltip(rowTooltip(stmt, locked, broken)));
         node.setOnMouseClicked(e -> callbacks.onFocus().accept(new InsertionCursor(row.body(), row.index())));
@@ -178,6 +197,17 @@ final class OverlayTreeView {
         HBox.setHgrow(spring, Priority.ALWAYS);
         node.getChildren().add(spring);
 
+        // Reorder (▲▼), on the focused row only. Every row carrying them would put five glyph buttons on a
+        // 340px-wide line; the keyboard equivalent (Alt+↑/↓) works wherever the caret is either way.
+        if (focused && !locked) {
+            Button up = OverlayStyles.iconButton(
+                    "▲", "Move up (Alt+↑)", () -> callbacks.onMove().move(stmt, row.body(), row.index(), -1));
+            Button down = OverlayStyles.iconButton(
+                    "▼", "Move down (Alt+↓)", () -> callbacks.onMove().move(stmt, row.body(), row.index(), +1));
+            up.setMinWidth(26);
+            down.setMinWidth(26);
+            node.getChildren().addAll(up, down);
+        }
         // Config (⚙) for SDK/method calls: draw the rect / pick the template for the call's arguments without
         // leaving the overlay (reuses the standard argument pickers).
         if (stmt instanceof MethodInvocationBlock mib) {
@@ -190,11 +220,26 @@ final class OverlayTreeView {
         // the user's to remove, so a read-only row simply doesn't offer it.
         if (!locked) {
             Button remove = OverlayStyles.iconButton(
-                    "✕", "Delete this block (Del)", () -> callbacks.onDelete().delete(stmt, row.body(), row.index()));
+                    "✕", "Delete this block (Del)", () -> callbacks.onDelete().run(stmt, row.body(), row.index()));
             remove.setMinWidth(26);
             node.getChildren().add(remove);
         }
         return node;
+    }
+
+    /**
+     * The ▾/▸ that hides a control-flow block's bodies. Worth having on a surface this small: one {@code if}
+     * with three branches can push everything after it off the visible window, and the HUD's whole job is to
+     * show where you are in the program.
+     */
+    private Button foldToggle(BlockTree.Row row) {
+        boolean collapsed = row.fold() == BlockTree.Fold.COLLAPSED;
+        Button b = OverlayStyles.iconButton(collapsed ? "▸" : "▾",
+                collapsed ? "Expand this block's branches" : "Collapse this block's branches",
+                () -> callbacks.onToggleFold().accept(row.stmt()));
+        b.setMinWidth(22);
+        b.setPadding(new Insets(0, 4, 0, 4));
+        return b;
     }
 
     /**

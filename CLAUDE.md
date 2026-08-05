@@ -206,9 +206,29 @@ the serialize/deserialize step is outsourced.
 The `ui/` package is split by concern:
 
 - **`ui/app/`** — the application shell: `UIManager` (builds the main scene) plus the panel/screen managers
-  `PaletteManager` (block palette / drag sources), `FileExplorerManager` (project file tree),
-  `MenuBarManager` / `ToolbarManager` (menus and toolbar; the **Project → Manage Libraries…** entry lives here),
-  `EventLogManager` (runtime event/output log), `ProjectSelectionScreen`, and `ManageLibrariesDialog`.
+  `FileExplorerManager` (project file tree), `MenuBarManager` / `ToolbarManager` (menus and toolbar; the
+  **Project → Manage Libraries…** entry lives here), `EventLogManager` (runtime event/output log),
+  `ProjectSelectionScreen`, `VcsPanel` / `GitHubAccountBar` / `GoogleAccountBar`, and ~15 dialogs
+  (`ProjectSetupDialog`, `LaunchTargetDialog`, `ManageCaptureTargetsDialog`, `ManageLibrariesDialog`,
+  `ResourceManagerDialog`, `PublishDialog`, `GalleryDialog`, …). There is **no `PaletteManager`** — this
+  entry named one for a long time and no such file has ever existed; the insertable catalogs are `palette/`
+  below, and the overlay's own palette bar is `ui/app/overlay/OverlayPalette`.
+- **`ui/app/capture/`** — the screen-capture feature: `OverlayTemplateCapture` (the on-screen capture toolbar)
+  over `CaptureSurface` / `ObjectCaptureSurface` (rect and contour selection), `MagicWand`, `ColorSampler`,
+  `ZoomPan`, `CaptureSourcePicker`, `TargetThumbnail`, `GameFrame`, `BatchTemplateNamingDialog`.
+- **`ui/app/flow/`** — the activity-flow graph editor: `FlowCanvas` (nodes, ports, edges, auto-arrange),
+  `FlowRules`, `FlowNames`, `ActivityDraft`, `ActivityValueWidgets`, `NewActivityDialog`.
+- **`ui/app/overlay/`** — the **Overlay Editor**: the always-on-top HUD that mirrors the program as one-line
+  rows over the running game, and the only place a bot can be authored or recorded without leaving it.
+  `ProgramShapeOverlay` is the *coordinator* — the stage, the event subscriptions, and the FX-thread-confined
+  state that sequences an edit against the re-parse it causes. Everything else is a collaborator it constructs
+  and hands callbacks to; none of them holds a reference back to it:
+  `BlockTree` (**pure, no JavaFX** — the tree model and the flattened row list, so the placement rules that
+  fail silently are testable headlessly), `OverlayTreeView` (the rows), `OverlayTargetPicker` (which activity
+  and method blocks land in), `OverlayPalette` (the SDK facade chips + ＋ Add block),
+  `ArgumentConfigPopover`, `OverlayRecorder` (Record/Pause/Stop over `services/record/RecordingSession`),
+  `RecordedBatchInserter` (inserts a recorded batch one block per re-parse), `OverlayHeader`,
+  `OverlayHotkey` (the global `F9`), `OverlayStyles` and `OverlayToolbars` (shared with `capture/`).
 - **`ui/dnd/`** — drag-and-drop and block input events: `BlockDragAndDropManager`, `DropInfo`, `MoveBlockInfo`,
   `BlockEvent`, `DropZoneFactory`.
 - **`palette/`** (top-level, dependency-light) — the insertable catalogs: `BlockType`/`BlockCatalog`/`BlockCategory`

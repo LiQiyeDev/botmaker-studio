@@ -72,6 +72,9 @@ final class OverlayRecorder {
         this.windowBounds = windowBounds;
         this.callbacks = callbacks;
         this.session = new RecordingSession(callbacks.hudBounds(), count -> requestStatusRefresh());
+        // The global hotkey is watched on a second XRecord connection, so this session sees its presses too —
+        // and would record the very key the user pressed to stop recording. See OverlayHotkey.
+        this.session.ignoreKeysym(OverlayHotkey.KEYSYM);
     }
 
     /** The Record / Stop row. */
@@ -89,6 +92,26 @@ final class OverlayRecorder {
 
     boolean isRecording() {
         return session.isRecording();
+    }
+
+    /**
+     * The global hotkey's action: begin a session, or finish the running one and insert it. Pausing is left to
+     * the button — a shortcut pressed from inside the game has to have one unambiguous meaning, and "stop" is
+     * the one worth not having to reach for the HUD to reach.
+     */
+    void toggle() {
+        if (session.isRecording()) {
+            stopAndInsert();
+            return;
+        }
+        // Say why nothing happened. The button carries the same explanation in a tooltip, but the point of the
+        // hotkey is that the user is not looking at the button.
+        if (recordBtn != null && recordBtn.isDisable()) {
+            Tooltip why = recordBtn.getTooltip();
+            callbacks.status().accept(why != null ? why.getText() : "Recording isn't available here.");
+            return;
+        }
+        start();
     }
 
     /** Drops the native listener without translating anything — the HUD closing mid-session. */
@@ -116,8 +139,9 @@ final class OverlayRecorder {
             blocker = null;
         }
         recordBtn.setDisable(blocker != null);
-        recordBtn.setTooltip(new Tooltip(
-                blocker != null ? blocker : "Record real clicks/keys and insert them at the cursor"));
+        recordBtn.setTooltip(new Tooltip(blocker != null ? blocker
+                : "Record real clicks/keys and insert them at the cursor — or press "
+                        + OverlayHotkey.KEY_NAME + " from inside the game"));
     }
 
     private void togglePrimary() {

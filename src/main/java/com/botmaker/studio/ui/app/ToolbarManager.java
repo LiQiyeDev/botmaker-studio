@@ -77,6 +77,8 @@ public class ToolbarManager {
     private Runnable onCaptureTemplates;
     /** Opens the program-shape overlay authoring editor; wired by {@link UIManager}. */
     private Runnable onOverlayEditor;
+    /** Opens the overlay editor already recording; wired by {@link UIManager}. */
+    private Runnable onRecordMacro;
     /** Opens the Resource Manager (image templates); wired by {@link UIManager}. */
     private Runnable onAccessResources;
 
@@ -187,6 +189,11 @@ public class ToolbarManager {
         this.onOverlayEditor = callback;
     }
 
+    /** Sets the callback invoked when the toolbar's Record button is clicked (overlay + recording). */
+    public void setOnRecordMacro(Runnable callback) {
+        this.onRecordMacro = callback;
+    }
+
     /** Sets the callback invoked when the toolbar's Resources button is clicked. */
     public void setOnAccessResources(Runnable callback) {
         this.onAccessResources = callback;
@@ -290,9 +297,21 @@ public class ToolbarManager {
 
         Button overlayEditorButton = new Button("⧉ Overlay");
         overlayEditorButton.getStyleClass().add("toolbar-btn");
-        overlayEditorButton.setTooltip(new Tooltip("Draw and edit the project's regions and overlays"));
+        overlayEditorButton.setTooltip(new Tooltip(
+                "Build the bot over the running game: a compact block tree on top of the target window"));
         overlayEditorButton.setOnAction(e -> {
             if (onOverlayEditor != null) onOverlayEditor.run();
+        });
+
+        // The same overlay, opened straight into recording. Its own button because "record what I do in the
+        // game" is how the tool is reached for, and routing it through ⧉ Overlay → ● Record made the feature
+        // look absent: the standalone Record Macro button was dropped in 2026-07 and nothing replaced it.
+        Button recordButton = new Button("⏺ Record");
+        recordButton.getStyleClass().add("toolbar-btn");
+        recordButton.setTooltip(new Tooltip(
+                "Open the overlay and start recording real clicks and keys into the current activity"));
+        recordButton.setOnAction(e -> {
+            if (onRecordMacro != null) onRecordMacro.run();
         });
 
         Button resourcesButton = new Button("🗂 Resources");
@@ -311,7 +330,7 @@ public class ToolbarManager {
                 // window can only be picked as a capture target once the game is actually up.
                 projectSetupButton, launchTargetButton, quickLaunchButton, captureButton, activityFlowButton,
                 remotePilotButton,
-                debugOutputButton, inputConfigButton, captureTemplatesButton, overlayEditorButton,
+                debugOutputButton, inputConfigButton, captureTemplatesButton, overlayEditorButton, recordButton,
                 resourcesButton, resolutionLabel);
         group.setAlignment(Pos.CENTER);
         group.setMinWidth(0);

@@ -120,6 +120,42 @@ class BlockTreeFlattenTest {
     }
 
     @Test
+    void aCollapsedStatementKeepsItsRowAndHidesEverythingUnderIt() {
+        String source = """
+                        int x = 1;
+                        if (x == 1) {
+                            int a = 1;
+                        } else {
+                            int c = 3;
+                        }
+                        int y = 2;
+                """;
+        CodeBlock root = OverlayTestTrees.activityTree(source);
+        BodyBlock run = OverlayTestTrees.bodyOf(root, "run");
+        assertNotNull(run);
+
+        // Fold the `if`. Its own row stays — the program still has an `if` there, and hiding that would be a
+        // lie — but the branches, their captions and their statements all go, and what follows still draws.
+        List<BlockTree.Row> folded = BlockTree.flatten(run, 0,
+                s -> OverlayTreeView.compactLabel(s).startsWith("if"));
+        assertEquals(List.of("0:int x=1;", "0:if (x == 1)", "0:int y=2;"), shape(folded));
+
+        BlockTree.Row owner = folded.get(1);
+        assertEquals(BlockTree.Fold.COLLAPSED, owner.fold());
+        // …and the same statement reports EXPANDED when nothing is folded, so the view can draw ▸ vs ▾ from
+        // the row alone rather than re-deriving the fold state it was just rendered with.
+        assertEquals(BlockTree.Fold.EXPANDED, BlockTree.flatten(run, 0).get(1).fold());
+    }
+
+    @Test
+    void aStatementWithNothingBeneathItIsNotFoldable() {
+        // The ▸/▾ toggle is drawn from Fold != NONE, so a plain statement must never report one — an
+        // expand control on a row with nothing to expand reads as "this row is hiding something".
+        List<BlockTree.Row> rows = rowsOf("int x = 1;");
+        assertEquals(BlockTree.Fold.NONE, rows.getFirst().fold());
+    }
+
+    @Test
     void aCaptionAddressesTheBodyItIntroduces() {
         // Clicking `else` parks the caret above the else body's first statement, so the next insert lands
         // inside the else rather than after the whole `if`.

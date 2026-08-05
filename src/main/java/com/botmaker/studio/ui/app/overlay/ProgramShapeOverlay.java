@@ -10,17 +10,15 @@ import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.services.ScreenCaptureService.WindowShot;
-import com.botmaker.studio.services.record.RecordingSession;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.events.CoreApplicationEvents.ActivitiesChangedEvent;
+import com.botmaker.studio.events.CoreApplicationEvents.StatusMessageEvent;
 import com.botmaker.studio.events.CoreApplicationEvents.UIBlocksUpdatedEvent;
-import com.botmaker.studio.palette.BlockCatalog;
 import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.project.InsertionCursor;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.CursorNavigator;
-import com.botmaker.studio.ui.app.ResolutionChoices;
 import com.botmaker.studio.ui.render.menu.StatementMenu;
 import com.botmaker.studio.util.MethodSignature;
 import javafx.application.Platform;
@@ -33,8 +31,6 @@ import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
-import javafx.scene.layout.Priority;
-import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.input.KeyCode;
 import javafx.scene.paint.Color;
@@ -43,7 +39,9 @@ import javafx.stage.StageStyle;
 import javafx.stage.Window;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import static com.botmaker.studio.ui.app.overlay.OverlayStyles.LABEL;
 import static com.botmaker.studio.ui.app.overlay.OverlayStyles.PANEL;
@@ -75,15 +73,23 @@ import static com.botmaker.studio.ui.app.overlay.OverlayStyles.warn;
  * forwards host input into its Xwayland, so the existing global {@code :0} recording already sees the right
  * coordinates.
  *
- * <p>An {@link InsertionCursor} (kept on {@link ProjectState}) marks the <em>focused</em> block; the toolbar's
- * <b>step</b> buttons move it and the palette inserts a new block just beneath it. The palette has two modes:
- * <b>Basic</b> exposes only the core bot actions ({@link BlockCatalog#botActions()}); <b>Advanced</b> adds an
- * <em>Add block</em> button opening the full categorized statement menu (control flow, variables, print, …).
+ * <p><b>What this class is now.</b> It is the <em>coordinator</em>: the stage and its lifecycle, the event
+ * subscriptions, and the FX-thread-confined pending state that sequences an edit against the re-parse it
+ * causes ({@link #pendingInsert}, {@link #pendingOverload}, {@link #pendingConfig}). Everything with a shape of
+ * its own lives beside it — {@link BlockTree} (the model), {@link OverlayTreeView} (the rows),
+ * {@link OverlayTargetPicker} (where blocks go), {@link OverlayPalette} (what goes there),
+ * {@link ArgumentConfigPopover}, {@link OverlayRecorder} and {@link RecordedBatchInserter}. None of them holds
+ * a reference back to this class; each takes callbacks.
  *
- * <p><b>Record mode</b> (Linux/X11 only) merges the former standalone macro recorder: pressing Record observes
- * real clicks/keys/waits via a {@link RecordingSession}, and Stop translates them ({@code MacroTranslator}) and
- * inserts the resulting blocks <em>at the cursor</em>, progressively — so recording grows the same tree that
- * hand-authoring does.
+ * <p>An {@link InsertionCursor} (kept on {@link ProjectState}) marks the <em>focused</em> block; the <b>step</b>
+ * buttons move it and the palette inserts a new block just beneath it. The palette is the project's SDK
+ * facades as chips, plus an <em>＋ Add block</em> button opening the full categorized statement menu (control
+ * flow, variables, print, …).
+ *
+ * <p><b>Record mode</b> (Linux/X11 only) merges the former standalone macro recorder: pressing Record (or the
+ * {@link OverlayHotkey global hotkey}) observes real clicks/keys/waits, and Stop translates them
+ * ({@code MacroTranslator}) and inserts the resulting blocks <em>at the cursor</em>, progressively — so
+ * recording grows the same tree that hand-authoring does.
  *
  * <p><b>Where the blocks land.</b> The HUD names its target: an activity picker switches the editor to
  * {@code activities/<Name>.java} and parks the cursor inside that activity's {@code run()}. It has to, because
@@ -107,9 +113,8 @@ public final class ProgramShapeOverlay {
     private final CaptureTarget target;
 
     private Stage stage;
-    private HBox header;
-    /** The header's size readout: the window being authored against, and whether it matches the reference. */
-    private Label resolution;
+    /** Title bar, drag handle, and the size-being-authored-against readout. See {@link OverlayHeader}. */
+    private OverlayHeader header;
     /** The compact tree — the rows themselves, their look and their controls. See {@link OverlayTreeView}. */
     private final OverlayTreeView tree;
     private CodeBlock root;
@@ -156,12 +161,27 @@ public final class ProgramShapeOverlay {
     private boolean autoStartRecording;
 
     /**
-     * A just-requested insertion, resolved after the next {@link UIBlocksUpdatedEvent}. It is a
-     * {@link BlockTree.Position} rather than a block reference because the pre-insert block objects are all
-     * replaced on re-parse; the position is what lets the cursor be re-homed onto the inserted block and its
-     * config popover opened.
+     * A just-requested edit whose result must be focused after the next {@link UIBlocksUpdatedEvent}.
+     *
+     * @param at    where the block landed — a {@link BlockTree.Position} rather than a block reference because
+     *              the pre-edit block objects are all replaced on re-parse
+     * @param fresh whether the block that lands there is <em>new</em>. Only a new one may have its argument
+     *              popover opened for it: a moved block is already configured, and re-opening its editor after
+     *              every Alt+↓ would make reordering a call unusable.
      */
-    private BlockTree.Position pendingInsert;
+    private record PendingFocus(BlockTree.Position at, boolean fresh) {}
+
+    private PendingFocus pendingInsert;
+
+    /**
+     * The statements whose branches are folded shut, in coordinates that survive a re-parse. Keyed by
+     * {@link BlockTree.Position} for exactly that reason — a {@code Set<StatementBlock>} would be emptied of
+     * live members by the first edit, silently re-expanding everything the user had collapsed.
+     */
+    private final Set<BlockTree.Position> collapsed = new HashSet<>();
+
+    /** Starts/stops recording from inside the game, with the HUD unfocused. See {@link OverlayHotkey}. */
+    private OverlayHotkey hotkey;
 
     /**
      * A block whose config popover should open on the <em>next</em> re-parse, rather than this one. Applying a
@@ -193,7 +213,8 @@ public final class ProgramShapeOverlay {
         this.config = new ArgumentConfigPopover(context, this::index, () -> stage);
         // After `config`: the row's ⚙ opens the popover, and a field initializer could not see it yet.
         this.tree = new OverlayTreeView(
-                new OverlayTreeView.Callbacks(this::move, this::delete, config::open),
+                new OverlayTreeView.Callbacks(this::move, this::delete, config::open, this::moveStatement,
+                        this::toggleFold),
                 () -> { if (stage != null) Platform.runLater(stage::sizeToScene); });
         this.tree.setDiagnostics(context.getDiagnosticsManager());
     }
@@ -344,8 +365,14 @@ public final class ProgramShapeOverlay {
         // capture/record overlays). Tucked just inside the target window's top-left corner.
         stage.setX(windowBounds.x + 12);
         stage.setY(windowBounds.y + 12);
+        restoreSavedState();
         stage.setOnHidden(e -> {
             if (suppressHideTeardown) return;   // a temporary capture-hide, not a real close
+            saveState();
+            if (hotkey != null) {
+                hotkey.close();
+                hotkey = null;
+            }
             if (captureVisibility != null) {
                 try { captureVisibility.close(); } catch (Exception ignored) {}
                 captureVisibility = null;
@@ -372,8 +399,10 @@ public final class ProgramShapeOverlay {
                         ? CursorNavigator.stepIntoNext(cursor(), root)
                         : CursorNavigator.stepInto(cursor()));
                 case LEFT -> move(CursorNavigator.stepOut(cursor(), root));
-                case UP -> move(CursorNavigator.stepBack(cursor()));
-                case DOWN -> move(CursorNavigator.stepOver(cursor()));
+                // Alt+↑/↓ reorders the focused block; plain ↑/↓ moves the caret over it. The main editor has
+                // no keyboard move at all (it is drag-and-drop only), so this is the only one in the app.
+                case UP -> { if (e.isAltDown()) moveFocused(-1); else move(CursorNavigator.stepBack(cursor())); }
+                case DOWN -> { if (e.isAltDown()) moveFocused(+1); else move(CursorNavigator.stepOver(cursor())); }
                 case ENTER -> {
                     if (focusedStatement() instanceof MethodInvocationBlock mib) config.open(mib);
                 }
@@ -385,7 +414,7 @@ public final class ProgramShapeOverlay {
 
         stage.show();
         updateHudBounds();                             // the listeners above only fire on later changes
-        OverlayToolbars.installDrag(header, stage);   // borderless: drag by the header bar
+        OverlayToolbars.installDrag(header.node(), stage);   // borderless: drag by the header bar
         // Stay above fullscreen games (X11) — but stand down while the argument-config popover is open, or the
         // periodic re-raise puts the HUD back on top of the very window it just opened.
         OverlayToolbars.promoteAboveFullscreen(stage, () -> !config.isOpen());
@@ -420,6 +449,13 @@ public final class ProgramShapeOverlay {
             }
         }));
 
+        // Refusals raised inside CodeEditor — chiefly the pinned trailing `return` a block may not be moved
+        // past — are published, not thrown, and the HUD has no other window on them: the main editor's status
+        // bar is not on screen while the overlay is, so the edit simply appeared not to happen.
+        subscriptions.add(context.getEventBus().subscribe(StatusMessageEvent.class, e -> {
+            if (stage != null && stage.isShowing()) Platform.runLater(() -> status(e.message()));
+        }));
+
         picker.selectInitialTarget();
 
         root = context.getRootBlock().orElse(null);
@@ -427,7 +463,38 @@ public final class ProgramShapeOverlay {
         ensureCursor();
         render();
 
+        hotkey = new OverlayHotkey(() -> recorder.toggle());
+        hotkey.start();
+
         if (autoStartRecording) recorder.start();
+    }
+
+    /**
+     * Restores the HUD's remembered position and tree height. The position is only honoured when it still
+     * lands on an attached screen: a HUD restored onto a monitor that has since been unplugged is a window the
+     * user cannot see, cannot move, and — since it is borderless and unowned — has no taskbar entry to find it
+     * by. When it is rejected the default placement (inside the target window's top-left corner) stands.
+     */
+    private void restoreSavedState() {
+        StudioProjectSettings.OverlayState saved = settings.current().overlayState();
+        if (saved == null) return;
+        if (saved.visibleLines() > 0) tree.setVisibleLineCount(saved.visibleLines());
+        if (onSomeScreen(saved.x(), saved.y())) {
+            stage.setX(saved.x());
+            stage.setY(saved.y());
+        }
+    }
+
+    /** Whether {@code (x, y)} is inside one of the currently attached screens' visual bounds. */
+    private static boolean onSomeScreen(double x, double y) {
+        return javafx.stage.Screen.getScreens().stream().anyMatch(s -> s.getVisualBounds().contains(x, y));
+    }
+
+    /** Records where the HUD ended up and how tall its tree was, for the next open of this project. */
+    private void saveState() {
+        if (stage == null) return;
+        settings.update(settings.current().withOverlayState(new StudioProjectSettings.OverlayState(
+                (int) stage.getX(), (int) stage.getY(), tree.visibleLineCount())));
     }
 
     /** The translucent HUD root: a header bar, the controls panel, and the program-tree panel, with gaps. */
@@ -439,42 +506,15 @@ public final class ProgramShapeOverlay {
     }
 
     private HBox buildHeader() {
-        Label title = new Label("Overlay Editor");
-        title.setStyle("-fx-text-fill: #c9d4e6; -fx-font-weight: bold;");
-        // Current window/screen resolution so the author knows the size they're building against.
-        resolution = new Label();
-        refreshResolutionReadout();
-        Region spring = new Region();
-        HBox.setHgrow(spring, Priority.ALWAYS);
-        Button close = new Button("✕");
-        close.setTooltip(new Tooltip("Close overlay"));
-        close.setOnAction(e -> { if (stage != null) stage.close(); });
-        header = new HBox(8, title, resolution, spring, close);
-        header.setAlignment(Pos.CENTER_LEFT);
-        header.setPadding(new Insets(6, 8, 6, 10));
-        header.setStyle(PANEL);
-        return header;
-    }
-
-    /**
-     * Re-states the size being authored against, flagged amber when the target window isn't at the project's
-     * reference resolution — the coordinates recorded over a 1600×900 window are replayed against a 1920×1080
-     * reference and land somewhere else, and until now the header showed only the window size, so there was
-     * nothing on screen that said the two disagreed.
-     */
-    private void refreshResolutionReadout() {
-        if (resolution == null) return;
-        StudioProjectSettings.Resolution ref = settings.current().referenceResolution();
-        resolution.setText(ResolutionChoices.readout(windowBounds, ref));
-        resolution.setStyle(ResolutionChoices.mismatched(windowBounds, ref)
-                ? "-fx-text-fill: #e0a33a; -fx-font-size: 11px;"
-                : "-fx-text-fill: #8fa3bf; -fx-font-size: 11px;");
+        header = new OverlayHeader(() -> { if (stage != null) stage.close(); });
+        header.showSize(windowBounds, settings.current().referenceResolution());
+        return header.node();
     }
 
     /** Fresh target-window bounds re-probed by the recorder when a session starts (see {@link OverlayRecorder}). */
     private void onRecordWindowBounds(java.awt.Rectangle bounds) {
         windowBounds = bounds;
-        refreshResolutionReadout();
+        header.showSize(bounds, settings.current().referenceResolution());
     }
 
     /** Palette (SDK category bar) + step nav + record controls + options, all in one translucent panel. */
@@ -588,7 +628,7 @@ public final class ProgramShapeOverlay {
             return;
         }
         int insertIndex = Math.min(c.index() + 1, c.body().getStatements().size());
-        pendingInsert = new BlockTree.Position(index().ordinalOf(c.body()), insertIndex);
+        pendingInsert = new PendingFocus(new BlockTree.Position(index().ordinalOf(c.body()), insertIndex), true);
         context.getCodeEditor().addStatement(c.body(), type, insertIndex);
     }
 
@@ -627,6 +667,56 @@ public final class ProgramShapeOverlay {
         }
         state.setInsertionCursor(new InsertionCursor(body, Math.max(-1, index - 1)));
         context.getCodeEditor().deleteStatement(s);
+    }
+
+    /** Alt+↑/↓: reorders the block the caret sits on. */
+    private void moveFocused(int delta) {
+        InsertionCursor c = cursor();
+        StatementBlock stmt = focusedStatement();
+        if (c == null || stmt == null) {
+            status("Nothing to move — the caret is on an empty slot.");
+            return;
+        }
+        moveStatement(stmt, c.body(), c.index(), delta);
+    }
+
+    /**
+     * Reorders {@code stmt} within its own body by one slot ({@code delta} −1 up, +1 down), through the same
+     * {@code CodeEditor.moveStatement} the main editor's drag-and-drop uses — so its read-only and
+     * pinned-return guards apply here rather than being re-implemented against a second set of rules.
+     *
+     * <p>The insert index is the drop index a drag would produce, not the destination slot: moving <em>down</em>
+     * means "insert before the element after the one I am swapping with", i.e. one further along, because the
+     * removal of the original is still pending in the same rewrite. The caret is re-homed onto the block's new
+     * slot through the ordinary {@link #pendingInsert} handoff, marked not-fresh so no argument popover opens.
+     */
+    private void moveStatement(StatementBlock stmt, BodyBlock body, int index, int delta) {
+        if (stmt == null || body == null) return;
+        int destination = index + delta;
+        if (destination < 0 || destination >= body.getStatements().size()) {
+            status(delta < 0 ? "Already the first block here." : "Already the last block here.");
+            return;
+        }
+        if (stmt.isReadOnly() || body.isReadOnly()) {
+            status("Can't move generated code — it's maintained by Studio.");
+            return;
+        }
+        pendingInsert = new PendingFocus(new BlockTree.Position(index().ordinalOf(body), destination), false);
+        context.getCodeEditor().moveStatement(stmt, body, body, delta < 0 ? destination : destination + 1);
+    }
+
+    /** ▸/▾: hides or re-shows a control-flow block's branches. See {@link #collapsed}. */
+    private void toggleFold(StatementBlock stmt) {
+        BlockTree.Position at = index().locate(stmt);
+        if (at == null) return;
+        if (!collapsed.remove(at)) collapsed.add(at);
+        render();
+    }
+
+    /** Whether {@code stmt}'s branches are folded shut right now — the predicate {@link OverlayTreeView} renders with. */
+    private boolean isCollapsed(StatementBlock stmt) {
+        BlockTree.Position at = index().locate(stmt);
+        return at != null && collapsed.contains(at);
     }
 
     private void addBelow(javafx.scene.Node anchor) {
@@ -716,9 +806,10 @@ public final class ProgramShapeOverlay {
         // Before the pending handling below, which may open a popover of its own over the top of this one.
         config.refresh();
         if (pendingInsert != null) {
-            BlockTree.Position p = pendingInsert;
+            BlockTree.Position p = pendingInsert.at();
+            boolean fresh = pendingInsert.fresh();
             pendingInsert = null;
-            MethodSignature ov = pendingOverload;   // consume the palette-requested overload (if any)
+            MethodSignature ov = fresh ? pendingOverload : null;   // consume the palette-requested overload
             pendingOverload = null;
             BodyBlock body = index().bodyAt(p.bodyOrdinal());
             if (body != null) {
@@ -728,14 +819,16 @@ public final class ProgramShapeOverlay {
                     state.setInsertionCursor(new InsertionCursor(body, p.index()));
                     render();
                     StatementBlock inserted = statements.get(p.index());
-                    if (!inserter.isDraining()) status("Inserted " + OverlayTreeView.compactLabel(inserted));
+                    if (!inserter.isDraining()) {
+                        status((fresh ? "Inserted " : "Moved ") + OverlayTreeView.compactLabel(inserted));
+                    }
                     if (ov != null && inserted instanceof MethodInvocationBlock mib) {
                         // A specific overload was picked in the palette bar — apply it to the fresh call. That
                         // is another edit, so the block we'd open the popover on is about to be replaced;
                         // defer to the next pulse instead of opening a popover onto a dead block.
                         mib.switchToOverload(context, ov);
                         if (autoFillEnabled()) pendingConfig = p;
-                    } else if (autoFillEnabled() && inserted instanceof MethodInvocationBlock mib) {
+                    } else if (fresh && autoFillEnabled() && inserted instanceof MethodInvocationBlock mib) {
                         config.open(mib);
                     }
                 }
@@ -760,12 +853,12 @@ public final class ProgramShapeOverlay {
         // (e.g. a file with no methods) — the old "Program is empty." path stays reachable either way.
         BodyBlock scoped = index().methodBody(picker.selectedMethod());
         if (scoped != null) {
-            tree.render(List.of(scoped), cursor());
+            tree.render(List.of(scoped), cursor(), this::isCollapsed);
             return;
         }
         List<BodyBlock> tops = index().topLevelBodies();
         if (tops.isEmpty()) tree.showMessage("Program is empty.");
-        else tree.render(tops, cursor());
+        else tree.render(tops, cursor(), this::isCollapsed);
     }
 
     /** {@link #root}'s structural index, rebuilt once per published tree rather than per lookup. */

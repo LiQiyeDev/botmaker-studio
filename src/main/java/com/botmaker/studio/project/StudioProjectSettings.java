@@ -42,15 +42,30 @@ import java.util.Map;
  *                            opens so a recording session resumes where the previous one left off. {@code null}
  *                            until the overlay has been used, and ignored once the activity is gone
  *                            (backward-compatible; absent → null)
+ * @param overlayState        where the overlay HUD sat and how tall its tree was, restored the next time it
+ *                            opens (backward-compatible; absent → null)
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex,
                                     List<String> knownWindowTitles, Map<String, String> favoriteOverloads,
                                     Resolution referenceResolution, Map<String, List<String>> favoriteMethods,
-                                    ProjectTemplate template, String lastRecordedActivity) {
+                                    ProjectTemplate template, String lastRecordedActivity,
+                                    OverlayState overlayState) {
 
     /** A target-window size in logical screen pixels. */
     public record Resolution(int width, int height) {}
+
+    /**
+     * The overlay editor HUD's remembered layout: its top-left corner on screen and how many tree rows it
+     * shows before scrolling.
+     *
+     * <p>Persisted because the HUD is dragged out of the way of whatever the user is doing in the game, and
+     * that placement is a property of the <em>project</em> — the same game, the same UI, the same corner that
+     * is safe to cover. Re-dragging it on every open (and re-growing a tree that reopened at 8 rows) is the
+     * kind of friction that is invisible in a single session and constant across many. A position off every
+     * attached screen is discarded on restore rather than trusted; monitors come and go.
+     */
+    public record OverlayState(int x, int y, int visibleLines) {}
 
     public static final String FILE_NAME = "settings.json";
 
@@ -75,13 +90,22 @@ public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer 
         return Map.copyOf(out);
     }
 
+    /** Convenience constructor for callers that manage the last activity but not the overlay's layout. */
+    public StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex,
+                                 List<String> knownWindowTitles, Map<String, String> favoriteOverloads,
+                                 Resolution referenceResolution, Map<String, List<String>> favoriteMethods,
+                                 ProjectTemplate template, String lastRecordedActivity) {
+        this(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads, referenceResolution,
+                favoriteMethods, template, lastRecordedActivity, null);
+    }
+
     /** Convenience constructor for callers that manage the template but not the overlay's last activity. */
     public StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex,
                                  List<String> knownWindowTitles, Map<String, String> favoriteOverloads,
                                  Resolution referenceResolution, Map<String, List<String>> favoriteMethods,
                                  ProjectTemplate template) {
         this(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads, referenceResolution,
-                favoriteMethods, template, null);
+                favoriteMethods, template, null, null);
     }
 
     /** Convenience constructor for callers that manage favorite methods but not the template. */
@@ -134,37 +158,43 @@ public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer 
     /** This settings with the target list replaced (keeps the default if still in range). */
     public StudioProjectSettings withTargets(List<CaptureTarget> targets) {
         return new StudioProjectSettings(targets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
-                referenceResolution, favoriteMethods, template, lastRecordedActivity);
+                referenceResolution, favoriteMethods, template, lastRecordedActivity, overlayState);
     }
 
     /** This settings with the default index replaced. */
     public StudioProjectSettings withDefaultIndex(Integer index) {
         return new StudioProjectSettings(captureTargets, index, knownWindowTitles, favoriteOverloads,
-                referenceResolution, favoriteMethods, template, lastRecordedActivity);
+                referenceResolution, favoriteMethods, template, lastRecordedActivity, overlayState);
     }
 
     /** This settings with the remembered window titles replaced. */
     public StudioProjectSettings withKnownWindowTitles(List<String> titles) {
         return new StudioProjectSettings(captureTargets, defaultTargetIndex, titles, favoriteOverloads,
-                referenceResolution, favoriteMethods, template, lastRecordedActivity);
+                referenceResolution, favoriteMethods, template, lastRecordedActivity, overlayState);
     }
 
     /** This settings with the capture reference resolution replaced ({@code null} clears it). */
     public StudioProjectSettings withReferenceResolution(Resolution resolution) {
         return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
-                resolution, favoriteMethods, template, lastRecordedActivity);
+                resolution, favoriteMethods, template, lastRecordedActivity, overlayState);
     }
 
     /** This settings with the originating template recorded ({@code null} clears it). */
     public StudioProjectSettings withTemplate(ProjectTemplate template) {
         return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
-                referenceResolution, favoriteMethods, template, lastRecordedActivity);
+                referenceResolution, favoriteMethods, template, lastRecordedActivity, overlayState);
     }
 
     /** This settings with the overlay editor's last authored activity recorded ({@code null} clears it). */
     public StudioProjectSettings withLastRecordedActivity(String activityName) {
         return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
-                referenceResolution, favoriteMethods, template, activityName);
+                referenceResolution, favoriteMethods, template, activityName, overlayState);
+    }
+
+    /** This settings with the overlay HUD's remembered layout replaced ({@code null} clears it). */
+    public StudioProjectSettings withOverlayState(OverlayState state) {
+        return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
+                referenceResolution, favoriteMethods, template, lastRecordedActivity, state);
     }
 
     /**
@@ -176,7 +206,7 @@ public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer 
         if (signatureKey == null) next.remove(methodKey);
         else next.put(methodKey, signatureKey);
         return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, next,
-                referenceResolution, favoriteMethods, template, lastRecordedActivity);
+                referenceResolution, favoriteMethods, template, lastRecordedActivity, overlayState);
     }
 
     /** The chosen overload signature key for {@code methodKey}, or {@code null} if no favorite is set. */
@@ -194,7 +224,7 @@ public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer 
         if (methods == null || methods.isEmpty()) next.remove(className);
         else next.put(className, List.copyOf(methods));
         return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
-                referenceResolution, next, template, lastRecordedActivity);
+                referenceResolution, next, template, lastRecordedActivity, overlayState);
     }
 
     /** The favorite method names for {@code className} (preference order), or an empty list if none. */

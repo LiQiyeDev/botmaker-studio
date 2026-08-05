@@ -15,6 +15,7 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * The overlay editor's <b>tree model</b>: every question {@code ProgramShapeOverlay} asks about the shape of the
@@ -223,6 +224,16 @@ public final class BlockTree {
         EMPTY
     }
 
+    /** Whether a row owns sub-structure, and if so whether it is currently showing it. */
+    public enum Fold {
+        /** Nothing beneath this row — no toggle is drawn. */
+        NONE,
+        /** Has sub-structure and is showing it. */
+        EXPANDED,
+        /** Has sub-structure that is hidden; the rows for it are absent from the flattened list. */
+        COLLAPSED
+    }
+
     /**
      * One line of the compact tree.
      *
@@ -232,8 +243,10 @@ public final class BlockTree {
      *                above the body's first statement
      * @param depth   indentation level, 0 at the rendered body's own statements
      * @param caption the branch label, non-null only for {@link Kind#CAPTION}
+     * @param fold    whether this row owns sub-structure, and whether that structure is being shown
      */
-    public record Row(Kind kind, StatementBlock stmt, BodyBlock body, int index, int depth, String caption) {}
+    public record Row(Kind kind, StatementBlock stmt, BodyBlock body, int index, int depth, String caption,
+                      Fold fold) {}
 
     /**
      * {@code body}'s statements as a flat, indented, <b>fully branched</b> row list.
@@ -251,47 +264,74 @@ public final class BlockTree {
      * lines up under its {@code if} rather than drifting right down a chain.
      */
     public static List<Row> flatten(BodyBlock body, int depth) {
+        return flatten(body, depth, s -> false);
+    }
+
+    /**
+     * {@link #flatten(BodyBlock, int)} with folding: a statement {@code collapsed} accepts keeps its own row —
+     * marked {@link Fold#COLLAPSED} — and contributes none of the rows beneath it.
+     *
+     * <p>The predicate is asked about <em>live</em> blocks on every render rather than the model holding a
+     * collapsed set of its own, because a block object does not survive an edit: the caller keeps the set in
+     * whatever coordinates outlive a re-parse (the overlay uses {@link Position}) and answers from there.
+     */
+    public static List<Row> flatten(BodyBlock body, int depth, Predicate<StatementBlock> collapsed) {
         List<Row> out = new ArrayList<>();
-        flattenBody(body, depth, out);
+        flattenBody(body, depth, out, collapsed);
         return out;
     }
 
-    private static void flattenBody(BodyBlock body, int depth, List<Row> out) {
+    private static void flattenBody(BodyBlock body, int depth, List<Row> out, Predicate<StatementBlock> collapsed) {
         if (body == null) return;
         List<StatementBlock> statements = body.getStatements();
         if (statements.isEmpty()) {
-            out.add(new Row(Kind.EMPTY, null, body, -1, depth, null));
+            out.add(new Row(Kind.EMPTY, null, body, -1, depth, null, Fold.NONE));
             return;
         }
         for (int i = 0; i < statements.size(); i++) {
             StatementBlock stmt = statements.get(i);
-            out.add(new Row(Kind.STATEMENT, stmt, body, i, depth, null));
-            flattenBranches(stmt, depth, out);
+            boolean foldable = foldable(stmt);
+            boolean folded = foldable && collapsed.test(stmt);
+            out.add(new Row(Kind.STATEMENT, stmt, body, i, depth, null,
+                    !foldable ? Fold.NONE : folded ? Fold.COLLAPSED : Fold.EXPANDED));
+            if (!folded) flattenBranches(stmt, depth, out, collapsed);
         }
     }
 
+    /** Whether {@code owner} draws anything beneath its own row — i.e. whether folding it would hide something. */
+    private static boolean foldable(CodeBlock owner) {
+        if (owner instanceof BranchingBlock branching) return !branching.branches().isEmpty();
+        if (owner instanceof BlockWithChildren bwc) {
+            for (CodeBlock child : bwc.getChildren()) {
+                if (child instanceof BodyBlock) return true;
+            }
+        }
+        return false;
+    }
+
     /** The sub-structure {@code owner} contains, drawn beneath its own row. */
-    private static void flattenBranches(CodeBlock owner, int depth, List<Row> out) {
+    private static void flattenBranches(CodeBlock owner, int depth, List<Row> out,
+                                        Predicate<StatementBlock> collapsed) {
         if (owner instanceof BranchingBlock branching) {
             for (BranchingBlock.Branch branch : branching.branches()) {
                 if (branch.caption() != null) {
                     // The caption addresses the top of the branch it introduces. For a chained `else if` the
                     // target is the nested block, so borrow its first body — the caret has to land in a body.
                     BodyBlock target = branch.target() instanceof BodyBlock b ? b : firstBody(branch.target());
-                    out.add(new Row(Kind.CAPTION, null, target, -1, depth, branch.caption()));
+                    out.add(new Row(Kind.CAPTION, null, target, -1, depth, branch.caption(), Fold.NONE));
                 }
                 if (branch.target() instanceof BodyBlock b) {
-                    flattenBody(b, depth + 1, out);
+                    flattenBody(b, depth + 1, out, collapsed);
                 } else {
                     // An `else if`: continue the chain at this level so it reads flat, as the editor draws it.
-                    flattenBranches(branch.target(), depth, out);
+                    flattenBranches(branch.target(), depth, out, collapsed);
                 }
             }
             return;
         }
         if (owner instanceof BlockWithChildren bwc) {
             for (CodeBlock child : bwc.getChildren()) {
-                if (child instanceof BodyBlock childBody) flattenBody(childBody, depth + 1, out);
+                if (child instanceof BodyBlock childBody) flattenBody(childBody, depth + 1, out, collapsed);
             }
         }
     }

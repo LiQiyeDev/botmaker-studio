@@ -42,6 +42,8 @@ public final class RecordingSession {
     private volatile boolean paused;
     /** Incremented from the native listener thread — an {@code int++} there loses presses under a fast burst. */
     private final AtomicInteger actionCount = new AtomicInteger();
+    /** See {@link #ignoreKeysym}; {@code -1} means "no key is ignored". Read on the native listener thread. */
+    private volatile long ignoredKeysym = -1;
 
     public RecordingSession(Supplier<Rectangle> exclusion, IntConsumer onActionCount) {
         this.exclusion = exclusion;
@@ -76,6 +78,16 @@ public final class RecordingSession {
             listener = null;
             throw e;
         }
+    }
+
+    /**
+     * Excludes one X keysym from the recording entirely — neither buffered nor counted, press and release
+     * alike. It exists for the key that <em>drives</em> the recorder: the overlay's global record hotkey is
+     * seen by this listener like any other key, so without this the shortcut that stops a session would be
+     * recorded as that session's last action and replayed by the bot. {@code -1} ignores nothing.
+     */
+    public void ignoreKeysym(long keysym) {
+        this.ignoredKeysym = keysym;
     }
 
     public void setPaused(boolean value) {
@@ -126,6 +138,7 @@ public final class RecordingSession {
      */
     private void onEvent(InputEvent e) {
         if (!recording || paused) return;
+        if (isIgnoredKey(e)) return;
         Rectangle ex = exclusion != null ? exclusion.get() : null;
         if (ex != null && insideExclusion(e, ex)) return;
         buffer.add(e);
@@ -133,6 +146,17 @@ public final class RecordingSession {
             int count = actionCount.incrementAndGet();
             if (onActionCount != null) onActionCount.accept(count);
         }
+    }
+
+    /** Whether {@code e} is a press or release of the key set by {@link #ignoreKeysym}. */
+    private boolean isIgnoredKey(InputEvent e) {
+        long ignored = ignoredKeysym;
+        if (ignored < 0) return false;
+        return switch (e) {
+            case InputEvent.KeyPress k -> k.keysym() == ignored;
+            case InputEvent.KeyRelease k -> k.keysym() == ignored;
+            default -> false;
+        };
     }
 
     /** True for pointer events whose absolute coordinates fall inside {@code ex}; key events are never excluded. */

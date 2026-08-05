@@ -6,6 +6,27 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-06 — Overlay editor: split into a coordinator + collaborators, and the four features it was
+  missing.** `ProgramShapeOverlay` had reached 1,483 lines carrying every concern at once. It is now a
+  coordinator (877 lines, ~37% of them rationale comments) that owns the stage, the subscriptions and the
+  FX-thread-confined pending state, beside nine single-purpose collaborators in `ui/app/overlay/`:
+  `BlockTree` (the pure, headless row model), `OverlayTreeView`, `OverlayTargetPicker`, `OverlayPalette`,
+  `ArgumentConfigPopover`, `OverlayRecorder`, `RecordedBatchInserter`, `OverlayHeader`, `OverlayHotkey`,
+  `OverlayStyles`. None holds a back-reference to the coordinator; each takes callbacks. This **supersedes**
+  the "do not split" verdict at `docs/refactor/14-studio-ui.md` §10 (written at 894 lines) — the
+  thread-confinement argument behind it survived the split rather than being traded for a lock. Features
+  added in the same pass: **move up/down** (`▲▼` on the focused row, `Alt+↑/↓`) through
+  `CodeEditor.moveStatement`, so the drag-and-drop path's read-only and pinned-return guards apply rather
+  than a second set of rules; **collapse/expand** of control-flow bodies, keyed by `BlockTree.Position` so a
+  fold survives the re-parse every edit causes; **persisted HUD state** (position + Show-lines, new
+  `StudioProjectSettings.OverlayState`, position discarded on restore if the monitor it named is gone); and a
+  **global `F9` record hotkey** plus the `⏺ Record` toolbar button that revives the overlay's long-dead
+  `startRecording` flag. The hotkey runs on its own XRecord connection, and `RecordingSession.ignoreKeysym`
+  keeps the key that *stops* a recording from becoming that recording's last action. Also: `CodeEditor`'s
+  refusals (`StatusMessageEvent`) now reach the HUD's status line — the main editor's status bar isn't on
+  screen while the overlay is, so a blocked edit simply looked like nothing happened. +9 tests
+  (`BlockTreeFlattenTest` folding, `RecordedBatchInserterTest`); 737 green.
+
 - **2026-08-05 — A `switch` over `Matches`: branch on image combinations, with the chips narrowed to the
   group.** Multi-template conditions were expressible but not organisable, and the chip menus offered every
   template in the project — including ones the enclosing `whileFindAny` group can never produce, so a branch
@@ -2191,12 +2212,16 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Overlay Editor backlog
 
-- [ ] **Edit-in-place in the tree** — move-up/move-down and delete for the focused block (currently add-only).
+- [x] **Edit-in-place in the tree** — move-up/move-down and delete for the focused block. *(2026-08-06)*
+- [x] **Collapse/expand** control-flow bodies in the tree for long programs. *(2026-08-06)*
+- [x] **Global hotkey** to toggle record without reaching for the overlay — `F9`. *(2026-08-06)*
 - [ ] **Run / run-to-cursor from the overlay** so a bot can be tested without switching back to Studio.
 - [ ] **Live match preview** — draw the last vision match rect over the target window.
 - [ ] **Richer recorded gestures** — right/middle/double-click and drag (deferred in `MacroTranslator` v1).
-- [ ] **Collapse/expand** control-flow bodies in the tree for long programs.
-- [ ] **Global hotkey** to toggle record without reaching for the overlay.
+- [ ] **A recording that knows it is off-resolution.** The header now *says* the target window isn't at the
+  project reference resolution, but `MacroTranslator` still emits raw window-relative pixels either way. The
+  honest fix is to scale the recorded coordinates by `reference / windowBounds` at translation time — which
+  needs a decision about which of the two the user meant, so it is a feature, not a bug fix.
 
 ## Emulator backlog
 

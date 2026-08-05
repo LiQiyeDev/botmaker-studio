@@ -214,6 +214,7 @@ public class UIManager {
         this.toolbarManager.setOnEnableRemotePilot(this::openRemotePilot);
         this.toolbarManager.setOnCaptureTemplates(this::openOverlayTemplateCapture);
         this.toolbarManager.setOnOverlayEditor(this::openOverlayEditor);
+        this.toolbarManager.setOnRecordMacro(this::openOverlayEditorRecording);
         this.toolbarManager.setOnAccessResources(this::openResourceManager);
         this.gitHubClient = new GitHubClient();
         this.gitHubAuth = new GitHubAuth();
@@ -1083,9 +1084,22 @@ public class UIManager {
 
     /** Opens the program-shape overlay authoring editor (compact clickable block tree + insertion cursor). */
     private void openOverlayEditor() {
+        openOverlayEditor(false);
+    }
+
+    /**
+     * The same overlay, opened straight into a recording session — the toolbar's ⏺ Record. It is the entry
+     * point that makes the overlay's {@code startRecording} flag live again: the standalone Record Macro
+     * button was dropped when the recorder was merged into the HUD, and nothing has passed {@code true} since.
+     */
+    private void openOverlayEditorRecording() {
+        openOverlayEditor(true);
+    }
+
+    private void openOverlayEditor(boolean startRecording) {
         com.botmaker.studio.ui.app.overlay.ProgramShapeOverlay.open(
                 primaryStage, codeEditorService, projectSettingsService, screenCaptureService, activityService,
-                this::liveSessionWindow, false, this::chooseLaunchTargetThen);
+                this::liveSessionWindow, startRecording, this::chooseLaunchTargetThen);
     }
 
     /**
