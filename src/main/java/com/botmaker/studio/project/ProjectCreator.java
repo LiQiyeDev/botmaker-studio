@@ -173,6 +173,21 @@ public class ProjectCreator {
      * nested display is created at, and therefore the screen resolution the game inside it sees.
      */
     public static StudioProjectSettings.Resolution readCaptureSize(Path resourcesDir) {
+        try {
+            int w = Integer.parseInt(String.valueOf(readKey(resourcesDir, ProjectProperties.KEY_CAPTURE_WIDTH)));
+            int h = Integer.parseInt(String.valueOf(readKey(resourcesDir, ProjectProperties.KEY_CAPTURE_HEIGHT)));
+            return (w > 0 && h > 0) ? new StudioProjectSettings.Resolution(w, h) : null;
+        } catch (NumberFormatException e) {
+            return null; // a hand-edited or newer-format value must not stop a launch
+        }
+    }
+
+    /**
+     * One key's trimmed value from {@code botmaker-project.properties}, or {@code null} when the key, the file
+     * or the directory is absent (or the read fails). The single load path behind every {@code read…} below —
+     * they were four copies of this same eight lines, each free to disagree about what a missing file means.
+     */
+    private static String readKey(Path resourcesDir, String key) {
         if (resourcesDir == null) return null;
         Path file = resourcesDir.resolve(ProjectProperties.FILE_NAME);
         if (!Files.exists(file)) return null;
@@ -182,13 +197,8 @@ public class ProjectCreator {
         } catch (IOException e) {
             return null;
         }
-        try {
-            int w = Integer.parseInt(props.getProperty(ProjectProperties.KEY_CAPTURE_WIDTH, "").trim());
-            int h = Integer.parseInt(props.getProperty(ProjectProperties.KEY_CAPTURE_HEIGHT, "").trim());
-            return (w > 0 && h > 0) ? new StudioProjectSettings.Resolution(w, h) : null;
-        } catch (NumberFormatException e) {
-            return null; // a hand-edited or newer-format value must not stop a launch
-        }
+        String value = props.getProperty(key);
+        return (value == null || value.isBlank()) ? null : value.trim();
     }
 
     /**
@@ -197,16 +207,20 @@ public class ProjectCreator {
      * editor with what's already configured.
      */
     public static String readLaunchTarget(Path resourcesDir) {
-        Path file = resourcesDir.resolve(ProjectProperties.FILE_NAME);
-        if (!Files.exists(file)) return null;
-        java.util.Properties props = new java.util.Properties();
-        try (var in = Files.newInputStream(file)) {
-            props.load(in);
-        } catch (IOException e) {
-            return null;
-        }
-        String spec = props.getProperty(ProjectProperties.KEY_LAUNCH_TARGET);
-        return (spec == null || spec.isBlank()) ? null : spec.trim();
+        return readKey(resourcesDir, ProjectProperties.KEY_LAUNCH_TARGET);
+    }
+
+    /**
+     * The current {@code capture.source} spec, or {@code null} when unset. The inverse of
+     * {@link #writeCaptureSource}, in the SDK's grammar ({@code desktop}, {@code monitor:<i>},
+     * {@code window:<t>}, {@code emulator:<instance>}).
+     *
+     * <p>Read by the remote pilot, which routes its preview and its Interact gestures at whatever this names —
+     * so that when the bot is looking at an emulator, so is the phone. Recognise the emulator form with
+     * {@link ProjectProperties#emulatorInstanceOf}, never by re-spelling the prefix.
+     */
+    public static String readCaptureSource(Path resourcesDir) {
+        return readKey(resourcesDir, ProjectProperties.KEY_CAPTURE_SOURCE);
     }
 
     /**
@@ -374,17 +388,9 @@ public class ProjectCreator {
      * Target dialog's "Run in background" toggle and to gate the Studio Launch buttons' background path.
      */
     public static boolean readSessionIsolated(Path resourcesDir) {
-        Path file = resourcesDir.resolve(ProjectProperties.FILE_NAME);
-        if (!Files.exists(file)) return true;
-        java.util.Properties props = new java.util.Properties();
-        try (var in = Files.newInputStream(file)) {
-            props.load(in);
-        } catch (IOException e) {
-            return true;
-        }
-        String spec = props.getProperty(ProjectProperties.KEY_SESSION_ISOLATED);
-        if (spec == null || spec.isBlank()) return true;
-        return switch (spec.trim().toLowerCase()) {
+        String spec = readKey(resourcesDir, ProjectProperties.KEY_SESSION_ISOLATED);
+        if (spec == null) return true;
+        return switch (spec.toLowerCase()) {
             case "false", "0", "no", "off" -> false;
             default -> true;
         };

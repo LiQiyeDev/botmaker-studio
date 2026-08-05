@@ -3,9 +3,12 @@ package com.botmaker.studio.services.pilot;
 import com.botmaker.session.DesktopSession;
 
 /**
- * The single switch that decides <em>which display</em> the pilot's capture and Interact input act on: the
- * user's real {@code :0} desktop (the default — {@code null} session) or a bot-owned nested {@code :N}
- * {@link DesktopSession}.
+ * Holds the bot-owned nested {@code :N} {@link DesktopSession} while one is live, or {@code null}.
+ *
+ * <p>This used to be the whole decision — {@code :N} or the real {@code :0} — which is why it reads like a
+ * switch. An emulator surface is a third answer that is neither, so the decision itself moved to
+ * {@link PilotRoutes} (where a live session here is still the top of the order) and this became one of its
+ * inputs.
  *
  * <p>This is the whole point of Phase 5. When a nested session is active, {@link TargetCapture} previews the
  * window that session launched into {@code :N} and {@link PilotInputService} drives that session's

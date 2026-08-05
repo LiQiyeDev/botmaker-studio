@@ -7,6 +7,7 @@ import com.botmaker.session.Capability;
 import com.botmaker.session.DesktopSession;
 import com.botmaker.session.SessionKeyboard;
 import com.botmaker.session.SessionPointer;
+import com.botmaker.studio.emulator.EmulatorSurface;
 
 import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
@@ -75,5 +76,34 @@ final class PilotFakes {
         @Override public BufferedImage capture() { return frame; }
         @Override public NativeController controller() { return controller; }
         @Override public void close() { }
+    }
+
+    /**
+     * An {@link EmulatorSurface} that records the ADB verbs asked of it and hands back a fixed frame — the
+     * emulator counterpart of {@link RecordingController}, so the emulator route can be tested with no ADB,
+     * no emulator and no network.
+     */
+    static final class RecordingSurface implements EmulatorSurface {
+        final List<String> calls = new ArrayList<>();
+        BufferedImage frame;
+        boolean closed;
+
+        RecordingSurface(BufferedImage frame) {
+            this.frame = frame;
+        }
+
+        @Override public String instanceName() { return "FakeDroid"; }
+        @Override public BufferedImage grab() { calls.add("grab"); return frame; }
+        @Override public void tap(int x, int y) { calls.add("tap " + x + "," + y); }
+
+        @Override
+        public void drag(int x1, int y1, int x2, int y2, long durationMs) {
+            // The duration is wall-clock, so it is deliberately not recorded — asserting on it would make the
+            // test time-dependent for no gain.
+            calls.add("drag " + x1 + "," + y1 + "->" + x2 + "," + y2);
+        }
+
+        @Override public void scroll(int x, int y, int amount) { calls.add("scroll " + x + "," + y + " " + amount); }
+        @Override public void close() { closed = true; }
     }
 }

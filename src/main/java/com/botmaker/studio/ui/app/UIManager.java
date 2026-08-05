@@ -493,7 +493,7 @@ public class UIManager {
         if (pilotServer == null) {
             var control = new com.botmaker.studio.services.pilot.PilotControlService(codeExecutionService);
             pilotServer = new com.botmaker.studio.services.pilot.PilotServer(
-                    eventBus, projectSettingsService, control);
+                    eventBus, projectSettingsService, control, config.resourcesRoot());
         }
         eventBus.publish(new CoreApplicationEvents.StatusMessageEvent("Starting Remote Pilot…"));
         Alert progress = buildPilotProgressDialog();
@@ -760,7 +760,11 @@ public class UIManager {
         Runnable refreshButtons = () -> {
             boolean running = nestedLauncher.isRunning();
             boolean backendOk = SessionBackends.isAvailable(backend.getValue());
-            boolean canStart = nestedLauncher.configuredTarget() != null && backendOk;
+            LaunchSpec configured = nestedLauncher.configuredTarget();
+            // An emulator app is already off the desktop, so there is nothing for a private display to add and
+            // NestedSessionLauncher would refuse anyway — don't offer a button whose only outcome is a refusal.
+            boolean offDesktop = configured != null && configured.kind().runsOffDesktop();
+            boolean canStart = configured != null && backendOk && !offDesktop;
             start.setDisable(running || !canStart);
             stop.setDisable(!running);
             backend.setDisable(running);
@@ -780,6 +784,10 @@ public class UIManager {
                 return;
             }
             LaunchSpec spec = nestedLauncher.configuredTarget();
+            if (spec != null && spec.kind().runsOffDesktop()) {
+                emulatorIsolationStatus(spec, status);
+                return;
+            }
             if (spec == null) {
                 status.setText("● Set a launch target (Run ▸ Launch Target…) to enable background mode.");
             } else if (!SessionBackends.isAvailable(backend.getValue())) {
@@ -822,6 +830,39 @@ public class UIManager {
         box.getChildren().addAll(title, help,
                 new HBox(8, new Label("Backend:"), backend, start, stop, showWin), status);
         return box;
+    }
+
+    /**
+     * The status line for a target that already runs off the desktop — an emulator app.
+     *
+     * <p>The box used to tell such a target it was "mirroring your real desktop :0" and offer it a private
+     * display, which was wrong twice over: the pilot doesn't mirror the desktop for these (it streams the
+     * emulator over ADB, {@code PilotRoutes}), and a nested display has nothing to give a surface that was
+     * never on a display of ours. The isolated state is the <em>resting</em> state here, so this is green.
+     *
+     * <p>Whether the emulator is actually up is a TCP probe, so it runs off the FX thread and only upgrades
+     * the line when it comes back — the box never blocks on it.
+     */
+    private void emulatorIsolationStatus(LaunchSpec spec, Label status) {
+        String instance = spec.emulatorInstance();
+        String app = spec.emulatorPackage();
+        status.setText("● Already isolated — " + app + " runs inside " + instance
+                + ". The pilot streams the emulator over ADB and Interact taps land inside it; your real "
+                + "cursor stays free.");
+        status.setStyle("-fx-text-fill: #27ae60;"); // green — this target is isolated by construction
+        Thread probe = new Thread(() -> {
+            boolean up = com.botmaker.shared.emulator.EmulatorInstances.byName(instance)
+                    .map(com.botmaker.studio.emulator.EmulatorProbe::isRunning)
+                    .orElse(false);
+            if (up) return;
+            javafx.application.Platform.runLater(() -> {
+                status.setText("● " + instance + " isn't running — start it with ▶ Launch now (or the emulator "
+                        + "picker). The pilot streams it over ADB as soon as it's up; no background mode needed.");
+                status.setStyle("-fx-text-fill: #e67e22;");
+            });
+        }, "emulator-liveness");
+        probe.setDaemon(true);
+        probe.start();
     }
 
     /**

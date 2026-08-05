@@ -12,9 +12,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Phase 5 routing: with a nested session active, {@link PilotInputService} drives that session's {@code :N}
- * controller (never escalates it, and honestly reports background-safe); with none, it falls back to the host
- * {@code :0} path. Uses the {@link PilotFakes} doubles so no real display is touched.
+ * Route replay: a gesture is applied to the surface of the {@link PilotRoute} it arrived with — a nested
+ * session's {@code :N} controller, the host {@code :0} one, or an emulator's ADB verbs — using the
+ * {@link PilotFakes} doubles so no real display and no emulator is touched.
  */
 class PilotInputServiceTest {
 
@@ -25,22 +25,24 @@ class PilotInputServiceTest {
         NativeControllerFactory.setForTesting(null); // don't leak an injected host controller into other tests
     }
 
+    /** A session route, ready to hand to {@code apply}. */
+    private static PilotRoute sessionRoute(PilotFakes.RecordingController nc) {
+        return new PilotRoute.Session(
+                new PilotFakes.FakeSession(nc, null, null, EnumSet.of(Capability.BACKGROUND_CLICK)));
+    }
+
     @Test
     void gesturesRouteToTheActiveSessionController() {
         PilotFakes.RecordingController nc = new PilotFakes.RecordingController();
-        PilotSession session = new PilotSession();
-        session.set(new PilotFakes.FakeSession(nc, null, null, EnumSet.of(Capability.BACKGROUND_CLICK)));
-        PilotInputService input = new PilotInputService(session);
+        PilotInputService input = new PilotInputService();
 
-        assertTrue(input.apply(PilotInputService.Kind.TAP, 100, 120, 1, 0, BOUNDS));
+        assertTrue(input.apply(sessionRoute(nc), PilotInputService.Kind.TAP, 100, 120, 1, 0, BOUNDS));
 
         // TAP on a session goes through click() → move, press, release, with no warp back.
         assertEquals(3, nc.calls.size());
         assertEquals("move 100,120", nc.calls.get(0));
         assertEquals("button 1 true", nc.calls.get(1));
         assertEquals("button 1 false", nc.calls.get(2));
-        // A nested :N controller must never be escalated — it is already device-level and background-safe.
-        assertFalse(nc.reliableCalled, "the :N controller must not be asked to useReliableInput()");
     }
 
     /**
@@ -51,10 +53,9 @@ class PilotInputServiceTest {
     void aSessionTapDoesNotWarpThePointerBack() {
         PilotFakes.RecordingController nc = new PilotFakes.RecordingController();
         nc.cursor = new java.awt.Point(7, 9); // a readable origin: the restoring path would warp here
-        PilotSession session = new PilotSession();
-        session.set(new PilotFakes.FakeSession(nc, null, null, EnumSet.of(Capability.BACKGROUND_CLICK)));
 
-        assertTrue(new PilotInputService(session).apply(PilotInputService.Kind.TAP, 100, 120, 1, 0, BOUNDS));
+        assertTrue(new PilotInputService()
+                .apply(sessionRoute(nc), PilotInputService.Kind.TAP, 100, 120, 1, 0, BOUNDS));
 
         assertEquals(java.util.List.of("move 100,120", "button 1 true", "button 1 false"), nc.calls);
     }
@@ -68,13 +69,12 @@ class PilotInputServiceTest {
     void aSessionDragEndsWhereItEnded() {
         PilotFakes.RecordingController nc = new PilotFakes.RecordingController();
         nc.cursor = new java.awt.Point(7, 9);
-        PilotSession session = new PilotSession();
-        session.set(new PilotFakes.FakeSession(nc, null, null, EnumSet.of(Capability.BACKGROUND_CLICK)));
-        PilotInputService input = new PilotInputService(session);
+        PilotRoute route = sessionRoute(nc);
+        PilotInputService input = new PilotInputService();
 
-        assertTrue(input.apply(PilotInputService.Kind.DOWN, 10, 10, 1, 0, BOUNDS));
-        assertTrue(input.apply(PilotInputService.Kind.MOVE, 40, 40, 1, 0, BOUNDS));
-        assertTrue(input.apply(PilotInputService.Kind.UP, 50, 50, 1, 0, BOUNDS));
+        assertTrue(input.apply(route, PilotInputService.Kind.DOWN, 10, 10, 1, 0, BOUNDS));
+        assertTrue(input.apply(route, PilotInputService.Kind.MOVE, 40, 40, 1, 0, BOUNDS));
+        assertTrue(input.apply(route, PilotInputService.Kind.UP, 50, 50, 1, 0, BOUNDS));
 
         assertEquals(java.util.List.of("move 10,10", "button 1 true", "move 40,40", "move 50,50",
                 "button 1 false"), nc.calls);
@@ -86,10 +86,10 @@ class PilotInputServiceTest {
         PilotFakes.RecordingController hostNc = new PilotFakes.RecordingController();
         hostNc.cursor = new java.awt.Point(7, 9);
         NativeControllerFactory.setForTesting(hostNc);
-        PilotInputService input = new PilotInputService(new PilotSession());
+        PilotInputService input = new PilotInputService();
 
-        assertTrue(input.apply(PilotInputService.Kind.DOWN, 10, 10, 1, 0, BOUNDS));
-        assertTrue(input.apply(PilotInputService.Kind.UP, 50, 50, 1, 0, BOUNDS));
+        assertTrue(input.apply(PilotRoute.DESKTOP, PilotInputService.Kind.DOWN, 10, 10, 1, 0, BOUNDS));
+        assertTrue(input.apply(PilotRoute.DESKTOP, PilotInputService.Kind.UP, 50, 50, 1, 0, BOUNDS));
 
         assertEquals("move 7,9", hostNc.calls.get(hostNc.calls.size() - 1), hostNc.calls.toString());
     }
@@ -101,8 +101,8 @@ class PilotInputServiceTest {
         hostNc.cursor = new java.awt.Point(7, 9);
         NativeControllerFactory.setForTesting(hostNc);
 
-        assertTrue(new PilotInputService(new PilotSession())
-                .apply(PilotInputService.Kind.TAP, 100, 120, 1, 0, BOUNDS));
+        assertTrue(new PilotInputService()
+                .apply(PilotRoute.DESKTOP, PilotInputService.Kind.TAP, 100, 120, 1, 0, BOUNDS));
 
         assertEquals(java.util.List.of("move 100,120", "button 1 true", "button 1 false", "move 7,9"),
                 hostNc.calls);
@@ -112,33 +112,27 @@ class PilotInputServiceTest {
     void backgroundInputIsTrueForANestedSessionRegardlessOfControllerFlag() {
         PilotFakes.RecordingController nc = new PilotFakes.RecordingController();
         nc.background = false; // even a controller that reports false...
-        PilotSession session = new PilotSession();
-        session.set(new PilotFakes.FakeSession(nc, null, null, EnumSet.of(Capability.BACKGROUND_CLICK)));
-        PilotInputService input = new PilotInputService(session);
 
         // ...is background-safe because the session advertises BACKGROUND_CLICK (its :N pointer is the bot's alone).
-        assertTrue(input.supportsBackgroundInput());
+        assertTrue(new PilotInputService().supportsBackgroundInput(sessionRoute(nc)));
     }
 
     @Test
-    void clearingTheSessionFallsBackToTheHostPath() {
+    void theRouteTheFrameCameWithDecidesWhoGetsTheGesture() {
         PilotFakes.RecordingController sessionNc = new PilotFakes.RecordingController();
         PilotFakes.RecordingController hostNc = new PilotFakes.RecordingController();
-        NativeControllerFactory.setForTesting(hostNc); // the :0 controller the fallback path resolves
-        PilotSession session = new PilotSession();
-        session.set(new PilotFakes.FakeSession(sessionNc, null, null, EnumSet.of(Capability.BACKGROUND_CLICK)));
-        PilotInputService input = new PilotInputService(session);
+        NativeControllerFactory.setForTesting(hostNc); // the :0 controller the desktop route resolves
+        PilotInputService input = new PilotInputService();
 
-        // While set, the session controller takes the gesture — the host is untouched.
-        assertTrue(input.apply(PilotInputService.Kind.MOVE, 10, 20, 1, 0, BOUNDS));
+        // On the session route the session controller takes the gesture — the host is untouched.
+        assertTrue(input.apply(sessionRoute(sessionNc), PilotInputService.Kind.MOVE, 10, 20, 1, 0, BOUNDS));
         assertEquals("move 10,20", sessionNc.calls.get(0));
         assertTrue(hostNc.calls.isEmpty());
 
-        // After clearing, the gesture goes to the host :0 controller, not the (now inactive) session one.
-        session.clear();
+        // On the desktop route it goes to the host :0 controller, not the (no longer live) session one.
         int sessionSeen = sessionNc.calls.size();
-        assertTrue(input.apply(PilotInputService.Kind.MOVE, 30, 40, 1, 0, BOUNDS));
-        assertEquals(sessionSeen, sessionNc.calls.size(), "a cleared session's controller must not receive gestures");
+        assertTrue(input.apply(PilotRoute.DESKTOP, PilotInputService.Kind.MOVE, 30, 40, 1, 0, BOUNDS));
+        assertEquals(sessionSeen, sessionNc.calls.size(), "a route not in play must not receive gestures");
         assertEquals("move 30,40", hostNc.calls.get(0), "the host :0 controller now takes the gesture");
         assertTrue(hostNc.reliableCalled, "the host path escalates via useReliableInput() on first use");
     }
@@ -146,11 +140,82 @@ class PilotInputServiceTest {
     @Test
     void outOfBoundsGesturesAreStillRejectedWithASession() {
         PilotFakes.RecordingController nc = new PilotFakes.RecordingController();
-        PilotSession session = new PilotSession();
-        session.set(new PilotFakes.FakeSession(nc, null, null, EnumSet.of(Capability.BACKGROUND_CLICK)));
-        PilotInputService input = new PilotInputService(session);
+        PilotInputService input = new PilotInputService();
 
-        assertFalse(input.apply(PilotInputService.Kind.TAP, 5000, 5000, 1, 0, BOUNDS));
+        assertFalse(input.apply(sessionRoute(nc), PilotInputService.Kind.TAP, 5000, 5000, 1, 0, BOUNDS));
         assertTrue(nc.calls.isEmpty(), "a gesture outside the shown surface must never reach the controller");
+    }
+
+    // --- The emulator route: Android has no pointer, so the gesture shapes differ ---
+
+    @Test
+    void anEmulatorTapIsOneAdbTapAndNoControllerIsEverResolved() {
+        PilotFakes.RecordingController hostNc = new PilotFakes.RecordingController();
+        NativeControllerFactory.setForTesting(hostNc);
+        PilotFakes.RecordingSurface surface = new PilotFakes.RecordingSurface(null);
+
+        assertTrue(new PilotInputService().apply(new PilotRoute.Emulator(surface),
+                PilotInputService.Kind.TAP, 100, 120, 1, 0, BOUNDS));
+
+        assertEquals(java.util.List.of("tap 100,120"), surface.calls);
+        // The host controller must not even be constructed: resolving it escalates :0 to real device input,
+        // process-wide and stickily, which an emulator gesture has no business causing.
+        assertTrue(hostNc.calls.isEmpty());
+        assertFalse(hostNc.reliableCalled);
+    }
+
+    /**
+     * A drag is <b>one</b> {@code input swipe} carrying both ends, so the intermediate moves dispatch nothing.
+     * Sending a swipe per MOVE would be a stutter of unrelated flicks rather than a drag.
+     */
+    @Test
+    void anEmulatorDragIsASingleSwipeFromTheDownPoint() {
+        PilotFakes.RecordingSurface surface = new PilotFakes.RecordingSurface(null);
+        PilotRoute route = new PilotRoute.Emulator(surface);
+        PilotInputService input = new PilotInputService();
+
+        assertTrue(input.apply(route, PilotInputService.Kind.DOWN, 10, 10, 1, 0, BOUNDS));
+        assertTrue(input.apply(route, PilotInputService.Kind.MOVE, 40, 40, 1, 0, BOUNDS));
+        assertTrue(input.apply(route, PilotInputService.Kind.UP, 50, 50, 1, 0, BOUNDS));
+
+        assertEquals(java.util.List.of("drag 10,10->50,50"), surface.calls);
+    }
+
+    /** An UP with no remembered DOWN (a client reconnecting mid-gesture) taps rather than swiping from nowhere. */
+    @Test
+    void anEmulatorUpWithNoDownDegradesToATap() {
+        PilotFakes.RecordingSurface surface = new PilotFakes.RecordingSurface(null);
+
+        assertTrue(new PilotInputService().apply(new PilotRoute.Emulator(surface),
+                PilotInputService.Kind.UP, 50, 50, 1, 0, BOUNDS));
+
+        assertEquals(java.util.List.of("tap 50,50"), surface.calls);
+    }
+
+    @Test
+    void anEmulatorScrollIsForwardedWithItsSignedAmount() {
+        PilotFakes.RecordingSurface surface = new PilotFakes.RecordingSurface(null);
+
+        assertTrue(new PilotInputService().apply(new PilotRoute.Emulator(surface),
+                PilotInputService.Kind.SCROLL, 100, 120, 1, -3, BOUNDS));
+
+        assertEquals(java.util.List.of("scroll 100,120 -3"), surface.calls);
+    }
+
+    /** ADB has no host cursor to move, so this route is background-safe without any capability to advertise. */
+    @Test
+    void anEmulatorRouteIsAlwaysBackgroundSafe() {
+        assertTrue(new PilotInputService()
+                .supportsBackgroundInput(new PilotRoute.Emulator(new PilotFakes.RecordingSurface(null))));
+    }
+
+    @Test
+    void outOfBoundsGesturesAreRejectedOnTheEmulatorRouteToo() {
+        PilotFakes.RecordingSurface surface = new PilotFakes.RecordingSurface(null);
+
+        assertFalse(new PilotInputService().apply(new PilotRoute.Emulator(surface),
+                PilotInputService.Kind.TAP, 5000, 5000, 1, 0, BOUNDS));
+
+        assertTrue(surface.calls.isEmpty(), "the clamp guards every route, not just the display-backed ones");
     }
 }

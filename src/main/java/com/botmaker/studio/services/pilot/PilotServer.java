@@ -51,11 +51,13 @@ public final class PilotServer implements AutoCloseable {
     private static final int FRAME_FPS = 12;
 
     private final EventBus eventBus;
-    /** The one switch between the {@code :0} desktop and a bot-owned {@code :N} session, shared by capture + input. */
+    /** Holds the bot-owned {@code :N} session, when one is live — the highest-priority {@link PilotRoute}. */
     private final PilotSession session = new PilotSession();
+    /** Decides which surface is streamed and driven ({@code :0} / {@code :N} / an emulator) and owns its connection. */
+    private final PilotRoutes routes;
     private final TargetCapture capture;
     private final PilotControlService control;
-    private final PilotInputService input = new PilotInputService(session);
+    private final PilotInputService input = new PilotInputService();
     private final ObjectMapper json = new ObjectMapper();
 
     /**
@@ -76,12 +78,20 @@ public final class PilotServer implements AutoCloseable {
     private volatile TelemetryEvent.Target lastTarget;
     /** The surface of the most recently pushed frame — the only region Interact gestures may land in. */
     private volatile PilotInputService.Bounds lastBounds;
+    /**
+     * The route that produced the most recently pushed frame. Recorded beside the bounds and replayed on for
+     * the same reason the bounds are: a gesture belongs to the frame the user touched, not to whatever the
+     * route resolver would answer by the time it arrives.
+     */
+    private volatile PilotRoute lastRoute = PilotRoute.DESKTOP;
     private volatile String token;
     private volatile String runState = "stopped";
 
-    public PilotServer(EventBus eventBus, ProjectSettingsService settings, PilotControlService control) {
+    public PilotServer(EventBus eventBus, ProjectSettingsService settings, PilotControlService control,
+                       java.nio.file.Path resourcesDir) {
         this.eventBus = eventBus;
-        this.capture = new TargetCapture(settings, session);
+        this.routes = PilotRoutes.forProject(session, resourcesDir, settings);
+        this.capture = new TargetCapture(settings);
         this.control = control;
     }
 
@@ -89,7 +99,8 @@ public final class PilotServer implements AutoCloseable {
      * Route the pilot's live preview and Interact gestures through {@code desktopSession}'s nested {@code :N}
      * display instead of the user's {@code :0} desktop — the Phase 5 integration point a nested-session launcher
      * calls once the game is up. Pass {@code null} (or call {@link #clearActiveSession()}) to return to {@code :0}.
-     * Takes effect on the next frame/gesture; safe to call while the server is running.
+     * Takes effect on the next frame/gesture; safe to call while the server is running. A live session is the
+     * top of {@link PilotRoutes}' order, so it also displaces an emulator route while it lasts.
      */
     public void setActiveSession(com.botmaker.session.DesktopSession desktopSession) {
         session.set(desktopSession);
@@ -195,6 +206,7 @@ public final class PilotServer implements AutoCloseable {
     @Override
     public synchronized void close() {
         if (frameExec != null) { frameExec.shutdownNow(); frameExec = null; }
+        routes.close(); // drop any held emulator connection with the loop that was using it
         clients.clear();
         if (app != null) { app.stop(); app = null; }
         if (funnel != null) { funnel.disable(); funnel = null; }
@@ -291,7 +303,7 @@ public final class PilotServer implements AutoCloseable {
         } catch (IllegalArgumentException unknownKind) {
             return;
         }
-        input.apply(kind, node.path("x").asInt(), node.path("y").asInt(),
+        input.apply(lastRoute, kind, node.path("x").asInt(), node.path("y").asInt(),
                 node.path("button").asInt(1), node.path("amount").asInt(0), lastBounds);
     }
 
@@ -316,7 +328,7 @@ public final class PilotServer implements AutoCloseable {
 
     /** Built by {@link TelemetrySerializer}, which owns every text message that leaves here. */
     private String stateJson() {
-        return TelemetrySerializer.stateJson(runState, input.supportsBackgroundInput());
+        return TelemetrySerializer.stateJson(runState, input.supportsBackgroundInput(lastRoute));
     }
 
     private void broadcastText(String text) {
@@ -337,19 +349,28 @@ public final class PilotServer implements AutoCloseable {
             t.setDaemon(true);
             return t;
         });
-        frameExec.scheduleAtFixedRate(this::pushFrame, 300, 1000 / FRAME_FPS, TimeUnit.MILLISECONDS);
+        // Fixed *delay*, not fixed rate: an emulator frame is a full-frame PNG pulled over ADB and is routinely
+        // slower than the period. At a fixed rate those pile up back-to-back on this single thread, which is a
+        // backlog rather than a frame rate; a delay lets each route run at whatever its transport sustains.
+        frameExec.scheduleWithFixedDelay(this::pushFrame, 300, 1000 / FRAME_FPS, TimeUnit.MILLISECONDS);
     }
 
     private void pushFrame() {
         if (clients.isEmpty()) return;
-        TargetCapture.Capture cap = capture.resolve(lastTarget);
+        PilotRoute route = routes.current();
+        TargetCapture.Capture cap = capture.resolve(route, lastTarget);
         if (cap == null) return;
         byte[] jpeg = TargetCapture.jpegBytes(cap.img());
         if (jpeg == null) return;
 
-        // Interact gestures are clamped to whatever the client was last actually shown, so the bound must be
-        // published from here — the one place that knows what went over the wire.
+        // Interact gestures are replayed on the route that produced this frame and clamped to what the client
+        // was actually shown, so both must be published from here — the one place that knows what went over the
+        // wire. A route change also changes whether input is background-safe, which the client renders as a
+        // warning, so tell it rather than leaving a stale one on screen.
+        boolean routeChanged = lastRoute == null || !lastRoute.getClass().equals(route.getClass());
+        lastRoute = route;
         lastBounds = new PilotInputService.Bounds(cap.sx(), cap.sy(), cap.sw(), cap.sh());
+        if (routeChanged) broadcastText(stateJson());
 
         byte[] payload = new byte[16 + jpeg.length];
         ByteBuffer.wrap(payload)

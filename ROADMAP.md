@@ -6,6 +6,29 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-05 — The pilot can stream and touch an emulator, so BotPilot works against Waydroid.**
+  BotPilot was unusable against an emulator, and it had never been wired for one: `TargetCapture` handled
+  window/screen/desktop targets and simply fell through for an `EmulatorTarget`, so the phone was shown the
+  user's *real desktop* while the bot looked at Android; `PilotInputService` routed on one nullable
+  `DesktopSession`, so an Interact tap at emulator coordinates was synthesized onto `:0` — wrong pixel, wrong
+  screen, and it hijacked the cursor to get there. That question is now a closed set: new sealed `PilotRoute`
+  (`Desktop` | `Session` | `Emulator`) resolved by new `PilotRoutes` in one documented order — a live nested
+  session, then `capture.source = emulator:<name>` (what the Launch Target dialog already writes for every
+  `emu-app:` target, and what the running bot reads), then a default `EmulatorTarget`, else `:0`. An
+  unreachable instance degrades to the desktop rather than to a blank stream. New
+  `emulator/EmulatorSurface` + `AdbEmulatorSurface` holds **one** ADB connection (reconnecting on failure)
+  for `screencap` frames and `input tap`/`swipe` gestures. Android has no pointer, so a drag is one swipe
+  emitted on `UP` rather than a stream of moves, and the route reports `backgroundInput = true` — ADB has no
+  host cursor to touch — which correctly removes the pilot's "moves your real cursor" warning. `apply` now
+  takes the route that produced the frame (recorded beside `lastBounds`) so a gesture can't land on a route
+  that changed under it, and the frame loop moved to `scheduleWithFixedDelay`: a full-frame PNG slower than
+  the period was queueing back-to-back, which is a backlog, not a frame rate. The Background-mode box stops
+  advising an `emu-app:` target into a session it will refuse and reads green "already isolated" (amber, from
+  an off-thread probe, when the instance isn't up). Also `ProjectCreator.readCaptureSource` — with the four
+  copies of the properties-load boilerplate collapsed onto one `readKey` — and `TargetThumbnail` onto shared's
+  `EmulatorInstances.byName` + `EmulatorProbe`, deleting a fourth copy of the ADB TCP probe.
+  `PilotRoutesTest`, `PilotInputServiceTest`, `TargetCaptureTest`, `LaunchTargetRoundTripTest`.
+
 - **2026-08-05 — The emulator picker shows apps by name, and asks Waydroid rather than ADB.**
   `EmulatorProbe.installedAppsDetailed` returns `(package, label)` pairs and sources them from
   `WaydroidApps.list()` for a Waydroid instance — the host CLI answers when ADB is refused by the in-guest

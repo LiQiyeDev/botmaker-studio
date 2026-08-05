@@ -5,6 +5,7 @@ import com.botmaker.shared.capture.NativeControllerFactory;
 import com.botmaker.shared.capture.WindowMatch;
 import com.botmaker.shared.ipc.TelemetryEvent;
 import com.botmaker.session.DesktopSession;
+import com.botmaker.studio.emulator.EmulatorSurface;
 import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.services.ProjectSettingsService;
 
@@ -23,10 +24,12 @@ import java.io.ByteArrayOutputStream;
  * reusable on its own; {@code PilotServer} (raw JPEG bytes over WebSocket) is its one
  * capture pipeline.
  *
- * <p>Target resolution: a live window from telemetry wins;
- * else the project default (window / monitor / whole desktop); else a whole-screen telemetry target; else the
- * primary screen. Window targets use shared JNA {@code captureWindow} (no focus, prompt-free on X11/XWayland);
- * screen targets fall back to AWT {@link Robot} (limited on Wayland — see the module ROADMAP).
+ * <p>Target resolution starts with the {@link PilotRoute}: a nested session's {@code :N} window or an
+ * emulator's framebuffer <em>is</em> the surface, and needs no picking. Only on the {@code :0} desktop route is
+ * there a choice to make — a live window from telemetry wins; else the project default (window / monitor /
+ * whole desktop); else a whole-screen telemetry target; else the primary screen. Window targets use shared JNA
+ * {@code captureWindow} (no focus, prompt-free on X11/XWayland); screen targets fall back to AWT {@link Robot}
+ * (limited on Wayland — see the module ROADMAP).
  */
 public final class TargetCapture {
 
@@ -34,24 +37,31 @@ public final class TargetCapture {
     public record Capture(BufferedImage img, int sx, int sy, int sw, int sh) {}
 
     private final ProjectSettingsService settings;
-    /** When it holds a nested session, that session's {@code :N} surface is previewed instead of the {@code :0} target. */
-    private final PilotSession session;
 
-    public TargetCapture(ProjectSettingsService settings, PilotSession session) {
+    public TargetCapture(ProjectSettingsService settings) {
         this.settings = settings;
-        this.session = session;
     }
 
     /**
-     * Grabs the frame to preview this tick. An active nested {@link DesktopSession} wins over everything —
-     * its {@code :N} surface is the whole point of the session. Otherwise {@code lastTarget} is the most recent
-     * telemetry target (may be {@code null} when idle) and a live window target wins over the project default.
+     * Grabs the frame to preview this tick, on the surface {@code route} names.
+     *
+     * <p>A {@link PilotRoute.Session} or {@link PilotRoute.Emulator} <em>is</em> the answer — those routes exist
+     * precisely because the bot is not on the user's desktop — and each falls back to the {@code :0} path only
+     * if its own grab fails, so a momentarily unreachable emulator shows something rather than nothing. On the
+     * {@link PilotRoute.Desktop} route, {@code lastTarget} is the most recent telemetry target (may be
+     * {@code null} when idle) and a live window target wins over the project default.
      */
-    public Capture resolve(TelemetryEvent.Target lastTarget) {
-        DesktopSession s = session != null ? session.get() : null;
-        if (s != null) {
-            Capture c = captureSession(s);
-            if (c != null) return c;
+    public Capture resolve(PilotRoute route, TelemetryEvent.Target lastTarget) {
+        switch (route == null ? PilotRoute.DESKTOP : route) {
+            case PilotRoute.Session(DesktopSession s) -> {
+                Capture c = captureSession(s);
+                if (c != null) return c;
+            }
+            case PilotRoute.Emulator(EmulatorSurface surface) -> {
+                Capture c = captureEmulator(surface);
+                if (c != null) return c;
+            }
+            case PilotRoute.Desktop ignored -> { /* the :0 resolution below */ }
         }
         TelemetryEvent.Target t = lastTarget;
         if (t != null && t.title() != null && t.width() > 0 && t.height() > 0) {
@@ -85,6 +95,22 @@ public final class TargetCapture {
             if (img == null) return null;
             Rectangle b = win.getRect();
             return new Capture(img, b.x, b.y, b.width, b.height);
+        } catch (Throwable ex) {
+            return null;
+        }
+    }
+
+    /**
+     * Grab the emulator's screen over ADB, tagged with its <em>own framebuffer</em> rect — origin {@code (0,0)},
+     * because an emulator's pixels are not on any host screen. That rect is what {@link PilotInputService}
+     * clamps a gesture to and what {@code input tap} expects, so capture and Interact share one coordinate
+     * space here for the same reason a nested session's {@code :N} rect makes them share one there. It is also
+     * the space the project's image templates were captured in, so what the phone sees is what the bot matches.
+     */
+    private Capture captureEmulator(EmulatorSurface surface) {
+        try {
+            BufferedImage img = surface.grab();
+            return img == null ? null : new Capture(img, 0, 0, img.getWidth(), img.getHeight());
         } catch (Throwable ex) {
             return null;
         }

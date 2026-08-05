@@ -34,7 +34,7 @@ class PilotServerTest {
 
     @Test
     void servesStaticUiAndGatesWebSocketByToken() throws Exception {
-        server = new PilotServer(new EventBus(), null, new PilotControlService(null));
+        server = new PilotServer(new EventBus(), null, new PilotControlService(null), null);
         PilotServer.Endpoint ep = server.start("127.0.0.1");
 
         HttpClient http = HttpClient.newHttpClient();

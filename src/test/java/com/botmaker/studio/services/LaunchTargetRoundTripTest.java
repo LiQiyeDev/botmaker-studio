@@ -189,6 +189,28 @@ class LaunchTargetRoundTripTest {
                         "an app inside an emulator is on no host process table"));
     }
 
+    /**
+     * The capture source travels the same four legs as the launch target, and the pilot now routes on it — so
+     * it needs the same round trip. The emulator form is the one with a consumer that parses it back
+     * ({@link com.botmaker.shared.config.ProjectProperties#emulatorInstanceOf}); the rest are carried raw.
+     */
+    @Test
+    void theCaptureSourceSurvivesAWriteReadRoundTrip(@TempDir Path dir) throws IOException {
+        assertNull(ProjectCreator.readCaptureSource(dir), "no file yet is unset, not a failure");
+
+        ProjectCreator.writeCaptureSource(dir, "emulator:Waydroid");
+        assertEquals("emulator:Waydroid", ProjectCreator.readCaptureSource(dir));
+
+        // Writing the launch target beside it must not disturb it — they share one file.
+        ProjectCreator.writeLaunchTarget(dir, "emu-app:com.example.game@Waydroid");
+        assertEquals("emulator:Waydroid", ProjectCreator.readCaptureSource(dir));
+        assertEquals("emu-app:com.example.game@Waydroid", ProjectCreator.readLaunchTarget(dir));
+
+        ProjectCreator.writeCaptureSource(dir, null);
+        assertNull(ProjectCreator.readCaptureSource(dir), "a cleared source reads back as unset");
+        assertNotNull(ProjectCreator.readLaunchTarget(dir), "clearing one key must not clear the other");
+    }
+
     /** The {@code @} split keeps package dots and takes the <em>last</em> separator. */
     @Test
     void anEmulatorAppSplitsIntoPackageAndInstance() {
