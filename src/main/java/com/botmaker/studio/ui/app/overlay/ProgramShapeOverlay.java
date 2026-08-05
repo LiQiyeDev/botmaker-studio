@@ -4,7 +4,6 @@ import com.botmaker.shared.input.InputEvent;
 import com.botmaker.studio.blocks.func.MethodInvocationBlock;
 import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.CodeBlock;
-import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.core.StatementBlock;
 import com.botmaker.studio.project.StudioProjectSettings;
 import com.botmaker.studio.project.capture.CaptureTarget;
@@ -14,9 +13,6 @@ import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.services.ScreenCaptureService.WindowShot;
 import com.botmaker.studio.services.record.MacroTranslator;
 import com.botmaker.studio.services.record.RecordingSession;
-import com.botmaker.studio.types.ResolvedType;
-import com.botmaker.studio.ui.render.components.pickers.PickerContext;
-import com.botmaker.studio.ui.render.components.pickers.PickerRegistry;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.events.CoreApplicationEvents.ActivitiesChangedEvent;
 import com.botmaker.studio.events.CoreApplicationEvents.UIBlocksUpdatedEvent;
@@ -26,7 +22,6 @@ import com.botmaker.studio.project.InsertionCursor;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.CursorNavigator;
-import com.botmaker.studio.ui.render.menu.ExpressionMenu;
 import com.botmaker.studio.ui.render.menu.StatementMenu;
 import com.botmaker.studio.util.MethodSignature;
 import javafx.application.Platform;
@@ -36,11 +31,8 @@ import javafx.geometry.Side;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
-import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
-import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Tooltip;
-import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
@@ -50,7 +42,6 @@ import javafx.scene.paint.Color;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import javafx.stage.Window;
-import org.eclipse.jdt.core.dom.ASTNode;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -60,7 +51,6 @@ import java.util.List;
 import static com.botmaker.studio.ui.app.overlay.OverlayStyles.LABEL;
 import static com.botmaker.studio.ui.app.overlay.OverlayStyles.PANEL;
 import static com.botmaker.studio.ui.app.overlay.OverlayStyles.applyThemeClass;
-import static com.botmaker.studio.ui.app.overlay.OverlayStyles.dimLabel;
 import static com.botmaker.studio.ui.app.overlay.OverlayStyles.iconButton;
 import static com.botmaker.studio.ui.app.overlay.OverlayStyles.label;
 import static com.botmaker.studio.ui.app.overlay.OverlayStyles.warn;
@@ -122,9 +112,7 @@ public final class ProgramShapeOverlay {
     private Stage stage;
     private HBox header;
     /** The compact tree — the rows themselves, their look and their controls. See {@link OverlayTreeView}. */
-    private final OverlayTreeView tree = new OverlayTreeView(
-            new OverlayTreeView.Callbacks(this::move, this::delete, this::openConfig),
-            () -> { if (stage != null) Platform.runLater(stage::sizeToScene); });
+    private final OverlayTreeView tree;
     private CodeBlock root;
     /** {@link #root}'s one-walk structural index, rebuilt lazily by {@link #index()} when the tree changes. */
     private CodeBlock indexedRoot;
@@ -134,30 +122,24 @@ public final class ProgramShapeOverlay {
     /** A specific overload requested from the palette bar, applied once the inserted call is re-parsed. */
     private MethodSignature pendingOverload;
 
-    /** The open per-argument config popover (if any), tracked so it can be hidden while a capture overlay is up. */
-    private Stage configDlg;
-    /**
-     * Where the open popover's call sits, and the pane holding its rows — the two halves of keeping it live
-     * across a re-parse. Every picker writes through {@code CodeEditor}, which republishes the whole tree, so
-     * the {@code MethodInvocationBlock} and every argument node the popover was built from are dead the moment
-     * the first argument is set. The popover used to keep them anyway: it showed stale values and dropped every
-     * edit after the first. {@link #refreshConfig} re-resolves the call from these coordinates and rebuilds the
-     * rows in place, so the window itself (and its position) survives.
-     */
-    private BlockTree.Position configTarget;
-    private ScrollPane configScroll;
+    /** The per-argument config popover: opening it, keeping it live across re-parses, placing it. */
+    private final ArgumentConfigPopover config;
     /** Unsubscribes the capture-overlay visibility listener when the overlay closes. */
     private AutoCloseable captureVisibility;
     /** Event-bus subscriptions taken out in {@link #show}, dropped on close so a reopen doesn't stack another set. */
     private final List<EventBus.Subscription> subscriptions = new ArrayList<>();
     /** While true, a {@code stage.hide()} is a temporary capture-hide, not a real close — skip teardown. */
     private boolean suppressHideTeardown;
+    /** Whether {@link #hideForCapture} is the reason the HUD is off screen — the only case it may re-show it. */
+    private boolean hiddenForCapture;
 
     /** When on, inserting a call opens its argument config popover as soon as the re-parsed block is available. */
     private CheckBox autoFillArgs;
 
     /** Where blocks go: the activity file and the method within it. See {@link OverlayTargetPicker}. */
     private final OverlayTargetPicker picker;
+    /** What goes there: the SDK facade chips and the ＋ Add block menu. See {@link OverlayPalette}. */
+    private final OverlayPalette palette;
 
     // ── Record mode ──────────────────────────────────────────────────────────────────────────────────────
     private RecordingSession session;
@@ -212,9 +194,16 @@ public final class ProgramShapeOverlay {
         this.capture = capture;
         this.activities = activities;
         this.target = target;
-        this.tree.setDiagnostics(context.getDiagnosticsManager());
         this.picker = new OverlayTargetPicker(context, settings, activities,
                 new OverlayTargetPicker.Callbacks(this::openTargetFile, this::scopeToMethod, this::status));
+        this.palette = new OverlayPalette(context, settings,
+                new OverlayPalette.Callbacks(this::insertLibraryCall, this::addBelow));
+        this.config = new ArgumentConfigPopover(context, this::index, () -> stage);
+        // After `config`: the row's ⚙ opens the popover, and a field initializer could not see it yet.
+        this.tree = new OverlayTreeView(
+                new OverlayTreeView.Callbacks(this::move, this::delete, config::open),
+                () -> { if (stage != null) Platform.runLater(stage::sizeToScene); });
+        this.tree.setDiagnostics(context.getDiagnosticsManager());
     }
 
     /** Sets the HUD's one-line readout. See {@link #status}. */
@@ -392,7 +381,7 @@ public final class ProgramShapeOverlay {
                 case UP -> move(CursorNavigator.stepBack(cursor()));
                 case DOWN -> move(CursorNavigator.stepOver(cursor()));
                 case ENTER -> {
-                    if (focusedStatement() instanceof MethodInvocationBlock mib) openConfig(mib);
+                    if (focusedStatement() instanceof MethodInvocationBlock mib) config.open(mib);
                 }
                 case DELETE, BACK_SPACE -> deleteFocused();
                 default -> { return; }
@@ -405,7 +394,7 @@ public final class ProgramShapeOverlay {
         OverlayToolbars.installDrag(header, stage);   // borderless: drag by the header bar
         // Stay above fullscreen games (X11) — but stand down while the argument-config popover is open, or the
         // periodic re-raise puts the HUD back on top of the very window it just opened.
-        OverlayToolbars.promoteAboveFullscreen(stage, () -> configDlg == null);
+        OverlayToolbars.promoteAboveFullscreen(stage, () -> !config.isOpen());
 
         // Hide the HUD (and any open config popover) while a capture draw surface is up, so it doesn't sit
         // over the region/point/template selection — restored when the overlay closes.
@@ -475,7 +464,7 @@ public final class ProgramShapeOverlay {
 
     /** Palette (SDK category bar) + step nav + record controls + options, all in one translucent panel. */
     private VBox buildControls() {
-        VBox paletteBar = buildPaletteBar();
+        VBox paletteBar = palette.node();
 
         // Step navigation.
         Button into  = iconButton("⤵", "Step into (→)", () -> move(CursorNavigator.stepInto(cursor())));
@@ -568,66 +557,6 @@ public final class ProgramShapeOverlay {
             InsertionCursor c = index().methodCursor(picker.selectedMethod());
             if (c != null) state.setInsertionCursor(c);
         }
-    }
-
-    /**
-     * The palette bar: one hover-expanding chip per SDK facade category laid out in a line — hovering a chip
-     * lists its methods, and a method with several overloads fans out into its overloads (favourite methods
-     * first). Picking a method inserts its call below the cursor, defaulting to the fewest-argument overload
-     * (or the exact overload picked). A trailing "＋ Add block" opens the full categorized statement menu for
-     * everything else (control flow, variables, print, …).
-     */
-    private VBox buildPaletteBar() {
-        FlowPane chips = new FlowPane(6, 6);
-        for (String facade : com.botmaker.studio.palette.SdkApi.MENU_FACADE_CLASSES) {
-            chips.getChildren().add(facadeMenuButton(facade));
-        }
-        Button addBlock = new Button("＋ Add block");
-        addBlock.setTooltip(new Tooltip("Insert any block (control flow, variables, print, …) below the cursor"));
-        addBlock.setOnAction(e -> addBelow(addBlock));
-        chips.getChildren().add(addBlock);
-
-        return new VBox(4, label("Blocks:"), chips);
-    }
-
-    /** A category chip for one SDK facade; on show it lists its methods → overloads (favourites first). */
-    private javafx.scene.control.MenuButton facadeMenuButton(String facade) {
-        javafx.scene.control.MenuButton mb = new javafx.scene.control.MenuButton(facade);
-        mb.setOnShowing(e -> {
-            mb.getItems().clear();
-            java.util.Map<String, List<MethodSignature>> byName = context.getProjectAnalyzer().getMethods(facade, true).stream()
-                    .collect(java.util.stream.Collectors.groupingBy(MethodSignature::name,
-                            java.util.LinkedHashMap::new, java.util.stream.Collectors.toList()));
-            if (byName.isEmpty()) {
-                javafx.scene.control.MenuItem none = new javafx.scene.control.MenuItem("(SDK not indexed yet)");
-                none.setDisable(true);
-                mb.getItems().add(none);
-                return;
-            }
-            // Favourite methods for this class first (Project Settings), then the rest alphabetically.
-            List<String> favs = settings.current().favoriteMethodsFor(facade);
-            List<String> ordered = new java.util.ArrayList<>();
-            for (String f : favs) if (byName.containsKey(f) && !ordered.contains(f)) ordered.add(f);
-            byName.keySet().stream().filter(n -> !ordered.contains(n)).sorted().forEach(ordered::add);
-
-            for (String mName : ordered) {
-                List<MethodSignature> sigs = byName.get(mName);
-                if (sigs.size() == 1) {
-                    javafx.scene.control.MenuItem it = new javafx.scene.control.MenuItem(mName);
-                    it.setOnAction(a -> insertLibraryCall(facade, mName, null));
-                    mb.getItems().add(it);
-                } else {
-                    javafx.scene.control.Menu sub = new javafx.scene.control.Menu(mName);
-                    for (MethodSignature sig : sigs) {
-                        javafx.scene.control.MenuItem si = new javafx.scene.control.MenuItem(sig.toString());
-                        si.setOnAction(a -> insertLibraryCall(facade, mName, sig));
-                        sub.getItems().add(si);
-                    }
-                    mb.getItems().add(sub);
-                }
-            }
-        });
-        return mb;
     }
 
     /**
@@ -851,14 +780,22 @@ public final class ProgramShapeOverlay {
      * owns the modal capture overlay — is only dimmed to {@code opacity 0} so its modal child stays alive.
      */
     private void hideForCapture(boolean hide) {
+        config.dim(hide);
         if (hide) {
+            if (stage == null || !stage.isShowing()) return;   // nothing of ours on screen to take down
+            hiddenForCapture = true;
             suppressHideTeardown = true;
-            if (stage != null) stage.hide();
-            if (configDlg != null) configDlg.setOpacity(0);
+            stage.hide();
         } else {
-            if (stage != null) { stage.show(); stage.toFront(); }
-            if (configDlg != null) { configDlg.setOpacity(1); configDlg.toFront(); }
+            // Only re-show a HUD this method is the reason for hiding. It used to re-show unconditionally,
+            // which resurrected a HUD the user had closed — any capture surface opened from elsewhere in
+            // Studio (the capture tool's own overlays fire this listener too) brought the dead HUD back, with
+            // its event subscriptions still torn down, so it rendered nothing and never updated again.
+            if (!hiddenForCapture) return;
+            hiddenForCapture = false;
             suppressHideTeardown = false;
+            stage.show();
+            stage.toFront();
         }
     }
 
@@ -869,7 +806,7 @@ public final class ProgramShapeOverlay {
         refreshMethods();   // pick up a method added/removed by hand; keeps a still-valid selection as-is
         render();
         // Before the pending handling below, which may open a popover of its own over the top of this one.
-        refreshConfig();
+        config.refresh();
         if (pendingInsert != null) {
             BlockTree.Position p = pendingInsert;
             pendingInsert = null;
@@ -891,14 +828,14 @@ public final class ProgramShapeOverlay {
                         mib.switchToOverload(context, ov);
                         if (autoFillEnabled()) pendingConfig = p;
                     } else if (autoFillEnabled() && inserted instanceof MethodInvocationBlock mib) {
-                        openConfig(mib);
+                        config.open(mib);
                     }
                 }
             }
         } else if (pendingConfig != null) {
             BlockTree.Position p = pendingConfig;
             pendingConfig = null;
-            if (index().statementAt(p) instanceof MethodInvocationBlock mib) openConfig(mib);
+            if (index().statementAt(p) instanceof MethodInvocationBlock mib) config.open(mib);
         }
         // Continue draining a recorded batch after the cursor has re-homed onto the last insert.
         if (draining) {
@@ -939,185 +876,4 @@ public final class ProgramShapeOverlay {
     private boolean autoFillEnabled() {
         return !suppressAutoFill && autoFillArgs != null && autoFillArgs.isSelected();
     }
-
-    /**
-     * The call config popover: an <b>overload selector</b> (when the method has more than one) plus a row per
-     * parameter. Each parameter gets its specialized editor when one applies ({@code Rect} → draw a rectangle,
-     * {@code ImageTemplate}/{@code ImageTemplateGroup} → pick/capture, {@code CaptureSource}/{@code Window} →
-     * chooser — via {@link PickerRegistry}), otherwise a generic expression picker, so <em>every</em> argument
-     * is editable — not only the drawable ones. Opens as a small always-on-top window so drawing overlays it
-     * while the target app stays visible.
-     *
-     * <p>It stays open until dismissed: the rows are rebuilt by {@link #refreshConfig} after each edit rather
-     * than the window being closed, so several arguments can be filled in one visit and each shows its new
-     * value as it lands.
-     */
-    private void openConfig(MethodInvocationBlock mib) {
-        // One popover at a time; a second would orphan the first (its onHidden clears the tracking fields, so
-        // it must close before the new target is recorded).
-        if (configDlg != null) configDlg.close();
-        configTarget = index().locate(mib);
-
-        // Capped in a ScrollPane so a call with many parameters (e.g. Fill) scrolls instead of growing the
-        // popover taller than the screen, with the bottom rows landing off-screen and unreachable.
-        ScrollPane scroll = new ScrollPane(configContent(mib));
-        scroll.setFitToWidth(true);
-        scroll.setStyle("-fx-background: transparent; -fx-background-color: transparent;");
-        double maxHeight = javafx.stage.Screen.getPrimary().getVisualBounds().getHeight() * 0.7;
-        scroll.setMaxHeight(maxHeight);
-        configScroll = scroll;
-
-        Stage dlg = new Stage();
-        dlg.setTitle("Configure arguments");
-        dlg.setAlwaysOnTop(true);
-        Scene sc = new Scene(scroll);
-        java.net.URL css = getClass().getResource("/css/blocks.css");
-        if (css != null) sc.getStylesheets().add(css.toExternalForm());
-        applyThemeClass(sc.getRoot());
-        dlg.setScene(sc);
-        configDlg = dlg;
-        dlg.setOnHidden(e -> {
-            if (configDlg == dlg) { configDlg = null; configScroll = null; configTarget = null; }
-            // A popover closed while dimmed for a capture would otherwise leave the flag armed, and the next
-            // real close of the HUD would skip its teardown entirely.
-            suppressHideTeardown = false;
-        });
-        dlg.show();
-        // After show(): the dialog has no width/height to place against until it has been sized to its scene.
-        placeBesideHud(dlg);
-        // The HUD stands down from its own re-raise while this is open (see show()), so promoting the popover
-        // is what actually keeps it above both the HUD and a fullscreen game.
-        OverlayToolbars.promoteAboveFullscreen(dlg);
-        dlg.toFront();
-    }
-
-    /**
-     * The popover's rows for {@code mib}: the header, the overload selector, one editor per argument and the
-     * Done button. Built fresh on open and again after every re-parse, because each picker's write replaces the
-     * block and all of its argument nodes.
-     */
-    private VBox configContent(MethodInvocationBlock mib) {
-        List<ExpressionBlock> args = mib.getArgumentBlocks();
-        List<ResolvedType> paramTypes = mib.resolveParamTypes(context);
-
-        VBox content = new VBox(10);
-        content.setPadding(new Insets(12));
-        content.setStyle(PANEL);
-        content.getChildren().add(label("Configure  " + mib.getScope() + "." + mib.getMethodName() + "(…)"));
-
-        // Overload selector: switch this call to a different overload. The re-parse that follows replaces the
-        // block, and the rebuild redraws these rows against the new overload's parameters.
-        List<MethodSignature> overloads = mib.overloadSignatures(context);
-        if (overloads.size() > 1) {
-            ComboBox<MethodSignature> overloadBox =
-                    new ComboBox<>(javafx.collections.FXCollections.observableArrayList(overloads));
-            overloadBox.setValue(mib.currentSignature(context));
-            overloadBox.setMaxWidth(Double.MAX_VALUE);
-            overloadBox.setOnAction(e -> {
-                MethodSignature sel = overloadBox.getValue();
-                if (sel != null && !sel.equals(mib.currentSignature(context))) mib.switchToOverload(context, sel);
-            });
-            HBox line = new HBox(8, label("Overload:"), overloadBox);
-            line.setAlignment(Pos.CENTER_LEFT);
-            HBox.setHgrow(overloadBox, Priority.ALWAYS);
-            content.getChildren().add(line);
-        }
-
-        for (int i = 0; i < args.size(); i++) {
-            ResolvedType pt = i < paramTypes.size() ? paramTypes.get(i) : ResolvedType.UNKNOWN;
-            ExpressionBlock arg = args.get(i);
-            PickerContext ctx = new PickerContext(context, arg, pt, mib.getScope(), mib.getMethodName(), i);
-            javafx.scene.Node editor = PickerRegistry.pickerNodeFor(ctx);
-            if (editor == null) editor = genericArgEditor(mib, arg, pt);   // every arg editable, not just drawable ones
-            String name = paramLabel(mib, i, pt);
-            HBox line = new HBox(8, label(name + ":"), editor);
-            line.setAlignment(Pos.CENTER_LEFT);
-            content.getChildren().add(line);
-        }
-        if (args.isEmpty()) {
-            content.getChildren().add(dimLabel("This call takes no arguments."));
-        }
-
-        // An explicit dismissal. The window's own title bar is the only other way out, and between
-        // setAlwaysOnTop and promoteAboveFullscreen there are window managers that don't leave one.
-        Button done = new Button("Done");
-        done.setDefaultButton(true);
-        done.setOnAction(e -> { if (configDlg != null) configDlg.close(); });
-        Region spring = new Region();
-        HBox.setHgrow(spring, Priority.ALWAYS);
-        HBox actions = new HBox(8, spring, done);
-        actions.setAlignment(Pos.CENTER_RIGHT);
-        content.getChildren().add(actions);
-        return content;
-    }
-
-    /**
-     * Rebuilds the open popover against the re-parsed tree, or closes it when its call is gone (deleted, or its
-     * body edited out from under it). Same {@link Stage} either way — the window keeps its position, so filling
-     * a second argument doesn't move the popover out from under the pointer.
-     */
-    private void refreshConfig() {
-        if (configDlg == null || configScroll == null || configTarget == null) return;
-        if (index().statementAt(configTarget) instanceof MethodInvocationBlock mib) {
-            configScroll.setContent(configContent(mib));
-        } else {
-            configDlg.close();
-        }
-    }
-
-    /**
-     * Puts the config popover immediately to the <b>right</b> of the HUD, top-aligned with it — the HUD is
-     * tucked into the target window's top-left corner, so the space to its right is the one place a second
-     * window neither covers the HUD nor the region the user is about to draw on. Falls back to the HUD's left
-     * when there isn't room, and finally clamps into the screen so no row lands off-display.
-     */
-    private void placeBesideHud(Stage dlg) {
-        if (stage == null) return;
-        javafx.geometry.Rectangle2D screen = javafx.stage.Screen.getScreensForRectangle(
-                        stage.getX(), stage.getY(), stage.getWidth(), stage.getHeight()).stream()
-                .findFirst().orElse(javafx.stage.Screen.getPrimary()).getVisualBounds();
-
-        double x = stage.getX() + stage.getWidth() + 12;
-        if (x + dlg.getWidth() > screen.getMaxX()) {
-            double left = stage.getX() - dlg.getWidth() - 12;
-            x = (left >= screen.getMinX()) ? left : screen.getMaxX() - dlg.getWidth();
-        }
-        double y = Math.min(stage.getY(), screen.getMaxY() - dlg.getHeight());
-        dlg.setX(Math.max(screen.getMinX(), x));
-        dlg.setY(Math.max(screen.getMinY(), y));
-    }
-
-    /**
-     * A generic editor for a parameter that has no specialized picker: a button showing the current expression
-     * that opens the type-aware expression menu and rewrites the argument via {@link ExpressionMenu}.
-     * The re-parse a pick triggers replaces the argument node; {@link #refreshConfig} redraws this row against
-     * the new one rather than the popover closing.
-     */
-    private javafx.scene.Node genericArgEditor(MethodInvocationBlock mib, ExpressionBlock arg, ResolvedType paramType) {
-        ASTNode node = arg.getAstNode();
-        String current = (node != null) ? node.toString() : "";
-        boolean empty = current == null || current.isBlank() || "null".equals(current);
-        Button b = new Button(empty ? "Set…" : current);
-        b.setMaxWidth(240);
-        b.setOnAction(e -> {
-            if (!(arg.getAstNode() instanceof org.eclipse.jdt.core.dom.Expression expr)) return;
-            var menu = ExpressionMenu.create(
-                    paramType == null ? ResolvedType.UNKNOWN : paramType, false, context, mib.getAstNode(), null,
-                    sel -> ExpressionMenu.applySelection(context, expr, sel));
-            menu.show(b, Side.BOTTOM, 0, 0);
-        });
-        return b;
-    }
-
-    /** A "{@code Type name}" label for parameter {@code i}, from the current overload's names when available. */
-    private String paramLabel(MethodInvocationBlock mib, int i, ResolvedType pt) {
-        MethodSignature sig = mib.currentSignature(context);
-        if (sig != null && i < sig.paramNames().size()) {
-            String typeName = (pt != null && pt.simpleName() != null) ? pt.simpleName()
-                    : (i < sig.paramTypes().size() ? sig.paramTypes().get(i).simpleName() : "arg");
-            return typeName + " " + sig.paramNames().get(i);
-        }
-        return (pt != null && pt.simpleName() != null) ? pt.simpleName() : ("arg " + i);
-    }
-
 }
