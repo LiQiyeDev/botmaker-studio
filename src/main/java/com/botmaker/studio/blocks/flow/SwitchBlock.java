@@ -6,6 +6,7 @@ import com.botmaker.studio.ui.render.menu.ExpressionMenu;
 import com.botmaker.studio.core.AbstractStatementBlock;
 import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.BlockWithChildren;
+import com.botmaker.studio.core.BranchingBlock;
 import com.botmaker.studio.core.CodeBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.services.CodeEditorService;
@@ -27,7 +28,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-public class SwitchBlock extends AbstractStatementBlock implements BlockWithChildren {
+public class SwitchBlock extends AbstractStatementBlock implements BlockWithChildren, BranchingBlock {
 
     private ExpressionBlock expression;
     private final List<SwitchCaseBlock> cases = new ArrayList<>();
@@ -47,6 +48,20 @@ public class SwitchBlock extends AbstractStatementBlock implements BlockWithChil
         if (expression != null) children.add(expression);
         children.addAll(cases);
         return children;
+    }
+
+    /**
+     * One branch per case, captioned {@code "case X:"} / {@code "default:"} and targeting the case's own body.
+     * The {@link SwitchCaseBlock} in between is skipped deliberately: it is a structural node, not a scope the
+     * user can put a caret in, so a flattening renderer wants the body the case runs.
+     */
+    @Override
+    public List<Branch> branches() {
+        List<Branch> out = new ArrayList<>();
+        for (SwitchCaseBlock c : cases) {
+            if (c.body != null) out.add(new Branch(c.caption(), c.body));
+        }
+        return out;
     }
 
     @Override
@@ -140,6 +155,12 @@ public class SwitchBlock extends AbstractStatementBlock implements BlockWithChil
         public void setClosingBreak(boolean closingBreak) { this.closingBreak = closingBreak; }
 
         public boolean isDefault() { return caseExpression == null; }
+
+        /** This case's label, as a compact renderer shows it: {@code "case A:"} or {@code "default:"}. */
+        String caption() {
+            if (isDefault()) return "default:";
+            return "case " + (caseExpression.getAstNode() == null ? "…" : caseExpression.getAstNode()) + ":";
+        }
 
         @Override
         public List<CodeBlock> getChildren() {

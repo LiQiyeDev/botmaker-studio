@@ -2,6 +2,7 @@ package com.botmaker.studio.services;
 
 import com.botmaker.studio.core.BlockWithChildren;
 import com.botmaker.studio.core.BodyBlock;
+import com.botmaker.studio.core.BranchingBlock;
 import com.botmaker.studio.core.CodeBlock;
 import com.botmaker.studio.core.StatementBlock;
 import com.botmaker.studio.project.InsertionCursor;
@@ -53,12 +54,35 @@ public final class CursorNavigator {
         return new InsertionCursor(c.body(), Math.max(c.index() - 1, 0));
     }
 
-    /** Descends into the body of the block the caret sits on, if that block carries one (if/while/for/lambda). */
+    /** Descends into the first body of the block the caret sits on, if it carries one (if/while/switch/lambda). */
     public static InsertionCursor stepInto(InsertionCursor c) {
         if (c == null) return null;
-        StatementBlock at = c.statementAt();
-        BodyBlock childBody = firstChildBody(at);
-        return childBody != null ? new InsertionCursor(childBody, 0) : c;
+        List<BodyBlock> bodies = bodiesOf(c.statementAt());
+        return bodies.isEmpty() ? c : new InsertionCursor(bodies.getFirst(), 0);
+    }
+
+    /**
+     * Moves the caret to the <em>next branch</em> of the block whose branch it currently sits in, wrapping at
+     * the last — {@code then} → {@code else}, {@code case A} → {@code case B} → {@code default}.
+     *
+     * <p>Without this a branch other than the first is keyboard-unreachable: {@link #stepInto} enters the first
+     * body and there is no move that crosses to a sibling one, so an {@code else} could only be reached by
+     * clicking it. Which branch is "current" is resolved by finding the owner that lists the caret's body.
+     */
+    public static InsertionCursor stepIntoNext(InsertionCursor c, CodeBlock root) {
+        if (c == null) return null;
+        for (CodeBlock b : collectAll(root)) {
+            List<BodyBlock> bodies = bodiesOf(b);
+            int i = indexOfIdentity(bodies, c.body());
+            if (i < 0 || bodies.size() < 2) continue;
+            return new InsertionCursor(bodies.get((i + 1) % bodies.size()), 0);
+        }
+        return c;
+    }
+
+    /** True when the caret's body is one of several branches of the same owner, so cycling goes somewhere. */
+    public static boolean canStepIntoNext(InsertionCursor c, CodeBlock root) {
+        return c != null && !stepIntoNext(c, root).equals(c);
     }
 
     /** Ascends to the slot just after the block that owns the current body; no-op at the top-level body. */
@@ -75,7 +99,7 @@ public final class CursorNavigator {
 
     /** True when the caret sits on a block that can be entered (has a child body). */
     public static boolean canStepInto(InsertionCursor c) {
-        return c != null && firstChildBody(c.statementAt()) != null;
+        return c != null && !bodiesOf(c.statementAt()).isEmpty();
     }
 
     /** True when step-out actually lands somewhere (the current body is nested inside a parent body). */
@@ -85,23 +109,53 @@ public final class CursorNavigator {
 
     // ── internals ────────────────────────────────────────────────────────────────────────────────────────
 
-    private static BodyBlock firstChildBody(CodeBlock block) {
-        if (block instanceof BlockWithChildren bwc) {
-            for (CodeBlock child : bwc.getChildren()) {
-                if (child instanceof BodyBlock bb) return bb;
-            }
-        }
-        return null;
+    /**
+     * Every body {@code block} owns, in execution order.
+     *
+     * <p>Not just its direct {@link BodyBlock} children: a {@code switch}'s bodies sit inside its case blocks
+     * and an {@code else if}'s inside the chained {@code if}, so scanning children alone found <em>one</em>
+     * body for an {@code if} and <em>none</em> for a {@code switch} — which is why step-into could never reach
+     * an {@code else} or a {@code case}. {@link BranchingBlock} is the block's own answer to this.
+     */
+    private static List<BodyBlock> bodiesOf(CodeBlock block) {
+        List<BodyBlock> out = new ArrayList<>();
+        collectBodies(block, out);
+        return out;
     }
 
-    /** The statement block whose direct children include {@code body}. */
+    private static void collectBodies(CodeBlock block, List<BodyBlock> out) {
+        if (block instanceof BranchingBlock branching) {
+            for (BranchingBlock.Branch branch : branching.branches()) {
+                if (branch.target() instanceof BodyBlock bb) out.add(bb);
+                else collectBodies(branch.target(), out);   // an `else if` continues the same chain of branches
+            }
+            return;
+        }
+        if (block instanceof BlockWithChildren bwc) {
+            for (CodeBlock child : bwc.getChildren()) {
+                if (child instanceof BodyBlock bb) out.add(bb);
+            }
+        }
+    }
+
+    /** {@code list}'s position holding exactly {@code target} — blocks have no value equality. */
+    private static int indexOfIdentity(List<BodyBlock> list, BodyBlock target) {
+        for (int i = 0; i < list.size(); i++) {
+            if (list.get(i) == target) return i;
+        }
+        return -1;
+    }
+
+    /**
+     * The statement block {@code body} belongs to — resolved through {@link #bodiesOf}, so stepping out of a
+     * {@code case} body lands after the whole {@code switch} rather than nowhere: the case body's structural
+     * parent is a case block, which is not itself a statement of any body, so a direct-children scan found no
+     * owner and step-out silently did nothing.
+     */
     private static StatementBlock findOwner(BodyBlock body, List<CodeBlock> all) {
         for (CodeBlock b : all) {
-            if (b == body) continue;
-            if (b instanceof StatementBlock sb && b instanceof BlockWithChildren bwc
-                    && bwc.getChildren().contains(body)) {
-                return sb;
-            }
+            if (b == body || !(b instanceof StatementBlock sb)) continue;
+            if (indexOfIdentity(bodiesOf(b), body) >= 0) return sb;
         }
         return null;
     }

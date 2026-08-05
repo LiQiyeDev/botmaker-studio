@@ -4,6 +4,7 @@ import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.core.AbstractStatementBlock;
 import com.botmaker.studio.core.BlockWithChildren;
 import com.botmaker.studio.core.BodyBlock;
+import com.botmaker.studio.core.BranchingBlock;
 import com.botmaker.studio.core.CodeBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.core.StatementBlock;
@@ -21,7 +22,7 @@ import org.eclipse.jdt.core.dom.Expression;
 import org.eclipse.jdt.core.dom.IfStatement;
 import org.eclipse.jdt.core.dom.Statement;
 
-public class IfBlock extends AbstractStatementBlock implements BlockWithChildren {
+public class IfBlock extends AbstractStatementBlock implements BlockWithChildren, BranchingBlock {
 
     private ExpressionBlock condition;
     private BodyBlock thenBody;
@@ -50,6 +51,30 @@ public class IfBlock extends AbstractStatementBlock implements BlockWithChildren
         // The else branch is either a BodyBlock or a nested IfBlock (an else-if chain) — both are CodeBlocks.
         if (elseStatement != null) children.add(elseStatement);
         return children;
+    }
+
+    /**
+     * The {@code then} body (uncaptioned — it reads as the {@code if}'s own body), then the else branch when
+     * there is one: {@code "else"} over a {@link BodyBlock}, or {@code "else if (…)"} over the nested
+     * {@link IfBlock} that continues the chain. A flattening renderer recurses into that nested block's own
+     * branches, which is what keeps an {@code else if} chain drawn flat rather than stepping right each time.
+     */
+    @Override
+    public java.util.List<Branch> branches() {
+        java.util.List<Branch> out = new java.util.ArrayList<>();
+        if (thenBody != null) out.add(new Branch(null, thenBody));
+        if (elseStatement instanceof IfBlock chained) {
+            out.add(new Branch("else if (" + conditionText(chained) + ")", chained));
+        } else if (elseStatement != null) {
+            out.add(new Branch("else", elseStatement));
+        }
+        return out;
+    }
+
+    /** {@code chained}'s condition as source text, for a caption. {@code "…"} when the slot is still empty. */
+    private static String conditionText(IfBlock chained) {
+        ExpressionBlock c = chained.condition;
+        return (c == null || c.getAstNode() == null) ? "…" : c.getAstNode().toString();
     }
 
     @Override

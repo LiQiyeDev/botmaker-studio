@@ -3,6 +3,7 @@ package com.botmaker.studio.blocks.flow;
 import com.botmaker.studio.core.AbstractStatementBlock;
 import com.botmaker.studio.core.BlockWithChildren;
 import com.botmaker.studio.core.BodyBlock;
+import com.botmaker.studio.core.BranchingBlock;
 import com.botmaker.studio.core.CodeBlock;
 import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.parser.handlers.MatchesSwitchHandler;
@@ -52,7 +53,7 @@ import java.util.List;
  * ({@code case X:} plus a {@code break} label) and parses its label as an expression. The two share no part of
  * a case, so specializing would have meant one class with two disjoint halves.
  */
-public class MatchesSwitchBlock extends AbstractStatementBlock implements BlockWithChildren {
+public class MatchesSwitchBlock extends AbstractStatementBlock implements BlockWithChildren, BranchingBlock {
 
     private String subject;
     private final List<CaseRow> rows = new ArrayList<>();
@@ -85,6 +86,32 @@ public class MatchesSwitchBlock extends AbstractStatementBlock implements BlockW
         }
         if (defaultBody != null) children.add(defaultBody);
         return children;
+    }
+
+    /**
+     * One branch per case, captioned the way the block's own header reads it — {@code "any of: mail, gift"} —
+     * plus the mandatory {@code otherwise}. The template <em>file names</em> stand in for the chip row: a
+     * one-line caption has no room for full paths, and the name is what the user picked the image by.
+     */
+    @Override
+    public List<Branch> branches() {
+        List<Branch> out = new ArrayList<>();
+        for (CaseRow row : rows) {
+            if (row.body() != null) out.add(new Branch(caption(row.guard()), row.body()));
+        }
+        if (defaultBody != null) out.add(new Branch("otherwise", defaultBody));
+        return out;
+    }
+
+    private static String caption(MatchesSwitchHandler.Guard guard) {
+        StringBuilder sb = new StringBuilder(guard.all() ? "all of: " : "any of: ");
+        for (int i = 0; i < guard.paths().size(); i++) {
+            if (i > 0) sb.append(", ");
+            String path = guard.paths().get(i);
+            int slash = path.lastIndexOf('/');
+            sb.append(slash >= 0 ? path.substring(slash + 1) : path);
+        }
+        return sb.toString();
     }
 
     @Override

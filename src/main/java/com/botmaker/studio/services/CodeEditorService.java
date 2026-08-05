@@ -77,6 +77,9 @@ public class CodeEditorService {
     public ProjectConfig getConfig() { return config; }
     public ProjectAnalyzer getProjectAnalyzer() { return projectAnalyzer; }
 
+    /** Current compile diagnostics — the overlay marks broken rows from these, as the main editor does. */
+    public DiagnosticsManager getDiagnosticsManager() { return diagnosticsManager; }
+
     /** SDK method documentation (summaries + param docs), parsed from the resolved SDK sources jar.
      *  {@link SdkDocs#EMPTY} while loading or when no docs service is wired (headless tests). */
     public SdkDocs getSdkDocs() { return sdkDocsService == null ? SdkDocs.EMPTY : sdkDocsService.current(); }

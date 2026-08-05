@@ -5,6 +5,7 @@ import com.botmaker.shared.capture.NativeControllerFactory;
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.session.impl.NestedSession;
 import com.botmaker.session.display.SessionBackends;
+import com.botmaker.studio.runtime.CodeExecutionService;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
 import com.botmaker.studio.ui.dnd.BlockEvent;
 import com.botmaker.studio.project.ProjectConfig;
@@ -133,7 +134,7 @@ public class UIManager {
                      ProjectState state, ProjectAnalyzer projectAnalyzer,
                      LibraryService libraryService,
                      ActivityService activityService,
-                     com.botmaker.studio.runtime.CodeExecutionService codeExecutionService) {
+                     CodeExecutionService codeExecutionService) {
         this.eventBus = eventBus;
         this.codeEditorService = codeEditorService;
         this.codeExecutionService = codeExecutionService;

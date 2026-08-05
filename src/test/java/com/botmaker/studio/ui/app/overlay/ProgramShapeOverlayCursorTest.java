@@ -1,20 +1,12 @@
 package com.botmaker.studio.ui.app.overlay;
 
-import com.botmaker.studio.TestSupport;
 import com.botmaker.studio.core.AbstractCodeBlock;
 import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.CodeBlock;
-import com.botmaker.studio.events.EventBus;
-import com.botmaker.studio.parser.BlockConverter;
 import com.botmaker.studio.project.InsertionCursor;
-import com.botmaker.studio.project.ProjectFile;
-import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.services.CursorNavigator;
-import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
 import org.junit.jupiter.api.Test;
 
-import java.nio.file.Path;
-import java.nio.file.Paths;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -27,48 +19,16 @@ import static org.junit.jupiter.api.Assertions.assertSame;
  */
 class ProgramShapeOverlayCursorTest {
 
-    /** The block tree for {@code source}, built through the real converter (no JavaFX toolkit needed). */
     private static AbstractCodeBlock treeOf(String source) {
-        ProjectState state = new ProjectState();
-        Path path = Paths.get("Mining.java").toAbsolutePath();
-        state.addFile(new ProjectFile(path, source));
-        state.setActiveFile(path);
-        state.setSourcePath(Paths.get("src", "main", "java").toAbsolutePath());
-        state.setResolvedClasspath(TestSupport.runtimeClassPath());
-
-        BlockConverter.ConvertResult result = TestSupport.convertAndPublish(
-                new BlockConverter(null, state), state, source,
-                new BlockDragAndDropManager(new EventBus(false)), false, false);
-        assertNotNull(result.root(), "converter should produce a root block");
-        return result.root();
+        return OverlayTestTrees.treeOf(source);
     }
 
-    /** The body of the method named {@code name}. */
     private static BodyBlock bodyOf(CodeBlock root, String name) {
-        for (CodeBlock b : CursorNavigator.collectAll(root)) {
-            if (b instanceof com.botmaker.studio.blocks.func.MethodDeclarationBlock m
-                    && name.equals(m.getMethodName())) {
-                for (CodeBlock child : m.getChildren()) {
-                    if (child instanceof BodyBlock body) return body;
-                }
-            }
-        }
-        return null;
+        return OverlayTestTrees.bodyOf(root, name);
     }
 
     private static String activity(String runBody) {
-        return """
-                package com.test.activities;
-
-                public class Mining {
-                    public boolean isEnabled() {
-                        return true;
-                    }
-
-                    public String run() {
-                %s    }
-                }
-                """.formatted(runBody);
+        return OverlayTestTrees.activity(runBody);
     }
 
     @Test
@@ -79,7 +39,7 @@ class ProgramShapeOverlayCursorTest {
         BodyBlock run = bodyOf(root, "run");
         assertNotNull(run);
 
-        InsertionCursor c = ProgramShapeOverlay.runCursor(root);
+        InsertionCursor c = BlockTree.runCursor(root);
         assertNotNull(c);
         assertSame(run, c.body(), "the caret belongs in run(), not isEnabled()");
         assertEquals(-1, c.index());
@@ -93,7 +53,7 @@ class ProgramShapeOverlayCursorTest {
                         int b = 2;
                         return "NEXT";
                 """));
-        InsertionCursor c = ProgramShapeOverlay.runCursor(root);
+        InsertionCursor c = BlockTree.runCursor(root);
         assertNotNull(c);
         assertEquals(1, c.index(), "below index 1 is above the return at index 2");
     }
@@ -104,7 +64,7 @@ class ProgramShapeOverlayCursorTest {
                         int a = 1;
                         int b = 2;
                 """));
-        InsertionCursor c = ProgramShapeOverlay.runCursor(root);
+        InsertionCursor c = BlockTree.runCursor(root);
         assertNotNull(c);
         assertEquals(1, c.index(), "below index 1 is the end of the body");
     }
@@ -124,7 +84,7 @@ class ProgramShapeOverlayCursorTest {
                 }
                 """;
         AbstractCodeBlock root = treeOf(source);
-        InsertionCursor c = ProgramShapeOverlay.runCursor(root);
+        InsertionCursor c = BlockTree.runCursor(root);
         assertNotNull(c);
         assertEquals(CursorNavigator.defaultCursor(root), c);
     }

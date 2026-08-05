@@ -12,6 +12,7 @@ import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.services.ScreenCaptureService.WindowShot;
 import com.botmaker.studio.ui.app.capture.BatchTemplateNamingDialog.NamedTemplate;
 import com.botmaker.studio.ui.app.capture.CaptureSurface.Region;
+import com.botmaker.studio.ui.app.overlay.OverlayStyles;
 import com.botmaker.studio.ui.app.overlay.OverlayToolbars;
 import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
 import javafx.application.Platform;
@@ -166,7 +167,7 @@ public final class OverlayTemplateCapture {
         HBox bar = new HBox(8, hint, shapeToggle, one, many, object, close, resLabel);
         bar.setAlignment(Pos.CENTER_LEFT);
         bar.setPadding(new Insets(8, 10, 8, 10));
-        bar.setStyle("-fx-background-color: rgba(20,24,33,0.92); -fx-background-radius: 8;");
+        bar.setStyle(OverlayStyles.PANEL);
 
         // Shared: draggable, always-on-top, and deliberately NOT owned by the Studio window (so Studio can
         // be minimized without hiding the overlay). Positioned just above the target window.
@@ -395,8 +396,6 @@ public final class OverlayTemplateCapture {
     }
 
     private static void warn(Window owner, String message) {
-        Alert alert = new Alert(Alert.AlertType.WARNING, message);
-        if (owner != null) alert.initOwner(owner);
-        alert.showAndWait();
+        OverlayStyles.warn(owner, message);
     }
 }

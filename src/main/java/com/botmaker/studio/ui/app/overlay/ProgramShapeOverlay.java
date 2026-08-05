@@ -2,12 +2,10 @@ package com.botmaker.studio.ui.app.overlay;
 
 import com.botmaker.shared.input.InputEvent;
 import com.botmaker.studio.blocks.func.MethodInvocationBlock;
-import com.botmaker.studio.core.BlockWithChildren;
 import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.CodeBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.core.StatementBlock;
-import com.botmaker.studio.blocks.func.MethodDeclarationBlock;
 import com.botmaker.studio.project.StudioProjectSettings;
 import com.botmaker.studio.project.activity.ActivityDefinition;
 import com.botmaker.studio.project.capture.CaptureTarget;
@@ -32,19 +30,16 @@ import com.botmaker.studio.services.CursorNavigator;
 import com.botmaker.studio.ui.render.menu.ExpressionMenu;
 import com.botmaker.studio.ui.render.menu.StatementMenu;
 import com.botmaker.studio.util.MethodSignature;
-import com.botmaker.studio.validation.BlockValidator;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.geometry.Side;
 import javafx.scene.Scene;
-import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
-import javafx.scene.control.Spinner;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
@@ -62,6 +57,15 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+
+import static com.botmaker.studio.ui.app.overlay.OverlayStyles.LABEL;
+import static com.botmaker.studio.ui.app.overlay.OverlayStyles.PANEL;
+import static com.botmaker.studio.ui.app.overlay.OverlayStyles.applyThemeClass;
+import static com.botmaker.studio.ui.app.overlay.OverlayStyles.dimLabel;
+import static com.botmaker.studio.ui.app.overlay.OverlayStyles.iconButton;
+import static com.botmaker.studio.ui.app.overlay.OverlayStyles.info;
+import static com.botmaker.studio.ui.app.overlay.OverlayStyles.label;
+import static com.botmaker.studio.ui.app.overlay.OverlayStyles.warn;
 
 /**
  * The <b>overlay authoring surface</b>: a small, always-on-top, independently-minimizable <em>translucent
@@ -106,10 +110,6 @@ import java.util.List;
  */
 public final class ProgramShapeOverlay {
 
-    /** Rounded, semi-opaque panel background shared by every HUD panel (mirrors the capture/record toolbars). */
-    private static final String PANEL = "-fx-background-color: rgba(20,24,33,0.92); -fx-background-radius: 8;";
-    private static final String LABEL = "-fx-text-fill: #c9d4e6;";
-
     /** Single live instance — pressing the toolbar button again focuses it instead of opening another. */
     private static ProgramShapeOverlay active;
 
@@ -123,8 +123,14 @@ public final class ProgramShapeOverlay {
 
     private Stage stage;
     private HBox header;
-    private final VBox rows = new VBox(2);
+    /** The compact tree — the rows themselves, their look and their controls. See {@link OverlayTreeView}. */
+    private final OverlayTreeView tree = new OverlayTreeView(
+            new OverlayTreeView.Callbacks(this::move, this::delete, this::openConfig),
+            () -> { if (stage != null) Platform.runLater(stage::sizeToScene); });
     private CodeBlock root;
+    /** {@link #root}'s one-walk structural index, rebuilt lazily by {@link #index()} when the tree changes. */
+    private CodeBlock indexedRoot;
+    private BlockTree.Index index;
     private java.awt.Rectangle windowBounds;
 
     /** A specific overload requested from the palette bar, applied once the inserted call is re-parsed. */
@@ -140,7 +146,7 @@ public final class ProgramShapeOverlay {
      * edit after the first. {@link #refreshConfig} re-resolves the call from these coordinates and rebuilds the
      * rows in place, so the window itself (and its position) survives.
      */
-    private PendingInsert configTarget;
+    private BlockTree.Position configTarget;
     private ScrollPane configScroll;
     /** Unsubscribes the capture-overlay visibility listener when the overlay closes. */
     private AutoCloseable captureVisibility;
@@ -160,10 +166,6 @@ public final class ProgramShapeOverlay {
     /** Name of the method currently rendered/edited, or {@code null} to fall back to every top-level body. */
     private String selectedMethod;
 
-    /** The tree's visible-row-count control, and the pixel height one row (incl. spacing) costs. */
-    private static final double ROW_HEIGHT_PX = 24;
-    private Spinner<Integer> visibleLines;
-
     // ── Record mode ──────────────────────────────────────────────────────────────────────────────────────
     private RecordingSession session;
     private Button recordBtn;
@@ -178,13 +180,12 @@ public final class ProgramShapeOverlay {
     private boolean suppressAutoFill;
 
     /**
-     * A just-requested insertion, resolved after the next {@link UIBlocksUpdatedEvent}: the DFS ordinal of the
-     * target body among all bodies (stable across a re-parse that only adds a bodiless statement) and the slot
-     * the new statement lands in. Used to re-home the cursor onto the inserted block and (optionally) open its
-     * config popover, since the pre-insert block objects are replaced on re-parse.
+     * A just-requested insertion, resolved after the next {@link UIBlocksUpdatedEvent}. It is a
+     * {@link BlockTree.Position} rather than a block reference because the pre-insert block objects are all
+     * replaced on re-parse; the position is what lets the cursor be re-homed onto the inserted block and its
+     * config popover opened.
      */
-    private record PendingInsert(int bodyOrdinal, int index) {}
-    private PendingInsert pendingInsert;
+    private BlockTree.Position pendingInsert;
 
     /**
      * A block whose config popover should open on the <em>next</em> re-parse, rather than this one. Applying a
@@ -192,7 +193,7 @@ public final class ProgramShapeOverlay {
      * {@link #pendingInsert} is replaced again before the user could touch it — which is why "Fill arguments
      * after adding" silently did nothing for every method with more than one overload, i.e. most of the palette.
      */
-    private PendingInsert pendingConfig;
+    private BlockTree.Position pendingConfig;
 
     /**
      * The HUD's screen bounds, republished from the FX thread whenever the stage moves or resizes. The recorder
@@ -213,6 +214,7 @@ public final class ProgramShapeOverlay {
         this.capture = capture;
         this.activities = activities;
         this.target = target;
+        this.tree.setDiagnostics(context.getDiagnosticsManager());
     }
 
     /**
@@ -371,13 +373,16 @@ public final class ProgramShapeOverlay {
         stage.yProperty().addListener((o, a, b) -> updateHudBounds());
         stage.widthProperty().addListener((o, a, b) -> updateHudBounds());
         stage.heightProperty().addListener((o, a, b) -> updateHudBounds());
-        // Keyboard navigation of the compact block tree: → step into, ← step out, ↑/↓ move, Enter configure,
-        // Delete/Backspace remove. Without the last pair a mis-recorded or mis-picked block could only be
-        // removed by leaving the overlay for the main block editor.
+        // Keyboard navigation of the compact block tree: → step into, Shift+→ cycle to the next branch of the
+        // same block (else / case / otherwise — otherwise reachable only by clicking its row), ← step out,
+        // ↑/↓ move, Enter configure, Delete/Backspace remove. Without the last pair a mis-recorded or
+        // mis-picked block could only be removed by leaving the overlay for the main block editor.
         scene.setOnKeyPressed(e -> {
             if (scene.getFocusOwner() instanceof javafx.scene.control.TextInputControl) return;  // don't steal typing
             switch (e.getCode()) {
-                case RIGHT -> move(CursorNavigator.stepInto(cursor()));
+                case RIGHT -> move(e.isShiftDown()
+                        ? CursorNavigator.stepIntoNext(cursor(), root)
+                        : CursorNavigator.stepInto(cursor()));
                 case LEFT -> move(CursorNavigator.stepOut(cursor(), root));
                 case UP -> move(CursorNavigator.stepBack(cursor()));
                 case DOWN -> move(CursorNavigator.stepOver(cursor()));
@@ -470,12 +475,14 @@ public final class ProgramShapeOverlay {
         VBox paletteBar = buildPaletteBar();
 
         // Step navigation.
-        Button into  = iconButton("⤵", "Step into", () -> move(CursorNavigator.stepInto(cursor())));
-        Button out   = iconButton("⤴", "Step out",  () -> move(CursorNavigator.stepOut(cursor(), root)));
-        Button up    = iconButton("▲", "Step up",   () -> move(CursorNavigator.stepBack(cursor())));
-        Button down  = iconButton("▼", "Step down", () -> move(CursorNavigator.stepOver(cursor())));
+        Button into  = iconButton("⤵", "Step into (→)", () -> move(CursorNavigator.stepInto(cursor())));
+        Button branch = iconButton("⇄", "Next branch — else / case / otherwise (Shift+→)",
+                () -> move(CursorNavigator.stepIntoNext(cursor(), root)));
+        Button out   = iconButton("⤴", "Step out (←)",  () -> move(CursorNavigator.stepOut(cursor(), root)));
+        Button up    = iconButton("▲", "Step up (↑)",   () -> move(CursorNavigator.stepBack(cursor())));
+        Button down  = iconButton("▼", "Step down (↓)", () -> move(CursorNavigator.stepOver(cursor())));
         Button refresh = iconButton("⟳", "Refresh", this::render);
-        HBox stepRow = new HBox(6, label("Step:"), up, down, into, out, refresh);
+        HBox stepRow = new HBox(6, label("Step:"), up, down, into, branch, out, refresh);
         stepRow.setAlignment(Pos.CENTER_LEFT);
 
         // Record controls (merged macro recorder).
@@ -644,34 +651,6 @@ public final class ProgramShapeOverlay {
         settings.update(settings.current().withLastRecordedActivity(name));
     }
 
-    /**
-     * The caret inside an activity's {@code run()}: the slot just <em>before</em> a trailing {@code return}, so
-     * a recorded block lands where it will actually execute — the stub's body is only {@code return
-     * Outcome.NEXT;}, and inserting below that would produce unreachable code, which is the same silent
-     * nothing-happened this picker exists to fix. Falls back to the tree's default cursor for a stub whose
-     * {@code run()} has been renamed or removed by hand.
-     */
-    // Package-private for ProgramShapeOverlayCursorTest: this rule fails silently when it is wrong.
-    static InsertionCursor runCursor(CodeBlock root) {
-        return methodCursor(root, "run");
-    }
-
-    /** {@link #runCursor(CodeBlock)} generalized to any method name — the caret inside {@code methodName}'s body. */
-    static InsertionCursor methodCursor(CodeBlock root, String methodName) {
-        for (CodeBlock b : CursorNavigator.collectAll(root)) {
-            if (!(b instanceof MethodDeclarationBlock m) || !java.util.Objects.equals(methodName, m.getMethodName())) continue;
-            for (CodeBlock child : m.getChildren()) {
-                if (!(child instanceof BodyBlock body) || body.isReadOnly()) continue;
-                List<StatementBlock> statements = body.getStatements();
-                boolean endsWithReturn = !statements.isEmpty()
-                        && statements.get(statements.size() - 1).getAstNode()
-                                instanceof org.eclipse.jdt.core.dom.ReturnStatement;
-                return new InsertionCursor(body, statements.size() - (endsWithReturn ? 2 : 1));
-            }
-        }
-        return CursorNavigator.defaultCursor(root);
-    }
-
     // ── target method ───────────────────────────────────────────────────────────────────────────────────
 
     /** The picker naming the method whose statements are the only ones rendered/edited. */
@@ -686,30 +665,13 @@ public final class ProgramShapeOverlay {
 
     /** Every method declared in the current file, in tree (DFS) order. */
     private List<String> methodNames() {
-        if (root == null) return List.of();
-        List<String> names = new ArrayList<>();
-        for (CodeBlock b : CursorNavigator.collectAll(root)) {
-            if (b instanceof MethodDeclarationBlock m) names.add(m.getMethodName());
-        }
-        return names;
-    }
-
-    /** The body of the method named {@code methodName}, or {@code null} if no such method exists. */
-    private static BodyBlock methodBody(CodeBlock root, String methodName) {
-        if (root == null || methodName == null) return null;
-        for (CodeBlock b : CursorNavigator.collectAll(root)) {
-            if (!(b instanceof MethodDeclarationBlock m) || !methodName.equals(m.getMethodName())) continue;
-            for (CodeBlock child : m.getChildren()) {
-                if (child instanceof BodyBlock body) return body;
-            }
-        }
-        return null;
+        return root == null ? List.of() : index().methodNames();
     }
 
     /** Switches which method's blocks are rendered/edited, re-homing the cursor into it. */
     private void selectMethod(String name) {
         selectedMethod = name;
-        InsertionCursor c = methodCursor(root, name);
+        InsertionCursor c = index().methodCursor(name);
         if (c != null) state.setInsertionCursor(c);
         render();
     }
@@ -724,7 +686,7 @@ public final class ProgramShapeOverlay {
         if (methodBox != null) methodBox.getItems().setAll(names);
         if (selectedMethod == null || !names.contains(selectedMethod)) {
             selectedMethod = names.contains("run") ? "run" : (names.isEmpty() ? null : names.get(0));
-            InsertionCursor c = methodCursor(root, selectedMethod);
+            InsertionCursor c = index().methodCursor(selectedMethod);
             if (c != null) state.setInsertionCursor(c);
         }
         if (methodBox != null) methodBox.setValue(selectedMethod);
@@ -804,36 +766,7 @@ public final class ProgramShapeOverlay {
     }
 
     private VBox buildTreePanel() {
-        rows.setPadding(new Insets(6));
-        rows.setStyle("-fx-background-color: transparent;");
-        ScrollPane scroll = new ScrollPane(rows);
-        scroll.setFitToWidth(true);
-        scroll.setStyle("-fx-background: transparent; -fx-background-color: transparent;");
-
-        // How many rows are visible before the pane scrolls internally. This is a *preferred* height, not
-        // just a cap: with the HUD's fixed Scene size gone (see show()), the window sizes to the sum of its
-        // children's preferred heights, so a ScrollPane with no explicit prefHeight falls back to its own
-        // tiny default — that's what made only one row visible before this control existed.
-        visibleLines = new Spinner<>(3, 30, 8);
-        visibleLines.setEditable(true);
-        visibleLines.setPrefWidth(60);
-        visibleLines.setTooltip(new Tooltip("How many rows are visible at once before the tree scrolls"));
-        scroll.setPrefHeight(visibleLines.getValue() * ROW_HEIGHT_PX + 12);
-        scroll.setMinHeight(Region.USE_PREF_SIZE);
-        visibleLines.valueProperty().addListener((obs, old, val) -> {
-            scroll.setPrefHeight(val * ROW_HEIGHT_PX + 12);
-            // The Scene only auto-sizes to content once, at first show(); a later pref-height change needs
-            // an explicit resize to actually grow/shrink the window instead of just clipping/under-filling.
-            if (stage != null) Platform.runLater(stage::sizeToScene);
-        });
-        HBox linesRow = new HBox(6, label("Show:"), visibleLines, label("lines"));
-        linesRow.setAlignment(Pos.CENTER_LEFT);
-
-        VBox treePanel = new VBox(6, linesRow, scroll);
-        treePanel.setStyle(PANEL);
-        VBox.setVgrow(scroll, Priority.ALWAYS);
-        VBox.setVgrow(treePanel, Priority.ALWAYS);
-        return treePanel;
+        return tree.node();
     }
 
     // ── Record mode ─────────────────────────────────────────────────────────────────────────────────────
@@ -923,7 +856,7 @@ public final class ProgramShapeOverlay {
         // overlay reaches CodeEditor without going through a block, so don't rely on that alone.
         if (c.body().isReadOnly()) return;
         int insertIndex = Math.min(c.index() + 1, c.body().getStatements().size());
-        pendingInsert = new PendingInsert(bodyOrdinal(c.body()), insertIndex);
+        pendingInsert = new BlockTree.Position(index().ordinalOf(c.body()), insertIndex);
         context.getCodeEditor().addStatement(c.body(), type, insertIndex);
     }
 
@@ -1000,7 +933,7 @@ public final class ProgramShapeOverlay {
     /** Seeds the cursor from the tree if none is set (or the current one dangles after a re-parse). */
     private void ensureCursor() {
         InsertionCursor c = cursor();
-        if (c == null || !CursorNavigator.collectAll(root).contains(c.body())) {
+        if (c == null || !index().contains(c.body())) {
             state.setInsertionCursor(CursorNavigator.defaultCursor(root));
         }
     }
@@ -1036,13 +969,12 @@ public final class ProgramShapeOverlay {
         // Before the pending handling below, which may open a popover of its own over the top of this one.
         refreshConfig();
         if (pendingInsert != null) {
-            PendingInsert p = pendingInsert;
+            BlockTree.Position p = pendingInsert;
             pendingInsert = null;
             MethodSignature ov = pendingOverload;   // consume the palette-requested overload (if any)
             pendingOverload = null;
-            List<BodyBlock> bodies = allBodies(root);
-            if (p.bodyOrdinal() >= 0 && p.bodyOrdinal() < bodies.size()) {
-                BodyBlock body = bodies.get(p.bodyOrdinal());
+            BodyBlock body = index().bodyAt(p.bodyOrdinal());
+            if (body != null) {
                 List<StatementBlock> statements = body.getStatements();
                 if (p.index() >= 0 && p.index() < statements.size()) {
                     // Re-home the cursor onto the freshly inserted block so subsequent adds continue below it.
@@ -1061,9 +993,9 @@ public final class ProgramShapeOverlay {
                 }
             }
         } else if (pendingConfig != null) {
-            PendingInsert p = pendingConfig;
+            BlockTree.Position p = pendingConfig;
             pendingConfig = null;
-            if (statementAt(p) instanceof MethodInvocationBlock mib) openConfig(mib);
+            if (index().statementAt(p) instanceof MethodInvocationBlock mib) openConfig(mib);
         }
         // Continue draining a recorded batch after the cursor has re-homed onto the last insert.
         if (draining) {
@@ -1073,157 +1005,36 @@ public final class ProgramShapeOverlay {
     }
 
     private void render() {
-        rows.getChildren().clear();
         ensureCursor();
         if (root == null) {
-            rows.getChildren().add(dimLabel("No open file."));
+            tree.showMessage("No open file.");
             return;
         }
         // Scoped to the selected method (buildMethodRow) when there is one, so unrelated methods' statements
         // don't appear mixed into one flat list. Falls back to every top-level body when none is selected
         // (e.g. a file with no methods) — the old "Program is empty." path stays reachable either way.
-        BodyBlock scoped = methodBody(root, selectedMethod);
+        BodyBlock scoped = index().methodBody(selectedMethod);
         if (scoped != null) {
-            renderBody(scoped, 0);
+            tree.render(List.of(scoped), cursor());
             return;
         }
-        boolean any = false;
-        for (CodeBlock b : CursorNavigator.collectAll(root)) {
-            if (b instanceof BodyBlock body && !isNestedInBody(body)) {
-                renderBody(body, 0);
-                any = true;
-            }
+        List<BodyBlock> tops = index().topLevelBodies();
+        if (tops.isEmpty()) tree.showMessage("Program is empty.");
+        else tree.render(tops, cursor());
+    }
+
+    /** {@link #root}'s structural index, rebuilt once per published tree rather than per lookup. */
+    private BlockTree.Index index() {
+        if (index == null || indexedRoot != root) {
+            indexedRoot = root;
+            index = BlockTree.index(root);
         }
-        if (!any) rows.getChildren().add(dimLabel("Program is empty."));
-    }
-
-    /** All bodies in DFS order (matches {@link CursorNavigator#collectAll}), used for stable ordinal lookup. */
-    private List<BodyBlock> allBodies(CodeBlock from) {
-        List<BodyBlock> out = new ArrayList<>();
-        for (CodeBlock b : CursorNavigator.collectAll(from)) {
-            if (b instanceof BodyBlock bb) out.add(bb);
-        }
-        return out;
-    }
-
-    private int bodyOrdinal(BodyBlock body) {
-        return allBodies(root).indexOf(body);
-    }
-
-    /** The statement a {@link PendingInsert} points at in the freshly re-parsed tree, or {@code null}. */
-    private StatementBlock statementAt(PendingInsert p) {
-        List<BodyBlock> bodies = allBodies(root);
-        if (p.bodyOrdinal() < 0 || p.bodyOrdinal() >= bodies.size()) return null;
-        List<StatementBlock> statements = bodies.get(p.bodyOrdinal()).getStatements();
-        return (p.index() >= 0 && p.index() < statements.size()) ? statements.get(p.index()) : null;
+        return index;
     }
 
     /** Whether a freshly inserted call should have its argument editor opened for it. */
     private boolean autoFillEnabled() {
         return !suppressAutoFill && autoFillArgs != null && autoFillArgs.isSelected();
-    }
-
-    /**
-     * True when {@code body} is nested inside <em>another</em> {@code BodyBlock}'s subtree (i.e. it is a
-     * control-flow child body reached via {@link #renderBody} recursion, not a top-level method body).
-     */
-    private boolean isNestedInBody(BodyBlock body) {
-        for (CodeBlock b : CursorNavigator.collectAll(root)) {
-            if (b == body || !(b instanceof BodyBlock other)) continue;
-            if (containsDescendant(other, body)) return true;
-        }
-        return false;
-    }
-
-    /** True when {@code target} appears anywhere in {@code ancestor}'s recursive children. */
-    private static boolean containsDescendant(CodeBlock ancestor, CodeBlock target) {
-        if (!(ancestor instanceof BlockWithChildren bwc)) return false;
-        for (CodeBlock child : bwc.getChildren()) {
-            if (child == target || containsDescendant(child, target)) return true;
-        }
-        return false;
-    }
-
-    private void renderBody(BodyBlock body, int depth) {
-        InsertionCursor c = cursor();
-        var statements = body.getStatements();
-        if (statements.isEmpty()) {
-            rows.getChildren().add(emptyRow(body, depth));
-            return;
-        }
-        // A caret sitting before the first statement has no row to highlight, so it gets one of its own —
-        // otherwise the HUD shows a tree with no focus anywhere and looks like it lost the cursor.
-        if (c != null && c.body() == body && c.index() < 0) rows.getChildren().add(caretRow(depth));
-        for (int i = 0; i < statements.size(); i++) {
-            StatementBlock stmt = statements.get(i);
-            boolean focused = c != null && c.body() == body && c.index() == i;
-            rows.getChildren().add(statementRow(stmt, body, i, depth, focused));
-            // Draw child bodies (if/while/for/lambda) indented under their owner row.
-            if (stmt instanceof BlockWithChildren bwc) {
-                for (CodeBlock child : bwc.getChildren()) {
-                    if (child instanceof BodyBlock childBody) renderBody(childBody, depth + 1);
-                }
-            }
-        }
-    }
-
-    private HBox statementRow(StatementBlock stmt, BodyBlock body, int index, int depth, boolean focused) {
-        boolean incomplete = BlockValidator.hasEmptySlot(stmt);
-        Label text = new Label(compactLabel(stmt) + (incomplete ? "   ⚠ missing value" : ""));
-        // An empty argument/condition slot shows red before any compile so it's obvious what still needs filling.
-        text.setStyle("-fx-font-family: monospace; -fx-font-size: 12px; -fx-text-fill: "
-                + (incomplete ? "#ff6b6b;" : "#dfe6f2;"));
-        HBox row = new HBox(6, indent(depth), text);
-        row.setAlignment(Pos.CENTER_LEFT);
-        row.setPadding(new Insets(3, 6, 3, 6));
-        row.setStyle(focused
-                ? "-fx-background-color: rgba(74,144,226,0.35); -fx-background-radius: 4; "
-                        + "-fx-border-color: #4a90e2; -fx-border-radius: 4;"
-                : "-fx-background-color: transparent;");
-        row.setOnMouseClicked(e -> move(new InsertionCursor(body, index)));
-        row.setPickOnBounds(true);
-
-        Region spring = new Region();
-        HBox.setHgrow(spring, Priority.ALWAYS);
-        row.getChildren().add(spring);
-
-        // Config (⚙) button for SDK/method calls: lets the user draw the rect / pick the template for the
-        // call's arguments without leaving the overlay (reuses the standard argument pickers).
-        if (stmt instanceof MethodInvocationBlock mib) {
-            Button config = iconButton("⚙", "Configure arguments (draw rect / pick template)", () -> openConfig(mib));
-            config.setMinWidth(26);
-            row.getChildren().add(config);
-        }
-        // Delete (✕), the row-level twin of the main editor's per-block delete. Generated scaffolding is not
-        // the user's to remove, so a read-only row simply doesn't offer it.
-        if (!stmt.isReadOnly()) {
-            Button remove = iconButton("✕", "Delete this block (Del)", () -> delete(stmt, body, index));
-            remove.setMinWidth(26);
-            row.getChildren().add(remove);
-        }
-        return row;
-    }
-
-    /** The caret's own row, drawn when it sits before a body's first statement. */
-    private static HBox caretRow(int depth) {
-        Label text = new Label("▸ next block goes here");
-        text.setStyle("-fx-font-style: italic; -fx-text-fill: #9fc0ff;");
-        HBox row = new HBox(6, indent(depth), text);
-        row.setPadding(new Insets(3, 6, 3, 6));
-        row.setStyle("-fx-background-color: rgba(74,144,226,0.35); -fx-background-radius: 4;");
-        return row;
-    }
-
-    private HBox emptyRow(BodyBlock body, int depth) {
-        InsertionCursor c = cursor();
-        boolean focused = c != null && c.body() == body;
-        Label text = new Label("· (empty) ·");
-        text.setStyle("-fx-font-style: italic; -fx-text-fill: #8b93a1;");
-        HBox row = new HBox(6, indent(depth), text);
-        row.setPadding(new Insets(3, 6, 3, 6));
-        if (focused) row.setStyle("-fx-background-color: rgba(74,144,226,0.35); -fx-background-radius: 4;");
-        row.setOnMouseClicked(e -> move(new InsertionCursor(body, 0)));
-        return row;
     }
 
     /**
@@ -1242,7 +1053,7 @@ public final class ProgramShapeOverlay {
         // One popover at a time; a second would orphan the first (its onHidden clears the tracking fields, so
         // it must close before the new target is recorded).
         if (configDlg != null) configDlg.close();
-        configTarget = locate(mib);
+        configTarget = index().locate(mib);
 
         // Capped in a ScrollPane so a call with many parameters (e.g. Fill) scrolls instead of growing the
         // popover taller than the screen, with the bottom rows landing off-screen and unreachable.
@@ -1344,21 +1155,11 @@ public final class ProgramShapeOverlay {
      */
     private void refreshConfig() {
         if (configDlg == null || configScroll == null || configTarget == null) return;
-        if (statementAt(configTarget) instanceof MethodInvocationBlock mib) {
+        if (index().statementAt(configTarget) instanceof MethodInvocationBlock mib) {
             configScroll.setContent(configContent(mib));
         } else {
             configDlg.close();
         }
-    }
-
-    /** Where {@code stmt} sits in the current tree, in the body-ordinal coordinates a re-parse survives. */
-    private PendingInsert locate(StatementBlock stmt) {
-        List<BodyBlock> bodies = allBodies(root);
-        for (int b = 0; b < bodies.size(); b++) {
-            int index = bodies.get(b).getStatements().indexOf(stmt);
-            if (index >= 0) return new PendingInsert(b, index);
-        }
-        return null;
     }
 
     /**
@@ -1381,17 +1182,6 @@ public final class ProgramShapeOverlay {
         double y = Math.min(stage.getY(), screen.getMaxY() - dlg.getHeight());
         dlg.setX(Math.max(screen.getMinX(), x));
         dlg.setY(Math.max(screen.getMinY(), y));
-    }
-
-    /** Adds the app's current theme style class to {@code node}, mirroring {@code UIManager.applyThemeToScene}. */
-    private static void applyThemeClass(javafx.scene.Parent node) {
-        String styleClass = switch (com.botmaker.studio.ui.render.theme.BlockTheme.getCurrentThemeType()) {
-            case DEFAULT -> "default-theme";
-            case DARK -> "dark-theme";
-            case BLACK -> "black-theme";
-            case HIGH_CONTRAST -> "high-contrast-theme";
-        };
-        node.getStyleClass().add(styleClass);
     }
 
     /**
@@ -1427,57 +1217,4 @@ public final class ProgramShapeOverlay {
         return (pt != null && pt.simpleName() != null) ? pt.simpleName() : ("arg " + i);
     }
 
-    // ── small helpers ────────────────────────────────────────────────────────────────────────────────────
-
-    private static Button iconButton(String glyph, String tip, Runnable action) {
-        Button b = new Button(glyph);
-        b.setTooltip(new Tooltip(tip));
-        b.setMinWidth(30);
-        b.setOnAction(e -> action.run());
-        return b;
-    }
-
-    private static Label label(String text) {
-        Label l = new Label(text);
-        l.setStyle(LABEL);
-        return l;
-    }
-
-    private static Label dimLabel(String text) {
-        Label l = new Label(text);
-        l.setStyle("-fx-text-fill: #8b93a1;");
-        return l;
-    }
-
-    private static Region indent(int depth) {
-        Region r = new Region();
-        r.setMinWidth(depth * 16.0);
-        r.setPrefWidth(depth * 16.0);
-        return r;
-    }
-
-    /** One-line summary of a block: the first source line of its AST node, trimmed and truncated. */
-    private static String compactLabel(CodeBlock block) {
-        ASTNode n = block.getAstNode();
-        if (n == null) return block.getClass().getSimpleName();
-        String s = n.toString().strip();
-        int nl = s.indexOf('\n');
-        if (nl >= 0) s = s.substring(0, nl).strip();
-        if (s.endsWith("{")) s = s.substring(0, s.length() - 1).strip();
-        return s.length() > 70 ? s.substring(0, 67) + "…" : s;
-    }
-
-    private static void warn(Window owner, String message) {
-        alert(owner, Alert.AlertType.WARNING, message);
-    }
-
-    private static void info(Window owner, String message) {
-        alert(owner, Alert.AlertType.INFORMATION, message);
-    }
-
-    private static void alert(Window owner, Alert.AlertType type, String message) {
-        Alert alert = new Alert(type, message);
-        if (owner != null) alert.initOwner(owner);
-        alert.showAndWait();
-    }
 }
