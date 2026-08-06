@@ -5,6 +5,11 @@ import com.botmaker.studio.core.CodeBlock;
 import org.eclipse.jdt.core.dom.Comment;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -40,6 +45,31 @@ class EditGuardTest {
         assertNull(f.lastCode, "broken source must never reach the canvas");
         assertTrue(f.statusMessages.stream().anyMatch(m -> m.contains("would have broken the code")),
             "the refusal is user-facing — a silent no-op reads as the editor being stuck: " + f.statusMessages);
+    }
+
+    /**
+     * The refusal has to name the rewrite that caused it. It didn't: {@code refusedBy} excluded the guard's
+     * other frames but not its own, so the first {@code CodeEditor} frame it found was always itself and every
+     * refusal in the wild logged "(refusedBy)" — useless, and undetectable from inside the feature it was
+     * added to serve. Asserting on the log is the only way this stays true.
+     */
+    @Test
+    void theRefusalNamesTheRewriteThatCausedIt() {
+        PrintStream realErr = System.err;
+        ByteArrayOutputStream captured = new ByteArrayOutputStream();
+        System.setErr(new PrintStream(captured, true, StandardCharsets.UTF_8));
+        try {
+            EditorFixture f = new EditorFixture(source("// marker"));
+            f.editor.updateComment(comment(f), ESCAPES_THE_COMMENT);
+        } finally {
+            System.setErr(realErr);
+        }
+
+        String log = captured.toString(StandardCharsets.UTF_8);
+        assertTrue(log.contains("updateComment"),
+            () -> "the log must name the rewrite, not the guard: " + log);
+        assertFalse(log.contains("(refusedBy"),
+            () -> "the guard named itself again: " + log);
     }
 
     @Test

@@ -1,0 +1,46 @@
+package com.efzf.activities;
+
+import com.efzf.Activities;
+import com.botmaker.sdk.api.bot.Activity;
+import com.botmaker.sdk.api.vision.ImageFinder;
+import com.botmaker.sdk.api.vision.ImageTemplate;
+import com.botmaker.sdk.api.vision.ImageTemplateGroup;
+import com.botmaker.sdk.api.vision.Matches;
+import com.botmaker.sdk.api.vision.ImageTemplate;
+import com.botmaker.sdk.api.BotMaker;
+import com.botmaker.sdk.api.vision.ImageClicker;
+
+/**
+ * Activity: eazf. Fill in {@link #run()} with how to do it — that method is the whole point of
+ * this file, and this file is yours to edit (BotMaker Studio creates it once and never
+ * overwrites it). {@link #isEnabled()} is wired to the enable flag {@code Activities.eazf} and
+ * is managed for you; any config params are {@code Activities.eazf_<param>}.
+ */
+public class eazf extends Activity<eazf.Outcome> {
+
+    /**
+     * What this activity can report having happened. Return one from {@link #run()} and the flow
+     * drawn in the Studio decides where each one goes — so this says what happened here, never
+     * where to go next. GENERATED from Project &rarr; Activity Flow; edit it there, not here.
+     */
+    public enum Outcome { NEXT }
+
+    @Override
+    public boolean isEnabled() {
+        return Activities.eazf;
+    }
+
+    @Override
+    public Outcome run() {
+        // TODO: how to do eazf
+    ImageFinder.whileFindAny(ImageTemplateGroup.of(new ImageTemplate("src/main/resources/images/skull.png"),
+			new ImageTemplate("src/main/resources/images/leave.png")),it -> {switch (it){case Matches m when m.hasAny(new ImageTemplate("src/main/resources/images/skull.png")) ->{}case Matches m when m.hasAny(new ImageTemplate("src/main/resources/images/leave.png")) -> {BotMaker.print("fezzf");
+			ImageClicker.click(new ImageTemplate("src/main/resources/images/leave.png"));
+			
+}
+			default ->{}}}
+);
+	BotMaker.print("ergegr");
+        return Outcome.NEXT;
+    }
+}

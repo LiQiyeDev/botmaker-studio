@@ -23,6 +23,7 @@ import com.botmaker.studio.project.LockResolver;
 import com.botmaker.studio.project.LockResolver.EditKind;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
+import com.botmaker.studio.config.BotMakerDirs;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.types.ResolvedType;
 import org.eclipse.jdt.core.compiler.IProblem;
@@ -32,9 +33,12 @@ import org.eclipse.jdt.core.dom.rewrite.ListRewrite;
 import org.eclipse.jface.text.Document;
 import org.eclipse.jface.text.IDocument;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.BiFunction;
 
 /**
@@ -207,24 +211,53 @@ public class CodeEditor {
         if (SourceParser.hasSyntaxErrors(SourceParser.parse(previousCode))) return false;
         System.err.println("Refused an edit that would have broken the code (" + refusedBy() + "): "
                 + problem.getMessage() + " at line " + problem.getSourceLineNumber());
+        System.err.println("  the source it would have published: " + dumpRefused(newCode));
         eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(
                 "That change would have broken the code, so nothing was changed."));
         return true;
     }
+
+    /** The frames that are the guard itself rather than the rewrite that reached it. */
+    private static final Set<String> GUARD_FRAMES =
+            Set.of("refusedBy", "wouldBreak", "triggerUpdate", "edit");
 
     /**
      * The public {@link CodeEditor} method that reached the refused edit, for the log line. This is the handle
      * on <em>which rewrite</em> emits broken source — the thing worth fixing, of which the refusal is only the
      * symptom. Best-effort: a lambda or an inlined frame reads as its enclosing method, which is close enough
      * to find the handler by name.
+     *
+     * <p>The exclusion list has to include this method itself. It didn't, so the first frame matching
+     * {@code CodeEditor} was always {@code refusedBy} and every refusal in the wild reported its own name —
+     * the one thing the line existed to say was the one thing it never said.
      */
     private static String refusedBy() {
         return StackWalker.getInstance().walk(frames -> frames
                 .filter(f -> f.getClassName().equals(CodeEditor.class.getName()))
-                .map(StackWalker.StackFrame::getMethodName)
-                .filter(name -> !name.equals("wouldBreak") && !name.equals("triggerUpdate") && !name.equals("edit"))
+                .filter(f -> !GUARD_FRAMES.contains(f.getMethodName()))
+                .map(f -> f.getMethodName() + ":" + f.getLineNumber())
                 .findFirst()
                 .orElse("unknown"));
+    }
+
+    /**
+     * Writes the refused source to the cache dir and returns where it went, or why it couldn't be written.
+     *
+     * <p>The problem message and the caller's name say <em>that</em> a rewrite is broken and which one; only
+     * the emitted text says <em>how</em>. Without it a refusal has to be reproduced before it can be read, and
+     * a rewrite that misbehaves on one user's file and not on a reconstruction of it — which is exactly the
+     * shape this has taken — cannot be diagnosed at all. Best-effort: a diagnostic that throws would turn a
+     * refused edit into a lost one.
+     */
+    private static String dumpRefused(String newCode) {
+        try {
+            Path dir = Files.createDirectories(BotMakerDirs.getCacheDir().resolve("refused-edits"));
+            Path file = dir.resolve("refused-" + System.currentTimeMillis() + ".java");
+            Files.writeString(file, newCode);
+            return file.toString();
+        } catch (Exception e) {
+            return "(could not be written: " + e + ")";
+        }
     }
 
     /**

@@ -7,11 +7,17 @@ import com.botmaker.studio.palette.BlockCatalog;
 import com.botmaker.studio.parser.helpers.SourceParser;
 import org.eclipse.jdt.core.dom.Block;
 import org.eclipse.jdt.core.dom.SwitchCase;
+import org.eclipse.jdt.core.dom.SwitchStatement;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -119,6 +125,63 @@ class SwitchCaseInsertTest {
         int defaultRule = fixture.lastCode.indexOf("default");
         assertTrue(arrow < inserted && inserted < defaultRule,
                 () -> "landed outside the branch it was dropped in: " + fixture.lastCode);
+    }
+
+    /**
+     * The real thing: a user's activity file whose whole lambda, switch and both guarded labels sit on <b>one
+     * line</b>, with the first branch's {@code ->{}} flush against the next {@code case}.
+     *
+     * <p>Held as a resource byte-for-byte rather than retyped as a text block, because the defect is in the
+     * formatting: the same switch written across several lines inserts fine, and every attempt to reproduce
+     * this from a tidied-up copy passed. The tabs and the packed line 37 <em>are</em> the test input.
+     *
+     * <p>Every branch is exercised, not just the two that failed. The one that worked — the branch whose body
+     * already spans lines — is what says the fix didn't buy the broken cases at its expense.
+     */
+    @Test
+    void everyBranchOfAPackedOneLineSwitchAcceptsABlock() {
+        String packed = readResource("/parser/packed-switch.java.txt");
+        int branches = countCaseBodies(packed);
+        assertEquals(3, branches, "fixture should have two cases and a default");
+
+        List<Executable> checks = new ArrayList<>();
+        for (int i = 0; i < branches; i++) {
+            int branch = i;
+            checks.add(() -> {
+                EditorFixture fixture = new EditorFixture(packed);
+                fixture.editor.addStatement(caseBodies(fixture).get(branch), BlockCatalog.PRINT, 0);
+
+                assertNotNull(fixture.lastCode,
+                        () -> "branch " + branch + " was refused: " + fixture.statusMessages);
+                assertParses(fixture.lastCode);
+            });
+        }
+        assertAll(checks);
+    }
+
+    private static String readResource(String path) {
+        try (var in = SwitchCaseInsertTest.class.getResourceAsStream(path)) {
+            assertNotNull(in, "missing test resource " + path);
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new AssertionError("could not read " + path, e);
+        }
+    }
+
+    private static int countCaseBodies(String source) {
+        return caseBodies(new EditorFixture(source)).size();
+    }
+
+    /** Every switch-branch body in the file, in source order. */
+    private static List<BodyBlock> caseBodies(EditorFixture fixture) {
+        List<BodyBlock> out = new ArrayList<>();
+        for (CodeBlock block : flatten(fixture.root)) {
+            if (block instanceof BodyBlock body && body.getAstNode() instanceof Block braced
+                    && braced.getParent() instanceof SwitchStatement) {
+                out.add(body);
+            }
+        }
+        return out;
     }
 
     private static void assertParses(String code) {

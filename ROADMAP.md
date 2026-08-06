@@ -6,6 +6,18 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-06 — The refusal log names the rewrite, not itself.** `CodeEditor.refusedBy` excluded the guard's
+  other frames (`wouldBreak`, `triggerUpdate`, `edit`) but not its own, so the first matching frame was always
+  `refusedBy` and every refusal in the wild logged `(refusedBy)`. The one thing the line existed to say was the
+  one thing it never said, and nothing inside the feature could notice. Now it names the calling method and its
+  line, and `dumpRefused` writes the refused source to `<cache>/refused-edits/` — the emitted text is what
+  makes a rewrite diagnosable when the file can't be reproduced from a retyped copy, which is exactly the case
+  that prompted this. `EditGuardTest.theRefusalNamesTheRewriteThatCausedIt` asserts on the log.
+  **Not fixed, and open:** a report of two branches refusing inserts in a real activity file does *not*
+  reproduce — the file is now a byte-for-byte test resource (`src/test/resources/parser/packed-switch.java.txt`)
+  and all three of its branches accept a block on both the current build and the pre-fix one. The next
+  occurrence carries the rewrite's name and its output; that is the input to the fix.
+
 - **2026-08-06 — A block dropped into an arrow-form `switch` branch lands inside it.** Adding anything to a
   combination block's case wrote source that didn't compile; on disk it read
   `case Matches m when … -> ImageClicker.click(…);` followed by the branch's own `{}` on the next line — the
