@@ -3,6 +3,7 @@ package com.botmaker.studio.ui.app;
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.vcs.ProjectVcs;
+import com.botmaker.studio.project.vcs.VcsFileStatus;
 import com.botmaker.studio.sharing.BotPublisher;
 import com.botmaker.studio.sharing.BotSource;
 import com.botmaker.studio.sharing.GitHubAuth;
@@ -226,15 +227,15 @@ public final class VcsPanel {
     // Changed-files tree
     // -------------------------------------------------------------------------
 
-    /** A node in the changes tree: a directory (path segment) or a changed file with a status label. */
-    private record ChangedFile(String label, String path, String status) {
+    /** A node in the changes tree: a directory (path segment) or a changed file with its status. */
+    private record ChangedFile(String label, String path, VcsFileStatus status) {
         boolean isFile() { return path != null; }
     }
 
     private void rebuildChanges(ProjectVcs.FileStatus fs) {
         TreeItem<ChangedFile> rootItem = new TreeItem<>(new ChangedFile("", null, null));
-        SortedMap<String, String> labelled = fs.labelled();
-        for (Map.Entry<String, String> e : labelled.entrySet()) {
+        SortedMap<String, VcsFileStatus> labelled = fs.labelled();
+        for (Map.Entry<String, VcsFileStatus> e : labelled.entrySet()) {
             insertPath(rootItem, e.getKey(), e.getValue());
         }
         expandAll(rootItem);
@@ -250,7 +251,7 @@ public final class VcsPanel {
     }
 
     /** Grafts {@code path} (POSIX segments) under {@code parent}, grouping by directory like IntelliJ's tree. */
-    private void insertPath(TreeItem<ChangedFile> parent, String path, String status) {
+    private void insertPath(TreeItem<ChangedFile> parent, String path, VcsFileStatus status) {
         String[] segments = path.split("/");
         TreeItem<ChangedFile> node = parent;
         StringBuilder acc = new StringBuilder();
@@ -300,8 +301,8 @@ public final class VcsPanel {
                 return;
             }
             Label name = new Label(item.label());
-            Label tag = new Label(item.status());
-            tag.setStyle("-fx-text-fill: " + colorFor(item.status()) + "; -fx-font-size: 10px;");
+            Label tag = new Label(item.status().label());
+            tag.setStyle("-fx-text-fill: " + item.status().color() + "; -fx-font-size: 10px;");
             Region spacer = new Region();
             HBox.setHgrow(spacer, Priority.ALWAYS);
             HBox row = new HBox(6, name, spacer, tag);
@@ -312,18 +313,9 @@ public final class VcsPanel {
         }
 
         private ContextMenu discardMenu(ChangedFile file) {
-            MenuItem discard = new MenuItem("new".equals(file.status()) ? "Delete this new file…" : "Discard changes…");
+            MenuItem discard = new MenuItem(file.status().uncommitted() ? "Delete this new file…" : "Discard changes…");
             discard.setOnAction(e -> doDiscard(file));
             return new ContextMenu(discard);
-        }
-
-        private String colorFor(String status) {
-            return switch (status) {
-                case "new" -> "#1a7f37";
-                case "modified" -> "#9a6700";
-                case "deleted" -> "#cf222e";
-                default -> "gray";
-            };
         }
     }
 
@@ -358,7 +350,7 @@ public final class VcsPanel {
     }
 
     private void doDiscard(ChangedFile file) {
-        boolean isNew = "new".equals(file.status());
+        boolean isNew = file.status().uncommitted();
         Alert confirm = new Alert(Alert.AlertType.WARNING,
                 (isNew ? "Delete the new file “" : "Discard your changes to “") + file.path() + "”?"
                         + (isNew ? "" : "\n\nIt will be restored to its last committed content."),

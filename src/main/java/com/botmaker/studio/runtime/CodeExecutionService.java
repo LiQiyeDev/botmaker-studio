@@ -4,6 +4,7 @@ import com.botmaker.shared.ipc.IpcEnv;
 import com.botmaker.shared.ipc.TelemetryServer;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.events.CoreApplicationEvents;
+import com.botmaker.studio.palette.InputKind;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.FileRole;
 import com.botmaker.studio.project.LockedRegions;
@@ -454,19 +455,20 @@ public class CodeExecutionService {
         StringBuilder out = new StringBuilder();
         int i = 0;
         while (i < s.length()) {
-            int start = s.indexOf('\u0001', i);
+            int start = s.indexOf(InputKind.MARKER_DELIMITER, i);
             if (start < 0) { out.append(s, i, s.length()); break; }
             out.append(s, i, start);
-            int end = s.indexOf('\u0001', start + 1);
+            int end = s.indexOf(InputKind.MARKER_DELIMITER, start + 1);
             if (end < 0) { carry.append(s, start, s.length()); break; } // incomplete marker — hold for next chunk
             String token = s.substring(start + 1, end);
             i = end + 1;
-            if (token.startsWith("BM-INPUT:")) {
-                String type = token.substring("BM-INPUT:".length());
-                Platform.runLater(() -> eventBus.publish(new CoreApplicationEvents.InputRequestedEvent(type)));
+            if (token.startsWith(InputKind.MARKER_PREFIX)) {
+                InputKind kind = InputKind.fromMarkerToken(token.substring(InputKind.MARKER_PREFIX.length()))
+                        .orElse(null);
+                Platform.runLater(() -> eventBus.publish(new CoreApplicationEvents.InputRequestedEvent(kind)));
                 if (i < s.length() && s.charAt(i) == '\n') i++; // swallow the marker's own newline
             } else {
-                out.append('\u0001').append(token).append('\u0001'); // not ours — leave untouched
+                out.append(InputKind.MARKER_DELIMITER).append(token).append(InputKind.MARKER_DELIMITER); // not ours — leave untouched
             }
         }
         return out.toString();

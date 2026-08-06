@@ -247,13 +247,7 @@ public class UIManager {
         dialog.initOwner(primaryStage);
         dialog.setTitle("Bot needs input");
         dialog.setHeaderText("The bot is waiting for input");
-        dialog.setContentText(switch (event.type()) {
-            case "int" -> "Enter a whole number:";
-            case "double" -> "Enter a decimal number:";
-            case "boolean" -> "Enter true or false:";
-            case "line" -> "Enter some text:";
-            default -> "Enter input:";
-        });
+        dialog.setContentText(event.kind() == null ? "Enter input:" : event.kind().prompt());
         dialog.showAndWait().ifPresent(value ->
                 eventBus.publish(new CoreApplicationEvents.SendInputEvent(value)));
     }

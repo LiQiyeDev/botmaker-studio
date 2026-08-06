@@ -1,5 +1,6 @@
 package com.botmaker.studio.ui.render.components;
 
+import com.botmaker.shared.config.CaptureSourceKind;
 import com.botmaker.studio.core.AbstractCodeBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.project.ProjectCreator;
@@ -62,7 +63,7 @@ public final class EmulatorArgPicker {
         Path resources = context.getConfig().resourcesRoot();
         try {
             ProjectCreator.writeLaunchTarget(resources, "emu-app:" + appPackage + "@" + instanceName);
-            ProjectCreator.writeCaptureSource(resources, "emulator:" + instanceName);
+            ProjectCreator.writeCaptureSource(resources, CaptureSourceKind.EMULATOR.spec(instanceName));
         } catch (IOException ignored) {
             // best-effort project-default wiring; the inline Emulators.use(name) call still stands.
         }

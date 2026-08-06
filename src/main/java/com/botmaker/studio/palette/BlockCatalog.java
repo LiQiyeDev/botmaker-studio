@@ -89,11 +89,11 @@ public final class BlockCatalog {
     public static final BlockType PRESS_KEY = new LibraryCall("PRESS_KEY", "Press Key", INPUT, SdkType.KEYBOARD, "tap",
             List.of(new EnumConst(SdkType.KEY.simpleName(), "ENTER")));
     public static final BlockType READ_LINE =
-            new ScannerRead("READ_LINE", "Read Text", INPUT, "readLine", "String", false, "input");
+            new ScannerRead("READ_LINE", "Read Text", INPUT, InputKind.LINE, "input");
     public static final BlockType READ_INT =
-            new ScannerRead("READ_INT", "Read Int", INPUT, "readInt", "int", true, "num");
+            new ScannerRead("READ_INT", "Read Int", INPUT, InputKind.INT, "num");
     public static final BlockType READ_DOUBLE =
-            new ScannerRead("READ_DOUBLE", "Read Double", INPUT, "readDouble", "double", true, "num");
+            new ScannerRead("READ_DOUBLE", "Read Double", INPUT, InputKind.DOUBLE, "num");
 
     // --- Functions ---
     public static final BlockType FUNCTION_CALL = cf("FUNCTION_CALL", "Call Function", FUNCTIONS, Kind.FUNCTION_CALL);

@@ -8,6 +8,7 @@ import com.botmaker.studio.core.AbstractStatementBlock;
 import com.botmaker.studio.core.BlockWithChildren;
 import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.CodeBlock;
+import com.botmaker.studio.parser.helpers.FileTypeDetector;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
 import com.botmaker.studio.ui.render.layout.BlockLayout;
@@ -178,7 +179,7 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
             nameField.focusedProperty().addListener((obs, oldVal, newVal) -> {
                 if (!newVal) {
                     String newName = nameField.getText().trim();
-                    if (!newName.isEmpty() && !newName.equals(methodName) && !"main".equals(newName)) {
+                    if (!newName.isEmpty() && !newName.equals(methodName) && !FileTypeDetector.MAIN_METHOD.equals(newName)) {
                         context.getCodeEditor().renameMethod((MethodDeclaration) this.astNode, newName);
                     } else {
                         nameField.setText(methodName);

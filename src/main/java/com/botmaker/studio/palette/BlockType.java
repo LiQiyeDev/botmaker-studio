@@ -39,9 +39,14 @@ public sealed interface BlockType
     record VarDecl(String id, String displayName, BlockCategory category,
                    String typeName, boolean primitive, String varName, Initializer init) implements BlockType {}
 
-    /** A console read: {@code <typeName> <varName> = BotMaker.<method>()} (e.g. {@code BotMaker.readInt()}). */
+    /**
+     * A console read: {@code <type> <varName> = BotMaker.<method>()} (e.g. {@code BotMaker.readInt()}). The
+     * method, the declared type and whether that type is primitive all come off the {@link InputKind} — they
+     * were three independent constructor arguments, and nothing stopped an entry pairing {@code readInt} with
+     * {@code String}.
+     */
     record ScannerRead(String id, String displayName, BlockCategory category,
-                       String method, String typeName, boolean primitive, String varName) implements BlockType {}
+                       InputKind input, String varName) implements BlockType {}
 
     /**
      * A static library call statement: {@code <facade>.<method>(args...)}.

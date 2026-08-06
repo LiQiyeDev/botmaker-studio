@@ -1,6 +1,7 @@
 package com.botmaker.studio.ui.app;
 
 import com.botmaker.studio.core.CodeBlock;
+import com.botmaker.studio.validation.DiagnosticLevel;
 import com.botmaker.studio.validation.DiagnosticsManager;
 import com.botmaker.studio.validation.ErrorTranslator;
 import javafx.geometry.Pos;
@@ -42,10 +43,14 @@ final class DiagnosticsPanel {
     /** Raises this tab. Called only when a compile produced at least one error. */
     private final Runnable onErrorsFound;
 
+    private static final String SEVERITY_FILTER = "severity-filter";
+    private static final String DIAGNOSTIC_CELL = "diagnostic-cell";
+    private static final String DIAGNOSTIC_ICON = "diagnostic-icon";
+
     private final ListView<Diagnostic> list = new ListView<>();
-    private final ToggleButton errorFilter = severityFilter("Errors", "error");
-    private final ToggleButton warningFilter = severityFilter("Warnings", "warning");
-    private final ToggleButton infoFilter = severityFilter("Infos/Hints", "info");
+    private final ToggleButton errorFilter = severityFilter("Errors", DiagnosticLevel.ERROR);
+    private final ToggleButton warningFilter = severityFilter("Warnings", DiagnosticLevel.WARNING);
+    private final ToggleButton infoFilter = severityFilter("Infos/Hints", DiagnosticLevel.INFO);
     private final VBox node;
 
     private List<Diagnostic> all = new ArrayList<>();
@@ -123,10 +128,10 @@ final class DiagnosticsPanel {
                 .toList());
     }
 
-    private ToggleButton severityFilter(String label, String severity) {
+    private ToggleButton severityFilter(String label, DiagnosticLevel level) {
         ToggleButton b = new ToggleButton(label);
         b.setSelected(true);
-        b.getStyleClass().addAll("severity-filter", "severity-filter--" + severity);
+        b.getStyleClass().addAll(SEVERITY_FILTER, level.styleClass(SEVERITY_FILTER));
         b.setOnAction(e -> applyFilters());
         return b;
     }
@@ -142,7 +147,7 @@ final class DiagnosticsPanel {
                     setGraphic(null);
                     // A recycled cell keeps its classes, so a blank row would otherwise stay the colour of
                     // whatever diagnostic it last showed.
-                    severityClass(this, "diagnostic-cell", null);
+                    severityClass(this, DIAGNOSTIC_CELL, null);
                     setOnMouseClicked(null);
                     return;
                 }
@@ -166,42 +171,26 @@ final class DiagnosticsPanel {
     private void render(ListCell<Diagnostic> cell, Diagnostic diagnostic) {
         String message = ErrorTranslator.getShortSummary(diagnostic);
         int line = diagnostic.getRange().getStart().getLine() + 1;
-        String severity = severityOf(diagnostic);
+        DiagnosticLevel level = DiagnosticLevel.of(diagnostic);
 
-        Label iconLabel = new Label(glyphFor(severity));
-        severityClass(iconLabel, "diagnostic-icon", severity);
+        Label iconLabel = new Label(level.glyph());
+        severityClass(iconLabel, DIAGNOSTIC_ICON, level);
 
         cell.setText("%sLine %d: %s".formatted(fileNamePrefix(diagnostic), line, message));
-        severityClass(cell, "diagnostic-cell", severity);
+        severityClass(cell, DIAGNOSTIC_CELL, level);
         cell.setGraphic(iconLabel);
         cell.setOnMouseClicked(event ->
                 diagnosticsManager.findBlockForDiagnostic(diagnostic).ifPresent(onRevealBlock));
-    }
-
-    /** The style-class suffix for a diagnostic. Anything that isn't an error or a warning reads as info. */
-    private static String severityOf(Diagnostic diagnostic) {
-        if (diagnostic.getSeverity() == DiagnosticSeverity.Error) return "error";
-        if (diagnostic.getSeverity() == DiagnosticSeverity.Warning) return "warning";
-        return "info";
-    }
-
-    /** The glyph beside the message — chosen from the same suffix that colours it, so the two can't disagree. */
-    private static String glyphFor(String severity) {
-        return switch (severity) {
-            case "error" -> "❌";
-            case "warning" -> "⚠️";
-            default -> "ℹ️";
-        };
     }
 
     /**
      * Puts {@code base} and exactly one {@code base--<severity>} modifier on {@code node}, dropping any
      * modifier it already carried. A {@code null} severity leaves the base class alone and removes the colour.
      */
-    private static void severityClass(Node node, String base, String severity) {
-        node.getStyleClass().removeAll(base + "--error", base + "--warning", base + "--info");
+    private static void severityClass(Node node, String base, DiagnosticLevel level) {
+        for (DiagnosticLevel l : DiagnosticLevel.values()) node.getStyleClass().remove(l.styleClass(base));
         if (!node.getStyleClass().contains(base)) node.getStyleClass().add(base);
-        if (severity != null) node.getStyleClass().add(base + "--" + severity);
+        if (level != null) node.getStyleClass().add(level.styleClass(base));
     }
 
     /** {@code "[Main.java] "} when the diagnostic carries its source URI, empty otherwise. */

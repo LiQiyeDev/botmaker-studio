@@ -78,8 +78,8 @@ class ProjectVcsTest {
         assertFalse(status.isClean());
         assertTrue(status.modified().contains("Bot.java"), "modified: " + status.modified());
         assertTrue(status.untracked().contains("New.java"), "untracked: " + status.untracked());
-        assertEquals("modified", status.labelled().get("Bot.java"));
-        assertEquals("new", status.labelled().get("New.java"));
+        assertEquals(VcsFileStatus.MODIFIED, status.labelled().get("Bot.java"));
+        assertEquals(VcsFileStatus.NEW, status.labelled().get("New.java"));
     }
 
     @Test

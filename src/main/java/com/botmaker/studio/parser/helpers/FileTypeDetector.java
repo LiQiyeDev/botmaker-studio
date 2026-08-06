@@ -22,10 +22,17 @@ public class FileTypeDetector {
     }
 
     /**
+     * The name of a Java entry point. A generated bot's is fixed and cannot be renamed (the rename field in
+     * {@code MethodDeclarationBlock} refuses it), and {@code MainBlock} identifies itself by it — so it is one
+     * constant rather than a literal in each of those places.
+     */
+    public static final String MAIN_METHOD = "main";
+
+    /**
      * Checks if a method is a main method.
      */
     public static boolean isMainMethod(MethodDeclaration method) {
-        if (!"main".equals(method.getName().getIdentifier())) {
+        if (!MAIN_METHOD.equals(method.getName().getIdentifier())) {
             return false;
         }
         if (!Modifier.isStatic(method.getModifiers())) {

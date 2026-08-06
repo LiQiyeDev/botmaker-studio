@@ -1,5 +1,6 @@
 package com.botmaker.studio.project;
 
+import com.botmaker.shared.capture.linux.input.LinuxInputBackendId;
 import com.botmaker.shared.config.ProjectProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -37,7 +38,7 @@ class BotSettingsTest {
     void everySettingRoundTripsThroughTheProjectFile(@TempDir Path root) throws IOException {
         ProjectConfig config = project(root);
         BotSettings written = new BotSettings(true, 750, 125, 0.62, false, 0.11, 7,
-                BotSettings.LinuxInput.UINPUT, false, BotSettings.SessionBackend.GAMESCOPE);
+                LinuxInputBackendId.UINPUT, false, BotSettings.SessionBackend.GAMESCOPE);
 
         BotSettings.write(config.resourcesRoot(), written);
 
@@ -55,7 +56,7 @@ class BotSettingsTest {
         assertNull(props.getProperty(ProjectProperties.KEY_INPUT_LINUX_BACKEND));
         assertNull(props.getProperty(ProjectProperties.KEY_SESSION_BACKEND));
         BotSettings read = BotSettings.read(config.resourcesRoot());
-        assertEquals(BotSettings.LinuxInput.AUTO, read.linuxInput());
+        assertEquals(LinuxInputBackendId.AUTO, read.linuxInput());
         assertEquals(BotSettings.SessionBackend.AUTO, read.sessionBackend());
     }
 
@@ -138,7 +139,7 @@ class BotSettingsTest {
         String updated = BotSettings.migrate(config);
 
         assertEquals(new BotSettings(true, 750, 125, 0.62, false, 0.11, 7,
-                        BotSettings.LinuxInput.UINPUT, false, BotSettings.SessionBackend.XEPHYR),
+                        LinuxInputBackendId.UINPUT, false, BotSettings.SessionBackend.XEPHYR),
                 BotSettings.read(config.resourcesRoot()),
                 "everything the project was tuned to has to survive the move");
         assertFalse(Files.exists(legacyFile(config)),

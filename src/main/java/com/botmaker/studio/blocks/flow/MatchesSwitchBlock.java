@@ -58,6 +58,13 @@ import java.util.List;
  */
 public class MatchesSwitchBlock extends AbstractStatementBlock implements BlockWithChildren, BranchingBlock {
 
+    /**
+     * The caption of the {@code default} rule, in both places it appears: the label the editor renders and the
+     * {@link BranchingBlock.Branch} caption the overlay's one-line rows read. They are the same word by
+     * design — the caption vocabulary {@code BranchingBlock} documents — and were built independently.
+     */
+    private static final String OTHERWISE = "otherwise";
+
     private final List<CaseRow> rows = new ArrayList<>();
     private BodyBlock defaultBody;
     private SwitchCase defaultCase;
@@ -99,7 +106,7 @@ public class MatchesSwitchBlock extends AbstractStatementBlock implements BlockW
         for (CaseRow row : rows) {
             if (row.body() != null) out.add(new Branch(caption(row.guard()), row.body()));
         }
-        if (defaultBody != null) out.add(new Branch("otherwise", defaultBody));
+        if (defaultBody != null) out.add(new Branch(OTHERWISE, defaultBody));
         return out;
     }
 
@@ -216,7 +223,7 @@ public class MatchesSwitchBlock extends AbstractStatementBlock implements BlockW
      */
     private Node otherwiseNode(CodeEditorService context) {
         VBox box = new VBox(5);
-        Label label = new Label("otherwise");
+        Label label = new Label(OTHERWISE);
         label.getStyleClass().addAll("keyword-label", "switch-case-break");
         Tooltip.install(label, new Tooltip(
                 "Runs when no branch above matched. Always present — a switch like this has to cover "

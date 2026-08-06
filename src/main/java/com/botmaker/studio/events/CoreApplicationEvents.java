@@ -85,8 +85,12 @@ public class CoreApplicationEvents {
      */
     public record ViewFeedbackEvent(com.botmaker.shared.ipc.TelemetryEvent feedback) implements ApplicationEvent {}
 
-    /** Published when the running program signals it is blocking on stdin; {@code type} is e.g. {@code int}. */
-    public record InputRequestedEvent(String type) implements ApplicationEvent {}
+    /**
+     * Published when the running program signals it is blocking on stdin. {@code kind} is {@code null} when
+     * the {@code BM-INPUT} marker named a read this Studio does not know — a bot built against a newer SDK —
+     * in which case the prompt falls back to asking for plain text rather than not appearing at all.
+     */
+    public record InputRequestedEvent(com.botmaker.studio.palette.InputKind kind) implements ApplicationEvent {}
     /** Published by the UI to deliver a line of input to the running program's stdin. */
     public record SendInputEvent(String text) implements ApplicationEvent {}
 

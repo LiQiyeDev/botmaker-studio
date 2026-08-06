@@ -21,7 +21,10 @@ import com.botmaker.studio.blocks.var.DeclareClassVariableBlock;
 import com.botmaker.studio.blocks.var.DeclareEnumBlock;
 import com.botmaker.studio.blocks.var.VariableDeclarationBlock;
 import com.botmaker.studio.core.*;
+import com.botmaker.studio.palette.BotMakerApi;
+import com.botmaker.studio.palette.InputKind;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
+import com.botmaker.studio.parser.helpers.FileTypeDetector;
 import com.botmaker.studio.parser.handlers.MatchesSwitchHandler;
 import com.botmaker.studio.project.LockResolver;
 import com.botmaker.studio.project.MethodLock;
@@ -103,7 +106,7 @@ public class BlockConverter {
                     if (method.isConstructor()) {
                         methodBlock = new ConstructorBlock(
                                 BlockId.of(method), method, ctx.manager());
-                    } else if (isMainMethod(method)) {
+                    } else if (FileTypeDetector.isMainMethod(method)) {
                         methodBlock = new MainBlock(
                                 BlockId.of(method), method, ctx.manager());
                     } else {
@@ -385,7 +388,8 @@ public class BlockConverter {
         if (isReadInputStatement(stmt)) {
             VariableDeclarationFragment frag = (VariableDeclarationFragment) stmt.fragments().getFirst();
             MethodInvocation mi = (MethodInvocation) frag.getInitializer();
-            ReadInputBlock block = new ReadInputBlock(BlockId.of(stmt), stmt, mi.getName().getIdentifier());
+            ReadInputBlock block = new ReadInputBlock(BlockId.of(stmt), stmt,
+                    InputKind.fromMethod(mi.getName().getIdentifier()).orElse(null));
             ctx.nodeToBlockMap().put(stmt, block);
             return Optional.of(block);
         } else {
@@ -731,7 +735,7 @@ public class BlockConverter {
 
     public static boolean isPrintStatement(Expression expression) {
         if (!(expression instanceof MethodInvocation method)) return false;
-        if (!method.getName().getIdentifier().equals("print")) return false;
+        if (!method.getName().getIdentifier().equals(BotMakerApi.PRINT)) return false;
         return method.getExpression() instanceof SimpleName sn && sn.getIdentifier().equals("BotMaker");
     }
 
@@ -774,10 +778,4 @@ public class BlockConverter {
         return List.of();
     }
 
-    private static boolean isMainMethod(MethodDeclaration method) {
-        if (!"main".equals(method.getName().getIdentifier())) return false;
-        if (!Modifier.isStatic(method.getModifiers())) return false;
-        if (!Modifier.isPublic(method.getModifiers())) return false;
-        return method.parameters().size() == 1;
-    }
 }

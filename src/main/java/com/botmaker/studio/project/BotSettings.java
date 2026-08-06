@@ -1,5 +1,6 @@
 package com.botmaker.studio.project;
 
+import com.botmaker.shared.capture.linux.input.LinuxInputBackendId;
 import com.botmaker.shared.config.ProjectProperties;
 
 import java.io.IOException;
@@ -34,54 +35,15 @@ public record BotSettings(boolean realInput,
                           boolean randomizeClicks,
                           double compareMargin,
                           int maxRetryAttempts,
-                          LinuxInput linuxInput,
+                          LinuxInputBackendId linuxInput,
                           boolean isolatedSession,
                           SessionBackend sessionBackend) {
-
-    /**
-     * Which Linux backend delivers real input, mirroring {@code LinuxController.selectBackend}'s
-     * {@code botmaker.linux.input} property. {@link #AUTO} is the SDK's own choice and writes no key at
-     * all — the others exist because "it works on my machine" here means a udev rule, an ACL or an installed
-     * {@code xdotool}, and pinning the one that works on <em>this</em> machine is a per-project answer.
-     */
-    public enum LinuxInput {
-        AUTO("auto", "Automatic (uinput, then xdotool, then XTest)"),
-        UINPUT("uinput", "uinput — a virtual device the kernel reports as real"),
-        XDOTOOL("xdotool", "xdotool — the XTEST extension via the xdotool command"),
-        XTEST("xtest", "XTest — X11's own synthetic input");
-
-        private final String id;
-        private final String label;
-
-        LinuxInput(String id, String label) {
-            this.id = id;
-            this.label = label;
-        }
-
-        /** The value written as {@code input.linuxBackend}; stable, it is persisted. */
-        public String id() {
-            return id;
-        }
-
-        public String label() {
-            return label;
-        }
-
-        /** Total parse: an unrecognised id (a newer Studio's, a typo in a hand-edit) reads back as {@link #AUTO}. */
-        public static LinuxInput fromId(String id) {
-            if (id == null) return AUTO;
-            for (LinuxInput v : values()) {
-                if (v.id.equalsIgnoreCase(id.trim())) return v;
-            }
-            return AUTO;
-        }
-    }
 
     /**
      * Which nested display hosts an isolated bot, mirroring the SDK's {@code Session.useBackend} and the
      * project's {@code session.backend} key. {@link #AUTO} is the SDK's own kind-driven choice — a game gets
      * gamescope (a real GPU in the private display), a plain command the lighter Xephyr — and, like
-     * {@link LinuxInput#AUTO}, it writes no key at all.
+     * {@link LinuxInputBackendId#AUTO}, it writes no key at all.
      *
      * <p>The ids are the session module's {@code NestedSession.Backend.id()} values; they are persisted, so they
      * must stay stable. Pinning {@link #XEPHYR} for a game is the one combination worth avoiding: its software
@@ -124,7 +86,7 @@ public record BotSettings(boolean realInput,
      * and isolation <b>on</b>, matching the SDK's default-on {@code Session}.
      */
     public static final BotSettings DEFAULTS =
-            new BotSettings(false, 500, 200, 0.8, true, 0.05, 20, LinuxInput.AUTO, true, SessionBackend.AUTO);
+            new BotSettings(false, 500, 200, 0.8, true, 0.05, 20, LinuxInputBackendId.AUTO, true, SessionBackend.AUTO);
 
     /**
      * What a Game-bot project starts with: {@link #DEFAULTS} but driving the real mouse and keyboard, because
@@ -160,7 +122,7 @@ public record BotSettings(boolean realInput,
                 bool(props, ProjectProperties.KEY_CLICKS_RANDOMIZE, DEFAULTS.randomizeClicks()),
                 real(props, ProjectProperties.KEY_VISION_COMPARE_MARGIN, DEFAULTS.compareMargin()),
                 integer(props, ProjectProperties.KEY_BOT_MAX_RETRY_ATTEMPTS, DEFAULTS.maxRetryAttempts()),
-                LinuxInput.fromId(props.getProperty(ProjectProperties.KEY_INPUT_LINUX_BACKEND)),
+                LinuxInputBackendId.fromId(props.getProperty(ProjectProperties.KEY_INPUT_LINUX_BACKEND)),
                 isolatedFrom(props),
                 SessionBackend.fromId(props.getProperty(ProjectProperties.KEY_SESSION_BACKEND)));
     }
@@ -230,7 +192,7 @@ public record BotSettings(boolean realInput,
         values.put(ProjectProperties.KEY_VISION_COMPARE_MARGIN, Double.toString(settings.compareMargin()));
         values.put(ProjectProperties.KEY_BOT_MAX_RETRY_ATTEMPTS, Integer.toString(settings.maxRetryAttempts()));
         values.put(ProjectProperties.KEY_INPUT_LINUX_BACKEND,
-                settings.linuxInput() == LinuxInput.AUTO ? null : settings.linuxInput().id());
+                settings.linuxInput() == LinuxInputBackendId.AUTO ? null : settings.linuxInput().id());
         values.put(ProjectProperties.KEY_SESSION_ISOLATED, Boolean.toString(settings.isolatedSession()));
         values.put(ProjectProperties.KEY_SESSION_BACKEND,
                 settings.sessionBackend() == SessionBackend.AUTO ? null : settings.sessionBackend().id());
@@ -362,7 +324,7 @@ public record BotSettings(boolean realInput,
                 legacyReal(LEGACY_COMPARE_MARGIN, source, existing.compareMargin()),
                 legacyInt(LEGACY_MAX_RETRIES, source, existing.maxRetryAttempts()),
                 legacyText(LEGACY_LINUX_INPUT, source) == null ? existing.linuxInput()
-                        : LinuxInput.fromId(legacyText(LEGACY_LINUX_INPUT, source)),
+                        : LinuxInputBackendId.fromId(legacyText(LEGACY_LINUX_INPUT, source)),
                 isolated == null ? existing.isolatedSession() : Boolean.parseBoolean(isolated),
                 legacyText(LEGACY_SESSION_BACKEND, source) == null ? existing.sessionBackend()
                         : SessionBackend.fromId(legacyText(LEGACY_SESSION_BACKEND, source)));

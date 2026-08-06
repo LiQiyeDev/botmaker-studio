@@ -1,5 +1,6 @@
 package com.botmaker.studio.ui.app;
 
+import com.botmaker.shared.config.CaptureSourceKind;
 import com.botmaker.studio.game.EpicLibraryScanner;
 import com.botmaker.studio.game.FaugusLibraryScanner;
 import com.botmaker.studio.game.GameLibraryProvider;
@@ -268,7 +269,7 @@ public final class LaunchTargetDialog {
             String instance = sel.instance().name();
             // An emulator launch target also points the project's capture source at that emulator (mirrors the
             // in-block emulator picker), so no-source vision/click calls target it.
-            apply("emu-app:" + sel.appPackage() + "@" + instance, "emulator:" + instance);
+            apply("emu-app:" + sel.appPackage() + "@" + instance, CaptureSourceKind.EMULATOR.spec(instance));
         });
     }
 
@@ -304,7 +305,7 @@ public final class LaunchTargetDialog {
     private void applyRecent(String spec) {
         LaunchSpec parsed = LaunchSpec.parse(spec);
         String instance = parsed == null ? null : parsed.emulatorInstance();
-        apply(spec, instance == null || instance.isBlank() ? null : "emulator:" + instance);
+        apply(spec, instance == null || instance.isBlank() ? null : CaptureSourceKind.EMULATOR.spec(instance));
     }
 
     /**

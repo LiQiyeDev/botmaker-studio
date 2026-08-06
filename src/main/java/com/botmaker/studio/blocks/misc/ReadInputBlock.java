@@ -1,6 +1,7 @@
 package com.botmaker.studio.blocks.misc;
 
 import com.botmaker.studio.palette.BlockCategory;
+import com.botmaker.studio.palette.InputKind;
 import com.botmaker.studio.core.AbstractStatementBlock;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.ui.render.layout.BlockLayout;
@@ -15,11 +16,12 @@ import org.eclipse.jdt.core.dom.VariableDeclarationStatement;
 
 public class ReadInputBlock extends AbstractStatementBlock {
 
-    private final String inputType;
+    /** Null when the source calls a {@code BotMaker.readX()} this Studio does not know — a newer SDK's. */
+    private final InputKind kind;
 
-    public ReadInputBlock(String id, VariableDeclarationStatement astNode, String inputType) {
+    public ReadInputBlock(String id, VariableDeclarationStatement astNode, InputKind kind) {
         super(id, astNode);
-        this.inputType = inputType;
+        this.kind = kind;
     }
 
     @Override
@@ -42,11 +44,11 @@ public class ReadInputBlock extends AbstractStatementBlock {
         });
 
         // Human-friendly phrasing instead of the raw BotMaker.readX() call text.
-        Label readLabel = new Label(readPhrase());
+        Label readLabel = new Label(kind == null ? "read input" : kind.phrase());
         readLabel.getStyleClass().add("keyword-label");
 
         var sentence = BlockLayout.sentence()
-                .addNode(BlockUIComponents.createTypeLabel(getTypeDisplayName()))
+                .addNode(BlockUIComponents.createTypeLabel(kind == null ? "var" : kind.typeName()))
                 .addNode(nameField)
                 .addKeyword("=")
                 .addNode(readLabel)
@@ -56,25 +58,5 @@ public class ReadInputBlock extends AbstractStatementBlock {
                 .withCustomNode(sentence)
                 .withDeleteButton(deleteAction(context))
                 .build();
-    }
-
-    private String readPhrase() {
-        return switch (inputType) {
-            case "readLine" -> "read a line of text";
-            case "readInt" -> "read a whole number";
-            case "readDouble" -> "read a decimal";
-            case "readBoolean" -> "read true/false";
-            default -> "read input";
-        };
-    }
-
-    private String getTypeDisplayName() {
-        return switch (inputType) {
-            case "readLine" -> "String";
-            case "readInt" -> "int";
-            case "readDouble" -> "double";
-            case "readBoolean" -> "boolean";
-            default -> "var";
-        };
     }
 }

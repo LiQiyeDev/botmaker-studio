@@ -2,6 +2,7 @@ package com.botmaker.studio.parser.factories;
 
 import com.botmaker.studio.blocks.flow.MatchesGroupScope;
 import com.botmaker.studio.palette.BlockType;
+import com.botmaker.studio.palette.BotMakerApi;
 import com.botmaker.studio.palette.Initializer;
 import com.botmaker.studio.palette.MatchesCheck;
 import com.botmaker.studio.palette.SdkType;
@@ -128,10 +129,10 @@ public class StatementFactory {
         fragment.setName(ast.newSimpleName(uniqueName(ctx.analyzer(), context, r.varName())));
         MethodInvocation readCall = ast.newMethodInvocation();
         readCall.setExpression(ast.newSimpleName("BotMaker"));
-        readCall.setName(ast.newSimpleName(r.method()));
+        readCall.setName(ast.newSimpleName(r.input().method()));
         fragment.setInitializer(readCall);
         VariableDeclarationStatement varDecl = ast.newVariableDeclarationStatement(fragment);
-        varDecl.setType(typeNode(ast, r.typeName(), r.primitive()));
+        varDecl.setType(typeNode(ast, r.input().typeName(), r.input().isPrimitiveType()));
         return varDecl;
     }
 
@@ -248,7 +249,7 @@ public class StatementFactory {
         ctx.addImport(SdkType.BOT_MAKER);
         MethodInvocation print = ast.newMethodInvocation();
         print.setExpression(ast.newSimpleName("BotMaker"));
-        print.setName(ast.newSimpleName("print"));
+        print.setName(ast.newSimpleName(BotMakerApi.PRINT));
         StringLiteral emptyString = ast.newStringLiteral();
         emptyString.setLiteralValue("");
         print.arguments().add(emptyString);

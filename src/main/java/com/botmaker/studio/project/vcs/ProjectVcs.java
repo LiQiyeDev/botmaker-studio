@@ -61,13 +61,13 @@ public final class ProjectVcs {
             return added.isEmpty() && modified.isEmpty() && removed.isEmpty() && untracked.isEmpty();
         }
 
-        /** All changed paths, sorted, each mapped to its one-word status label. */
-        public java.util.SortedMap<String, String> labelled() {
-            java.util.SortedMap<String, String> out = new java.util.TreeMap<>();
-            untracked.forEach(p -> out.put(p, "new"));
-            added.forEach(p -> out.put(p, "added"));
-            modified.forEach(p -> out.put(p, "modified"));
-            removed.forEach(p -> out.put(p, "deleted"));
+        /** All changed paths, sorted, each mapped to how it differs from the last commit. */
+        public java.util.SortedMap<String, VcsFileStatus> labelled() {
+            java.util.SortedMap<String, VcsFileStatus> out = new java.util.TreeMap<>();
+            untracked.forEach(p -> out.put(p, VcsFileStatus.NEW));
+            added.forEach(p -> out.put(p, VcsFileStatus.ADDED));
+            modified.forEach(p -> out.put(p, VcsFileStatus.MODIFIED));
+            removed.forEach(p -> out.put(p, VcsFileStatus.DELETED));
             return out;
         }
 

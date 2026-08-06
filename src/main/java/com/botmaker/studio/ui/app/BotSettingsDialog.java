@@ -1,5 +1,6 @@
 package com.botmaker.studio.ui.app;
 
+import com.botmaker.shared.capture.linux.input.LinuxInputBackendId;
 import com.botmaker.studio.project.BotSettings;
 import com.botmaker.studio.project.ProjectConfig;
 import javafx.geometry.Insets;
@@ -49,7 +50,7 @@ public final class BotSettingsDialog {
     private final Spinner<Double> confidence = new Spinner<>(0.0, 1.0, 0.8, 0.05);
     private final Spinner<Double> compareMargin = new Spinner<>(0.0, 1.0, 0.05, 0.01);
     private final Spinner<Integer> maxRetryAttempts = new Spinner<>(1, 1000, 20, 1);
-    private final ComboBox<BotSettings.LinuxInput> linuxInput = new ComboBox<>();
+    private final ComboBox<LinuxInputBackendId> linuxInput = new ComboBox<>();
     private final CheckBox isolatedSession = new CheckBox("Run in a private display (background)");
     private final ComboBox<BotSettings.SessionBackend> sessionBackend = new ComboBox<>();
 
@@ -114,10 +115,10 @@ public final class BotSettingsDialog {
         explain.setWrapText(true);
         explain.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
 
-        linuxInput.getItems().setAll(BotSettings.LinuxInput.values());
+        linuxInput.getItems().setAll(LinuxInputBackendId.values());
         linuxInput.setConverter(new StringConverter<>() {
-            @Override public String toString(BotSettings.LinuxInput v) { return v == null ? "" : v.label(); }
-            @Override public BotSettings.LinuxInput fromString(String s) { return null; }
+            @Override public String toString(LinuxInputBackendId v) { return v == null ? "" : v.label(); }
+            @Override public LinuxInputBackendId fromString(String s) { return null; }
         });
         linuxInput.setMaxWidth(Double.MAX_VALUE);
 
@@ -246,7 +247,7 @@ public final class BotSettingsDialog {
         BotSettings settings = new BotSettings(
                 realInput.isSelected(), foundDelay.getValue(), notFoundDelay.getValue(), confidence.getValue(),
                 randomizeClicks.isSelected(), compareMargin.getValue(), maxRetryAttempts.getValue(),
-                linuxInput.getValue() == null ? BotSettings.LinuxInput.AUTO : linuxInput.getValue(),
+                linuxInput.getValue() == null ? LinuxInputBackendId.AUTO : linuxInput.getValue(),
                 isolatedSession.isSelected(),
                 sessionBackend.getValue() == null ? BotSettings.SessionBackend.AUTO : sessionBackend.getValue());
         try {

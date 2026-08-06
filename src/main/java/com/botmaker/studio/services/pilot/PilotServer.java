@@ -276,18 +276,17 @@ public final class PilotServer implements AutoCloseable {
         } catch (Exception e) {
             return;
         }
-        String cmd = node.path("cmd").asText(null);
-        if (cmd == null) return;
+        PilotCommand cmd = PilotCommand.from(node.path("cmd").asText(null)).orElse(null);
+        if (cmd == null) return;   // an older or newer phone build; ignore, never drop the connection
         switch (cmd) {
-            case "start" -> Platform.runLater(() ->
+            case START -> Platform.runLater(() ->
                     eventBus.publish(new CoreApplicationEvents.ExecutionRequestedEvent()));
-            case "stop" -> Platform.runLater(() ->
+            case STOP -> Platform.runLater(() ->
                     eventBus.publish(new CoreApplicationEvents.StopRunRequestedEvent()));
-            case "pause" -> { control.pause(); refreshPausedState(); }
-            case "resume" -> { control.resume(); refreshPausedState(); }
-            case "interact" -> client.interact.set(node.path("on").asBoolean(false));
-            case "input" -> handleInput(client, node);
-            default -> { /* ignore unknown */ }
+            case PAUSE -> { control.pause(); refreshPausedState(); }
+            case RESUME -> { control.resume(); refreshPausedState(); }
+            case INTERACT -> client.interact.set(node.path("on").asBoolean(false));
+            case INPUT -> handleInput(client, node);
         }
     }
 

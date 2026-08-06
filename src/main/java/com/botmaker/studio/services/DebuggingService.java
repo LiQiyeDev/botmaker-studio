@@ -7,6 +7,7 @@ import com.botmaker.studio.config.Constants;
 import com.botmaker.studio.core.CodeBlock;
 import com.botmaker.studio.core.StatementBlock;
 import com.botmaker.studio.events.CoreApplicationEvents;
+import com.botmaker.studio.palette.InputKind;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.runtime.CodeExecutionService;
 import com.botmaker.studio.project.ProjectState;
@@ -92,8 +93,9 @@ public class DebuggingService {
         eventBus.subscribe(CoreApplicationEvents.SendInputEvent.class, e -> sendInput(e.text()), false);
     }
 
-    private static final java.util.regex.Pattern INPUT_MARKER =
-            java.util.regex.Pattern.compile("\u0001BM-INPUT:([a-zA-Z]+)\u0001");
+    private static final java.util.regex.Pattern INPUT_MARKER = java.util.regex.Pattern.compile(
+            InputKind.MARKER_DELIMITER + java.util.regex.Pattern.quote(InputKind.MARKER_PREFIX)
+                    + "([a-zA-Z]+)" + InputKind.MARKER_DELIMITER);
 
     /** Writes a line to the debuggee's stdin (used by the input popup) and echoes it to the console. */
     public void sendInput(String line) {
@@ -114,8 +116,8 @@ public class DebuggingService {
         boolean found = false;
         while (m.find()) {
             found = true;
-            String type = m.group(1);
-            Platform.runLater(() -> eventBus.publish(new CoreApplicationEvents.InputRequestedEvent(type)));
+            InputKind kind = InputKind.fromMarkerToken(m.group(1)).orElse(null);
+            Platform.runLater(() -> eventBus.publish(new CoreApplicationEvents.InputRequestedEvent(kind)));
             m.appendReplacement(sb, "");
         }
         m.appendTail(sb);

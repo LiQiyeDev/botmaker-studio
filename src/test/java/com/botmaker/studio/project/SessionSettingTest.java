@@ -1,5 +1,6 @@
 package com.botmaker.studio.project;
 
+import com.botmaker.shared.capture.linux.input.LinuxInputBackendId;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -63,7 +64,7 @@ class SessionSettingTest {
     void writingTheSessionPreservesEveryOtherSetting(@TempDir Path root) throws IOException {
         ProjectConfig config = project(root);
         BotSettings tuned = new BotSettings(true, 750, 125, 0.62, false, 0.11, 7,
-                BotSettings.LinuxInput.UINPUT, true, BotSettings.SessionBackend.AUTO);
+                LinuxInputBackendId.UINPUT, true, BotSettings.SessionBackend.AUTO);
         BotSettings.write(config.resourcesRoot(), tuned);
 
         SessionSetting.write(config, new SessionSetting(false, BotSettings.SessionBackend.AUTO));

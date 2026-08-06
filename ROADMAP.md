@@ -6,6 +6,26 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-07 — the Studio-only closed sets that had no type at all (`VcsFileStatus`, `DiagnosticLevel`,
+  `InputKind`, `PilotCommand`).** Six small sets, each spelled as strings in two to four files. VCS file
+  status was produced as `"new"/"added"/"modified"/"deleted"` and consumed by a colour `switch` that only
+  listed three of them (a staged addition rendered grey through `default`) and a `"new".equals(...)` test
+  choosing between *delete the file* and *restore it from the last commit* — now `VcsFileStatus`, whose
+  `uncommitted()` documents why the staged bucket deliberately does **not** qualify (it also holds staged
+  *modifications*). The Problems panel converted lsp4j's already-typed `DiagnosticSeverity` down to a string,
+  switched on it again for a glyph and concatenated it a third time for the CSS modifier — now
+  `validation/DiagnosticLevel` with `glyph()`/`styleClass(base)`, so the icon and the colour come off one
+  constant. `palette/InputKind` pairs each `BotMaker.readX()` with its `BM-INPUT` marker token, its declared
+  type and both labels, replacing two lockstep switches in `ReadInputBlock`, a string switch in
+  `UIManager.promptForInput` and three loose fields on `BlockType.ScannerRead` (nothing had stopped an entry
+  pairing `readInt` with `String`); the marker itself stays a `String` — it is the SDK's wire protocol — but is
+  now one constant both readers share. `PilotCommand.from` makes the phone's `cmd` tokens a total parse.
+  Also: `FileTypeDetector` owns `MAIN_METHOD` and `BlockConverter`'s byte-identical `isMainMethod` copy is
+  gone, `BotMakerApi.PRINT` is one name instead of two, and `MatchesSwitchBlock` builds `"otherwise"` once.
+  Carried forward from earlier phases: Studio's fourth copy of the Linux input-backend set folded onto
+  shared's `LinuxInputBackendId` (Studio's was missing `xsendevent` and mis-described `AUTO`), and the three
+  literal `"emulator:" + instance` writers now go through `CaptureSourceKind.EMULATOR.spec(...)`. **823 tests,
+  was 817.**
 - **2026-08-07 — the Java and JDK type names are typed too (`types/PrimitiveKind`, `types/JdkType`).** The
   language's own closed set was spelled as strings: `ResolvedType.primitive("boolean")` at 19 block call
   sites, two `Set<String>` constants of the primitive names that nothing tied to the parse, and a
