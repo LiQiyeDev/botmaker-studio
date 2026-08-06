@@ -89,6 +89,16 @@
     -fx-background-color: -fx-control-inner-background;
     -fx-border-color: -bm-divider;
     -fx-border-width: 0 0 1 0;
+    /* Vertical inset > horizontal on purpose: the bar's top edge is what the menu bar sits against, and
+       6px all round left the topmost row of buttons flush enough with it to read as an overlap. */
+    -fx-padding: 8 6 8 6;
+}
+
+/* The resolution readout (ToolbarManager) — a bare Label sharing a wrap row with buttons. Without the
+   buttons' own vertical padding it is the shortest node in the row, so it centres against them and its
+   descenders sit outside the height the row was measured at. */
+.toolbar-resolution {
+    -fx-padding: 4 6 4 6;
 }
 
 /* The status line — the window's last row, under the split panes (UIManager). */

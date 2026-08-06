@@ -22,6 +22,7 @@ import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Region;
 
 import java.util.function.Consumer;
 
@@ -323,6 +324,10 @@ public class ToolbarManager {
 
         resolutionLabel = new Label(resolutionText());
         resolutionLabel.getStyleClass().add("toolbar-resolution");
+        // A Label's default minimum is "as small as the row will make me", which is what clipped the text
+        // once the bar was under pressure; the padding that keeps it level with its button siblings lives
+        // in .toolbar-resolution.
+        resolutionLabel.setMinHeight(Region.USE_PREF_SIZE);
         resolutionLabel.setTooltip(new Tooltip("Project standard resolution · primary screen resolution"));
 
         FlowPane group = new FlowPane(Orientation.HORIZONTAL, 5, 5,

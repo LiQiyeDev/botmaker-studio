@@ -59,6 +59,8 @@ public class UIManager {
     private static final double EXEC_WIDTH_SHARE = 0.42;
     /** Floor under that share, so a very narrow window wraps the cluster rather than stacking it one per row. */
     private static final double EXEC_MIN_WRAP_PX = 170;
+    /** Floor under the centre group's wrap length, for the same reason as {@link #EXEC_MIN_WRAP_PX}. */
+    private static final double CAPTURE_MIN_WRAP_PX = 200;
 
     private final EventBus eventBus;
     private final CodeEditorService codeEditorService;
@@ -291,7 +293,9 @@ public class UIManager {
         topBar.setRight(rightContainer);
         BorderPane.setAlignment(editControls, Pos.CENTER_LEFT);
         BorderPane.setAlignment(rightContainer, Pos.CENTER_RIGHT);
-        topBar.setPadding(new Insets(6));
+        // Padding lives in .main-toolbar (blocks.css), not here: a setPadding call marks the property as
+        // set by the author, which CSS may no longer override — so styling the bar's chrome in one place
+        // requires *not* also setting it inline.
         topBar.getStyleClass().add("main-toolbar");
         // Width is free to shrink; height is *not*, and the asymmetry is the whole point. JavaFX reads the
         // **scene root's** minimum to decide the Stage's, so root.setMinHeight(0) below is what keeps a label
@@ -312,6 +316,17 @@ public class UIManager {
         // point at which the centre group would otherwise have been wrapping alone.
         executionControls.prefWrapLengthProperty().bind(Bindings.createDoubleBinding(
                 () -> Math.max(EXEC_MIN_WRAP_PX, topBar.getWidth() * EXEC_WIDTH_SHARE), topBar.widthProperty()));
+        // The centre group needs the same treatment, and for a sharper reason: it is the one whose *height*
+        // the bar is sized from. A FlowPane asked for its preferred height without a width answers against
+        // its wrap length (400px by default), not against the width BorderPane will really hand it — and the
+        // min-height clamp above resolves through exactly that width-less query. The bar therefore reserved
+        // the height of a 400px-wide capture group while laying out a much wider, shorter one, or a much
+        // narrower, taller one, and the rows that didn't fit painted upward over the menu bar. Binding the
+        // wrap length to the width actually left between the two edge clusters makes the two agree.
+        captureControls.prefWrapLengthProperty().bind(Bindings.createDoubleBinding(
+                () -> Math.max(CAPTURE_MIN_WRAP_PX,
+                        topBar.getWidth() - editControls.getWidth() - rightContainer.getWidth()),
+                topBar.widthProperty(), editControls.widthProperty(), rightContainer.widthProperty()));
         topBar.setPrefHeight(Region.USE_COMPUTED_SIZE);
         topBar.setMinHeight(Region.USE_PREF_SIZE);
 

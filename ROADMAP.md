@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-06 — The toolbar stops painting over the menu bar.** The min-height clamps in `UIManager` were
+  already in place, so the crop wasn't the shrink pass — it was the *preferred* height they resolve through.
+  A `FlowPane` asked for its preferred height without a width answers against its **wrap length** (400px by
+  default), not the width `BorderPane` will really hand it, so the bar reserved the height of a 400px-wide
+  capture group while laying out a different one; the rows that didn't fit painted upward, and JavaFX doesn't
+  clip a `Region`. The centre group's `prefWrapLength` is now bound to the width actually left between the
+  two edge clusters — the same fix the run cluster already had, for a sharper reason. Alongside: the bar's
+  padding moved out of `setPadding` into `.main-toolbar` (an inline set marks the property author-set, which
+  is what kept CSS from owning it) and grew vertically to `8 6 8 6`; and `.toolbar-resolution` — until now a
+  style class with **no rule behind it** — gives the resolution readout the vertical padding its button
+  siblings have, with `minHeight = USE_PREF_SIZE` so a tight bar can't clip its descenders.
+  (`ui/app/UIManager`, `ui/app/ToolbarManager`, `css/blocks.css`.)
+
 - **2026-08-06 — Launch Target dialog recaps the targets you picked before.** The dialog persisted exactly one
   value (`launch.target`, per project) and nothing else, so re-picking last week's game meant walking the
   Steam/Epic/Heroic library picker again. `ProjectPreferences` now carries a 10-entry launch-target MRU
