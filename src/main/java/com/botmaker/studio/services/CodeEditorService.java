@@ -308,10 +308,11 @@ public class CodeEditorService {
         refreshUI(file.getContent(), false);
 
         // Only after the file is parsed and active: a case with no trailing break gets one, so the break the
-        // switch block draws as fixed chrome is always really there. Skipped for files the user can't edit
-        // anyway (generated scaffolding), and a no-op when nothing falls through.
+        // switch block draws as fixed chrome is always really there, and a bare arrow-rule body gets braces so
+        // the branch is somewhere a block can actually be dropped. Skipped for files the user can't edit
+        // anyway (generated scaffolding), and a no-op when both are already true.
         if (!LockResolver.forActiveFile(config, state).suppressesInteraction()) {
-            codeEditor.normalizeSwitchBreaks();
+            codeEditor.normalizeSwitches();
         }
     }
 

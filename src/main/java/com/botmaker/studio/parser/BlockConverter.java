@@ -465,14 +465,30 @@ public class BlockConverter {
         List<?> statements = stmt.statements();
         BodyBlock currentBody = null;
         SwitchBlock.SwitchCaseBlock currentCase = null;
+        // An arrow rule's body is one Block that follows its label; having become the case's BodyBlock below,
+        // it must not also be parsed as a child statement of itself.
+        Statement consumedRuleBody = null;
         for (int i = 0; i < statements.size(); i++) {
             Statement s = (Statement) statements.get(i);
+            if (s == consumedRuleBody) continue;
             if (s instanceof SwitchCase sc) {
                 currentCase = new SwitchBlock.SwitchCaseBlock(BlockId.of(sc), sc);
                 applyReadOnly(currentCase, ctx);
                 ctx.nodeToBlockMap().put(sc, currentCase);
                 if (!sc.isDefault() && !sc.expressions().isEmpty()) parseExpression((Expression) sc.expressions().getFirst(), ctx).ifPresent(currentCase::setCaseExpression);
-                currentBody = new BodyBlock(BlockId.of(sc), sc, ctx.manager());
+                // Which node backs the body decides where an inserted statement goes, and the two label forms
+                // disagree. A colon case's statements are siblings of its label in the switch's own list, so
+                // the label is the anchor. An arrow rule's are inside a Block of their own — anchoring on the
+                // label there inserted the statement *in front of* that Block, as a bare block among arrow
+                // rules, which doesn't parse. `parseMatchesSwitch` already backed its branches with the Block;
+                // this is the same rule for every arrow switch.
+                Block ruleBody = labeledRuleBody(sc, statements, i);
+                if (ruleBody != null) {
+                    consumedRuleBody = ruleBody;
+                    currentBody = parseBodyBlock(ruleBody, ctx);
+                } else {
+                    currentBody = new BodyBlock(BlockId.of(sc), sc, ctx.manager());
+                }
                 applyReadOnly(currentBody, ctx);
                 currentCase.setBody(currentBody);
                 block.addCase(currentCase);
@@ -490,6 +506,20 @@ public class BlockConverter {
             }
         }
         return Optional.of(block);
+    }
+
+    /**
+     * The braced body of the arrow rule labelled at {@code i}, or {@code null} when {@code sc} isn't an arrow
+     * rule or its body isn't a single {@link Block}.
+     *
+     * <p>{@code case X -> foo();} has no block to put anything into; {@code SwitchNormalizer} gives it one when
+     * the file is opened, so by the time a user can drop into it there is a Block here. Returning null in the
+     * meantime falls back to the colon-form anchor, which is wrong for an arrow rule but is what it has always
+     * done — an insert there is refused by the edit guard rather than corrupting the switch.
+     */
+    private static Block labeledRuleBody(SwitchCase sc, List<?> statements, int i) {
+        if (!sc.isSwitchLabeledRule() || i + 1 >= statements.size()) return null;
+        return statements.get(i + 1) instanceof Block body ? body : null;
     }
 
     /** Whether the statement at {@code i} is the last one before the next {@code case} label (or the switch's end). */

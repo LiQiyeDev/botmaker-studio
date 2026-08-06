@@ -6,6 +6,22 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-06 — A block dropped into an arrow-form `switch` branch lands inside it.** Adding anything to a
+  combination block's case wrote source that didn't compile; on disk it read
+  `case Matches m when … -> ImageClicker.click(…);` followed by the branch's own `{}` on the next line — the
+  statement went in *front of* the body, as a bare block among arrow rules. Cause: `parseSwitch` only knew the
+  colon form. It backed every case's `BodyBlock` with the `SwitchCase` label, which is right for `case X:`
+  (those statements really are siblings of the label, and `insertIntoList` offsets from it) and wrong for
+  `case X -> { … }`, whose body is one `Block`. `SwitchNormalizer` was the only place in the module that knew
+  arrow rules existed. Now `BlockConverter.labeledRuleBody` backs an arrow rule's body with its `Block` — the
+  rule `parseMatchesSwitch` already followed, generalised to every arrow switch — `SwitchNormalizer` gained a
+  second pass bracing a bare `case X -> foo();` so every branch has somewhere to drop into (both passes now
+  run from one `CodeEditor.normalizeSwitches`), and `insertIntoList`'s colon-form arithmetic throws on a
+  labeled rule rather than corrupting a switch again. The Phase 5 edit guard was already refusing the bad
+  output, which is why the symptom read as "I can't add anything" instead of a branch silently emptying.
+  (`parser/BlockConverter`, `parser/handlers/SwitchNormalizer`, `parser/CodeEditor`,
+  `services/CodeEditorService`, new `SwitchCaseInsertTest` covering both label forms.)
+
 - **2026-08-06 — The edit guard: source that doesn't parse is never published.** The disappearing-method bug.
   A rewrite that *throws* was already handled — `AstRewriteHelper.applyRewrite` catches and returns the
   original code — but one that *succeeds* and emits broken Java had nothing checking it: it was published,

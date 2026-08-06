@@ -885,15 +885,17 @@ public class CodeEditor {
     }
 
     /**
-     * Appends the missing {@code break} to any falling-through case in the active file (see
-     * {@link SwitchNormalizer}). Called when a file is opened, so the {@code break} the switch block renders as
-     * fixed case chrome is always backed by a real one in the source. A no-op — no edit, no history entry, no
-     * {@code CodeUpdatedEvent} — when every case already terminates, which is the normal case.
+     * Puts every {@code switch} in the active file into the shape the editor renders — the missing
+     * {@code break} on a falling-through colon case, braces around a bare arrow-rule body (see
+     * {@link SwitchNormalizer}). Called when a file is opened, so the {@code break} the switch block draws as
+     * fixed case chrome is backed by a real one and every branch it offers as a drop target has a block to drop
+     * into. A no-op — no edit, no history entry, no {@code CodeUpdatedEvent} — when both are already true,
+     * which is the normal case.
      */
-    public void normalizeSwitchBreaks() {
+    public void normalizeSwitches() {
         CompilationUnit cu = getCompilationUnit();
         if (cu == null) return;
-        String newCode = SwitchNormalizer.addMissingBreaks(cu, getCurrentCode());
+        String newCode = SwitchNormalizer.normalize(cu, getCurrentCode());
         if (newCode != null) triggerUpdate(newCode, true);
     }
 
@@ -1356,6 +1358,15 @@ public class CodeEditor {
             // still occupies a slot.)
             listRewrite.insertAt(newStatement, toStatementIndex(body, relativeIndex), null);
         } else if (node instanceof SwitchCase caseNode) {
+            // Colon form only. A case's statements are siblings of its label here, so offsetting from the label
+            // is the insertion point. An arrow rule's body is a Block instead, and this arithmetic would write
+            // the statement in front of that Block — a bare block among arrow rules, which doesn't parse and
+            // takes the branch's contents off the canvas with it. BlockConverter backs an arrow rule's body
+            // with its Block precisely so nothing reaches here; refuse rather than trust that silently.
+            if (caseNode.isSwitchLabeledRule()) {
+                throw new IllegalArgumentException(
+                        "an arrow rule's body is its Block, not its label — see BlockConverter.labeledRuleBody");
+            }
             SwitchStatement parent = (SwitchStatement) caseNode.getParent();
             List<?> allStatements = parent.statements();
             int caseIndex = allStatements.indexOf(caseNode);
