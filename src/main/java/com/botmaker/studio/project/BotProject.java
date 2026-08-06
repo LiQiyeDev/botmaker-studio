@@ -234,6 +234,16 @@ public class BotProject {
     // ACCESSORS
     // =========================================================================
 
+    /**
+     * This project's services as one immutable value, for the UI shell to be built against. Valid only after
+     * {@link #open} has returned — the lazy services are null until {@code initializeServices} has run.
+     */
+    public StudioContext context() {
+        return new StudioContext(config, state, eventBus, diagnosticsManager, dragAndDropManager,
+                projectAnalyzer, libraryService, activityService, projectSettingsService,
+                codeEditorService, codeExecutionService);
+    }
+
     public ProjectConfig getConfig() { return config; }
     public ProjectState getState() { return state; }
     public EventBus getEventBus() { return eventBus; }

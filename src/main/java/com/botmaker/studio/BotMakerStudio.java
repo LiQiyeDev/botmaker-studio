@@ -214,19 +214,7 @@ public class BotMakerStudio extends Application {
     }
 
     private UIManager getUiManager(Stage primaryStage) {
-        UIManager uiManager = new UIManager(
-                currentProject.getDragAndDropManager(),
-                currentProject.getEventBus(),
-                currentProject.getCodeEditorService(),
-                currentProject.getDiagnosticsManager(),
-                primaryStage,
-                currentProject.getConfig(),
-                currentProject.getState(),
-                currentProject.getProjectAnalyzer(),
-                currentProject.getLibraryService(),
-                currentProject.getActivityService(),
-                currentProject.getCodeExecutionService()
-        );
+        UIManager uiManager = new UIManager(currentProject.context(), primaryStage);
         uiManager.setOnSelectProject(v -> switchToProjectSelector(primaryStage));
         this.currentUiManager = uiManager;
         return uiManager;

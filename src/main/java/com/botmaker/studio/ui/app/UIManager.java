@@ -7,16 +7,12 @@ import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectMode;
 import com.botmaker.studio.project.ProjectOpenMigrations;
 import com.botmaker.studio.project.ProjectState;
+import com.botmaker.studio.project.StudioContext;
 import com.botmaker.studio.project.vcs.ProjectVcs;
-import com.botmaker.studio.runtime.CodeExecutionService;
-import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.CodeEditorService;
-import com.botmaker.studio.services.LibraryService;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
-import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.ui.app.pilot.RemotePilotUi;
-import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
 import com.botmaker.studio.ui.render.theme.BlockTheme;
 import com.botmaker.studio.validation.DiagnosticsManager;
 import javafx.application.Platform;
@@ -104,29 +100,29 @@ public class UIManager {
     private TabPane bottomTabPane;
     private Consumer<Void> onSelectProject;
 
-    public UIManager(BlockDragAndDropManager dragAndDropManager,
-                     EventBus eventBus,
-                     CodeEditorService codeEditorService,
-                     DiagnosticsManager diagnosticsManager,
-                     Stage primaryStage,
-                     ProjectConfig config,
-                     ProjectState state, ProjectAnalyzer projectAnalyzer,
-                     LibraryService libraryService,
-                     ActivityService activityService,
-                     CodeExecutionService codeExecutionService) {
-        this.eventBus = eventBus;
-        this.codeEditorService = codeEditorService;
-        this.diagnosticsManager = diagnosticsManager;
+    /**
+     * Builds the window for {@code ctx}'s project on {@code primaryStage}.
+     *
+     * <p>Two parameters, because there are exactly two things here: the project, and the window it is shown
+     * in. This took eleven — the project's services listed one by one, four of them (the analyzer, the
+     * library/activity services, the execution service) never becoming fields at all, present only to be
+     * handed to {@link StudioActions} and {@link FileExplorerManager} one layer down.
+     */
+    public UIManager(StudioContext ctx, Stage primaryStage) {
+        this.eventBus = ctx.eventBus();
+        this.codeEditorService = ctx.codeEditorService();
+        this.diagnosticsManager = ctx.diagnosticsManager();
         this.primaryStage = primaryStage;
-        this.config = config;
-        this.state = state;
+        this.config = ctx.config();
+        this.state = ctx.state();
 
-        // Editor settings (capture targets + default). Stateless over (config, state, eventBus); the
-        // capture service honors the default target so pickers stop re-asking which screen to use.
-        this.projectSettingsService = new ProjectSettingsService(config, state, eventBus);
+        // Editor settings (capture targets + default) — the project's own, not a second one over the same
+        // (config, state, eventBus). The capture service honors the default target so pickers stop re-asking
+        // which screen to use.
+        this.projectSettingsService = ctx.projectSettingsService();
         ScreenCaptureService screenCaptureService = new ScreenCaptureService(projectSettingsService);
         this.remotePilot = new RemotePilotUi(
-                primaryStage, eventBus, config, projectSettingsService, codeExecutionService);
+                primaryStage, eventBus, config, projectSettingsService, ctx.codeExecutionService());
 
         this.toolbarManager = new ToolbarManager(eventBus, projectSettingsService);
         this.eventLogManager = new EventLogManager(eventBus);
@@ -139,14 +135,11 @@ public class UIManager {
         // otherwise go on listing.
         ProjectOpenMigrations.run(config, state, eventBus);
 
-        this.fileExplorerManager =
-                new FileExplorerManager(config, codeEditorService, state, activityService, eventBus);
+        this.fileExplorerManager = new FileExplorerManager(ctx);
 
-        this.actions = new StudioActions(primaryStage, config, eventBus, codeEditorService,
-                projectSettingsService, screenCaptureService, projectAnalyzer, activityService, libraryService,
+        this.actions = new StudioActions(ctx, primaryStage, screenCaptureService,
                 remotePilot, menuBarManager, toolbarManager,
-                new ProjectRecoveryAction(config, state, activityService, codeEditorService, eventBus,
-                        fileExplorerManager::refreshTree));
+                () -> ProjectRecoveryAction.recover(ctx, fileExplorerManager::refreshTree));
         this.actions.wire();
 
         // Initialize theme system and set up theme change listener

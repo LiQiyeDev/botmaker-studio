@@ -5,6 +5,7 @@ import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.FileRole;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
+import com.botmaker.studio.project.StudioContext;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityDefinition;
 import com.botmaker.studio.services.ActivityService;
@@ -87,16 +88,16 @@ public class FileExplorerManager {
         }
     }
 
-    public FileExplorerManager(ProjectConfig config, CodeEditorService codeEditorService, ProjectState state,
-                               ActivityService activityService, EventBus eventBus) {
-        this.config = config;
-        this.codeEditorService = codeEditorService;
-        this.state = state;
-        this.activityService = activityService;
+    public FileExplorerManager(StudioContext ctx) {
+        this.config = ctx.config();
+        this.codeEditorService = ctx.codeEditorService();
+        this.state = ctx.state();
+        this.activityService = ctx.activityService();
         this.fileTree = new TreeView<>();
 
         // Manage Activities / New Activity write new files; without this the tree wouldn't show them until
         // some unrelated refresh happened to run.
+        EventBus eventBus = ctx.eventBus();
         if (eventBus != null) {
             eventBus.subscribe(CoreApplicationEvents.ActivitiesChangedEvent.class,
                     e -> Platform.runLater(this::refreshTree), false);

@@ -5,9 +5,11 @@ import com.botmaker.studio.index.TypeSummaryManager;
 import com.botmaker.studio.parser.EditorFixture;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
+import com.botmaker.studio.project.StudioContext;
 import com.botmaker.studio.runtime.CodeExecutionService;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.LibraryService;
+import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
 import com.botmaker.studio.ui.fx.FxHeadlessTest;
@@ -96,11 +98,13 @@ class UIManagerSceneTest extends FxHeadlessTest {
         ProjectAnalyzer analyzer = new ProjectAnalyzer(new TypeSummaryManager(Set.of()), state);
         execution = new CodeExecutionService(diagnostics, config, state, bus);
 
-        uiManager = new UIManager(dnd, bus, fixture.context(), diagnostics, stage, config,
-                state, analyzer,
+        StudioContext ctx = new StudioContext(config, state, bus, diagnostics, dnd, analyzer,
                 new LibraryService(config, state, new TypeSummaryManager(Set.of()), bus),
                 new ActivityService(config, state, bus),
+                new ProjectSettingsService(config, state, bus),
+                fixture.context(),
                 execution);
+        uiManager = new UIManager(ctx, stage);
         scene = uiManager.createScene();
         // Controls build their children in a skin, which is only created once CSS has been applied and the
         // scene laid out. Without this the traversal below sees a BorderPane and nothing inside it.

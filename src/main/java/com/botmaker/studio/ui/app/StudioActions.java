@@ -3,6 +3,7 @@ package com.botmaker.studio.ui.app;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectCreator;
+import com.botmaker.studio.project.StudioContext;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.JitPackSearch;
@@ -59,28 +60,28 @@ final class StudioActions {
     private final BotInstaller botInstaller = new BotInstaller(gitHubClient, gallery);
     private final BotPublisher botPublisher = new BotPublisher(gitHubClient, gitHubAuth);
 
-    StudioActions(Stage primaryStage,
-                  ProjectConfig config,
-                  EventBus eventBus,
-                  CodeEditorService codeEditorService,
-                  ProjectSettingsService projectSettingsService,
+    /**
+     * Six of the thirteen parameters this took were the project's own services, re-listed here after
+     * {@code UIManager} had already listed them; they arrive as one {@link StudioContext} now. What is left is
+     * genuinely the shell's: the window, the two things only the shell builds
+     * ({@link ScreenCaptureService}, {@link RemotePilotUi}) and the two surfaces these actions are wired onto.
+     */
+    StudioActions(StudioContext ctx,
+                  Stage primaryStage,
                   ScreenCaptureService screenCaptureService,
-                  ProjectAnalyzer projectAnalyzer,
-                  ActivityService activityService,
-                  LibraryService libraryService,
                   RemotePilotUi remotePilot,
                   MenuBarManager menuBar,
                   ToolbarManager toolbar,
                   Runnable recoverProjectFiles) {
         this.primaryStage = primaryStage;
-        this.config = config;
-        this.eventBus = eventBus;
-        this.codeEditorService = codeEditorService;
-        this.projectSettingsService = projectSettingsService;
+        this.config = ctx.config();
+        this.eventBus = ctx.eventBus();
+        this.codeEditorService = ctx.codeEditorService();
+        this.projectSettingsService = ctx.projectSettingsService();
         this.screenCaptureService = screenCaptureService;
-        this.projectAnalyzer = projectAnalyzer;
-        this.activityService = activityService;
-        this.libraryService = libraryService;
+        this.projectAnalyzer = ctx.projectAnalyzer();
+        this.activityService = ctx.activityService();
+        this.libraryService = ctx.libraryService();
         this.remotePilot = remotePilot;
         this.menuBar = menuBar;
         this.toolbar = toolbar;

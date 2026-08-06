@@ -1,15 +1,14 @@
 package com.botmaker.studio.ui.app;
 
 import com.botmaker.studio.events.CoreApplicationEvents;
-import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectCreator;
 import com.botmaker.studio.project.ProjectRepair;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.project.ProjectTemplate;
+import com.botmaker.studio.project.StudioContext;
 import com.botmaker.studio.project.activity.ActivityDefinition;
 import com.botmaker.studio.services.ActivityService;
-import com.botmaker.studio.services.CodeEditorService;
 import javafx.application.Platform;
 import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonType;
@@ -33,33 +32,30 @@ import java.util.stream.Collectors;
  *
  * <p>The two strings the user reads back — {@link #headerFor} and {@link #summaryOf} — are {@code static} and
  * JavaFX-free so the counting they do is testable without a toolkit.
+ *
+ * <p>Nothing here is worth an instance: this was a six-field object built once and never looked at again
+ * except through {@code Runnable.run()}. It is one menu action, so it is one static call, wired as a method
+ * reference from the shell.
  */
-final class ProjectRecoveryAction implements Runnable {
+final class ProjectRecoveryAction {
 
-    private final ProjectConfig config;
-    private final ProjectState state;
-    private final ActivityService activityService;
-    private final CodeEditorService codeEditorService;
-    private final EventBus eventBus;
-    /** Re-reads the project tree once files have been written back. */
-    private final Runnable refreshTree;
-
-    ProjectRecoveryAction(ProjectConfig config, ProjectState state, ActivityService activityService,
-                          CodeEditorService codeEditorService, EventBus eventBus, Runnable refreshTree) {
-        this.config = config;
-        this.state = state;
-        this.activityService = activityService;
-        this.codeEditorService = codeEditorService;
-        this.eventBus = eventBus;
-        this.refreshTree = refreshTree;
+    private ProjectRecoveryAction() {
     }
 
-    @Override
-    public void run() {
+    /**
+     * Runs the whole action: find what is missing or damaged, confirm, restore, and tell the user.
+     *
+     * @param refreshTree re-reads the project tree once files have been written back
+     */
+    static void recover(StudioContext ctx, Runnable refreshTree) {
+        ProjectConfig config = ctx.config();
+        ProjectState state = ctx.state();
+        ActivityService activityService = ctx.activityService();
+
         List<ProjectRepair.Missing> missing =
                 ProjectRepair.findMissing(config, state.getTemplate(), activityService.current());
         List<ProjectRepair.Damage> damaged =
-                ProjectRepair.findDamaged(config, state.getTemplate(), canonicalScaffold());
+                ProjectRepair.findDamaged(config, state.getTemplate(), canonicalScaffold(ctx));
 
         if (missing.isEmpty() && damaged.isEmpty()) {
             Alert ok = new Alert(Alert.AlertType.INFORMATION);
@@ -82,7 +78,7 @@ final class ProjectRecoveryAction implements Runnable {
         try {
             ProjectRepair.recover(config, missing);
             List<Path> repaired =
-                    ProjectRepair.repairDamaged(config, state.getTemplate(), canonicalScaffold(), damaged);
+                    ProjectRepair.repairDamaged(config, state.getTemplate(), canonicalScaffold(ctx), damaged);
 
             // Activity stubs, activities.json, and the generated Activities/ActivityRegistry are
             // ActivityService's to write — re-running update() with the current config restores them all.
@@ -92,12 +88,13 @@ final class ProjectRecoveryAction implements Runnable {
                         .thenRun(() -> Platform.runLater(refreshTree));
             }
 
-            eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(summaryOf(missing, repaired)));
+            ctx.eventBus().publish(
+                    new CoreApplicationEvents.StatusMessageEvent(summaryOf(missing, repaired)));
             refreshTree.run();
 
             // A repaired file's blocks on screen are now stale — reload the one being looked at.
             if (state.getActiveFile() != null && repaired.contains(state.getActiveFile().getPath())) {
-                codeEditorService.switchToFile(state.getActiveFile().getPath());
+                ctx.codeEditorService().switchToFile(state.getActiveFile().getPath());
             }
         } catch (IOException ex) {
             Alert err = new Alert(Alert.AlertType.ERROR);
@@ -109,7 +106,11 @@ final class ProjectRecoveryAction implements Runnable {
     }
 
     /** What the generators would produce for this project's scaffold today, keyed by path. */
-    private Map<Path, String> canonicalScaffold() {
+    private static Map<Path, String> canonicalScaffold(StudioContext ctx) {
+        ProjectConfig config = ctx.config();
+        ProjectState state = ctx.state();
+        ActivityService activityService = ctx.activityService();
+
         Map<Path, String> byPath = new LinkedHashMap<>();
         Path mainDir = config.mainSourceFile().getParent();
         if (mainDir == null) return byPath;

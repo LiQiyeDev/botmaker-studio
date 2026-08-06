@@ -6,6 +6,20 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-06 — `project/StudioContext`: the shell stops re-listing the project.** `UIManager` took **11**
+  constructor parameters and `StudioActions` **13**, largely the same run of project services listed again at
+  each layer — and four of `UIManager`'s (`projectAnalyzer`, `libraryService`, `activityService`,
+  `codeExecutionService`) never became fields at all, existing only to be forwarded one level down.
+  `StudioContext` is the immutable read-only view of what `BotProject` composes, built by
+  `BotProject.context()`: `UIManager(ctx, primaryStage)` (11 → 2), `StudioActions` (13 → 7),
+  `FileExplorerManager(ctx)` (5 → 1). It deliberately excludes the `Stage` — a window is not a project
+  service, and leaving it out keeps the record and its package free of JavaFX. Two things fell out: `UIManager`
+  was building a **second** `ProjectSettingsService` over the same `(config, state, eventBus)` as the one
+  `BotProject` already owned, and now uses the project's; and `ProjectRecoveryAction` — six fields for an
+  object built once and only ever `run()` — became `static recover(ctx, refreshTree)`, wired as a method
+  reference. `WorkspaceLayoutStore` was left alone on purpose: its single field in `UIManager` is the
+  save-once latch `dispose()` nulls, so making it static would trade one field for two plus a boolean.
+
 - **2026-08-06 — `parser/EditContext`: the write path gets the context the read path always had.** Every
   factory and handler under `parser.factories`/`parser.handlers` needs the same five things to build a node —
   `AST`, `CompilationUnit`, `ASTRewrite`, `ProjectAnalyzer`, `ProjectState` — and threaded them as five
