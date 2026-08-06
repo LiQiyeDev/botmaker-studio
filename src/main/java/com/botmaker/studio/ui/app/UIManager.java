@@ -2,7 +2,6 @@ package com.botmaker.studio.ui.app;
 
 import com.botmaker.studio.runtime.CodeExecutionService;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
-import com.botmaker.studio.ui.dnd.BlockEvent;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
@@ -27,7 +26,6 @@ import com.botmaker.studio.project.activity.ActivityDefinition;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.validation.DiagnosticsManager;
-import com.botmaker.studio.validation.ErrorTranslator;
 import javafx.beans.binding.Bindings;
 import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
@@ -42,13 +40,10 @@ import javafx.scene.input.KeyCombination;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.*;
 import javafx.stage.Stage;
-import org.eclipse.lsp4j.Diagnostic;
-import org.eclipse.lsp4j.DiagnosticSeverity;
 
-import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
 
 public class UIManager {
 
@@ -101,26 +96,22 @@ public class UIManager {
     private Runnable openPublishDialog;
     private Runnable openVcsDialog;
 
-    /** The canvas VBox's optional Reader-mode banner, so the Editor toggle can remove it in place. */
-    private VBox canvasColumn;
     private VcsPanel vcsPanel;
-    private int vcsTabIndex = -1;
 
-    private VBox blocksContainer;
-    private ScrollPane blocksScrollPane;
+    /** The centre column — block canvas, Reader banner, scrolling. Built by {@link #createScene()}. */
+    private EditorCanvas editorCanvas;
+    /** The Errors bottom tab. Built by {@link #createScene()}. */
+    private DiagnosticsPanel diagnosticsPanel;
+    /** The bottom tool window's tabs, keyed by the closed set so nothing selects one by index. */
+    private final EnumMap<BottomTab, Tab> bottomTabs = new EnumMap<>(BottomTab.class);
+
     private Label statusLabel;
     private TextArea outputArea;
-    private ListView<Diagnostic> errorListView;
     private TabPane bottomTabPane;
     private Consumer<Void> onSelectProject;
 
-    // --- NEW: Filter State ---
-    private List<Diagnostic> allDiagnostics = new ArrayList<>();
     /** Opens the Manage Libraries dialog; captured so the Getting Started guide can reuse it. */
     private Runnable onManageLibraries;
-    private ToggleButton errorFilterBtn;
-    private ToggleButton warningFilterBtn;
-    private ToggleButton infoFilterBtn;
 
     public UIManager(BlockDragAndDropManager dragAndDropManager,
                      EventBus eventBus,
@@ -490,9 +481,13 @@ public class UIManager {
     private void setupEventHandlers() {
         eventBus.subscribe(CoreApplicationEvents.OpenResourceManagerEvent.class,
                 e -> openResourceManager(), true);
-        eventBus.subscribe(CoreApplicationEvents.UIBlocksUpdatedEvent.class, this::handleBlocksUpdate, true);
+        eventBus.subscribe(CoreApplicationEvents.UIBlocksUpdatedEvent.class, event -> {
+            if (editorCanvas != null) editorCanvas.handleBlocksUpdate(event);
+        }, true);
         eventBus.subscribe(CoreApplicationEvents.OutputAppendedEvent.class, event -> {
-            if (outputArea.getText().length() > 10_000) {
+            // getLength(), not getText().length(): the latter copies the whole console buffer to measure it,
+            // once per line of bot output.
+            if (outputArea.getLength() > 10_000) {
                 String current = outputArea.getText();
                 outputArea.setText("[...Trimmed...]\n" + current.substring(current.length() - 5000) + event.text());
                 outputArea.positionCaret(outputArea.getLength());
@@ -504,11 +499,13 @@ public class UIManager {
         eventBus.subscribe(CoreApplicationEvents.StatusMessageEvent.class, event -> statusLabel.setText(event.message()), true);
         eventBus.subscribe(CoreApplicationEvents.DiagnosticsUpdatedEvent.class, event -> {
             diagnosticsManager.processDiagnostics(event.diagnostics());
-            updateErrors(diagnosticsManager.getDiagnostics());
+            if (diagnosticsPanel != null) diagnosticsPanel.update(diagnosticsManager.getDiagnostics());
             statusLabel.setText(diagnosticsManager.getErrorSummary());
         }, true);
-        eventBus.subscribe(CoreApplicationEvents.ProgramStartedEvent.class, e -> selectBottomTab(0), true);
-        eventBus.subscribe(CoreApplicationEvents.DebugSessionStartedEvent.class, e -> selectBottomTab(0), true);
+        eventBus.subscribe(CoreApplicationEvents.ProgramStartedEvent.class,
+                e -> selectBottomTab(BottomTab.TERMINAL), true);
+        eventBus.subscribe(CoreApplicationEvents.DebugSessionStartedEvent.class,
+                e -> selectBottomTab(BottomTab.TERMINAL), true);
         eventBus.subscribe(CoreApplicationEvents.InputRequestedEvent.class, this::promptForInput, true);
     }
 
@@ -529,16 +526,6 @@ public class UIManager {
                 eventBus.publish(new CoreApplicationEvents.SendInputEvent(value)));
     }
 
-    private void handleBlocksUpdate(CoreApplicationEvents.UIBlocksUpdatedEvent event) {
-        blocksContainer.getChildren().clear();
-        if (event.rootBlock() != null) {
-            Node rootNode = event.rootBlock().getUINode(codeEditorService);
-            rootNode.addEventHandler(BlockEvent.BreakpointToggleEvent.TOGGLE_BREAKPOINT, e ->
-                    eventBus.publish(new CoreApplicationEvents.BreakpointToggledEvent(e.getBlock(), e.isEnabled())));
-            blocksContainer.getChildren().add(rootNode);
-        }
-    }
-
     public Scene createScene() {
         menuBarManager.setOnSelectProject(v -> { if (onSelectProject != null) onSelectProject.accept(null); });
 
@@ -552,7 +539,7 @@ public class UIManager {
 
         FlowPane executionControls = toolbarManager.createExecutionGroup();
         this.identityCluster = new IdentityCluster(primaryStage, gitHubAuth, gitHubClient,
-                () -> { if (vcsTabIndex >= 0) selectBottomTab(vcsTabIndex); });
+                () -> selectBottomTab(BottomTab.VCS));
         HBox rightContainer = new HBox(10, executionControls, identityCluster.node());
         rightContainer.setAlignment(Pos.CENTER_RIGHT);
         rightContainer.setMinWidth(0);
@@ -608,58 +595,32 @@ public class UIManager {
         SplitPane.setResizableWithParent(fileExplorer, false);
 
         // --- 3. Center: Code Canvas ---
-        blocksContainer = new VBox(10);
-        blocksContainer.getStyleClass().add("blocks-canvas");
-        blocksContainer.setPadding(new Insets(20));
-
-        // Accept block drags over the whole canvas so the OS "forbidden" cursor doesn't flash over gaps/padding.
-        // Real drop zones (separators / block hitboxes) sit on top and consume the event; this only fires over
-        // bare canvas, where a release is simply a no-op (no onDragDropped here).
-        blocksContainer.setOnDragOver(e -> {
-            var db = e.getDragboard();
-            if (db.hasContent(BlockDragAndDropManager.ADDABLE_BLOCK_FORMAT)
-                    || db.hasContent(BlockDragAndDropManager.EXISTING_BLOCK_FORMAT)) {
-                e.acceptTransferModes(javafx.scene.input.TransferMode.COPY, javafx.scene.input.TransferMode.MOVE);
-            }
-        });
-
-        ScrollPane canvasScroll = new ScrollPane(blocksContainer);
-        canvasScroll.setFitToWidth(true);
-        canvasScroll.setFitToHeight(true);
-        canvasScroll.getStyleClass().add("code-scroll-pane");
-        blocksScrollPane = canvasScroll;
-
-        // Reader mode: a full-colour, control-free view of someone else's bot. A single banner carries the
-        // state; the blocks themselves render without any controls (LockResolver suppresses interaction).
-        canvasColumn = new VBox(canvasScroll);
-        VBox.setVgrow(canvasScroll, Priority.ALWAYS);
-        if (state.isReaderMode()) {
-            blocksContainer.getStyleClass().add("reader-mode");
-            canvasColumn.getChildren().add(0, createReaderBanner());
-        }
+        editorCanvas = new EditorCanvas(codeEditorService, eventBus, state.isReaderMode(),
+                config.projectName(), this::switchToEditorMode);
 
         // --- 4. Bottom Panel: Terminal/Errors ---
         outputArea = new TextArea();
         outputArea.setEditable(false);
         outputArea.getStyleClass().add("console-area");
-        addContextMenu(outputArea);
+        outputArea.setContextMenu(consoleContextMenu(outputArea));
 
-        // -- Construct Error Panel with Filters --
-        VBox errorPanel = createErrorPanel();
-
-        bottomTabPane = new TabPane();
-        Tab terminalTab = new Tab("Terminal", outputArea); terminalTab.setClosable(false);
-        Tab errorsTab = new Tab("Errors", errorPanel); errorsTab.setClosable(false);
-        Tab eventsTab = new Tab("Event Log", eventLogManager.getView()); eventsTab.setClosable(false);
+        diagnosticsPanel = new DiagnosticsPanel(diagnosticsManager, editorCanvas::scrollToBlock,
+                () -> selectBottomTab(BottomTab.ERRORS));
 
         // VCS tool window — IntelliJ's Commit view docked beside Terminal (VcsPanel, shared with the dialog).
         vcsPanel = new VcsPanel(primaryStage, config.projectName(), config.projectPath(), botPublisher,
                 gitHubAuth, gitHubClient, eventBus, openPublishDialog);
-        Tab vcsTab = new Tab("VCS", vcsPanel.getView()); vcsTab.setClosable(false);
 
-        bottomTabPane.getTabs().addAll(terminalTab, errorsTab, eventsTab, vcsTab);
-        vcsTabIndex = bottomTabPane.getTabs().indexOf(vcsTab);
+        bottomTabs.clear();
+        bottomTabs.put(BottomTab.TERMINAL, bottomTab(BottomTab.TERMINAL, outputArea));
+        bottomTabs.put(BottomTab.ERRORS, bottomTab(BottomTab.ERRORS, diagnosticsPanel.node()));
+        bottomTabs.put(BottomTab.EVENT_LOG, bottomTab(BottomTab.EVENT_LOG, eventLogManager.getView()));
+        bottomTabs.put(BottomTab.VCS, bottomTab(BottomTab.VCS, vcsPanel.getView()));
+
+        bottomTabPane = new TabPane();
+        bottomTabPane.getTabs().addAll(bottomTabs.values());
         // Keep the changed-files tree fresh whenever the user opens the tab.
+        Tab vcsTab = bottomTabs.get(BottomTab.VCS);
         bottomTabPane.getSelectionModel().selectedItemProperty().addListener((o, was, now) -> {
             if (now == vcsTab && vcsPanel != null) vcsPanel.refresh();
         });
@@ -667,7 +628,7 @@ public class UIManager {
         // --- 5. Layout Assembly ---
         SplitPane verticalSplit = new SplitPane();
         verticalSplit.setOrientation(Orientation.VERTICAL);
-        verticalSplit.getItems().addAll(canvasColumn, bottomTabPane);
+        verticalSplit.getItems().addAll(editorCanvas.node(), bottomTabPane);
         verticalSplit.setDividerPositions(0.82);
 
         SplitPane mainSplit = new SplitPane();
@@ -736,20 +697,6 @@ public class UIManager {
     // READER / EDITOR MODE + IDENTITY / VCS TOOLBAR CLUSTER
     // =========================================================================
 
-    /** The "Reading — switch to Editor to change" banner shown above the canvas for an installed bot. */
-    private HBox createReaderBanner() {
-        Label msg = new Label("Reading “" + config.projectName()
-                + "”. Switch to Editor mode to make it yours and start changing it.");
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
-        Button toEditor = new Button("Switch to Editor mode");
-        toEditor.setOnAction(e -> switchToEditorMode());
-        HBox banner = new HBox(10, msg, spacer, toEditor);
-        banner.setAlignment(Pos.CENTER_LEFT);
-        banner.getStyleClass().add("reader-banner");
-        return banner;
-    }
-
     /**
      * "Improve this bot" — flips the installed bot from Reader to Editor mode. Requires no GitHub account (the
      * fork/branch only materializes at PR time): it drops the local opt-in marker, commits the current state
@@ -803,207 +750,26 @@ public class UIManager {
         applyThemeToScene(root);
     }
 
-    private VBox createErrorPanel() {
-        errorListView = new ListView<>();
-        configureErrorList(errorListView);
-        addContextMenu(errorListView);
-        VBox.setVgrow(errorListView, Priority.ALWAYS);
-
-        // --- Filter Buttons ---
-        errorFilterBtn = new ToggleButton("Errors");
-        errorFilterBtn.setSelected(true);
-        errorFilterBtn.setStyle("-fx-text-fill: #E74C3C; -fx-font-weight: bold;");
-        errorFilterBtn.setOnAction(e -> applyErrorFilters());
-
-        warningFilterBtn = new ToggleButton("Warnings");
-        warningFilterBtn.setSelected(true);
-        warningFilterBtn.setStyle("-fx-text-fill: #F39C12; -fx-font-weight: bold;");
-        warningFilterBtn.setOnAction(e -> applyErrorFilters());
-
-        infoFilterBtn = new ToggleButton("Infos/Hints");
-        infoFilterBtn.setSelected(true);
-        infoFilterBtn.setStyle("-fx-text-fill: #3498DB; -fx-font-weight: bold;");
-        infoFilterBtn.setOnAction(e -> applyErrorFilters());
-
-        HBox filterBar = new HBox(10, new Label("Filter: "), errorFilterBtn, warningFilterBtn, infoFilterBtn);
-        filterBar.setAlignment(Pos.CENTER_LEFT);
-        filterBar.setPadding(new Insets(5));
-        filterBar.setStyle("-fx-background-color: #f0f0f0; -fx-border-color: #ddd; -fx-border-width: 0 0 1 0;");
-
-        return new VBox(filterBar, errorListView);
+    /** A closable-free bottom tab carrying its title from the closed set. */
+    private static Tab bottomTab(BottomTab which, Node content) {
+        Tab tab = new Tab(which.title(), content);
+        tab.setClosable(false);
+        return tab;
     }
 
-    private void applyErrorFilters() {
-        if (allDiagnostics == null) return;
-
-        List<Diagnostic> filtered = allDiagnostics.stream()
-                .filter(d -> {
-                    DiagnosticSeverity severity = d.getSeverity();
-                    if (severity == DiagnosticSeverity.Error) return errorFilterBtn.isSelected();
-                    if (severity == DiagnosticSeverity.Warning) return warningFilterBtn.isSelected();
-                    if (severity == DiagnosticSeverity.Information || severity == DiagnosticSeverity.Hint) return infoFilterBtn.isSelected();
-                    return true;
-                })
-                .collect(Collectors.toList());
-
-        errorListView.getItems().setAll(filtered);
+    /** Copy / Clear for the console. The Errors list has its own, built by {@link DiagnosticsPanel}. */
+    private static ContextMenu consoleContextMenu(TextArea console) {
+        MenuItem copy = new MenuItem("Copy");
+        copy.setOnAction(e -> console.copy());
+        MenuItem clear = new MenuItem("Clear");
+        clear.setOnAction(e -> console.clear());
+        return new ContextMenu(copy, new SeparatorMenuItem(), clear);
     }
 
-    private void configureErrorList(ListView<Diagnostic> lv) {
-        lv.setPlaceholder(new Label("No issues found."));
-        lv.setCellFactory(list -> new ListCell<>() {
-            @Override
-            protected void updateItem(Diagnostic diagnostic, boolean empty) {
-                super.updateItem(diagnostic, empty);
-
-                if (empty || diagnostic == null) {
-                    setText(null);
-                    setGraphic(null);
-                    setStyle("");
-                    setOnMouseClicked(null);
-                } else {
-                    String message = ErrorTranslator.getShortSummary(diagnostic);
-                    int line = diagnostic.getRange().getStart().getLine() + 1;
-
-                    // --- NEW: Extract Filename from Data Field ---
-                    String filename = "";
-                    if (diagnostic.getData() instanceof String) {
-                        String uri = (String) diagnostic.getData();
-                        try {
-                            // Try to parse as URI to get clean filename (e.g. Main.java)
-                            java.nio.file.Path p = java.nio.file.Path.of(new java.net.URI(uri));
-                            filename = "[" + p.getFileName().toString() + "] ";
-                        } catch (Exception e) {
-                            // Fallback for non-standard URIs
-                            if (uri.contains("/")) {
-                                filename = "[" + uri.substring(uri.lastIndexOf('/') + 1) + "] ";
-                            } else {
-                                filename = "[" + uri + "] ";
-                            }
-                        }
-                    }
-                    // ---------------------------------------------
-
-                    String icon = "";
-                    String colorStyle = "";
-                    String iconColorStyle = "";
-
-                    if (diagnostic.getSeverity() == DiagnosticSeverity.Error) {
-                        icon = "❌";
-                        colorStyle = "-fx-text-fill: #C0392B;";
-                        iconColorStyle = "-fx-text-fill: #E74C3C;";
-                    } else if (diagnostic.getSeverity() == DiagnosticSeverity.Warning) {
-                        icon = "⚠️";
-                        colorStyle = "-fx-text-fill: #D35400;";
-                        iconColorStyle = "-fx-text-fill: #F39C12;";
-                    } else {
-                        icon = "ℹ️";
-                        colorStyle = "-fx-text-fill: #2980B9;";
-                        iconColorStyle = "-fx-text-fill: #3498DB;";
-                    }
-
-                    Label iconLabel = new Label(icon);
-                    iconLabel.setStyle(iconColorStyle + "-fx-font-size: 14px; -fx-padding: 0 8 0 0;");
-
-                    // Add filename to the text
-                    setText(String.format("%sLine %d: %s", filename, line, message));
-                    setStyle(colorStyle + "-fx-font-family: 'Segoe UI', sans-serif; -fx-font-weight: normal;");
-                    setGraphic(iconLabel);
-
-                    setOnMouseClicked(event -> {
-                        if (event.getClickCount() >= 1) {
-                            diagnosticsManager.findBlockForDiagnostic(diagnostic).ifPresent(UIManager.this::scrollToBlock);
-                        }
-                    });
-                }
-            }
-        });
-    }
-
-    /**
-     * Brings {@code block} into view when its error is clicked in the Errors panel: highlights it (reusing the
-     * debugger's {@link CoreApplicationEvents.BlockHighlightEvent} path) and scrolls the canvas so the block is
-     * visible. Runs the scroll on the next pulse so the node's layout bounds are current.
-     */
-    private void scrollToBlock(com.botmaker.studio.core.CodeBlock block) {
-        if (block == null) return;
-        com.botmaker.studio.core.CodeBlock target = block.getHighlightTarget();
-        eventBus.publish(new CoreApplicationEvents.BlockHighlightEvent(target));
-        Node node = target != null ? target.getUINode() : null;
-        if (node == null || blocksScrollPane == null || blocksContainer == null) return;
-        javafx.application.Platform.runLater(() -> {
-            javafx.geometry.Bounds nodeInContent =
-                    blocksContainer.sceneToLocal(node.localToScene(node.getBoundsInLocal()));
-            double contentH = blocksContainer.getBoundsInLocal().getHeight();
-            double viewportH = blocksScrollPane.getViewportBounds().getHeight();
-            if (contentH > viewportH) {
-                double vvalue = (nodeInContent.getMinY() - 20) / (contentH - viewportH);
-                blocksScrollPane.setVvalue(Math.max(0, Math.min(1, vvalue)));
-            }
-            node.requestFocus();
-        });
-    }
-
-    private void addContextMenu(Control control) {
-        ContextMenu cm = new ContextMenu();
-        if (control instanceof TextArea) {
-            TextArea ta = (TextArea) control;
-            MenuItem copy = new MenuItem("Copy");
-            copy.setOnAction(e -> ta.copy());
-            MenuItem clear = new MenuItem("Clear");
-            clear.setOnAction(e -> ta.clear());
-            cm.getItems().addAll(copy, new SeparatorMenuItem(), clear);
-            ta.setContextMenu(cm);
-        } else if (control instanceof ListView) {
-            ListView<?> lv = (ListView<?>) control;
-            MenuItem copy = new MenuItem("Copy Selection");
-            copy.setOnAction(e -> {
-                Object selected = lv.getSelectionModel().getSelectedItem();
-                if (selected != null) {
-                    javafx.scene.input.ClipboardContent content = new javafx.scene.input.ClipboardContent();
-
-                    // MODIFIED: Copy only message if it's a Diagnostic object
-                    String textToCopy;
-                    if (selected instanceof Diagnostic) {
-                        textToCopy = ((Diagnostic) selected).getMessage();
-                    } else {
-                        textToCopy = selected.toString();
-                    }
-
-                    content.putString(textToCopy);
-                    javafx.scene.input.Clipboard.getSystemClipboard().setContent(content);
-                }
-            });
-            cm.getItems().add(copy);
-            lv.setContextMenu(cm);
-        }
-    }
-
-    private void updateErrors(List<Diagnostic> diagnostics) {
-        this.allDiagnostics = (diagnostics != null) ? new ArrayList<>(diagnostics) : new ArrayList<>();
-        applyErrorFilters();
-        updateFilterButtonCounts();
-
-        boolean hasErrors = allDiagnostics.stream().anyMatch(d -> d.getSeverity() == DiagnosticSeverity.Error);
-        if (hasErrors) {
-            selectBottomTab(1);
-        }
-    }
-
-    private void updateFilterButtonCounts() {
-        long errCount = allDiagnostics.stream().filter(d -> d.getSeverity() == DiagnosticSeverity.Error).count();
-        long warnCount = allDiagnostics.stream().filter(d -> d.getSeverity() == DiagnosticSeverity.Warning).count();
-        long infoCount = allDiagnostics.stream().filter(d -> d.getSeverity() == DiagnosticSeverity.Information || d.getSeverity() == DiagnosticSeverity.Hint).count();
-
-        errorFilterBtn.setText(String.format("Errors (%d)", errCount));
-        warningFilterBtn.setText(String.format("Warnings (%d)", warnCount));
-        infoFilterBtn.setText(String.format("Infos (%d)", infoCount));
-    }
-
-    private void selectBottomTab(int index) {
-        if (bottomTabPane != null && index < bottomTabPane.getTabs().size()) {
-            bottomTabPane.getSelectionModel().select(index);
-        }
+    /** Raises a bottom tab. A no-op before {@code createScene()} has built them. */
+    private void selectBottomTab(BottomTab which) {
+        Tab tab = bottomTabs.get(which);
+        if (bottomTabPane != null && tab != null) bottomTabPane.getSelectionModel().select(tab);
     }
 
     public void setOnSelectProject(Consumer<Void> callback) { this.onSelectProject = callback; }
