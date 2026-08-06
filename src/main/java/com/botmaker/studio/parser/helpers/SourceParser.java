@@ -32,11 +32,22 @@ public final class SourceParser {
         ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
         parser.setKind(ASTParser.K_COMPILATION_UNIT);
         parser.setSource(source.toCharArray());
+        parser.setCompilerOptions(latestLevelOptions());
+        return (CompilationUnit) parser.createAST(null);
+    }
+
+    /**
+     * JDT's option map raised to the latest language level — the table above, as a value.
+     *
+     * <p>Exposed because the <em>formatter</em> reads the same compliance keys off the same map and would
+     * otherwise carry a second, silently divergent copy: a formatter left at 1.3 does not fail, it reformats
+     * a {@code switch} rule or a text block into something that no longer parses.
+     */
+    public static Map<String, String> latestLevelOptions() {
         Map<String, String> options = JavaCore.getOptions();
         options.put(JavaCore.COMPILER_COMPLIANCE, JavaCore.latestSupportedJavaVersion());
         options.put(JavaCore.COMPILER_SOURCE, JavaCore.latestSupportedJavaVersion());
-        parser.setCompilerOptions(options);
-        return (CompilationUnit) parser.createAST(null);
+        return options;
     }
 
     /**

@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-06 — Studio formats what it writes.** Every rewrite was an `ASTRewrite` applied to the previous
+  text, and `ASTRewrite` only lays out what it *inserts* — nothing ever re-formatted the file, so a generated
+  bot degraded edit by edit until one user's activity had its whole lambda, `switch`, both guarded labels and
+  the first `->{}` on a single line. New `parser/helpers/SourceFormatter` (JDT `ToolFactory`, settings from
+  `.editorconfig`: 4 spaces, 120 columns, LF; compliance reused from `SourceParser.latestLevelOptions()` rather
+  than a second copy that could silently sit at JDT's 1.3 default and mangle a `switch` rule). Applied in
+  exactly one place — `CodeEditor.triggerUpdate`, before the edit guard — so no write path can skip it and the
+  guard still has the last word. Comments are not reflowed (re-wrapping a user's prose is an opinion about
+  their writing), and source that doesn't parse is returned untouched: JDT would otherwise format a *recovered*
+  tree, which is a way to lose text from a file that was going to be refused and dumped intact. Expect one
+  large diff the first time an existing project is saved. `SourceFormatterTest` covers the layout, the
+  round-trip (same AST), idempotence, and that the write path actually calls it.
+
 - **2026-08-06 — The refusal log names the rewrite, not itself.** `CodeEditor.refusedBy` excluded the guard's
   other frames (`wouldBreak`, `triggerUpdate`, `edit`) but not its own, so the first matching frame was always
   `refusedBy` and every refusal in the wild logged `(refusedBy)`. The one thing the line existed to say was the

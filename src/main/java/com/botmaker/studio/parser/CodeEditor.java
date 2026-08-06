@@ -18,6 +18,7 @@ import com.botmaker.studio.parser.handlers.RawExpressionHandler;
 import com.botmaker.studio.parser.handlers.SwitchNormalizer;
 import com.botmaker.studio.parser.handlers.TypeHandler;
 import com.botmaker.studio.parser.helpers.AstRewriteHelper;
+import com.botmaker.studio.parser.helpers.SourceFormatter;
 import com.botmaker.studio.parser.helpers.SourceParser;
 import com.botmaker.studio.project.LockResolver;
 import com.botmaker.studio.project.LockResolver.EditKind;
@@ -175,9 +176,30 @@ public class CodeEditor {
      */
     private boolean triggerUpdate(String newCode, boolean markNewIdentifiersAsUnedited) {
         String previousCode = getCurrentCode();
+        newCode = formatted(newCode);
         if (wouldBreak(newCode, previousCode)) return false;
         eventBus.publish(new CoreApplicationEvents.CodeUpdatedEvent(newCode, previousCode, markNewIdentifiersAsUnedited));
         return true;
+    }
+
+    /**
+     * {@code newCode} laid out — the single place Studio formats, sitting on the single place it publishes, so
+     * no write path can skip it and none of them has to remember to ask.
+     *
+     * <p>Before the guard rather than after it, so the text the guard judges is the text the user gets; and
+     * after every rewrite rather than inside them, because {@code ASTRewrite} only formats what it inserts and
+     * the damage this repairs is cumulative — a file degrades across edits, not within one. Expect one large
+     * diff the first time an existing project is saved: that is the backlog of unformatted edits coming due,
+     * not a regression.
+     *
+     * <p>Skipped for a file the user can't edit anyway, on the same reasoning as
+     * {@code CodeEditorService}'s call to {@code normalizeSwitches}: reformatting generated scaffolding
+     * produces a diff nobody asked for in a file nobody can change.
+     */
+    private String formatted(String newCode) {
+        if (newCode == null) return null;
+        if (LockResolver.forActiveFile(config, state).suppressesInteraction()) return newCode;
+        return SourceFormatter.format(newCode);
     }
 
     /**
