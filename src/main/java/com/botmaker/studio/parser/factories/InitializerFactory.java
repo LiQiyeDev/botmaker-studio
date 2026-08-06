@@ -6,7 +6,9 @@ import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.project.capture.CaptureExpr;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
+import com.botmaker.studio.util.MethodSignature;
 import org.eclipse.jdt.core.dom.*;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
@@ -27,6 +29,11 @@ public class InitializerFactory {
             Map.entry("BinaryOperator", 2), Map.entry("Comparator", 2));
 
     public static Expression createDefaultInitializer(AST ast, ResolvedType type, CompilationUnit cu, ProjectState state) {
+        return createDefaultInitializer(ast, type, cu, state, null);
+    }
+
+    public static Expression createDefaultInitializer(AST ast, ResolvedType type, CompilationUnit cu,
+                                                      ProjectState state, ProjectAnalyzer analyzer) {
         if (type == null) return ast.newNullLiteral();
 
         // ENRICHMENT: If the type isn't binding-backed, try to find the rich type in the project
@@ -132,12 +139,51 @@ public class InitializerFactory {
 
         // 3. Objects
         if (!richType.isUnknown()) {
-            ClassInstanceCreation cic = ast.newClassInstanceCreation();
-            cic.setType(ProjectAnalyzer.createTypeNode(ast, richType));
-            return cic;
+            return newInstance(ast, richType, analyzer);
         }
 
         return ast.newNullLiteral();
+    }
+
+    /**
+     * {@code new T(…)} naming a constructor {@code T} actually declares.
+     *
+     * <p>A bare {@code new T()} was emitted here regardless of what {@code T} declares, so any type without a
+     * no-arg constructor produced source that does not compile — the SDK's {@code ImageTemplate} has only
+     * {@code (String)} and {@code (String, double)}, and {@code new ImageTemplate()} reached two user projects
+     * on disk. The five special cases above are that same bug, each patched once by hand; this is the rule they
+     * were standing in for.
+     *
+     * <p>Zero-arg wins when one exists, because it is what the user will fill in anyway. Otherwise the
+     * fewest-parameter constructor, seeded with literals. Falls back to the bare {@code new T()} — today's
+     * behaviour, uncompilable or not — whenever there is nothing better to say: no analyzer (the short overloads
+     * pass none), a type the analyzer can't find (its {@link ProjectAnalyzer#getConstructors} answers with a
+     * synthetic no-arg, which lands here as the empty-parameter case), or the restriction below.
+     *
+     * <p><b>Only literal-valued parameters.</b> A candidate is used only when every parameter seeds to a
+     * primitive/String literal. This class can add no imports — it has the {@code CompilationUnit} but not the
+     * {@code ASTRewrite}, and its callers import the argument's <em>own</em> type, not the types nested inside
+     * it — so filling {@code new Rect(Point, Point)} would trade "no such constructor" for "cannot find symbol
+     * Point". A literal needs nothing imported and is therefore always safe. This is also why there is no
+     * recursion here: under this restriction an argument is never itself a {@code new}, so a depth cap and a
+     * cycle guard would have nothing to guard. Thread the rewriter through if a real type ever needs more.
+     */
+    static ClassInstanceCreation newInstance(AST ast, ResolvedType type, ProjectAnalyzer analyzer) {
+        ClassInstanceCreation cic = ast.newClassInstanceCreation();
+        cic.setType(ProjectAnalyzer.createTypeNode(ast, type));
+        if (analyzer == null) return cic;
+
+        List<MethodSignature> constructors = analyzer.getConstructors(type.leafType().simpleName());
+        MethodSignature chosen = constructors.stream()
+                .filter(c -> c.paramTypes().stream().allMatch(p -> DefaultValueHelper.createDefaultForPrimitive(ast, p) != null))
+                .min(Comparator.comparingInt(c -> c.paramTypes().size()))
+                .orElse(null);
+        if (chosen == null) return cic;
+
+        for (ResolvedType p : chosen.paramTypes()) {
+            cic.arguments().add(DefaultValueHelper.createDefaultForPrimitive(ast, p));
+        }
+        return cic;
     }
 
     // Overload for backward compatibility

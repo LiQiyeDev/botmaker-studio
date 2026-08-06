@@ -50,7 +50,7 @@ public class InstantiationHandler {
 
         if (paramTypes != null) {
             for (ResolvedType pType : paramTypes) {
-                Expression arg = NodeCreator.createDefaultInitializer(ast, pType, cu, state);
+                Expression arg = NodeCreator.createDefaultInitializer(ast, pType, cu, state, analyzer);
                 creation.arguments().add(arg);
                 ImportManager.addImportForType(cu, rewriter, pType, analyzer, state);
             }
@@ -74,7 +74,7 @@ public class InstantiationHandler {
         } else if (currentCount < targetCount) {
             for (int i = currentCount; i < targetCount; i++) {
                 ResolvedType type = targetTypes.get(i);
-                Expression defaultExpr = NodeCreator.createDefaultInitializer(ast, type, cu, state);
+                Expression defaultExpr = NodeCreator.createDefaultInitializer(ast, type, cu, state, analyzer);
                 argsRewrite.insertLast(defaultExpr, null);
                 ImportManager.addImportForType(cu, rewriter, type, analyzer, state);
             }

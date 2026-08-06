@@ -79,7 +79,7 @@ public class MethodHandler {
         // Arguments (Defaults). Each default initializer references its type by simple name
         // (`Color.RED`, `new Color()`), so the parameter types need importing just as the scope does.
         for (ResolvedType paramType : choice.paramTypes()) {
-            mi.arguments().add(NodeCreator.createDefaultInitializer(ast, paramType, cu, state));
+            mi.arguments().add(NodeCreator.createDefaultInitializer(ast, paramType, cu, state, analyzer));
             ImportManager.addImportForType(cu, rewriter, paramType, analyzer, state);
         }
         return mi;
@@ -346,7 +346,7 @@ public class MethodHandler {
                                             ResolvedType elementType, ProjectAnalyzer analyzer, ProjectState state) {
         AST ast = cu.getAST();
         ASTRewrite rewriter = ASTRewrite.create(ast);
-        Expression newArg = NodeCreator.createDefaultInitializer(ast, elementType, cu, state);
+        Expression newArg = NodeCreator.createDefaultInitializer(ast, elementType, cu, state, analyzer);
         if (newArg != null) {
             rewriter.getListRewrite(mi, MethodInvocation.ARGUMENTS_PROPERTY).insertLast(newArg, null);
             ImportManager.addImportForType(cu, rewriter, elementType, analyzer, state);
@@ -382,7 +382,7 @@ public class MethodHandler {
 
             // If types are NOT compatible, replace the argument
             if (!currentType.isAssignmentCompatible(targetType)) {
-                Expression defaultExpr = NodeCreator.createDefaultInitializer(ast, targetType, cu, state);
+                Expression defaultExpr = NodeCreator.createDefaultInitializer(ast, targetType, cu, state, analyzer);
                 argsRewrite.replace(currentArg, defaultExpr, null);
                 ImportManager.addImportForType(cu, rewriter, targetType, analyzer, state);
             }
@@ -398,7 +398,7 @@ public class MethodHandler {
         else if (currentCount < targetCount) {
             for (int i = currentCount; i < targetCount; i++) {
                 ResolvedType type = targetTypes.get(i);
-                Expression defaultExpr = NodeCreator.createDefaultInitializer(ast, type, cu, state);
+                Expression defaultExpr = NodeCreator.createDefaultInitializer(ast, type, cu, state, analyzer);
                 argsRewrite.insertLast(defaultExpr, null);
                 ImportManager.addImportForType(cu, rewriter, type, analyzer, state);
             }

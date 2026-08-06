@@ -6,6 +6,23 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-06 — A `new T()` placeholder names a constructor that exists.** Seeded arguments emitted a bare
+  `new T()` regardless of what `T` declares, so any type without a no-arg constructor produced uncompilable
+  source — the SDK's `ImageTemplate` has only `(String)` and `(String, double)`, and `new ImageTemplate()`
+  reached two user projects on disk. `InitializerFactory.newInstance` now asks
+  `ProjectAnalyzer.getConstructors`: zero-arg wins, else the fewest-parameter constructor, seeded with
+  literals. `ProjectAnalyzer` is threaded into the deepest `createDefaultInitializer` overload and passed from
+  the seven write paths that already hold one (`NodeCreator`, `MethodHandler` ×4, `InstantiationHandler` ×2,
+  `StatementFactory`); `ExpressionFactory.createInstantiation` shares the rule, since picking `new T()` from
+  the expression menu produced the identical bad text. **Only literal-valued parameters are filled** — this
+  factory has the CU but not the `ASTRewrite`, so it can add no imports, and filling `new Rect(Point, Point)`
+  would trade "no such constructor" for "cannot find symbol Point"; anything else falls back to the old bare
+  `new T()`. That restriction is also why there is no recursion: an argument is never itself a `new`. The five
+  hand-written exemptions (`CaptureSource`, `Color`, `Precision`, `Duration`, `LocalTime`/`DayOfWeek`/`Month`)
+  were **kept, not retired** — they are the behaviour when there is no analyzer (the short overloads used by
+  `CodeEditor` and `TypeHandler`), and `Color` specifically would regress to `new Color(0)`, which compiles and
+  then lies to `ColorArgPicker`'s RGB read-back. `parser/ConstructorPlaceholderTest` (5) pins all of it.
+
 - **2026-08-06 — Studio formats what it writes.** Every rewrite was an `ASTRewrite` applied to the previous
   text, and `ASTRewrite` only lays out what it *inserts* — nothing ever re-formatted the file, so a generated
   bot degraded edit by edit until one user's activity had its whole lambda, `switch`, both guarded labels and

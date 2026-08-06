@@ -36,7 +36,7 @@ public class NodeCreator {
                     creation.setType(ProjectAnalyzer.createTypeNode(ast, ResolvedType.named(c.typeName())));
                     ImportManager.addImportForSimpleName(cu, rewriter, c.typeName(), analyzer, null);
                     for (ResolvedType p : c.paramTypes()) {
-                        creation.arguments().add(createDefaultInitializer(ast, p));
+                        creation.arguments().add(createDefaultInitializer(ast, p, cu, null, analyzer));
                         ImportManager.addImportForType(cu, rewriter, p, analyzer, null);
                     }
                     yield creation;
@@ -102,6 +102,18 @@ public class NodeCreator {
      */
     public static Expression createDefaultInitializer(AST ast, ResolvedType type, CompilationUnit cu, ProjectState state) {
         return InitializerFactory.createDefaultInitializer(ast, type, cu, state);
+    }
+
+    /**
+     * As above, plus the {@link ProjectAnalyzer} — which is what lets a {@code new T()} placeholder name a
+     * constructor {@code T} actually declares instead of assuming a no-arg one exists (see
+     * {@code InitializerFactory#newInstance}). Every write path that seeds an argument already holds an
+     * analyzer, so this is the overload they should call; the shorter ones remain for the few callers that
+     * genuinely have none.
+     */
+    public static Expression createDefaultInitializer(AST ast, ResolvedType type, CompilationUnit cu,
+                                                      ProjectState state, ProjectAnalyzer analyzer) {
+        return InitializerFactory.createDefaultInitializer(ast, type, cu, state, analyzer);
     }
 
     public static Expression createRecursiveListInitializer(AST ast, String typeName, CompilationUnit cu,

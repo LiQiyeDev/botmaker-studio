@@ -46,10 +46,13 @@ public class ExpressionFactory {
 
     private static Expression createInstantiation(AST ast, ResolvedType contextType, CompilationUnit cu,
                                                   ASTRewrite rewriter, ProjectAnalyzer analyzer) {
-        ClassInstanceCreation cic = ast.newClassInstanceCreation();
-        String typeName = (contextType != null && !contextType.isUnknown()) ? contextType.simpleName() : "Object";
-        cic.setType(ast.newSimpleType(ast.newSimpleName(typeName)));
-        ImportManager.addImportForSimpleName(cu, rewriter, typeName, analyzer, null);
+        // Same rule as a seeded argument (InitializerFactory#newInstance): name a constructor the type actually
+        // declares, rather than assuming a no-arg one exists. Picking "new T()" from the expression menu used to
+        // produce the identical uncompilable text a seeded argument did.
+        boolean known = contextType != null && !contextType.isUnknown();
+        ResolvedType type = known ? contextType : ResolvedType.named("Object");
+        ClassInstanceCreation cic = InitializerFactory.newInstance(ast, type, analyzer);
+        ImportManager.addImportForSimpleName(cu, rewriter, type.simpleName(), analyzer, null);
         return cic;
     }
 

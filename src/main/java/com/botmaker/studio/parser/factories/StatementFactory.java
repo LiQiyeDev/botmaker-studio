@@ -146,7 +146,7 @@ public class StatementFactory {
             List<ResolvedType> params = defaultOverloadParams(l, state, analyzer);
             if (params != null) {
                 for (ResolvedType p : params) {
-                    mi.arguments().add(com.botmaker.studio.parser.NodeCreator.createDefaultInitializer(ast, p, cu, state));
+                    mi.arguments().add(com.botmaker.studio.parser.NodeCreator.createDefaultInitializer(ast, p, cu, state, analyzer));
                 }
             } else {
                 mi.arguments().add(ast.newNullLiteral());
