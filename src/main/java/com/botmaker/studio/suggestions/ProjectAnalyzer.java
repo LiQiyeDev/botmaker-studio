@@ -7,6 +7,8 @@ import io.github.classgraph.FieldInfo;
 import io.github.classgraph.MethodInfo;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
+import com.botmaker.studio.types.JdkType;
+import com.botmaker.studio.types.PrimitiveKind;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.util.MethodSignature;
 import com.botmaker.studio.util.VariableScopeVisitor;
@@ -38,8 +40,12 @@ public class ProjectAnalyzer {
     private List<ResolvedType> libraryTypesCache;
     private int libraryTypesCacheCount = -1;
 
-    private static final List<String> FUNDAMENTAL_TYPES =
-            List.of("int", "double", "boolean", "String", "long", "float", "char");
+    // The types offered first in a type picker, in the order they are offered. Named, not spelled: a picker
+    // entry that doesn't compile is the one bug this list can have.
+    private static final List<String> FUNDAMENTAL_TYPES = List.of(
+            PrimitiveKind.INT.keyword(), PrimitiveKind.DOUBLE.keyword(), PrimitiveKind.BOOLEAN.keyword(),
+            JdkType.STRING.simpleName(), PrimitiveKind.LONG.keyword(), PrimitiveKind.FLOAT.keyword(),
+            PrimitiveKind.CHAR.keyword());
 
     private static final Set<String> HIDDEN_VARIABLES =
             Set.of("args", "this", "super", "class");
@@ -230,7 +236,8 @@ public class ProjectAnalyzer {
     }
 
     private ResolvedType resolveLeafType(String typeName) {
-        if (ResolvedType.PRIMITIVE_NAMES.contains(typeName)) return ResolvedType.primitive(typeName);
+        Optional<PrimitiveKind> primitive = PrimitiveKind.fromKeyword(typeName);
+        if (primitive.isPresent()) return ResolvedType.primitive(primitive.get());
 
         for (ProjectFile file : state.getAllFiles()) {
             CompilationUnit cu = file.getAst();
@@ -291,11 +298,12 @@ public class ProjectAnalyzer {
             if (libType.isPresent()) return libType.get().getName();
         }
 
-        // Common java.util fallback
-        if (Set.of("List", "ArrayList", "Map", "HashMap", "Set", "HashSet", "Arrays")
-                .contains(simpleClassName)) {
-            return "java.util." + simpleClassName;
-        }
+        // Common java.util fallback. The FQN comes off the class literal rather than "java.util." + name, so a
+        // simple name this doesn't actually own can't be turned into a plausible-looking FQN that resolves to
+        // nothing.
+        Optional<JdkType> jdk = JdkType.bySimpleName(simpleClassName)
+                .filter(t -> "java.util".equals(t.packageName()));
+        if (jdk.isPresent()) return jdk.get().qualifiedName();
 
         return null;
     }
@@ -1109,7 +1117,7 @@ public class ProjectAnalyzer {
             names.add(param.getName().getIdentifier());
             varargs = param.isVarargs();
         }
-        ResolvedType returnType = md.getReturnType2() != null ? resolveType(md.getReturnType2()) : ResolvedType.primitive("void");
+        ResolvedType returnType = md.getReturnType2() != null ? resolveType(md.getReturnType2()) : ResolvedType.VOID;
         return new MethodSignature(md.getName().getIdentifier(), types, names, returnType, varargs);
     }
 

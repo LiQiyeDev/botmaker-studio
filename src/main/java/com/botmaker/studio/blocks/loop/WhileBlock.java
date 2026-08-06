@@ -55,7 +55,7 @@ public class WhileBlock extends AbstractStatementBlock implements BlockWithChild
                 showExpressionMenuAndReplace(
                         (Button) e.getSource(),
                         context,
-                        ResolvedType.primitive("boolean"),
+                        ResolvedType.BOOLEAN,
                         condition != null ? (Expression) condition.getAstNode() : null
                 )
         );
@@ -63,7 +63,7 @@ public class WhileBlock extends AbstractStatementBlock implements BlockWithChild
         // 2. Build Header: "while [condition] [+]"
         Node headerContent = BlockLayout.sentence()
                 .addKeyword("while")
-                .addExpressionSlot(condition, context, ResolvedType.primitive("boolean"))
+                .addExpressionSlot(condition, context, ResolvedType.BOOLEAN)
                 .addNode(changeBtn)
                 .build();
 

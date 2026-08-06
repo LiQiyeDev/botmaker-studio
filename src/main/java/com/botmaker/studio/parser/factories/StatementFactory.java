@@ -12,6 +12,8 @@ import com.botmaker.studio.parser.helpers.SdkNodes;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
+import com.botmaker.studio.types.JdkType;
+import com.botmaker.studio.types.PrimitiveKind;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.util.MethodSignature;
 import org.eclipse.jdt.core.dom.*;
@@ -19,8 +21,10 @@ import org.eclipse.jdt.core.dom.*;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class StatementFactory {
 
@@ -223,23 +227,18 @@ public class StatementFactory {
         };
     }
 
+    /**
+     * A type node for {@code typeName}. The {@code primitive} flag comes from the catalog entry, so a
+     * disagreement between it and the name is a catalog bug: fall back to a named type rather than throw,
+     * which is what the old {@code primitiveCode} switch did on any name it didn't list (including
+     * {@code void}, which it omitted outright).
+     */
     private static Type typeNode(AST ast, String typeName, boolean primitive) {
-        if (primitive) return ast.newPrimitiveType(primitiveCode(typeName));
+        if (primitive) {
+            Optional<PrimitiveKind> kind = PrimitiveKind.fromKeyword(typeName);
+            if (kind.isPresent()) return ast.newPrimitiveType(kind.get().code());
+        }
         return ProjectAnalyzer.createTypeNode(ast, typeName);
-    }
-
-    private static PrimitiveType.Code primitiveCode(String name) {
-        return switch (name) {
-            case "int" -> PrimitiveType.INT;
-            case "double" -> PrimitiveType.DOUBLE;
-            case "boolean" -> PrimitiveType.BOOLEAN;
-            case "long" -> PrimitiveType.LONG;
-            case "float" -> PrimitiveType.FLOAT;
-            case "char" -> PrimitiveType.CHAR;
-            case "byte" -> PrimitiveType.BYTE;
-            case "short" -> PrimitiveType.SHORT;
-            default -> throw new IllegalArgumentException("Not a primitive type: " + name);
-        };
     }
 
     // --- Bespoke one-off statement creators ---
@@ -307,9 +306,7 @@ public class StatementFactory {
         return ITERABLE_TYPES.contains(type.simpleName());
     }
 
-    private static final java.util.Set<String> ITERABLE_TYPES = java.util.Set.of(
-            "Iterable", "Collection", "List", "ArrayList", "LinkedList", "Set", "HashSet", "LinkedHashSet",
-            "TreeSet", "Queue", "Deque", "ArrayDeque");
+    private static final java.util.Set<String> ITERABLE_TYPES = JdkType.simpleNames(JdkType.ITERABLES);
 
     /**
      * The loop-variable type for iterating {@code type}: an array's leaf type when known, else {@code var} —
@@ -319,8 +316,7 @@ public class StatementFactory {
     private static Type elementTypeNode(AST ast, ResolvedType type) {
         if (type != null && type.isArray()) {
             ResolvedType leaf = type.leafType();
-            if (leaf.isPrimitive()) return ast.newPrimitiveType(primitiveCode(leaf.simpleName()));
-            return ProjectAnalyzer.createTypeNode(ast, leaf.simpleName());
+            return typeNode(ast, leaf.simpleName(), leaf.isPrimitive());
         }
         return ast.newSimpleType(ast.newSimpleName("var"));
     }
@@ -430,8 +426,12 @@ public class StatementFactory {
         return SWITCHABLE_TYPES.contains(type.simpleName());
     }
 
-    private static final java.util.Set<String> SWITCHABLE_TYPES = java.util.Set.of(
-            "int", "short", "byte", "char", "Integer", "Short", "Byte", "Character", "String");
+    private static final java.util.Set<String> SWITCHABLE_TYPES = Stream.concat(
+            Stream.of(PrimitiveKind.INT, PrimitiveKind.SHORT, PrimitiveKind.BYTE, PrimitiveKind.CHAR)
+                    .map(PrimitiveKind::keyword),
+            Stream.of(JdkType.INTEGER, JdkType.SHORT, JdkType.BYTE, JdkType.CHARACTER, JdkType.STRING)
+                    .map(JdkType::simpleName))
+            .collect(Collectors.toUnmodifiableSet());
 
     /** A constant of the switch subject's type for the seeded first case. */
     private static Expression firstCaseLabel(AST ast, ResolvedType type) {

@@ -78,7 +78,7 @@ class MethodSignatureTest {
     void addingAParameterAppendsItAndLeavesTheBodyAlone() {
         Env e = env();
         String result = MethodHandler.addParameterToMethod(
-                e.ctx(), SOURCE, method(e.cu(), "scale"), ResolvedType.primitive("boolean"), "loud");
+                e.ctx(), SOURCE, method(e.cu(), "scale"), ResolvedType.BOOLEAN, "loud");
 
         assertTrue(result.contains("scale(int factor, boolean loud)"), result);
         assertTrue(result.contains("int doubled = factor * 2;"), "the body is untouched");
@@ -97,7 +97,7 @@ class MethodSignatureTest {
     void changingAParameterTypeRewritesTheTypeAndNotTheName() {
         Env e = env();
         String result = MethodHandler.changeMethodParameterType(
-                e.ctx(), SOURCE, method(e.cu(), "scale"), 0, ResolvedType.primitive("double"));
+                e.ctx(), SOURCE, method(e.cu(), "scale"), 0, ResolvedType.DOUBLE);
 
         assertTrue(result.contains("scale(double factor)"), result);
     }
@@ -116,7 +116,7 @@ class MethodSignatureTest {
     void aNewReturnTypeIsAppliedAndTheDefaultReturnFollowsIt() {
         Env e = env();
         String result = MethodHandler.setMethodReturnType(
-                e.ctx(), SOURCE, method(e.cu(), "caller"), ResolvedType.primitive("boolean"));
+                e.ctx(), SOURCE, method(e.cu(), "caller"), ResolvedType.BOOLEAN);
 
         assertTrue(result.contains("public boolean caller()"), result);
         assertTrue(result.contains("return false;"),
@@ -128,7 +128,7 @@ class MethodSignatureTest {
     void switchingToVoidDropsTheTrailingReturn() {
         Env e = env();
         String result = MethodHandler.setMethodReturnType(
-                e.ctx(), SOURCE, method(e.cu(), "scale"), ResolvedType.primitive("void"));
+                e.ctx(), SOURCE, method(e.cu(), "scale"), ResolvedType.VOID);
 
         assertTrue(result.contains("public void scale(int factor)"), result);
         assertTrue(!result.contains("return doubled;"),

@@ -44,11 +44,11 @@ public class ComparisonExpressionBlock extends AbstractExpressionBlock {
         // 1. Determine Input Types based on Operator
         ResolvedType operandType;
         if ("&&".equals(operator) || "||".equals(operator)) {
-            operandType = ResolvedType.primitive("boolean");
+            operandType = ResolvedType.BOOLEAN;
         } else if ("==".equals(operator) || "!=".equals(operator)) {
             operandType = ResolvedType.UNKNOWN; // Equality checks anything
         } else {
-            operandType = ResolvedType.primitive("int");     // Comparison (<, >) requires numbers (defaulting to INT context)
+            operandType = ResolvedType.INT;     // Comparison (<, >) requires numbers (defaulting to INT context)
         }
 
         final ResolvedType targetType = operandType;

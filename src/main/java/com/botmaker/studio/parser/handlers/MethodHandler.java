@@ -171,7 +171,7 @@ public class MethodHandler {
 
         Type oldTypeNode = method.getReturnType2();
         ResolvedType oldType = oldTypeNode != null
-                ? ProjectAnalyzer.resolveType(oldTypeNode) : ResolvedType.primitive("void");
+                ? ProjectAnalyzer.resolveType(oldTypeNode) : ResolvedType.VOID;
 
         Type newTypeNode = newType.isVoid() ?
                 ast.newPrimitiveType(PrimitiveType.VOID) :

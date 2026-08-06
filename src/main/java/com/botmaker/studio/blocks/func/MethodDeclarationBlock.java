@@ -201,7 +201,7 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
         if (canEditSignature()) {
             ExpressionMenu.installTypeSelector(returnTypeLabel, "Click to change return type",
                     () -> mdRet.getReturnType2() != null
-                            ? ProjectAnalyzer.resolveType(mdRet.getReturnType2()) : ResolvedType.primitive("void"),
+                            ? ProjectAnalyzer.resolveType(mdRet.getReturnType2()) : ResolvedType.VOID,
                     context, null, true,
                     newType -> context.getCodeEditor().setMethodReturnType(mdRet, newType));
         }

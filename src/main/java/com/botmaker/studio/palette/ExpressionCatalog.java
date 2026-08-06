@@ -6,6 +6,7 @@ import com.botmaker.studio.palette.ExpressionType.Op;
 import com.botmaker.studio.palette.ExpressionType.PrefixOp;
 import com.botmaker.studio.palette.ExpressionType.Reference;
 import com.botmaker.studio.project.ProjectState;
+import com.botmaker.studio.types.JdkType;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.types.TypeExpectation;
 
@@ -124,8 +125,7 @@ public final class ExpressionCatalog {
      * or {@code FromIndex} {@code java.lang.Object} does, and must stay permissive.
      */
     private static boolean isObject(ResolvedType type) {
-        String qualified = type.leafType().qualifiedName();
-        return "java.lang.Object".equals(qualified) || "Object".equals(qualified);
+        return type.leafType().is(JdkType.OBJECT);
     }
 
     /** The {@link TypeExpectation} an expression's result falls into (only Literals/operators reach here). */

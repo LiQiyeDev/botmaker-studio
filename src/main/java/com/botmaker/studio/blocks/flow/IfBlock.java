@@ -92,13 +92,13 @@ public class IfBlock extends AbstractStatementBlock implements BlockWithChildren
         String keyword = isElseIf ? "Else If" : "If";
 
         Button addButton = createAddButton(e ->
-                showExpressionMenuAndReplace((Button)e.getSource(), context, ResolvedType.primitive("boolean"),
+                showExpressionMenuAndReplace((Button)e.getSource(), context, ResolvedType.BOOLEAN,
                         condition != null ? (Expression) condition.getAstNode() : null)
         );
 
         Node headerContent = BlockLayout.sentence()
                 .addKeyword(keyword)
-                .addExpressionSlot(condition, context, ResolvedType.primitive("boolean"))
+                .addExpressionSlot(condition, context, ResolvedType.BOOLEAN)
                 .addNode(addButton)
                 .build();
 

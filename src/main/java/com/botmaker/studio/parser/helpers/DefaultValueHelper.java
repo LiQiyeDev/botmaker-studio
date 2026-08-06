@@ -1,5 +1,7 @@
 package com.botmaker.studio.parser.helpers;
 
+import com.botmaker.studio.types.JdkType;
+import com.botmaker.studio.types.PrimitiveKind;
 import com.botmaker.studio.types.ResolvedType;
 import org.eclipse.jdt.core.dom.*;
 
@@ -12,31 +14,35 @@ public class DefaultValueHelper {
         if (type == null) return null;
 
         if (type.isNumeric()) {
-            String name = type.simpleName();
-            // Check for floating point
-            if ("double".equalsIgnoreCase(name) || "float".equalsIgnoreCase(name) ||
-                    "Double".equals(name) || "Float".equals(name)) {
-                return ast.newNumberLiteral("0.0");
-            }
-            return ast.newNumberLiteral("0");
+            return ast.newNumberLiteral(isFloatingPoint(type) ? "0.0" : "0");
         }
 
         if (type.isBoolean()) {
             return ast.newBooleanLiteral(false);
         }
 
-        if (type.isString() || "char".equals(type.simpleName()) || "Character".equals(type.simpleName())) {
-            if ("char".equals(type.simpleName()) || "Character".equals(type.simpleName())) {
-                CharacterLiteral literal = ast.newCharacterLiteral();
-                literal.setCharValue('a');
-                return literal;
-            }
+        if (isCharacter(type)) {
+            CharacterLiteral literal = ast.newCharacterLiteral();
+            literal.setCharValue('a');
+            return literal;
+        }
+
+        if (type.isString()) {
             StringLiteral str = ast.newStringLiteral();
             str.setLiteralValue("");
             return str;
         }
 
         return null;
+    }
+
+    private static boolean isFloatingPoint(ResolvedType type) {
+        return type.is(PrimitiveKind.DOUBLE) || type.is(PrimitiveKind.FLOAT)
+                || type.is(JdkType.DOUBLE) || type.is(JdkType.FLOAT);
+    }
+
+    private static boolean isCharacter(ResolvedType type) {
+        return type.is(PrimitiveKind.CHAR) || type.is(JdkType.CHARACTER);
     }
 
     public static Expression createDefaultForPrimitive(AST ast, String typeName) {

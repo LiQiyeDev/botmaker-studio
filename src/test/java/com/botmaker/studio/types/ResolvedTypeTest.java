@@ -96,7 +96,7 @@ class ResolvedTypeTest {
     /** A primitive grown into an array becomes a Named — and rounds back to a Primitive on the way down. */
     @Test
     void aPrimitiveGrownIntoAnArrayComesBackDownAPrimitive() {
-        ResolvedType arr = ResolvedType.primitive("double").asArray(2);
+        ResolvedType arr = ResolvedType.DOUBLE.asArray(2);
 
         assertEquals("double[][]", arr.qualifiedName());
         assertTrue(arr.isArray());
@@ -134,8 +134,8 @@ class ResolvedTypeTest {
 
     @Test
     void identityIsTheQualifiedNameEvenAcrossVariants() {
-        assertEquals(ResolvedType.primitive("int"), ResolvedType.named("int"));
-        assertEquals(ResolvedType.primitive("int").hashCode(), ResolvedType.named("int").hashCode(),
+        assertEquals(ResolvedType.INT, ResolvedType.named("int"));
+        assertEquals(ResolvedType.INT.hashCode(), ResolvedType.named("int").hashCode(),
                 "equal types must hash alike or a Set of ResolvedType silently keeps duplicates");
         assertFalse(ResolvedType.named("java.lang.String").equals(ResolvedType.named("String")),
                 "a simple name and a qualified name are different types by identity, "

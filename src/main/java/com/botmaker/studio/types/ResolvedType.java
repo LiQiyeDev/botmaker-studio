@@ -8,6 +8,7 @@ import org.eclipse.jdt.core.dom.IVariableBinding;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -27,16 +28,18 @@ import java.util.stream.Collectors;
 public sealed interface ResolvedType
         permits ResolvedType.Bound, ResolvedType.FromIndex, ResolvedType.Primitive, ResolvedType.Named {
 
-    Set<String> PRIMITIVE_NAMES =
-            Set.of("int", "double", "boolean", "char", "long", "float", "short", "byte", "void");
-    Set<String> NUMERIC_PRIMITIVES =
-            Set.of("int", "double", "long", "float", "short", "byte");
-    Set<String> NUMERIC_WRAPPERS = Set.of(
-            "java.lang.Integer", "java.lang.Double", "java.lang.Float",
-            "java.lang.Long", "java.lang.Short", "java.lang.Byte");
+    /** The boxed numerics by qualified name — the one group still compared as strings, since a
+     * {@link Bound}/{@link FromIndex} only ever offers its name. */
+    Set<String> NUMERIC_BOX_NAMES = JdkType.qualifiedNames(JdkType.NUMERIC_BOXES);
 
     /** Sentinel for an unresolved / unknown type (assignable to/from anything). */
-    ResolvedType UNKNOWN = new Named("java.lang.Object");
+    ResolvedType UNKNOWN = new Named(JdkType.OBJECT.qualifiedName());
+
+    /** The three primitives the block layer asks for by far the most, ready-made. */
+    ResolvedType BOOLEAN = primitive(PrimitiveKind.BOOLEAN);
+    ResolvedType INT = primitive(PrimitiveKind.INT);
+    ResolvedType DOUBLE = primitive(PrimitiveKind.DOUBLE);
+    ResolvedType VOID = primitive(PrimitiveKind.VOID);
 
     // --- Identity ---
     String simpleName();
@@ -46,12 +49,37 @@ public sealed interface ResolvedType
     boolean isEnum();
     boolean isArray();
     boolean isPrimitive();
-    boolean isString();
-    boolean isNumeric();
-    boolean isBoolean();
-    boolean isVoid();
+
+    /**
+     * The four questions every variant used to answer for itself, by comparing its name against the same
+     * literals — three parallel copies of {@code "java.lang.String".equals(…)} and of the numeric-wrapper set.
+     * They are defaults now because the answer never actually depended on where the type came from, only on
+     * the name it reports.
+     */
+    default boolean isString()  { return is(JdkType.STRING); }
+    default boolean isBoolean() { return is(PrimitiveKind.BOOLEAN) || is(JdkType.BOOLEAN); }
+    default boolean isVoid()    { return is(PrimitiveKind.VOID); }
+
+    default boolean isNumeric() {
+        Optional<PrimitiveKind> kind = PrimitiveKind.fromKeyword(qualifiedName());
+        if (kind.isPresent()) return kind.get().isNumeric();
+        return NUMERIC_BOX_NAMES.contains(qualifiedName());
+    }
 
     default boolean isUnknown() { return false; }
+
+    /**
+     * Whether this type <em>is</em> {@code jdkType}. The qualified name always counts; the bare simple name
+     * counts only for {@code java.lang}, which is the one package the language auto-imports — a source file
+     * writing {@code String} can mean nothing else, whereas a bare {@code List} could be a project class.
+     */
+    default boolean is(JdkType jdkType) {
+        return qualifiedName().equals(jdkType.qualifiedName())
+                || ("java.lang".equals(jdkType.packageName()) && qualifiedName().equals(jdkType.simpleName()));
+    }
+
+    /** Whether this type is the primitive {@code kind} (never its box — {@link #isBoolean()} covers both). */
+    default boolean is(PrimitiveKind kind) { return kind.keyword().equals(qualifiedName()); }
 
     /**
      * Whether this type <em>is</em> {@code sdkType} — the single owner of a test four pickers each spelled out
@@ -83,7 +111,10 @@ public sealed interface ResolvedType
 
     static ResolvedType of(ITypeBinding binding) {
         if (binding == null) return UNKNOWN;
-        if (binding.isPrimitive()) return new Primitive(binding.getName());
+        if (binding.isPrimitive()) {
+            Optional<PrimitiveKind> kind = PrimitiveKind.fromKeyword(binding.getName());
+            if (kind.isPresent()) return primitive(kind.get());
+        }
         return new Bound(binding);
     }
 
@@ -92,8 +123,13 @@ public sealed interface ResolvedType
         return new FromIndex(info);
     }
 
-    static ResolvedType primitive(String name) {
-        return new Primitive(name);
+    static ResolvedType primitive(PrimitiveKind kind) {
+        return new Primitive(kind);
+    }
+
+    /** A JDK type by identity, carrying its qualified name — {@code ResolvedType.of(JdkType.STRING)}. */
+    static ResolvedType of(JdkType type) {
+        return new Named(type.qualifiedName());
     }
 
     /**
@@ -110,8 +146,8 @@ public sealed interface ResolvedType
     static ResolvedType named(String qualifiedName) {
         if (qualifiedName == null || qualifiedName.isBlank()) return UNKNOWN;
         String t = qualifiedName.trim();
-        String leaf = stripArray(t);
-        if (PRIMITIVE_NAMES.contains(leaf) && leaf.equals(t)) return new Primitive(t);
+        Optional<PrimitiveKind> kind = PrimitiveKind.fromKeyword(t);
+        if (kind.isPresent()) return primitive(kind.get());
         return new Named(t);
     }
 
@@ -163,15 +199,6 @@ public sealed interface ResolvedType
         public boolean isEnum()       { return binding.isEnum(); }
         public boolean isArray()      { return binding.isArray(); }
         public boolean isPrimitive()  { return binding.isPrimitive(); }
-        public boolean isString()     { return "java.lang.String".equals(binding.getQualifiedName()); }
-        public boolean isBoolean() {
-            return "boolean".equals(binding.getName()) || "java.lang.Boolean".equals(binding.getQualifiedName());
-        }
-        public boolean isVoid()       { return "void".equals(binding.getName()); }
-        public boolean isNumeric() {
-            if (binding.isPrimitive()) return NUMERIC_PRIMITIVES.contains(binding.getName());
-            return NUMERIC_WRAPPERS.contains(binding.getQualifiedName());
-        }
         public int arrayDimensions()  { return binding.getDimensions(); }
         public ResolvedType leafType() {
             return binding.isArray() ? ResolvedType.of(binding.getElementType()) : this;
@@ -205,10 +232,6 @@ public sealed interface ResolvedType
         public boolean isEnum()       { return info.isEnum(); }
         public boolean isArray()      { return false; }
         public boolean isPrimitive()  { return false; }
-        public boolean isString()     { return "java.lang.String".equals(info.getName()); }
-        public boolean isBoolean()    { return "java.lang.Boolean".equals(info.getName()); }
-        public boolean isVoid()       { return false; }
-        public boolean isNumeric()    { return NUMERIC_WRAPPERS.contains(info.getName()); }
         public int arrayDimensions()  { return 0; }
         public ResolvedType leafType() { return this; }
         public ResolvedType asArray(int dimensions) {
@@ -231,29 +254,28 @@ public sealed interface ResolvedType
         @Override public String toString()        { return "FromIndex{" + qualifiedName() + "}"; }
     }
 
-    /** A primitive (or void) known only by name. */
-    record Primitive(String name) implements ResolvedType {
-        public String simpleName()    { return name; }
-        public String qualifiedName() { return name; }
+    /** A primitive (or void). Holds the {@link PrimitiveKind}, so the variant can no longer exist for a name
+     * that isn't one — which the {@code Primitive(String)} it replaced could. */
+    record Primitive(PrimitiveKind kind) implements ResolvedType {
+        public String simpleName()    { return kind.keyword(); }
+        public String qualifiedName() { return kind.keyword(); }
         public boolean isEnum()       { return false; }
         public boolean isArray()      { return false; }
         public boolean isPrimitive()  { return true; }
         public boolean isString()     { return false; }
-        public boolean isBoolean()    { return "boolean".equals(name); }
-        public boolean isVoid()       { return "void".equals(name); }
-        public boolean isNumeric()    { return NUMERIC_PRIMITIVES.contains(name); }
+        public boolean isNumeric()    { return kind.isNumeric(); }
         public int arrayDimensions()  { return 0; }
         public ResolvedType leafType() { return this; }
         public ResolvedType asArray(int dimensions) {
-            return dimensions == 0 ? this : new Named(name + "[]".repeat(dimensions));
+            return dimensions == 0 ? this : new Named(kind.keyword() + "[]".repeat(dimensions));
         }
         public List<String> enumConstants() { return List.of(); }
         public boolean isAssignmentCompatible(ResolvedType target) {
             return nameCompatible(this, target);
         }
         @Override public boolean equals(Object o) { return typeEquals(this, o); }
-        @Override public int hashCode()           { return name.hashCode(); }
-        @Override public String toString()        { return "Primitive{" + name + "}"; }
+        @Override public int hashCode()           { return kind.keyword().hashCode(); }
+        @Override public String toString()        { return "Primitive{" + kind.keyword() + "}"; }
     }
 
     /** Any other type known only by (qualified) name, including array names. */
@@ -261,22 +283,8 @@ public sealed interface ResolvedType
         public String simpleName()    { return simpleOf(qualifiedName); }
         public boolean isEnum()       { return false; }
         public boolean isArray()      { return qualifiedName.endsWith("[]"); }
-        public boolean isPrimitive()  { return PRIMITIVE_NAMES.contains(qualifiedName); }
-        public boolean isString() {
-            return "java.lang.String".equals(qualifiedName) || "String".equals(qualifiedName);
-        }
-        public boolean isBoolean() {
-            return "java.lang.Boolean".equals(qualifiedName) || "boolean".equals(qualifiedName);
-        }
-        public boolean isVoid()       { return "void".equals(qualifiedName); }
-        public boolean isNumeric() {
-            return NUMERIC_WRAPPERS.contains(qualifiedName) || NUMERIC_PRIMITIVES.contains(qualifiedName);
-        }
-        public boolean isUnknown() {
-            return qualifiedName.isBlank()
-                    || "java.lang.Object".equals(qualifiedName)
-                    || "Object".equals(qualifiedName);
-        }
+        public boolean isPrimitive()  { return PrimitiveKind.isPrimitiveKeyword(qualifiedName); }
+        public boolean isUnknown()    { return qualifiedName.isBlank() || is(JdkType.OBJECT); }
         public int arrayDimensions()  { return dimensionsOf(qualifiedName); }
         public ResolvedType leafType() { return ResolvedType.named(stripArray(qualifiedName)); }
         public ResolvedType asArray(int dimensions) {

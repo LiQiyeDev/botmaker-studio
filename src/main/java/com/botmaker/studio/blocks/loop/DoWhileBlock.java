@@ -64,14 +64,14 @@ public class DoWhileBlock extends AbstractStatementBlock implements BlockWithChi
                 showExpressionMenuAndReplace(
                         (Button) e.getSource(),
                         context,
-                        ResolvedType.primitive("boolean"),
+                        ResolvedType.BOOLEAN,
                         condition != null ? (Expression) condition.getAstNode() : null
                 )
         );
 
         HBox footer = BlockLayout.sentence()
                 .addKeyword("while")
-                .addExpressionSlot(condition, context, ResolvedType.primitive("boolean"))
+                .addExpressionSlot(condition, context, ResolvedType.BOOLEAN)
                 .addNode(changeBtn)
                 .build();
 

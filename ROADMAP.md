@@ -6,6 +6,20 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-07 — the Java and JDK type names are typed too (`types/PrimitiveKind`, `types/JdkType`).** The
+  language's own closed set was spelled as strings: `ResolvedType.primitive("boolean")` at 19 block call
+  sites, two `Set<String>` constants of the primitive names that nothing tied to the parse, and a
+  `StatementFactory` switch mapping each name to its JDT `PrimitiveType.Code` that *threw* on anything
+  unlisted — including `void`, which it omitted. `PrimitiveKind` owns the keyword, `isNumeric()`, the JDT
+  `code()` and `boxed()`; `ResolvedType.Primitive` now holds the kind, so the variant can't exist for a
+  non-primitive, and `ResolvedType.BOOLEAN/INT/DOUBLE/VOID` serve the call sites. `JdkType` holds a real
+  `Class<?>` per JDK type the editor names — the `SdkType` trick — collapsing four re-listings
+  (`ProjectAnalyzer`'s `java.util` fallback, which built its answer as `"java.util." + simpleName`;
+  `StatementFactory`'s `ITERABLE_TYPES`/`SWITCHABLE_TYPES`; `DefaultValueHelper`'s wrappers; `ResolvedType`'s
+  `NUMERIC_WRAPPERS`). `isString`/`isBoolean`/`isVoid`/`isNumeric` are now single defaults on the interface
+  instead of three parallel per-variant copies, and `is(JdkType)` trusts a bare simple name only for
+  `java.lang`, the one package the language auto-imports. 817 tests, was 811.
+
 - **2026-08-07 — the editor reaches the SDK surface through `palette/SdkType`, not around it.** The enum exists
   so facade and value-type names are compiler-checked, yet ~40 sites re-spelled them: `"ImageTemplate"` alone
   was written 13× across 8 files, and `InitializerFactory`, `ClickBlock`, `CaptureExpr`, `PrecisionArgPicker`,

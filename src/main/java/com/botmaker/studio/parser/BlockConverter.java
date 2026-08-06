@@ -27,6 +27,7 @@ import com.botmaker.studio.project.LockResolver;
 import com.botmaker.studio.project.MethodLock;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
+import com.botmaker.studio.types.JdkType;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
 import org.eclipse.jdt.core.dom.*;
 
@@ -747,12 +748,13 @@ public class BlockConverter {
         if (expr instanceof ArrayCreation) return true;
         if (expr instanceof ClassInstanceCreation cic) {
             String typeName = cic.getType().toString();
-            return (typeName.startsWith("ArrayList") || typeName.startsWith("java.util.ArrayList")) && !cic.arguments().isEmpty();
+            return (typeName.startsWith(JdkType.ARRAY_LIST.simpleName())
+                    || typeName.startsWith(JdkType.ARRAY_LIST.qualifiedName())) && !cic.arguments().isEmpty();
         }
         if (expr instanceof MethodInvocation mi) {
             String scope = mi.getExpression() != null ? mi.getExpression().toString() : "";
-            return (scope.equals("Arrays") && mi.getName().getIdentifier().equals("asList")) ||
-                    (scope.equals("List") && mi.getName().getIdentifier().equals("of"));
+            return (scope.equals(JdkType.ARRAYS.simpleName()) && mi.getName().getIdentifier().equals("asList")) ||
+                    (scope.equals(JdkType.LIST.simpleName()) && mi.getName().getIdentifier().equals("of"));
         }
         return false;
     }

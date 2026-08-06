@@ -30,7 +30,7 @@ public class WaitBlock extends AbstractStatementBlock {
     protected Node createUINode(CodeEditorService context) {
         var sentence = BlockLayout.sentence()
                 .addKeyword("Wait")
-                .addExpressionSlot(duration, context, ResolvedType.primitive("int"))
+                .addExpressionSlot(duration, context, ResolvedType.INT)
                 .addKeyword("ms")
                 .build();
 

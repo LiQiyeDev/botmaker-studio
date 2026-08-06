@@ -1,5 +1,6 @@
 package com.botmaker.studio.project.activity;
 
+import com.botmaker.studio.types.JdkType;
 import com.botmaker.studio.types.ResolvedType;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
@@ -13,19 +14,19 @@ import com.fasterxml.jackson.databind.node.JsonNodeFactory;
  * can type-filter activities against an expected slot type.
  */
 public enum ActivityType {
-    BOOL("Yes / No", "boolean", ResolvedType.primitive("boolean")) {
+    BOOL("Yes / No", "boolean", ResolvedType.BOOLEAN) {
         public String loadExpression(String node) { return node + ".asBoolean(false)"; }
         public JsonNode defaultValue() { return FACTORY.booleanNode(false); }
     },
-    INT("Whole number", "int", ResolvedType.primitive("int")) {
+    INT("Whole number", "int", ResolvedType.INT) {
         public String loadExpression(String node) { return node + ".asInt(0)"; }
         public JsonNode defaultValue() { return FACTORY.numberNode(0); }
     },
-    DOUBLE("Decimal number", "double", ResolvedType.primitive("double")) {
+    DOUBLE("Decimal number", "double", ResolvedType.DOUBLE) {
         public String loadExpression(String node) { return node + ".asDouble(0.0)"; }
         public JsonNode defaultValue() { return FACTORY.numberNode(0.0); }
     },
-    TEXT("Text", "String", ResolvedType.named("java.lang.String")) {
+    TEXT("Text", "String", ResolvedType.of(JdkType.STRING)) {
         public String loadExpression(String node) { return node + ".asText(\"\")"; }
         public JsonNode defaultValue() { return FACTORY.textNode(""); }
     },

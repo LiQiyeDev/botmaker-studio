@@ -42,7 +42,7 @@ public class BinaryExpressionBlock extends AbstractExpressionBlock {
         if (leftOperand != null) {
             expressionBox.getChildren().add(leftOperand.getUINode(context));
             javafx.scene.control.Button changeLeft = createChangeButton(e ->
-                    showExpressionMenuAndReplace((Button)e.getSource(), context, ResolvedType.primitive("int"),
+                    showExpressionMenuAndReplace((Button)e.getSource(), context, ResolvedType.INT,
                             (Expression) leftOperand.getAstNode())
             );
             if (changeLeft != null) {
@@ -71,7 +71,7 @@ public class BinaryExpressionBlock extends AbstractExpressionBlock {
         if (rightOperand != null) {
             expressionBox.getChildren().add(rightOperand.getUINode(context));
             javafx.scene.control.Button changeRight = createChangeButton(e ->
-                    showExpressionMenuAndReplace((Button)e.getSource(), context, ResolvedType.primitive("int"),
+                    showExpressionMenuAndReplace((Button)e.getSource(), context, ResolvedType.INT,
                             (Expression) rightOperand.getAstNode())
             );
             if (changeRight != null) {
