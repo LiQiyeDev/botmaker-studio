@@ -65,6 +65,22 @@ public final class ProjectSettingsService {
     }
 
     /**
+     * Persists {@code newSettings} on the calling thread and refreshes project state, without publishing.
+     *
+     * <p>For teardown: the window is closing or the project is being swapped out, so there is no one left to
+     * notify and — the reason this exists at all — no guarantee that an async write would outlive the caller.
+     * Best-effort; a failure is reported and the close continues.
+     */
+    public void saveNow(StudioProjectSettings newSettings) {
+        try {
+            newSettings.write(config.resourcesRoot());
+            state.setSettings(newSettings);
+        } catch (IOException e) {
+            System.err.println("Failed to save settings: " + e.getMessage());
+        }
+    }
+
+    /**
      * Persists {@code newSettings} ({@code settings.json}), refreshes project state and publishes
      * {@link SettingsChangedEvent}. Runs asynchronously; the returned future completes exceptionally if
      * writing fails. Capture-source blocks emit inline expressions (see

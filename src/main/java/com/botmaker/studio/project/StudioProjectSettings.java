@@ -44,13 +44,15 @@ import java.util.Map;
  *                            (backward-compatible; absent → null)
  * @param overlayState        where the overlay HUD sat and how tall its tree was, restored the next time it
  *                            opens (backward-compatible; absent → null)
+ * @param workspaceLayout     where the main window's two dividers sat and which bottom tab was open, restored
+ *                            the next time the project opens (backward-compatible; absent → null)
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex,
                                     List<String> knownWindowTitles, Map<String, String> favoriteOverloads,
                                     Resolution referenceResolution, Map<String, List<String>> favoriteMethods,
                                     ProjectTemplate template, String lastRecordedActivity,
-                                    OverlayState overlayState) {
+                                    OverlayState overlayState, WorkspaceLayout workspaceLayout) {
 
     /** A target-window size in logical screen pixels. */
     public record Resolution(int width, int height) {}
@@ -66,6 +68,47 @@ public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer 
      * attached screen is discarded on restore rather than trusted; monitors come and go.
      */
     public record OverlayState(int x, int y, int visibleLines) {}
+
+    /**
+     * The main window's remembered layout: the explorer/canvas divider, the canvas/bottom divider, and the
+     * name of the bottom tab that was open. Window geometry is not here — that is the user's, not the
+     * project's, and already persists through {@code ProjectPreferences.WindowState}.
+     *
+     * <p>Per project, because how much room the file tree or the console deserves is a property of the bot
+     * being worked on: a bot being read wants a wide tree, a bot being debugged wants a tall terminal.
+     *
+     * <p>Each divider is {@code null} when it was never saved <em>or</em> when the saved value is unusable —
+     * a divider at 0.0 or 1.0 hides a whole pane, and a settings file that has been hand-edited (or written
+     * before the window was ever laid out) must not be able to open a window with no canvas in it. Callers
+     * ask with {@link #explorerDividerOr}/{@link #bottomDividerOr} and get their own default back instead.
+     *
+     * @param explorerDivider the horizontal split's position, {@code 0..1}, or {@code null} if unusable
+     * @param bottomDivider   the vertical split's position, {@code 0..1}, or {@code null} if unusable
+     * @param bottomTab       the open bottom tab's key, or {@code null}; an unknown key is ignored on restore
+     */
+    public record WorkspaceLayout(Double explorerDivider, Double bottomDivider, String bottomTab) {
+
+        /** Dividers this close to an edge have hidden a pane, so they are treated as never saved. */
+        private static final double EDGE = 0.02;
+
+        public WorkspaceLayout {
+            explorerDivider = usable(explorerDivider);
+            bottomDivider = usable(bottomDivider);
+        }
+
+        private static Double usable(Double position) {
+            if (position == null || !Double.isFinite(position)) return null;
+            return position < EDGE || position > 1 - EDGE ? null : position;
+        }
+
+        public double explorerDividerOr(double fallback) {
+            return explorerDivider == null ? fallback : explorerDivider;
+        }
+
+        public double bottomDividerOr(double fallback) {
+            return bottomDivider == null ? fallback : bottomDivider;
+        }
+    }
 
     public static final String FILE_NAME = "settings.json";
 
@@ -88,6 +131,16 @@ public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer 
         Map<String, List<String>> out = new LinkedHashMap<>();
         src.forEach((k, v) -> out.put(k, v == null ? List.of() : List.copyOf(v)));
         return Map.copyOf(out);
+    }
+
+    /** Convenience constructor for callers that manage the overlay's layout but not the window's. */
+    public StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex,
+                                 List<String> knownWindowTitles, Map<String, String> favoriteOverloads,
+                                 Resolution referenceResolution, Map<String, List<String>> favoriteMethods,
+                                 ProjectTemplate template, String lastRecordedActivity,
+                                 OverlayState overlayState) {
+        this(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads, referenceResolution,
+                favoriteMethods, template, lastRecordedActivity, overlayState, null);
     }
 
     /** Convenience constructor for callers that manage the last activity but not the overlay's layout. */
@@ -158,43 +211,49 @@ public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer 
     /** This settings with the target list replaced (keeps the default if still in range). */
     public StudioProjectSettings withTargets(List<CaptureTarget> targets) {
         return new StudioProjectSettings(targets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
-                referenceResolution, favoriteMethods, template, lastRecordedActivity, overlayState);
+                referenceResolution, favoriteMethods, template, lastRecordedActivity, overlayState, workspaceLayout);
     }
 
     /** This settings with the default index replaced. */
     public StudioProjectSettings withDefaultIndex(Integer index) {
         return new StudioProjectSettings(captureTargets, index, knownWindowTitles, favoriteOverloads,
-                referenceResolution, favoriteMethods, template, lastRecordedActivity, overlayState);
+                referenceResolution, favoriteMethods, template, lastRecordedActivity, overlayState, workspaceLayout);
     }
 
     /** This settings with the remembered window titles replaced. */
     public StudioProjectSettings withKnownWindowTitles(List<String> titles) {
         return new StudioProjectSettings(captureTargets, defaultTargetIndex, titles, favoriteOverloads,
-                referenceResolution, favoriteMethods, template, lastRecordedActivity, overlayState);
+                referenceResolution, favoriteMethods, template, lastRecordedActivity, overlayState, workspaceLayout);
     }
 
     /** This settings with the capture reference resolution replaced ({@code null} clears it). */
     public StudioProjectSettings withReferenceResolution(Resolution resolution) {
         return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
-                resolution, favoriteMethods, template, lastRecordedActivity, overlayState);
+                resolution, favoriteMethods, template, lastRecordedActivity, overlayState, workspaceLayout);
     }
 
     /** This settings with the originating template recorded ({@code null} clears it). */
     public StudioProjectSettings withTemplate(ProjectTemplate template) {
         return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
-                referenceResolution, favoriteMethods, template, lastRecordedActivity, overlayState);
+                referenceResolution, favoriteMethods, template, lastRecordedActivity, overlayState, workspaceLayout);
     }
 
     /** This settings with the overlay editor's last authored activity recorded ({@code null} clears it). */
     public StudioProjectSettings withLastRecordedActivity(String activityName) {
         return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
-                referenceResolution, favoriteMethods, template, activityName, overlayState);
+                referenceResolution, favoriteMethods, template, activityName, overlayState, workspaceLayout);
     }
 
     /** This settings with the overlay HUD's remembered layout replaced ({@code null} clears it). */
     public StudioProjectSettings withOverlayState(OverlayState state) {
         return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
-                referenceResolution, favoriteMethods, template, lastRecordedActivity, state);
+                referenceResolution, favoriteMethods, template, lastRecordedActivity, state, workspaceLayout);
+    }
+
+    /** This settings with the main window's remembered layout replaced ({@code null} clears it). */
+    public StudioProjectSettings withWorkspaceLayout(WorkspaceLayout layout) {
+        return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
+                referenceResolution, favoriteMethods, template, lastRecordedActivity, overlayState, layout);
     }
 
     /**
@@ -206,7 +265,7 @@ public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer 
         if (signatureKey == null) next.remove(methodKey);
         else next.put(methodKey, signatureKey);
         return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, next,
-                referenceResolution, favoriteMethods, template, lastRecordedActivity, overlayState);
+                referenceResolution, favoriteMethods, template, lastRecordedActivity, overlayState, workspaceLayout);
     }
 
     /** The chosen overload signature key for {@code methodKey}, or {@code null} if no favorite is set. */
@@ -224,7 +283,7 @@ public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer 
         if (methods == null || methods.isEmpty()) next.remove(className);
         else next.put(className, List.copyOf(methods));
         return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
-                referenceResolution, next, template, lastRecordedActivity, overlayState);
+                referenceResolution, next, template, lastRecordedActivity, overlayState, workspaceLayout);
     }
 
     /** The favorite method names for {@code className} (preference order), or an empty list if none. */

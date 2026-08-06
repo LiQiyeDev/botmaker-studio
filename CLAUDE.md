@@ -205,14 +205,31 @@ the serialize/deserialize step is outsourced.
 
 The `ui/` package is split by concern:
 
-- **`ui/app/`** — the application shell: `UIManager` (builds the main scene) plus the panel/screen managers
-  `FileExplorerManager` (project file tree), `MenuBarManager` / `ToolbarManager` (menus and toolbar; the
-  **Project → Manage Libraries…** entry lives here), `EventLogManager` (runtime event/output log),
-  `ProjectSelectionScreen`, `VcsPanel` / `GitHubAccountBar` / `GoogleAccountBar`, and ~15 dialogs
+- **`ui/app/`** — the application shell. `UIManager` is the *coordinator*: it assembles the main window out
+  of the collaborators below and releases what that window acquired (`dispose()`) — which matters because a
+  new one is built on every project open **and every reload**, so anything it holds and doesn't release is
+  leaked per reload. It builds and hands callbacks to `EditorCanvas` (the block canvas, its scroll position
+  and the Reader banner), `DiagnosticsPanel` (the Errors tab), `IdentityCluster` (accounts + the theme
+  dropdown; owns one of the window's two `BlockTheme` listeners), `StudioActions` (every menu/toolbar action
+  in one wiring table, plus the GitHub/sharing services that back them), `ProjectRecoveryAction`
+  (**Project ▸ Recover Project Files**) and `WorkspaceLayoutStore` (the persisted dividers + open bottom tab);
+  none of them holds a reference back. `BottomTab` is the closed set of bottom tabs. Alongside those: the
+  panel/screen managers `FileExplorerManager` (project file tree), `MenuBarManager` / `ToolbarManager` (menus
+  and toolbar; the **Project → Manage Libraries…** entry lives here), `EventLogManager` (runtime event/output
+  log), `ProjectSelectionScreen`, `VcsPanel` / `GitHubAccountBar` / `GoogleAccountBar`, and ~15 dialogs
   (`ProjectSetupDialog`, `LaunchTargetDialog`, `ManageCaptureTargetsDialog`, `ManageLibrariesDialog`,
-  `ResourceManagerDialog`, `PublishDialog`, `GalleryDialog`, …). There is **no `PaletteManager`** — this
-  entry named one for a long time and no such file has ever existed; the insertable catalogs are `palette/`
-  below, and the overlay's own palette bar is `ui/app/overlay/OverlayPalette`.
+  `ResourceManagerDialog`, `PublishDialog`, `GalleryDialog`, …). The open-time source migrations are **not**
+  here — they are `project/ProjectOpenMigrations`, run from the shell's constructor before
+  `FileExplorerManager` exists, since a migration can delete a file the tree would otherwise go on listing.
+  There is **no `PaletteManager`** — this entry named one for a long time and no such file has ever existed;
+  the insertable catalogs are `palette/` below, and the overlay's own palette bar is
+  `ui/app/overlay/OverlayPalette`.
+- **`ui/app/pilot/`** — **Remote Pilot**: driving the bot from a phone. `RemotePilotUi` is the bring-up state
+  machine and the owner of the two OS resources (`PilotServer`'s bound port, `NestedSessionLauncher`'s nested
+  X display) — it is `AutoCloseable`, and `UIManager.dispose()` is what closes it. `RemotePilotDialog` (the
+  pairing dialog: URL, QR, token reset), `FunnelSetupWizard` (the Tailscale Funnel steps, rendered from a
+  `FunnelDiag`; makes no CLI calls itself) and `BackgroundModeBox` (the private-display controls) are pure
+  rendering over its records.
 - **`ui/app/capture/`** — the screen-capture feature: `OverlayTemplateCapture` (the on-screen capture toolbar)
   over `CaptureSurface` / `ObjectCaptureSurface` (rect and contour selection), `MagicWand`, `ColorSampler`,
   `ZoomPan`, `CaptureSourcePicker`, `TargetThumbnail`, `GameFrame`, `BatchTemplateNamingDialog`.
@@ -240,7 +257,11 @@ The `ui/` package is split by concern:
   `Spacing.gutter()` is the single source of the block gutter width).
 
 Cross-cutting block decoration lives in `core/render/` (the `BlockDecorator` pipeline, see **Block System**), and
-block state styling lives in `src/main/resources/css/blocks.css`.
+block state styling lives in `src/main/resources/css/blocks.css`. That file also carries the **window
+chrome** — the toolbar's hairline, the status line, the Errors filter bar and the diagnostic rows — as classes
+over the `-bm-*` design tokens each theme redefines. Style the shell there, never with `setStyle`: an inline
+style beats the stylesheet in *every* theme, which is exactly how the toolbar border came to override its own
+token-driven rule and the Errors bar came to stay light grey in Dark.
 
 ### Library Management
 

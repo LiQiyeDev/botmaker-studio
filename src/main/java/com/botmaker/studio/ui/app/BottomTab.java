@@ -23,4 +23,21 @@ enum BottomTab {
     String title() {
         return title;
     }
+
+    /** The stable key this tab is persisted under. The title is a label and may be reworded; this may not. */
+    String key() {
+        return name();
+    }
+
+    /**
+     * The tab {@code key} names, or {@code null} for an unknown or absent one — a total parse, so a layout
+     * saved by a newer Studio (or hand-edited) opens on the default tab instead of failing to open.
+     */
+    static BottomTab named(String key) {
+        if (key == null) return null;
+        for (BottomTab tab : values()) {
+            if (tab.key().equals(key)) return tab;
+        }
+        return null;
+    }
 }

@@ -67,6 +67,7 @@ public class UIManager {
     private final ProjectConfig config;
     private final ProjectState state;
 
+    private final ProjectSettingsService projectSettingsService;
     private final ToolbarManager toolbarManager;
     private final EventLogManager eventLogManager;
     private final MenuBarManager menuBarManager;
@@ -93,6 +94,8 @@ public class UIManager {
     private DiagnosticsPanel diagnosticsPanel;
     /** The bottom tool window's tabs, keyed by the closed set so nothing selects one by index. */
     private final EnumMap<BottomTab, Tab> bottomTabs = new EnumMap<>(BottomTab.class);
+    /** Restores the dividers and the open tab at open, and writes them back from {@link #dispose()}. */
+    private WorkspaceLayoutStore workspaceLayout;
 
     private Label statusLabel;
     private TextArea outputArea;
@@ -118,7 +121,7 @@ public class UIManager {
 
         // Editor settings (capture targets + default). Stateless over (config, state, eventBus); the
         // capture service honors the default target so pickers stop re-asking which screen to use.
-        ProjectSettingsService projectSettingsService = new ProjectSettingsService(config, state, eventBus);
+        this.projectSettingsService = new ProjectSettingsService(config, state, eventBus);
         ScreenCaptureService screenCaptureService = new ScreenCaptureService(projectSettingsService);
         this.remotePilot = new RemotePilotUi(
                 primaryStage, eventBus, config, projectSettingsService, codeExecutionService);
@@ -162,6 +165,10 @@ public class UIManager {
      * still in it, and two theme listeners pinning the dead scene graph. Idempotent.
      */
     public void dispose() {
+        if (workspaceLayout != null) {
+            workspaceLayout.save();
+            workspaceLayout = null;
+        }
         remotePilot.close();
         BlockTheme.removeThemeChangeListener(themeListener);
         if (identityCluster != null) {
@@ -307,7 +314,6 @@ public class UIManager {
                 () -> Math.max(EXEC_MIN_WRAP_PX, topBar.getWidth() * EXEC_WIDTH_SHARE), topBar.widthProperty()));
         topBar.setPrefHeight(Region.USE_COMPUTED_SIZE);
         topBar.setMinHeight(Region.USE_PREF_SIZE);
-        topBar.setStyle("-fx-border-color: #dcdcdc; -fx-border-width: 0 0 1 0;");
 
         VBox toolbarColumn = new VBox(topBar);
         toolbarColumn.setMinWidth(0);
@@ -372,9 +378,18 @@ public class UIManager {
         mainSplit.setMinWidth(0);
         mainSplit.setMinHeight(0);
 
+        // Both splits and every tab exist by now, so the remembered arrangement can go straight over the
+        // defaults set above — before the scene is shown, so nothing is seen to jump into place.
+        workspaceLayout = new WorkspaceLayoutStore(
+                projectSettingsService, mainSplit, verticalSplit, bottomTabPane, bottomTabs);
+        workspaceLayout.restore();
+
         statusLabel = new Label("Ready");
         statusLabel.setId("status-label");
-        statusLabel.setPadding(new Insets(2, 5, 2, 5));
+        // Fill, hairline and padding come from blocks.css: unstyled, the last row of the window was the one
+        // place Modena's own background showed through a dark theme.
+        statusLabel.getStyleClass().add("status-bar");
+        statusLabel.setMaxWidth(Double.MAX_VALUE);
 
         VBox root = new VBox(menuBarManager.getMenuBar(), toolbarColumn, mainSplit, statusLabel);
         VBox.setVgrow(mainSplit, Priority.ALWAYS);

@@ -40,6 +40,20 @@
 
     /* Read-only: a lock reads as *flat and quiet*, never as a colour of its own — see :read-only below. */
     -bm-locked-fill: rgba(127, 140, 141, 0.15);
+
+    /* Window chrome: the hairlines between the shell's rows, and the quiet band a filter/status row sits on.
+       Both used to be hex literals set inline from Java, which meant they stayed light grey in every theme. */
+    -bm-divider: #dcdcdc;
+    -bm-band: #f0f0f0;
+
+    /* Diagnostic severities (DiagnosticsPanel): the bright colour marks the icon and the filter toggle, the
+       -text colour carries the row's message — a message set in the icon's colour is hard to read at 12px. */
+    -bm-severity-error: #e74c3c;
+    -bm-severity-error-text: #c0392b;
+    -bm-severity-warning: #f39c12;
+    -bm-severity-warning-text: #d35400;
+    -bm-severity-info: #3498db;
+    -bm-severity-info-text: #2980b9;
 }
 
 /*
@@ -69,10 +83,59 @@
     -fx-spacing: 6;
 }
 
-/* Main toolbar (UIManager): token-driven so it follows theme without a per-theme override. */
+/* Main toolbar (UIManager): token-driven so it follows theme without a per-theme override. The bottom
+   hairline lives here and not in an inline style, which is what used to override this rule in every theme. */
 .main-toolbar {
     -fx-background-color: -fx-control-inner-background;
+    -fx-border-color: -bm-divider;
+    -fx-border-width: 0 0 1 0;
 }
+
+/* The status line — the window's last row, under the split panes (UIManager). */
+.status-bar {
+    -fx-background-color: -bm-band;
+    -fx-border-color: -bm-divider;
+    -fx-border-width: 1 0 0 0;
+    -fx-padding: 2 5 2 5;
+    -fx-text-fill: -fx-text-background-color;
+}
+
+/* ---------------------------------------------------------------------------
+ * Errors tab (DiagnosticsPanel): the severity filter bar and the diagnostic rows.
+ * --------------------------------------------------------------------------- */
+.diagnostics-filter-bar {
+    -fx-background-color: -bm-band;
+    -fx-border-color: -bm-divider;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 5;
+    -fx-spacing: 10;
+}
+
+.severity-filter {
+    -fx-font-weight: bold;
+}
+
+.severity-filter--error   { -fx-text-fill: -bm-severity-error; }
+.severity-filter--warning { -fx-text-fill: -bm-severity-warning; }
+.severity-filter--info    { -fx-text-fill: -bm-severity-info; }
+
+.diagnostic-cell {
+    -fx-font-family: "Segoe UI", sans-serif;
+    -fx-font-weight: normal;
+}
+
+.diagnostic-cell--error   { -fx-text-fill: -bm-severity-error-text; }
+.diagnostic-cell--warning { -fx-text-fill: -bm-severity-warning-text; }
+.diagnostic-cell--info    { -fx-text-fill: -bm-severity-info-text; }
+
+.diagnostic-icon {
+    -fx-font-size: 14px;
+    -fx-padding: 0 8 0 0;
+}
+
+.diagnostic-icon--error   { -fx-text-fill: -bm-severity-error; }
+.diagnostic-icon--warning { -fx-text-fill: -bm-severity-warning; }
+.diagnostic-icon--info    { -fx-text-fill: -bm-severity-info; }
 
 /* Activity Flow canvas (FlowCanvas) — the "class" surface where Activities are laid out. */
 .flow-canvas-content {
@@ -867,6 +930,16 @@
 
     /* Read-only */
     -bm-locked-fill: rgba(149, 165, 166, 0.20);
+
+    /* Window chrome + severities: lighter than the surface, where the light theme's are darker than it. */
+    -bm-divider: #4a4a4a;
+    -bm-band: #353535;
+    -bm-severity-error: #e95c4c;
+    -bm-severity-error-text: #ff8b7b;
+    -bm-severity-warning: #f5b041;
+    -bm-severity-warning-text: #f5b041;
+    -bm-severity-info: #4a90d9;
+    -bm-severity-info-text: #7ab6ec;
 }
 
 /* Black Theme */
@@ -907,6 +980,16 @@
 
     /* Read-only */
     -bm-locked-fill: rgba(176, 190, 197, 0.25);
+
+    /* Window chrome + severities */
+    -bm-divider: #2a2a2a;
+    -bm-band: #141414;
+    -bm-severity-error: #f44336;
+    -bm-severity-error-text: #ff6f60;
+    -bm-severity-warning: #ffc107;
+    -bm-severity-warning-text: #ffca28;
+    -bm-severity-info: #2196f3;
+    -bm-severity-info-text: #64b5f6;
 }
 
 /* High Contrast Theme — pure black/white/yellow, maximised text and border contrast. */
@@ -947,4 +1030,14 @@
 
     /* Read-only */
     -bm-locked-fill: rgba(255, 255, 255, 0.15);
+
+    /* Window chrome + severities — a white hairline, and severities that stay at full contrast. */
+    -bm-divider: #ffffff;
+    -bm-band: #1a1a1a;
+    -bm-severity-error: #ff4040;
+    -bm-severity-error-text: #ff4040;
+    -bm-severity-warning: #ffff00;
+    -bm-severity-warning-text: #ffff00;
+    -bm-severity-info: #00ffff;
+    -bm-severity-info-text: #00ffff;
 }

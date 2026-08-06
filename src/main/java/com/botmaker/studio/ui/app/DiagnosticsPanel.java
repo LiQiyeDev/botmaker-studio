@@ -3,8 +3,8 @@ package com.botmaker.studio.ui.app;
 import com.botmaker.studio.core.CodeBlock;
 import com.botmaker.studio.validation.DiagnosticsManager;
 import com.botmaker.studio.validation.ErrorTranslator;
-import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.Node;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
@@ -43,9 +43,9 @@ final class DiagnosticsPanel {
     private final Runnable onErrorsFound;
 
     private final ListView<Diagnostic> list = new ListView<>();
-    private final ToggleButton errorFilter = severityFilter("Errors", "#E74C3C");
-    private final ToggleButton warningFilter = severityFilter("Warnings", "#F39C12");
-    private final ToggleButton infoFilter = severityFilter("Infos/Hints", "#3498DB");
+    private final ToggleButton errorFilter = severityFilter("Errors", "error");
+    private final ToggleButton warningFilter = severityFilter("Warnings", "warning");
+    private final ToggleButton infoFilter = severityFilter("Infos/Hints", "info");
     private final VBox node;
 
     private List<Diagnostic> all = new ArrayList<>();
@@ -60,10 +60,11 @@ final class DiagnosticsPanel {
         configureList();
         VBox.setVgrow(list, Priority.ALWAYS);
 
-        HBox filterBar = new HBox(10, new Label("Filter: "), errorFilter, warningFilter, infoFilter);
+        // Spacing, padding, the band's fill and its hairline are all in blocks.css over the theme tokens:
+        // as inline styles they stayed a light-grey band in Dark, Black and High Contrast.
+        HBox filterBar = new HBox(new Label("Filter: "), errorFilter, warningFilter, infoFilter);
+        filterBar.getStyleClass().add("diagnostics-filter-bar");
         filterBar.setAlignment(Pos.CENTER_LEFT);
-        filterBar.setPadding(new Insets(5));
-        filterBar.setStyle("-fx-background-color: #f0f0f0; -fx-border-color: #ddd; -fx-border-width: 0 0 1 0;");
 
         this.node = new VBox(filterBar, list);
     }
@@ -122,10 +123,10 @@ final class DiagnosticsPanel {
                 .toList());
     }
 
-    private ToggleButton severityFilter(String label, String colour) {
+    private ToggleButton severityFilter(String label, String severity) {
         ToggleButton b = new ToggleButton(label);
         b.setSelected(true);
-        b.setStyle("-fx-text-fill: " + colour + "; -fx-font-weight: bold;");
+        b.getStyleClass().addAll("severity-filter", "severity-filter--" + severity);
         b.setOnAction(e -> applyFilters());
         return b;
     }
@@ -139,7 +140,9 @@ final class DiagnosticsPanel {
                 if (empty || diagnostic == null) {
                     setText(null);
                     setGraphic(null);
-                    setStyle("");
+                    // A recycled cell keeps its classes, so a blank row would otherwise stay the colour of
+                    // whatever diagnostic it last showed.
+                    severityClass(this, "diagnostic-cell", null);
                     setOnMouseClicked(null);
                     return;
                 }
@@ -163,32 +166,42 @@ final class DiagnosticsPanel {
     private void render(ListCell<Diagnostic> cell, Diagnostic diagnostic) {
         String message = ErrorTranslator.getShortSummary(diagnostic);
         int line = diagnostic.getRange().getStart().getLine() + 1;
+        String severity = severityOf(diagnostic);
 
-        String icon;
-        String colorStyle;
-        String iconColorStyle;
-        if (diagnostic.getSeverity() == DiagnosticSeverity.Error) {
-            icon = "❌";
-            colorStyle = "-fx-text-fill: #C0392B;";
-            iconColorStyle = "-fx-text-fill: #E74C3C;";
-        } else if (diagnostic.getSeverity() == DiagnosticSeverity.Warning) {
-            icon = "⚠️";
-            colorStyle = "-fx-text-fill: #D35400;";
-            iconColorStyle = "-fx-text-fill: #F39C12;";
-        } else {
-            icon = "ℹ️";
-            colorStyle = "-fx-text-fill: #2980B9;";
-            iconColorStyle = "-fx-text-fill: #3498DB;";
-        }
-
-        Label iconLabel = new Label(icon);
-        iconLabel.setStyle(iconColorStyle + "-fx-font-size: 14px; -fx-padding: 0 8 0 0;");
+        Label iconLabel = new Label(glyphFor(severity));
+        severityClass(iconLabel, "diagnostic-icon", severity);
 
         cell.setText("%sLine %d: %s".formatted(fileNamePrefix(diagnostic), line, message));
-        cell.setStyle(colorStyle + "-fx-font-family: 'Segoe UI', sans-serif; -fx-font-weight: normal;");
+        severityClass(cell, "diagnostic-cell", severity);
         cell.setGraphic(iconLabel);
         cell.setOnMouseClicked(event ->
                 diagnosticsManager.findBlockForDiagnostic(diagnostic).ifPresent(onRevealBlock));
+    }
+
+    /** The style-class suffix for a diagnostic. Anything that isn't an error or a warning reads as info. */
+    private static String severityOf(Diagnostic diagnostic) {
+        if (diagnostic.getSeverity() == DiagnosticSeverity.Error) return "error";
+        if (diagnostic.getSeverity() == DiagnosticSeverity.Warning) return "warning";
+        return "info";
+    }
+
+    /** The glyph beside the message — chosen from the same suffix that colours it, so the two can't disagree. */
+    private static String glyphFor(String severity) {
+        return switch (severity) {
+            case "error" -> "❌";
+            case "warning" -> "⚠️";
+            default -> "ℹ️";
+        };
+    }
+
+    /**
+     * Puts {@code base} and exactly one {@code base--<severity>} modifier on {@code node}, dropping any
+     * modifier it already carried. A {@code null} severity leaves the base class alone and removes the colour.
+     */
+    private static void severityClass(Node node, String base, String severity) {
+        node.getStyleClass().removeAll(base + "--error", base + "--warning", base + "--info");
+        if (!node.getStyleClass().contains(base)) node.getStyleClass().add(base);
+        if (severity != null) node.getStyleClass().add(base + "--" + severity);
     }
 
     /** {@code "[Main.java] "} when the diagnostic carries its source URI, empty otherwise. */

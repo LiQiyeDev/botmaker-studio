@@ -6,6 +6,37 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-06 — The shell: `UIManager` split 1,740 → 501 lines, and the resources it was leaking are now
+  released.** Five phases. The split: a new **`ui/app/pilot/`** package (`RemotePilotUi` — the bring-up state
+  machine and the only mutable state, `RemotePilotDialog`, `FunnelSetupWizard`, `BackgroundModeBox`), plus
+  `DiagnosticsPanel`, `EditorCanvas`, `IdentityCluster`, `StudioActions` (every menu/toolbar action in one
+  wiring table, and the GitHub services that back the sharing ones), `ProjectRecoveryAction`, `BottomTab` and
+  `WorkspaceLayoutStore` in `ui/app/`, and `project/ProjectOpenMigrations` — which is not a UI concern and
+  only lived in the shell because the shell ran at the right moment (still before the file explorer is built:
+  a migration can delete a file the tree would otherwise go on listing). None of the collaborators holds a
+  back-reference. **The defect that made this more than a tidy-up:** a new `UIManager` is built on every
+  project open *and every reload*, and nothing ever released the pilot's bound port or the nested
+  Xephyr/gamescope display, so a VCS rollback left an orphaned server streaming a project that was gone with
+  the game still running inside a live display — and two `BlockTheme` listeners (a **static** list with no
+  callers of `removeThemeChangeListener` anywhere) pinning the dead scene graph. `RemotePilotUi` is now
+  `AutoCloseable` and `UIManager.dispose()` tears down both, called from `BotMakerStudio` on open, on the
+  switch back to the selector, and on shutdown. Also fixed: a double-click on Remote Pilot started two
+  bring-ups (in-flight guard); `qrCell` returned `null` so an un-encodable URL gave a pairing dialog with no
+  QR and no explanation; three "Copied ✓" buttons never reverted; the token reset rebuilt its URL by regex
+  that only worked while `token=` was last; the canvas jumped to the top on every edit (`vvalue` is now
+  restored across the re-render); `selectBottomTab(0|1)` and a computed `vcsTabIndex` became the `BottomTab`
+  closed set; the console copied its whole buffer per line to measure it (`getLength()`); and
+  `reader-to-editor` is a daemon thread (SU12). **Theming:** the toolbar's border, the Errors filter bar, the
+  diagnostic rows and the status line were inline hex literals — the toolbar's *overrode* `blocks.css`'s
+  token-driven rule in every theme, and the rest stayed light grey in Dark/Black/High Contrast. All four are
+  now classes over new `-bm-divider` / `-bm-band` / `-bm-severity-*` tokens defined per theme. **Feature:**
+  the explorer/canvas divider, the canvas/bottom divider and the open bottom tab now persist per project
+  (`StudioProjectSettings.WorkspaceLayout`), written once at teardown rather than on every drag — a divider
+  moves continuously while dragged, and `settings.json` is in the user's versioned project. +26 tests
+  (`RemotePilotFunnelTest`, `DiagnosticsPanelFilterTest`, `ProjectRecoveryTest`, `WorkspaceLayoutTest`,
+  `BottomTabTest`, and `UIManagerSceneTest`'s dispose assertions); 768 green. Closes **SU7** in
+  `docs/refactor/14-studio-ui.md`, wider than that item scoped.
+
 - **2026-08-06 — Overlay editor: split into a coordinator + collaborators, and the four features it was
   missing.** `ProgramShapeOverlay` had reached 1,483 lines carrying every concern at once. It is now a
   coordinator (877 lines, ~37% of them rationale comments) that owns the stage, the subscriptions and the
@@ -2226,6 +2257,11 @@ whenever work lands here (see CLAUDE.md → Roadmap).
   uncompilable code. A general guard needs constructor knowledge — `ProjectAnalyzer.getConstructors` has it,
   but `createDefaultInitializer` isn't given an analyzer, so this is a signature change across its callers.
   Fall back to `null` when no no-arg constructor is visible.
+- [ ] **A7 — The Errors tab steals focus on every compile.** `DiagnosticsPanel.update` raises the tab whenever
+  a compile produced at least one error, so a bot being edited with a known error in it pulls the bottom pane
+  away from the terminal on every keystroke-triggered rebuild. Left as-is deliberately during the `UIManager`
+  split (2026-08-06, maintainer's call) — the alternative is raising it only when the *set* of errors changes,
+  which needs a diff and a decision about what counts as a change.
 
 ## Overlay Editor backlog
 
