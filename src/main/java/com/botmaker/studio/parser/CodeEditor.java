@@ -7,6 +7,7 @@ import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.palette.ExpressionCatalog;
 import com.botmaker.studio.palette.ExpressionType;
+import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.parser.handlers.EnumManipulationHandler;
 import com.botmaker.studio.parser.handlers.InstantiationHandler;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
@@ -401,14 +402,14 @@ public class CodeEditor {
             StringLiteral lit = ast.newStringLiteral();
             lit.setLiteralValue(path);
             cic.arguments().add(lit);
-            ImportManager.addImportForSimpleName(cu, rewriter, "ImageTemplate", analyzer, null);
+            ImportManager.addImport(cu, rewriter, SdkType.IMAGE_TEMPLATE);
             rewriter.replace(toReplace, cic, null);
 
             if (windowTitle != null && isSoleFindArgument(toReplace)) {
                 MethodInvocation find = (MethodInvocation) toReplace.getParent();
                 rewriter.getListRewrite(find, MethodInvocation.ARGUMENTS_PROPERTY)
                         .insertLast(windowFindOrElseThrow(ast, windowTitle), null);
-                ImportManager.addImportForSimpleName(cu, rewriter, "Window", analyzer, null);
+                ImportManager.addImport(cu, rewriter, SdkType.WINDOW);
             }
             return AstRewriteHelper.applyRewrite(rewriter, code);
         });
@@ -462,10 +463,10 @@ public class CodeEditor {
                 cic.arguments().add(lit);
                 call.arguments().add(cic);
             }
-            ImportManager.addImportForSimpleName(cu, rewriter, "ImageTemplate", analyzer, null);
-            ImportManager.addImportForSimpleName(cu, rewriter, "ImageTemplateGroup", analyzer, null);
+            ImportManager.addImport(cu, rewriter, SdkType.IMAGE_TEMPLATE);
+            ImportManager.addImport(cu, rewriter, SdkType.IMAGE_TEMPLATE_GROUP);
             rewriter.replace(toReplace, call, null);
-            LambdaCallHandler.seedIfReady(ast, cu, rewriter, analyzer, toReplace,
+            LambdaCallHandler.seedIfReady(ast, cu, rewriter, toReplace,
                     paths.isEmpty() ? null : paths.getFirst());
             return AstRewriteHelper.applyRewrite(rewriter, code);
         });
@@ -499,7 +500,7 @@ public class CodeEditor {
                 cic.arguments().add(lit);
                 args.insertLast(cic, null);
             }
-            ImportManager.addImportForSimpleName(cu, rewriter, "ImageTemplate", analyzer, null);
+            ImportManager.addImport(cu, rewriter, SdkType.IMAGE_TEMPLATE);
             return AstRewriteHelper.applyRewrite(rewriter, code);
         });
     }
@@ -520,7 +521,7 @@ public class CodeEditor {
             }
             AST ast = cu.getAST();
             ASTRewrite rewriter = ASTRewrite.create(ast);
-            LambdaCallHandler.switchVariant(ast, cu, rewriter, analyzer, mi, newMethod, group, lambdaParam);
+            LambdaCallHandler.switchVariant(ast, cu, rewriter, mi, newMethod, group, lambdaParam);
             return AstRewriteHelper.applyRewrite(rewriter, code);
         });
     }
@@ -820,7 +821,7 @@ public class CodeEditor {
 
     /** Adds a {@code new ImageTemplate("")} element to the list — drives the per-element image picker. */
     public void addImageTemplateToList(ASTNode listNode, int insertIndex) {
-        edit(listNode, EditKind.BODY, true, (cu, code) -> ListHandler.addImageTemplateElement(cu, code, listNode, insertIndex, analyzer));
+        edit(listNode, EditKind.BODY, true, (cu, code) -> ListHandler.addImageTemplateElement(cu, code, listNode, insertIndex));
     }
 
     public void deleteElementFromList(ASTNode listNode, int elementIndex) {

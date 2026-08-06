@@ -1,6 +1,7 @@
 package com.botmaker.studio.parser.handlers;
 
 import com.botmaker.studio.blocks.flow.MatchesGroupScope;
+import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.parser.ImportManager;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import org.eclipse.jdt.core.dom.*;
@@ -81,7 +82,7 @@ public final class LambdaCallHandler {
      * @param lambdaParam the name the target's body receives the value under ({@code found -> {}}); {@code null}
      *                    or blank for a bare {@code () -> {}} ({@link Runnable} target)
      */
-    public static void switchVariant(AST ast, CompilationUnit cu, ASTRewrite rewriter, ProjectAnalyzer analyzer,
+    public static void switchVariant(AST ast, CompilationUnit cu, ASTRewrite rewriter,
                                      MethodInvocation mi, String newMethod, boolean group, String lambdaParam) {
         rewriter.set(mi, MethodInvocation.NAME_PROPERTY, ast.newSimpleName(newMethod), null);
 
@@ -92,14 +93,14 @@ public final class LambdaCallHandler {
             if (converted != null) {
                 rewriter.replace(leading, converted, null);
                 if (group) {
-                    ImportManager.addImportForSimpleName(cu, rewriter, "ImageTemplateGroup", analyzer, null);
+                    ImportManager.addImport(cu, rewriter, SdkType.IMAGE_TEMPLATE_GROUP);
                 }
             }
         }
 
         LambdaExpression lambda = lambdaArg(mi);
         if (lambda != null) {
-            adjustLambdaParam(ast, rewriter, lambda, lambdaParam, seededBody(ast, cu, rewriter, analyzer, lambda,
+            adjustLambdaParam(ast, rewriter, lambda, lambdaParam, seededBody(ast, cu, rewriter, lambda,
                     firstTemplatePath(leading), group, lambdaParam));
         }
     }
@@ -121,7 +122,7 @@ public final class LambdaCallHandler {
      * @param groupArg     the expression just written into the call's leading image slot
      * @param templatePath the first template that argument now names; the guard needs a literal one to compile
      */
-    public static void seedIfReady(AST ast, CompilationUnit cu, ASTRewrite rewriter, ProjectAnalyzer analyzer,
+    public static void seedIfReady(AST ast, CompilationUnit cu, ASTRewrite rewriter,
                                    Expression groupArg, String templatePath) {
         if (groupArg == null || !(groupArg.getParent() instanceof MethodInvocation call)) return;
         List<?> args = call.arguments();
@@ -132,7 +133,7 @@ public final class LambdaCallHandler {
         SimpleName param = lambdaParamName(call);
         if (lambda == null || param == null) return;
 
-        Block seeded = seededBody(ast, cu, rewriter, analyzer, lambda, templatePath, true, param.getIdentifier());
+        Block seeded = seededBody(ast, cu, rewriter, lambda, templatePath, true, param.getIdentifier());
         if (seeded != null) rewriter.replace(lambda.getBody(), seeded, null);
     }
 
@@ -146,15 +147,15 @@ public final class LambdaCallHandler {
      * on); the body is <em>empty</em>, so nothing the user wrote can be displaced; and a literal template is
      * known, since a guard with no template would not compile.
      */
-    private static Block seededBody(AST ast, CompilationUnit cu, ASTRewrite rewriter, ProjectAnalyzer analyzer,
+    private static Block seededBody(AST ast, CompilationUnit cu, ASTRewrite rewriter,
                                     LambdaExpression lambda, String templatePath, boolean group,
                                     String lambdaParam) {
         if (!group || lambdaParam == null || lambdaParam.isBlank()) return null;
         if (!(lambda.getBody() instanceof Block body) || !body.statements().isEmpty()) return null;
         if (templatePath == null) return null;
 
-        ImportManager.addImportForSimpleName(cu, rewriter, "Matches", analyzer, null);
-        ImportManager.addImportForSimpleName(cu, rewriter, "ImageTemplate", analyzer, null);
+        ImportManager.addImport(cu, rewriter, SdkType.MATCHES);
+        ImportManager.addImport(cu, rewriter, SdkType.IMAGE_TEMPLATE);
         return MatchesSwitchHandler.newSeededBody(ast, lambdaParam, templatePath);
     }
 

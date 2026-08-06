@@ -46,7 +46,7 @@ public class LambdaVariantSwitchTest {
         });
 
         ASTRewrite rewriter = ASTRewrite.create(cu.getAST());
-        LambdaCallHandler.switchVariant(cu.getAST(), cu, rewriter, null, found.get(), newMethod, group, param);
+        LambdaCallHandler.switchVariant(cu.getAST(), cu, rewriter, found.get(), newMethod, group, param);
 
         IDocument doc = new Document(source);
         TextEdit edits = rewriter.rewriteAST(doc, null);

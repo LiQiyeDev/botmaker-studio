@@ -1,5 +1,6 @@
 package com.botmaker.studio.parser;
 
+import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
@@ -12,33 +13,46 @@ import org.eclipse.jdt.core.dom.rewrite.ListRewrite;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class ImportManager {
 
     /**
-     * Simple name → FQN for JDK types a name-only {@link ResolvedType} would otherwise never resolve to.
-     * This is the last-resort tier of {@link #resolveQualifiedName}, reached only after the project's own
-     * classes (and, via {@link #addImportForSimpleName}, the analyzer's index) have come up empty.
+     * The packages the JDK probe walks, in priority order, when a simple name resolves to nothing else.
      *
-     * <p>Deliberately <em>not</em> here: {@code Point}. The SDK ships {@code com.botmaker.sdk.api.Point} and
-     * bots use it constantly, so mapping the bare name to {@code java.awt.Point} would silently import the
-     * wrong one whenever resolution failed. {@code Rectangle} is safe — the SDK's equivalent is {@code Rect}.
+     * <p>This replaced a hand-written map of 14 simple-name→FQN entries. Two things make a probe strictly
+     * better than that map: it deduces every name in these packages rather than the fourteen someone thought
+     * to list ({@code Optional}, {@code Instant}, {@code Files}, {@code Pattern}, {@code BigDecimal},
+     * {@code Collectors}…), and it cannot go stale.
+     *
+     * <p><b>Order is the disambiguation.</b> First hit wins, so {@code java.util} ahead of {@code java.awt}
+     * settles {@code List} on {@code java.util.List}. The names that used to make this tier dangerous —
+     * {@code Point}, {@code Window}, {@code Desktop}, {@code Text}, all of which the SDK also ships — never
+     * reach it at all: {@link SdkType} is consulted first (see {@link #resolveQualifiedName}). The old map
+     * had to omit {@code Point} entirely and explain why in a comment; the tier above now handles that.
      */
-    private static final Map<String, String> WELL_KNOWN_JDK_TYPES = Map.ofEntries(
-            Map.entry("List", "java.util.List"),
-            Map.entry("ArrayList", "java.util.ArrayList"),
-            Map.entry("Map", "java.util.Map"),
-            Map.entry("HashMap", "java.util.HashMap"),
-            Map.entry("Set", "java.util.Set"),
-            Map.entry("HashSet", "java.util.HashSet"),
-            Map.entry("Arrays", "java.util.Arrays"),
-            Map.entry("Color", "java.awt.Color"),
-            Map.entry("Rectangle", "java.awt.Rectangle"),
-            Map.entry("Dimension", "java.awt.Dimension"),
-            Map.entry("BufferedImage", "java.awt.image.BufferedImage"),
-            Map.entry("Path", "java.nio.file.Path"),
-            Map.entry("File", "java.io.File"),
-            Map.entry("Duration", "java.time.Duration"));
+    private static final List<String> JDK_PACKAGES = List.of(
+            "java.util",
+            "java.util.function",
+            "java.util.stream",
+            "java.io",
+            "java.nio.file",
+            "java.time",
+            "java.math",
+            "java.util.regex",
+            "java.awt",
+            "java.awt.image");
+
+    /**
+     * Memoized results of {@link #probeJdkPackages} — <em>including misses</em>, held as {@link #NOT_FOUND}.
+     * Every keystroke-driven edit can ask about the same unresolvable name, and an uncached miss costs one
+     * failed {@code Class.forName} per package in {@link #JDK_PACKAGES}.
+     */
+    private static final Map<String, String> JDK_PROBE_CACHE = new ConcurrentHashMap<>();
+
+    /** Sentinel for a cached miss — {@link ConcurrentHashMap} cannot hold a null value. */
+    private static final String NOT_FOUND = "";
 
     /**
      * Ensures that the specific class is imported.
@@ -72,9 +86,14 @@ public class ImportManager {
      * variable-declaration types and enum-constant scopes — which only carry a simple name.
      *
      * <p>Best-effort: a no-op when the type is primitive/{@code java.lang}/same-package/already-imported.
-     * When the analyzer is absent or resolves nothing, this falls through to the name-based path, which
-     * still knows the project's own classes and {@link #WELL_KNOWN_JDK_TYPES} — that fallback is what makes
-     * a name-only {@code Color} importable.
+     * When the analyzer is absent or resolves nothing, this falls through to
+     * {@link #resolveQualifiedName}, which still knows the project's own classes, the SDK and the JDK — that
+     * fallback is what makes a name-only {@code Color} importable.
+     *
+     * <p>Use this only where the name genuinely <em>is</em> all the caller has: a pasted snippet's type, an
+     * enum constant's scope, the leaf of an unbound {@link ResolvedType}. When the type is known at compile
+     * time, call {@link #addImport(CompilationUnit, ASTRewrite, SdkType)} instead — searching for an answer
+     * you already hold is how an import ends up silently missing.
      */
     public static void addImportForSimpleName(CompilationUnit cu, ASTRewrite rewriter, String typeName,
                                               ProjectAnalyzer analyzer, ProjectState state) {
@@ -110,6 +129,20 @@ public class ImportManager {
     }
 
     /**
+     * Imports an SDK type by identity — the one call that <em>cannot</em> fail to resolve.
+     *
+     * <p>Prefer this wherever the type being written into the source is known at compile time (the block
+     * factories and handlers that emit {@code new ImageTemplate(…)}, {@code ImageTemplateGroup.of(…)}, a
+     * {@code Matches} switch). Those sites used to call {@link #addImportForSimpleName} with a string
+     * literal, which then had to <em>search</em> the analyzer index for a name the caller already knew — and
+     * silently emitted nothing when the index was cold or the bot's classpath had not resolved yet.
+     */
+    public static void addImport(CompilationUnit cu, ASTRewrite rewriter, SdkType type) {
+        if (type == null) return;
+        addImport(cu, rewriter, type.qualifiedName());
+    }
+
+    /**
      * Raw add import (expects FQN).
      */
     public static void addImport(CompilationUnit cu, ASTRewrite rewriter, String qualifiedClassName) {
@@ -123,7 +156,21 @@ public class ImportManager {
     }
 
     /**
-     * Resolves a simple class name to its fully qualified name.
+     * Resolves a simple class name to its fully-qualified name, in three ordered tiers:
+     *
+     * <ol>
+     *   <li><b>the project's own sources</b> — a class the user wrote always wins over anything on a
+     *       classpath, exactly as {@code javac} would resolve it;</li>
+     *   <li><b>{@link SdkType}</b> — the closed set of {@code com.botmaker.sdk.api} classes. This is what
+     *       makes the tier below safe, and it is the only tier that can supply a <em>sub-package</em> FQN
+     *       ({@code api.vision.ImageFinder}) from a bare name;</li>
+     *   <li><b>{@link #probeJdkPackages the JDK probe}</b> — a last resort for names like {@code Color} or
+     *       {@code Duration} that no index carries.</li>
+     * </ol>
+     *
+     * <p>Returns {@code null} when nothing matches, which the callers treat as "same package or already
+     * available" and skip. Guessing wrong here writes an import that does not compile, so a miss is the
+     * safer answer than a plausible one.
      */
     private static String resolveQualifiedName(String className, ProjectState state) {
         // If already qualified, return as-is
@@ -131,7 +178,7 @@ public class ImportManager {
             return className;
         }
 
-        // Try to resolve from project files
+        // Tier 1: the project's own sources.
         if (state != null) {
             for (ProjectFile file : state.getAllFiles()) {
                 if (file.getClassName().equals(className)) {
@@ -143,14 +190,38 @@ public class ImportManager {
             }
         }
 
-        // Check if it's a well-known JDK class
-        String jdk = WELL_KNOWN_JDK_TYPES.get(className);
-        if (jdk != null) {
-            return jdk;
+        // Tier 2: the SDK. Must precede the probe — Point/Window/Desktop/Text all collide with java.awt.
+        Optional<SdkType> sdkType = SdkType.byName(className);
+        if (sdkType.isPresent()) {
+            return sdkType.get().qualifiedName();
         }
 
-        // Cannot resolve - assume same package or already available
-        return null;
+        // Tier 3: the JDK.
+        return probeJdkPackages(className);
+    }
+
+    /**
+     * The first package in {@link #JDK_PACKAGES} that actually declares {@code simpleName}, or {@code null}.
+     *
+     * <p>Loads with {@code initialize = false} and the <em>platform</em> class loader: this asks "does the JDK
+     * declare this name?", so it must not see Studio's own classpath (where it would happily resolve some
+     * unrelated internal class of the same name), and must not run a static initializer as a side effect of
+     * the user typing a type name.
+     */
+    private static String probeJdkPackages(String simpleName) {
+        String cached = JDK_PROBE_CACHE.computeIfAbsent(simpleName, name -> {
+            for (String pkg : JDK_PACKAGES) {
+                String candidate = pkg + "." + name;
+                try {
+                    Class.forName(candidate, false, ClassLoader.getPlatformClassLoader());
+                    return candidate;
+                } catch (ClassNotFoundException | LinkageError ignored) {
+                    // Not in this package — try the next one.
+                }
+            }
+            return NOT_FOUND;
+        });
+        return NOT_FOUND.equals(cached) ? null : cached;
     }
 
     /**

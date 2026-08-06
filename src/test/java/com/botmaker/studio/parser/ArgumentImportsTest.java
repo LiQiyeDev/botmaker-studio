@@ -18,7 +18,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code Color}, and the overload-switch path imported nothing at all — not even the new scope.
  *
  * <p>{@code Color} is the worked example because it is a JDK type the analyzer's index does not carry, so it
- * also exercises {@code ImportManager}'s well-known-JDK fallback.
+ * also exercises {@code ImportManager}'s JDK package probe — and specifically the part of it that only works
+ * because {@code java.awt} is probed at all, rather than the name having to be on a hand-written list.
  */
 class ArgumentImportsTest {
 

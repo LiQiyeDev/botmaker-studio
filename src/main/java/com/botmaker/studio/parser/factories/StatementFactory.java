@@ -2,6 +2,7 @@ package com.botmaker.studio.parser.factories;
 
 import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.palette.Initializer;
+import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.parser.ImportManager;
 import com.botmaker.studio.blocks.flow.MatchesGroupScope;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
@@ -409,8 +410,8 @@ public class StatementFactory {
 
         // `Matches` is named in every case label, so the file needs it even though the variable it switches on
         // came from a lambda parameter whose type is inferred and therefore never imported by anything else.
-        ImportManager.addImportForSimpleName(cu, rewriter, "Matches", analyzer, state);
-        ImportManager.addImportForSimpleName(cu, rewriter, "ImageTemplate", analyzer, state);
+        ImportManager.addImport(cu, rewriter, SdkType.MATCHES);
+        ImportManager.addImport(cu, rewriter, SdkType.IMAGE_TEMPLATE);
 
         List<String> allowed = MatchesGroupScope.allowedPaths(context);
         String seed = (allowed != null && !allowed.isEmpty())

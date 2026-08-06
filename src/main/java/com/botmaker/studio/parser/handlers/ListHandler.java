@@ -1,5 +1,6 @@
 package com.botmaker.studio.parser.handlers;
 
+import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.parser.ImportManager;
 import com.botmaker.studio.parser.NodeCreator;
 import com.botmaker.studio.parser.helpers.AstRewriteHelper;
@@ -37,7 +38,7 @@ public class ListHandler {
      * inline image-template picker. The empty path opens the per-element picker on the freshly added element.
      */
     public static String addImageTemplateElement(CompilationUnit cu, String originalCode,
-                                                 ASTNode listNode, int insertIndex, ProjectAnalyzer analyzer) {
+                                                 ASTNode listNode, int insertIndex) {
         AST ast = cu.getAST();
         ASTRewrite rewriter = ASTRewrite.create(ast);
 
@@ -46,7 +47,7 @@ public class ListHandler {
         StringLiteral lit = ast.newStringLiteral();
         lit.setLiteralValue("");
         cic.arguments().add(lit);
-        ImportManager.addImportForSimpleName(cu, rewriter, "ImageTemplate", analyzer, null);
+        ImportManager.addImport(cu, rewriter, SdkType.IMAGE_TEMPLATE);
 
         insertElement(rewriter, listNode, cic, insertIndex);
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);

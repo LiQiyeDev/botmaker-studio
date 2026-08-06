@@ -7,6 +7,7 @@ import com.botmaker.session.impl.AdoptedSession;
 import com.botmaker.session.impl.NestedSession;
 import javafx.application.Platform;
 
+import java.awt.*;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;

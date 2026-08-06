@@ -6,6 +6,30 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-06 — Imports resolve instead of guessing (`ImportManager`).** `resolveQualifiedName` is now three
+  ordered tiers — **project sources → `SdkType` → a JDK package probe** — replacing a hand-written map of 14
+  simple-name→FQN entries. The probe walks a fixed ordered package list (`java.util`, `java.util.function`,
+  `java.util.stream`, `java.io`, `java.nio.file`, `java.time`, `java.math`, `java.util.regex`, `java.awt`,
+  `java.awt.image`) with `Class.forName(…, false, getPlatformClassLoader())`, first hit wins, memoized
+  **including misses** (an uncached miss costs one failed lookup per package, on every keystroke-driven edit).
+  Order is the disambiguation — `java.util` before `java.awt` settles `List` — and the names that made this
+  tier dangerous never reach it, because the SDK tier runs first: the old map had to *omit* `Point` and carry
+  a comment explaining why. Net effect it deduces far more than the fourteen someone thought to list
+  (`Optional`, `Instant`, `Files`, `Pattern`, `BigDecimal`, `Collectors`…). Loading with `initialize = false`
+  and the **platform** loader is deliberate: the probe must not see Studio's own classpath, and must not run a
+  static initializer because the user typed a type name.
+
+  Alongside it, a typed `ImportManager.addImport(cu, rewriter, SdkType)`. Eleven call sites across
+  `CodeEditor`, `ListHandler`, `LambdaCallHandler` and `StatementFactory` were passing a **string literal**
+  they knew at compile time to `addImportForSimpleName`, which then *searched* the analyzer index for it — and
+  emitted nothing when the index was cold. Those are now identity lookups that cannot fail.
+  `addImportForSimpleName` stays for the cases where a name genuinely is all the caller has (the paste path,
+  enum-constant scopes, an unbound `ResolvedType`'s leaf). Three `ProjectAnalyzer` parameters fell dead as a
+  result and were removed (`LambdaCallHandler.switchVariant`/`seedIfReady`/`seededBody`,
+  `ListHandler.addImageTemplateElement`). Four new cases in `PasteImportsTest` pin the tier order: `Point` to
+  the SDK and not `java.awt`, sub-packaged `ImageFinder`/`ImageTemplate`, four JDK types the old map never
+  listed, and `List` to `java.util`.
+
 - **2026-08-06 — The SDK surface is a typed, compiler-checked set (`palette/SdkType`).** Studio mirrored the
   SDK's facades as a hand-maintained `List<String>` in `palette/SdkApi`, with a *second* hand-maintained glyph
   map keyed by the same strings in `MenuIcons`, and nothing verified either against the real SDK. Studio now
