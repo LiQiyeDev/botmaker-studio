@@ -67,20 +67,26 @@ User projects live in `~/BotMakerProjects/` (not inside this repo). Each project
 
 ### Relationship to the SDK and shared
 
-The Studio does **not** compile against the BotMaker SDK. Its only BotMaker Maven dependency is
-**`botmaker-shared`** (`com.github.LiQiyeDev:botmaker-shared`, editor-time native window capture). The SDK
-enters the picture two other ways, neither of which is a Studio dependency:
+Studio's BotMaker Maven dependencies are **`botmaker-shared`** (editor-time native window capture),
+**`botmaker-session`** (private displays) and **`botmaker-sdk`**. The SDK dep is narrow and deliberate, and
+there are three distinct relationships to keep straight:
 
+- **Studio compiles against the SDK for _type identity only_.** `palette/SdkType` is an enum over every class
+  under `com.botmaker.sdk.api`, each constant holding a real `Class<?>` literal. That makes the facade set,
+  the menu order, the menu icons and — crucially — the **fully-qualified names** compiler-checked. The FQNs
+  matter because facades live in *sub-packages* (`api.vision.ImageFinder`, `api.interaction.Mouse`,
+  `api.capture.Window`), so no import path can derive them from the simple name. It replaced `palette/SdkApi`,
+  a hand-maintained `List<String>` that nothing verified, plus a second hand-maintained icon map in
+  `MenuIcons`. **A new SDK class now needs a constant here or the surrounding code won't see it — but the
+  compiler tells you when an existing one moves or is renamed.**
+- **Method knowledge does _not_ come from that jar, on purpose.** A generated bot compiles against the SDK
+  version *it* pins, which may be older than Studio's. So methods still come from `ProjectAnalyzer` scanning
+  the bot's **resolved** SDK jar with ClassGraph, and Javadoc from `SdkDocsService` parsing the bot's
+  `botmaker-sdk:<version>:sources` jar. Adding a *method* to an existing facade needs no Studio change.
 - **Studio generates bot projects that depend on the SDK.** `services/MavenService` writes each user
   project's `pom.xml` pinning `com.github.LiQiyeDev:botmaker-sdk` (default `SDK_FALLBACK_VERSION`;
-  user-selectable in the project screen from JitPack's version list). The generated bot — not the Studio —
-  is the SDK's consumer.
-- **Studio knows the SDK's public API surface** for the palette/autocomplete. `palette/SdkApi` hard-codes the
-  facade **class** names (`ImageFinder`, `Pixel`, `Mouse`, …) as strings; it does not import SDK types. Keep
-  the *class list* in sync with the SDK's `api.*` facades by hand — but note **methods are not mirrored**:
-  method-level knowledge is discovered at runtime by `ProjectAnalyzer` scanning the resolved SDK jar with
-  ClassGraph, so adding a method to an existing facade needs no Studio change. Only a **new facade class**
-  does.
+  user-selectable in the project screen from JitPack's version list). That pin is independent of the version
+  Studio itself compiles against.
 
 This Studio repo is a submodule of the **`botmaker` umbrella repo** (sibling submodules `botmaker-shared/`,
 `botmaker-sdk/`, `botmaker-studio/` + an aggregator `pom.xml`; see `../CLAUDE.md`). From the umbrella root

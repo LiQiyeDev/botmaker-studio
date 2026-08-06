@@ -12,8 +12,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
 
 /**
- * Per-project owner of the SDK method documentation ({@link SdkDocs}). The Studio does not depend on the
- * SDK, so descriptions/param-docs come from the resolved {@code botmaker-sdk:<version>:sources} jar:
+ * Per-project owner of the SDK method documentation ({@link SdkDocs}). Descriptions/param-docs come from the
+ * resolved {@code botmaker-sdk:<version>:sources} jar — the version <em>the bot</em> pins, not the one Studio
+ * compiles against, and the only place Javadoc exists at all (bytecode has none):
  * this service resolves it via {@link MavenService#resolveSdkSourcesJar} and parses it with
  * {@link SdkDocsParser} off the FX thread, then serves the cached result to blocks via
  * {@link #current()} (blocks reach it through {@code CodeEditorService.getSdkDocs()}).

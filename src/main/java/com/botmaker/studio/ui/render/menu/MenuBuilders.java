@@ -1,7 +1,7 @@
 package com.botmaker.studio.ui.render.menu;
 
 import com.botmaker.studio.parser.ExpressionChoice;
-import com.botmaker.studio.palette.SdkApi;
+import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.types.ResolvedType;
@@ -84,7 +84,7 @@ final class MenuBuilders {
     }
 
     /**
-     * Appends, at the top level of the expression menu, one submenu per {@link SdkApi#MENU_FACADE_CLASSES}
+     * Appends, at the top level of the expression menu, one submenu per {@link SdkType#MENU_FACADES}
      * facade listing its static members whose return type is compatible with {@code expectedType} — the
      * expression-slot analogue of the statement menu's per-facade submenus. Void-only methods naturally drop
      * out (no return value fits an expression slot), and {@link #buildScopeMenu} returns {@code null} for a
@@ -95,8 +95,9 @@ final class MenuBuilders {
         if (context == null) return;
         ProjectAnalyzer analyzer = context.getProjectAnalyzer();
         if (analyzer == null) return;
-        for (String facade : SdkApi.MENU_FACADE_CLASSES) {
-            Menu sub = buildScopeMenu(facade, facade, facade, true, expectedType, analyzer, onSelect);
+        for (SdkType facade : SdkType.MENU_FACADES) {
+            String name = facade.simpleName();
+            Menu sub = buildScopeMenu(name, name, name, true, expectedType, analyzer, onSelect);
             if (sub != null) menu.getItems().add(MenuIcons.decorate(sub, MenuIcons.iconFor(facade)));
         }
     }
@@ -107,13 +108,14 @@ final class MenuBuilders {
         if (context == null) return;
         ProjectAnalyzer analyzer = context.getProjectAnalyzer();
         if (analyzer == null) return;
-        for (String facade : SdkApi.MENU_FACADE_CLASSES) {
-            Menu sub = buildScopeMenu(facade, facade, facade, true, expectedType, analyzer, onSelect);
+        for (SdkType facade : SdkType.MENU_FACADES) {
+            String name = facade.simpleName();
+            Menu sub = buildScopeMenu(name, name, name, true, expectedType, analyzer, onSelect);
             if (sub == null) continue;
             List<MenuItem> leaves = new ArrayList<>();
             collectMenuLeaves(sub, leaves);
             for (MenuItem mi : leaves) {
-                mi.setText(facade + "." + mi.getText());
+                mi.setText(name + "." + mi.getText());
                 mi.setGraphic(MenuIcons.node(MenuIcons.iconFor(facade)));
                 out.add(mi);
             }

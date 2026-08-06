@@ -2,25 +2,22 @@ package com.botmaker.studio.ui.render.menu;
 
 import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.palette.ExpressionCategory;
+import com.botmaker.studio.palette.SdkType;
 import javafx.scene.Node;
 import javafx.scene.control.Label;
 import javafx.scene.control.MenuItem;
-
-import java.util.Map;
 
 /**
  * The single icon lookup for {@link StatementMenu} and {@link ExpressionMenu}, so the two can't drift on what a
  * category or an SDK facade looks like.
  *
- * <p>Categories already carry their own glyph ({@link BlockCategory#icon()} / {@link ExpressionCategory#icon()});
- * this class re-exports them so callers have one place to ask, and adds the two sets that had no icon at all: the
- * SDK facades (whose submenus are generated from runtime-discovered method names, so there is no palette record to
- * hang a field on) and the menus' own structural submenus ("Variables", "Call Function", …).
+ * <p>Categories already carry their own glyph ({@link BlockCategory#icon()} / {@link ExpressionCategory#icon()})
+ * and so, since it became a typed enum, does each SDK facade ({@link SdkType#icon()}); this class re-exports all
+ * three so callers have one place to ask, applies {@link #FALLBACK} where a glyph is absent, and adds the one set
+ * that has no record of its own: the menus' structural submenus ("Variables", "Call Function", …).
  *
- * <p><b>Why the lookup lives here and not on the palette records.</b> {@code BlockType}/{@code ExpressionType} are
- * data-only catalogs; a facade icon is a rendering decision about a menu, and the facade list itself
- * ({@code SdkApi.FACADE_CLASSES}) is a list of plain strings. Prefixing at render time keeps the catalogs free of
- * presentation.
+ * <p>The facade glyphs used to live here as a second hand-maintained map keyed by simple name, which could drift
+ * from the facade list itself. They now sit on {@link SdkType} beside the class they belong to.
  */
 final class MenuIcons {
 
@@ -38,32 +35,6 @@ final class MenuIcons {
     static final String LIBRARY = "📚";
     static final String CAPTURE = "🎯";
 
-    /**
-     * Facade → glyph. Keyed by the simple class name exactly as it appears in {@code SdkApi.FACADE_CLASSES};
-     * a facade added there without an entry here simply renders {@link #FALLBACK}.
-     */
-    private static final Map<String, String> FACADE_ICONS = Map.ofEntries(
-            Map.entry("Mouse", "🖱"),
-            Map.entry("Keyboard", "⌨"),
-            Map.entry("Wait", "⏱"),
-            Map.entry("ImageFinder", "🔍"),
-            Map.entry("ImageClicker", "👆"),
-            Map.entry("ImageWaiter", "⏳"),
-            Map.entry("Pixel", "🎨"),
-            Map.entry("Text", "🔤"),
-            Map.entry("VisionContext", "👁"),
-            Map.entry("BotSettings", "⚙"),
-            Map.entry("Debug", "🐞"),
-            Map.entry("Game", "🎮"),
-            Map.entry("Target", "🚀"),
-            Map.entry("Emulators", "📱"),
-            Map.entry("Bot", "🤖"),
-            Map.entry("Watchdog", "🐕"),
-            Map.entry("Activity", "◎"),
-            Map.entry("Source", "🎯"),
-            Map.entry("Window", "🪟"),
-            Map.entry("Bots", "🤖"));
-
     static String iconFor(BlockCategory category) {
         return category == null ? FALLBACK : category.icon();
     }
@@ -72,9 +43,10 @@ final class MenuIcons {
         return category == null ? FALLBACK : category.icon();
     }
 
-    /** The glyph for an SDK facade class (simple name), or {@link #FALLBACK} for an unmapped one. */
-    static String iconFor(String sdkFacade) {
-        return FACADE_ICONS.getOrDefault(sdkFacade, FALLBACK);
+    /** The glyph for an SDK type, or {@link #FALLBACK} for one that carries none. */
+    static String iconFor(SdkType sdkType) {
+        String icon = sdkType == null ? null : sdkType.icon();
+        return icon == null ? FALLBACK : icon;
     }
 
     /**

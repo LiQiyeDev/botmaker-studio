@@ -5,7 +5,7 @@ import com.botmaker.studio.core.BlockWithChildren;
 import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.CodeBlock;
 import com.botmaker.studio.core.ExpressionBlock;
-import com.botmaker.studio.palette.SdkApi;
+import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.palette.SdkDocs;
 import com.botmaker.studio.parser.ExpressionChoice;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
@@ -163,7 +163,7 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
     }
 
     /**
-     * The facade dropdown — the same {@code SdkApi.FACADE_CLASSES} selector every other SDK call block carries.
+     * The facade dropdown — the same {@code SdkType.FACADE_NAMES} selector every other SDK call block carries.
      * It was a plain {@link Label} until now, which made this block a one-way door: a call that became a vision
      * loop could never be pointed anywhere else, because nothing else on the block names the class.
      *
@@ -180,7 +180,7 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
         }
         ComboBox<String> selector = new ComboBox<>();
         selector.getStyleClass().add("sdk-class-selector");
-        selector.getItems().addAll(SdkApi.FACADE_CLASSES);
+        selector.getItems().addAll(SdkType.FACADE_NAMES);
         if (!selector.getItems().contains(SDK_CLASS)) selector.getItems().add(0, SDK_CLASS);
         selector.setValue(SDK_CLASS);
         selector.setStyle("-fx-font-size: 11px; -fx-font-weight: bold;");

@@ -8,8 +8,9 @@ import java.util.Optional;
  * In-memory SDK method documentation: {@code class → method → [overloads]}, each overload carrying a
  * Javadoc summary and its ordered parameters (real names + {@code @param} text).
  *
- * <p>The Studio does not depend on the SDK (see the module CLAUDE.md), so it cannot read the SDK's
- * Javadoc directly. Instead {@code index/SdkDocsParser} parses the resolved
+ * <p>Studio compiles against the SDK for type identity only ({@link SdkType}) — which cannot carry Javadoc,
+ * since Javadoc is not in bytecode — and a bot may pin an older SDK than Studio's anyway. So the docs come
+ * from the bot's own SDK: {@code index/SdkDocsParser} parses the resolved
  * {@code botmaker-sdk:<version>:sources} jar at runtime (via Eclipse JDT) into an instance of this
  * class, and {@code services/SdkDocsService} owns/caches it per project. This type is pure data +
  * lookup — no I/O — so it stays in the dependency-light {@code palette} package. {@link #EMPTY} is the

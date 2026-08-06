@@ -1,6 +1,6 @@
 package com.botmaker.studio.ui.app;
 
-import com.botmaker.studio.palette.SdkApi;
+import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.project.StudioProjectSettings;
 import com.botmaker.studio.project.StudioProjectSettings.Resolution;
 import com.botmaker.studio.services.ProjectSettingsService;
@@ -178,7 +178,7 @@ public class ProjectSettingsDialog {
         });
 
         // No manual typing: class from the SDK facade list, methods multi-selected from that class's methods.
-        ComboBox<String> classCombo = new ComboBox<>(FXCollections.observableArrayList(SdkApi.FACADE_CLASSES));
+        ComboBox<String> classCombo = new ComboBox<>(FXCollections.observableArrayList(SdkType.FACADE_NAMES));
         classCombo.setPromptText("class");
         ListView<String> methodsList = new ListView<>();
         methodsList.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
@@ -247,7 +247,7 @@ public class ProjectSettingsDialog {
         });
 
         // Add row: class -> method -> overload, all from the SDK API surface (no manual typing).
-        ComboBox<String> classCombo = new ComboBox<>(FXCollections.observableArrayList(SdkApi.FACADE_CLASSES));
+        ComboBox<String> classCombo = new ComboBox<>(FXCollections.observableArrayList(SdkType.FACADE_NAMES));
         classCombo.setPromptText("class");
         ComboBox<String> methodCombo = new ComboBox<>();
         methodCombo.setPromptText("method");
@@ -315,7 +315,7 @@ public class ProjectSettingsDialog {
     /** True once the SDK jar is indexed so the facades resolve to methods (else the dropdowns stay disabled). */
     private boolean sdkIndexed() {
         if (projectAnalyzer == null) return false;
-        return SdkApi.FACADE_CLASSES.stream().anyMatch(c -> !projectAnalyzer.getMethods(c, true).isEmpty());
+        return SdkType.FACADE_NAMES.stream().anyMatch(c -> !projectAnalyzer.getMethods(c, true).isEmpty());
     }
 
     /** Splits a stored comma-separated method list back into a set (order-insensitive membership test). */

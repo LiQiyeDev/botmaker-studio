@@ -6,6 +6,24 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-06 — The SDK surface is a typed, compiler-checked set (`palette/SdkType`).** Studio mirrored the
+  SDK's facades as a hand-maintained `List<String>` in `palette/SdkApi`, with a *second* hand-maintained glyph
+  map keyed by the same strings in `MenuIcons`, and nothing verified either against the real SDK. Studio now
+  takes a narrow **compile-scope dependency on `botmaker-sdk`** (`${botmaker.sdk.version}`, same contract as
+  shared/session; `dependency:tree` confirms it adds no new transitives) and `SdkApi` is replaced by `SdkType`
+  — an enum over all 53 classes under `com.botmaker.sdk.api`, each constant holding a real `Class<?>`. That
+  buys three things: drift becomes a **compile error** rather than a silently broken menu; `qualifiedName()`
+  is correct for free, which matters because the facades live in sub-packages (`api.vision.ImageFinder`,
+  `api.capture.Window`) so no import path can derive an FQN from a simple name; and `ImportManager` gains a
+  way to say "this name belongs to the SDK" — the prerequisite for deducing the JDK fallback, since `Point`,
+  `Window`, `Desktop` and `Text` all collide with `java.awt`. `Role.FACADE`/`FACADE_HIDDEN`/`VALUE` replaces
+  the old `MENU_HIDDEN` set, declaration order is still menu order, and the icons moved onto the constants.
+  **Type identity only** — methods still come from `ProjectAnalyzer`/ClassGraph and Javadoc from
+  `SdkDocsService`, both over the SDK version *the bot* pins, which may be older than Studio's; reflecting
+  Studio's copy would offer methods a bot can't compile, and bytecode carries no Javadoc at all.
+  `byName()` is total (the boundary with user source), and a duplicate simple name throws at class-init
+  rather than resolving to whichever constant was declared last.
+
 - **2026-08-06 — A `new T()` placeholder names a constructor that exists.** Seeded arguments emitted a bare
   `new T()` regardless of what `T` declares, so any type without a no-arg constructor produced uncompilable
   source — the SDK's `ImageTemplate` has only `(String)` and `(String, double)`, and `new ImageTemplate()`

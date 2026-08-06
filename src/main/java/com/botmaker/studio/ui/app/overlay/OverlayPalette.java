@@ -59,8 +59,8 @@ final class OverlayPalette {
     /** The bar itself: a caption over the wrapping row of facade chips and the ＋ Add block button. */
     VBox node() {
         FlowPane chips = new FlowPane(6, 6);
-        for (String facade : com.botmaker.studio.palette.SdkApi.MENU_FACADE_CLASSES) {
-            chips.getChildren().add(facadeMenuButton(facade));
+        for (com.botmaker.studio.palette.SdkType facade : com.botmaker.studio.palette.SdkType.MENU_FACADES) {
+            chips.getChildren().add(facadeMenuButton(facade.simpleName()));
         }
         Button addBlock = new Button("＋ Add block");
         addBlock.setTooltip(new Tooltip("Insert any block (control flow, variables, print, …) below the cursor"));

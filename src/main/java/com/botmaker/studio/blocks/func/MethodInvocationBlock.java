@@ -3,7 +3,7 @@ package com.botmaker.studio.blocks.func;
 import com.botmaker.studio.core.AbstractExpressionBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.core.StatementBlock;
-import com.botmaker.studio.palette.SdkApi;
+import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.palette.SdkDocs;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.ProjectSettingsService;
@@ -147,7 +147,7 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
             // class's first method) — the AST rewrite then re-renders the block.
             ComboBox<String> classSelector = new ComboBox<>();
             classSelector.getStyleClass().add("sdk-class-selector");
-            classSelector.getItems().addAll(SdkApi.FACADE_CLASSES);
+            classSelector.getItems().addAll(SdkType.FACADE_NAMES);
             if (!classSelector.getItems().contains(fixedScopeName)) {
                 classSelector.getItems().add(0, fixedScopeName);
             }
@@ -332,7 +332,7 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
         List<String> libraryClassItems = new ArrayList<>();
         if (context.getProjectAnalyzer().getLibraryIndex() != null) {
             context.getProjectAnalyzer().getLibraryIndex().getStaticUtilityTypes().stream()
-                    .filter(ci -> !SdkApi.isFacadeClass(ci.getSimpleName()))
+                    .filter(ci -> !SdkType.isFacadeClass(ci.getSimpleName()))
                     .forEach(ci -> libraryClassItems.add(ci.getSimpleName()));
         }
         Collections.sort(libraryClassItems);

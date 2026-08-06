@@ -273,7 +273,7 @@ public final class ExpressionMenu {
         if (activitySlot) menu.getItems().add(activityNameSubmenu(context, onSelect));
         if (captureSlot) menu.getItems().add(captureSourceItem(onSelect));
 
-        // Parity with the statement menu: lead with a submenu per SDK facade (in SdkApi order), each listing
+        // Parity with the statement menu: lead with a submenu per SDK facade (in SdkType order), each listing
         // that facade's static members whose return type fits this slot (buildScopeMenu drops empty facades).
         MenuBuilders.appendSdkFacadeExpressionSubmenus(menu, expectedType, context, onSelect);
 
@@ -628,7 +628,7 @@ public final class ExpressionMenu {
         for (ClassInfo ci : analyzer.getLibraryIndex().getStaticUtilityTypes()) {
             // SDK facades are intentionally omitted — they're reached only through the curated Vision
             // palette blocks, so there's a single access path (see BlockCatalog / MethodInvocationBlock).
-            if (com.botmaker.studio.palette.SdkApi.isFacadeClass(ci.getSimpleName())) continue;
+            if (com.botmaker.studio.palette.SdkType.isFacadeClass(ci.getSimpleName())) continue;
             byPackage.computeIfAbsent(ci.getPackageName() == null ? "" : ci.getPackageName(),
                     k -> new ArrayList<>()).add(ci);
         }
