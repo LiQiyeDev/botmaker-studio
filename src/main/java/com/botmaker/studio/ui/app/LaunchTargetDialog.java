@@ -7,6 +7,7 @@ import com.botmaker.studio.game.HeroicLibraryScanner;
 import com.botmaker.studio.game.SteamLibraryScanner;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectCreator;
+import com.botmaker.studio.project.ProjectPreferences;
 import com.botmaker.studio.project.SessionSetting;
 import com.botmaker.studio.project.launch.QuickLaunch;
 import com.botmaker.shared.launch.LaunchSpec;
@@ -18,6 +19,7 @@ import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -60,6 +62,10 @@ public final class LaunchTargetDialog {
     private Button launchNow;
     /** "Run in background" — greyed for a target it can't apply to, so it is re-evaluated on every save. */
     private CheckBox background;
+    /** The whole "Recently used" section — hidden (and unmanaged) while there is nothing to recap. */
+    private VBox recentBox;
+    /** The buttons inside {@link #recentBox}, one per remembered spec; rebuilt on every save. */
+    private VBox recentList;
     private String currentSpec;
 
     /**
@@ -130,6 +136,12 @@ public final class LaunchTargetDialog {
 
         VBox choices = new VBox(6, steam, epic, heroic, faugus, exe, cli, emu);
 
+        Label recentHeading = new Label("Recently used");
+        recentHeading.setStyle("-fx-font-weight: bold; -fx-font-size: 12px;");
+        recentList = new VBox(4);
+        recentBox = new VBox(4, recentHeading, recentList);
+        refreshRecent();
+
         background = new CheckBox("Run in background (private display)");
         background.setSelected(ProjectCreator.readSessionIsolated(resourcesDir));
         background.setOnAction(e -> applyBackground(background.isSelected()));
@@ -161,9 +173,20 @@ public final class LaunchTargetDialog {
         HBox bar = new HBox(8, statusLabel, launchNow, clear, close);
         bar.setAlignment(Pos.CENTER_LEFT);
 
-        VBox root = new VBox(12, heading, hint, currentLabel, choices, backgroundBox, bar);
+        // The recap grows the content by up to ten rows, so the choices scroll and the action bar stays pinned
+        // — otherwise a full MRU pushes "Close" off the bottom of a fixed-size dialog.
+        VBox content = new VBox(12, heading, hint, currentLabel, choices, recentBox, backgroundBox);
+        ScrollPane scroller = new ScrollPane(content);
+        scroller.setFitToWidth(true);
+        scroller.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        // This dialog carries no stylesheet (only the main scene loads blocks.css), so it styles inline the
+        // way its heading, hint and status line already do.
+        scroller.setStyle("-fx-background-color: transparent;");
+        VBox.setVgrow(scroller, Priority.ALWAYS);
+
+        VBox root = new VBox(12, scroller, bar);
         root.setPadding(new Insets(16));
-        stage.setScene(new Scene(root, 440, 500));
+        stage.setScene(new Scene(root, 440, 560));
         stage.show();
     }
 
@@ -258,7 +281,11 @@ public final class LaunchTargetDialog {
             ProjectCreator.writeLaunchTarget(resourcesDir, spec);
             if (captureSource != null) ProjectCreator.writeCaptureSource(resourcesDir, captureSource);
             currentSpec = (spec == null || spec.isBlank()) ? null : spec.trim();
+            // Every pick funnels through here, so the MRU can't miss a kind the way per-call-site recording
+            // would. A cleared target records nothing (addRecentLaunchTarget ignores a null spec).
+            ProjectPreferences.recordLaunchTarget(currentSpec);
             refreshCurrentLabel();
+            refreshRecent();
             report(true, currentSpec == null ? "Launch target cleared." : "Launch target saved.");
             QuickLaunch.bind(launchNow, resourcesDir, this::report);
             refreshBackgroundAvailability();
@@ -266,6 +293,41 @@ public final class LaunchTargetDialog {
         } catch (IOException ex) {
             error("Couldn't save: " + ex.getMessage());
         }
+    }
+
+    /**
+     * Re-selects a target the user picked before. It goes through the same {@link #apply} as a fresh pick — so
+     * it re-records, relabels, rebinds quick launch and re-evaluates the background toggle — and re-derives the
+     * emulator capture source, which {@link #pickEmulatorApp} sets alongside the target and which would
+     * otherwise be silently dropped when an {@code emu-app:} is re-selected from here.
+     */
+    private void applyRecent(String spec) {
+        LaunchSpec parsed = LaunchSpec.parse(spec);
+        String instance = parsed == null ? null : parsed.emulatorInstance();
+        apply(spec, instance == null || instance.isBlank() ? null : "emulator:" + instance);
+    }
+
+    /**
+     * Rebuilds the "Recently used" list: one button per remembered spec, newest first, minus the one already
+     * selected — recapping the current target is noise, and clicking it would be a no-op. The whole section
+     * hides itself when nothing is left to show, so a first-run dialog looks exactly as it did before.
+     */
+    private void refreshRecent() {
+        if (recentBox == null) return;
+        recentList.getChildren().clear();
+        for (String spec : ProjectPreferences.recentLaunchTargets()) {
+            if (spec == null || spec.isBlank() || spec.equals(currentSpec)) continue;
+            Button entry = new Button(LaunchSpec.describe(spec));
+            entry.setMaxWidth(Double.MAX_VALUE);
+            entry.setAlignment(Pos.CENTER_LEFT);
+            entry.setStyle("-fx-font-size: 11px;");
+            entry.setTooltip(new Tooltip(spec));
+            entry.setOnAction(e -> applyRecent(spec));
+            recentList.getChildren().add(entry);
+        }
+        boolean any = !recentList.getChildren().isEmpty();
+        recentBox.setVisible(any);
+        recentBox.setManaged(any);
     }
 
     /** Shows an outcome on the status line — green when it worked, the usual red when it didn't. */

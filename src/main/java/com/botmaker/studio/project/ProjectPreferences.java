@@ -23,12 +23,20 @@ import static com.botmaker.studio.BotMakerStudio.PROJECTS_ROOT;
 public class ProjectPreferences {
 
     private static final Path CONFIG_FILE = PROJECTS_ROOT.resolve("botmaker-config.json");
+    /** Same depth as the project MRU — long enough to cover a working set, short enough to stay scannable. */
+    private static final int MAX_RECENT_LAUNCH_TARGETS = 10;
     private static final ObjectMapper MAPPER = new ObjectMapper()
             .enable(SerializationFeature.INDENT_OUTPUT)
             .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
 
     private String lastOpenedProject;
     private List<ProjectEntry> recentProjects = new ArrayList<>();
+    /**
+     * Launch-target specs the user has picked before, newest first — the "Recently used" list in
+     * {@code LaunchTargetDialog}. Global rather than per-project on purpose: the whole point is that a game
+     * chosen once is re-selectable from the <em>next</em> project without walking the library picker again.
+     */
+    private List<String> recentLaunchTargets = new ArrayList<>();
     private Integer captureScreenIndex;
     private WindowState windowState;
     /** Remote-Pilot pairing token (global to Studio) → stable across restarts so paired phones don't rescan. */
@@ -48,6 +56,10 @@ public class ProjectPreferences {
     public String getLastOpenedProject() { return lastOpenedProject; }
     public void setLastOpenedProject(String name) { this.lastOpenedProject = name; }
     public List<ProjectEntry> getRecentProjects() { return recentProjects; }
+    public List<String> getRecentLaunchTargets() { return recentLaunchTargets; }
+    public void setRecentLaunchTargets(List<String> specs) {
+        this.recentLaunchTargets = specs == null ? new ArrayList<>() : new ArrayList<>(specs);
+    }
     public Integer getCaptureScreenIndex() { return captureScreenIndex; }
     public void setCaptureScreenIndex(Integer index) { this.captureScreenIndex = index; }
     public WindowState getWindowState() { return windowState; }
@@ -66,6 +78,22 @@ public class ProjectPreferences {
         recentProjects.addFirst(new ProjectEntry(projectName));
         if (recentProjects.size() > 10) {
             recentProjects = recentProjects.subList(0, 10);
+        }
+    }
+
+    /**
+     * Moves {@code spec} to the front of the launch-target MRU, capped at {@link #MAX_RECENT_LAUNCH_TARGETS}.
+     * Mirrors {@link #addRecentProject}: remove-then-{@code addFirst}, so re-picking an old target promotes it
+     * rather than duplicating it. A null/blank spec (the "Clear target" path) is not recorded — clearing is not
+     * a choice worth offering back.
+     */
+    public void addRecentLaunchTarget(String spec) {
+        if (spec == null || spec.isBlank()) return;
+        String trimmed = spec.trim();
+        recentLaunchTargets.removeIf(trimmed::equals);
+        recentLaunchTargets.addFirst(trimmed);
+        if (recentLaunchTargets.size() > MAX_RECENT_LAUNCH_TARGETS) {
+            recentLaunchTargets = new ArrayList<>(recentLaunchTargets.subList(0, MAX_RECENT_LAUNCH_TARGETS));
         }
     }
 
@@ -102,6 +130,18 @@ public class ProjectPreferences {
 
     public static String getLastOpened() {
         return load().getLastOpenedProject();
+    }
+
+    /** Records a launch-target spec in the global MRU. Called from every path that writes {@code launch.target}. */
+    public static void recordLaunchTarget(String spec) {
+        ProjectPreferences prefs = load();
+        prefs.addRecentLaunchTarget(spec);
+        prefs.save();
+    }
+
+    /** The launch-target specs picked before, newest first; empty when none have been. */
+    public static List<String> recentLaunchTargets() {
+        return load().getRecentLaunchTargets();
     }
 
     /** Index (into {@code Screen.getScreens()}) of the screen last chosen for capture, or {@code null}. */

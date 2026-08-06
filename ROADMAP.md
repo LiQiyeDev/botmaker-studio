@@ -6,6 +6,18 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-06 — Launch Target dialog recaps the targets you picked before.** The dialog persisted exactly one
+  value (`launch.target`, per project) and nothing else, so re-picking last week's game meant walking the
+  Steam/Epic/Heroic library picker again. `ProjectPreferences` now carries a 10-entry launch-target MRU
+  (`recentLaunchTargets`, the same remove-then-`addFirst` shape as `recentProjects`) — **global**, not
+  per-project, since the point is re-selecting a target from the *next* project. `LaunchTargetDialog` records
+  through its single `apply(...)` funnel so no kind can forget to, and shows a "Recently used" list built from
+  `LaunchSpec.describe` (shared already owns the label — no second id→name switch). Re-selecting an
+  `emu-app:` re-derives `capture.source` from `LaunchSpec.emulatorInstance()`, which `pickEmulatorApp` sets
+  alongside the target and which a plain re-apply would have dropped. The current target is skipped in the
+  list, the section hides itself when empty, and the choices now scroll so a full MRU can't push the action
+  bar off a fixed-size dialog. (`project/ProjectPreferences`, `ui/app/LaunchTargetDialog`.)
+
 - **2026-08-06 — The shell: `UIManager` split 1,740 → 501 lines, and the resources it was leaking are now
   released.** Five phases. The split: a new **`ui/app/pilot/`** package (`RemotePilotUi` — the bring-up state
   machine and the only mutable state, `RemotePilotDialog`, `FunnelSetupWizard`, `BackgroundModeBox`), plus
