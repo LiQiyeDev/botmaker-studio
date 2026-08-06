@@ -1,5 +1,6 @@
 package com.botmaker.studio.ui.app.overlay;
 
+import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.util.MethodSignature;
@@ -37,7 +38,7 @@ final class OverlayPalette {
     /** An SDK call the user picked; {@code overload} is {@code null} when they picked the bare method name. */
     @FunctionalInterface
     interface LibraryCallRequest {
-        void insert(String facade, String method, MethodSignature overload);
+        void insert(SdkType facade, String method, MethodSignature overload);
     }
 
     /**
@@ -59,8 +60,8 @@ final class OverlayPalette {
     /** The bar itself: a caption over the wrapping row of facade chips and the ＋ Add block button. */
     VBox node() {
         FlowPane chips = new FlowPane(6, 6);
-        for (com.botmaker.studio.palette.SdkType facade : com.botmaker.studio.palette.SdkType.MENU_FACADES) {
-            chips.getChildren().add(facadeMenuButton(facade.simpleName()));
+        for (SdkType facade : SdkType.MENU_FACADES) {
+            chips.getChildren().add(facadeMenuButton(facade));
         }
         Button addBlock = new Button("＋ Add block");
         addBlock.setTooltip(new Tooltip("Insert any block (control flow, variables, print, …) below the cursor"));
@@ -71,12 +72,12 @@ final class OverlayPalette {
     }
 
     /** A category chip for one SDK facade; on show it lists its methods → overloads (favourites first). */
-    private MenuButton facadeMenuButton(String facade) {
-        MenuButton mb = new MenuButton(facade);
+    private MenuButton facadeMenuButton(SdkType facade) {
+        MenuButton mb = new MenuButton(facade.simpleName());
         mb.setOnShowing(e -> {
             mb.getItems().clear();
             Map<String, List<MethodSignature>> byName =
-                    context.getProjectAnalyzer().getMethods(facade, true).stream()
+                    context.getProjectAnalyzer().getMethods(facade.simpleName(), true).stream()
                             .collect(Collectors.groupingBy(MethodSignature::name,
                                     LinkedHashMap::new, Collectors.toList()));
             if (byName.isEmpty()) {
@@ -106,9 +107,9 @@ final class OverlayPalette {
     }
 
     /** The project's favourite methods for this facade (Project Settings) first, then the rest alphabetically. */
-    private List<String> orderedMethods(String facade, java.util.Set<String> available) {
+    private List<String> orderedMethods(SdkType facade, java.util.Set<String> available) {
         List<String> ordered = new ArrayList<>();
-        for (String f : settings.current().favoriteMethodsFor(facade)) {
+        for (String f : settings.current().favoriteMethodsFor(facade.simpleName())) {
             if (available.contains(f) && !ordered.contains(f)) ordered.add(f);
         }
         available.stream().filter(n -> !ordered.contains(n)).sorted().forEach(ordered::add);

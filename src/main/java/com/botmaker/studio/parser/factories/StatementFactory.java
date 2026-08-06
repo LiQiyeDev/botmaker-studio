@@ -1,15 +1,16 @@
 package com.botmaker.studio.parser.factories;
 
+import com.botmaker.studio.blocks.flow.MatchesGroupScope;
 import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.palette.Initializer;
 import com.botmaker.studio.palette.MatchesCheck;
 import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.parser.EditContext;
-import com.botmaker.studio.blocks.flow.MatchesGroupScope;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
 import com.botmaker.studio.parser.handlers.MatchesSwitchHandler;
-import com.botmaker.studio.services.ImageTemplateLibrary;
+import com.botmaker.studio.parser.helpers.SdkNodes;
 import com.botmaker.studio.project.ProjectState;
+import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.util.MethodSignature;
@@ -133,9 +134,9 @@ public class StatementFactory {
     private static Statement buildLibraryCall(EditContext ctx, BlockType.LibraryCall l) {
         AST ast = ctx.ast();
         MethodInvocation mi = ast.newMethodInvocation();
-        mi.setExpression(ast.newSimpleName(l.className()));
+        mi.setExpression(SdkNodes.name(ast, l.facade()));
         mi.setName(ast.newSimpleName(l.method()));
-        ctx.addImportForSimpleName(l.className());
+        ctx.addImport(l.facade());
         if (!l.args().isEmpty()) {
             for (Initializer arg : l.args()) mi.arguments().add(buildExpression(ctx, arg));
         } else {
@@ -163,12 +164,12 @@ public class StatementFactory {
     private static List<ResolvedType> defaultOverloadParams(BlockType.LibraryCall l, ProjectState state,
                                                             ProjectAnalyzer analyzer) {
         if (analyzer == null) return null;
-        List<MethodSignature> sigs = analyzer.getMethods(l.className(), true).stream()
+        List<MethodSignature> sigs = analyzer.getMethods(l.facade().simpleName(), true).stream()
                 .filter(s -> s.name().equals(l.method()))
                 .collect(Collectors.toList());
         if (sigs.isEmpty()) return null;
         String favKey = (state != null && state.getSettings() != null)
-                ? state.getSettings().favoriteSignature(l.className() + "#" + l.method()) : null;
+                ? state.getSettings().favoriteSignature(l.facade().simpleName() + "#" + l.method()) : null;
         MethodSignature chosen = MethodSignature.bestForKey(sigs, favKey);
         if (chosen == null) chosen = MethodSignature.fewestParams(sigs);
         return chosen != null ? chosen.paramTypes() : null;
@@ -183,7 +184,7 @@ public class StatementFactory {
             for (Initializer arg : l.leadingArgs()) leading.add(buildExpression(ctx, arg));
         }
         MethodInvocation mi = LambdaCallHandler.buildLambdaCall(
-                ctx, l.className(), l.method(), leading, l.lambdaParam());
+                ctx, l.facade(), l.method(), leading, l.lambdaParam());
         return ast.newExpressionStatement(mi);
     }
 
@@ -403,7 +404,7 @@ public class StatementFactory {
         String subject = MatchesGroupScope.matchesVariable(context);
         if (subject == null) {
             ProjectAnalyzer.VariableOption typed = firstVisibleVariable(ctx.analyzer(), context,
-                    v -> v.type() != null && "Matches".equals(v.type().simpleName()));
+                    v -> v.type() != null && v.type().is(SdkType.MATCHES));
             subject = typed == null ? null : typed.name();
         }
 

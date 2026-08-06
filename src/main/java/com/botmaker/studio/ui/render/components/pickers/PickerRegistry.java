@@ -2,8 +2,9 @@ package com.botmaker.studio.ui.render.components.pickers;
 
 import com.botmaker.studio.game.EpicLibraryScanner;
 import com.botmaker.studio.game.SteamLibraryScanner;
-import com.botmaker.studio.ui.render.components.CaptureSourcePicker;
+import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.ui.render.components.BotSettingsArgPicker;
+import com.botmaker.studio.ui.render.components.CaptureSourcePicker;
 import com.botmaker.studio.ui.render.components.ColorArgPicker;
 import com.botmaker.studio.ui.render.components.EmulatorArgPicker;
 import com.botmaker.studio.ui.render.components.ExecutablePicker;
@@ -12,8 +13,8 @@ import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
 import com.botmaker.studio.ui.render.components.LaunchOptionPicker;
 import com.botmaker.studio.ui.render.components.LaunchTargetArgPicker;
 import com.botmaker.studio.ui.render.components.PointPicker;
-import com.botmaker.studio.ui.render.components.RectPicker;
 import com.botmaker.studio.ui.render.components.PrecisionArgPicker;
+import com.botmaker.studio.ui.render.components.RectPicker;
 import javafx.scene.Node;
 
 import java.util.List;
@@ -53,14 +54,14 @@ public final class PickerRegistry {
 
             // Type-based.
             // LaunchTarget slot → the Steam/Epic/Exe/Emulator target builder (replaces the plain ctor pill).
-            SpecialTypePicker.of(ctx -> ctx.isType("LaunchTarget"),
+            SpecialTypePicker.of(ctx -> ctx.isType(SdkType.LAUNCH_TARGET),
                     ctx -> LaunchTargetArgPicker.create(ctx.context(), ctx.arg())),
             // The Pixel facade's strictness argument. It is an SDK value type rather than three bare numbers
             // precisely so this dispatch can be type-based: an arg-index table would have had to know which
             // index it sits at in each of find / findAll / coverage / matchesAt / waitFor, and would silently
             // stop firing the day the SDK gains an overload. The method name is passed on (not matched on) so
             // the editor can hide the knobs that call cannot act on.
-            SpecialTypePicker.of(ctx -> ctx.isType("Precision"),
+            SpecialTypePicker.of(ctx -> ctx.isType(SdkType.PRECISION),
                     ctx -> PrecisionArgPicker.create(ctx.context(), ctx.arg(), ctx.methodName())),
             // A wait length, for the same reason: the unit is invisible in a bare number (2 seconds and 2
             // milliseconds read identically), and the type is what carries the "random range" the humanized
@@ -82,11 +83,11 @@ public final class PickerRegistry {
                     ctx -> ImageTemplatePicker.create(ctx.context(), ctx.arg())),
             ImageTemplateGroupPicker.asSpecialType(),
             // CaptureSource is an SDK interface — never a `new` ctor; always the visual chooser popup.
-            SpecialTypePicker.of(ctx -> ctx.isType("CaptureSource") || ctx.isType("Window"),
+            SpecialTypePicker.of(ctx -> ctx.isType(SdkType.CAPTURE_SOURCE) || ctx.isType(SdkType.WINDOW),
                     ctx -> CaptureSourcePicker.create(ctx.context(), ctx.arg())),
-            SpecialTypePicker.of(ctx -> ctx.isType("Rect"),
+            SpecialTypePicker.of(ctx -> ctx.isType(SdkType.RECT),
                     ctx -> RectPicker.create(ctx.context(), ctx.arg())),
-            SpecialTypePicker.of(ctx -> ctx.isType("Point"),
+            SpecialTypePicker.of(ctx -> ctx.isType(SdkType.POINT),
                     ctx -> PointPicker.create(ctx.context(), ctx.arg())),
 
             // Enum fallback (re-resolves name-only SDK types through the project/library index).

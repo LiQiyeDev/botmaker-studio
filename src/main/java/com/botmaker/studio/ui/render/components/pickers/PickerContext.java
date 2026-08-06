@@ -1,6 +1,7 @@
 package com.botmaker.studio.ui.render.components.pickers;
 
 import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.types.ResolvedType;
 
@@ -20,7 +21,12 @@ public record PickerContext(CodeEditorService context, ExpressionBlock arg, Reso
         return new PickerContext(context, arg, paramType, null, null, -1);
     }
 
-    /** True when {@code paramType} is (by simple or qualified name) {@code simpleName}. */
+    /** True when {@code paramType} is the SDK type {@code sdkType}. */
+    public boolean isType(SdkType sdkType) {
+        return paramType != null && paramType.is(sdkType);
+    }
+
+    /** True when {@code paramType} is (by simple or qualified name) {@code simpleName} — for JDK types. */
     public boolean isType(String simpleName) {
         return paramType != null
                 && (paramType.simpleName().equals(simpleName)
@@ -29,8 +35,9 @@ public record PickerContext(CodeEditorService context, ExpressionBlock arg, Reso
 
     /** True when the enclosing call is on the SDK {@code Game} facade and names {@code method}. */
     public boolean isGameMethod(String method) {
+        String game = SdkType.GAME.simpleName();
         return method.equals(methodName)
-                && className != null && (className.equals("Game") || className.endsWith(".Game"));
+                && className != null && (className.equals(game) || className.endsWith("." + game));
     }
 
     /**

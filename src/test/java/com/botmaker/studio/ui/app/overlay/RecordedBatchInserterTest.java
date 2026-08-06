@@ -1,5 +1,6 @@
 package com.botmaker.studio.ui.app.overlay;
 
+import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.palette.BlockType;
 import org.junit.jupiter.api.Test;
@@ -33,7 +34,7 @@ class RecordedBatchInserterTest {
             new RecordedBatchInserter(b -> inserted.add(b.id()), deferred::add);
 
     private static BlockType block(String id) {
-        return new BlockType.LibraryCall(id, id, BlockCategory.INPUT, "Mouse", "click", List.of());
+        return new BlockType.LibraryCall(id, id, BlockCategory.INPUT, SdkType.MOUSE, "click", List.of());
     }
 
     /** Runs whatever the inserter deferred to the next FX pulse. */

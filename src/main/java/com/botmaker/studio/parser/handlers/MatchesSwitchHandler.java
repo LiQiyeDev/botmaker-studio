@@ -1,6 +1,8 @@
 package com.botmaker.studio.parser.handlers;
 
+import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.parser.helpers.AstRewriteHelper;
+import com.botmaker.studio.parser.helpers.SdkNodes;
 import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.jdt.core.dom.Block;
@@ -87,8 +89,8 @@ public final class MatchesSwitchHandler {
 
     /** The path inside {@code new ImageTemplate("…")}, or empty for anything else. */
     public static Optional<String> templatePath(Object node) {
-        if (node instanceof ClassInstanceCreation cic
-                && "ImageTemplate".equals(cic.getType().toString())
+        if (SdkNodes.isInstantiationOf(node, SdkType.IMAGE_TEMPLATE)
+                && node instanceof ClassInstanceCreation cic
                 && !cic.arguments().isEmpty()
                 && cic.arguments().getFirst() instanceof StringLiteral sl) {
             return Optional.of(sl.getLiteralValue());
@@ -218,7 +220,7 @@ public final class MatchesSwitchHandler {
     /** {@code case Matches m when m.hasAny(new ImageTemplate("…"), …) ->} */
     private static SwitchCase newGuardedCase(AST ast, MatchesCheck check, List<String> paths) {
         SingleVariableDeclaration variable = ast.newSingleVariableDeclaration();
-        variable.setType(ast.newSimpleType(ast.newSimpleName("Matches")));
+        variable.setType(SdkNodes.type(ast, SdkType.MATCHES));
         variable.setName(ast.newSimpleName(PATTERN_VAR));
 
         TypePattern pattern = ast.newTypePattern();
@@ -243,7 +245,7 @@ public final class MatchesSwitchHandler {
 
     private static ClassInstanceCreation newTemplate(AST ast, String path) {
         ClassInstanceCreation cic = ast.newClassInstanceCreation();
-        cic.setType(ast.newSimpleType(ast.newSimpleName("ImageTemplate")));
+        cic.setType(SdkNodes.type(ast, SdkType.IMAGE_TEMPLATE));
         StringLiteral literal = ast.newStringLiteral();
         literal.setLiteralValue(path == null ? "" : path);
         cic.arguments().add(literal);

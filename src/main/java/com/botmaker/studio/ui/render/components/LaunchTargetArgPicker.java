@@ -1,13 +1,14 @@
 package com.botmaker.studio.ui.render.components;
 
+import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.studio.core.AbstractCodeBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.game.EpicLibraryScanner;
-import com.botmaker.studio.game.GameLibraryProvider;
 import com.botmaker.studio.game.FaugusLibraryScanner;
+import com.botmaker.studio.game.GameLibraryProvider;
 import com.botmaker.studio.game.HeroicLibraryScanner;
 import com.botmaker.studio.game.SteamLibraryScanner;
-import com.botmaker.shared.launch.LaunchSpec;
+import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.services.CodeEditorService;
 import javafx.scene.Node;
 import javafx.scene.control.MenuButton;
@@ -38,7 +39,7 @@ import java.util.List;
  */
 public final class LaunchTargetArgPicker {
 
-    private static final String PARSE = "com.botmaker.sdk.api.launch.LaunchTarget.parse(\"%s\")";
+    private static final String PARSE = SdkType.LAUNCH_TARGET.qualifiedName() + ".parse(\"%s\")";
 
     private LaunchTargetArgPicker() {}
 

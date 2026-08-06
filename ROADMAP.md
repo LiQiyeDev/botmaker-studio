@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-07 — the editor reaches the SDK surface through `palette/SdkType`, not around it.** The enum exists
+  so facade and value-type names are compiler-checked, yet ~40 sites re-spelled them: `"ImageTemplate"` alone
+  was written 13× across 8 files, and `InitializerFactory`, `ClickBlock`, `CaptureExpr`, `PrecisionArgPicker`,
+  `LaunchTargetArgPicker` and `ScaffoldMigration` hand-wrote *fully-qualified* names the enum computes from a
+  class literal. `BlockType.LibraryCall`/`LambdaCall` now hold an `SdkType` rather than a `String className` —
+  every one of them was already a facade call, and both synthetic builders (`StatementMenu.sdkCall`, the
+  overlay palette) started from an `SdkType` and threw it away to pass the name back as a string. New
+  `parser/helpers/SdkNodes` builds the JDT nodes (`type`/`name`/`qualifiedName`/`intCtor`) and answers
+  `isCallOn`/`isInstantiationOf`, so no rewrite spells an SDK name; `ResolvedType.of(SdkType)` replaces
+  `ResolvedType.named("ImageTemplate")` and carries the qualified name the simple-name spelling never could;
+  `ResolvedType.is(SdkType)` is the single owner of a "is this slot type T?" test four pickers each wrote out.
+  A renamed SDK class is now a Studio build failure instead of generated source that no longer compiles.
+  811 tests, was 807.
 - **2026-08-06 — `palette/VisionLoop`: the nine `ImageFinder` lambda helpers are a set, not six lists.**
   `LambdaCallBlock`'s private `Variant` record + `VARIANTS` list owned the authoritative table while
   `MatchesGroupScope` kept a second, hand-written `Set.of("ifFindAny","whileFindAny","ifFindAll","whileFindAll")`

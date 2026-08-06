@@ -1,13 +1,14 @@
 package com.botmaker.studio.parser;
 
+import com.botmaker.studio.config.BotMakerDirs;
 import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.StatementBlock;
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.palette.BlockType;
-import com.botmaker.studio.palette.MatchesCheck;
 import com.botmaker.studio.palette.ExpressionCatalog;
 import com.botmaker.studio.palette.ExpressionType;
+import com.botmaker.studio.palette.MatchesCheck;
 import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.parser.handlers.EnumManipulationHandler;
 import com.botmaker.studio.parser.handlers.InstantiationHandler;
@@ -20,13 +21,13 @@ import com.botmaker.studio.parser.handlers.RawExpressionHandler;
 import com.botmaker.studio.parser.handlers.SwitchNormalizer;
 import com.botmaker.studio.parser.handlers.TypeHandler;
 import com.botmaker.studio.parser.helpers.AstRewriteHelper;
+import com.botmaker.studio.parser.helpers.SdkNodes;
 import com.botmaker.studio.parser.helpers.SourceFormatter;
 import com.botmaker.studio.parser.helpers.SourceParser;
-import com.botmaker.studio.project.LockResolver;
 import com.botmaker.studio.project.LockResolver.EditKind;
+import com.botmaker.studio.project.LockResolver;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
-import com.botmaker.studio.config.BotMakerDirs;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.types.ResolvedType;
 import org.eclipse.jdt.core.compiler.IProblem;
@@ -408,7 +409,7 @@ public class CodeEditor {
             AST ast = cu.getAST();
             ASTRewrite rewriter = ASTRewrite.create(ast);
             ClassInstanceCreation cic = ast.newClassInstanceCreation();
-            cic.setType(ast.newSimpleType(ast.newSimpleName("ImageTemplate")));
+            cic.setType(SdkNodes.type(ast, SdkType.IMAGE_TEMPLATE));
             StringLiteral lit = ast.newStringLiteral();
             lit.setLiteralValue(path);
             cic.arguments().add(lit);
@@ -429,14 +430,14 @@ public class CodeEditor {
     private static boolean isSoleFindArgument(Expression templateSlot) {
         if (!(templateSlot.getParent() instanceof MethodInvocation mi)) return false;
         if (!"find".equals(mi.getName().getIdentifier())) return false;
-        if (mi.getExpression() == null || !"ImageFinder".equals(mi.getExpression().toString())) return false;
+        if (!SdkNodes.isCallOn(mi, SdkType.IMAGE_FINDER)) return false;
         return mi.arguments().size() == 1 && mi.arguments().get(0) == templateSlot;
     }
 
     /** Builds the AST for {@code Window.find("<title>").orElseThrow()} (a window-targeted capture source). */
     private static Expression windowFindOrElseThrow(AST ast, String title) {
         MethodInvocation find = ast.newMethodInvocation();
-        find.setExpression(ast.newSimpleName("Window"));
+        find.setExpression(SdkNodes.name(ast, SdkType.WINDOW));
         find.setName(ast.newSimpleName("find"));
         StringLiteral t = ast.newStringLiteral();
         t.setLiteralValue(title);
@@ -463,11 +464,11 @@ public class CodeEditor {
             AST ast = cu.getAST();
             ASTRewrite rewriter = ASTRewrite.create(ast);
             MethodInvocation call = ast.newMethodInvocation();
-            call.setExpression(ast.newSimpleName("ImageTemplateGroup"));
+            call.setExpression(SdkNodes.name(ast, SdkType.IMAGE_TEMPLATE_GROUP));
             call.setName(ast.newSimpleName("of"));
             for (String path : paths) {
                 ClassInstanceCreation cic = ast.newClassInstanceCreation();
-                cic.setType(ast.newSimpleType(ast.newSimpleName("ImageTemplate")));
+                cic.setType(SdkNodes.type(ast, SdkType.IMAGE_TEMPLATE));
                 StringLiteral lit = ast.newStringLiteral();
                 lit.setLiteralValue(path == null ? "" : path);
                 cic.arguments().add(lit);
@@ -504,7 +505,7 @@ public class CodeEditor {
             }
             for (String path : paths) {
                 ClassInstanceCreation cic = ast.newClassInstanceCreation();
-                cic.setType(ast.newSimpleType(ast.newSimpleName("ImageTemplate")));
+                cic.setType(SdkNodes.type(ast, SdkType.IMAGE_TEMPLATE));
                 StringLiteral lit = ast.newStringLiteral();
                 lit.setLiteralValue(path == null ? "" : path);
                 cic.arguments().add(lit);
@@ -559,12 +560,12 @@ public class CodeEditor {
 
     /** Replaces {@code toReplace} with {@code new Rect(x, y, w, h)} — the screen-region arg picker. */
     public void setRect(Expression toReplace, int x, int y, int w, int h) {
-        replaceWithIntCtor(toReplace, "Rect", x, y, w, h);
+        replaceWithIntCtor(toReplace, SdkType.RECT, x, y, w, h);
     }
 
     /** Replaces {@code toReplace} with {@code new Point(x, y)} — the cursor-position arg picker. */
     public void setPoint(Expression toReplace, int x, int y) {
-        replaceWithIntCtor(toReplace, "Point", x, y);
+        replaceWithIntCtor(toReplace, SdkType.POINT, x, y);
     }
 
     /** A value to drop into a call argument slot by the multi-argument "Pick all on screen" session. */
@@ -590,28 +591,28 @@ public class CodeEditor {
                 if (idx < 0 || idx >= args.size()) continue;
                 Expression slot = (Expression) args.get(idx);
                 Expression replacement;
-                String typeName;
+                SdkType imported;
                 switch (e.getValue()) {
                     case ArgValue.RectVal r -> {
-                        replacement = intCtor(ast, "Rect", r.x(), r.y(), r.w(), r.h());
-                        typeName = "Rect";
+                        replacement = SdkNodes.intCtor(ast, SdkType.RECT, r.x(), r.y(), r.w(), r.h());
+                        imported = SdkType.RECT;
                     }
                     case ArgValue.PointVal p -> {
-                        replacement = intCtor(ast, "Point", p.x(), p.y());
-                        typeName = "Point";
+                        replacement = SdkNodes.intCtor(ast, SdkType.POINT, p.x(), p.y());
+                        imported = SdkType.POINT;
                     }
                     case ArgValue.ImageVal im -> {
                         ClassInstanceCreation cic = ast.newClassInstanceCreation();
-                        cic.setType(ast.newSimpleType(ast.newSimpleName("ImageTemplate")));
+                        cic.setType(SdkNodes.type(ast, SdkType.IMAGE_TEMPLATE));
                         StringLiteral lit = ast.newStringLiteral();
                         lit.setLiteralValue(im.path());
                         cic.arguments().add(lit);
                         replacement = cic;
-                        typeName = "ImageTemplate";
+                        imported = SdkType.IMAGE_TEMPLATE;
                     }
                     default -> { continue; }
                 }
-                ImportManager.addImportForSimpleName(cu, rewriter, typeName, analyzer, null);
+                ImportManager.addImport(cu, rewriter, imported);
                 rewriter.replace(slot, replacement, null);
             }
             return AstRewriteHelper.applyRewrite(rewriter, code);
@@ -619,25 +620,13 @@ public class CodeEditor {
     }
 
     /** {@code new <typeName>(a, b, …)} with int-literal arguments (helper for the batch rewrite). */
-    private static ClassInstanceCreation intCtor(AST ast, String typeName, int... args) {
-        ClassInstanceCreation cic = ast.newClassInstanceCreation();
-        cic.setType(ast.newSimpleType(ast.newSimpleName(typeName)));
-        for (int v : args) cic.arguments().add(ast.newNumberLiteral(Integer.toString(v)));
-        return cic;
-    }
-
-    /** Replaces {@code toReplace} with {@code new <typeName>(a, b, …)} using int-literal arguments. */
-    private void replaceWithIntCtor(Expression toReplace, String typeName, int... args) {
+    /** Replaces {@code toReplace} with {@code new <type>(a, b, …)} using int-literal arguments. */
+    private void replaceWithIntCtor(Expression toReplace, SdkType type, int... args) {
         edit(toReplace, EditKind.BODY, true, (cu, code) -> {
             AST ast = cu.getAST();
             ASTRewrite rewriter = ASTRewrite.create(ast);
-            ClassInstanceCreation cic = ast.newClassInstanceCreation();
-            cic.setType(ast.newSimpleType(ast.newSimpleName(typeName)));
-            for (int v : args) {
-                cic.arguments().add(ast.newNumberLiteral(Integer.toString(v)));
-            }
-            ImportManager.addImportForSimpleName(cu, rewriter, typeName, analyzer, null);
-            rewriter.replace(toReplace, cic, null);
+            ImportManager.addImport(cu, rewriter, type);
+            rewriter.replace(toReplace, SdkNodes.intCtor(ast, type, args), null);
             return AstRewriteHelper.applyRewrite(rewriter, code);
         });
     }

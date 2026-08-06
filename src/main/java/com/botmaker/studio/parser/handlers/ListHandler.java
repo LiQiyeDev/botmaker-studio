@@ -1,10 +1,11 @@
 package com.botmaker.studio.parser.handlers;
 
+import com.botmaker.studio.palette.ExpressionType;
 import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.parser.EditContext;
 import com.botmaker.studio.parser.NodeCreator;
 import com.botmaker.studio.parser.helpers.AstRewriteHelper;
-import com.botmaker.studio.palette.ExpressionType;
+import com.botmaker.studio.parser.helpers.SdkNodes;
 import com.botmaker.studio.types.ResolvedType;
 import org.eclipse.jdt.core.dom.*;
 import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
@@ -39,7 +40,7 @@ public class ListHandler {
         AST ast = ctx.ast();
 
         ClassInstanceCreation cic = ast.newClassInstanceCreation();
-        cic.setType(ast.newSimpleType(ast.newSimpleName("ImageTemplate")));
+        cic.setType(SdkNodes.type(ast, SdkType.IMAGE_TEMPLATE));
         StringLiteral lit = ast.newStringLiteral();
         lit.setLiteralValue("");
         cic.arguments().add(lit);

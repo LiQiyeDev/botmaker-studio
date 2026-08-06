@@ -1,5 +1,6 @@
 package com.botmaker.studio.project.capture;
 
+import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.project.capture.CaptureTarget.EmulatorTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.ScreenTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.WindowTarget;
@@ -18,9 +19,12 @@ import com.botmaker.studio.project.capture.CaptureTarget.WindowTarget;
  */
 public final class CaptureExpr {
 
-    private static final String PKG = "com.botmaker.sdk.api.capture.";
-    private static final String RECT = "com.botmaker.sdk.api.Rect";
-    private static final String EMULATOR_SOURCE = "com.botmaker.sdk.api.emulator.EmulatorSource";
+    /** {@code com.botmaker.sdk.api.capture.} — the package the source factories live in, from the type itself. */
+    private static final String PKG =
+            SdkType.CAPTURE_SOURCE.qualifiedName().substring(
+                    0, SdkType.CAPTURE_SOURCE.qualifiedName().lastIndexOf('.') + 1);
+    private static final String RECT = SdkType.RECT.qualifiedName();
+    private static final String EMULATOR_SOURCE = SdkType.EMULATOR_SOURCE.qualifiedName();
 
     private CaptureExpr() {}
 

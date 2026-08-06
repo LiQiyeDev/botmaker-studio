@@ -1,5 +1,6 @@
 package com.botmaker.studio.project;
 
+import com.botmaker.studio.palette.SdkType;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -109,9 +110,9 @@ public final class ScaffoldMigration {
     }
 
     private static final String POPUPS_FILE = "Popups.java";
-    private static final String POPUP_GUARD_TYPE = "PopupGuard";
-    private static final String POPUP_GUARD_FQN = "com.botmaker.sdk.api.bot.PopupGuard";
-    private static final String BOT_IMPORT = "import com.botmaker.sdk.api.bot.Bot;";
+    private static final String POPUP_GUARD_TYPE = SdkType.POPUP_GUARD.simpleName();
+    private static final String POPUP_GUARD_FQN = SdkType.POPUP_GUARD.qualifiedName();
+    private static final String BOT_IMPORT = "import " + SdkType.BOT.qualifiedName() + ";";
 
     /**
      * {@code Bot.start(GameLoop::run, goHome, Startup::run)} → {@code Bot.start(FlowDriver::run, goHome)}.

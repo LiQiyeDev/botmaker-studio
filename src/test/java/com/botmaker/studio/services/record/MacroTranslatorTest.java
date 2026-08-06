@@ -1,5 +1,6 @@
 package com.botmaker.studio.services.record;
 
+import com.botmaker.studio.palette.SdkType;
 import com.botmaker.shared.input.InputEvent;
 import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.palette.BlockType.LibraryCall;
@@ -33,7 +34,7 @@ public class MacroTranslatorTest {
 
         assertEquals(1, blocks.size());
         LibraryCall call = assertInstanceOf(LibraryCall.class, blocks.get(0));
-        assertEquals("Mouse", call.className());
+        assertEquals(SdkType.MOUSE, call.facade());
         assertEquals("click", call.method());
         // CaptureSource.window("Game"), 50, 120
         assertEquals(3, call.args().size());
@@ -56,7 +57,7 @@ public class MacroTranslatorTest {
 
         assertEquals(1, blocks.size());
         LibraryCall call = assertInstanceOf(LibraryCall.class, blocks.get(0));
-        assertEquals("Keyboard", call.className());
+        assertEquals(SdkType.KEYBOARD, call.facade());
         assertEquals("type", call.method());
         assertEquals("hi!", assertInstanceOf(Initializer.StrLit.class, call.args().get(0)).value());
     }
@@ -84,7 +85,7 @@ public class MacroTranslatorTest {
 
         assertEquals(1, blocks.size());
         LibraryCall call = assertInstanceOf(LibraryCall.class, blocks.get(0));
-        assertEquals("Keyboard", call.className());
+        assertEquals(SdkType.KEYBOARD, call.facade());
         assertEquals("tap", call.method());
         Initializer.EnumConst key = assertInstanceOf(Initializer.EnumConst.class, call.args().get(0));
         assertEquals("Key", key.typeName());
@@ -104,7 +105,7 @@ public class MacroTranslatorTest {
         assertEquals(3, blocks.size());
         assertEquals("click", ((LibraryCall) blocks.get(0)).method());
         LibraryCall wait = assertInstanceOf(LibraryCall.class, blocks.get(1));
-        assertEquals("Wait", wait.className());
+        assertEquals(SdkType.WAIT, wait.facade());
         assertEquals("milliseconds", wait.method());
         // gap = 2140 - 1040 = 1100, rounded to nearest 100 = 1100
         assertEquals("1100", assertInstanceOf(Initializer.IntLit.class, wait.args().get(0)).value());

@@ -3,6 +3,8 @@ package com.botmaker.studio.ui.render.components.pickers;
 import com.botmaker.studio.core.AbstractCodeBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.events.CoreApplicationEvents;
+import com.botmaker.studio.palette.SdkType;
+import com.botmaker.studio.parser.helpers.SdkNodes;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.ImageTemplateLibrary;
@@ -35,9 +37,7 @@ public final class ImageTemplateGroupPicker {
 
     /** True when {@code type} is the SDK {@code ImageTemplateGroup} (by simple or qualified name). */
     public static boolean isImageTemplateGroupType(com.botmaker.studio.types.ResolvedType type) {
-        return type != null
-                && (type.simpleName().equals("ImageTemplateGroup")
-                    || type.qualifiedName().endsWith(".ImageTemplateGroup"));
+        return type != null && type.is(SdkType.IMAGE_TEMPLATE_GROUP);
     }
 
     public static Node create(CodeEditorService context, ExpressionBlock arg) {
@@ -191,8 +191,7 @@ public final class ImageTemplateGroupPicker {
         List<String> out = new ArrayList<>();
         if (node instanceof MethodInvocation mi
                 && "of".equals(mi.getName().getIdentifier())
-                && mi.getExpression() != null
-                && mi.getExpression().toString().endsWith("ImageTemplateGroup")) {
+                && SdkNodes.isCallOn(mi, SdkType.IMAGE_TEMPLATE_GROUP)) {
             for (Object a : mi.arguments()) {
                 templatePath(a).ifPresent(out::add);
             }
@@ -208,8 +207,8 @@ public final class ImageTemplateGroupPicker {
      * per-argument pickers instead.
      */
     public static java.util.Optional<String> templatePath(Object expression) {
-        if (expression instanceof ClassInstanceCreation cic
-                && "ImageTemplate".equals(cic.getType().toString())
+        if (SdkNodes.isInstantiationOf(expression, SdkType.IMAGE_TEMPLATE)
+                && expression instanceof ClassInstanceCreation cic
                 && !cic.arguments().isEmpty()
                 && cic.arguments().get(0) instanceof StringLiteral sl) {
             return java.util.Optional.of(sl.getLiteralValue());

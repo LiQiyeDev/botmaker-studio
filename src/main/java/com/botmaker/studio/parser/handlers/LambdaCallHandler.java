@@ -3,6 +3,7 @@ package com.botmaker.studio.parser.handlers;
 import com.botmaker.studio.blocks.flow.MatchesGroupScope;
 import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.parser.EditContext;
+import com.botmaker.studio.parser.helpers.SdkNodes;
 import org.eclipse.jdt.core.dom.*;
 import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 
@@ -29,13 +30,13 @@ public final class LambdaCallHandler {
      * which the round-trip ({@code BlockConverter}) turns into a droppable body — the same {@code newBlock()}
      * while/if loops use. The {@code className} import is added via {@link ImportManager}.
      */
-    public static MethodInvocation buildLambdaCall(EditContext ctx, String className, String method,
+    public static MethodInvocation buildLambdaCall(EditContext ctx, SdkType facade, String method,
                                                    List<Expression> leadingArgs, String lambdaParam) {
         AST ast = ctx.ast();
         MethodInvocation mi = ast.newMethodInvocation();
-        mi.setExpression(ast.newSimpleName(className));
+        mi.setExpression(SdkNodes.name(ast, facade));
         mi.setName(ast.newSimpleName(method));
-        ctx.addImportForSimpleName(className);
+        ctx.addImport(facade);
 
         for (Expression arg : leadingArgs) {
             mi.arguments().add(arg);
@@ -172,13 +173,12 @@ public final class LambdaCallHandler {
     /** Wrap a single image into {@code ImageTemplateGroup.of(...)} or unwrap the group's first element; null = leave as-is. */
     private static Expression convertLeading(AST ast, Expression leading, boolean group) {
         boolean isGroupCall = leading instanceof MethodInvocation gm
-                && gm.getExpression() != null
-                && "ImageTemplateGroup".equals(gm.getExpression().toString())
+                && SdkNodes.isCallOn(gm, SdkType.IMAGE_TEMPLATE_GROUP)
                 && "of".equals(gm.getName().getIdentifier());
         if (group) {
             if (isGroupCall) return null; // already a group — nothing to convert
             MethodInvocation of = ast.newMethodInvocation();
-            of.setExpression(ast.newSimpleName("ImageTemplateGroup"));
+            of.setExpression(SdkNodes.name(ast, SdkType.IMAGE_TEMPLATE_GROUP));
             of.setName(ast.newSimpleName("of"));
             of.arguments().add(ASTNode.copySubtree(ast, leading));
             return of;

@@ -128,8 +128,8 @@ public final class StatementMenu {
 
     private static boolean isSdkFacadeCall(BlockType block) {
         return switch (block) {
-            case BlockType.LibraryCall l -> SdkType.isFacadeClass(l.className());
-            case BlockType.LambdaCall l -> SdkType.isFacadeClass(l.className());
+            case BlockType.LibraryCall l -> l.facade().isFacade();
+            case BlockType.LambdaCall l -> l.facade().isFacade();
             default -> false;
         };
     }
@@ -176,9 +176,8 @@ public final class StatementMenu {
 
     /** A synthetic {@code facade.method(<defaults>)} statement block; args are seeded from the resolved overload. */
     private static BlockType sdkCall(SdkType facade, String method, String displayName) {
-        String name = facade.simpleName();
-        return new BlockType.LibraryCall("SDK_" + name + "_" + method, displayName, BlockCategory.INPUT,
-                name, method, List.of());
+        return new BlockType.LibraryCall("SDK_" + facade.simpleName() + "_" + method, displayName,
+                BlockCategory.INPUT, facade, method, List.of());
     }
 
     private static void addCategoryMenu(ContextMenu menu, BlockCategory category,

@@ -5,9 +5,9 @@ import com.botmaker.studio.core.BlockWithChildren;
 import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.CodeBlock;
 import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.palette.SdkDocs;
 import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.palette.VisionLoop;
-import com.botmaker.studio.palette.SdkDocs;
 import com.botmaker.studio.parser.ExpressionChoice;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
 import com.botmaker.studio.services.CodeEditorService;
@@ -61,9 +61,6 @@ import java.util.List;
  * instead ({@link #bodyValueHint}).
  */
 public class LambdaCallBlock extends AbstractStatementBlock implements BlockWithChildren {
-
-    /** The vision loop helpers all live on the SDK's {@code ImageFinder} facade. */
-    private static final String SDK_CLASS = "ImageFinder";
 
     private final String method;
     private ExpressionBlock image;
@@ -144,8 +141,9 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
      * so it goes, and a body with statements in it is confirmed away first rather than deleted silently.
      */
     private Node createClassSelector(CodeEditorService context) {
+        String facade = SdkType.IMAGE_FINDER.simpleName();
         if (isReadOnly()) {
-            Label chip = new Label(SDK_CLASS);
+            Label chip = new Label(facade);
             chip.getStyleClass().add("sdk-class-selector");
             chip.setStyle("-fx-font-size: 11px; -fx-font-weight: bold;");
             return chip;
@@ -153,15 +151,15 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
         ComboBox<String> selector = new ComboBox<>();
         selector.getStyleClass().add("sdk-class-selector");
         selector.getItems().addAll(SdkType.FACADE_NAMES);
-        if (!selector.getItems().contains(SDK_CLASS)) selector.getItems().add(0, SDK_CLASS);
-        selector.setValue(SDK_CLASS);
+        if (!selector.getItems().contains(facade)) selector.getItems().add(0, facade);
+        selector.setValue(facade);
         selector.setStyle("-fx-font-size: 11px; -fx-font-weight: bold;");
         selector.setTooltip(new Tooltip("Point this call at another SDK class (the action body is dropped)"));
         selector.setOnAction(e -> {
             String picked = selector.getValue();
-            if (picked == null || picked.equals(SDK_CLASS)) return;
+            if (picked == null || picked.equals(facade)) return;
             if (!confirmBodyDiscard(picked)) {
-                selector.setValue(SDK_CLASS);
+                selector.setValue(facade);
                 return;
             }
             switchFacade(context, picked);
@@ -288,9 +286,10 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
      * (sources unresolved / offline).
      */
     private void addInfoButton(SentenceLayoutBuilder sentence, CodeEditorService context) {
-        String slot = current().group() ? "ImageTemplateGroup" : "ImageTemplate";
+        String slot = slotType(current()).simpleName();
         String action = current().hasParam() ? "Consumer" : "Runnable";
-        var overload = context.getSdkDocs().lookup(SDK_CLASS, method, List.of(slot, action));
+        var overload = context.getSdkDocs()
+                .lookup(SdkType.IMAGE_FINDER.simpleName(), method, List.of(slot, action));
         if (overload.isEmpty()) return;
         SdkDocs.Overload o = overload.get();
 
@@ -307,7 +306,12 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
     }
 
     private ResolvedType slotType() {
-        return ResolvedType.named(current().group() ? "ImageTemplateGroup" : "ImageTemplate");
+        return ResolvedType.of(slotType(current()));
+    }
+
+    /** The image argument a form takes: a whole group for the {@code …Any}/{@code …All} forms, else one template. */
+    private static SdkType slotType(VisionLoop loop) {
+        return loop.group() ? SdkType.IMAGE_TEMPLATE_GROUP : SdkType.IMAGE_TEMPLATE;
     }
 
     /**

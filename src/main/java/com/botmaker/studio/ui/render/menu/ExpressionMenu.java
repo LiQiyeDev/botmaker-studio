@@ -1,15 +1,16 @@
 package com.botmaker.studio.ui.render.menu;
 
-import com.botmaker.studio.services.CodeEditorService;
-import com.botmaker.studio.parser.ExpressionChoice;
-import com.botmaker.studio.project.ProjectState;
-import com.botmaker.studio.ui.app.capture.CaptureSourcePicker;
-import com.botmaker.studio.project.activity.ActivityVariable;
-import com.botmaker.studio.suggestions.ProjectAnalyzer;
-import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.palette.ExpressionCatalog;
 import com.botmaker.studio.palette.ExpressionCategory;
 import com.botmaker.studio.palette.ExpressionType;
+import com.botmaker.studio.palette.SdkType;
+import com.botmaker.studio.parser.ExpressionChoice;
+import com.botmaker.studio.project.ProjectState;
+import com.botmaker.studio.project.activity.ActivityVariable;
+import com.botmaker.studio.services.CodeEditorService;
+import com.botmaker.studio.suggestions.ProjectAnalyzer;
+import com.botmaker.studio.types.ResolvedType;
+import com.botmaker.studio.ui.app.capture.CaptureSourcePicker;
 import com.botmaker.studio.util.MethodSignature;
 import com.botmaker.studio.util.VariableScopeVisitor;
 import io.github.classgraph.ClassInfo;
@@ -646,8 +647,8 @@ public final class ExpressionMenu {
     /** True when a slot expects the SDK's {@code CaptureSource} (or a {@code Window} used as one). */
     private static boolean isCaptureSourceType(ResolvedType expectedType) {
         if (expectedType == null || expectedType.isUnknown()) return false;
-        String name = expectedType.leafType().simpleName();
-        return "CaptureSource".equals(name) || "Window".equals(name);
+        return expectedType.leafType().is(SdkType.CAPTURE_SOURCE)
+                || expectedType.leafType().is(SdkType.WINDOW);
     }
 
     /** The "Choose capture source…" entry: opens the visual picker and emits the helper-call snippet. */

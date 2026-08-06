@@ -43,15 +43,23 @@ public sealed interface BlockType
     record ScannerRead(String id, String displayName, BlockCategory category,
                        String method, String typeName, boolean primitive, String varName) implements BlockType {}
 
-    /** A static library call statement: {@code <className>.<method>(args...)}. */
+    /**
+     * A static library call statement: {@code <facade>.<method>(args...)}.
+     *
+     * <p>The receiver is an {@link SdkType}, not a class name: every one of these is a call on an SDK facade —
+     * {@code StatementMenu} already filtered the catalog with {@code SdkType.isFacadeClass(className())}, and
+     * the two synthetic builders ({@code StatementMenu.sdkCall}, the overlay palette) start from an
+     * {@code SdkType} and threw it away to pass the string back. Holding the type keeps the name compiler-
+     * checked and lets the write path import by identity rather than by resolving a simple name.
+     */
     record LibraryCall(String id, String displayName, BlockCategory category,
-                       String className, String method, List<Initializer> args) implements BlockType {
+                       SdkType facade, String method, List<Initializer> args) implements BlockType {
         public LibraryCall(String id, String displayName, BlockCategory category,
-                           String className, String method, List<Initializer> args) {
+                           SdkType facade, String method, List<Initializer> args) {
             this.id = id;
             this.displayName = displayName;
             this.category = category;
-            this.className = className;
+            this.facade = facade;
             this.method = method;
             this.args = List.copyOf(args);
         }
@@ -66,15 +74,15 @@ public sealed interface BlockType
      * Built and re-parsed by {@code parser.handlers.LambdaCallHandler}.
      */
     record LambdaCall(String id, String displayName, BlockCategory category,
-                      String className, String method,
+                      SdkType facade, String method,
                       List<Initializer> leadingArgs, String lambdaParam) implements BlockType {
         public LambdaCall(String id, String displayName, BlockCategory category,
-                          String className, String method,
+                          SdkType facade, String method,
                           List<Initializer> leadingArgs, String lambdaParam) {
             this.id = id;
             this.displayName = displayName;
             this.category = category;
-            this.className = className;
+            this.facade = facade;
             this.method = method;
             this.leadingArgs = List.copyOf(leadingArgs);
             this.lambdaParam = lambdaParam;

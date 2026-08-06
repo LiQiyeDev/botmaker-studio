@@ -1,17 +1,19 @@
 package com.botmaker.studio.parser.factories;
 
+import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.parser.EditContext;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
 import com.botmaker.studio.parser.helpers.DefaultValueHelper;
+import com.botmaker.studio.parser.helpers.SdkNodes;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.project.capture.CaptureExpr;
-import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
+import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.util.MethodSignature;
-import org.eclipse.jdt.core.dom.*;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import org.eclipse.jdt.core.dom.*;
 
 public class InitializerFactory {
 
@@ -102,11 +104,11 @@ public class InitializerFactory {
         // be CaptureExpr.of(<today's default>): switching overload through the ⚙ picker runs this path, and a
         // snapshot would silently freeze the argument into a `CaptureSource.window("…")` literal that stops
         // following the project's source. Falls back to the whole desktop if the snippet fails to parse.
-        if ("CaptureSource".equals(richType.leafType().simpleName())) {
+        if (richType.leafType().is(SdkType.CAPTURE_SOURCE)) {
             Expression seeded = parseExpr(ast, CaptureExpr.projectDefault());
             if (seeded != null) return seeded;
             MethodInvocation desktop = ast.newMethodInvocation();
-            desktop.setExpression(ast.newName("com.botmaker.sdk.api.capture.CaptureSource"));
+            desktop.setExpression(SdkNodes.qualifiedName(ast, SdkType.CAPTURE_SOURCE));
             desktop.setName(ast.newSimpleName("desktop"));
             return desktop;
         }
@@ -130,8 +132,13 @@ public class InitializerFactory {
         // the seed has to be the constant, not a number. Simple name: the two paths that build argument
         // defaults (palette insert, overload switch) import each parameter's type alongside this call, and
         // unlike java.awt.Color it resolves through the analyzer's SDK index.
+        // Not a `case` below only because a switch label must be a compile-time constant, and the name comes
+        // from the type identity rather than a literal.
+        if (richType.leafType().is(SdkType.PRECISION)) {
+            Expression seeded = parseExpr(ast, SdkType.PRECISION.simpleName() + ".DEFAULT");
+            if (seeded != null) return seeded;
+        }
         String seededConstant = switch (richType.leafType().simpleName()) {
-            case "Precision" -> "Precision.DEFAULT";
             // java.time.Duration has no public constructor either, and no meaningful "named default", so the
             // seed is a plausible literal wait instead — one second, in the unit the picker will show it in,
             // so the control opens reading back exactly what is in the source. Simple name like Precision

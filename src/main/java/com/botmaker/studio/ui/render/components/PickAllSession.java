@@ -1,10 +1,11 @@
 package com.botmaker.studio.ui.render.components;
 
 import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.parser.CodeEditor;
 import com.botmaker.studio.services.CodeEditorService;
-import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.services.ScreenCaptureService.PickStep;
+import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.util.MethodSignature;
 import javafx.stage.Window;
@@ -33,13 +34,12 @@ public final class PickAllSession {
 
     /** True when {@code type} is one this session can pick on screen ({@code ImageTemplate}/{@code Rect}/{@code Point}). */
     private static boolean isPickable(ResolvedType type) {
-        return ImageTemplatePicker.isImageTemplateType(type) || isType(type, "Rect") || isType(type, "Point");
+        return ImageTemplatePicker.isImageTemplateType(type)
+                || isType(type, SdkType.RECT) || isType(type, SdkType.POINT);
     }
 
-    /** Matches {@code type} against a simple type name (by simple or qualified name); mirrors {@code PickerContext.isType}. */
-    private static boolean isType(ResolvedType type, String simpleName) {
-        return type != null
-                && (type.simpleName().equals(simpleName) || type.qualifiedName().endsWith("." + simpleName));
+    private static boolean isType(ResolvedType type, SdkType sdkType) {
+        return type != null && type.is(sdkType);
     }
 
     /** Whether at least one of {@code argCount} arguments (typed via {@code signature}) can be picked on screen. */
@@ -77,10 +77,10 @@ public final class PickAllSession {
                         System.err.println("Pick-all: failed to save template for arg " + idx + ": " + e.getMessage());
                     }
                 }));
-            } else if (isType(type, "Rect")) {
+            } else if (isType(type, SdkType.RECT)) {
                 steps.add(new PickStep.RegionStep(label,
                         r -> values.put(idx, new CodeEditor.ArgValue.RectVal(r[0], r[1], r[2], r[3]))));
-            } else if (isType(type, "Point")) {
+            } else if (isType(type, SdkType.POINT)) {
                 steps.add(new PickStep.PointStep(label,
                         p -> values.put(idx, new CodeEditor.ArgValue.PointVal(p[0], p[1]))));
             }

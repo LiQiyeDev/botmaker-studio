@@ -4,6 +4,7 @@ import com.botmaker.shared.opencv.ColorMatcher;
 import com.botmaker.shared.opencv.RawColorMatch;
 import com.botmaker.studio.core.AbstractCodeBlock;
 import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.ui.app.capture.ColorSampler;
 import com.botmaker.studio.ui.app.capture.GameFrame;
@@ -72,7 +73,7 @@ public final class PrecisionArgPicker {
 
     private PrecisionArgPicker() {}
 
-    private static final String FQN = "com.botmaker.sdk.api.vision.Precision";
+    private static final String FQN = SdkType.PRECISION.qualifiedName();
 
     /** The quantity gates every {@code Precision} anchor carries — must match the SDK's constants. */
     private static final int DEFAULT_AREA = 4;

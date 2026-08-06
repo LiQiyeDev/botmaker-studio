@@ -2,6 +2,8 @@ package com.botmaker.studio.ui.render.components.pickers;
 
 import com.botmaker.studio.core.AbstractCodeBlock;
 import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.palette.SdkType;
+import com.botmaker.studio.parser.helpers.SdkNodes;
 import com.botmaker.studio.services.CodeEditorService;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -161,7 +163,7 @@ public final class DurationPicker {
      */
     static MethodInvocation editableWaitCall(Expression slot) {
         if (!(slot.getParent() instanceof MethodInvocation call)) return null;
-        if (call.getExpression() == null || !"Wait".equals(call.getExpression().toString())) return null;
+        if (!SdkNodes.isCallOn(call, SdkType.WAIT)) return null;
         if (!call.arguments().contains(slot)) return null;
         String name = call.getName().getIdentifier();
         int arity = call.arguments().size();
