@@ -1,31 +1,25 @@
 package com.botmaker.studio.ui.app;
 
-import com.botmaker.studio.runtime.CodeExecutionService;
-import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
-import com.botmaker.studio.project.ProjectConfig;
+import com.botmaker.studio.config.VersionInfo;
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
+import com.botmaker.studio.project.ProjectConfig;
+import com.botmaker.studio.project.ProjectMode;
+import com.botmaker.studio.project.ProjectOpenMigrations;
+import com.botmaker.studio.project.ProjectState;
+import com.botmaker.studio.project.vcs.ProjectVcs;
+import com.botmaker.studio.runtime.CodeExecutionService;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.CodeEditorService;
-import com.botmaker.studio.services.JitPackSearch;
 import com.botmaker.studio.services.LibraryService;
-import com.botmaker.studio.services.MavenCentralSearch;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
-import com.botmaker.studio.sharing.BotInstaller;
-import com.botmaker.studio.ui.render.theme.BlockTheme;
-import com.botmaker.studio.sharing.BotPublisher;
-import com.botmaker.studio.sharing.BotSource;
-import com.botmaker.studio.sharing.GitHubAuth;
-import com.botmaker.studio.sharing.GitHubClient;
-import com.botmaker.studio.sharing.GitHubGallery;
-import com.botmaker.studio.project.ProjectCreator;
-import com.botmaker.studio.project.ProjectRepair;
-import com.botmaker.studio.project.ProjectTemplate;
-import com.botmaker.studio.project.activity.ActivityDefinition;
-import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
+import com.botmaker.studio.ui.app.pilot.RemotePilotUi;
+import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
+import com.botmaker.studio.ui.render.theme.BlockTheme;
 import com.botmaker.studio.validation.DiagnosticsManager;
+import javafx.application.Platform;
 import javafx.beans.binding.Bindings;
 import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
@@ -41,10 +35,19 @@ import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.*;
 import javafx.stage.Stage;
 
+import java.io.IOException;
 import java.util.EnumMap;
-import java.util.List;
 import java.util.function.Consumer;
 
+/**
+ * The application shell: it assembles the main window out of the panel managers, and releases what that window
+ * acquired when the project it belongs to goes away.
+ *
+ * <p>It is a coordinator, not a container of features. Each area of the window is a collaborator built here and
+ * handed callbacks — {@link EditorCanvas}, {@link DiagnosticsPanel}, {@link IdentityCluster},
+ * {@link VcsPanel}, {@link RemotePilotUi} — and none of them holds a reference back. The actions behind the
+ * menus and the toolbar live in {@link StudioActions}.
+ */
 public class UIManager {
 
     /** Narrowest the file explorer may be dragged. */
@@ -63,19 +66,15 @@ public class UIManager {
     private final Stage primaryStage;
     private final ProjectConfig config;
     private final ProjectState state;
-    private final ScreenCaptureService screenCaptureService;
-    private final ProjectSettingsService projectSettingsService;
-    /** Held for the overlay editor, which needs the activity list to know where to insert. */
-    private final ActivityService activityService;
-    private final ProjectAnalyzer projectAnalyzer;
 
     private final ToolbarManager toolbarManager;
     private final EventLogManager eventLogManager;
     private final MenuBarManager menuBarManager;
-    private final com.botmaker.studio.runtime.CodeExecutionService codeExecutionService;
-    /** Remote Pilot in full: the server, the private-display launcher, and every dialog they put on screen. */
-    private final com.botmaker.studio.ui.app.pilot.RemotePilotUi remotePilot;
     private final FileExplorerManager fileExplorerManager;
+    /** Remote Pilot in full: the server, the private-display launcher, and every dialog they put on screen. */
+    private final RemotePilotUi remotePilot;
+    /** Every menu/toolbar action, and the GitHub services that back the sharing ones. */
+    private final StudioActions actions;
 
     // Theme management
     private Scene scene;
@@ -85,16 +84,6 @@ public class UIManager {
     private final Consumer<BlockTheme.ThemeType> themeListener;
     /** Built with the scene; holds the second of this window's two theme listeners. */
     private IdentityCluster identityCluster;
-
-    // Sharing / GitHub services — promoted to fields so the toolbar VCS/account buttons and the VCS bottom
-    // tab can reach them at scene-build time, not just the menu wiring in the constructor.
-    private GitHubAuth gitHubAuth;
-    private GitHubClient gitHubClient;
-    private GitHubGallery gallery;
-    private BotPublisher botPublisher;
-    private BotInstaller botInstaller;
-    private Runnable openPublishDialog;
-    private Runnable openVcsDialog;
 
     private VcsPanel vcsPanel;
 
@@ -110,9 +99,6 @@ public class UIManager {
     private TabPane bottomTabPane;
     private Consumer<Void> onSelectProject;
 
-    /** Opens the Manage Libraries dialog; captured so the Getting Started guide can reuse it. */
-    private Runnable onManageLibraries;
-
     public UIManager(BlockDragAndDropManager dragAndDropManager,
                      EventBus eventBus,
                      CodeEditorService codeEditorService,
@@ -125,106 +111,38 @@ public class UIManager {
                      CodeExecutionService codeExecutionService) {
         this.eventBus = eventBus;
         this.codeEditorService = codeEditorService;
-        this.codeExecutionService = codeExecutionService;
         this.diagnosticsManager = diagnosticsManager;
         this.primaryStage = primaryStage;
         this.config = config;
         this.state = state;
-        this.projectAnalyzer = projectAnalyzer;
-        this.activityService = activityService;
 
         // Editor settings (capture targets + default). Stateless over (config, state, eventBus); the
         // capture service honors the default target so pickers stop re-asking which screen to use.
-        this.projectSettingsService = new ProjectSettingsService(config, state, eventBus);
-        this.screenCaptureService = new ScreenCaptureService(projectSettingsService);
-        this.remotePilot = new com.botmaker.studio.ui.app.pilot.RemotePilotUi(
+        ProjectSettingsService projectSettingsService = new ProjectSettingsService(config, state, eventBus);
+        ScreenCaptureService screenCaptureService = new ScreenCaptureService(projectSettingsService);
+        this.remotePilot = new RemotePilotUi(
                 primaryStage, eventBus, config, projectSettingsService, codeExecutionService);
 
         this.toolbarManager = new ToolbarManager(eventBus, projectSettingsService);
         this.eventLogManager = new EventLogManager(eventBus);
         this.menuBarManager = new MenuBarManager(primaryStage);
-        this.menuBarManager.setEventBus(eventBus);
-        this.menuBarManager.setProjectPath(config.projectPath());
+
         // Startup banner: which local builds are actually running (distinct from the GitHub update check).
-        System.out.println(com.botmaker.studio.config.VersionInfo.banner(config.projectPath()));
-        MavenCentralSearch mavenCentralSearch = new MavenCentralSearch();
-        JitPackSearch jitPackSearch = new JitPackSearch();
-        this.onManageLibraries = () ->
-                new ManageLibrariesDialog(primaryStage, libraryService, mavenCentralSearch, jitPackSearch).show();
-        this.menuBarManager.setOnManageLibraries(onManageLibraries);
-        this.menuBarManager.setOnProjectSetup(this::openProjectSetup);
-        this.toolbarManager.setOnProjectSetup(this::openProjectSetup);
-        this.menuBarManager.setOnGettingStarted(this::openGettingStarted);
-        this.menuBarManager.setOnManageImports(() ->
-                new ManageImportsDialog(primaryStage, codeEditorService).show());
-        Runnable openActivityFlow = () -> new ActivityFlowDialog(primaryStage, activityService).show();
-        this.menuBarManager.setOnActivityFlow(openActivityFlow);
-        this.toolbarManager.setOnActivityFlow(openActivityFlow);
-        this.menuBarManager.setOnRecoverProjectFiles(() -> recoverProjectFiles(activityService));
-        this.menuBarManager.setOnManageResources(this::openResourceManager);
-        this.menuBarManager.setOnProjectSettings(() ->
-                new ProjectSettingsDialog(primaryStage, projectSettingsService, projectAnalyzer).show());
-        this.toolbarManager.setOnManageCaptureTargets(() ->
-                new ManageCaptureTargetsDialog(primaryStage, projectSettingsService, config.resourcesRoot()).show());
-        this.toolbarManager.setResourcesDir(config.resourcesRoot());
-        this.toolbarManager.setLaunchTarget(
-                com.botmaker.studio.project.ProjectCreator.readLaunchTarget(config.resourcesRoot()));
-        this.toolbarManager.setOnManageLaunchTarget(() -> new LaunchTargetDialog(
-                primaryStage, config, this.toolbarManager::setLaunchTarget).show());
-        this.toolbarManager.setOnToggleDebugOutput(
-                com.botmaker.studio.project.ProjectCreator.readDebug(config.resourcesRoot()),
-                on -> {
-                    try {
-                        com.botmaker.studio.project.ProjectCreator.writeDebug(config.resourcesRoot(), on);
-                    } catch (java.io.IOException ex) {
-                        System.err.println("Failed to save debug setting: " + ex.getMessage());
-                    }
-                });
-        // The click/vision tuning is a project setting the SDK reads before the first click. Older projects
-        // carry it as a generated BotSettings.java (or, older still, an inline ClickConfig call in main) —
-        // migrate them here, on open, which is the one moment we know the project and haven't yet built the
-        // file explorer that would go on listing a file we are about to delete.
-        try {
-            String migratedMain = com.botmaker.studio.project.BotSettings.migrate(config);
-            if (migratedMain != null) refreshCachedSource(config.mainSourceFile(), migratedMain);
-        } catch (java.io.IOException ex) {
-            System.err.println("Could not move this project's input settings into its project properties: "
-                    + ex.getMessage());
-        }
-        // Same moment, same reason: a project created before GameLoop.java and Startup.java were retired binds
-        // a 3-arg Bot.start the SDK no longer has, so it doesn't compile until this runs.
-        try {
-            String migratedMain = com.botmaker.studio.project.ScaffoldMigration.migrate(config);
-            if (migratedMain != null) refreshCachedSource(config.mainSourceFile(), migratedMain);
-        } catch (java.io.IOException ex) {
-            System.err.println("Could not update this project's entry point to the current scaffold: "
-                    + ex.getMessage());
-        }
-        this.toolbarManager.setOnConfigureInput(() -> new BotSettingsDialog(primaryStage, config, null).show());
-        this.toolbarManager.setOnEnableRemotePilot(remotePilot::open);
-        this.toolbarManager.setOnCaptureTemplates(this::openOverlayTemplateCapture);
-        this.toolbarManager.setOnOverlayEditor(this::openOverlayEditor);
-        this.toolbarManager.setOnRecordMacro(this::openOverlayEditorRecording);
-        this.toolbarManager.setOnAccessResources(this::openResourceManager);
-        this.gitHubClient = new GitHubClient();
-        this.gitHubAuth = new GitHubAuth();
-        this.gallery = new GitHubGallery(gitHubClient, gitHubAuth);
-        this.botInstaller = new BotInstaller(gitHubClient, gallery);
-        this.botPublisher = new BotPublisher(gitHubClient, gitHubAuth);
-        this.menuBarManager.setOnBrowseGallery(() ->
-                new GalleryDialog(primaryStage, gallery, botInstaller, gitHubAuth, gitHubClient).show());
-        this.openPublishDialog = () ->
-                new PublishDialog(primaryStage, gitHubAuth, gitHubClient, gallery, botPublisher,
-                        config.projectName(), config.projectPath()).show();
-        this.menuBarManager.setOnPublishGallery(openPublishDialog);
-        this.openVcsDialog = () ->
-                new VcsDialog(primaryStage, config.projectName(), config.projectPath(), botPublisher,
-                        gitHubAuth, gitHubClient, eventBus, openPublishDialog).show();
-        this.menuBarManager.setOnShowHistory(openVcsDialog);
-        this.menuBarManager.setProjectRepoUrl(BotSource.read(config.projectPath())
-                .map(s -> "https://github.com/" + s.slug()).orElse(null));
-        this.menuBarManager.setOnEnableRemotePilot(remotePilot::open);
-        this.fileExplorerManager = new FileExplorerManager(config, codeEditorService, state, activityService, eventBus);
+        System.out.println(VersionInfo.banner(config.projectPath()));
+
+        // Before the file explorer exists, which is the point: a migration can delete a file the tree would
+        // otherwise go on listing.
+        ProjectOpenMigrations.run(config, state, eventBus);
+
+        this.fileExplorerManager =
+                new FileExplorerManager(config, codeEditorService, state, activityService, eventBus);
+
+        this.actions = new StudioActions(primaryStage, config, eventBus, codeEditorService,
+                projectSettingsService, screenCaptureService, projectAnalyzer, activityService, libraryService,
+                remotePilot, menuBarManager, toolbarManager,
+                new ProjectRecoveryAction(config, state, activityService, codeEditorService, eventBus,
+                        fileExplorerManager::refreshTree));
+        this.actions.wire();
 
         // Initialize theme system and set up theme change listener
         BlockTheme.initialize();
@@ -254,133 +172,11 @@ public class UIManager {
     }
 
     /**
-     * Project ▸ Recover Project Files — puts back the scaffolding BotMaker owns.
-     *
-     * <p>Two kinds of breakage, because there are two ways to break it (see {@link ProjectRepair}):
-     * <b>missing files</b>, deleted outside the Studio or from the explorer, which are recreated but never
-     * overwritten; and <b>damaged locked methods</b>, where the file is present but something BotMaker calls has
-     * been renamed or rewritten. The second used to be invisible here — the file existed, so recovery declared
-     * the project healthy while the bot didn't compile. The user's own methods, and their own method bodies, are
-     * never touched by either.
+     * Opens the Project Setup checklist hub — the auto-open-on-creation target, called from
+     * {@code BotMakerStudio.finishOpen}, which is why it is public here as well as on {@link StudioActions}.
      */
-    private void recoverProjectFiles(ActivityService activityService) {
-        List<ProjectRepair.Missing> missing =
-                ProjectRepair.findMissing(config, state.getTemplate(), activityService.current());
-        List<ProjectRepair.Damage> damaged =
-                ProjectRepair.findDamaged(config, state.getTemplate(), canonicalScaffold(activityService));
-
-        if (missing.isEmpty() && damaged.isEmpty()) {
-            Alert ok = new Alert(Alert.AlertType.INFORMATION);
-            ok.setTitle("Recover Project Files");
-            ok.setHeaderText("Nothing to recover.");
-            ok.setContentText("Every file this project needs is present, and nothing BotMaker generates has "
-                    + "been changed.");
-            ok.showAndWait();
-            return;
-        }
-
-        StringBuilder detail = new StringBuilder();
-        ProjectRepair.summarise(missing).forEach((reason, names) ->
-                detail.append(reason).append(":\n  ").append(String.join("\n  ", names)).append("\n\n"));
-        if (!damaged.isEmpty()) {
-            detail.append("methods BotMaker needs (will be restored):\n  ");
-            detail.append(damaged.stream().map(ProjectRepair.Damage::describe)
-                    .collect(java.util.stream.Collectors.joining("\n  ")));
-            detail.append("\n\n");
-        }
-
-        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
-        confirm.setTitle("Recover Project Files");
-        confirm.setHeaderText(headerFor(missing, damaged));
-        confirm.setContentText(detail.toString().trim()
-                + "\n\nExisting files are never overwritten, and your own methods — and the bodies of the "
-                + "methods you write — are never touched.");
-        if (confirm.showAndWait().filter(b -> b == ButtonType.OK).isEmpty()) return;
-
-        try {
-            ProjectRepair.recover(config, missing);
-            List<java.nio.file.Path> repaired =
-                    ProjectRepair.repairDamaged(config, state.getTemplate(),
-                            canonicalScaffold(activityService), damaged);
-
-            // Activity stubs, activities.json, and the generated Activities/ActivityRegistry are
-            // ActivityService's to write — re-running update() with the current config restores them all.
-            // It writes off-thread, so refresh the tree once it's done rather than racing it.
-            if (ProjectRepair.needsActivityRegeneration(missing)) {
-                activityService.update(activityService.current())
-                        .thenRun(() -> javafx.application.Platform.runLater(fileExplorerManager::refreshTree));
-            }
-
-            eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(summaryOf(missing, repaired)));
-            fileExplorerManager.refreshTree();
-
-            // A repaired file's blocks on screen are now stale — reload the one being looked at.
-            if (state.getActiveFile() != null && repaired.contains(state.getActiveFile().getPath())) {
-                codeEditorService.switchToFile(state.getActiveFile().getPath());
-            }
-        } catch (java.io.IOException ex) {
-            Alert err = new Alert(Alert.AlertType.ERROR);
-            err.setTitle("Recover Project Files");
-            err.setHeaderText("Could not recover the project files.");
-            err.setContentText(ex.getMessage());
-            err.showAndWait();
-        }
-    }
-
-    /**
-     * Tells the editor that {@code file} was rewritten on disk behind its back, e.g. by the one-time
-     * {@code BotSettings} migration.
-     *
-     * <p>The editor caches file contents in memory, so a disk-only write would be invisible — and would be
-     * overwritten by the next edit that flushes the stale copy. Update the cached copy, and re-render when it
-     * happens to be the file on screen. A file the editor hasn't loaded needs nothing.
-     */
-    private void refreshCachedSource(java.nio.file.Path file, String updated) {
-        if (file == null || updated == null) return;
-        state.getAllFiles().stream()
-                .filter(f -> f.getPath().equals(file))
-                .findFirst()
-                .ifPresent(f -> {
-                    String previous = f.getContent();
-                    f.setContent(updated);
-                    var active = state.getActiveFile();
-                    if (active != null && active.getPath().equals(file)) {
-                        eventBus.publish(new CoreApplicationEvents.CodeUpdatedEvent(updated, previous));
-                    }
-                });
-    }
-
-    /** What the generators would produce for this project's scaffold today, keyed by path. */
-    private java.util.Map<java.nio.file.Path, String> canonicalScaffold(ActivityService activityService) {
-        java.util.Map<java.nio.file.Path, String> byPath = new java.util.LinkedHashMap<>();
-        java.nio.file.Path mainDir = config.mainSourceFile().getParent();
-        if (mainDir == null) return byPath;
-
-        ProjectTemplate template = state.getTemplate() != null ? state.getTemplate() : ProjectTemplate.EMPTY;
-        ProjectCreator.sourcesFor(template, config.className(), config.packageName())
-                .forEach((name, source) -> byPath.put(mainDir.resolve(name), source));
-
-        // Each activity stub's isEnabled() is generated against that activity's own flag, so the canonical
-        // source is per-file — only ActivityService can say what it should be.
-        for (ActivityDefinition activity : activityService.current().activities()) {
-            byPath.put(config.activitiesPackageDir().resolve(activity.name() + ".java"),
-                    activityService.generateStubSource(activity));
-        }
-        return byPath;
-    }
-
-    private static String headerFor(List<ProjectRepair.Missing> missing, List<ProjectRepair.Damage> damaged) {
-        if (damaged.isEmpty()) return missing.size() + " file(s) are missing and will be regenerated.";
-        if (missing.isEmpty()) return damaged.size() + " method(s) BotMaker needs will be restored.";
-        return missing.size() + " file(s) are missing and " + damaged.size()
-                + " method(s) BotMaker needs have been changed.";
-    }
-
-    private static String summaryOf(List<ProjectRepair.Missing> missing, List<java.nio.file.Path> repaired) {
-        StringBuilder sb = new StringBuilder("Recovered ");
-        sb.append(missing.size()).append(" file(s)");
-        if (!repaired.isEmpty()) sb.append(" and repaired ").append(repaired.size()).append(" file(s)");
-        return sb.append('.').toString();
+    public void openProjectSetup() {
+        actions.openProjectSetup();
     }
 
     /**
@@ -412,75 +208,9 @@ public class UIManager {
         mainSplit.widthProperty().addListener((obs, ov, nv) -> clamp.run());
     }
 
-
-    /** Opens the Resource Manager dialog. Reused by the Project menu and the block image-picker shortcut. */
-    private void openResourceManager() {
-        new ResourceManagerDialog(primaryStage, config, eventBus, screenCaptureService).show();
-    }
-
-    /**
-     * Opens the Project Setup checklist hub — the toolbar/menu entry and the auto-open-on-creation target
-     * (called from {@code BotMakerStudio.finishOpen}), so it's public. Reuses the overlay template capture for
-     * its optional "Image templates" step.
-     */
-    public void openProjectSetup() {
-        new ProjectSetupDialog(primaryStage, config, projectSettingsService, projectAnalyzer, eventBus,
-                this::openOverlayTemplateCapture, toolbarManager::setLaunchTarget).show();
-    }
-
-    /** Opens the Help ▸ Getting Started guide, whose section jump-buttons reuse the toolbar/menu open actions. */
-    private void openGettingStarted() {
-        GettingStartedDialog.Actions actions = new GettingStartedDialog.Actions(
-                this::openProjectSetup,
-                () -> new ManageCaptureTargetsDialog(primaryStage, projectSettingsService, config.resourcesRoot()).show(),
-                () -> new LaunchTargetDialog(
-                        primaryStage, config, toolbarManager::setLaunchTarget).show(),
-                this::openOverlayTemplateCapture,
-                this::openResourceManager,
-                remotePilot::open,
-                onManageLibraries);
-        new GettingStartedDialog(primaryStage, actions).show();
-    }
-
-    /** Opens the live overlay template-capture over the project's default window target. */
-    private void openOverlayTemplateCapture() {
-        com.botmaker.studio.ui.app.capture.OverlayTemplateCapture.open(
-                primaryStage, config, projectSettingsService, screenCaptureService, eventBus);
-    }
-
-    /** Opens the program-shape overlay authoring editor (compact clickable block tree + insertion cursor). */
-    private void openOverlayEditor() {
-        openOverlayEditor(false);
-    }
-
-    /**
-     * The same overlay, opened straight into a recording session — the toolbar's ⏺ Record. It is the entry
-     * point that makes the overlay's {@code startRecording} flag live again: the standalone Record Macro
-     * button was dropped when the recorder was merged into the HUD, and nothing has passed {@code true} since.
-     */
-    private void openOverlayEditorRecording() {
-        openOverlayEditor(true);
-    }
-
-    private void openOverlayEditor(boolean startRecording) {
-        com.botmaker.studio.ui.app.overlay.ProgramShapeOverlay.open(
-                primaryStage, codeEditorService, projectSettingsService, screenCaptureService, activityService,
-                remotePilot::liveSessionWindow, startRecording, this::chooseLaunchTargetThen);
-    }
-
-    /**
-     * Shows the Launch Target dialog and runs {@code retry} once it closes — the recovery the overlay editor
-     * takes when there is nothing to draw over (no private session up, no default capture target). The dialog
-     * is where the game is both chosen and started ("▶ Launch now"), so it is the one place that can turn "no
-     * window" into a window.
-     */
-    private void chooseLaunchTargetThen(Runnable retry) {
-        new LaunchTargetDialog(primaryStage, config, toolbarManager::setLaunchTarget).show(retry);
-    }
-
     private void setupEventHandlers() {
         eventBus.subscribe(CoreApplicationEvents.OpenResourceManagerEvent.class,
-                e -> openResourceManager(), true);
+                e -> actions.openResourceManager(), true);
         eventBus.subscribe(CoreApplicationEvents.UIBlocksUpdatedEvent.class, event -> {
             if (editorCanvas != null) editorCanvas.handleBlocksUpdate(event);
         }, true);
@@ -538,7 +268,7 @@ public class UIManager {
         editControls.setAlignment(Pos.CENTER_LEFT);
 
         FlowPane executionControls = toolbarManager.createExecutionGroup();
-        this.identityCluster = new IdentityCluster(primaryStage, gitHubAuth, gitHubClient,
+        this.identityCluster = new IdentityCluster(primaryStage, actions.gitHubAuth(), actions.gitHubClient(),
                 () -> selectBottomTab(BottomTab.VCS));
         HBox rightContainer = new HBox(10, executionControls, identityCluster.node());
         rightContainer.setAlignment(Pos.CENTER_RIGHT);
@@ -608,8 +338,8 @@ public class UIManager {
                 () -> selectBottomTab(BottomTab.ERRORS));
 
         // VCS tool window — IntelliJ's Commit view docked beside Terminal (VcsPanel, shared with the dialog).
-        vcsPanel = new VcsPanel(primaryStage, config.projectName(), config.projectPath(), botPublisher,
-                gitHubAuth, gitHubClient, eventBus, openPublishDialog);
+        vcsPanel = new VcsPanel(primaryStage, config.projectName(), config.projectPath(), actions.botPublisher(),
+                actions.gitHubAuth(), actions.gitHubClient(), eventBus, actions::openPublishDialog);
 
         bottomTabs.clear();
         bottomTabs.put(BottomTab.TERMINAL, bottomTab(BottomTab.TERMINAL, outputArea));
@@ -693,10 +423,6 @@ public class UIManager {
         return scene;
     }
 
-    // =========================================================================
-    // READER / EDITOR MODE + IDENTITY / VCS TOOLBAR CLUSTER
-    // =========================================================================
-
     /**
      * "Improve this bot" — flips the installed bot from Reader to Editor mode. Requires no GitHub account (the
      * fork/branch only materializes at PR time): it drops the local opt-in marker, commits the current state
@@ -704,8 +430,8 @@ public class UIManager {
      */
     private void switchToEditorMode() {
         try {
-            com.botmaker.studio.project.ProjectMode.switchToEditor(config.projectPath());
-        } catch (java.io.IOException ex) {
+            ProjectMode.switchToEditor(config.projectPath());
+        } catch (IOException ex) {
             new Alert(Alert.AlertType.ERROR, "Couldn't switch to Editor mode: " + ex.getMessage(),
                     ButtonType.OK).showAndWait();
             return;
@@ -715,12 +441,11 @@ public class UIManager {
         // Daemon: a git commit that hangs must not keep the JVM alive after the user closes the window.
         Thread commit = new Thread(() -> {
             try {
-                new com.botmaker.studio.project.vcs.ProjectVcs(config.projectPath())
-                        .commit("Start editing (switched from Reader mode)");
+                new ProjectVcs(config.projectPath()).commit("Start editing (switched from Reader mode)");
             } catch (Exception ignored) {
                 // A missing/again-committed repo is fine; the reload below is what matters.
             }
-            javafx.application.Platform.runLater(() ->
+            Platform.runLater(() ->
                     eventBus.publish(new CoreApplicationEvents.ProjectReloadRequestedEvent()));
         }, "reader-to-editor");
         commit.setDaemon(true);
