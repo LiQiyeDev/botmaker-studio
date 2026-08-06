@@ -284,6 +284,15 @@ public class CodeEditor {
     }
 
     /**
+     * The write-path context for a rewrite of {@code cu} — this editor's analyzer and project state, plus a
+     * fresh {@link ASTRewrite}. Every {@link #edit} lambda that calls a handler builds one of these, which is
+     * why the handlers take a single {@link EditContext} rather than re-listing the same four arguments.
+     */
+    private EditContext ctx(CompilationUnit cu) {
+        return EditContext.of(cu, analyzer, state);
+    }
+
+    /**
      * Runs a pure rewrite under the modify-guard and publishes the result. {@code op} is a
      * {@code (CompilationUnit, originalCode) -> newCode} transform — a handler call or a local static transform.
      *
@@ -306,19 +315,19 @@ public class CodeEditor {
     // =================================================================================
 
     public void replaceVariableType(VariableDeclarationStatement toReplace, ResolvedType newType) {
-        edit(toReplace, EditKind.BODY, false, (cu, code) -> TypeHandler.replaceVariableType(cu, code, toReplace, newType, state));
+        edit(toReplace, EditKind.BODY, false, (cu, code) -> TypeHandler.replaceVariableType(ctx(cu), code, toReplace, newType));
     }
 
     public void replaceFieldType(FieldDeclaration fieldDecl, String newTypeName) {
-        edit(fieldDecl, EditKind.SIGNATURE, false, (cu, code) -> TypeHandler.replaceFieldType(cu, code, fieldDecl, ResolvedType.named(newTypeName), state));
+        edit(fieldDecl, EditKind.SIGNATURE, false, (cu, code) -> TypeHandler.replaceFieldType(ctx(cu), code, fieldDecl, ResolvedType.named(newTypeName)));
     }
 
     public void updateInstantiation(ClassInstanceCreation node, String newTypeName, List<ResolvedType> newParamTypes) {
-        edit(node, EditKind.BODY, true, (cu, code) -> InstantiationHandler.updateInstantiation(cu, code, node, ResolvedType.named(newTypeName), newParamTypes, analyzer, state));
+        edit(node, EditKind.BODY, true, (cu, code) -> InstantiationHandler.updateInstantiation(ctx(cu), code, node, ResolvedType.named(newTypeName), newParamTypes));
     }
 
     public void replaceWithInstantiation(Expression toReplace, String typeName, List<ResolvedType> paramTypes) {
-        edit(toReplace, EditKind.BODY, true, (cu, code) -> InstantiationHandler.replaceWithInstantiation(cu, code, toReplace, ResolvedType.named(typeName), paramTypes, analyzer, state));
+        edit(toReplace, EditKind.BODY, true, (cu, code) -> InstantiationHandler.replaceWithInstantiation(ctx(cu), code, toReplace, ResolvedType.named(typeName), paramTypes));
     }
 
     public void replaceWithVariable(Expression toReplace, String variableName) {
@@ -466,7 +475,7 @@ public class CodeEditor {
             ImportManager.addImport(cu, rewriter, SdkType.IMAGE_TEMPLATE);
             ImportManager.addImport(cu, rewriter, SdkType.IMAGE_TEMPLATE_GROUP);
             rewriter.replace(toReplace, call, null);
-            LambdaCallHandler.seedIfReady(ast, cu, rewriter, toReplace,
+            LambdaCallHandler.seedIfReady(EditContext.of(cu, rewriter, analyzer, state), toReplace,
                     paths.isEmpty() ? null : paths.getFirst());
             return AstRewriteHelper.applyRewrite(rewriter, code);
         });
@@ -519,10 +528,9 @@ public class CodeEditor {
                     && es.getExpression() instanceof MethodInvocation mi)) {
                 return code;
             }
-            AST ast = cu.getAST();
-            ASTRewrite rewriter = ASTRewrite.create(ast);
-            LambdaCallHandler.switchVariant(ast, cu, rewriter, mi, newMethod, group, lambdaParam);
-            return AstRewriteHelper.applyRewrite(rewriter, code);
+            EditContext ctx = EditContext.of(cu, analyzer, state);
+            LambdaCallHandler.switchVariant(ctx, mi, newMethod, group, lambdaParam);
+            return ctx.applyTo(code);
         });
     }
 
@@ -542,12 +550,9 @@ public class CodeEditor {
                     && es.getExpression() instanceof MethodInvocation mi)) {
                 return code;
             }
-            AST ast = cu.getAST();
-            ASTRewrite rewriter = ASTRewrite.create(ast);
-            MethodInvocation replacement =
-                    MethodHandler.createMethodInvocation(ast, choice, cu, rewriter, analyzer, state);
-            rewriter.replace(mi, replacement, null);
-            return AstRewriteHelper.applyRewrite(rewriter, code);
+            EditContext ctx = EditContext.of(cu, analyzer, state);
+            ctx.rewriter().replace(mi, MethodHandler.createMethodInvocation(ctx, choice), null);
+            return ctx.applyTo(code);
         });
     }
 
@@ -641,7 +646,7 @@ public class CodeEditor {
     // =================================================================================
 
     public void changeMethodParameterType(MethodDeclaration method, int index, ResolvedType newType) {
-        edit(method, EditKind.SIGNATURE, false, (cu, code) -> MethodHandler.changeMethodParameterType(cu, code, method, index, newType, analyzer));
+        edit(method, EditKind.SIGNATURE, false, (cu, code) -> MethodHandler.changeMethodParameterType(ctx(cu), code, method, index, newType));
     }
 
     public void addConstructorToClass(TypeDeclaration typeDecl) {
@@ -649,11 +654,11 @@ public class CodeEditor {
     }
 
     public void updateMethodInvocation(MethodInvocation mi, String newScope, String newMethodName, List<ResolvedType> newParamTypes) {
-        edit(mi, EditKind.BODY, true, (cu, code) -> MethodHandler.updateMethodInvocation(cu, code, mi, newScope, newMethodName, newParamTypes, analyzer, state));
+        edit(mi, EditKind.BODY, true, (cu, code) -> MethodHandler.updateMethodInvocation(ctx(cu), code, mi, newScope, newMethodName, newParamTypes));
     }
 
     public void addArgumentToMethodInvocation(MethodInvocation mi, ExpressionType type) {
-        edit(mi, EditKind.BODY, true, (cu, code) -> MethodHandler.addArgumentToMethodInvocation(cu, code, mi, type));
+        edit(mi, EditKind.BODY, true, (cu, code) -> MethodHandler.addArgumentToMethodInvocation(ctx(cu), code, mi, type));
     }
 
     public void addArgumentToMethodInvocation(MethodInvocation mi, Expression expr) {
@@ -675,7 +680,7 @@ public class CodeEditor {
      */
     public void addVarargsArgument(MethodInvocation mi, ResolvedType elementType) {
         edit(mi, EditKind.BODY, true, (cu, code) ->
-                MethodHandler.addVarargsArgument(cu, code, mi, elementType, analyzer, state));
+                MethodHandler.addVarargsArgument(ctx(cu), code, mi, elementType));
     }
 
     /** Drops the argument at {@code index} from {@code mi} — the {@code ✕} on a varargs argument. */
@@ -690,12 +695,12 @@ public class CodeEditor {
             targetNode = toReplace.getParent();
         }
         Expression target = (Expression) targetNode;
-        edit(target, EditKind.BODY, false, (cu, code) -> MethodHandler.replaceWithMethodCall(cu, code, target, choice, state, analyzer));
+        edit(target, EditKind.BODY, false, (cu, code) -> MethodHandler.replaceWithMethodCall(ctx(cu), code, target, choice));
     }
 
     public void addMethodCallStatement(BodyBlock targetBody, ExpressionChoice.Method choice, int index) {
         if (!canInsertAt(targetBody, index)) return;
-        edit(targetBody.getAstNode(), EditKind.BODY, false, (cu, code) -> MethodHandler.addMethodCallStatement(cu, code, targetBody, choice, index, analyzer, state));
+        edit(targetBody.getAstNode(), EditKind.BODY, false, (cu, code) -> MethodHandler.addMethodCallStatement(ctx(cu), code, targetBody, choice, index));
     }
 
     public void addMethodToClass(TypeDeclaration typeDecl, String methodName, String returnType, int index) {
@@ -711,11 +716,11 @@ public class CodeEditor {
     }
 
     public void setMethodReturnType(MethodDeclaration method, ResolvedType newType) {
-        edit(method, EditKind.SIGNATURE, false, (cu, code) -> MethodHandler.setMethodReturnType(cu, code, method, newType, analyzer));
+        edit(method, EditKind.SIGNATURE, false, (cu, code) -> MethodHandler.setMethodReturnType(ctx(cu), code, method, newType));
     }
 
     public void addParameterToMethod(MethodDeclaration method, ResolvedType type, String paramName) {
-        edit(method, EditKind.SIGNATURE, false, (cu, code) -> MethodHandler.addParameterToMethod(cu, code, method, type, paramName, analyzer));
+        edit(method, EditKind.SIGNATURE, false, (cu, code) -> MethodHandler.addParameterToMethod(ctx(cu), code, method, type, paramName));
     }
 
     public void deleteParameterFromMethod(MethodDeclaration method, int index) {
@@ -740,12 +745,12 @@ public class CodeEditor {
     // =================================================================================
 
     public void replaceWithEnumConstant(Expression toReplace, String enumType, String constantName) {
-        edit(toReplace, EditKind.BODY, false, (cu, code) -> EnumManipulationHandler.replaceWithEnumConstant(cu, code, toReplace, enumType, constantName, analyzer));
+        edit(toReplace, EditKind.BODY, false, (cu, code) -> EnumManipulationHandler.replaceWithEnumConstant(ctx(cu), code, toReplace, enumType, constantName));
     }
 
     /** Replaces with a field reference {@code scope.fieldName} (same {@code QualifiedName} shape as an enum constant). */
     public void replaceWithFieldReference(Expression toReplace, String scope, String fieldName) {
-        edit(toReplace, EditKind.BODY, false, (cu, code) -> EnumManipulationHandler.replaceWithEnumConstant(cu, code, toReplace, scope, fieldName, analyzer));
+        edit(toReplace, EditKind.BODY, false, (cu, code) -> EnumManipulationHandler.replaceWithEnumConstant(ctx(cu), code, toReplace, scope, fieldName));
     }
 
     public void renameEnum(EnumDeclaration enumNode, String newName) {
@@ -802,7 +807,7 @@ public class CodeEditor {
     // =================================================================================
 
     public void addElementToList(ASTNode listNode, ExpressionType type, int insertIndex) {
-        edit(listNode, EditKind.BODY, true, (cu, code) -> ListHandler.addElementToList(cu, code, listNode, type, insertIndex));
+        edit(listNode, EditKind.BODY, true, (cu, code) -> ListHandler.addElementToList(ctx(cu), code, listNode, type, insertIndex));
     }
 
     /**
@@ -811,7 +816,7 @@ public class CodeEditor {
      * {@code elementType} is the list's inferred element type, used to build sensible default arguments.
      */
     public void insertIntoList(ASTNode listNode, int insertIndex, Object selection, ResolvedType elementType) {
-        edit(listNode, EditKind.BODY, true, (cu, code) -> ListHandler.insertChoiceIntoList(cu, code, listNode, insertIndex, selection, elementType, analyzer));
+        edit(listNode, EditKind.BODY, true, (cu, code) -> ListHandler.insertChoiceIntoList(ctx(cu), code, listNode, insertIndex, selection, elementType));
     }
 
     /** Moves the list element at {@code fromIndex} to {@code toIndex} (used by the per-row up/down buttons). */
@@ -821,7 +826,7 @@ public class CodeEditor {
 
     /** Adds a {@code new ImageTemplate("")} element to the list — drives the per-element image picker. */
     public void addImageTemplateToList(ASTNode listNode, int insertIndex) {
-        edit(listNode, EditKind.BODY, true, (cu, code) -> ListHandler.addImageTemplateElement(cu, code, listNode, insertIndex));
+        edit(listNode, EditKind.BODY, true, (cu, code) -> ListHandler.addImageTemplateElement(ctx(cu), code, listNode, insertIndex));
     }
 
     public void deleteElementFromList(ASTNode listNode, int elementIndex) {
@@ -834,17 +839,17 @@ public class CodeEditor {
 
     /** {@code selection} is an {@link ExpressionType} or an {@link ExpressionChoice} (variable/method/…). */
     public void setVariableInitializer(VariableDeclarationStatement varDecl, Object selection) {
-        edit(varDecl, EditKind.BODY, true, (cu, code) -> setVariableInitializer(cu, code, varDecl, selection, analyzer));
+        edit(varDecl, EditKind.BODY, true, (cu, code) -> setVariableInitializer(ctx(cu), code, varDecl, selection));
     }
 
     /** {@code selection} is an {@link ExpressionType} or an {@link ExpressionChoice} (variable/method/…). */
     public void setFieldInitializer(FieldDeclaration fieldDecl, Object selection) {
-        edit(fieldDecl, EditKind.SIGNATURE, true, (cu, code) -> setFieldInitializer(cu, code, fieldDecl, selection, analyzer));
+        edit(fieldDecl, EditKind.SIGNATURE, true, (cu, code) -> setFieldInitializer(ctx(cu), code, fieldDecl, selection));
     }
 
     public void setFieldInitializerToDefault(FieldDeclaration fieldDecl, ResolvedType fieldType) {
         ExpressionType defaultType = mapTypeToExpressionType(fieldType.simpleName());
-        edit(fieldDecl, EditKind.SIGNATURE, true, (cu, code) -> setFieldInitializer(cu, code, fieldDecl, defaultType, analyzer));
+        edit(fieldDecl, EditKind.SIGNATURE, true, (cu, code) -> setFieldInitializer(ctx(cu), code, fieldDecl, defaultType));
     }
 
     public void replaceExpression(Expression toReplace, ExpressionType type) {
@@ -883,7 +888,7 @@ public class CodeEditor {
         if (!canModify(targetBody.getAstNode(), EditKind.BODY) || !canInsertAt(targetBody, index)) return;
         CompilationUnit cu = getCompilationUnit();
         if (cu == null) return;
-        String newCode = addStatement(cu, getCurrentCode(), targetBody, type, index, state, analyzer);
+        String newCode = addStatement(ctx(cu), getCurrentCode(), targetBody, type, index);
         if (newCode == null) return;
         // The refusal has to take the announcement with it: a BlockAddedEvent for a block that was never
         // published scrolls the canvas to a block that isn't there.
@@ -899,7 +904,7 @@ public class CodeEditor {
     public void pasteCode(BodyBlock targetBody, int index, String codeToPaste) {
         if (!canInsertAt(targetBody, index)) return;
         edit(targetBody.getAstNode(), EditKind.BODY, false,
-                (cu, code) -> pasteCodeString(cu, code, targetBody, index, codeToPaste, analyzer, state));
+                (cu, code) -> pasteCodeString(ctx(cu), code, targetBody, index, codeToPaste));
     }
 
     /**
@@ -1041,54 +1046,50 @@ public class CodeEditor {
     // PURE TRANSFORMS — bespoke AST shapes (formerly AstRewriter). Each is (cu, code, …) -> code.
     // =================================================================================
 
-    private static String setVariableInitializer(CompilationUnit cu, String originalCode, VariableDeclarationStatement varDecl, Object selection, ProjectAnalyzer analyzer) {
-        return setFragmentInitializer(cu, originalCode,
-                (VariableDeclarationFragment) varDecl.fragments().getFirst(), varDecl.getType().toString(), selection, analyzer);
+    private static String setVariableInitializer(EditContext ctx, String originalCode, VariableDeclarationStatement varDecl, Object selection) {
+        return setFragmentInitializer(ctx, originalCode,
+                (VariableDeclarationFragment) varDecl.fragments().getFirst(), varDecl.getType().toString(), selection);
     }
 
-    private static String setFieldInitializer(CompilationUnit cu, String originalCode, FieldDeclaration fieldDecl, Object selection, ProjectAnalyzer analyzer) {
-        return setFragmentInitializer(cu, originalCode,
-                (VariableDeclarationFragment) fieldDecl.fragments().getFirst(), fieldDecl.getType().toString(), selection, analyzer);
+    private static String setFieldInitializer(EditContext ctx, String originalCode, FieldDeclaration fieldDecl, Object selection) {
+        return setFragmentInitializer(ctx, originalCode,
+                (VariableDeclarationFragment) fieldDecl.fragments().getFirst(), fieldDecl.getType().toString(), selection);
     }
 
-    private static String setFragmentInitializer(CompilationUnit cu, String originalCode,
-                                                 VariableDeclarationFragment fragment, String declaredType, Object selection, ProjectAnalyzer analyzer) {
-        AST ast = cu.getAST();
-        ASTRewrite rewriter = ASTRewrite.create(ast);
+    private static String setFragmentInitializer(EditContext ctx, String originalCode,
+                                                 VariableDeclarationFragment fragment, String declaredType, Object selection) {
         ResolvedType contextType = ResolvedType.named(ProjectAnalyzer.unwrapCollectionType(declaredType));
-        Expression newExpr = NodeCreator.createExpression(ast, selection, cu, rewriter, contextType, analyzer);
+        Expression newExpr = NodeCreator.createExpression(ctx, selection, contextType);
         if (newExpr == null) return originalCode;
         if (fragment.getInitializer() == null) {
-            rewriter.set(fragment, VariableDeclarationFragment.INITIALIZER_PROPERTY, newExpr, null);
+            ctx.rewriter().set(fragment, VariableDeclarationFragment.INITIALIZER_PROPERTY, newExpr, null);
         } else {
-            rewriter.replace(fragment.getInitializer(), newExpr, null);
+            ctx.rewriter().replace(fragment.getInitializer(), newExpr, null);
         }
-        return AstRewriteHelper.applyRewrite(rewriter, originalCode);
+        return ctx.applyTo(originalCode);
     }
 
     private static String setReturnExpression(CompilationUnit cu, String originalCode, ReturnStatement returnStmt, Object selection, ProjectAnalyzer analyzer) {
-        AST ast = cu.getAST();
-        ASTRewrite rewriter = ASTRewrite.create(ast);
+        EditContext ctx = EditContext.of(cu, analyzer, null);
         ResolvedType contextType = ProjectAnalyzer.inferExpectedType(returnStmt.getExpression() != null
                 ? returnStmt.getExpression() : returnStmt);
-        Expression newExpr = NodeCreator.createExpression(ast, selection, cu, rewriter, contextType, analyzer);
+        Expression newExpr = NodeCreator.createExpression(ctx, selection, contextType);
         if (newExpr == null) return originalCode;
         if (returnStmt.getExpression() == null) {
-            rewriter.set(returnStmt, ReturnStatement.EXPRESSION_PROPERTY, newExpr, null);
+            ctx.rewriter().set(returnStmt, ReturnStatement.EXPRESSION_PROPERTY, newExpr, null);
         } else {
-            rewriter.replace(returnStmt.getExpression(), newExpr, null);
+            ctx.rewriter().replace(returnStmt.getExpression(), newExpr, null);
         }
-        return AstRewriteHelper.applyRewrite(rewriter, originalCode);
+        return ctx.applyTo(originalCode);
     }
 
     private static String replaceExpression(CompilationUnit cu, String originalCode, Expression toReplace, ExpressionType type, ProjectAnalyzer analyzer) {
-        AST ast = cu.getAST();
-        ASTRewrite rewriter = ASTRewrite.create(ast);
+        EditContext ctx = EditContext.of(cu, analyzer, null);
         String contextType = ProjectAnalyzer.inferExpectedType(toReplace).simpleName();
-        Expression newExpression = NodeCreator.createDefaultExpression(ast, type, cu, rewriter, contextType, analyzer);
+        Expression newExpression = NodeCreator.createDefaultExpression(ctx, type, contextType);
         if (newExpression == null) return originalCode;
-        rewriter.replace(toReplace, newExpression, null);
-        return AstRewriteHelper.applyRewrite(rewriter, originalCode);
+        ctx.rewriter().replace(toReplace, newExpression, null);
+        return ctx.applyTo(originalCode);
     }
 
     private static String replaceLiteral(CompilationUnit cu, String originalCode, Expression toReplace, String newLiteralValue) {
@@ -1116,11 +1117,9 @@ public class CodeEditor {
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
     }
 
-    private static String addStatement(CompilationUnit cu, String originalCode, BodyBlock targetBody, BlockType type, int index, ProjectState state, ProjectAnalyzer analyzer) {
-        AST ast = cu.getAST();
-        ASTRewrite rewriter = ASTRewrite.create(ast);
-        Statement newStatement = NodeCreator.createDefaultStatement(
-                ast, type, cu, rewriter, state, analyzer, targetBody.getAstNode());
+    private static String addStatement(EditContext ctx, String originalCode, BodyBlock targetBody, BlockType type, int index) {
+        ASTRewrite rewriter = ctx.rewriter();
+        Statement newStatement = NodeCreator.createDefaultStatement(ctx, type, targetBody.getAstNode());
         if (newStatement == null) return originalCode;
         ListRewrite listRewrite = AstRewriteHelper.getListRewriteForBody(rewriter, targetBody);
         PendingInsert deferred = insertIntoList(listRewrite, targetBody, newStatement, index, newStatement.toString());
@@ -1146,15 +1145,14 @@ public class CodeEditor {
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
     }
 
-    private static String pasteCodeString(CompilationUnit cu, String originalCode, BodyBlock targetBody, int index,
-                                          String codeToPaste, ProjectAnalyzer analyzer, ProjectState state) {
-        AST ast = cu.getAST();
-        ASTRewrite rewriter = ASTRewrite.create(ast);
+    private static String pasteCodeString(EditContext ctx, String originalCode, BodyBlock targetBody, int index,
+                                          String codeToPaste) {
+        ASTRewrite rewriter = ctx.rewriter();
         // The clipboard carries bare source with no import context (an in-app copy is just node.toString()),
         // so a pasted ImageFinder.find(...) would land in a file that never imported ImageFinder. Bring the
         // imports along; addImportForSimpleName is a no-op for anything already imported or unresolvable.
         for (String typeName : referencedTypeNames(codeToPaste)) {
-            ImportManager.addImportForSimpleName(cu, rewriter, typeName, analyzer, state);
+            ctx.addImportForSimpleName(typeName);
         }
         Statement placeHolder = (Statement) rewriter.createStringPlaceholder(codeToPaste, ASTNode.EMPTY_STATEMENT);
         ListRewrite listRewrite = AstRewriteHelper.getListRewriteForBody(rewriter, targetBody);

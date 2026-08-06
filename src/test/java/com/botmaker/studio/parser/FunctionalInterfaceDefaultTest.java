@@ -84,7 +84,8 @@ public class FunctionalInterfaceDefaultTest {
                 ResolvedType.named("java.util.function.Consumer<MatchResult>"));
 
         String result = assertDoesNotThrow(() -> MethodHandler.updateMethodInvocation(
-                cu, source, found.get(), "ImageFinder", "whileFind", whileFindParams, null, null));
+                EditContext.of(cu, null, null), source, found.get(), "ImageFinder", "whileFind",
+                whileFindParams));
 
         assertTrue(result.replace(" ", "").contains("whileFind(template,it->{}"),
                 () -> "kept image arg and added a block-bodied lambda: " + result);

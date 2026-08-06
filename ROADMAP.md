@@ -6,6 +6,30 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-06 — `parser/EditContext`: the write path gets the context the read path always had.** Every
+  factory and handler under `parser.factories`/`parser.handlers` needs the same five things to build a node —
+  `AST`, `CompilationUnit`, `ASTRewrite`, `ProjectAnalyzer`, `ProjectState` — and threaded them as five
+  separate parameters. That is why the widest signature in the package ran to **eight**
+  (`MethodHandler.updateMethodInvocation`) and why teaching `new T()` to name a real constructor meant editing
+  seven call chains. `EditContext` is the write-path twin of `ParseContext`, which has done exactly this job
+  for the read path since the converter was written: same package, same "immutable, threaded through, the
+  layer holds no per-edit state" rationale. `of(cu, analyzer, state)` creates the rewriter, `applyTo(code)`
+  ends the edit, and `addImport(SdkType)` / `addImport(ResolvedType)` / `addImportForSimpleName` /
+  `addImportForType` collapse the four-argument import calls to one.
+
+  Threaded through all six handlers, all three factories, `NodeCreator` and the `CodeEditor` entry points
+  (which build one via a private `ctx(cu)` helper). **Methods taking ≥6 parameters in `parser/`: 21 → 8, and
+  nothing is above 6 any more.** Deliberately *not* in the record: the `ASTNode context` drop site, which
+  varies as the factories recurse and so is a real argument, and the original source text, which only the
+  outermost entry point holds. `InitializerFactory` takes a context but ignores its rewriter — it has no
+  imports to add, which is precisely why it seeds only literal-valued constructor parameters, and
+  destructuring there keeps that limit visible. Three dead `NodeCreator` delegating overloads and an unused
+  `rewriter` parameter on `createRecursiveListInitializer` fell out and were removed.
+
+  One behaviour change, in the right direction: call sites that used to pass `state = null` to
+  `addImportForSimpleName` (because state simply wasn't threaded that deep) now pass the real one, so
+  tier 1 — the project's own sources — actually runs for them.
+
 - **2026-08-06 — Imports resolve instead of guessing (`ImportManager`).** `resolveQualifiedName` is now three
   ordered tiers — **project sources → `SdkType` → a JDK package probe** — replacing a hand-written map of 14
   simple-name→FQN entries. The probe walks a fixed ordered package list (`java.util`, `java.util.function`,

@@ -3,7 +3,7 @@ package com.botmaker.studio.parser.factories;
 import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.palette.Initializer;
 import com.botmaker.studio.palette.SdkType;
-import com.botmaker.studio.parser.ImportManager;
+import com.botmaker.studio.parser.EditContext;
 import com.botmaker.studio.blocks.flow.MatchesGroupScope;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
 import com.botmaker.studio.parser.handlers.MatchesSwitchHandler;
@@ -13,7 +13,6 @@ import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.util.MethodSignature;
 import org.eclipse.jdt.core.dom.*;
-import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -28,38 +27,37 @@ public class StatementFactory {
      * the sealed type — the data-carrying variants ({@link BlockType.VarDecl}, {@link BlockType.ScannerRead},
      * {@link BlockType.LibraryCall}) are built generically from their fields, so new variants are pure data.
      */
-    public static Statement createStatement(AST ast, BlockType type, CompilationUnit cu, ASTRewrite rewriter,
-                                            ProjectState state, ProjectAnalyzer analyzer, ASTNode context) {
+    public static Statement createStatement(EditContext ctx, BlockType type, ASTNode context) {
         return switch (type) {
-            case BlockType.ControlFlow cf -> createControlFlow(ast, cf.kind(), cu, rewriter, state, analyzer, context);
-            case BlockType.VarDecl v -> buildVarDecl(ast, v, cu, rewriter, analyzer, context);
-            case BlockType.ScannerRead r -> buildScannerRead(ast, r, cu, rewriter, analyzer, context);
-            case BlockType.LibraryCall l -> buildLibraryCall(ast, l, cu, rewriter, state, analyzer);
-            case BlockType.LambdaCall l -> buildLambdaCall(ast, l, cu, rewriter, analyzer);
-            case BlockType.EnumDecl ignored -> createEnumDeclaration(ast);
+            case BlockType.ControlFlow cf -> createControlFlow(ctx, cf.kind(), context);
+            case BlockType.VarDecl v -> buildVarDecl(ctx, v, context);
+            case BlockType.ScannerRead r -> buildScannerRead(ctx, r, context);
+            case BlockType.LibraryCall l -> buildLibraryCall(ctx, l);
+            case BlockType.LambdaCall l -> buildLambdaCall(ctx, l);
+            case BlockType.EnumDecl ignored -> createEnumDeclaration(ctx.ast());
             case BlockType.MethodMember ignored -> null; // a method is a class member, not a body statement
         };
     }
 
-    private static Statement createControlFlow(AST ast, BlockType.ControlFlow.Kind kind,
-                                               CompilationUnit cu, ASTRewrite rewriter, ProjectState state,
-                                               ProjectAnalyzer analyzer, ASTNode context) {
+    private static Statement createControlFlow(EditContext ctx, BlockType.ControlFlow.Kind kind,
+                                               ASTNode context) {
+        AST ast = ctx.ast();
         return switch (kind) {
-            case PRINT -> createPrintStatement(ast, cu, rewriter);
+            case PRINT -> createPrintStatement(ctx);
             case IF -> createIfStatement(ast);
             case WHILE -> createWhileStatement(ast);
-            case FOR -> createForStatement(ast, analyzer, context);
+            case FOR -> createForStatement(ast, ctx.analyzer(), context);
             case DO_WHILE -> createDoWhileStatement(ast);
-            case SWITCH -> createSwitchStatement(ast, analyzer, context);
-            case MATCHES_SWITCH -> createMatchesSwitchStatement(ast, cu, rewriter, state, analyzer, context);
+            case SWITCH -> createSwitchStatement(ast, ctx.analyzer(), context);
+            case MATCHES_SWITCH -> createMatchesSwitchStatement(ctx, context);
             case BREAK -> ast.newBreakStatement();
             case CONTINUE -> ast.newContinueStatement();
             case RETURN -> ast.newReturnStatement();
             case WAIT -> createWaitStatement(ast);
-            case ASSIGNMENT -> createAssignmentStatement(ast, analyzer, context);
-            case FUNCTION_CALL -> createFunctionCallStatement(ast, cu, rewriter, analyzer, context);
-            case ARRAY -> createArrayDeclaration(ast, cu, state, analyzer, context);
-            case COMMENT -> (Statement) rewriter.createStringPlaceholder("// Comment", ASTNode.EMPTY_STATEMENT);
+            case ASSIGNMENT -> createAssignmentStatement(ast, ctx.analyzer(), context);
+            case FUNCTION_CALL -> createFunctionCallStatement(ctx, context);
+            case ARRAY -> createArrayDeclaration(ctx, context);
+            case COMMENT -> (Statement) ctx.rewriter().createStringPlaceholder("// Comment", ASTNode.EMPTY_STATEMENT);
         };
     }
 
@@ -105,23 +103,23 @@ public class StatementFactory {
 
     // --- Data-driven builders ---
 
-    private static Statement buildVarDecl(AST ast, BlockType.VarDecl v, CompilationUnit cu,
-                                          ASTRewrite rewriter, ProjectAnalyzer analyzer, ASTNode context) {
+    private static Statement buildVarDecl(EditContext ctx, BlockType.VarDecl v, ASTNode context) {
+        AST ast = ctx.ast();
         VariableDeclarationFragment fragment = ast.newVariableDeclarationFragment();
-        fragment.setName(ast.newSimpleName(uniqueName(analyzer, context, v.varName())));
-        Expression init = buildExpression(ast, v.init(), cu, rewriter, analyzer);
+        fragment.setName(ast.newSimpleName(uniqueName(ctx.analyzer(), context, v.varName())));
+        Expression init = buildExpression(ctx, v.init());
         if (init != null) fragment.setInitializer(init);
         VariableDeclarationStatement varDecl = ast.newVariableDeclarationStatement(fragment);
         varDecl.setType(typeNode(ast, v.typeName(), v.primitive()));
-        if (!v.primitive()) ImportManager.addImportForSimpleName(cu, rewriter, v.typeName(), analyzer, null);
+        if (!v.primitive()) ctx.addImportForSimpleName(v.typeName());
         return varDecl;
     }
 
-    private static Statement buildScannerRead(AST ast, BlockType.ScannerRead r, CompilationUnit cu,
-                                              ASTRewrite rewriter, ProjectAnalyzer analyzer, ASTNode context) {
-        ImportManager.addImport(cu, rewriter, "com.botmaker.sdk.api.BotMaker");
+    private static Statement buildScannerRead(EditContext ctx, BlockType.ScannerRead r, ASTNode context) {
+        AST ast = ctx.ast();
+        ctx.addImport(SdkType.BOT_MAKER);
         VariableDeclarationFragment fragment = ast.newVariableDeclarationFragment();
-        fragment.setName(ast.newSimpleName(uniqueName(analyzer, context, r.varName())));
+        fragment.setName(ast.newSimpleName(uniqueName(ctx.analyzer(), context, r.varName())));
         MethodInvocation readCall = ast.newMethodInvocation();
         readCall.setExpression(ast.newSimpleName("BotMaker"));
         readCall.setName(ast.newSimpleName(r.method()));
@@ -131,23 +129,23 @@ public class StatementFactory {
         return varDecl;
     }
 
-    private static Statement buildLibraryCall(AST ast, BlockType.LibraryCall l, CompilationUnit cu,
-                                              ASTRewrite rewriter, ProjectState state, ProjectAnalyzer analyzer) {
+    private static Statement buildLibraryCall(EditContext ctx, BlockType.LibraryCall l) {
+        AST ast = ctx.ast();
         MethodInvocation mi = ast.newMethodInvocation();
         mi.setExpression(ast.newSimpleName(l.className()));
         mi.setName(ast.newSimpleName(l.method()));
-        ImportManager.addImportForSimpleName(cu, rewriter, l.className(), analyzer, null);
+        ctx.addImportForSimpleName(l.className());
         if (!l.args().isEmpty()) {
-            for (Initializer arg : l.args()) mi.arguments().add(buildExpression(ast, arg, cu, rewriter, analyzer));
+            for (Initializer arg : l.args()) mi.arguments().add(buildExpression(ctx, arg));
         } else {
             // Choose the default overload: the project's pinned favorite if any, else the overload with the
             // fewest arguments (the simplest starting point). Seed a default value per parameter (a
             // CaptureSource slot gets the project-default target — see InitializerFactory). When no overload
             // resolves at all (unknown method), fall back to a single empty "+" slot the user fills.
-            List<ResolvedType> params = defaultOverloadParams(l, state, analyzer);
+            List<ResolvedType> params = defaultOverloadParams(l, ctx.state(), ctx.analyzer());
             if (params != null) {
                 for (ResolvedType p : params) {
-                    mi.arguments().add(com.botmaker.studio.parser.NodeCreator.createDefaultInitializer(ast, p, cu, state, analyzer));
+                    mi.arguments().add(InitializerFactory.createDefaultInitializer(ctx, p));
                 }
             } else {
                 mi.arguments().add(ast.newNullLiteral());
@@ -175,22 +173,22 @@ public class StatementFactory {
         return chosen != null ? chosen.paramTypes() : null;
     }
 
-    private static Statement buildLambdaCall(AST ast, BlockType.LambdaCall l, CompilationUnit cu,
-                                             ASTRewrite rewriter, ProjectAnalyzer analyzer) {
+    private static Statement buildLambdaCall(EditContext ctx, BlockType.LambdaCall l) {
+        AST ast = ctx.ast();
         List<Expression> leading = new ArrayList<>();
         if (l.leadingArgs().isEmpty()) {
             leading.add(ast.newNullLiteral()); // empty "+" slot the user fills — same convention as buildLibraryCall
         } else {
-            for (Initializer arg : l.leadingArgs()) leading.add(buildExpression(ast, arg, cu, rewriter, analyzer));
+            for (Initializer arg : l.leadingArgs()) leading.add(buildExpression(ctx, arg));
         }
         MethodInvocation mi = LambdaCallHandler.buildLambdaCall(
-                ast, cu, rewriter, analyzer, l.className(), l.method(), leading, l.lambdaParam());
+                ctx, l.className(), l.method(), leading, l.lambdaParam());
         return ast.newExpressionStatement(mi);
     }
 
     /** Turns a declarative {@link Initializer} into an AST expression (recursive for {@code new T(args...)}). */
-    private static Expression buildExpression(AST ast, Initializer init, CompilationUnit cu,
-                                              ASTRewrite rewriter, ProjectAnalyzer analyzer) {
+    private static Expression buildExpression(EditContext ctx, Initializer init) {
+        AST ast = ctx.ast();
         return switch (init) {
             case Initializer.IntLit i -> ast.newNumberLiteral(i.value());
             case Initializer.DoubleLit d -> ast.newNumberLiteral(d.value());
@@ -204,20 +202,20 @@ public class StatementFactory {
             case Initializer.NewInstance n -> {
                 ClassInstanceCreation creation = ast.newClassInstanceCreation();
                 creation.setType(ast.newSimpleType(ast.newSimpleName(n.typeName())));
-                ImportManager.addImportForSimpleName(cu, rewriter, n.typeName(), analyzer, null);
-                for (Initializer arg : n.args()) creation.arguments().add(buildExpression(ast, arg, cu, rewriter, analyzer));
+                ctx.addImportForSimpleName(n.typeName());
+                for (Initializer arg : n.args()) creation.arguments().add(buildExpression(ctx, arg));
                 yield creation;
             }
             case Initializer.EnumConst e -> {
-                ImportManager.addImportForSimpleName(cu, rewriter, e.typeName(), analyzer, null);
+                ctx.addImportForSimpleName(e.typeName());
                 yield ast.newQualifiedName(ast.newSimpleName(e.typeName()), ast.newSimpleName(e.constant()));
             }
             case Initializer.StaticCall c -> {
-                ImportManager.addImportForSimpleName(cu, rewriter, c.typeName(), analyzer, null);
+                ctx.addImportForSimpleName(c.typeName());
                 MethodInvocation mi = ast.newMethodInvocation();
                 mi.setExpression(ast.newSimpleName(c.typeName()));
                 mi.setName(ast.newSimpleName(c.methodName()));
-                for (Initializer arg : c.args()) mi.arguments().add(buildExpression(ast, arg, cu, rewriter, analyzer));
+                for (Initializer arg : c.args()) mi.arguments().add(buildExpression(ctx, arg));
                 yield mi;
             }
         };
@@ -244,8 +242,9 @@ public class StatementFactory {
 
     // --- Bespoke one-off statement creators ---
 
-    private static Statement createPrintStatement(AST ast, CompilationUnit cu, ASTRewrite rewriter) {
-        ImportManager.addImport(cu, rewriter, "com.botmaker.sdk.api.BotMaker");
+    private static Statement createPrintStatement(EditContext ctx) {
+        AST ast = ctx.ast();
+        ctx.addImport(SdkType.BOT_MAKER);
         MethodInvocation print = ast.newMethodInvocation();
         print.setExpression(ast.newSimpleName("BotMaker"));
         print.setName(ast.newSimpleName("print"));
@@ -255,12 +254,12 @@ public class StatementFactory {
         return ast.newExpressionStatement(print);
     }
 
-    private static Statement createArrayDeclaration(AST ast, CompilationUnit cu, ProjectState state,
-                                                    ProjectAnalyzer analyzer, ASTNode context) {
+    private static Statement createArrayDeclaration(EditContext ctx, ASTNode context) {
+        AST ast = ctx.ast();
         VariableDeclarationFragment frag = ast.newVariableDeclarationFragment();
-        frag.setName(ast.newSimpleName(uniqueName(analyzer, context, "myList")));
+        frag.setName(ast.newSimpleName(uniqueName(ctx.analyzer(), context, "myList")));
         ResolvedType arrayType = ResolvedType.named("int[]");
-        frag.setInitializer(InitializerFactory.createArrayInitializer(ast, arrayType, Collections.emptyList(), cu, state));
+        frag.setInitializer(InitializerFactory.createArrayInitializer(ast, arrayType, Collections.emptyList(), ctx.cu(), ctx.state()));
         VariableDeclarationStatement listDecl = ast.newVariableDeclarationStatement(frag);
         listDecl.setType(ProjectAnalyzer.createTypeNode(ast, arrayType));
         return listDecl;
@@ -394,24 +393,23 @@ public class StatementFactory {
      * <p>{@code Matches} is deliberately absent from {@link #SWITCHABLE_TYPES}: the ordinary colon-form switch
      * must keep rejecting it, or dropping "Switch" here would produce source that doesn't build.
      */
-    private static Statement createMatchesSwitchStatement(AST ast, CompilationUnit cu, ASTRewrite rewriter,
-                                                          ProjectState state, ProjectAnalyzer analyzer,
-                                                          ASTNode context) {
+    private static Statement createMatchesSwitchStatement(EditContext ctx, ASTNode context) {
+        AST ast = ctx.ast();
         // The enclosing find call's lambda parameter first, and only then a type lookup. A lambda parameter's
         // inferred type routinely resolves to nothing at edit time (Studio doesn't compile against the SDK),
         // so asking the analyzer for "a variable of type Matches" comes back empty in precisely the place the
         // answer is certain — and the block then inserted `switch (null)`.
         String subject = MatchesGroupScope.matchesVariable(context);
         if (subject == null) {
-            ProjectAnalyzer.VariableOption typed = firstVisibleVariable(analyzer, context,
+            ProjectAnalyzer.VariableOption typed = firstVisibleVariable(ctx.analyzer(), context,
                     v -> v.type() != null && "Matches".equals(v.type().simpleName()));
             subject = typed == null ? null : typed.name();
         }
 
         // `Matches` is named in every case label, so the file needs it even though the variable it switches on
         // came from a lambda parameter whose type is inferred and therefore never imported by anything else.
-        ImportManager.addImport(cu, rewriter, SdkType.MATCHES);
-        ImportManager.addImport(cu, rewriter, SdkType.IMAGE_TEMPLATE);
+        ctx.addImport(SdkType.MATCHES);
+        ctx.addImport(SdkType.IMAGE_TEMPLATE);
 
         List<String> allowed = MatchesGroupScope.allowedPaths(context);
         String seed = (allowed != null && !allowed.isEmpty())
@@ -457,10 +455,10 @@ public class StatementFactory {
      * so every drop produced an unresolvable symbol (ROADMAP B7). When the class declares nothing else to call
      * yet, fall back to {@code BotMaker.print("")}, which always resolves.
      */
-    private static Statement createFunctionCallStatement(AST ast, CompilationUnit cu, ASTRewrite rewriter,
-                                                         ProjectAnalyzer analyzer, ASTNode context) {
-        IMethodBinding target = firstCallableMethod(analyzer, context);
-        if (target == null) return createPrintStatement(ast, cu, rewriter);
+    private static Statement createFunctionCallStatement(EditContext ctx, ASTNode context) {
+        AST ast = ctx.ast();
+        IMethodBinding target = firstCallableMethod(ctx.analyzer(), context);
+        if (target == null) return createPrintStatement(ctx);
 
         MethodInvocation methodCall = ast.newMethodInvocation();
         methodCall.setName(ast.newSimpleName(target.getName()));

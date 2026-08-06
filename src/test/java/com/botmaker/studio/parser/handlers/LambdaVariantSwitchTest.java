@@ -1,6 +1,8 @@
 package com.botmaker.studio.parser.handlers;
 
-import com.botmaker.studio.parser.handlers.LambdaCallHandler;
+import com.botmaker.studio.parser.EditContext;
+
+
 import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.ASTParser;
 import org.eclipse.jdt.core.dom.ASTVisitor;
@@ -45,8 +47,9 @@ public class LambdaVariantSwitchTest {
             }
         });
 
-        ASTRewrite rewriter = ASTRewrite.create(cu.getAST());
-        LambdaCallHandler.switchVariant(cu.getAST(), cu, rewriter, found.get(), newMethod, group, param);
+        EditContext ctx = EditContext.of(cu, null, null);
+        ASTRewrite rewriter = ctx.rewriter();
+        LambdaCallHandler.switchVariant(ctx, found.get(), newMethod, group, param);
 
         IDocument doc = new Document(source);
         TextEdit edits = rewriter.rewriteAST(doc, null);

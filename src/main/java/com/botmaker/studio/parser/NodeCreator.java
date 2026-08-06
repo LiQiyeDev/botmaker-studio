@@ -4,15 +4,12 @@ import com.botmaker.studio.parser.factories.ExpressionFactory;
 import com.botmaker.studio.parser.factories.InitializerFactory;
 import com.botmaker.studio.parser.factories.StatementFactory;
 import com.botmaker.studio.parser.handlers.MethodHandler;
-import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.palette.ExpressionType;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.types.ResolvedType;
 import org.eclipse.jdt.core.dom.*;
-import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 
-import java.util.List;
 
 public class NodeCreator {
 
@@ -22,27 +19,26 @@ public class NodeCreator {
      * enum constant, variable). The single place that maps a user's menu pick to an AST node, so "set into an
      * empty slot" and "replace an existing expression" share one path. Returns {@code null} if unbuildable.
      */
-    public static Expression createExpression(AST ast, Object selection, CompilationUnit cu,
-                                              ASTRewrite rewriter, ResolvedType contextType,
-                                              ProjectAnalyzer analyzer) {
+    public static Expression createExpression(EditContext ctx, Object selection, ResolvedType contextType) {
+        AST ast = ctx.ast();
         if (selection instanceof ExpressionType type) {
-            return createDefaultExpression(ast, type, cu, rewriter, contextType, analyzer);
+            return createDefaultExpression(ctx, type, contextType);
         }
         if (selection instanceof ExpressionChoice choice) {
             return switch (choice) {
-                case ExpressionChoice.Method m -> MethodHandler.createMethodInvocation(ast, m, cu, rewriter, analyzer);
+                case ExpressionChoice.Method m -> MethodHandler.createMethodInvocation(ctx, m);
                 case ExpressionChoice.Constructor c -> {
                     ClassInstanceCreation creation = ast.newClassInstanceCreation();
                     creation.setType(ProjectAnalyzer.createTypeNode(ast, ResolvedType.named(c.typeName())));
-                    ImportManager.addImportForSimpleName(cu, rewriter, c.typeName(), analyzer, null);
+                    ctx.addImportForSimpleName(c.typeName());
                     for (ResolvedType p : c.paramTypes()) {
-                        creation.arguments().add(createDefaultInitializer(ast, p, cu, null, analyzer));
-                        ImportManager.addImportForType(cu, rewriter, p, analyzer, null);
+                        creation.arguments().add(InitializerFactory.createDefaultInitializer(ctx, p));
+                        ctx.addImportForType(p);
                     }
                     yield creation;
                 }
                 case ExpressionChoice.EnumConstant e -> {
-                    ImportManager.addImportForSimpleName(cu, rewriter, e.typeName(), analyzer, null);
+                    ctx.addImportForSimpleName(e.typeName());
                     yield ast.newQualifiedName(ast.newSimpleName(e.typeName()), ast.newSimpleName(e.constantName()));
                 }
                 case ExpressionChoice.Variable v -> ast.newSimpleName(v.variableName());
@@ -65,19 +61,17 @@ public class NodeCreator {
         return null;
     }
 
-    public static Expression createDefaultExpression(AST ast, ExpressionType type, CompilationUnit cu,
-                                              ASTRewrite rewriter, ResolvedType contextType, ProjectAnalyzer analyzer) {
-        return ExpressionFactory.createDefaultExpression(ast, type, cu, rewriter, contextType, analyzer);
+    public static Expression createDefaultExpression(EditContext ctx, ExpressionType type,
+                                                     ResolvedType contextType) {
+        return ExpressionFactory.createDefaultExpression(ctx, type, contextType);
     }
 
-    public static Expression createDefaultExpression(AST ast, ExpressionType type, CompilationUnit cu,
-                                                     ASTRewrite rewriter, String contextTypeName, ProjectAnalyzer analyzer) {
-        return createDefaultExpression(ast, type, cu, rewriter, ResolvedType.named(contextTypeName), analyzer);
+    public static Expression createDefaultExpression(EditContext ctx, ExpressionType type, String contextTypeName) {
+        return createDefaultExpression(ctx, type, ResolvedType.named(contextTypeName));
     }
 
-    public static Expression createDefaultExpression(AST ast, ExpressionType type, CompilationUnit cu,
-                                                     ASTRewrite rewriter) {
-        return ExpressionFactory.createDefaultExpression(ast, type, cu, rewriter, null, null);
+    public static Expression createDefaultExpression(EditContext ctx, ExpressionType type) {
+        return ExpressionFactory.createDefaultExpression(ctx, type, null);
     }
 
     /**
@@ -85,9 +79,8 @@ public class NodeCreator {
      *                the block's default is seeded from (see {@code StatementFactory}). May be {@code null}, in
      *                which case scope-dependent blocks get empty slots instead of real identifiers.
      */
-    public static Statement createDefaultStatement(AST ast, BlockType type, CompilationUnit cu, ASTRewrite rewriter,
-                                                   ProjectState state, ProjectAnalyzer analyzer, ASTNode context) {
-        return StatementFactory.createStatement(ast, type, cu, rewriter, state, analyzer, context);
+    public static Statement createDefaultStatement(EditContext ctx, BlockType type, ASTNode context) {
+        return StatementFactory.createStatement(ctx, type, context);
     }
 
     public static Expression createDefaultInitializer(AST ast, ResolvedType type) {
@@ -95,29 +88,9 @@ public class NodeCreator {
     }
 
     /**
-     * State-aware default initializer: passes the project's {@link ProjectState} through so a
-     * {@code CaptureSource} slot is seeded from the project's default capture target (see
-     * {@code InitializerFactory}) rather than falling back to the whole desktop. Used by the argument-sync
-     * and method-creation paths (overload switch, palette insert) where {@code state} is reachable.
+     * The no-context default initializer, for the two paths that have neither an analyzer nor a rewriter
+     * (a type swap reusing preserved values, a fresh variable's seed). Everything that <em>does</em> hold a
+     * write-path context calls {@link InitializerFactory#createDefaultInitializer(EditContext, ResolvedType)}
+     * directly — it seeds a real constructor and the project's default capture target, which this cannot.
      */
-    public static Expression createDefaultInitializer(AST ast, ResolvedType type, CompilationUnit cu, ProjectState state) {
-        return InitializerFactory.createDefaultInitializer(ast, type, cu, state);
-    }
-
-    /**
-     * As above, plus the {@link ProjectAnalyzer} — which is what lets a {@code new T()} placeholder name a
-     * constructor {@code T} actually declares instead of assuming a no-arg one exists (see
-     * {@code InitializerFactory#newInstance}). Every write path that seeds an argument already holds an
-     * analyzer, so this is the overload they should call; the shorter ones remain for the few callers that
-     * genuinely have none.
-     */
-    public static Expression createDefaultInitializer(AST ast, ResolvedType type, CompilationUnit cu,
-                                                      ProjectState state, ProjectAnalyzer analyzer) {
-        return InitializerFactory.createDefaultInitializer(ast, type, cu, state, analyzer);
-    }
-
-    public static Expression createRecursiveListInitializer(AST ast, String typeName, CompilationUnit cu,
-                                                            ASTRewrite rewriter, List<Expression> leavesToPreserve, ProjectState state) {
-        return InitializerFactory.createRecursiveListInitializer(ast, typeName, cu, rewriter, leavesToPreserve, state);
-    }
 }

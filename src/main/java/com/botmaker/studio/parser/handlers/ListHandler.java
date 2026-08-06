@@ -1,11 +1,10 @@
 package com.botmaker.studio.parser.handlers;
 
 import com.botmaker.studio.palette.SdkType;
-import com.botmaker.studio.parser.ImportManager;
+import com.botmaker.studio.parser.EditContext;
 import com.botmaker.studio.parser.NodeCreator;
 import com.botmaker.studio.parser.helpers.AstRewriteHelper;
 import com.botmaker.studio.palette.ExpressionType;
-import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.types.ResolvedType;
 import org.eclipse.jdt.core.dom.*;
 import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
@@ -21,36 +20,33 @@ public class ListHandler {
     /**
      * Adds an element to a list structure at the specified index.
      */
-    public static String addElementToList(CompilationUnit cu, String originalCode,
+    public static String addElementToList(EditContext ctx, String originalCode,
                                           ASTNode listNode, ExpressionType type, int insertIndex) {
-        AST ast = cu.getAST();
-        ASTRewrite rewriter = ASTRewrite.create(ast);
 
-        Expression newElement = NodeCreator.createDefaultExpression(ast, type, cu, rewriter);
+        Expression newElement = NodeCreator.createDefaultExpression(ctx, type);
         if (newElement == null) return originalCode;
 
-        insertElement(rewriter, listNode, newElement, insertIndex);
-        return AstRewriteHelper.applyRewrite(rewriter, originalCode);
+        insertElement(ctx.rewriter(), listNode, newElement, insertIndex);
+        return ctx.applyTo(originalCode);
     }
 
     /**
      * Inserts a {@code new ImageTemplate("")} element into the list — the list-aware counterpart of the
      * inline image-template picker. The empty path opens the per-element picker on the freshly added element.
      */
-    public static String addImageTemplateElement(CompilationUnit cu, String originalCode,
+    public static String addImageTemplateElement(EditContext ctx, String originalCode,
                                                  ASTNode listNode, int insertIndex) {
-        AST ast = cu.getAST();
-        ASTRewrite rewriter = ASTRewrite.create(ast);
+        AST ast = ctx.ast();
 
         ClassInstanceCreation cic = ast.newClassInstanceCreation();
         cic.setType(ast.newSimpleType(ast.newSimpleName("ImageTemplate")));
         StringLiteral lit = ast.newStringLiteral();
         lit.setLiteralValue("");
         cic.arguments().add(lit);
-        ImportManager.addImport(cu, rewriter, SdkType.IMAGE_TEMPLATE);
+        ctx.addImport(SdkType.IMAGE_TEMPLATE);
 
-        insertElement(rewriter, listNode, cic, insertIndex);
-        return AstRewriteHelper.applyRewrite(rewriter, originalCode);
+        insertElement(ctx.rewriter(), listNode, cic, insertIndex);
+        return ctx.applyTo(originalCode);
     }
 
     /**
@@ -60,17 +56,14 @@ public class ListHandler {
      * {@link NodeCreator#createExpression} builder so the list's "+" menu can offer the same type-aware
      * picks (variable / method / constructor / enum constant) the replace menu does.
      */
-    public static String insertChoiceIntoList(CompilationUnit cu, String originalCode, ASTNode listNode,
-                                              int insertIndex, Object selection, ResolvedType contextType,
-                                              ProjectAnalyzer analyzer) {
-        AST ast = cu.getAST();
-        ASTRewrite rewriter = ASTRewrite.create(ast);
+    public static String insertChoiceIntoList(EditContext ctx, String originalCode, ASTNode listNode,
+                                              int insertIndex, Object selection, ResolvedType contextType) {
 
-        Expression newElement = NodeCreator.createExpression(ast, selection, cu, rewriter, contextType, analyzer);
+        Expression newElement = NodeCreator.createExpression(ctx, selection, contextType);
         if (newElement == null) return originalCode;
 
-        insertElement(rewriter, listNode, newElement, insertIndex);
-        return AstRewriteHelper.applyRewrite(rewriter, originalCode);
+        insertElement(ctx.rewriter(), listNode, newElement, insertIndex);
+        return ctx.applyTo(originalCode);
     }
 
     /** Moves the element at {@code fromIndex} to {@code toIndex} within the list, preserving its node. */

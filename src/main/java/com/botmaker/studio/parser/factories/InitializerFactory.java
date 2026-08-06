@@ -1,5 +1,6 @@
 package com.botmaker.studio.parser.factories;
 
+import com.botmaker.studio.parser.EditContext;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
 import com.botmaker.studio.parser.helpers.DefaultValueHelper;
 import com.botmaker.studio.project.ProjectState;
@@ -27,6 +28,20 @@ public class InitializerFactory {
             Map.entry("IntConsumer", 1), Map.entry("IntSupplier", 0), Map.entry("IntPredicate", 1),
             Map.entry("BiConsumer", 2), Map.entry("BiFunction", 2), Map.entry("BiPredicate", 2),
             Map.entry("BinaryOperator", 2), Map.entry("Comparator", 2));
+
+    /**
+     * The {@link EditContext} form, for the write paths that hold one — which is every path that seeds an
+     * argument.
+     *
+     * <p>It deliberately ignores {@link EditContext#rewriter()}: this factory has no rewriter of its own and
+     * therefore <b>cannot add imports</b>, which is exactly why {@code newInstance} fills only
+     * literal-valued constructor parameters. Filling {@code new Rect(Point, Point)} would trade "no such
+     * constructor" for "cannot find symbol Point". Destructuring the context here rather than passing it down
+     * keeps that limit visible in the signatures below.
+     */
+    public static Expression createDefaultInitializer(EditContext ctx, ResolvedType type) {
+        return createDefaultInitializer(ctx.ast(), type, ctx.cu(), ctx.state(), ctx.analyzer());
+    }
 
     public static Expression createDefaultInitializer(AST ast, ResolvedType type, CompilationUnit cu, ProjectState state) {
         return createDefaultInitializer(ast, type, cu, state, null);
@@ -241,8 +256,7 @@ public class InitializerFactory {
     }
 
     public static Expression createRecursiveListInitializer(AST ast, String typeName, CompilationUnit cu,
-                                                     org.eclipse.jdt.core.dom.rewrite.ASTRewrite rewriter,
-                                                     List<Expression> leavesToPreserve, ProjectState state) {
-        return createArrayInitializer(ast, ResolvedType.named(typeName), leavesToPreserve, cu,state);
+                                                            List<Expression> leavesToPreserve, ProjectState state) {
+        return createArrayInitializer(ast, ResolvedType.named(typeName), leavesToPreserve, cu, state);
     }
 }

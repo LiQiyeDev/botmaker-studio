@@ -3,8 +3,9 @@ package com.botmaker.studio.parser.handlers;
 import com.botmaker.studio.parser.ExpressionChoice;
 
 import com.botmaker.studio.core.BodyBlock;
-import com.botmaker.studio.parser.ImportManager;
+import com.botmaker.studio.parser.EditContext;
 import com.botmaker.studio.parser.NodeCreator;
+import com.botmaker.studio.parser.factories.InitializerFactory;
 import com.botmaker.studio.parser.helpers.AstRewriteHelper;
 import com.botmaker.studio.parser.helpers.DefaultValueHelper;
 import com.botmaker.studio.project.ProjectState;
@@ -24,44 +25,30 @@ public class MethodHandler {
         // Wrapper for string-based calls
         return addMethodToClass(cu, originalCode, typeDecl, methodName, ResolvedType.named(returnType), index);
     }
-    public static String replaceWithMethodCall(CompilationUnit cu, String originalCode, Expression toReplace, ExpressionChoice.Method choice, ProjectState state, ProjectAnalyzer analyzer) {
-        AST ast = cu.getAST();
-        ASTRewrite rewriter = ASTRewrite.create(ast);
-
-        MethodInvocation mi = createMethodInvocation(ast, choice, cu, rewriter, analyzer, state);
-
-        rewriter.replace(toReplace, mi, null);
-        return AstRewriteHelper.applyRewrite(rewriter, originalCode);
+    public static String replaceWithMethodCall(EditContext ctx, String originalCode, Expression toReplace,
+                                               ExpressionChoice.Method choice) {
+        ctx.rewriter().replace(toReplace, createMethodInvocation(ctx, choice), null);
+        return ctx.applyTo(originalCode);
     }
 
-    public static String addMethodCallStatement(CompilationUnit cu, String originalCode, BodyBlock targetBody, ExpressionChoice.Method choice, int index, ProjectAnalyzer analyzer, ProjectState state) {
-        AST ast = cu.getAST();
-        ASTRewrite rewriter = ASTRewrite.create(ast);
-
-        MethodInvocation mi = createMethodInvocation(ast, choice, cu, rewriter, analyzer, state);
-        ExpressionStatement stmt = ast.newExpressionStatement(mi);
+    public static String addMethodCallStatement(EditContext ctx, String originalCode, BodyBlock targetBody,
+                                                ExpressionChoice.Method choice, int index) {
+        ExpressionStatement stmt = ctx.ast().newExpressionStatement(createMethodInvocation(ctx, choice));
 
         // Insert into body
-        ListRewrite listRewrite = AstRewriteHelper.getListRewriteForBody(rewriter, targetBody);
-        listRewrite.insertAt(stmt, index, null);
+        AstRewriteHelper.getListRewriteForBody(ctx.rewriter(), targetBody).insertAt(stmt, index, null);
 
-        return AstRewriteHelper.applyRewrite(rewriter, originalCode);
-    }
-
-    /** Builds a {@code MethodInvocation} from a menu pick; shared by NodeCreator's unified expression builder. */
-    public static MethodInvocation createMethodInvocation(AST ast, ExpressionChoice.Method choice,
-                                                          CompilationUnit cu, ASTRewrite rewriter,
-                                                          ProjectAnalyzer analyzer) {
-        return createMethodInvocation(ast, choice, cu, rewriter, analyzer, null);
+        return ctx.applyTo(originalCode);
     }
 
     /**
-     * State-aware variant: threads {@link ProjectState} so a {@code CaptureSource} argument default is seeded
+     * Builds a {@code MethodInvocation} from a menu pick; shared by NodeCreator's unified expression builder.
+     *
+     * <p>The context's {@link ProjectState} is what lets a {@code CaptureSource} argument default be seeded
      * from the project's default capture target instead of the whole desktop (see {@code InitializerFactory}).
      */
-    public static MethodInvocation createMethodInvocation(AST ast, ExpressionChoice.Method choice,
-                                                          CompilationUnit cu, ASTRewrite rewriter,
-                                                          ProjectAnalyzer analyzer, ProjectState state) {
+    public static MethodInvocation createMethodInvocation(EditContext ctx, ExpressionChoice.Method choice) {
+        AST ast = ctx.ast();
         MethodInvocation mi = ast.newMethodInvocation();
 
         // Scope
@@ -69,7 +56,7 @@ public class MethodHandler {
             mi.setExpression(ast.newSimpleName(choice.scope()));
             // A static call's scope is a type name that may need importing; a local-variable scope won't resolve.
             if (choice.isStatic()) {
-                ImportManager.addImportForSimpleName(cu, rewriter, choice.scope(), analyzer, null);
+                ctx.addImportForSimpleName(choice.scope());
             }
         }
 
@@ -79,8 +66,8 @@ public class MethodHandler {
         // Arguments (Defaults). Each default initializer references its type by simple name
         // (`Color.RED`, `new Color()`), so the parameter types need importing just as the scope does.
         for (ResolvedType paramType : choice.paramTypes()) {
-            mi.arguments().add(NodeCreator.createDefaultInitializer(ast, paramType, cu, state, analyzer));
-            ImportManager.addImportForType(cu, rewriter, paramType, analyzer, state);
+            mi.arguments().add(InitializerFactory.createDefaultInitializer(ctx, paramType));
+            ctx.addImportForType(paramType);
         }
         return mi;
     }
@@ -140,12 +127,11 @@ public class MethodHandler {
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
     }
 
-    public static String updateMethodInvocation(CompilationUnit cu, String originalCode,
-                                         MethodInvocation mi, String newScope,
-                                         String newMethodName, List<ResolvedType> newParamTypes,
-                                         ProjectAnalyzer analyzer, ProjectState state) {
-        AST ast = cu.getAST();
-        ASTRewrite rewriter = ASTRewrite.create(ast);
+    public static String updateMethodInvocation(EditContext ctx, String originalCode,
+                                                MethodInvocation mi, String newScope,
+                                                String newMethodName, List<ResolvedType> newParamTypes) {
+        AST ast = ctx.ast();
+        ASTRewrite rewriter = ctx.rewriter();
 
         // Update scope
         if (newScope == null || newScope.isEmpty() || newScope.equals("Local")) {
@@ -159,7 +145,7 @@ public class MethodHandler {
             // also be an instance receiver, which must not be imported — unlike createMethodInvocation there
             // is no isStatic() flag here, so go on the capitalisation that tells types from variables.
             if (Character.isUpperCase(newScope.charAt(0))) {
-                ImportManager.addImportForSimpleName(cu, rewriter, newScope, analyzer, state);
+                ctx.addImportForSimpleName(newScope);
             }
             if (mi.getExpression() == null) {
                 rewriter.set(mi, MethodInvocation.EXPRESSION_PROPERTY, newScopeNode, null);
@@ -173,15 +159,15 @@ public class MethodHandler {
             rewriter.replace(mi.getName(), ast.newSimpleName(newMethodName), null);
         }
 
-        syncArguments(ast, rewriter, mi, newParamTypes, cu, analyzer, state);
+        syncArguments(ctx, mi, newParamTypes);
 
-        return AstRewriteHelper.applyRewrite(rewriter, originalCode);
+        return ctx.applyTo(originalCode);
     }
 
-    public static String setMethodReturnType(CompilationUnit cu, String originalCode,
-                                      MethodDeclaration method, ResolvedType newType, ProjectAnalyzer analyzer) {
-        AST ast = cu.getAST();
-        ASTRewrite rewriter = ASTRewrite.create(ast);
+    public static String setMethodReturnType(EditContext ctx, String originalCode,
+                                             MethodDeclaration method, ResolvedType newType) {
+        AST ast = ctx.ast();
+        ASTRewrite rewriter = ctx.rewriter();
 
         Type oldTypeNode = method.getReturnType2();
         ResolvedType oldType = oldTypeNode != null
@@ -196,9 +182,9 @@ public class MethodHandler {
         updateTrailingReturn(ast, rewriter, method, oldType, newType);
 
         if (!newType.isVoid()) {
-            ImportManager.addImportForSimpleName(cu, rewriter, newType.leafType().simpleName(), analyzer, null);
+            ctx.addImportForSimpleName(newType.leafType().simpleName());
         }
-        return AstRewriteHelper.applyRewrite(rewriter, originalCode);
+        return ctx.applyTo(originalCode);
     }
 
     /**
@@ -237,20 +223,18 @@ public class MethodHandler {
         }
     }
 
-    public static String addParameterToMethod(CompilationUnit cu, String originalCode,
-                                       MethodDeclaration method, ResolvedType type, String paramName,
-                                       ProjectAnalyzer analyzer) {
-        AST ast = cu.getAST();
-        ASTRewrite rewriter = ASTRewrite.create(ast);
-        ListRewrite listRewrite = rewriter.getListRewrite(method, MethodDeclaration.PARAMETERS_PROPERTY);
+    public static String addParameterToMethod(EditContext ctx, String originalCode,
+                                              MethodDeclaration method, ResolvedType type, String paramName) {
+        AST ast = ctx.ast();
+        ListRewrite listRewrite = ctx.rewriter().getListRewrite(method, MethodDeclaration.PARAMETERS_PROPERTY);
 
         SingleVariableDeclaration newParam = ast.newSingleVariableDeclaration();
         newParam.setType(ProjectAnalyzer.createSimpleTypeNode(ast, type));
         newParam.setName(ast.newSimpleName(paramName));
 
         listRewrite.insertLast(newParam, null);
-        ImportManager.addImportForSimpleName(cu, rewriter, type.leafType().simpleName(), analyzer, null);
-        return AstRewriteHelper.applyRewrite(rewriter, originalCode);
+        ctx.addImportForSimpleName(type.leafType().simpleName());
+        return ctx.applyTo(originalCode);
     }
 
     public static String renameMethodParameter(CompilationUnit cu, String originalCode,
@@ -277,24 +261,21 @@ public class MethodHandler {
     }
 
 
-    public static String changeMethodParameterType(CompilationUnit cu, String originalCode,
-                                            MethodDeclaration method, int index, ResolvedType newType,
-                                            ProjectAnalyzer analyzer) {
-        AST ast = cu.getAST();
-        ASTRewrite rewriter = ASTRewrite.create(ast);
+    public static String changeMethodParameterType(EditContext ctx, String originalCode,
+                                                   MethodDeclaration method, int index, ResolvedType newType) {
         List<?> params = method.parameters();
 
         if (index >= 0 && index < params.size()) {
             SingleVariableDeclaration param = (SingleVariableDeclaration) params.get(index);
 
-            Type newTypeNode = ProjectAnalyzer.createSimpleTypeNode(ast, newType);
-            rewriter.replace(param.getType(), newTypeNode, null);
+            Type newTypeNode = ProjectAnalyzer.createSimpleTypeNode(ctx.ast(), newType);
+            ctx.rewriter().replace(param.getType(), newTypeNode, null);
 
             // Ensure the import exists — resolve Named-only picks to an FQN via the analyzer.
-            ImportManager.addImportForSimpleName(cu, rewriter, newType.leafType().simpleName(), analyzer, null);
+            ctx.addImportForSimpleName(newType.leafType().simpleName());
         }
 
-        return AstRewriteHelper.applyRewrite(rewriter, originalCode);
+        return ctx.applyTo(originalCode);
     }
 
     public static String addConstructorToClass(CompilationUnit cu, String originalCode, TypeDeclaration typeDecl) {
@@ -318,15 +299,13 @@ public class MethodHandler {
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
     }
 
-    public static String addArgumentToMethodInvocation(CompilationUnit cu, String originalCode,
-                                                MethodInvocation mi, ExpressionType type) {
-        AST ast = cu.getAST();
-        ASTRewrite rewriter = ASTRewrite.create(ast);
-        Expression newArg = NodeCreator.createDefaultExpression(ast, type, cu, rewriter);
+    public static String addArgumentToMethodInvocation(EditContext ctx, String originalCode,
+                                                       MethodInvocation mi, ExpressionType type) {
+        Expression newArg = NodeCreator.createDefaultExpression(ctx, type);
         if (newArg != null) {
-            rewriter.getListRewrite(mi, MethodInvocation.ARGUMENTS_PROPERTY).insertLast(newArg, null);
+            ctx.rewriter().getListRewrite(mi, MethodInvocation.ARGUMENTS_PROPERTY).insertLast(newArg, null);
         }
-        return AstRewriteHelper.applyRewrite(rewriter, originalCode);
+        return ctx.applyTo(originalCode);
     }
 
     public static String addArgumentToMethodInvocation(CompilationUnit cu, String originalCode,
@@ -342,16 +321,14 @@ public class MethodHandler {
      * factory {@link #syncArguments} uses when an overload switch grows the argument list, so a hand-added
      * varargs argument and a generated one look identical.
      */
-    public static String addVarargsArgument(CompilationUnit cu, String originalCode, MethodInvocation mi,
-                                            ResolvedType elementType, ProjectAnalyzer analyzer, ProjectState state) {
-        AST ast = cu.getAST();
-        ASTRewrite rewriter = ASTRewrite.create(ast);
-        Expression newArg = NodeCreator.createDefaultInitializer(ast, elementType, cu, state, analyzer);
+    public static String addVarargsArgument(EditContext ctx, String originalCode, MethodInvocation mi,
+                                            ResolvedType elementType) {
+        Expression newArg = InitializerFactory.createDefaultInitializer(ctx, elementType);
         if (newArg != null) {
-            rewriter.getListRewrite(mi, MethodInvocation.ARGUMENTS_PROPERTY).insertLast(newArg, null);
-            ImportManager.addImportForType(cu, rewriter, elementType, analyzer, state);
+            ctx.rewriter().getListRewrite(mi, MethodInvocation.ARGUMENTS_PROPERTY).insertLast(newArg, null);
+            ctx.addImportForType(elementType);
         }
-        return AstRewriteHelper.applyRewrite(rewriter, originalCode);
+        return ctx.applyTo(originalCode);
     }
 
     /** Removes the argument at {@code index}; a no-op when the index is out of range. */
@@ -364,9 +341,8 @@ public class MethodHandler {
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
     }
 
-    private static void syncArguments(AST ast, ASTRewrite rewriter, MethodInvocation mi, List<ResolvedType> targetTypes,
-                                      CompilationUnit cu, ProjectAnalyzer analyzer, ProjectState state) {
-        ListRewrite argsRewrite = rewriter.getListRewrite(mi, MethodInvocation.ARGUMENTS_PROPERTY);
+    private static void syncArguments(EditContext ctx, MethodInvocation mi, List<ResolvedType> targetTypes) {
+        ListRewrite argsRewrite = ctx.rewriter().getListRewrite(mi, MethodInvocation.ARGUMENTS_PROPERTY);
         List<?> currentArgs = mi.arguments();
 
         int targetCount = targetTypes.size();
@@ -382,9 +358,9 @@ public class MethodHandler {
 
             // If types are NOT compatible, replace the argument
             if (!currentType.isAssignmentCompatible(targetType)) {
-                Expression defaultExpr = NodeCreator.createDefaultInitializer(ast, targetType, cu, state, analyzer);
+                Expression defaultExpr = InitializerFactory.createDefaultInitializer(ctx, targetType);
                 argsRewrite.replace(currentArg, defaultExpr, null);
-                ImportManager.addImportForType(cu, rewriter, targetType, analyzer, state);
+                ctx.addImportForType(targetType);
             }
         }
 
@@ -398,9 +374,9 @@ public class MethodHandler {
         else if (currentCount < targetCount) {
             for (int i = currentCount; i < targetCount; i++) {
                 ResolvedType type = targetTypes.get(i);
-                Expression defaultExpr = NodeCreator.createDefaultInitializer(ast, type, cu, state, analyzer);
+                Expression defaultExpr = InitializerFactory.createDefaultInitializer(ctx, type);
                 argsRewrite.insertLast(defaultExpr, null);
-                ImportManager.addImportForType(cu, rewriter, type, analyzer, state);
+                ctx.addImportForType(type);
             }
         }
     }

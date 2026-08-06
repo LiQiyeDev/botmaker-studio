@@ -1,5 +1,7 @@
 package com.botmaker.studio.parser.handlers;
 
+import com.botmaker.studio.parser.EditContext;
+
 import com.botmaker.studio.TestSupport;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
@@ -43,7 +45,12 @@ class MethodSignatureTest {
             }
             """;
 
-    private record Env(CompilationUnit cu, ProjectAnalyzer analyzer) {}
+    private record Env(CompilationUnit cu, ProjectAnalyzer analyzer) {
+        /** A fresh write-path context over this unit — one per handler call, as CodeEditor builds them. */
+        EditContext ctx() {
+            return EditContext.of(cu, analyzer, null);
+        }
+    }
 
     private static Env env() {
         CompilationUnit cu = ProjectAnalyzer.createCompilationUnit(
@@ -71,7 +78,7 @@ class MethodSignatureTest {
     void addingAParameterAppendsItAndLeavesTheBodyAlone() {
         Env e = env();
         String result = MethodHandler.addParameterToMethod(
-                e.cu(), SOURCE, method(e.cu(), "scale"), ResolvedType.primitive("boolean"), "loud", e.analyzer());
+                e.ctx(), SOURCE, method(e.cu(), "scale"), ResolvedType.primitive("boolean"), "loud");
 
         assertTrue(result.contains("scale(int factor, boolean loud)"), result);
         assertTrue(result.contains("int doubled = factor * 2;"), "the body is untouched");
@@ -90,7 +97,7 @@ class MethodSignatureTest {
     void changingAParameterTypeRewritesTheTypeAndNotTheName() {
         Env e = env();
         String result = MethodHandler.changeMethodParameterType(
-                e.cu(), SOURCE, method(e.cu(), "scale"), 0, ResolvedType.primitive("double"), e.analyzer());
+                e.ctx(), SOURCE, method(e.cu(), "scale"), 0, ResolvedType.primitive("double"));
 
         assertTrue(result.contains("scale(double factor)"), result);
     }
@@ -109,7 +116,7 @@ class MethodSignatureTest {
     void aNewReturnTypeIsAppliedAndTheDefaultReturnFollowsIt() {
         Env e = env();
         String result = MethodHandler.setMethodReturnType(
-                e.cu(), SOURCE, method(e.cu(), "caller"), ResolvedType.primitive("boolean"), e.analyzer());
+                e.ctx(), SOURCE, method(e.cu(), "caller"), ResolvedType.primitive("boolean"));
 
         assertTrue(result.contains("public boolean caller()"), result);
         assertTrue(result.contains("return false;"),
@@ -121,7 +128,7 @@ class MethodSignatureTest {
     void switchingToVoidDropsTheTrailingReturn() {
         Env e = env();
         String result = MethodHandler.setMethodReturnType(
-                e.cu(), SOURCE, method(e.cu(), "scale"), ResolvedType.primitive("void"), e.analyzer());
+                e.ctx(), SOURCE, method(e.cu(), "scale"), ResolvedType.primitive("void"));
 
         assertTrue(result.contains("public void scale(int factor)"), result);
         assertTrue(!result.contains("return doubled;"),

@@ -1,68 +1,59 @@
 package com.botmaker.studio.parser.handlers;
 
-import com.botmaker.studio.parser.ImportManager;
-import com.botmaker.studio.parser.NodeCreator;
-import com.botmaker.studio.parser.helpers.AstRewriteHelper;
-import com.botmaker.studio.project.ProjectState;
+import com.botmaker.studio.parser.EditContext;
+import com.botmaker.studio.parser.factories.InitializerFactory;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import org.eclipse.jdt.core.dom.*;
-import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 import org.eclipse.jdt.core.dom.rewrite.ListRewrite;
 
 import java.util.List;
 
 public class InstantiationHandler {
 
-    public static String updateInstantiation(CompilationUnit cu, String originalCode,
+    public static String updateInstantiation(EditContext ctx, String originalCode,
                                              ClassInstanceCreation node,
                                              ResolvedType newType,
-                                             List<ResolvedType> newParamTypes,
-                                             ProjectAnalyzer analyzer, ProjectState state) {
-        AST ast = cu.getAST();
-        ASTRewrite rewriter = ASTRewrite.create(ast);
+                                             List<ResolvedType> newParamTypes) {
 
         if (newType != null && !newType.simpleName().equals(node.getType().toString())) {
-            Type newTypeNode = ProjectAnalyzer.createTypeNode(ast, newType);
-            rewriter.replace(node.getType(), newTypeNode, null);
-            ImportManager.addImportForType(cu, rewriter, newType, analyzer, state);
+            Type newTypeNode = ProjectAnalyzer.createTypeNode(ctx.ast(), newType);
+            ctx.rewriter().replace(node.getType(), newTypeNode, null);
+            ctx.addImportForType(newType);
         }
 
         if (newParamTypes != null) {
-            syncArguments(ast, rewriter, node, newParamTypes, cu, analyzer, state);
+            syncArguments(ctx, node, newParamTypes);
         }
 
-        return AstRewriteHelper.applyRewrite(rewriter, originalCode);
+        return ctx.applyTo(originalCode);
     }
 
-    public static String replaceWithInstantiation(CompilationUnit cu, String originalCode,
+    public static String replaceWithInstantiation(EditContext ctx, String originalCode,
                                                   Expression toReplace,
                                                   ResolvedType type,
-                                                  List<ResolvedType> paramTypes,
-                                                  ProjectAnalyzer analyzer, ProjectState state) {
-        AST ast = cu.getAST();
-        ASTRewrite rewriter = ASTRewrite.create(ast);
+                                                  List<ResolvedType> paramTypes) {
+        AST ast = ctx.ast();
 
-        ImportManager.addImportForType(cu, rewriter, type, analyzer, state);
+        ctx.addImportForType(type);
 
         ClassInstanceCreation creation = ast.newClassInstanceCreation();
         creation.setType(ProjectAnalyzer.createTypeNode(ast, type));
 
         if (paramTypes != null) {
             for (ResolvedType pType : paramTypes) {
-                Expression arg = NodeCreator.createDefaultInitializer(ast, pType, cu, state, analyzer);
-                creation.arguments().add(arg);
-                ImportManager.addImportForType(cu, rewriter, pType, analyzer, state);
+                creation.arguments().add(InitializerFactory.createDefaultInitializer(ctx, pType));
+                ctx.addImportForType(pType);
             }
         }
 
-        rewriter.replace(toReplace, creation, null);
-        return AstRewriteHelper.applyRewrite(rewriter, originalCode);
+        ctx.rewriter().replace(toReplace, creation, null);
+        return ctx.applyTo(originalCode);
     }
 
-    private static void syncArguments(AST ast, ASTRewrite rewriter, ClassInstanceCreation node, List<ResolvedType> targetTypes,
-                                      CompilationUnit cu, ProjectAnalyzer analyzer, ProjectState state) {
-        ListRewrite argsRewrite = rewriter.getListRewrite(node, ClassInstanceCreation.ARGUMENTS_PROPERTY);
+    private static void syncArguments(EditContext ctx, ClassInstanceCreation node,
+                                      List<ResolvedType> targetTypes) {
+        ListRewrite argsRewrite = ctx.rewriter().getListRewrite(node, ClassInstanceCreation.ARGUMENTS_PROPERTY);
         List<?> currentArgs = node.arguments();
         int currentCount = currentArgs.size();
         int targetCount = targetTypes.size();
@@ -74,9 +65,9 @@ public class InstantiationHandler {
         } else if (currentCount < targetCount) {
             for (int i = currentCount; i < targetCount; i++) {
                 ResolvedType type = targetTypes.get(i);
-                Expression defaultExpr = NodeCreator.createDefaultInitializer(ast, type, cu, state, analyzer);
+                Expression defaultExpr = InitializerFactory.createDefaultInitializer(ctx, type);
                 argsRewrite.insertLast(defaultExpr, null);
-                ImportManager.addImportForType(cu, rewriter, type, analyzer, state);
+                ctx.addImportForType(type);
             }
         }
     }

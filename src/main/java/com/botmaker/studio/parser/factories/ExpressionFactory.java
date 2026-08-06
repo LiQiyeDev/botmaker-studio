@@ -6,18 +6,16 @@ import com.botmaker.studio.palette.ExpressionType.Literal;
 import com.botmaker.studio.palette.ExpressionType.Op;
 import com.botmaker.studio.palette.ExpressionType.PrefixOp;
 import com.botmaker.studio.palette.ExpressionType.Reference;
-import com.botmaker.studio.parser.ImportManager;
-import com.botmaker.studio.suggestions.ProjectAnalyzer;
+import com.botmaker.studio.parser.EditContext;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.util.DefaultNames;
 import org.eclipse.jdt.core.dom.*;
-import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 
 public class ExpressionFactory {
 
-    public static Expression createDefaultExpression(AST ast, ExpressionType type, CompilationUnit cu,
-                                                     ASTRewrite rewriter, ResolvedType contextType,
-                                                     ProjectAnalyzer analyzer) {
+    public static Expression createDefaultExpression(EditContext ctx, ExpressionType type,
+                                                     ResolvedType contextType) {
+        AST ast = ctx.ast();
         return switch (type) {
             case Literal l -> switch (l.kind()) {
                 case TEXT -> createStringLiteral(ast, "text");
@@ -37,22 +35,21 @@ public class ExpressionFactory {
                 case ACTIVITY -> ast.newSimpleName(DefaultNames.DEFAULT_VARIABLE);
                 case SUB_LIST -> ast.newArrayInitializer();
                 case ENUM_CONSTANT -> createEnumConstantExpression(ast, contextType);
-                case INSTANTIATION -> createInstantiation(ast, contextType, cu, rewriter, analyzer);
+                case INSTANTIATION -> createInstantiation(ctx, contextType);
             };
             case InfixOp op -> createInfixExpression(ast, op.operator());
             case PrefixOp op -> createPrefixExpression(ast, mapPrefix(op.operator()));
         };
     }
 
-    private static Expression createInstantiation(AST ast, ResolvedType contextType, CompilationUnit cu,
-                                                  ASTRewrite rewriter, ProjectAnalyzer analyzer) {
+    private static Expression createInstantiation(EditContext ctx, ResolvedType contextType) {
         // Same rule as a seeded argument (InitializerFactory#newInstance): name a constructor the type actually
         // declares, rather than assuming a no-arg one exists. Picking "new T()" from the expression menu used to
         // produce the identical uncompilable text a seeded argument did.
         boolean known = contextType != null && !contextType.isUnknown();
         ResolvedType type = known ? contextType : ResolvedType.named("Object");
-        ClassInstanceCreation cic = InitializerFactory.newInstance(ast, type, analyzer);
-        ImportManager.addImportForSimpleName(cu, rewriter, type.simpleName(), analyzer, null);
+        ClassInstanceCreation cic = InitializerFactory.newInstance(ctx.ast(), type, ctx.analyzer());
+        ctx.addImportForSimpleName(type.simpleName());
         return cic;
     }
 

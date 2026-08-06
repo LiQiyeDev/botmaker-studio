@@ -5,12 +5,11 @@ import com.botmaker.studio.palette.BlockCatalog;
 import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.palette.BlockType.ControlFlow.Kind;
+import com.botmaker.studio.parser.EditContext;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
-import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jdt.core.dom.Statement;
-import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -46,20 +45,17 @@ class StatementFactoryTest {
             }
             """;
 
-    /** A parsed host unit, its AST and a rewriter — the three things every factory call takes. */
-    private record Env(CompilationUnit cu, AST ast, ASTRewrite rewriter, ProjectState state) {}
-
-    private static Env env() {
+    /** A parsed host unit wrapped in the write-path context every factory call takes. */
+    private static EditContext env() {
         CompilationUnit cu = ProjectAnalyzer.createCompilationUnit(
                 TestSupport.runtimeClassPath(), HOST, TestSupport.SOURCE_ROOT);
         assertNotNull(cu, "host unit must parse");
-        return new Env(cu, cu.getAST(), ASTRewrite.create(cu.getAST()), new ProjectState());
+        return EditContext.of(cu, null, new ProjectState());
     }
 
     /** Builds {@code type} with nothing in scope — the "dropped into an empty method" case. */
     private static Statement build(BlockType type) {
-        Env e = env();
-        return StatementFactory.createStatement(e.ast(), type, e.cu(), e.rewriter(), e.state(), null, null);
+        return StatementFactory.createStatement(env(), type, null);
     }
 
     private static BlockType controlFlow(Kind kind) {

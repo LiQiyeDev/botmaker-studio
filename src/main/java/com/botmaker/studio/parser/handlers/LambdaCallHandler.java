@@ -2,8 +2,7 @@ package com.botmaker.studio.parser.handlers;
 
 import com.botmaker.studio.blocks.flow.MatchesGroupScope;
 import com.botmaker.studio.palette.SdkType;
-import com.botmaker.studio.parser.ImportManager;
-import com.botmaker.studio.suggestions.ProjectAnalyzer;
+import com.botmaker.studio.parser.EditContext;
 import org.eclipse.jdt.core.dom.*;
 import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 
@@ -30,13 +29,13 @@ public final class LambdaCallHandler {
      * which the round-trip ({@code BlockConverter}) turns into a droppable body — the same {@code newBlock()}
      * while/if loops use. The {@code className} import is added via {@link ImportManager}.
      */
-    public static MethodInvocation buildLambdaCall(AST ast, CompilationUnit cu, ASTRewrite rewriter,
-                                                   ProjectAnalyzer analyzer, String className, String method,
+    public static MethodInvocation buildLambdaCall(EditContext ctx, String className, String method,
                                                    List<Expression> leadingArgs, String lambdaParam) {
+        AST ast = ctx.ast();
         MethodInvocation mi = ast.newMethodInvocation();
         mi.setExpression(ast.newSimpleName(className));
         mi.setName(ast.newSimpleName(method));
-        ImportManager.addImportForSimpleName(cu, rewriter, className, analyzer, null);
+        ctx.addImportForSimpleName(className);
 
         for (Expression arg : leadingArgs) {
             mi.arguments().add(arg);
@@ -82,8 +81,10 @@ public final class LambdaCallHandler {
      * @param lambdaParam the name the target's body receives the value under ({@code found -> {}}); {@code null}
      *                    or blank for a bare {@code () -> {}} ({@link Runnable} target)
      */
-    public static void switchVariant(AST ast, CompilationUnit cu, ASTRewrite rewriter,
-                                     MethodInvocation mi, String newMethod, boolean group, String lambdaParam) {
+    public static void switchVariant(EditContext ctx, MethodInvocation mi, String newMethod, boolean group,
+                                     String lambdaParam) {
+        AST ast = ctx.ast();
+        ASTRewrite rewriter = ctx.rewriter();
         rewriter.set(mi, MethodInvocation.NAME_PROPERTY, ast.newSimpleName(newMethod), null);
 
         List<?> args = mi.arguments();
@@ -93,14 +94,14 @@ public final class LambdaCallHandler {
             if (converted != null) {
                 rewriter.replace(leading, converted, null);
                 if (group) {
-                    ImportManager.addImport(cu, rewriter, SdkType.IMAGE_TEMPLATE_GROUP);
+                    ctx.addImport(SdkType.IMAGE_TEMPLATE_GROUP);
                 }
             }
         }
 
         LambdaExpression lambda = lambdaArg(mi);
         if (lambda != null) {
-            adjustLambdaParam(ast, rewriter, lambda, lambdaParam, seededBody(ast, cu, rewriter, lambda,
+            adjustLambdaParam(ast, rewriter, lambda, lambdaParam, seededBody(ctx, lambda,
                     firstTemplatePath(leading), group, lambdaParam));
         }
     }
@@ -122,8 +123,7 @@ public final class LambdaCallHandler {
      * @param groupArg     the expression just written into the call's leading image slot
      * @param templatePath the first template that argument now names; the guard needs a literal one to compile
      */
-    public static void seedIfReady(AST ast, CompilationUnit cu, ASTRewrite rewriter,
-                                   Expression groupArg, String templatePath) {
+    public static void seedIfReady(EditContext ctx, Expression groupArg, String templatePath) {
         if (groupArg == null || !(groupArg.getParent() instanceof MethodInvocation call)) return;
         List<?> args = call.arguments();
         if (args.isEmpty() || args.get(0) != groupArg) return;
@@ -133,8 +133,8 @@ public final class LambdaCallHandler {
         SimpleName param = lambdaParamName(call);
         if (lambda == null || param == null) return;
 
-        Block seeded = seededBody(ast, cu, rewriter, lambda, templatePath, true, param.getIdentifier());
-        if (seeded != null) rewriter.replace(lambda.getBody(), seeded, null);
+        Block seeded = seededBody(ctx, lambda, templatePath, true, param.getIdentifier());
+        if (seeded != null) ctx.rewriter().replace(lambda.getBody(), seeded, null);
     }
 
     /**
@@ -147,16 +147,15 @@ public final class LambdaCallHandler {
      * on); the body is <em>empty</em>, so nothing the user wrote can be displaced; and a literal template is
      * known, since a guard with no template would not compile.
      */
-    private static Block seededBody(AST ast, CompilationUnit cu, ASTRewrite rewriter,
-                                    LambdaExpression lambda, String templatePath, boolean group,
-                                    String lambdaParam) {
+    private static Block seededBody(EditContext ctx, LambdaExpression lambda, String templatePath,
+                                    boolean group, String lambdaParam) {
         if (!group || lambdaParam == null || lambdaParam.isBlank()) return null;
         if (!(lambda.getBody() instanceof Block body) || !body.statements().isEmpty()) return null;
         if (templatePath == null) return null;
 
-        ImportManager.addImport(cu, rewriter, SdkType.MATCHES);
-        ImportManager.addImport(cu, rewriter, SdkType.IMAGE_TEMPLATE);
-        return MatchesSwitchHandler.newSeededBody(ast, lambdaParam, templatePath);
+        ctx.addImport(SdkType.MATCHES);
+        ctx.addImport(SdkType.IMAGE_TEMPLATE);
+        return MatchesSwitchHandler.newSeededBody(ctx.ast(), lambdaParam, templatePath);
     }
 
     /**

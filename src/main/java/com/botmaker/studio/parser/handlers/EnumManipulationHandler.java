@@ -1,8 +1,7 @@
 package com.botmaker.studio.parser.handlers;
 
-import com.botmaker.studio.parser.ImportManager;
+import com.botmaker.studio.parser.EditContext;
 import com.botmaker.studio.parser.helpers.AstRewriteHelper;
-import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import org.eclipse.jdt.core.dom.*;
 import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 import org.eclipse.jdt.core.dom.rewrite.ListRewrite;
@@ -20,20 +19,18 @@ public class EnumManipulationHandler {
      * {@code import …interaction.Key}, giving the generated bot a "cannot find symbol Key". A same-file /
      * same-package type (e.g. an activity's nested {@code Outcome}) resolves to no import, so this is safe there.
      */
-    public static String replaceWithEnumConstant(CompilationUnit cu, String originalCode,
-                                          Expression toReplace, String enumType, String constantName,
-                                          ProjectAnalyzer analyzer) {
-        AST ast = cu.getAST();
-        ASTRewrite rewriter = ASTRewrite.create(ast);
+    public static String replaceWithEnumConstant(EditContext ctx, String originalCode,
+                                                 Expression toReplace, String enumType, String constantName) {
+        AST ast = ctx.ast();
 
         QualifiedName newConst = ast.newQualifiedName(
                 ast.newSimpleName(enumType),
                 ast.newSimpleName(constantName)
         );
 
-        rewriter.replace(toReplace, newConst, null);
-        ImportManager.addImportForSimpleName(cu, rewriter, enumType, analyzer, null);
-        return AstRewriteHelper.applyRewrite(rewriter, originalCode);
+        ctx.rewriter().replace(toReplace, newConst, null);
+        ctx.addImportForSimpleName(enumType);
+        return ctx.applyTo(originalCode);
     }
 
     // ... [Previous methods omitted for brevity, ensure they are kept]
