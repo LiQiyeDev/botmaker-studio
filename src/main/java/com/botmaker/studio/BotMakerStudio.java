@@ -32,6 +32,8 @@ public class BotMakerStudio extends Application {
 
     /** The currently open project (null when on project selection screen). */
     private BotProject currentProject;
+    /** The window built for {@link #currentProject}, held only so it can be disposed when that project ends. */
+    private UIManager currentUiManager;
 
     /** The primary window, kept for owning dialogs. */
     private Stage primaryStage;
@@ -97,7 +99,10 @@ public class BotMakerStudio extends Application {
     // =========================================================================
 
     private void openProject(Stage primaryStage, String projectName, boolean freshlyCreated) {
-        // 1. Close previous project
+        // 1. Close previous project — its window first. This is also the reload path (a VCS rollback publishes
+        //    ProjectReloadRequestedEvent), so it runs far more often than "the user picked another project";
+        //    without releasing the shell the Remote Pilot port and its nested display would survive every one.
+        disposeUi();
         if (currentProject != null) {
             currentProject.close();
             currentProject = null;
@@ -223,10 +228,24 @@ public class BotMakerStudio extends Application {
                 currentProject.getCodeExecutionService()
         );
         uiManager.setOnSelectProject(v -> switchToProjectSelector(primaryStage));
+        this.currentUiManager = uiManager;
         return uiManager;
     }
 
+    /**
+     * Releases the current window's OS resources (the Remote Pilot port, its nested display, the theme
+     * listeners) before the project behind it goes away. FX-thread only, and idempotent — every path that ends
+     * a project calls it.
+     */
+    private void disposeUi() {
+        if (currentUiManager != null) {
+            currentUiManager.dispose();
+            currentUiManager = null;
+        }
+    }
+
     private void switchToProjectSelector(Stage primaryStage) {
+        disposeUi();
         if (currentProject != null) {
             currentProject.close();
             currentProject = null;
@@ -235,6 +254,7 @@ public class BotMakerStudio extends Application {
     }
 
     private void shutdown() {
+        disposeUi(); // on the FX thread, before the background close below
         new Thread(() -> {
             try {
                 if (currentProject != null) currentProject.close();

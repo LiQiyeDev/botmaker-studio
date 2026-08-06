@@ -85,6 +85,11 @@ public class UIManager {
     // Theme management
     private Scene scene;
     private Parent root;
+    /** Kept so {@link #dispose()} can drop it from {@link BlockTheme}'s <b>static</b> listener list — otherwise
+     *  every project switch leaves a lambda holding the previous window's whole scene graph alive. */
+    private final Consumer<BlockTheme.ThemeType> themeListener;
+    /** Built with the scene; holds the second of this window's two theme listeners. */
+    private IdentityCluster identityCluster;
 
     // Sharing / GitHub services — promoted to fields so the toolbar VCS/account buttons and the VCS bottom
     // tab can reach them at scene-build time, not just the menu wiring in the constructor.
@@ -232,12 +237,29 @@ public class UIManager {
 
         // Initialize theme system and set up theme change listener
         BlockTheme.initialize();
-        BlockTheme.addThemeChangeListener(themeType -> {
-            // This will be called when theme changes - apply it to the scene
-            applyThemeToScene();
-        });
+        this.themeListener = themeType -> applyThemeToScene();
+        BlockTheme.addThemeChangeListener(themeListener);
 
         setupEventHandlers();
+    }
+
+    /**
+     * Releases everything this window acquired from the OS and from static state, so the project it was built
+     * for can be closed. Called by {@code BotMakerStudio} on project open (for the outgoing window), on the
+     * switch back to the project selector, and on shutdown.
+     *
+     * <p>A new {@code UIManager} is built for every open <em>and every reload</em>, so without this each VCS
+     * rollback or Reader→Editor switch left behind a bound pilot port, a live nested display with the game
+     * still in it, and two theme listeners pinning the dead scene graph. Idempotent.
+     */
+    public void dispose() {
+        remotePilot.close();
+        BlockTheme.removeThemeChangeListener(themeListener);
+        if (identityCluster != null) {
+            identityCluster.dispose();
+            identityCluster = null;
+        }
+        eventLogManager.shutdown();
     }
 
     /**
@@ -529,7 +551,9 @@ public class UIManager {
         editControls.setAlignment(Pos.CENTER_LEFT);
 
         FlowPane executionControls = toolbarManager.createExecutionGroup();
-        HBox rightContainer = new HBox(10, executionControls, buildIdentityCluster());
+        this.identityCluster = new IdentityCluster(primaryStage, gitHubAuth, gitHubClient,
+                () -> { if (vcsTabIndex >= 0) selectBottomTab(vcsTabIndex); });
+        HBox rightContainer = new HBox(10, executionControls, identityCluster.node());
         rightContainer.setAlignment(Pos.CENTER_RIGHT);
         rightContainer.setMinWidth(0);
         // Breathing room against the window edge, mirroring the padding createEditGroup() applies on its side.
@@ -675,7 +699,9 @@ public class UIManager {
         root.setMinWidth(0);
         root.setMinHeight(0);
 
-        primaryStage.setOnHidden(e -> eventLogManager.shutdown());
+        // The window going away is one more way this project ends (e.g. the window manager closes it without
+        // routing through shutdown()) — release the same things dispose() does, idempotently.
+        primaryStage.setOnHidden(e -> dispose());
 
         Scene scene = new Scene(root, 1000, 700);
         this.scene = scene;
@@ -739,7 +765,8 @@ public class UIManager {
         }
         state.setReaderMode(false);
         // Commit the as-installed state locally (best-effort) so "Editor mode" has a clean starting point.
-        new Thread(() -> {
+        // Daemon: a git commit that hangs must not keep the JVM alive after the user closes the window.
+        Thread commit = new Thread(() -> {
             try {
                 new com.botmaker.studio.project.vcs.ProjectVcs(config.projectPath())
                         .commit("Start editing (switched from Reader mode)");
@@ -748,108 +775,9 @@ public class UIManager {
             }
             javafx.application.Platform.runLater(() ->
                     eventBus.publish(new CoreApplicationEvents.ProjectReloadRequestedEvent()));
-        }, "reader-to-editor").start();
-    }
-
-    /** The far-right toolbar cluster: a VCS button plus the two BotMaker-wide account buttons. */
-    private HBox buildIdentityCluster() {
-        Button vcsButton = new Button("⑂ VCS");
-        vcsButton.setTooltip(new Tooltip("Show version control (commit, changes, history)"));
-        vcsButton.setOnAction(e -> { if (vcsTabIndex >= 0) selectBottomTab(vcsTabIndex); });
-
-        Button gitHub = roundButton("GH", "#24292f", "GitHub account");
-        gitHub.setOnAction(e -> showGitHubAccountPopup(gitHub));
-        refreshGitHubButton(gitHub);
-
-        HBox cluster = new HBox(6, vcsButton, gitHub, themeDropdown(), googleButton());
-        cluster.setAlignment(Pos.CENTER_RIGHT);
-        return cluster;
-    }
-
-    /**
-     * The round Google button — <em>disabled</em>, with the reason as its tooltip. It used to be clickable and
-     * its only action was an alert apologising that the feature doesn't exist; a greyed control with a reason
-     * reads as "not yet", a clickable one that only apologises reads as broken. The sign-in plumbing behind it
-     * ({@code sharing/GoogleAuth}, {@link GoogleAccountBar}) is finished and correct — it just has no client id
-     * and no backend yet (see {@code sharing/GoogleConfig}).
-     *
-     * <p>Returned wrapped in a container because a disabled JavaFX control receives no mouse events, so a
-     * tooltip installed on the button itself would never show; it goes on the (enabled) wrapper instead.
-     */
-    private Node googleButton() {
-        Button google = roundButton("G", "#4285F4", null);
-        google.setDisable(true);
-        HBox holder = new HBox(google);
-        Tooltip.install(holder, new Tooltip(
-                "Google sign-in isn't available yet — reserved for future Tailscale/Drive features."));
-        return holder;
-    }
-
-    /** A 28px round icon button. A null {@code tooltip} installs none (see {@link #googleButton()}). */
-    private Button roundButton(String glyph, String bg, String tooltip) {
-        Button b = new Button(glyph);
-        if (tooltip != null) b.setTooltip(new Tooltip(tooltip));
-        b.setStyle("-fx-background-radius: 14; -fx-min-width: 28; -fx-min-height: 28; "
-                + "-fx-max-width: 28; -fx-max-height: 28; -fx-padding: 0; -fx-font-size: 10px; "
-                + "-fx-font-weight: bold; -fx-text-fill: white; -fx-background-color: " + bg + ";");
-        return b;
-    }
-
-    /** Labels the GitHub round button with the signed-in login initials (or a bare mark when signed out). */
-    private void refreshGitHubButton(Button gitHub) {
-        if (gitHubAuth != null && gitHubAuth.isAuthenticated()) {
-            gitHubAuth.login(gitHubClient).thenAccept(login -> javafx.application.Platform.runLater(() -> {
-                if (login != null && !login.isBlank()) {
-                    gitHub.setText(login.substring(0, Math.min(2, login.length())).toUpperCase());
-                    gitHub.setTooltip(new Tooltip("Signed in to GitHub as " + login));
-                }
-            }));
-        } else {
-            gitHub.setText("GH");
-            gitHub.setTooltip(new Tooltip("Sign in to GitHub"));
-        }
-    }
-
-    /** Opens the shared {@link GitHubAccountBar} (device-flow handshake) in a small popup off the round button. */
-    private void showGitHubAccountPopup(Button gitHub) {
-        Stage popup = new Stage();
-        popup.initOwner(primaryStage);
-        popup.initModality(javafx.stage.Modality.NONE);
-        popup.setTitle("GitHub account");
-        GitHubAccountBar bar = new GitHubAccountBar(popup, gitHubAuth, gitHubClient,
-                () -> refreshGitHubButton(gitHub));
-        VBox box = new VBox(bar);
-        box.setPadding(new Insets(14));
-        popup.setScene(new Scene(box));
-        popup.show();
-    }
-
-    /**
-     * The toolbar's theme picker — a dropdown of all four themes, wired straight to {@link BlockTheme}. Kept
-     * in sync with the <b>View ▸ Theme</b> menu ({@link MenuBarManager}) via {@link BlockTheme}'s own
-     * listener list, since both controls read/write the same static state.
-     */
-    private ComboBox<BlockTheme.ThemeType> themeDropdown() {
-        ComboBox<BlockTheme.ThemeType> box = new ComboBox<>(
-                javafx.collections.FXCollections.observableArrayList(BlockTheme.ThemeType.values()));
-        box.setConverter(new javafx.util.StringConverter<>() {
-            @Override public String toString(BlockTheme.ThemeType type) {
-                return switch (type) {
-                    case DEFAULT -> "Default";
-                    case DARK -> "Dark";
-                    case BLACK -> "Black";
-                    case HIGH_CONTRAST -> "High Contrast";
-                };
-            }
-            @Override public BlockTheme.ThemeType fromString(String s) { return null; }
-        });
-        box.setValue(BlockTheme.getCurrentThemeType());
-        box.setOnAction(e -> BlockTheme.setTheme(box.getValue()));
-        BlockTheme.addThemeChangeListener(type -> {
-            if (box.getValue() != type) box.setValue(type);
-        });
-        box.setTooltip(new Tooltip("Theme"));
-        return box;
+        }, "reader-to-editor");
+        commit.setDaemon(true);
+        commit.start();
     }
 
     /** Applies the current theme CSS class to the specified root node. */

@@ -11,6 +11,7 @@ import com.botmaker.studio.services.LibraryService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
 import com.botmaker.studio.ui.fx.FxHeadlessTest;
+import com.botmaker.studio.ui.render.theme.BlockTheme;
 import com.botmaker.studio.validation.DiagnosticsManager;
 import javafx.scene.Node;
 import javafx.scene.Parent;
@@ -245,5 +246,49 @@ class UIManagerSceneTest extends FxHeadlessTest {
         assertTrue(done.await(60, TimeUnit.SECONDS));
         if (failure.get() != null) throw new AssertionError("the second createScene threw", failure.get());
         assertNotNull(second.get());
+    }
+
+    /**
+     * {@code dispose()} releases the window, and the observable half of that is the theme listener: it lives in
+     * {@code BlockTheme}'s <b>static</b> list, so a shell that never dropped it went on restyling a dead scene
+     * graph after every later project switch. After dispose, a theme change must leave this root alone.
+     *
+     * <p>Runs last by name (JUnit's default method order is deterministic per class) and only reads the scene
+     * afterwards, so the other assertions are unaffected either way.
+     */
+    @Test
+    void zDisposeDropsTheThemeListenerAndIsIdempotent() throws Exception {
+        BlockTheme.ThemeType original = BlockTheme.getCurrentThemeType();
+        BlockTheme.ThemeType other = original == BlockTheme.ThemeType.DARK
+                ? BlockTheme.ThemeType.DEFAULT : BlockTheme.ThemeType.DARK;
+
+        onFxThread(() -> {
+            uiManager.dispose();
+            uiManager.dispose(); // second call must be a no-op, not a failure
+        });
+
+        List<String> before = List.copyOf(scene.getRoot().getStyleClass());
+        onFxThread(() -> BlockTheme.setTheme(other));
+        assertEquals(before, scene.getRoot().getStyleClass(),
+                "a disposed shell is still being restyled — its theme listener outlived it");
+
+        onFxThread(() -> BlockTheme.setTheme(original));
+    }
+
+    /** Runs {@code body} on the FX thread and rethrows whatever it threw. */
+    private static void onFxThread(Runnable body) throws Exception {
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        CountDownLatch done = new CountDownLatch(1);
+        javafx.application.Platform.runLater(() -> {
+            try {
+                body.run();
+            } catch (Throwable t) {
+                failure.set(t);
+            } finally {
+                done.countDown();
+            }
+        });
+        assertTrue(done.await(30, TimeUnit.SECONDS), "the FX thread never ran the body");
+        if (failure.get() != null) throw new AssertionError(failure.get());
     }
 }

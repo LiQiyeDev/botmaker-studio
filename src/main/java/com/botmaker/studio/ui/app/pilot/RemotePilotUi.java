@@ -32,8 +32,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * The rendering is elsewhere in this package: {@link RemotePilotDialog} (pairing), {@link FunnelSetupWizard}
  * (the one-time Tailscale checklist) and {@link BackgroundModeBox} (private-display controls). This class
  * calls them; none of them calls back into it except through the callbacks it hands over.
+ *
+ * <p><b>Closeable, and it must be closed.</b> A new one is built for every project open <em>and every reload</em>
+ * (a VCS rollback publishes {@code ProjectReloadRequestedEvent}, which re-enters {@code openProject}). Nothing
+ * used to release either resource, so a switch left a bound port serving a project that no longer exists and a
+ * nested display with the game still running inside it. {@code UIManager.dispose()} is the caller.
  */
-public final class RemotePilotUi {
+public final class RemotePilotUi implements AutoCloseable {
 
     /** How the pilot ended up exposed — drives the dialog header, QR URL, and warning. */
     enum PilotMode { FUNNEL_HTTPS, TAILNET_DIRECT, ALL_INTERFACES }
@@ -116,6 +121,36 @@ public final class RemotePilotUi {
      */
     public long liveSessionWindow() {
         return nestedLauncher == null ? 0 : nestedLauncher.revealHostWindow();
+    }
+
+    /**
+     * Releases both heavyweight resources: unbinds the pilot port (tearing down any Funnel front with it) and
+     * stops the private {@code :N} session, killing the game running inside it.
+     *
+     * <p>A paired phone loses its connection here. That is deliberate and is the honest signal — the project it
+     * was driving is gone, and a pilot still answering on the old port would be controlling nothing.
+     *
+     * <p>Idempotent: both fields are dropped, so a second call is a no-op.
+     */
+    @Override
+    public void close() {
+        if (nestedLauncher != null) {
+            try {
+                nestedLauncher.close();
+            } catch (Exception e) {
+                System.err.println("Couldn't stop the private display session: " + e.getMessage());
+            }
+            nestedLauncher = null;
+        }
+        if (pilotServer != null) {
+            try {
+                pilotServer.close();
+            } catch (Exception e) {
+                System.err.println("Couldn't stop the Remote Pilot server: " + e.getMessage());
+            }
+            pilotServer = null;
+        }
+        lastOutcome = null;
     }
 
     /**
