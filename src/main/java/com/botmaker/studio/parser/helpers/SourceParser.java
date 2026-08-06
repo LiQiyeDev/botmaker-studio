@@ -45,9 +45,18 @@ public final class SourceParser {
      * "is this file currently mangled?" check on a user's half-written source.
      */
     public static boolean hasSyntaxErrors(CompilationUnit cu) {
+        return firstSyntaxError(cu) != null;
+    }
+
+    /**
+     * The first error {@link IProblem} in {@code cu}, or {@code null} when it parsed cleanly — the same verdict
+     * as {@link #hasSyntaxErrors}, keeping the problem itself so a caller that refuses an edit can say which
+     * one broke it. A refusal that only reports "something broke" is not diagnosable from a log.
+     */
+    public static IProblem firstSyntaxError(CompilationUnit cu) {
         for (IProblem problem : cu.getProblems()) {
-            if (problem.isError()) return true;
+            if (problem.isError()) return problem;
         }
-        return false;
+        return null;
     }
 }

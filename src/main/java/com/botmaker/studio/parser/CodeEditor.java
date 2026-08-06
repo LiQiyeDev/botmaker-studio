@@ -18,12 +18,14 @@ import com.botmaker.studio.parser.handlers.RawExpressionHandler;
 import com.botmaker.studio.parser.handlers.SwitchNormalizer;
 import com.botmaker.studio.parser.handlers.TypeHandler;
 import com.botmaker.studio.parser.helpers.AstRewriteHelper;
+import com.botmaker.studio.parser.helpers.SourceParser;
 import com.botmaker.studio.project.LockResolver;
 import com.botmaker.studio.project.LockResolver.EditKind;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.types.ResolvedType;
+import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.core.dom.*;
 import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 import org.eclipse.jdt.core.dom.rewrite.ListRewrite;
@@ -159,13 +161,70 @@ public class CodeEditor {
         return false;
     }
 
-    private void triggerUpdate(String newCode) {
-        triggerUpdate(newCode, false);
+    private boolean triggerUpdate(String newCode) {
+        return triggerUpdate(newCode, false);
     }
 
-    private void triggerUpdate(String newCode, boolean markNewIdentifiersAsUnedited) {
+    /**
+     * Publishes {@code newCode} as the file's new content — unless it wouldn't parse. Returns whether it was
+     * published, so a caller with a follow-up event of its own can drop that too.
+     */
+    private boolean triggerUpdate(String newCode, boolean markNewIdentifiersAsUnedited) {
         String previousCode = getCurrentCode();
+        if (wouldBreak(newCode, previousCode)) return false;
         eventBus.publish(new CoreApplicationEvents.CodeUpdatedEvent(newCode, previousCode, markNewIdentifiersAsUnedited));
+        return true;
+    }
+
+    /**
+     * Whether publishing {@code newCode} would leave the user with source that doesn't parse — the one gate
+     * between a rewrite and the canvas.
+     *
+     * <p><b>Why it exists.</b> A rewrite that <em>throws</em> is already handled: {@code AstRewriteHelper
+     * .applyRewrite} catches and returns the original code. A rewrite that succeeds and produces broken Java
+     * had nothing checking it: the code was published, {@code refreshUI} re-parsed it, JDT recovered a mangled
+     * tree, and the method rendered <em>empty</em>. Adding one block could therefore erase the visible contents
+     * of a method, with Ctrl-Z as the only way back. Refusing here costs the user the edit; publishing costs
+     * them the method.
+     *
+     * <p><b>Only a newly introduced break is refused</b>, which is the half that makes this liveable. If the
+     * file already has a syntax error — a half-typed argument, a paste in progress — every subsequent edit
+     * would fail the check, and the guard would lock the user out of the very edits that fix it. So a file that
+     * was already broken is left entirely alone.
+     *
+     * <p>Syntax errors only, via {@link SourceParser}: with bindings unresolved an unimported class or an
+     * unknown type isn't reported, and mustn't be — a block that names a type the project doesn't have yet is
+     * a normal intermediate state. A broken brace is not.
+     *
+     * <p>Costs one full-file parse on the edit path, and only on the path that already parses: the new code is
+     * checked first, so the overwhelmingly common clean edit pays a single parse and never touches the old
+     * code. {@code refreshUI} parses the same file on every edit anyway.
+     */
+    private boolean wouldBreak(String newCode, String previousCode) {
+        if (newCode == null || newCode.equals(previousCode)) return false;
+        IProblem problem = SourceParser.firstSyntaxError(SourceParser.parse(newCode));
+        if (problem == null) return false;
+        if (SourceParser.hasSyntaxErrors(SourceParser.parse(previousCode))) return false;
+        System.err.println("Refused an edit that would have broken the code (" + refusedBy() + "): "
+                + problem.getMessage() + " at line " + problem.getSourceLineNumber());
+        eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(
+                "That change would have broken the code, so nothing was changed."));
+        return true;
+    }
+
+    /**
+     * The public {@link CodeEditor} method that reached the refused edit, for the log line. This is the handle
+     * on <em>which rewrite</em> emits broken source — the thing worth fixing, of which the refusal is only the
+     * symptom. Best-effort: a lambda or an inlined frame reads as its enclosing method, which is close enough
+     * to find the handler by name.
+     */
+    private static String refusedBy() {
+        return StackWalker.getInstance().walk(frames -> frames
+                .filter(f -> f.getClassName().equals(CodeEditor.class.getName()))
+                .map(StackWalker.StackFrame::getMethodName)
+                .filter(name -> !name.equals("wouldBreak") && !name.equals("triggerUpdate") && !name.equals("edit"))
+                .findFirst()
+                .orElse("unknown"));
     }
 
     /**
@@ -770,7 +829,9 @@ public class CodeEditor {
         if (cu == null) return;
         String newCode = addStatement(cu, getCurrentCode(), targetBody, type, index, state, analyzer);
         if (newCode == null) return;
-        triggerUpdate(newCode, true);
+        // The refusal has to take the announcement with it: a BlockAddedEvent for a block that was never
+        // published scrolls the canvas to a block that isn't there.
+        if (!triggerUpdate(newCode, true)) return;
         eventBus.publish(new CoreApplicationEvents.BlockAddedEvent(type));
     }
 

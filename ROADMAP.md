@@ -6,6 +6,27 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-06 — The edit guard: source that doesn't parse is never published.** The disappearing-method bug.
+  A rewrite that *throws* was already handled — `AstRewriteHelper.applyRewrite` catches and returns the
+  original code — but one that *succeeds* and emits broken Java had nothing checking it: it was published,
+  `refreshUI` re-parsed it, JDT recovered a mangled tree, and the method rendered **empty**. Adding a block
+  could erase the visible contents of a method, with Ctrl-Z the only way back. `CodeEditor.triggerUpdate` —
+  the single point every write path funnels through, `edit(...)` and the four direct publishers alike — now
+  refuses to publish source that doesn't parse: no `CodeUpdatedEvent`, so the undo stack is untouched and the
+  canvas never renders a recovered tree, plus a user-facing status line and a `System.err` line naming the
+  first `IProblem` and the `CodeEditor` method that produced it (via `StackWalker` — that name is the handle
+  on *which* rewrite is broken, the refusal being only the symptom). `addStatement`'s `BlockAddedEvent` is
+  dropped with the edit, since announcing a block that was never published scrolls the canvas to nothing.
+  **The already-broken clause is the half that makes it liveable:** only a *newly introduced* error is
+  refused, or a user mid-way through fixing a syntax error would have every edit rejected — including the one
+  that fixes it. Syntax errors only, via `SourceParser` with bindings unresolved: a block naming a type the
+  project doesn't have yet is a normal intermediate state, a broken brace is not. Costs one parse on the edit
+  path and only on the path that already parses — the new code is checked first, so a clean edit never touches
+  the old code, and `refreshUI` parses the same file anyway. (`parser/CodeEditor`,
+  `parser/helpers/SourceParser` gains `firstSyntaxError`, `EditorFixture` now captures status messages; new
+  `EditGuardTest`.) Next, and deliberately not in this change: the `parser/handlers/*` rewrites that emit
+  broken source are now harmless and logged by name — fixing them individually is the follow-up.
+
 - **2026-08-06 — "Check Image Combinations": off the menu, actually auto-created, and stripped to its
   content.** Four changes to the block that was in the wrong places and missing from the right one.
   **Off the statement menu** (`MATCHES_SWITCH` out of `BlockCatalog.ALL`, the exclusion `FIND_IMAGE_ACTIONS`

@@ -46,6 +46,8 @@ public final class EditorFixture {
     public final ProjectState state;
     public final AbstractCodeBlock root;
     public String lastCode;
+    /** Every user-facing status line the editor published — how a refused edit announces itself. */
+    public final List<String> statusMessages = new ArrayList<>();
 
     private final EventBus bus;
     private final BlockConverter converter;
@@ -71,6 +73,7 @@ public final class EditorFixture {
 
         bus = new EventBus(false);
         bus.subscribe(CoreApplicationEvents.CodeUpdatedEvent.class, e -> lastCode = e.newCode());
+        bus.subscribe(CoreApplicationEvents.StatusMessageEvent.class, e -> statusMessages.add(e.message()));
 
         converter = new BlockConverter(CONFIG, state);
         dragAndDrop = new BlockDragAndDropManager(bus);
