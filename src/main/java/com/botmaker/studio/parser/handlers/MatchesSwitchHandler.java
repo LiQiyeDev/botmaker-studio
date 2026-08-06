@@ -9,7 +9,6 @@ import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jdt.core.dom.Expression;
 import org.eclipse.jdt.core.dom.GuardedPattern;
 import org.eclipse.jdt.core.dom.MethodInvocation;
-import org.eclipse.jdt.core.dom.SimpleName;
 import org.eclipse.jdt.core.dom.SingleVariableDeclaration;
 import org.eclipse.jdt.core.dom.Statement;
 import org.eclipse.jdt.core.dom.StringLiteral;
@@ -274,12 +273,6 @@ public final class MatchesSwitchHandler {
             if (collecting) body.add(s);
         }
         return body;
-    }
-
-    /** The switch's selector name, or null when it isn't a plain variable read. */
-    public static String subjectOf(SwitchStatement switchStmt) {
-        Expression selector = switchStmt == null ? null : switchStmt.getExpression();
-        return selector instanceof SimpleName name ? name.getIdentifier() : null;
     }
 
     /** The single {@link Block} a case body is, or null when the case body isn't one braced block. */

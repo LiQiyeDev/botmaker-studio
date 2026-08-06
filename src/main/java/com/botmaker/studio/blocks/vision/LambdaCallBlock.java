@@ -12,7 +12,6 @@ import com.botmaker.studio.parser.handlers.LambdaCallHandler;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.ui.render.components.BlockUIComponents;
-import com.botmaker.studio.ui.render.components.TextFieldComponents;
 import com.botmaker.studio.ui.render.layout.BlockLayout;
 import com.botmaker.studio.ui.render.layout.SentenceLayoutBuilder;
 import com.botmaker.studio.util.MethodSignature;
@@ -50,13 +49,15 @@ import java.util.List;
  * method-invocation overload path can't be reused here: it syncs arguments positionally and would clobber the
  * trailing lambda.)
  *
- * <p><b>The parameter chip.</b> The value the body is handed — a {@code MatchResult} for the single-template
- * forms, a {@code Matches} for the group forms — used to be invisible: the header rendered the call and the body
- * rendered underneath, with nothing between them naming what crossed the boundary, so in the block editor there
- * was literally no way to reach it. It is now an editable chip rendering the source's own {@code found ->}, and
- * the name it carries is registered as an in-scope variable for the body (see
+ * <p><b>The value handed to the body is not drawn.</b> A {@code MatchResult} for the single-template forms, a
+ * {@code Matches} for the group forms — it was briefly rendered as an editable chip ({@code found →}) between
+ * the header and the body, on the reasoning that a value with no on-screen presence was unreachable. It isn't:
+ * the name is registered as an in-scope variable for the body (see
  * {@code suggestions.ProjectAnalyzer#enclosingLambdaParameters}), which is what puts {@code found} and its
- * {@code has}/{@code hasAll}/{@code get}/{@code best} members in the body's expression menu.
+ * {@code has}/{@code hasAll}/{@code get}/{@code best} members in the body's expression menu — and the name
+ * itself is the SDK's choice, not a decision the user makes, so a chip for editing it was chrome offering to
+ * change something nobody wants changed. What the body receives is said in words on the method dropdown
+ * instead ({@link #bodyValueHint}).
  */
 public class LambdaCallBlock extends AbstractStatementBlock implements BlockWithChildren {
 
@@ -143,7 +144,6 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
                 .addLabel(")");
 
         addReturnBadge(sentence);
-        addParamChip(sentence, context);
         addInfoButton(sentence, context);
 
         HBox headerContent = sentence.build();
@@ -244,7 +244,7 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
         selector.setEditable(false);
         selector.setStyle("-fx-font-size: 11px; -fx-pref-width: 130px; -fx-font-weight: bold;");
         selector.setTooltip(new Tooltip(
-                "if / while / until  ×  a single image, ANY of a group, or ALL of a group"));
+                "if / while / until  ×  a single image, ANY of a group, or ALL of a group\n\n" + bodyValueHint()));
         selector.setOnAction(e -> {
             String picked = selector.getValue();
             if (picked == null || picked.equals(method)) return;
@@ -253,6 +253,25 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
                             .switchLambdaVariant((Statement) this.astNode, v.method(), v.group(), targetParamName(v)));
         });
         return selector;
+    }
+
+    /**
+     * What the chosen variant hands the body, in words. This sentence used to be the tooltip on an editable
+     * chip rendering the lambda parameter ({@code found →}). The chip is gone — the name is one the SDK
+     * chooses and the user has no reason to care about, so a control for renaming it was a control for a
+     * decision nobody makes — but it carried the only in-UI statement of what crosses into the body, so it
+     * moved onto the dropdown that decides it. The parameter itself still exists in the source, and the body's
+     * expression menu still offers it (see {@code ProjectAnalyzer#enclosingLambdaParameters}); it is simply
+     * not drawn.
+     */
+    private String bodyValueHint() {
+        Variant v = current();
+        if (!v.hasParam()) return "This form loops until something is found, so the body is handed nothing.";
+        String name = paramName() != null ? paramName() : v.param();
+        return v.group()
+                ? "The body is handed the whole combination as \"" + name + "\" (a Matches) — e.g. "
+                        + name + ".has(image)"
+                : "The body is handed the hit as \"" + name + "\" (a MatchResult) — e.g. " + name + ".getCenter()";
     }
 
     /**
@@ -267,30 +286,6 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
         Variant self = current();
         boolean sameShape = self.hasParam() && self.group() == target.group();
         return sameShape && current != null ? current : target.param();
-    }
-
-    /**
-     * The editable chip naming the value handed to the body — rendered as it reads in the source
-     * ({@code found →}), immediately before the indented body it scopes over. Committing a new name goes
-     * through {@code CodeEditor.renameLambdaParameter}, which carries the body's references along.
-     */
-    private void addParamChip(SentenceLayoutBuilder sentence, CodeEditorService context) {
-        String name = paramName();
-        if (name == null) return;
-
-        Node chip = TextFieldComponents.createVariableName(name, !isReadOnly(), newName -> {
-            SimpleName declared = declaredParamName();
-            if (declared == null || newName.isBlank() || newName.equals(name)) return;
-            context.getCodeEditor().renameLambdaParameter(declared, newName.trim());
-        });
-        Tooltip.install(chip, new Tooltip(
-                "The " + (current().group() ? "Matches" : "MatchResult") + " the body receives.\n"
-                        + "Use it inside the body — e.g. " + name + (current().group() ? ".has(image)" : ".getCenter()")));
-        sentence.addNode(chip);
-
-        Label arrow = new Label("→");
-        arrow.getStyleClass().add("sdk-lambda-arrow");
-        sentence.addNode(arrow);
     }
 
     /** The trailing lambda's declared parameter name as it stands in the source, or {@code null} if it has none. */

@@ -37,6 +37,18 @@ public final class MatchesGroupScope {
     private MatchesGroupScope() {}
 
     /**
+     * Whether {@code method} is one of the find calls that hand their lambda a {@code Matches} — the set whose
+     * body is worth seeding with a combination switch. {@code ifFind}/{@code whileFind} hand over a single
+     * {@code MatchResult}, which has no combination to test, and {@code untilFind…} loop <em>until</em>
+     * something is found and hand over nothing at all. Exposed rather than duplicated because
+     * {@code LambdaCallHandler} asks the same question from the writing side, and a second copy of this set
+     * would be a second place to forget a variant.
+     */
+    public static boolean isGroupLambdaCall(String method) {
+        return GROUP_LAMBDA_CALLS.contains(method);
+    }
+
+    /**
      * The template paths reachable from {@code node}'s enclosing find call, or {@code null} when there is no
      * restriction to apply.
      */

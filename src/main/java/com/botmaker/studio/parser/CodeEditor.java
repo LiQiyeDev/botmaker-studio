@@ -326,6 +326,12 @@ public class CodeEditor {
      * Replaces {@code toReplace} with {@code ImageTemplateGroup.of(new ImageTemplate("p1"), …)} — the
      * multi-template group picker. Passing the full desired path list each time (rather than mutating
      * in place) keeps the picker's add/remove/change operations a single, uniform rewrite.
+     *
+     * <p>It is also where a group find's body gets seeded with its combination switch, because filling this
+     * slot is the second of the two edits that can make the seed possible — see
+     * {@link LambdaCallHandler#seedIfReady}. Hooked here rather than generically after every expression
+     * replacement: this is the only write that puts a group into an argument slot, so a generic hook would
+     * pay a walk up the tree on every edit in the file to answer a question only this one can answer yes to.
      */
     public void setImageTemplateGroup(Expression toReplace, java.util.List<String> paths) {
         edit(toReplace, EditKind.BODY, true, (cu, code) -> {
@@ -345,6 +351,8 @@ public class CodeEditor {
             ImportManager.addImportForSimpleName(cu, rewriter, "ImageTemplate", analyzer, null);
             ImportManager.addImportForSimpleName(cu, rewriter, "ImageTemplateGroup", analyzer, null);
             rewriter.replace(toReplace, call, null);
+            LambdaCallHandler.seedIfReady(ast, cu, rewriter, analyzer, toReplace,
+                    paths.isEmpty() ? null : paths.getFirst());
             return AstRewriteHelper.applyRewrite(rewriter, code);
         });
     }

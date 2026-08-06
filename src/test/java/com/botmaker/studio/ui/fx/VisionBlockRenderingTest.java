@@ -194,22 +194,28 @@ class VisionBlockRenderingTest extends FxHeadlessTest {
     // ---- The lambda parameter ----
 
     /**
-     * The value the body is handed used to be invisible — the header rendered the call, the body rendered
-     * underneath, and nothing named what crossed between them, so there was no way to reach it in the editor.
-     * It must render as an editable field carrying the source's own name.
+     * The lambda parameter is <b>not</b> drawn. It was briefly an editable chip ({@code m →}) on the reasoning
+     * that an unnamed value was unreachable — but it is reachable (the body's expression menu offers it), the
+     * name is the SDK's rather than the user's, and an editable control for it invited a rename nobody wants
+     * to make. What the body receives is said in words on the method dropdown instead.
      */
     @Test
-    void theLambdaParameterIsRenderedAsAnEditableNameChip() {
+    void theLambdaParameterIsNotDrawn() {
         Node header = header(render("whileFindAny"));
 
         List<String> chips = nodesOfType(header, TextField.class).stream().map(TextField::getText).toList();
-        assertEquals(List.of("m"), chips,
-                "the body's value must be named by an editable chip carrying the source's own name, "
-                        + "or the user cannot reach it");
-        assertTrue(labelTexts(header).contains("→"), "the chip reads as the lambda arrow it stands for");
+        assertTrue(chips.isEmpty(), () -> "no chip should name the lambda parameter, found " + chips);
+        assertTrue(!labelTexts(header).contains("→"), "and no lambda arrow stands in for it either");
+
+        String tooltip = nodesOfType(header, ComboBox.class).stream()
+                .filter(cb -> cb.getItems().contains("ifFind"))
+                .map(cb -> cb.getTooltip() == null ? "" : cb.getTooltip().getText())
+                .findFirst().orElse("");
+        assertTrue(tooltip.contains("Matches"),
+                () -> "the dropdown must still say what the body is handed: " + tooltip);
     }
 
-    /** {@code untilFind…} loops while nothing is found, so there is no value to name — and no chip. */
+    /** {@code untilFind…} loops while nothing is found, so there is no value to name at all. */
     @Test
     void aRunnableBodyCarriesNoParameterChip() {
         String source = "package com.mybot;\n"

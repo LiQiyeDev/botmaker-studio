@@ -40,7 +40,12 @@ public final class BlockCatalog {
     public static final BlockType SWITCH = cf("SWITCH", "Switch", FLOW, Kind.SWITCH);
     // Named for what it does, not for the Java it emits: the user is choosing between combinations of images,
     // and "switch" is the mechanism. It only builds something meaningful inside a group-lambda body (where a
-    // Matches variable is in scope), which is exactly where StatementFactory looks for its subject.
+    // Matches variable is in scope), which is exactly where StatementFactory looks for its subject — and that
+    // is why, like FIND_IMAGE_ACTIONS below, it is deliberately NOT listed in the statement menu (excluded
+    // from ALL): offered there it can be dropped anywhere, and everywhere except a group find is a place it
+    // cannot compile. It reaches the canvas the way it should instead — seeded into a group form's body by
+    // LambdaCallHandler.seedIfReady — and is still parsed, still round-tripped, and still built by
+    // StatementFactory for that seed.
     public static final BlockType MATCHES_SWITCH =
             cf("MATCHES_SWITCH", "Check Image Combinations", FLOW, Kind.MATCHES_SWITCH);
 
@@ -155,7 +160,7 @@ public final class BlockCatalog {
 
     private static final List<BlockType> ALL = List.of(
             PRINT,
-            IF, SWITCH, MATCHES_SWITCH,
+            IF, SWITCH,
             WHILE, FOR, DO_WHILE,
             BREAK, CONTINUE, RETURN, WAIT,
             DECLARE_INT, DECLARE_DOUBLE, DECLARE_BOOLEAN, DECLARE_STRING, DECLARE_ARRAY, ASSIGNMENT,

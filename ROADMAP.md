@@ -6,6 +6,29 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-06 — "Check Image Combinations": off the menu, actually auto-created, and stripped to its
+  content.** Four changes to the block that was in the wrong places and missing from the right one.
+  **Off the statement menu** (`MATCHES_SWITCH` out of `BlockCatalog.ALL`, the exclusion `FIND_IMAGE_ACTIONS`
+  already carries): offered there it can be dropped anywhere, and everywhere outside a group find has no
+  `Matches` to switch over. **The auto-creation now happens**, which it previously never did — two gaps, not
+  one. `LambdaCallHandler.seededBody` was reachable only from the method dropdown, and even there it declined,
+  because a freshly dropped find block's image slot is a `null` literal and a guard needs a literal template.
+  So *both* orders produced the empty body users saw. A new `seedIfReady` closes the second: the group picker
+  (`CodeEditor.setImageTemplateGroup`) calls it after writing the group, passing the path it just wrote. It is
+  idempotent — "the body is empty" is one of its conditions — so deleting the switch and re-picking does not
+  hand it back, and it seeds only the four forms that hand over a `Matches` (`ifFindAny`/`ifFindAll`/
+  `whileFindAny`/`whileFindAll`); `ifFind`/`whileFind` pass a single `MatchResult` with no combination to
+  test, and `untilFind…` pass nothing at all. The variant set is read from `MatchesGroupScope`, which already
+  owned it for the chip narrowing. **The lambda variable is no longer drawn** — the `found →` chip and its
+  arrow are gone from `LambdaCallBlock`, along with the two CSS rules behind them (one of which, scoped to the
+  whole SDK block, was narrowing every variable declared inside the lambda body to 72px). The parameter still
+  exists in the source and in the body's expression menu; what it is now reads in words on the method
+  dropdown. **The block shows only its branches**: the invisible `check … for` header, the `subject` field
+  that fed it, and the left indent under it are gone, with `+ Add branch` and the delete control paired in one
+  footer row. (`palette/BlockCatalog`, `parser/handlers/LambdaCallHandler`, `parser/CodeEditor`,
+  `blocks/flow/MatchesGroupScope`, `blocks/flow/MatchesSwitchBlock`, `blocks/vision/LambdaCallBlock`,
+  `parser/BlockConverter`, `css/blocks.css`; new `GroupSlotSeedTest`.)
+
 - **2026-08-06 — The toolbar stops painting over the menu bar.** The min-height clamps in `UIManager` were
   already in place, so the crop wasn't the shrink pass — it was the *preferred* height they resolve through.
   A `FlowPane` asked for its preferred height without a width answers against its **wrap length** (400px by

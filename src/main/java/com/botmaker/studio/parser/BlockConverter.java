@@ -440,7 +440,6 @@ public class BlockConverter {
     private Optional<StatementBlock> parseMatchesSwitch(SwitchStatement stmt, ParseContext ctx) {
         MatchesSwitchBlock block = new MatchesSwitchBlock(BlockId.of(stmt), stmt);
         ctx.nodeToBlockMap().put(stmt, block);
-        block.setSubject(MatchesSwitchHandler.subjectOf(stmt));
 
         for (Object o : stmt.statements()) {
             if (!(o instanceof SwitchCase sc)) continue;

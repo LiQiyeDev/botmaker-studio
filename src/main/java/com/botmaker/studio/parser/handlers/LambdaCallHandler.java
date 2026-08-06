@@ -99,9 +99,41 @@ public final class LambdaCallHandler {
 
         LambdaExpression lambda = lambdaArg(mi);
         if (lambda != null) {
-            adjustLambdaParam(ast, rewriter, lambda, lambdaParam,
-                    seededBody(ast, cu, rewriter, analyzer, lambda, leading, group, lambdaParam));
+            adjustLambdaParam(ast, rewriter, lambda, lambdaParam, seededBody(ast, cu, rewriter, analyzer, lambda,
+                    firstTemplatePath(leading), group, lambdaParam));
         }
+    }
+
+    /**
+     * Seeds a group form's empty body with the {@code Matches} switch — the <em>other</em> moment the seed can
+     * become possible, and the one that was missing.
+     *
+     * <p>{@link #switchVariant} seeds when the method changes, but a freshly dropped find block's image slot is
+     * still a {@code null} literal, so {@link #firstTemplatePath} reads nothing and it correctly declines. If
+     * the user then picks the images — the natural order — nothing was watching, and the body stayed empty.
+     * This is the hook for that second order: the picker calls it after writing the group argument, passing the
+     * path it just wrote (the AST still holds the slot it is replacing, so the template cannot be read back
+     * from it yet).
+     *
+     * <p><b>Idempotent</b>, because "the body is empty" is one of the conditions: a user who deletes the seeded
+     * switch and re-picks the images is not handed it back.
+     *
+     * @param groupArg     the expression just written into the call's leading image slot
+     * @param templatePath the first template that argument now names; the guard needs a literal one to compile
+     */
+    public static void seedIfReady(AST ast, CompilationUnit cu, ASTRewrite rewriter, ProjectAnalyzer analyzer,
+                                   Expression groupArg, String templatePath) {
+        if (groupArg == null || !(groupArg.getParent() instanceof MethodInvocation call)) return;
+        List<?> args = call.arguments();
+        if (args.isEmpty() || args.get(0) != groupArg) return;
+        if (!MatchesGroupScope.isGroupLambdaCall(call.getName().getIdentifier())) return;
+
+        LambdaExpression lambda = lambdaArg(call);
+        SimpleName param = lambdaParamName(call);
+        if (lambda == null || param == null) return;
+
+        Block seeded = seededBody(ast, cu, rewriter, analyzer, lambda, templatePath, true, param.getIdentifier());
+        if (seeded != null) rewriter.replace(lambda.getBody(), seeded, null);
     }
 
     /**
@@ -112,20 +144,18 @@ public final class LambdaCallHandler {
      * <p>Returns null — leave the body alone — unless <b>all</b> of: the target is a group form that actually
      * hands over a {@code Matches} ({@code untilFind…} takes a {@link Runnable} and has no value to switch
      * on); the body is <em>empty</em>, so nothing the user wrote can be displaced; and a literal template is
-     * readable from the leading argument, since a guard with no template would not compile.
+     * known, since a guard with no template would not compile.
      */
     private static Block seededBody(AST ast, CompilationUnit cu, ASTRewrite rewriter, ProjectAnalyzer analyzer,
-                                    LambdaExpression lambda, Expression leading, boolean group,
+                                    LambdaExpression lambda, String templatePath, boolean group,
                                     String lambdaParam) {
         if (!group || lambdaParam == null || lambdaParam.isBlank()) return null;
         if (!(lambda.getBody() instanceof Block body) || !body.statements().isEmpty()) return null;
-
-        String template = firstTemplatePath(leading);
-        if (template == null) return null;
+        if (templatePath == null) return null;
 
         ImportManager.addImportForSimpleName(cu, rewriter, "Matches", analyzer, null);
         ImportManager.addImportForSimpleName(cu, rewriter, "ImageTemplate", analyzer, null);
-        return MatchesSwitchHandler.newSeededBody(ast, lambdaParam, template);
+        return MatchesSwitchHandler.newSeededBody(ast, lambdaParam, templatePath);
     }
 
     /**

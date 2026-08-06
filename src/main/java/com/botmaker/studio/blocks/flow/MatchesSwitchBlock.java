@@ -11,7 +11,6 @@ import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.ui.render.components.BlockUIComponents;
 import com.botmaker.studio.ui.render.components.pickers.ImageTemplateGroupPicker;
 import com.botmaker.studio.ui.render.layout.BlockLayout;
-import javafx.geometry.Insets;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
@@ -42,8 +41,11 @@ import java.util.List;
  * }
  * }</pre>
  *
- * <p>The {@code case Matches m when} boilerplate is never shown: it is identical on every branch, so it is
- * chrome, not content. Two other things are chrome for a harder reason — they are compile errors when absent.
+ * <p><b>Nothing but the branches is shown.</b> The {@code case Matches m when} boilerplate is identical on
+ * every branch; the selector — {@code switch (found)} — names a lambda parameter the user never chose and
+ * which the block, appearing only inside the find call that produced it, could not be switching over anything
+ * else anyway. Both are chrome, so the block renders the combinations and the {@code + Add branch} control and
+ * no header at all. Two other things are chrome for a harder reason — they are compile errors when absent.
  * The trailing <b>otherwise</b> row is the {@code default} rule a pattern switch must have to be exhaustive,
  * and a branch can never drop to zero templates because an unguarded {@code case Matches m} is unconditional
  * and would dominate every branch after it. Both are enforced where they are edited rather than validated
@@ -55,7 +57,6 @@ import java.util.List;
  */
 public class MatchesSwitchBlock extends AbstractStatementBlock implements BlockWithChildren, BranchingBlock {
 
-    private String subject;
     private final List<CaseRow> rows = new ArrayList<>();
     private BodyBlock defaultBody;
     private SwitchCase defaultCase;
@@ -63,8 +64,6 @@ public class MatchesSwitchBlock extends AbstractStatementBlock implements BlockW
     public MatchesSwitchBlock(String id, SwitchStatement astNode) {
         super(id, astNode);
     }
-
-    public void setSubject(String subject) { this.subject = subject; }
 
     public void addCase(SwitchCase caseNode, MatchesSwitchHandler.Guard guard, BodyBlock body) {
         rows.add(new CaseRow(caseNode, guard, body));
@@ -89,8 +88,8 @@ public class MatchesSwitchBlock extends AbstractStatementBlock implements BlockW
     }
 
     /**
-     * One branch per case, captioned the way the block's own header reads it — {@code "any of: mail, gift"} —
-     * plus the mandatory {@code otherwise}. The template <em>file names</em> stand in for the chip row: a
+     * One branch per case, captioned the way its row reads — {@code "any of: mail, gift"} — plus the
+     * mandatory {@code otherwise}. The template <em>file names</em> stand in for the chip row: a
      * one-line caption has no room for full paths, and the name is what the user picked the image by.
      */
     @Override
@@ -124,23 +123,14 @@ public class MatchesSwitchBlock extends AbstractStatementBlock implements BlockW
         VBox container = new VBox(5);
         SwitchStatement switchStmt = (SwitchStatement) this.astNode;
 
-        Label subjectLabel = new Label(subject == null ? "matches" : subject);
-        subjectLabel.getStyleClass().add("variable-label");
-        Tooltip.install(subjectLabel, new Tooltip(
-                "Which of this group's images were found in the same frame. Each branch below tests a "
-                        + "combination of them; the first one that matches runs."));
-
-        container.getChildren().add(BlockLayout.header()
-                .withCustomNode(BlockLayout.sentence()
-                        .addKeyword("check")
-                        .addNode(subjectLabel)
-                        .addKeyword("for")
-                        .build())
-                .withDeleteButton(deleteAction(context))
-                .build());
-
         VBox branches = new VBox(5);
-        branches.setPadding(new Insets(5, 0, 0, 20));
+        // The branches carry what the header used to say. It read "check <found> for", and every word of that
+        // was chrome: the block only ever appears inside the find call that produced the value, the value's
+        // name is one the user never chose, and the keywords rendered as light-on-light. What is left is the
+        // content — the combinations themselves — with the explanation moved onto them.
+        Tooltip.install(branches, new Tooltip(
+                "Which of this group's images were found in the same frame. Each branch tests a combination "
+                        + "of them; the first one that matches runs."));
 
         // Every branch of a switch sees the same group, so the narrowing is resolved once for the whole block
         // rather than per row — it walks out to the enclosing find call, which is the same walk each time.
@@ -152,11 +142,17 @@ public class MatchesSwitchBlock extends AbstractStatementBlock implements BlockW
         branches.getChildren().add(otherwiseNode(context));
         container.getChildren().add(branches);
 
+        // The footer carries both controls the block still needs. Delete used to live on the header; with the
+        // header gone it would otherwise have become unreachable, and a row holding nothing but an X is worse
+        // than one that pairs it with the only other action there is.
         if (!isReadOnly()) {
             Button addCase = new Button("+ Add branch");
             addCase.setTooltip(new Tooltip("Another combination to check, before the catch-all below."));
             addCase.setOnAction(e -> context.getCodeEditor().addMatchesCase(switchStmt, seedTemplate(allowed)));
-            container.getChildren().add(addCase);
+            container.getChildren().add(BlockLayout.header()
+                    .withCustomNode(addCase)
+                    .withDeleteButton(deleteAction(context))
+                    .build());
         }
         return container;
     }

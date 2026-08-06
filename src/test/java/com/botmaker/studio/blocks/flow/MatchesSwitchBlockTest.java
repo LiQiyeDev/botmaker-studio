@@ -79,6 +79,22 @@ class MatchesSwitchBlockTest {
         return found.isEmpty() ? null : found.getFirst();
     }
 
+    // ---- Where it comes from ----
+
+    /**
+     * It is not offered in the statement menu, the same exclusion {@code FIND_IMAGE_ACTIONS} carries. Dropped
+     * from a menu it can land anywhere, and everywhere outside a group find is a place it cannot compile —
+     * there is no {@code Matches} to switch over. It reaches the canvas seeded into a group form's body
+     * instead, which is the only place it means anything.
+     */
+    @Test
+    void itIsNotOfferedInTheStatementMenu() {
+        assertFalse(BlockCatalog.all().contains(BlockCatalog.MATCHES_SWITCH),
+                "a block that only compiles inside a group find must not be droppable anywhere");
+        assertTrue(BlockCatalog.all().contains(BlockCatalog.SWITCH),
+                "the ordinary switch is still offered — this is not a blanket exclusion");
+    }
+
     // ---- Which block ----
 
     @Test
