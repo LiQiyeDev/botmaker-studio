@@ -6,6 +6,7 @@ import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.BranchingBlock;
 import com.botmaker.studio.core.CodeBlock;
 import com.botmaker.studio.palette.BlockCategory;
+import com.botmaker.studio.palette.MatchesCheck;
 import com.botmaker.studio.parser.handlers.MatchesSwitchHandler;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.ui.render.components.BlockUIComponents;
@@ -103,7 +104,7 @@ public class MatchesSwitchBlock extends AbstractStatementBlock implements BlockW
     }
 
     private static String caption(MatchesSwitchHandler.Guard guard) {
-        StringBuilder sb = new StringBuilder(guard.all() ? "all of: " : "any of: ");
+        StringBuilder sb = new StringBuilder(guard.check().label() + ": ");
         for (int i = 0; i < guard.paths().size(); i++) {
             if (i > 0) sb.append(", ");
             String path = guard.paths().get(i);
@@ -174,15 +175,16 @@ public class MatchesSwitchBlock extends AbstractStatementBlock implements BlockW
                              List<String> allowed) {
         VBox rowBox = new VBox(5);
 
-        ToggleButton mode = new ToggleButton(row.guard().all() ? "all of" : "any of");
+        MatchesCheck check = row.guard().check();
+        ToggleButton mode = new ToggleButton(check.label());
         mode.getStyleClass().add("matches-case-mode");
-        mode.setSelected(row.guard().all());
-        mode.setTooltip(new Tooltip(row.guard().all()
+        mode.setSelected(check == MatchesCheck.ALL);
+        mode.setTooltip(new Tooltip(check == MatchesCheck.ALL
                 ? "Runs only when every image below was found. Click for \"any of\"."
                 : "Runs when at least one image below was found. Click for \"all of\"."));
         mode.setDisable(isReadOnly());
         mode.setOnAction(e ->
-                context.getCodeEditor().setMatchesCaseMode(row.caseNode(), mode.isSelected()));
+                context.getCodeEditor().setMatchesCaseMode(row.caseNode(), MatchesCheck.of(mode.isSelected())));
 
         Node chips = ImageTemplateGroupPicker.chipRow(context, row.guard().paths(),
                 ImageTemplateGroupPicker.Restrictions.of(allowed, 1),

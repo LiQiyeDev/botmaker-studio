@@ -2,6 +2,7 @@ package com.botmaker.studio.parser.factories;
 
 import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.palette.Initializer;
+import com.botmaker.studio.palette.MatchesCheck;
 import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.parser.EditContext;
 import com.botmaker.studio.blocks.flow.MatchesGroupScope;
@@ -418,7 +419,7 @@ public class StatementFactory {
 
         return MatchesSwitchHandler.newMatchesSwitch(ast,
                 subject == null ? emptySlot(ast) : ast.newSimpleName(subject),
-                false, List.of(seed));
+                MatchesCheck.ANY, List.of(seed));
     }
 
     /** What Java lets you switch on: the integral types (and their boxes), {@code String}, {@code char}, enums. */

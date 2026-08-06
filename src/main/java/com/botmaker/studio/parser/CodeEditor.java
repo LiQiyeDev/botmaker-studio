@@ -5,6 +5,7 @@ import com.botmaker.studio.core.StatementBlock;
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.palette.BlockType;
+import com.botmaker.studio.palette.MatchesCheck;
 import com.botmaker.studio.palette.ExpressionCatalog;
 import com.botmaker.studio.palette.ExpressionType;
 import com.botmaker.studio.palette.SdkType;
@@ -973,9 +974,9 @@ public class CodeEditor {
     }
 
     /** Flips one branch between "any of" ({@code hasAny}) and "all of" ({@code hasAll}). */
-    public void setMatchesCaseMode(SwitchCase caseNode, boolean all) {
+    public void setMatchesCaseMode(SwitchCase caseNode, MatchesCheck check) {
         edit(caseNode, EditKind.BODY, true,
-                (cu, code) -> MatchesSwitchHandler.setCaseMode(cu, code, caseNode, all));
+                (cu, code) -> MatchesSwitchHandler.setCaseMode(cu, code, caseNode, check));
     }
 
     /**
@@ -985,7 +986,8 @@ public class CodeEditor {
     public void addMatchesCase(SwitchStatement switchStmt, String templatePath) {
         if (templatePath == null) return;
         edit(switchStmt, EditKind.BODY, true,
-                (cu, code) -> MatchesSwitchHandler.addCase(cu, code, switchStmt, false, List.of(templatePath)));
+                (cu, code) -> MatchesSwitchHandler.addCase(
+                        cu, code, switchStmt, MatchesCheck.ANY, List.of(templatePath)));
     }
 
     public void removeMatchesCase(SwitchCase caseNode) {

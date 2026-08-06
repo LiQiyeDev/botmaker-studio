@@ -1,5 +1,6 @@
 package com.botmaker.studio.blocks.flow;
 
+import com.botmaker.studio.palette.VisionLoop;
 import com.botmaker.studio.ui.render.components.pickers.ImageTemplateGroupPicker;
 import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.jdt.core.dom.CompilationUnit;
@@ -12,8 +13,10 @@ import org.eclipse.jdt.core.dom.SimpleName;
 import org.eclipse.jdt.core.dom.SingleVariableDeclaration;
 import org.eclipse.jdt.core.dom.VariableDeclarationFragment;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Which templates a {@code Matches} value can possibly contain — the narrowing behind the switch's chip menus.
@@ -30,9 +33,17 @@ import java.util.Set;
  */
 public final class MatchesGroupScope {
 
-    /** The find calls that hand a lambda a {@code Matches}. Their group is always the first argument. */
-    private static final Set<String> GROUP_LAMBDA_CALLS =
-            Set.of("ifFindAny", "whileFindAny", "ifFindAll", "whileFindAll");
+    /**
+     * The find calls that hand a lambda a {@code Matches}. Their group is always the first argument.
+     *
+     * <p>Derived from {@link VisionLoop}, not listed: this used to be a hand-written
+     * {@code Set.of("ifFindAny", "whileFindAny", "ifFindAll", "whileFindAll")} beside the dropdown's own table
+     * of all nine forms, so a tenth helper had two places to be added and only one of them was obvious.
+     */
+    private static final Set<String> GROUP_LAMBDA_CALLS = Arrays.stream(VisionLoop.values())
+            .filter(VisionLoop::handsOverMatches)
+            .map(VisionLoop::methodName)
+            .collect(Collectors.toUnmodifiableSet());
 
     private MatchesGroupScope() {}
 
@@ -41,8 +52,7 @@ public final class MatchesGroupScope {
      * body is worth seeding with a combination switch. {@code ifFind}/{@code whileFind} hand over a single
      * {@code MatchResult}, which has no combination to test, and {@code untilFind…} loop <em>until</em>
      * something is found and hand over nothing at all. Exposed rather than duplicated because
-     * {@code LambdaCallHandler} asks the same question from the writing side, and a second copy of this set
-     * would be a second place to forget a variant.
+     * {@code LambdaCallHandler} asks the same question from the writing side.
      */
     public static boolean isGroupLambdaCall(String method) {
         return GROUP_LAMBDA_CALLS.contains(method);

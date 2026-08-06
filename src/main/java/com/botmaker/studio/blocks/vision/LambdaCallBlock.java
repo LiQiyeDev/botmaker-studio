@@ -6,6 +6,7 @@ import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.CodeBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.palette.SdkType;
+import com.botmaker.studio.palette.VisionLoop;
 import com.botmaker.studio.palette.SdkDocs;
 import com.botmaker.studio.parser.ExpressionChoice;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
@@ -60,35 +61,6 @@ import java.util.List;
  * instead ({@link #bodyValueHint}).
  */
 public class LambdaCallBlock extends AbstractStatementBlock implements BlockWithChildren {
-
-    /**
-     * One selectable form of a vision loop: its method, whether it takes a group, and the name its lambda
-     * parameter defaults to ({@code null} = no parameter, a {@link Runnable} body).
-     *
-     * <p>The {@code …Any}/{@code …All} group forms used to be parameterless: the SDK passed the body a bare
-     * {@code Runnable} because "every template is present" has no single meaningful {@code MatchResult}. The
-     * SDK's {@code Matches} value answers that — all four group forms now take a {@code Consumer<Matches>} and
-     * hand over the whole combination — so only {@code untilFind…} remains parameterless, and correctly so:
-     * those loop <em>while nothing is found</em>, so there is nothing to hand over.
-     */
-    private record Variant(String method, boolean group, String param) {
-        boolean hasParam() { return param != null; }
-    }
-
-    /** The single-template forms hand over the one hit; the group forms hand over the whole combination. */
-    private static final String MATCH_PARAM = "match";
-    private static final String MATCHES_PARAM = "found";
-
-    private static final List<Variant> VARIANTS = List.of(
-            new Variant("ifFind", false, MATCH_PARAM),
-            new Variant("ifFindAny", true, MATCHES_PARAM),
-            new Variant("ifFindAll", true, MATCHES_PARAM),
-            new Variant("whileFind", false, MATCH_PARAM),
-            new Variant("whileFindAny", true, MATCHES_PARAM),
-            new Variant("whileFindAll", true, MATCHES_PARAM),
-            new Variant("untilFind", false, null),
-            new Variant("untilFindAny", true, null),
-            new Variant("untilFindAll", true, null));
 
     /** The vision loop helpers all live on the SDK's {@code ImageFinder} facade. */
     private static final String SDK_CLASS = "ImageFinder";
@@ -239,7 +211,7 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
      */
     private ComboBox<String> createMethodSelector(CodeEditorService context) {
         ComboBox<String> selector = new ComboBox<>();
-        for (Variant v : VARIANTS) selector.getItems().add(v.method());
+        for (VisionLoop v : VisionLoop.values()) selector.getItems().add(v.methodName());
         selector.setValue(method);
         selector.setEditable(false);
         selector.setStyle("-fx-font-size: 11px; -fx-pref-width: 130px; -fx-font-weight: bold;");
@@ -248,9 +220,9 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
         selector.setOnAction(e -> {
             String picked = selector.getValue();
             if (picked == null || picked.equals(method)) return;
-            VARIANTS.stream().filter(v -> v.method().equals(picked)).findFirst().ifPresent(v ->
+            VisionLoop.fromMethodName(picked).ifPresent(v ->
                     context.getCodeEditor()
-                            .switchLambdaVariant((Statement) this.astNode, v.method(), v.group(), targetParamName(v)));
+                            .switchLambdaVariant((Statement) this.astNode, v.methodName(), v.group(), targetParamName(v)));
         });
         return selector;
     }
@@ -265,9 +237,9 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
      * not drawn.
      */
     private String bodyValueHint() {
-        Variant v = current();
+        VisionLoop v = current();
         if (!v.hasParam()) return "This form loops until something is found, so the body is handed nothing.";
-        String name = paramName() != null ? paramName() : v.param();
+        String name = paramName() != null ? paramName() : v.defaultParamName();
         return v.group()
                 ? "The body is handed the whole combination as \"" + name + "\" (a Matches) — e.g. "
                         + name + ".has(image)"
@@ -280,12 +252,12 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
      * Carrying a {@code match} across {@code whileFind} → {@code whileFindAny} would name a {@code Matches}
      * after a {@code MatchResult}.
      */
-    private String targetParamName(Variant target) {
+    private String targetParamName(VisionLoop target) {
         if (!target.hasParam()) return null;
         String current = paramName();
-        Variant self = current();
+        VisionLoop self = current();
         boolean sameShape = self.hasParam() && self.group() == target.group();
-        return sameShape && current != null ? current : target.param();
+        return sameShape && current != null ? current : target.defaultParamName();
     }
 
     /** The trailing lambda's declared parameter name as it stands in the source, or {@code null} if it has none. */
@@ -303,7 +275,7 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
 
     /** {@code → boolean} badge for the {@code if…} variants (they return a boolean); the {@code while…}/{@code until…} forms are void. */
     private void addReturnBadge(SentenceLayoutBuilder sentence) {
-        if (!method.startsWith("if")) return;
+        if (VisionLoop.fromMethodName(method).filter(VisionLoop::returnsBoolean).isEmpty()) return;
         Label badge = new Label("→ boolean");
         badge.getStyleClass().add("return-type-badge");
         badge.setTooltip(new Tooltip("This call returns boolean"));
@@ -338,8 +310,12 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
         return ResolvedType.named(current().group() ? "ImageTemplateGroup" : "ImageTemplate");
     }
 
-    private Variant current() {
-        return VARIANTS.stream().filter(v -> v.method().equals(method)).findFirst()
-                .orElse(new Variant(method, false, MATCH_PARAM));
+    /**
+     * The form this block renders. A call the enum doesn't know — an {@code ImageFinder} helper added by a
+     * newer SDK than Studio's palette — falls back to the single-template shape, which is what the block used
+     * to synthesise on the spot: the dropdown then shows the unknown name and the slot stays editable.
+     */
+    private VisionLoop current() {
+        return VisionLoop.fromMethodName(method).orElse(VisionLoop.IF_FIND);
     }
 }

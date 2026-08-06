@@ -18,6 +18,8 @@ import org.eclipse.jdt.core.dom.TypePattern;
 import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 import org.eclipse.jdt.core.dom.rewrite.ListRewrite;
 
+import com.botmaker.studio.palette.MatchesCheck;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -59,9 +61,8 @@ public final class MatchesSwitchHandler {
         if (!(caseNode.expressions().getFirst() instanceof GuardedPattern gp)) return Optional.empty();
         if (!(gp.getExpression() instanceof MethodInvocation call)) return Optional.empty();
 
-        String method = call.getName().getIdentifier();
-        boolean all = "hasAll".equals(method);
-        if (!all && !"hasAny".equals(method)) return Optional.empty();
+        MatchesCheck check = MatchesCheck.fromMethodName(call.getName().getIdentifier()).orElse(null);
+        if (check == null) return Optional.empty();
 
         List<String> paths = new ArrayList<>();
         for (Object arg : call.arguments()) {
@@ -72,17 +73,17 @@ public final class MatchesSwitchHandler {
             paths.add(path.get());
         }
         if (paths.isEmpty()) return Optional.empty();
-        return Optional.of(new Guard(all, List.copyOf(paths), call));
+        return Optional.of(new Guard(check, List.copyOf(paths), call));
     }
 
     /**
      * What a case tests.
      *
-     * @param all   {@code true} for {@code hasAll}, {@code false} for {@code hasAny}
+     * @param check whether the branch tests {@code hasAny} or {@code hasAll}
      * @param paths the template paths, in source order — never empty
      * @param call  the guard invocation itself, which is what the writes below rewrite
      */
-    public record Guard(boolean all, List<String> paths, MethodInvocation call) {}
+    public record Guard(MatchesCheck check, List<String> paths, MethodInvocation call) {}
 
     /** The path inside {@code new ImageTemplate("…")}, or empty for anything else. */
     public static Optional<String> templatePath(Object node) {
@@ -131,14 +132,14 @@ public final class MatchesSwitchHandler {
     }
 
     /** Flips a case between {@code hasAny} and {@code hasAll}; its templates are untouched. */
-    public static String setCaseMode(CompilationUnit cu, String code, SwitchCase caseNode, boolean all) {
+    public static String setCaseMode(CompilationUnit cu, String code, SwitchCase caseNode, MatchesCheck check) {
         Guard guard = guardOf(caseNode).orElse(null);
-        if (guard == null || guard.all() == all) return null;
+        if (guard == null || guard.check() == check) return null;
 
         AST ast = cu.getAST();
         ASTRewrite rewriter = ASTRewrite.create(ast);
         rewriter.set(guard.call(), MethodInvocation.NAME_PROPERTY,
-                ast.newSimpleName(all ? "hasAll" : "hasAny"), null);
+                ast.newSimpleName(check.methodName()), null);
         return AstRewriteHelper.applyRewrite(rewriter, code);
     }
 
@@ -147,7 +148,7 @@ public final class MatchesSwitchHandler {
      * exhaustive and the new case is actually reachable.
      */
     public static String addCase(CompilationUnit cu, String code, SwitchStatement switchStmt,
-                                 boolean all, List<String> paths) {
+                                 MatchesCheck check, List<String> paths) {
         if (switchStmt == null || paths == null || paths.isEmpty()) return null;
 
         AST ast = cu.getAST();
@@ -156,10 +157,10 @@ public final class MatchesSwitchHandler {
 
         SwitchCase defaultCase = defaultCaseOf(switchStmt);
         if (defaultCase == null) {
-            list.insertLast(newGuardedCase(ast, all, paths), null);
+            list.insertLast(newGuardedCase(ast, check, paths), null);
             list.insertLast(ast.newBlock(), null);
         } else {
-            list.insertBefore(newGuardedCase(ast, all, paths), defaultCase, null);
+            list.insertBefore(newGuardedCase(ast, check, paths), defaultCase, null);
             list.insertBefore(ast.newBlock(), defaultCase, null);
         }
         return AstRewriteHelper.applyRewrite(rewriter, code);
@@ -188,10 +189,11 @@ public final class MatchesSwitchHandler {
      * {@code StatementFactory} builds the palette drop with it, and there is no reason for two spellings of the
      * same shape.
      */
-    public static SwitchStatement newMatchesSwitch(AST ast, Expression subject, boolean all, List<String> paths) {
+    public static SwitchStatement newMatchesSwitch(AST ast, Expression subject, MatchesCheck check,
+                                                  List<String> paths) {
         SwitchStatement switchStmt = ast.newSwitchStatement();
         switchStmt.setExpression(subject);
-        switchStmt.statements().add(newGuardedCase(ast, all, paths));
+        switchStmt.statements().add(newGuardedCase(ast, check, paths));
         switchStmt.statements().add(ast.newBlock());
 
         SwitchCase defaultCase = ast.newSwitchCase();
@@ -208,12 +210,13 @@ public final class MatchesSwitchHandler {
      */
     public static Block newSeededBody(AST ast, String subject, String templatePath) {
         Block body = ast.newBlock();
-        body.statements().add(newMatchesSwitch(ast, ast.newSimpleName(subject), false, List.of(templatePath)));
+        body.statements().add(
+                newMatchesSwitch(ast, ast.newSimpleName(subject), MatchesCheck.ANY, List.of(templatePath)));
         return body;
     }
 
     /** {@code case Matches m when m.hasAny(new ImageTemplate("…"), …) ->} */
-    private static SwitchCase newGuardedCase(AST ast, boolean all, List<String> paths) {
+    private static SwitchCase newGuardedCase(AST ast, MatchesCheck check, List<String> paths) {
         SingleVariableDeclaration variable = ast.newSingleVariableDeclaration();
         variable.setType(ast.newSimpleType(ast.newSimpleName("Matches")));
         variable.setName(ast.newSimpleName(PATTERN_VAR));
@@ -223,7 +226,7 @@ public final class MatchesSwitchHandler {
 
         MethodInvocation guard = ast.newMethodInvocation();
         guard.setExpression(ast.newSimpleName(PATTERN_VAR));
-        guard.setName(ast.newSimpleName(all ? "hasAll" : "hasAny"));
+        guard.setName(ast.newSimpleName(check.methodName()));
         for (String path : paths) {
             guard.arguments().add(newTemplate(ast, path));
         }

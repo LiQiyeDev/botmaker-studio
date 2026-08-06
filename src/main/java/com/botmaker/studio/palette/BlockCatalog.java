@@ -114,7 +114,7 @@ public final class BlockCatalog {
     // Phase 2 overlay method palette), but it is intentionally NOT listed in the statement menu — hence it is
     // excluded from ALL below.
     public static final BlockType FIND_IMAGE_ACTIONS = new LambdaCall("FIND_IMAGE_ACTIONS", "Find Image → Do Actions",
-            INPUT, "ImageFinder", "ifFind", List.of(), "match");
+            INPUT, "ImageFinder", VisionLoop.IF_FIND.methodName(), List.of(), VisionLoop.IF_FIND.defaultParamName());
     public static final BlockType DECLARE_POINT = new VarDecl("DECLARE_POINT", "Point", BOT_VARIABLE, "Point", false, "p",
             new NewInstance("Point", List.of(new IntLit("0"), new IntLit("0"))));
     public static final BlockType DECLARE_RECT = new VarDecl("DECLARE_RECT", "Rect", BOT_VARIABLE, "Rect", false, "r",

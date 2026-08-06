@@ -1,5 +1,6 @@
 package com.botmaker.studio.parser.handlers;
 
+import com.botmaker.studio.palette.MatchesCheck;
 import com.botmaker.studio.parser.EditorFixture;
 import org.eclipse.jdt.core.dom.ASTVisitor;
 import org.eclipse.jdt.core.dom.SwitchCase;
@@ -100,7 +101,7 @@ class MatchesSwitchHandlerTest {
 
         assertNotNull(guard, "the seeded case should read as a guard");
         assertAll(
-                () -> assertFalse(guard.all(), "hasAny is the any-of mode"),
+                () -> assertEquals(MatchesCheck.ANY, guard.check(), "hasAny is the any-of mode"),
                 () -> assertEquals(List.of("popups/mail.png"), guard.paths()));
     }
 
@@ -166,7 +167,7 @@ class MatchesSwitchHandlerTest {
     void togglingTheModeRewritesOnlyTheMethodName() {
         EditorFixture fixture = new EditorFixture(SOURCE);
 
-        fixture.editor.setMatchesCaseMode(casesIn(fixture).getFirst(), true);
+        fixture.editor.setMatchesCaseMode(casesIn(fixture).getFirst(), MatchesCheck.ALL);
 
         assertNotNull(fixture.lastCode);
         assertAll(
@@ -182,7 +183,7 @@ class MatchesSwitchHandlerTest {
     void togglingToTheSameModeChangesNothing() {
         EditorFixture fixture = new EditorFixture(SOURCE);
 
-        fixture.editor.setMatchesCaseMode(casesIn(fixture).getFirst(), false);
+        fixture.editor.setMatchesCaseMode(casesIn(fixture).getFirst(), MatchesCheck.ANY);
 
         assertNull(fixture.lastCode, "an unchanged mode should not publish an edit");
     }
@@ -264,7 +265,7 @@ class MatchesSwitchHandlerTest {
         // Each edit is driven by the fixture that owns the tree it targets — a rewrite validates its nodes
         // belong to its own AST, which is also why reopening is the honest way to chain two edits.
         EditorFixture second = new EditorFixture(first.lastCode);
-        second.editor.setMatchesCaseMode(casesIn(second).getFirst(), true);
+        second.editor.setMatchesCaseMode(casesIn(second).getFirst(), MatchesCheck.ALL);
 
         EditorFixture reopened = new EditorFixture(second.lastCode);
         MatchesSwitchHandler.Guard guard = MatchesSwitchHandler.guardOf(casesIn(reopened).getFirst()).orElseThrow();

@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-06 — `palette/VisionLoop`: the nine `ImageFinder` lambda helpers are a set, not six lists.**
+  `LambdaCallBlock`'s private `Variant` record + `VARIANTS` list owned the authoritative table while
+  `MatchesGroupScope` kept a second, hand-written `Set.of("ifFindAny","whileFindAny","ifFindAll","whileFindAll")`
+  — not an independent fact but exactly "the group forms that pass a parameter" — and `BlockCatalog` seeded the
+  palette entry with `"ifFind"`/`"match"` literals. `VisionLoop` (public enum, `methodName()`/`group()`/
+  `defaultParamName()`/`hasParam()`/`handsOverMatches()`/`returnsBoolean()`, total `fromMethodName` → `Optional`)
+  is now the single owner: the dropdown lists `values()`, `MatchesGroupScope` derives its set with a filter, and
+  the `→ boolean` badge asks the enum instead of `method.startsWith("if")`.
+- **2026-08-06 — `palette/MatchesCheck`: any/all stops travelling as a boolean.** `hasAll`/`hasAny` was
+  re-derived by ternary at four write sites and `"all of"`/`"any of"` at three more, with `boolean all` threaded
+  through `Guard`, three `MatchesSwitchHandler` signatures and `CodeEditor.setMatchesCaseMode` — so
+  `addCase(cu, code, stmt, false, paths)` read as a flag rather than as the branch it adds. New `VisionLoopTest`
+  (6 cases) pins both sets, including the literal `MatchesGroupScope` used to carry. 807 tests, was 801.
 - **2026-08-06 — `project/StudioContext`: the shell stops re-listing the project.** `UIManager` took **11**
   constructor parameters and `StudioActions` **13**, largely the same run of project services listed again at
   each layer — and four of `UIManager`'s (`projectAnalyzer`, `libraryService`, `activityService`,
