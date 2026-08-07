@@ -36,7 +36,7 @@ public class EnumConstantBlock extends AbstractExpressionBlock {
     @Override
     protected Node createUINode(CodeEditorService context) {
         Label typeLabel = new Label(enumTypeName);
-        typeLabel.setStyle("-fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 11px;");
+        typeLabel.getStyleClass().add("block-chip");
 
         // --- INTERACTIVITY START (editable blocks only) ---
         if (!isReadOnly()) {
@@ -62,16 +62,10 @@ public class EnumConstantBlock extends AbstractExpressionBlock {
         // --- INTERACTIVITY END ---
 
         Label dot = new Label(".");
-        dot.setStyle("-fx-text-fill: rgba(255,255,255,0.7); -fx-font-weight: bold;");
+        dot.getStyleClass().add("block-chip");
 
         ComboBox<String> constantSelector = new ComboBox<>();
-        constantSelector.setStyle(
-                "-fx-background-color: rgba(255,255,255,0.2);" +
-                        "-fx-text-fill: white;" +
-                        "-fx-font-size: 11px;" +
-                        "-fx-background-radius: 4;" +
-                        "-fx-padding: 2 6 2 6;"
-        );
+        constantSelector.getStyleClass().add("block-selector");
 
         List<String> constants = getEnumConstants(enumTypeName, context);
         constantSelector.getItems().addAll(constants);
@@ -89,7 +83,7 @@ public class EnumConstantBlock extends AbstractExpressionBlock {
         if (isReadOnly()) {
             Label constantLabel = new Label(constantName);
             constantLabel.getStyleClass().add("static-value-label");
-            constantLabel.setStyle("-fx-text-fill: white; -fx-font-size: 11px;");
+            constantLabel.getStyleClass().add("block-chip");
             constantNode = constantLabel;
         }
 
@@ -99,11 +93,7 @@ public class EnumConstantBlock extends AbstractExpressionBlock {
                 .addNode(constantNode)
                 .build();
 
-        container.setStyle(
-                "-fx-background-color: #d35400;" +
-                        "-fx-background-radius: 5;" +
-                        "-fx-padding: 4 8 4 8;"
-        );
+        container.getStyleClass().add("enum-block");
 
         return container;
     }

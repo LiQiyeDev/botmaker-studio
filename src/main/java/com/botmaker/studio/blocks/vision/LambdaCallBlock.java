@@ -145,7 +145,7 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
         if (isReadOnly()) {
             Label chip = new Label(facade);
             chip.getStyleClass().add("sdk-class-selector");
-            chip.setStyle("-fx-font-size: 11px; -fx-font-weight: bold;");
+            chip.getStyleClass().add("block-chip");
             return chip;
         }
         ComboBox<String> selector = new ComboBox<>();
@@ -153,7 +153,7 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
         selector.getItems().addAll(SdkType.FACADE_NAMES);
         if (!selector.getItems().contains(facade)) selector.getItems().add(0, facade);
         selector.setValue(facade);
-        selector.setStyle("-fx-font-size: 11px; -fx-font-weight: bold;");
+        selector.getStyleClass().add("block-selector");
         selector.setTooltip(new Tooltip("Point this call at another SDK class (the action body is dropped)"));
         selector.setOnAction(e -> {
             String picked = selector.getValue();
@@ -212,7 +212,8 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
         for (VisionLoop v : VisionLoop.values()) selector.getItems().add(v.methodName());
         selector.setValue(method);
         selector.setEditable(false);
-        selector.setStyle("-fx-font-size: 11px; -fx-pref-width: 130px; -fx-font-weight: bold;");
+        selector.getStyleClass().add("block-selector");
+        selector.setPrefWidth(130);
         selector.setTooltip(new Tooltip(
                 "if / while / until  ×  a single image, ANY of a group, or ALL of a group\n\n" + bodyValueHint()));
         selector.setOnAction(e -> {

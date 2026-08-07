@@ -38,10 +38,10 @@ public class MainBlock extends MethodDeclarationBlock {
 
         if (isMainMethod) {
             VBox wrapper = new VBox(standardUI);
-            wrapper.setStyle("-fx-background-color: #e8f4f8; -fx-border-color: #3498db; -fx-border-width: 2; -fx-border-radius: 8; -fx-padding: 5;");
+            wrapper.getStyleClass().addAll("block-nested-wash", "block-nested-wash--highlight");
 
             Label mainBadge = new Label("⭐ Program Entry Point");
-            mainBadge.setStyle("-fx-font-size: 10px; -fx-text-fill: #3498db; -fx-font-weight: bold;");
+            mainBadge.getStyleClass().addAll("block-caption", "block-caption--strong");
             wrapper.getChildren().add(0, mainBadge);
 
             return wrapper;

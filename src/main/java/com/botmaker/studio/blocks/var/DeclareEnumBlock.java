@@ -65,11 +65,11 @@ public class DeclareEnumBlock extends AbstractStatementBlock {
     @Override
     protected Node createUINode(CodeEditorService context) {
         VBox container = new VBox(5);
-        container.setStyle("-fx-background-color: #d35400; -fx-background-radius: 5; -fx-padding: 5;");
+        container.getStyleClass().add("enum-block");
 
         // --- Header ---
         Label label = BlockUIComponents.createKeywordLabel("Enum");
-        label.setStyle("-fx-text-fill: white; -fx-font-weight: bold;");
+        label.getStyleClass().add("block-chip");
 
         Node nameField = TextFieldComponents.createVariableName(enumName, !isReadOnly(), newName -> {
             if (!newName.equals(enumName) && !newName.isEmpty()) {
@@ -78,7 +78,7 @@ public class DeclareEnumBlock extends AbstractStatementBlock {
         });
 
         Button addConstantBtn = new Button("+ Add Value");
-        addConstantBtn.setStyle("-fx-font-size: 10px;");
+        addConstantBtn.getStyleClass().addAll("block-action-button", "block-action-button--mini");
         addConstantBtn.setOnAction(e -> context.getCodeEditor().addEnumConstant(enumDeclaration, "NEW_VALUE"));
 
         var headerSentence = BlockLayout.sentence()
@@ -109,7 +109,7 @@ public class DeclareEnumBlock extends AbstractStatementBlock {
 
                 TextField constField = new TextField(constant);
                 constField.setPrefWidth(120);
-                constField.setStyle("-fx-background-color: rgba(255,255,255,0.9);");
+                constField.getStyleClass().add("block-inset-field");
 
                 constField.focusedProperty().addListener((obs, oldVal, newVal) -> {
                     if (!newVal) {
@@ -121,7 +121,7 @@ public class DeclareEnumBlock extends AbstractStatementBlock {
                 });
 
                 Button deleteBtn = new Button("×");
-                deleteBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: white; -fx-font-weight: bold; -fx-cursor: hand;");
+                deleteBtn.getStyleClass().add("block-icon-button");
                 deleteBtn.setOnAction(e -> context.getCodeEditor().deleteEnumConstant(enumDeclaration, index));
 
                 HBox row = BlockLayout.sentence()

@@ -54,13 +54,10 @@ final class MenuBuilders {
         menu.getItems().remove(1, menu.getItems().size());
     }
 
-    private static final String SECTION_HEADER_STYLE =
-            "-fx-font-weight: bold; -fx-opacity: 1.0; -fx-text-fill: #666;";
-
     static MenuItem sectionHeader(String text) {
         MenuItem header = new MenuItem(text);
         header.setDisable(true);
-        header.setStyle(SECTION_HEADER_STYLE);
+        header.getStyleClass().add("block-section-header");
         return header;
     }
 

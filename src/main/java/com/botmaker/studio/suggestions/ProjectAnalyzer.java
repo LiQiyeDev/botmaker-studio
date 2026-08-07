@@ -873,9 +873,9 @@ public class ProjectAnalyzer {
                 }
             }
             case MethodInvocation mi -> {
-                if (isSystemOutPrint(mi)) return ResolvedType.UNKNOWN;
                 int index = mi.arguments().indexOf(node);
                 IMethodBinding mb = mi.resolveMethodBinding();
+                if (isPrintSink(mi, mb, index)) return ResolvedType.UNKNOWN;
                 if (mb != null && index >= 0 && index < mb.getParameterTypes().length) {
                     return ResolvedType.of(mb.getParameterTypes()[index]);
                 }
@@ -1198,13 +1198,35 @@ public class ProjectAnalyzer {
         return dims == 0 ? leaf : leaf.asArray(dims);
     }
 
-    private static boolean isSystemOutPrint(MethodInvocation mi) {
-        String name = mi.getName().getIdentifier();
-        if ("println".equals(name) || "print".equals(name)) {
-            Expression expr = mi.getExpression();
-            return expr != null && "System.out".equals(expr.toString());
+    /**
+     * Whether this invocation is a print sink — a call that accepts anything, so an argument slot inside it
+     * constrains nothing and the caller should be offered every expression rather than a filtered list.
+     *
+     * <p>Recognised structurally rather than by name, because the name list was the bug: this used to match
+     * only a receiver spelled exactly {@code System.out}, while the Print block emits the SDK's
+     * {@code BotMaker.print(…)}. That resolved to the declared parameter type, and the method dropdown inside
+     * a Print block then offered only methods returning it — for the {@code println(String)} overload, the
+     * String-returning ones alone. A parameter declared as {@code Object} accepts every reference type, which
+     * is the same statement "this constrains nothing" made by the language instead of by a list, and it
+     * covers every future sink without naming it.
+     *
+     * <p>{@code System.out.print*} keeps its spelling-based clause underneath, because it is the one sink
+     * that is <em>not</em> declared over {@code Object}: {@code PrintStream} overloads it per primitive plus
+     * {@code String}, so a placeholder argument binds to {@code println(String)} and the general rule alone
+     * would go on filtering it. Nothing else needs that treatment.
+     */
+    private static boolean isPrintSink(MethodInvocation invocation, IMethodBinding binding, int argumentIndex) {
+        if (binding != null && argumentIndex >= 0) {
+            ITypeBinding[] parameters = binding.getParameterTypes();
+            if (argumentIndex < parameters.length
+                    && "java.lang.Object".equals(parameters[argumentIndex].getQualifiedName())) {
+                return true;
+            }
         }
-        return false;
+        String name = invocation.getName().getIdentifier();
+        if (!"print".equals(name) && !"println".equals(name)) return false;
+        Expression receiver = invocation.getExpression();
+        return receiver != null && "System.out".equals(receiver.toString());
     }
 
     private static ResolvedType inferArrayTypeForElement(ArrayInitializer initializer) {

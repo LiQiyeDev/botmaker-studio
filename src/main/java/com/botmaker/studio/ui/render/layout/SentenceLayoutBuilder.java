@@ -69,7 +69,7 @@ public class SentenceLayoutBuilder {
             nodes.add(picker != null ? picker : expression.getUINode(context));
         } else {
             javafx.scene.control.Label placeholder = new javafx.scene.control.Label("⟨expression⟩");
-            placeholder.setStyle("-fx-text-fill: rgba(255,255,255,0.4); -fx-font-style: italic;");
+            placeholder.getStyleClass().add("block-placeholder");
             nodes.add(placeholder);
         }
         return this;

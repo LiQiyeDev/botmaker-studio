@@ -48,7 +48,7 @@ public class LiteralBlock<T> extends AbstractExpressionBlock {
         // READ-ONLY LOGIC
         if (isReadOnly()) {
             textField.setEditable(false);
-            textField.setStyle("-fx-background-color: transparent; -fx-text-fill: #333; -fx-border-width: 0;");
+            textField.getStyleClass().addAll("block-inset-field", "block-inset-field--flat");
             textField.setCursor(Cursor.DEFAULT);
         } else {
             textField.setCursor(Cursor.TEXT);

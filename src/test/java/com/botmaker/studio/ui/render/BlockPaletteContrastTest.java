@@ -27,10 +27,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * were, white failed WCAG AA on eight of the ten categories — {@code #3498db} scores 3.15 against white and
  * 5.52 against near-black. "Dark-looking fill ⇒ white text" is the intuition this palette punishes.
  *
- * <p>So the contract is checked, not trusted: for every {@code -bm-cat-*} token there is an
- * {@code -bm-on-cat-*} beside it in the same theme block, it is one of the two audited on-colours, and the
+ * <p>So the contract is checked, not trusted: for every {@code -bm-fill-*} token there is an
+ * {@code -bm-on-fill-*} beside it in the same theme block, it is one of the two audited on-colours, and the
  * measured contrast ratio clears 4.5:1. A new category, a new theme, or a designer nudging one hex all fail
  * here rather than in a screenshot.
+ *
+ * <p>The fill is a separate token from the {@code -bm-cat-*} accent because the two diverge in a dark theme:
+ * the accent is a 1px border and stays bright, while the surface a whole block is painted with drops to ~20%
+ * lightness, which is the difference between a dark theme and a canvas of neon slabs. The light themes
+ * declare {@code -bm-fill-X: -bm-cat-X} and are measured through that reference.
  */
 class BlockPaletteContrastTest {
 
@@ -47,8 +52,10 @@ class BlockPaletteContrastTest {
     /** The theme selectors in blocks.css, each of which redefines the whole token set. */
     private static final String[] THEMES = {".root", ".dark-theme", ".black-theme", ".high-contrast-theme"};
 
-    private static final Pattern CAT = Pattern.compile("-bm-cat-([a-z-]+):\\s*(#[0-9a-fA-F]{6});");
-    private static final Pattern ON_CAT = Pattern.compile("-bm-on-cat-([a-z-]+):\\s*(#[0-9a-fA-F]{6});");
+    /** A token's value: either a hex literal or a reference to another token in the same theme block. */
+    private static final Pattern FILL = Pattern.compile("-bm-fill-([a-z-]+):\\s*(#[0-9a-fA-F]{6}|-bm-[a-z-]+);");
+    private static final Pattern ON_FILL = Pattern.compile("-bm-on-fill-([a-z-]+):\\s*(#[0-9a-fA-F]{6});");
+    private static final Pattern ANY_TOKEN = Pattern.compile("(-bm-[a-z-]+):\\s*(#[0-9a-fA-F]{6});");
 
     private static String css() throws IOException {
         try (InputStream in = BlockPaletteContrastTest.class.getResourceAsStream("/css/blocks.css")) {
@@ -73,6 +80,19 @@ class BlockPaletteContrastTest {
         return found;
     }
 
+    /**
+     * Resolve one level of token indirection. The light themes declare {@code -bm-fill-X: -bm-cat-X} rather
+     * than repeating the hex, which is the point of a token — so measuring them means following the reference.
+     * One level is all this file uses, and a second would be worth objecting to rather than supporting.
+     */
+    private static String resolve(String value, String themeBlock, String rootBlock) {
+        if (value.startsWith("#")) return value;
+        String resolved = tokens(themeBlock, ANY_TOKEN).getOrDefault(
+                value, tokens(rootBlock, ANY_TOKEN).get(value));
+        assertNotNull(resolved, value + " must resolve to a hex literal in its own theme or in .root");
+        return resolved;
+    }
+
     // WCAG 2.1 relative luminance and contrast ratio.
 
     private static double luminance(String hex) {
@@ -93,19 +113,21 @@ class BlockPaletteContrastTest {
     @Test
     void everyCategoryFillHasAReadableOnColourInEveryTheme() throws IOException {
         String css = css();
+        String root = themeBlock(css, ".root");
         for (String theme : THEMES) {
             String block = themeBlock(css, theme);
-            Map<String, String> fills = tokens(block, CAT);
-            Map<String, String> onColours = tokens(block, ON_CAT);
+            Map<String, String> fills = tokens(block, FILL);
+            Map<String, String> onColours = tokens(block, ON_FILL);
 
             assertTrue(fills.size() >= 10, theme + " must define the full category palette, got " + fills);
             assertEquals(fills.keySet(), onColours.keySet(),
-                    theme + " must pair every -bm-cat-* with an -bm-on-cat-*");
+                    theme + " must pair every -bm-fill-* with an -bm-on-fill-*");
 
-            fills.forEach((name, fill) -> {
+            fills.forEach((name, declared) -> {
+                String fill = resolve(declared, block, root);
                 String on = onColours.get(name);
                 assertTrue(NEAR_BLACK.equalsIgnoreCase(on) || WHITE.equalsIgnoreCase(on),
-                        theme + " -bm-on-cat-" + name + " must be one of the two audited on-colours, was " + on);
+                        theme + " -bm-on-fill-" + name + " must be one of the two audited on-colours, was " + on);
 
                 double ratio = contrast(fill, on);
                 assertTrue(ratio >= AA, () -> String.format(
@@ -131,11 +153,11 @@ class BlockPaletteContrastTest {
             String filled = null;
             for (int open = css.indexOf(rule); open >= 0; open = css.indexOf(rule, open + 1)) {
                 String body = css.substring(open, css.indexOf('}', open));
-                if (body.contains("-fx-background-color: -bm-cat-")) filled = body;
+                if (body.contains("-fx-background-color: -bm-fill-")) filled = body;
             }
 
             assertNotNull(filled, category.styleClass() + " must have a rule filling it with its category token");
-            assertTrue(filled.contains("-bm-text-on-color: -bm-on-cat-"),
+            assertTrue(filled.contains("-bm-text-on-color: -bm-on-fill-"),
                     category.styleClass() + " fills but never re-points -bm-text-on-color: " + filled);
         }
     }

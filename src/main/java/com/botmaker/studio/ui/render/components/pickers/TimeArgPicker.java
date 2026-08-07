@@ -142,7 +142,7 @@ public final class TimeArgPicker {
         combo.getStyleClass().add(styleClass);
         combo.getItems().addAll(values);
         combo.setValue(currentConstant(expr(arg), values));
-        combo.setStyle("-fx-font-size: 11px;");
+        combo.getStyleClass().add("block-selector");
         combo.setConverter(new javafx.util.StringConverter<>() {
             @Override public String toString(E constant) {
                 return constant == null ? "" : display.apply(constant);

@@ -148,7 +148,7 @@ public final class EmulatorPickerDialog {
         thumbHolder.setMinSize(THUMB_W, THUMB_H);
         thumbHolder.setPrefSize(THUMB_W, THUMB_H);
         thumbHolder.setMaxSize(THUMB_W, THUMB_H);
-        thumbHolder.setStyle("-fx-background-color: #101216; -fx-background-radius: 4;");
+        thumbHolder.getStyleClass().add("emulator-thumb-holder");
 
         Circle dot = new Circle(5, Color.web("#9aa0a6")); // neutral until the liveness probe resolves
         Label brand = new Label(instance.brand());

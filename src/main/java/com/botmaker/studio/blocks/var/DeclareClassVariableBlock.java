@@ -52,17 +52,9 @@ public class DeclareClassVariableBlock extends AbstractStatementBlock {
     @Override
     protected Node createUINode(CodeEditorService context) {
         VBox container = new VBox(5);
-        container.setStyle(
-                "-fx-background-color: linear-gradient(to right, #F39C12 0%, #E67E22 100%);" +
-                        "-fx-background-radius: 6;" +
-                        "-fx-padding: 10;" +
-                        "-fx-border-color: rgba(0,0,0,0.1);" +
-                        "-fx-border-width: 1;" +
-                        "-fx-border-radius: 6;"
-        );
 
         Label modifiersLabel = new Label((isPrivate ? "Private" : "Public") + (isStatic ? " Static" : "") + " Field");
-        modifiersLabel.setStyle("-fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 10px;");
+        modifiersLabel.getStyleClass().addAll("block-caption", "block-caption--strong");
 
         Label typeLabel = createTypeLabel(fieldType.simpleName());
         if (!isReadOnly()) {
@@ -89,15 +81,7 @@ public class DeclareClassVariableBlock extends AbstractStatementBlock {
             // the write layer then refuses). A read-only field with no value simply shows "type name".
             if (!isReadOnly()) {
                 Button setValueBtn = new Button("Set Value");
-                setValueBtn.setStyle(
-                        "-fx-background-color: rgba(255,255,255,0.3);" +
-                                "-fx-text-fill: white;" +
-                                "-fx-font-weight: bold;" +
-                                "-fx-font-size: 11px;" +
-                                "-fx-padding: 4 12 4 12;" +
-                                "-fx-background-radius: 4;" +
-                                "-fx-cursor: hand;"
-                );
+                setValueBtn.getStyleClass().add("block-action-button");
                 setValueBtn.setOnAction(e -> {
                     context.getCodeEditor().setFieldInitializerToDefault(
                             (FieldDeclaration) this.astNode, fieldType);
@@ -142,7 +126,7 @@ public class DeclareClassVariableBlock extends AbstractStatementBlock {
         // whole render pass (a generated file with a field showed no blocks at all).
         Button deleteBtn = createDeleteButton(context);
         if (deleteBtn != null) {
-            deleteBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: white; -fx-font-size: 14px; -fx-padding: 0; -fx-cursor: hand;");
+            deleteBtn.getStyleClass().add("block-icon-button");
             headerRow.getChildren().add(deleteBtn);
         }
 

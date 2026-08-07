@@ -58,7 +58,7 @@ final class MenuIcons {
      */
     static Node node(String glyph) {
         Label label = new Label(glyph == null || glyph.isBlank() ? FALLBACK : glyph);
-        label.setStyle("-fx-font-family: 'Segoe UI Symbol'; -fx-text-fill: #555;");
+        label.getStyleClass().add("menu-icon");
         label.setMinWidth(16);
         label.setAlignment(javafx.geometry.Pos.CENTER);
         return label;

@@ -63,7 +63,7 @@ public class ClassBlock extends AbstractCodeBlock implements BlockWithChildren {
      */
     private Node createHeader() {
         Label name = new Label("Class: " + className);
-        name.setStyle("-fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: #2c3e50;");
+        name.getStyleClass().add("class-block-title");
 
         HBox header = new HBox(8, name);
         header.setAlignment(Pos.BASELINE_LEFT);
@@ -81,7 +81,7 @@ public class ClassBlock extends AbstractCodeBlock implements BlockWithChildren {
     private Label inheritanceLabel(String text) {
         Label l = new Label(text);
         l.getStyleClass().add("class-inheritance");
-        l.setStyle("-fx-font-size: 15px; -fx-font-style: italic; -fx-text-fill: #5d6d7e;");
+        l.getStyleClass().add("class-block-subtitle");
         return l;
     }
 
@@ -101,13 +101,7 @@ public class ClassBlock extends AbstractCodeBlock implements BlockWithChildren {
         VBox container = new VBox(10);
         container.setPadding(new Insets(15));
 
-        container.setStyle(
-                "-fx-background-color: linear-gradient(to bottom, #ecf0f1 0%, #bdc3c7 100%);" +
-                        "-fx-border-color: #34495e;" +
-                        "-fx-border-width: 3px;" +
-                        "-fx-border-radius: 10px;" +
-                        "-fx-background-radius: 10px;"
-        );
+        container.getStyleClass().add("class-block");
 
         container.getChildren().add(createHeader());
 
@@ -158,9 +152,7 @@ public class ClassBlock extends AbstractCodeBlock implements BlockWithChildren {
         // "Add Constructor" is intentionally hidden — the bot's generated class has no user-authored
         // constructors, and exposing one only invites broken generated code. Keep only "Add Function".
         Button addMethodBtn = new Button("+ Add Function");
-        addMethodBtn.setStyle(
-                "-fx-background-color: #8E44AD; -fx-text-fill: white; -fx-font-weight: bold; -fx-cursor: hand;"
-        );
+        addMethodBtn.getStyleClass().add("block-action-button");
         addMethodBtn.setOnAction(e -> {
             context.getCodeEditor().addMethodToClass(
                     (TypeDeclaration) this.astNode,

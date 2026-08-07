@@ -48,7 +48,7 @@ public final class EnumPicker {
         combo.getStyleClass().add("enum-arg-dropdown");
         combo.getItems().addAll(enumType.enumConstants());
         combo.setValue(currentConstant(arg));
-        combo.setStyle("-fx-font-size: 11px;");
+        combo.getStyleClass().add("block-selector");
         combo.setOnAction(e -> {
             String constant = combo.getValue();
             if (constant == null) return;

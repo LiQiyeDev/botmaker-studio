@@ -210,7 +210,7 @@ public final class PrecisionArgPicker {
         Label reading = new Label();
         reading.setStyle("-fx-font-weight: bold;");
         Label meaning = new Label();
-        meaning.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
+        meaning.getStyleClass().add("ui-caption");
 
         HBox swatches = new HBox(6);
         swatches.setAlignment(Pos.CENTER_LEFT);
@@ -241,9 +241,9 @@ public final class PrecisionArgPicker {
 
         Canvas canvas = new Canvas(PREVIEW_SIDE, PREVIEW_SIDE);
         Label areaReadout = new Label();
-        areaReadout.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
+        areaReadout.getStyleClass().add("ui-caption");
         Label countReadout = new Label();
-        countReadout.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
+        countReadout.getStyleClass().add("ui-caption");
 
         Runnable refresh = () -> {
             int px = valueOf(area, DEFAULT_AREA);
@@ -278,7 +278,7 @@ public final class PrecisionArgPicker {
         Label l = new Label(text);
         l.setWrapText(true);
         l.setMaxWidth(440);
-        l.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
+        l.getStyleClass().add("ui-caption");
         return l;
     }
 
@@ -312,7 +312,7 @@ public final class PrecisionArgPicker {
             this.owner = owner;
             this.target = siblingColor(arg);
 
-            status.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
+            status.getStyleClass().add("ui-caption");
             status.setWrapText(true);
             result.setStyle("-fx-font-weight: bold;");
 
@@ -551,7 +551,8 @@ public final class PrecisionArgPicker {
             r.setStrokeWidth(matches ? 3 : 1);
             r.setOpacity(matches ? 1.0 : 0.45);
             Label caption = new Label(trim(d));
-            caption.setStyle("-fx-font-size: 10px; -fx-text-fill: " + (matches ? "#2d7d46" : "gray") + ";");
+            caption.getStyleClass().setAll("ui-caption");
+            if (matches) caption.getStyleClass().add("ui-caption--ok");
             VBox cell = new VBox(3, r, caption);
             cell.setAlignment(Pos.CENTER);
             box.getChildren().add(cell);

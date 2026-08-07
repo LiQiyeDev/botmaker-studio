@@ -45,10 +45,10 @@ public class FieldAccessBlock extends AbstractExpressionBlock {
         container.getStyleClass().add("field-access-block");
 
         Text qualifierText = new Text(qualifier + ".");
-        qualifierText.setStyle("-fx-fill: #8E44AD; -fx-font-weight: bold;");
+        qualifierText.getStyleClass().add("block-chip");
 
         Text fieldText = new Text(fieldName);
-        fieldText.setStyle("-fx-fill: #2C3E50;");
+        fieldText.getStyleClass().addAll("block-chip", "block-chip--plain");
 
         container.getChildren().addAll(qualifierText, fieldText);
         applyUneditedClass(container);

@@ -6,6 +6,29 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-08 — the block fill, corrected; and every inline colour style swept into the stylesheet
+  (`resources/css/blocks.css`, ~15 files under `blocks/` + `ui/render/`, `suggestions/ProjectAnalyzer`).**
+  Three things, one cause between the first two. (1) **The fill itself.** `-fx-border-radius: -bm-block-radius`
+  threw `ClassCastException: Double cannot be cast to Size` on every restyle of every block — **a JavaFX
+  looked-up value is colour-only**; a size token resolves to a `Double` and the rule is silently dropped, so
+  the radius never applied either. That token is gone, with a note where it was, and sizes are literals.
+  The border drops 2px-on-colour → **1px accent**, and the fill splits from the accent: `-bm-cat-*` stays
+  bright (border, badge, header) while the new `-bm-fill-*` is the surface — the same hue at 22%/16%
+  lightness in Dark/Black, which is the "dark theme isn't applied to the blocks" report. `-bm-on-cat-*` →
+  `-bm-on-fill-*`, re-measured by `BlockPaletteContrastTest` through one level of token indirection.
+  (2) **~25 inline `setStyle` strings** carrying hardcoded whites, blacks and hexes — immune to every token
+  and every theme, because **an inline style beats an author stylesheet outright**. They were the black-on-black
+  class dropdown, the white-on-white enum field, the `#555` menu glyphs and "the text style is not uniform",
+  all at once. They collapse into ~10 shared classes (`.block-chip`, `.block-inset-field`, `.block-selector`,
+  `.block-icon-button`, `.block-action-button`, `.block-caption`, `.block-nested-wash`,
+  `.block-section-header`, `.ui-caption`, plus per-block cards) over the tokens, with washes as neutral
+  `rgba(127,127,127,…)` so one value works on all ten fills in all four themes. **`NoInlineColourStyleTest`**
+  fails the build on a colour in a `setStyle` under `blocks/`, `core/` or `ui/render/` — no allowlist, since
+  nothing needed one. `ui/render/components/StyleComponents` deleted (unused). (3) **A method call dropped in
+  a Print block listed no methods**: `inferExpectedType` resolved the slot to the declared parameter type, so
+  `populateMethodList` filtered to that return type. A parameter declared `Object` now reads as
+  unconstrained (`isPrintSink`), which covers `BotMaker.print` and every future sink; `System.out.print*`
+  keeps a spelling clause because `PrintStream` overloads per type. `PrintSinkInferenceTest`.
 - **2026-08-07 — blocks are filled with their category colour, and the on-colour is measured
   (`resources/css/blocks.css`).** Blocks had a neutral surface with a 3px left accent bar, but every label
   colour in the file was a hardcoded white — a palette written for coloured fills that were never applied, so

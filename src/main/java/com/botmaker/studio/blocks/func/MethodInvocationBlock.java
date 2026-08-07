@@ -152,7 +152,7 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
                 classSelector.getItems().add(0, fixedScopeName);
             }
             classSelector.setValue(fixedScopeName);
-            classSelector.setStyle("-fx-font-size: 11px; -fx-font-weight: bold;");
+            classSelector.getStyleClass().add("block-selector");
             // Read-only: the selector still backs the value lookups below, but never reaches the scene — the
             // user sees what the call says, with no control to change it.
             scopeNode = isReadOnly() ? staticValueLabel(fixedScopeName) : classSelector;
@@ -185,7 +185,8 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
         // --- 2. Configure Method Selector ---
         methodSelector.setValue(methodName);
         methodSelector.setEditable(false);
-        methodSelector.setStyle("-fx-font-size: 11px; -fx-pref-width: 120px; -fx-font-weight: bold;");
+        methodSelector.getStyleClass().add("block-selector");
+        methodSelector.setPrefWidth(120);
 
         // Populate initially
         refreshMethodsAction.run();
@@ -348,11 +349,19 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
         Callback<ListView<String>, ListCell<String>> cellFactory = lv -> new ListCell<>() {
             @Override protected void updateItem(String item, boolean empty) {
                 super.updateItem(item, empty);
-                if (empty || item == null) { setText(null); setDisable(false); setStyle(""); }
+                if (empty || item == null) { setText(null); setDisable(false); getStyleClass().remove("block-section-header"); }
                 else {
                     setText(item);
-                    if (item.startsWith("---")) { setDisable(true); setStyle("-fx-font-weight: bold; -fx-text-fill: #888; -fx-alignment: center; -fx-background-color: #f4f4f4;"); }
-                    else { setDisable(false); setStyle("-fx-text-fill: black; -fx-padding: 3 0 3 10;"); }
+                    // The popup is its own scene graph and never sees the block's -bm-text-on-color, so the
+                    // ordinary rows say nothing about colour at all and take the theme's list-cell default.
+                    // Pinning "black" here is what made classes and libraries unreadable in Dark and Black.
+                    boolean separator = item.startsWith("---");
+                    setDisable(separator);
+                    if (separator && !getStyleClass().contains("block-section-header")) {
+                        getStyleClass().add("block-section-header");
+                    } else if (!separator) {
+                        getStyleClass().remove("block-section-header");
+                    }
                 }
             }
         };
@@ -364,7 +373,8 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
             fileSelector.getItems().add(0, displayValue);
         }
         fileSelector.setValue(displayValue);
-        fileSelector.setStyle("-fx-font-size: 11px; -fx-pref-width: 120px;");
+        fileSelector.getStyleClass().add("block-selector");
+        fileSelector.setPrefWidth(120);
 
         return fileSelector;
     }
@@ -415,7 +425,7 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
     }
 
     private void styleContainer(HBox container) {
-        container.setStyle(" -fx-background-radius: " + (isStatementContext ? "4" : "12") + "; -fx-padding: " + (isStatementContext ? "5 10 5 10" : "3 8 3 8") + ";");
+        container.getStyleClass().add(isStatementContext ? "block-call--statement" : "block-call--expression");
         // Distinct look for SDK calls — colour/border live in blocks.css (sdk-call-block).
         if (fixedScopeName != null) {
             container.getStyleClass().add("sdk-call-block");
@@ -488,7 +498,7 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
     /** Explicit overload picker (⚙): lets the user choose a specific overload; arg sync is automatic. */
     private void addSignatureButton(SentenceLayoutBuilder builder, CodeEditorService context, java.util.function.Supplier<String> scopeGetter, ComboBox<String> methodSelector, String currentFileClass) {
         MenuButton signatureBtn = new MenuButton("⚙");
-        signatureBtn.setStyle("-fx-font-size: 9px; -fx-padding: 2 4 2 4; -fx-background-radius: 10;");
+        signatureBtn.getStyleClass().addAll("block-action-button", "block-action-button--mini");
         signatureBtn.setTooltip(new Tooltip("Select Method Signature"));
 
         signatureBtn.setOnShowing(e -> {
@@ -571,7 +581,7 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
 
         Button pickAll = new Button("📸 Pick all");
         pickAll.setTooltip(new Tooltip("Capture every image & region argument of this call in one screen selection"));
-        pickAll.setStyle("-fx-font-size: 9px; -fx-padding: 2 4 2 4; -fx-background-radius: 10;");
+        pickAll.getStyleClass().addAll("block-action-button", "block-action-button--mini");
         pickAll.setOnAction(e -> {
             Window owner = pickAll.getScene() != null ? pickAll.getScene().getWindow() : null;
             PickAllSession.run(context, (MethodInvocation) this.astNode, arguments, signature, owner);
