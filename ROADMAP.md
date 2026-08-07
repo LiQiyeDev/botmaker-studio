@@ -6,6 +6,23 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-07 — a new project's `Popups.run()` ships the loop, not a TODO (`project/ProjectCreator`).** The
+  scaffold documented `whileFindAny` in its javadoc and then emitted an empty body, so the popup guard a new
+  bot installs had nothing in it and the editor had no block to drop templates into — the user had to author
+  the loop from the palette before the feature existed. It now generates `private static final
+  ImageTemplateGroup POPUPS = ImageTemplateGroup.of();` and an `ImageFinder.whileFindAny(POPUPS, found -> …)`
+  call, which `MatchesGroupScope` already recognises as a constant group, so the editor renders a real
+  `while any of […]` block. Runtime behaviour is unchanged until a template is added — but only because the
+  SDK now allows an empty group and short-circuits it without a capture; `ImageTemplateGroup.of()` used to
+  throw, which would have made every new bot die in `Popups`' class initialiser (see
+  `../botmaker-sdk/ROADMAP.md`, same date). `ScaffoldMigration` only creates missing files, so existing
+  projects keep the `Popups.java` they have.
+  **Ship order matters here:** a generated project pins `MavenService.SDK_FALLBACK_VERSION` (1.0.21 at time
+  of writing), and that released SDK still throws on `ImageTemplateGroup.of()` — so this scaffold must not
+  reach a packaged Studio before an SDK carrying the empty-group change is released *and*
+  `SDK_FALLBACK_VERSION` bumped to it. `release.sh` does both in one run (sdk → studio, bumping the fallback);
+  releasing Studio alone would ship a scaffold that dies in `Popups`' class initialiser. Dev runs are
+  unaffected — Studio preselects the local `0.0.0-SNAPSHOT` build.
 - **2026-08-07 — the pilot's route and its frame become one value (`services/pilot/`).** `TargetCapture.resolve`
   returns `Resolved(PilotRoute route, Capture cap)` — the route the frame was *actually* taken on — and
   `PilotServer.pushFrame` publishes `lastRoute`/`lastBounds` from that single value. They used to be computed

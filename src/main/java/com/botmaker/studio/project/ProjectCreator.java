@@ -569,23 +569,29 @@ public class ProjectCreator {
 
         // The popup guard's body. Like GoHome: a real Activity (so it self-registers and gets the hooks) that
         // isn't on the canvas — the SDK calls it through INSTANCE::execute, here before every vision step.
-        // Ships empty on purpose: a scaffold cannot guess this game's popups, and an empty check costs one
-        // no-op call rather than dismissing things the user never asked it to.
+        // Ships the loop but no templates: a scaffold cannot guess this game's popups, so the group is empty
+        // and whileFindAny returns without even taking a capture — the same no-op behaviour (and cost) as an
+        // empty body, except the editor now shows a real "while any of […]" block to drop templates into
+        // instead of a TODO comment. That empty group used to throw in Popups' class initialiser; the SDK
+        // allows it as of the same day's change, so this scaffold cannot ship ahead of that SDK release.
         sources.put("Popups.java", String.format("""
             package com.%s;
 
             import com.botmaker.sdk.api.bot.Activity;
+            import com.botmaker.sdk.api.vision.ImageFinder;
+            import com.botmaker.sdk.api.vision.ImageTemplateGroup;
 
             /**
              * Dismiss whatever the game has interrupted us with. BotMaker runs this before every vision step
              * (see the {@code PopupGuard.install} line in the entry point), so no activity has to open with
              * its own defensive dismissal code.
              *
-             * <p>Fill in {@link #run()} for your game. The shape that works is "which combination is on
-             * screen", not "click anything that looks like a cross": the same close button often belongs to
-             * the screen the bot is actually working on, and a popup's body usually isn't clickable at all.
+             * <p>{@link #run()} already has the loop; fill in {@link #POPUPS} and the body for your game. The
+             * shape that works is "which combination is on screen", not "click anything that looks like a
+             * cross": the same close button often belongs to the screen the bot is actually working on, and a
+             * popup's body usually isn't clickable at all.
              * <pre>
-             *   ImageTemplateGroup POPUPS = ImageTemplateGroup.of(mail, claimAll, tapToClose);
+             *   private static final ImageTemplateGroup POPUPS = ImageTemplateGroup.of(mail, claimAll, tapToClose);
              *
              *   ImageFinder.whileFindAny(POPUPS, found -&gt; {
              *       if (found.has(mail) &amp;&amp; found.has(claimAll)) ImageClicker.click(found.get(claimAll));
@@ -603,6 +609,9 @@ public class ProjectCreator {
                 /** The one instance; the entry point installs it as the popup guard. */
                 public static final Popups INSTANCE = new Popups();
 
+                /** The popups this bot knows how to dismiss. Add your templates here; empty means "no popups". */
+                private static final ImageTemplateGroup POPUPS = ImageTemplateGroup.of();
+
                 /** Popups reports nothing to route on — it is called by the guard, not wired into the flow. */
                 public enum Outcome { NEXT }
 
@@ -613,7 +622,9 @@ public class ProjectCreator {
 
                 @Override
                 public Outcome run() {
-                    // TODO: dismiss your game's popups. Until you do, this is a no-op and nothing changes.
+                    ImageFinder.whileFindAny(POPUPS, found -> {
+                        // TODO: click the popup this frame found — e.g. ImageClicker.click(found.get(closeButton));
+                    });
                     return Outcome.NEXT;
                 }
             }

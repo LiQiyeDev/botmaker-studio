@@ -95,9 +95,15 @@ class ProjectCreatorTest {
         String popups = sources.get("Popups.java");
         assertTrue(popups.contains("class Popups extends Activity<Popups.Outcome>"), popups);
         assertTrue(popups.contains("public Outcome run()"), popups);
-        assertTrue(popups.contains("TODO"), "the body is the user's to write: " + popups);
-        assertFalse(popups.contains("ImageTemplateGroup.of()"),
-                "an empty group throws at class-init — the scaffold must not declare one: " + popups);
+        assertTrue(popups.contains("TODO"), "what to click is still the user's to write: " + popups);
+        // The scaffold ships the loop, so the editor has a real "while any of […]" block to drop templates
+        // into. This declares an empty group, which used to throw in Popups' class initialiser — the SDK now
+        // allows one and treats it as "matches nothing" (ImageFinderEmptyGroupTest). A generated project
+        // pins SDK_FALLBACK_VERSION, so this scaffold cannot ship ahead of an SDK release carrying that.
+        assertTrue(popups.contains("ImageTemplateGroup POPUPS = ImageTemplateGroup.of();"), popups);
+        assertTrue(popups.contains("ImageFinder.whileFindAny(POPUPS, found -> {"), popups);
+        assertTrue(popups.contains("import com.botmaker.sdk.api.vision.ImageFinder;"), popups);
+        assertTrue(popups.contains("import com.botmaker.sdk.api.vision.ImageTemplateGroup;"), popups);
         assertTrue(sources.get("MyBot.java").contains("PopupGuard.install(Popups.INSTANCE::execute);"),
                 sources.get("MyBot.java"));
         assertTrue(sources.get("MyBot.java").contains("import com.botmaker.sdk.api.bot.PopupGuard;"),
