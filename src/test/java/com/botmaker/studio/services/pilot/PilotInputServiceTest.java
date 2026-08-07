@@ -146,6 +146,90 @@ class PilotInputServiceTest {
         assertTrue(nc.calls.isEmpty(), "a gesture outside the shown surface must never reach the controller");
     }
 
+    // --- A held button always comes back up: the "I can't click anything until BotMaker is shut down" bug ---
+
+    /**
+     * The drag that wedged the desktop. Releasing past the edge of the streamed frame used to be dropped like
+     * any other out-of-bounds gesture, leaving the button down — an implicit X pointer grab on whatever window
+     * got the press, so every later click anywhere went there. The UP is clamped into the frame instead.
+     */
+    @Test
+    void aDragReleasedOutsideTheFrameStillReleasesTheButton() {
+        PilotFakes.RecordingController hostNc = new PilotFakes.RecordingController();
+        NativeControllerFactory.setForTesting(hostNc);
+        PilotInputService input = new PilotInputService();
+
+        assertTrue(input.apply(PilotRoute.DESKTOP, PilotInputService.Kind.DOWN, 10, 10, 1, 0, BOUNDS));
+        assertTrue(input.apply(PilotRoute.DESKTOP, PilotInputService.Kind.UP, 9000, 9000, 1, 0, BOUNDS),
+                "an UP that ends a drag is clamped, never dropped");
+
+        assertEquals(java.util.List.of("move 10,10", "button 1 true", "move 799,599", "button 1 false"),
+                hostNc.calls, "the release lands on the last pixel of the frame, not off it");
+    }
+
+    /** A press outside the frame is still refused outright — the clamp is for finishing a drag, not starting one. */
+    @Test
+    void aPressOutsideTheFrameIsStillRejected() {
+        PilotFakes.RecordingController hostNc = new PilotFakes.RecordingController();
+        NativeControllerFactory.setForTesting(hostNc);
+
+        assertFalse(new PilotInputService()
+                .apply(PilotRoute.DESKTOP, PilotInputService.Kind.DOWN, 9000, 9000, 1, 0, BOUNDS));
+        assertTrue(hostNc.calls.isEmpty());
+    }
+
+    /** The phone that vanishes mid-drag: whoever notices calls this, and the host gets its pointer back. */
+    @Test
+    void releaseHeldLetsGoOfAButtonNoUpEverReleased() {
+        PilotFakes.RecordingController hostNc = new PilotFakes.RecordingController();
+        hostNc.cursor = new java.awt.Point(7, 9);
+        NativeControllerFactory.setForTesting(hostNc);
+        PilotInputService input = new PilotInputService();
+
+        assertTrue(input.apply(PilotRoute.DESKTOP, PilotInputService.Kind.DOWN, 10, 10, 1, 0, BOUNDS));
+        input.releaseHeld();
+
+        assertEquals(java.util.List.of("move 10,10", "button 1 true", "button 1 false", "move 7,9"),
+                hostNc.calls);
+
+        // Idempotent: a second call (close() after onClose, say) must not press or release anything again.
+        input.releaseHeld();
+        input.close();
+        assertEquals(4, hostNc.calls.size());
+    }
+
+    /** Nothing held, nothing to do — the common case for every exit path that calls it blind. */
+    @Test
+    void releaseHeldWithNoDragTouchesNothing() {
+        PilotFakes.RecordingController hostNc = new PilotFakes.RecordingController();
+        NativeControllerFactory.setForTesting(hostNc);
+
+        new PilotInputService().releaseHeld();
+
+        assertTrue(hostNc.calls.isEmpty());
+        assertFalse(hostNc.reliableCalled, "a no-op release must not escalate :0 to device input");
+    }
+
+    /**
+     * A session coming up (or going away) under a drag: the button is released on the surface that actually has
+     * it, before anything reaches the new one. Releasing on "the current route" would strand it on the old.
+     */
+    @Test
+    void aRouteChangeMidDragReleasesOnTheRouteThatHoldsTheButton() {
+        PilotFakes.RecordingController hostNc = new PilotFakes.RecordingController();
+        hostNc.cursor = new java.awt.Point(7, 9);
+        NativeControllerFactory.setForTesting(hostNc);
+        PilotFakes.RecordingController sessionNc = new PilotFakes.RecordingController();
+        PilotInputService input = new PilotInputService();
+
+        assertTrue(input.apply(PilotRoute.DESKTOP, PilotInputService.Kind.DOWN, 10, 10, 1, 0, BOUNDS));
+        assertTrue(input.apply(sessionRoute(sessionNc), PilotInputService.Kind.MOVE, 40, 40, 1, 0, BOUNDS));
+
+        assertEquals(java.util.List.of("move 10,10", "button 1 true", "button 1 false", "move 7,9"),
+                hostNc.calls, "the :0 button is released before the session takes over");
+        assertEquals(java.util.List.of("move 40,40"), sessionNc.calls);
+    }
+
     // --- The emulator route: Android has no pointer, so the gesture shapes differ ---
 
     @Test

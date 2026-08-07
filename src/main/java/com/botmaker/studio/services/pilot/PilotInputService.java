@@ -37,13 +37,32 @@ import com.botmaker.studio.emulator.EmulatorSurface;
  * <p><b>Bounds are not optional.</b> Every coordinate is clamped to the rect the client was actually shown
  * (the last pushed frame's surface). A pilot session is reachable over a public Funnel URL; without the clamp
  * a client could drive the pointer anywhere on the host's desktop, including over the Studio itself.
+ *
+ * <p><b>A held button is always released.</b> An out-of-bounds gesture used to be dropped whatever it was,
+ * including the {@code UP} ending a drag — so a drag released past the edge of the streamed frame left
+ * {@code BTN_LEFT} down on the virtual device. On X a held button is an implicit pointer grab on the window
+ * that got the press: every later click anywhere on the host goes there, which is the reported "I can't click
+ * anything until BotMaker is shut down" (shutdown destroys the uinput device, which drops the grab). A
+ * mid-drag {@code MOVE}/{@code UP} is therefore <em>clamped</em> to the frame rather than dropped — the clamp
+ * is what the bounds rule was always for — and {@link #releaseHeld()} lets the owner let go on any exit the
+ * gesture protocol doesn't cover: a phone that vanishes mid-drag, a route change under the drag, a throw, or
+ * Studio closing.
  */
-public final class PilotInputService {
+public final class PilotInputService implements AutoCloseable {
 
     /** The surface the client is currently being shown — the only region input may land in. */
     public record Bounds(int sx, int sy, int sw, int sh) {
         boolean contains(int x, int y) {
             return x >= sx && x < sx + sw && y >= sy && y < sy + sh;
+        }
+
+        /** The nearest point inside — the last row/column is {@code s+len-1}, not {@code s+len}. */
+        int clampX(int x) {
+            return Math.max(sx, Math.min(x, sx + sw - 1));
+        }
+
+        int clampY(int y) {
+            return Math.max(sy, Math.min(y, sy + sh - 1));
         }
     }
 
@@ -58,6 +77,16 @@ public final class PilotInputService {
 
     /** Where the pointer was when the current drag started, restored on {@code UP}. Null when not dragging. */
     private java.awt.Point dragOrigin;
+
+    /** The button a {@code DOWN} pressed and no {@code UP} has released yet, or {@code 0} when none is held. */
+    private int heldButton;
+
+    /**
+     * The route the held button was pressed on — the one it must be released on. A release on "the current
+     * route" would leave the button down on the surface that actually has it the moment the route changes
+     * mid-drag, which is the same wedge by a longer path.
+     */
+    private PilotRoute heldRoute;
 
     /** Where on the surface the current drag started — the emulator route's swipe needs both ends at once. */
     private java.awt.Point touchOrigin;
@@ -78,14 +107,28 @@ public final class PilotInputService {
      */
     public synchronized boolean apply(PilotRoute route, Kind kind, int x, int y, int button, int amount,
                                       Bounds bounds) {
-        if (bounds == null || !bounds.contains(x, y)) return false;
+        if (bounds == null) return false;
+        // A route that changed under a drag ends that drag on the surface that owns the button, now, before
+        // anything is dispatched to the new one.
+        if (heldButton != 0 && !routeOrDesktop(route).equals(heldRoute)) releaseHeld();
+        if (!bounds.contains(x, y)) {
+            // Dropping a mid-drag MOVE/UP is what strands the button; the frame edge is where it belongs.
+            if (heldButton == 0 || (kind != Kind.MOVE && kind != Kind.UP)) return false;
+            x = bounds.clampX(x);
+            y = bounds.clampY(y);
+        }
+        int btn = button <= 0 ? 1 : button;
         if (route instanceof PilotRoute.Emulator(EmulatorSurface surface)) {
-            return applyToEmulator(surface, kind, x, y, amount);
+            // No pointer to strand here, but the same clamp has to apply or the swipe's end is thrown away —
+            // so the emulator route takes part in the held-gesture bookkeeping too.
+            if (kind == Kind.DOWN) { heldButton = btn; heldRoute = route; }
+            boolean ok = applyToEmulator(surface, kind, x, y, amount);
+            if (kind == Kind.UP) { heldButton = 0; heldRoute = null; }
+            return ok;
         }
         NativeController nc = controller(route);
         if (nc == null) return false;
 
-        int btn = button <= 0 ? 1 : button;
         try {
             switch (kind) {
                 // Whether a gesture hands the cursor back is PointerPolicy's call, not this switch's. The drag
@@ -96,6 +139,8 @@ public final class PilotInputService {
                     dragOrigin = nc.cursorPosition();
                     nc.mouseMove(x, y);
                     nc.mouseButton(btn, true);
+                    heldButton = btn;   // recorded only once the press actually went out
+                    heldRoute = route;
                 }
                 case MOVE -> nc.mouseMove(x, y);
                 case UP -> {
@@ -103,14 +148,53 @@ public final class PilotInputService {
                     nc.mouseButton(btn, false);
                     PointerPolicy.restoreTo(nc, sessionOf(route), dragOrigin);
                     dragOrigin = null;
+                    heldButton = 0;
+                    heldRoute = null;
                 }
                 case SCROLL -> { nc.mouseMove(x, y); nc.scroll(amount); }
             }
             return true;
         } catch (Exception e) {
             System.err.println("Pilot interact " + kind + " failed: " + e.getMessage());
+            // A throw part-way through a drag is exactly the case that leaves a button down.
+            releaseHeld();
             return false;
         }
+    }
+
+    /** {@code route}, never null — {@link PilotRoute#DESKTOP} is what a missing route means everywhere here. */
+    private static PilotRoute routeOrDesktop(PilotRoute route) {
+        return route == null ? PilotRoute.DESKTOP : route;
+    }
+
+    /**
+     * Let go of whatever button is held, on the route it was pressed on, and hand the cursor back. Idempotent
+     * and safe to call when nothing is held — the owner calls it on every exit a drag can take that isn't an
+     * {@code UP}: the client disconnecting, the server closing, a route change, a failed dispatch.
+     */
+    public synchronized void releaseHeld() {
+        PilotRoute route = heldRoute;
+        int btn = heldButton;
+        java.awt.Point origin = dragOrigin;
+        heldButton = 0;
+        heldRoute = null;
+        dragOrigin = null;
+        touchOrigin = null;
+        if (btn == 0 || route == null || route instanceof PilotRoute.Emulator) return;
+        try {
+            NativeController nc = controller(route);
+            if (nc == null) return;
+            nc.mouseButton(btn, false);
+            PointerPolicy.restoreTo(nc, sessionOf(route), origin);
+        } catch (Exception e) {
+            System.err.println("Pilot interact could not release button " + btn + ": " + e.getMessage());
+        }
+    }
+
+    /** Releases any held button. The controller itself is process-wide and sticky, so it is not torn down. */
+    @Override
+    public void close() {
+        releaseHeld();
     }
 
     /**

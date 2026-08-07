@@ -32,10 +32,12 @@ final class PilotFakes {
         boolean reliableCalled;
         /** Non-null makes the cursor-restoring paths actually restore — the difference a session tap must not make. */
         java.awt.Point cursor;
+        /** What a {@code :0} window search sees, for the title-matched desktop target path. */
+        final List<GenericWindow> windows = new ArrayList<>();
 
         @Override public GenericWindow getForegroundWindow() { return null; }
         @Override public List<GenericWindow> getChildWindows(GenericWindow parent) { return List.of(); }
-        @Override public List<GenericWindow> getAllWindows() { return List.of(); }
+        @Override public List<GenericWindow> getAllWindows() { return windows; }
         @Override public BufferedImage captureWindow(GenericWindow window) { calls.add("capture"); return windowFrame; }
         @Override public void postLeftClick(GenericWindow window, int x, int y) { }
         @Override public void focusWindow(GenericWindow window) { }

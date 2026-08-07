@@ -6,6 +6,21 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-08 — Interact can no longer wedge the host pointer
+  (`services/pilot/PilotInputService`, `PilotServer`, `TargetCapture`).** With the Firestone *window* picked as
+  the capture source, a few taps and the whole desktop stopped responding until Studio was killed. Two causes,
+  both fixed. (1) **A held button was never guaranteed to come back up.** `apply` dropped *any* gesture outside
+  the frame bounds — including the `UP` ending a drag — so `BTN_LEFT` stayed down on the virtual uinput device,
+  which on X is an implicit pointer grab on the window that got the press: every later click anywhere goes
+  there, and only Studio exiting (destroying the device) ends it. A mid-drag `MOVE`/`UP` is now **clamped** into
+  the frame rather than dropped (`DOWN`/`TAP`/`SCROLL` keep the hard reject), the held button and the route it
+  was pressed on are remembered, and `releaseHeld()` — idempotent — runs on every other exit a drag can take:
+  a throw, a route change mid-drag, `ws.onClose`/`onError` (the phone that vanishes), and `close()`.
+  (2) **`:0` input landed in gamescope's own container.** gamescope renames its output window after the app it
+  hosts, so on `:0` the best title match for "Firestone" *is* the session's container; `captureWindowTarget`
+  now refuses a window whose id is the live session's `hostWindowId()`. Also: the AWT screen-rect helpers
+  answer `null` instead of throwing `HeadlessException` into the frame loop.
+
 - **2026-08-08 — the pilot asks which session is live instead of waiting to be told
   (`services/pilot/PilotSession`, `PilotServer`, `NestedSessionLauncher`, `services/launch/BackgroundLauncher`).**
   Launch a game from the ▶ Launch toolbar and the pilot went on streaming — and, with Interact armed,

@@ -1,6 +1,8 @@
 package com.botmaker.studio.services.pilot;
 
 import com.botmaker.shared.capture.GenericWindow;
+import com.botmaker.shared.capture.NativeControllerFactory;
+import com.botmaker.shared.ipc.TelemetryEvent;
 import com.botmaker.session.Capability;
 import org.junit.jupiter.api.Test;
 
@@ -9,6 +11,7 @@ import java.awt.image.BufferedImage;
 import java.util.EnumSet;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -69,6 +72,47 @@ class TargetCaptureTest {
         PilotFakes.RecordingSurface surface = new PilotFakes.RecordingSurface(null);
 
         assertNull(new TargetCapture(null).resolve(new PilotRoute.Emulator(surface), null));
+    }
+
+    /**
+     * gamescope renames its output window after the app it hosts, so on {@code :0} the best title match for the
+     * game <em>is</em> the session's own container. Streaming it looks right and is a trap: Interact would then
+     * fire real device input into the container and the host desktop stops responding. It is refused by id.
+     */
+    @Test
+    void aSessionsOwnHostWindowIsNeverStreamedAsADesktopWindowTarget() {
+        PilotFakes.RecordingController nc = new PilotFakes.RecordingController();
+        nc.windowFrame = new BufferedImage(640, 480, BufferedImage.TYPE_INT_RGB);
+        nc.windows.add(new GenericWindow(4242L, "Firestone", new Rectangle(0, 0, 640, 480)));
+        NativeControllerFactory.setForTesting(nc);
+        try {
+            TargetCapture capture = new TargetCapture(null, () -> 4242L);
+
+            capture.resolve(PilotRoute.DESKTOP, new TelemetryEvent.Target("Firestone", 0, 0, 640, 480));
+
+            assertFalse(nc.calls.contains("capture"),
+                    "the session's own container must never be grabbed as a :0 window target");
+        } finally {
+            NativeControllerFactory.setForTesting(null);
+        }
+    }
+
+    /** The same window with no session live is an ordinary target — the guard keys on the id, not the title. */
+    @Test
+    void anOrdinaryWindowTargetIsStillCaptured() {
+        PilotFakes.RecordingController nc = new PilotFakes.RecordingController();
+        nc.windowFrame = new BufferedImage(640, 480, BufferedImage.TYPE_INT_RGB);
+        nc.windows.add(new GenericWindow(4242L, "Firestone", new Rectangle(0, 0, 640, 480)));
+        NativeControllerFactory.setForTesting(nc);
+        try {
+            TargetCapture.Resolved resolved = new TargetCapture(null)
+                    .resolve(PilotRoute.DESKTOP, new TelemetryEvent.Target("Firestone", 0, 0, 640, 480));
+
+            assertNotNull(resolved);
+            assertSame(nc.windowFrame, resolved.cap().img());
+        } finally {
+            NativeControllerFactory.setForTesting(null);
+        }
     }
 
     /**

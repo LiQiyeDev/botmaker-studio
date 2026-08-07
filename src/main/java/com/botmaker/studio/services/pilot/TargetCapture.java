@@ -5,9 +5,11 @@ import com.botmaker.shared.capture.NativeControllerFactory;
 import com.botmaker.shared.capture.WindowMatch;
 import com.botmaker.shared.ipc.TelemetryEvent;
 import com.botmaker.session.DesktopSession;
+import com.botmaker.session.remote.WindowIds;
 import com.botmaker.studio.emulator.EmulatorSurface;
 import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.services.ProjectSettingsService;
+import com.botmaker.studio.services.launch.BackgroundLauncher;
 
 import javax.imageio.ImageIO;
 import java.awt.GraphicsDevice;
@@ -17,6 +19,8 @@ import java.awt.Rectangle;
 import java.awt.Robot;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
+import java.nio.file.Path;
+import java.util.function.LongSupplier;
 
 /**
  * Resolves and grabs a single non-intrusive frame of "the surface the bot is acting on", plus the JPEG
@@ -51,8 +55,26 @@ public final class TargetCapture {
 
     private final ProjectSettingsService settings;
 
+    /** The live session's host window on {@code :0}, or {@code 0} — see {@link #captureWindowTarget}. */
+    private final LongSupplier sessionHostWindow;
+
+    /** No session to recognise: every {@code :0} window target is an ordinary window. For tests. */
     public TargetCapture(ProjectSettingsService settings) {
+        this(settings, () -> 0);
+    }
+
+    public TargetCapture(ProjectSettingsService settings, LongSupplier sessionHostWindow) {
         this.settings = settings;
+        this.sessionHostWindow = sessionHostWindow;
+    }
+
+    /** The production wiring: the host window comes from the project's one {@link BackgroundLauncher}. */
+    public static TargetCapture forProject(ProjectSettingsService settings, Path resourcesDir) {
+        if (resourcesDir == null) {
+            return new TargetCapture(settings);
+        }
+        BackgroundLauncher launcher = BackgroundLauncher.forProject(resourcesDir);
+        return new TargetCapture(settings, launcher::hostWindowId);
     }
 
     /**
@@ -156,10 +178,23 @@ public final class TargetCapture {
         }
     }
 
+    /**
+     * A window on the real {@code :0}, matched by title — <b>unless it is the live session's own container</b>.
+     *
+     * <p>gamescope renames its output window after the app it hosts, so with a game running on {@code :N} the
+     * best {@code :0} match for "Firestone" is gamescope itself. Streaming that looks right and is a trap: the
+     * frame is tagged with a host rect, so Interact escalates the {@code :0} controller to real device input and
+     * fires clicks <em>into the container</em> — the pointer ends up owned by gamescope or stranded on a held
+     * button, and the desktop stops responding. The session route already wins over this one
+     * ({@link PilotRoutes}); refusing the window here makes the bad path unreachable rather than merely
+     * outranked.
+     */
     private Capture captureWindowTarget(String title) {
         try {
             GenericWindow win = resolveWindow(title);
             if (win == null) return null;
+            long host = safeHostWindow();
+            if (host != 0 && WindowIds.of(win) == host) return null;
             BufferedImage img = NativeControllerFactory.get().captureWindow(win); // no focus — non-intrusive
             if (img == null) return null;
             Rectangle b = win.getRect();
@@ -170,11 +205,21 @@ public final class TargetCapture {
     }
 
     private Capture captureBounds(Rectangle b) {
+        if (b == null) return null;
         try {
             BufferedImage img = new Robot().createScreenCapture(b);
             return img == null ? null : new Capture(img, b.x, b.y, b.width, b.height);
         } catch (Throwable ex) {
             return null;
+        }
+    }
+
+    /** {@code 0} — "no session, so no window to refuse" — is the safe answer to every failure here. */
+    private long safeHostWindow() {
+        try {
+            return sessionHostWindow == null ? 0 : sessionHostWindow.getAsLong();
+        } catch (Exception e) {
+            return 0;
         }
     }
 
@@ -186,17 +231,30 @@ public final class TargetCapture {
         }
     }
 
+    /**
+     * The screen rects are asked of AWT, which throws {@link java.awt.HeadlessException} where there is no
+     * display at all — so each answers {@code null} instead, and {@link #captureBounds} reads that as "no frame
+     * this tick" like every other failure here. The frame loop must not die because a screen went away.
+     */
     private static Rectangle screenBounds(int index) {
-        GraphicsDevice[] devices = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
-        if (index >= 0 && index < devices.length) {
-            return devices[index].getDefaultConfiguration().getBounds();
+        try {
+            GraphicsDevice[] devices = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
+            if (index >= 0 && index < devices.length) {
+                return devices[index].getDefaultConfiguration().getBounds();
+            }
+        } catch (Throwable ignored) {
+            // fall through to the primary, which reports its own failure the same way
         }
         return primaryBounds();
     }
 
     private static Rectangle primaryBounds() {
-        return GraphicsEnvironment.getLocalGraphicsEnvironment()
-                .getDefaultScreenDevice().getDefaultConfiguration().getBounds();
+        try {
+            return GraphicsEnvironment.getLocalGraphicsEnvironment()
+                    .getDefaultScreenDevice().getDefaultConfiguration().getBounds();
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 
     private static GenericWindow resolveWindow(String titleSubstring) {
@@ -208,11 +266,15 @@ public final class TargetCapture {
     }
 
     private static Rectangle virtualBounds() {
-        Rectangle bounds = new Rectangle();
-        for (GraphicsDevice gd : GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices()) {
-            bounds = bounds.union(gd.getDefaultConfiguration().getBounds());
+        try {
+            Rectangle bounds = new Rectangle();
+            for (GraphicsDevice gd : GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices()) {
+                bounds = bounds.union(gd.getDefaultConfiguration().getBounds());
+            }
+            return bounds.isEmpty() ? new Rectangle(0, 0, 1920, 1080) : bounds;
+        } catch (Throwable ignored) {
+            return null;
         }
-        return bounds.isEmpty() ? new Rectangle(0, 0, 1920, 1080) : bounds;
     }
 
     // --- Encoding ---

@@ -94,7 +94,7 @@ public final class PilotServer implements AutoCloseable {
         // Background-mode box started it. Nobody has to remember to tell this server about it.
         this.session = PilotSession.forProject(resourcesDir);
         this.routes = PilotRoutes.forProject(session, resourcesDir, settings);
-        this.capture = new TargetCapture(settings);
+        this.capture = TargetCapture.forProject(settings, resourcesDir);
         this.control = control;
     }
 
@@ -150,8 +150,11 @@ public final class PilotServer implements AutoCloseable {
                 Client client = clients.get(ctx);
                 if (client != null) handleCommand(client, ctx.message());
             });
-            ws.onClose(ctx -> clients.remove(ctx));
-            ws.onError(ctx -> clients.remove(ctx));
+            // A phone that vanishes mid-drag never sends its UP, so the release happens here instead. It is
+            // unconditional rather than gated on "was it this client's drag": a drag cut short is a gesture
+            // the user repeats, a button left down is a desktop they can't click until Studio exits.
+            ws.onClose(ctx -> { clients.remove(ctx); input.releaseHeld(); });
+            ws.onError(ctx -> { clients.remove(ctx); input.releaseHeld(); });
         });
         // Reuse the last bound port when it's free so the tailnet-direct URL is stable across Studio restarts
         // (mirrors the persisted token). Fall back to an OS-assigned ephemeral port if it's taken, then persist
@@ -193,6 +196,7 @@ public final class PilotServer implements AutoCloseable {
     @Override
     public synchronized void close() {
         if (frameExec != null) { frameExec.shutdownNow(); frameExec = null; }
+        input.close();  // never hand the desktop back with a mouse button still down
         routes.close(); // drop any held emulator connection with the loop that was using it
         clients.clear();
         if (app != null) { app.stop(); app = null; }
