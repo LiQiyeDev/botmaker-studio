@@ -1,5 +1,6 @@
 package com.botmaker.studio;
 
+import com.botmaker.session.remote.DisplayAgent;
 import com.botmaker.shared.capture.linux.X11ErrorTrap;
 import com.botmaker.session.impl.NestedSession;
 import com.botmaker.studio.project.BotProject;
@@ -351,6 +352,13 @@ public class BotMakerStudio extends Application {
     }
 
     public static void main(String[] args) {
+        // Before anything else — certainly before JavaFX: this same program is what a session re-execs to get a
+        // process that can hold a :N connection safely (see DisplayAgent). Booting a whole IDE to answer window
+        // queries over a pipe would be absurd, and the agent's stdout is a binary protocol a UI would corrupt.
+        if (DisplayAgent.isAgentInvocation(args)) {
+            DisplayAgent.run(args);
+            return;
+        }
         // Swallow benign Xlib protocol errors (BadMatch from window capture, etc.) at their source. Must run
         // BEFORE launch(): installing an Xlib error handler after JavaFX's GTK backend is up triggers GDK's
         // own "XSetErrorHandler() called with a GDK error trap pushed" warning. No-op off Linux.
