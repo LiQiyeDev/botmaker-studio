@@ -9,6 +9,7 @@ import com.botmaker.studio.services.pilot.NestedSessionLauncher;
 import com.botmaker.studio.services.pilot.PilotControlService;
 import com.botmaker.studio.services.pilot.PilotServer;
 import com.botmaker.studio.services.pilot.TailscaleFunnelService;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.event.ActionEvent;
 import javafx.geometry.Pos;
@@ -241,7 +242,7 @@ public final class RemotePilotUi implements AutoCloseable {
 
     /** Indeterminate spinner shown while the (possibly multi-second) Tailscale bring-up runs off-thread. */
     private Alert progressDialog(AtomicBoolean cancelled) {
-        Alert a = new Alert(Alert.AlertType.NONE);
+        Alert a = ThemedWindows.alert(Alert.AlertType.NONE);
         a.initOwner(owner);
         a.setTitle("Remote Pilot");
         ProgressIndicator spinner = new ProgressIndicator();

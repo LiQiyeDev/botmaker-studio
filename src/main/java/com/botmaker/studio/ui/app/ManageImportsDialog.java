@@ -3,6 +3,7 @@ package com.botmaker.studio.ui.app;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.types.ResolvedType;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
@@ -60,7 +61,7 @@ public class ManageImportsDialog {
         root.setPadding(new Insets(16));
         root.getChildren().addAll(buildList(), buildAddRow(), buildButtonBar());
 
-        stage.setScene(new Scene(root, 520, 420));
+        stage.setScene(ThemedWindows.scene(root, 520, 420));
         stage.show();
     }
 

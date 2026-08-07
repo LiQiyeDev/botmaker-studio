@@ -2,6 +2,7 @@ package com.botmaker.studio.ui.app;
 
 import com.botmaker.studio.sharing.GitHubAuth;
 import com.botmaker.studio.sharing.GitHubClient;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import com.botmaker.studio.util.BrowserLauncher;
 import javafx.application.Platform;
 import javafx.geometry.Pos;
@@ -131,7 +132,7 @@ public final class GitHubAccountBar extends HBox {
         codeArea.setPrefRowCount(1);
         codeArea.setMaxWidth(160);
 
-        Alert a = new Alert(Alert.AlertType.INFORMATION);
+        Alert a = ThemedWindows.alert(Alert.AlertType.INFORMATION);
         if (owner != null) a.initOwner(owner);
         a.setTitle("Sign in with GitHub");
         a.setHeaderText("Authorize BotMaker Studio");

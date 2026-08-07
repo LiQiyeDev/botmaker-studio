@@ -14,6 +14,7 @@ import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.ui.app.pilot.RemotePilotUi;
 import com.botmaker.studio.ui.render.theme.BlockTheme;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import com.botmaker.studio.validation.DiagnosticsManager;
 import javafx.application.Platform;
 import javafx.beans.binding.Bindings;
@@ -244,6 +245,7 @@ public class UIManager {
     /** Shows a modal prompt when the running bot blocks on stdin, then sends the entered line to the program. */
     private void promptForInput(CoreApplicationEvents.InputRequestedEvent event) {
         TextInputDialog dialog = new TextInputDialog();
+        ThemedWindows.apply(dialog);
         dialog.initOwner(primaryStage);
         dialog.setTitle("Bot needs input");
         dialog.setHeaderText("The bot is waiting for input");
@@ -396,7 +398,7 @@ public class UIManager {
         VBox root = new VBox(menuBarManager.getMenuBar(), toolbarColumn, mainSplit, statusLabel);
         VBox.setVgrow(mainSplit, Priority.ALWAYS);
         // Initialize with the current theme - add the appropriate theme class
-        applyThemeToScene(root);
+        ThemedWindows.applyThemeClass(root);
 
         // Store references for theme switching
         this.root = root;
@@ -415,10 +417,7 @@ public class UIManager {
         this.scene = scene;
 
         // Block "state" styling (highlight / error / breakpoint / read-only) via pseudo-classes.
-        var blocksCss = UIManager.class.getResource("/css/blocks.css");
-        if (blocksCss != null) {
-            scene.getStylesheets().add(blocksCss.toExternalForm());
-        }
+        ThemedWindows.addStylesheet(scene);
 
         // Global Key Handlers
         KeyCombination copyCombo = new KeyCodeCombination(KeyCode.C, KeyCombination.SHORTCUT_DOWN);
@@ -449,7 +448,7 @@ public class UIManager {
         try {
             ProjectMode.switchToEditor(config.projectPath());
         } catch (IOException ex) {
-            new Alert(Alert.AlertType.ERROR, "Couldn't switch to Editor mode: " + ex.getMessage(),
+            ThemedWindows.alert(Alert.AlertType.ERROR, "Couldn't switch to Editor mode: " + ex.getMessage(),
                     ButtonType.OK).showAndWait();
             return;
         }
@@ -469,27 +468,9 @@ public class UIManager {
         commit.start();
     }
 
-    /** Applies the current theme CSS class to the specified root node. */
-    private void applyThemeToScene(Parent rootNode) {
-        if (rootNode == null) return;
-
-        BlockTheme.ThemeType current = BlockTheme.getCurrentThemeType();
-
-        // Remove all theme classes
-        rootNode.getStyleClass().removeAll("default-theme", "dark-theme", "black-theme", "high-contrast-theme", "light-theme");
-
-        // Add the current theme class
-        switch (current) {
-            case DEFAULT -> rootNode.getStyleClass().add("default-theme");
-            case DARK -> rootNode.getStyleClass().add("dark-theme");
-            case BLACK -> rootNode.getStyleClass().add("black-theme");
-            case HIGH_CONTRAST -> rootNode.getStyleClass().add("high-contrast-theme");
-        }
-    }
-
     /** Applies the current theme CSS class to the stored scene root. */
     private void applyThemeToScene() {
-        applyThemeToScene(root);
+        ThemedWindows.applyThemeClass(root);
     }
 
     /** A closable-free bottom tab carrying its title from the closed set. */

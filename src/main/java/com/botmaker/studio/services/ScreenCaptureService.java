@@ -9,6 +9,7 @@ import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.DesktopTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.ScreenTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.WindowTarget;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Rectangle2D;
@@ -236,7 +237,7 @@ public final class ScreenCaptureService {
      * session, where {@code Robot} capture is blocked. Dismissible; ties into the force-X11 guidance.
      */
     private void showBlankWarning(Window owner) {
-        Alert alert = new Alert(Alert.AlertType.WARNING);
+        Alert alert = ThemedWindows.alert(Alert.AlertType.WARNING);
         if (owner != null) alert.initOwner(owner);
         alert.setTitle("Screen capture unavailable");
         alert.setHeaderText("Couldn't capture the screen");
@@ -304,6 +305,7 @@ public final class ScreenCaptureService {
         }
 
         Dialog<ButtonType> dialog = new Dialog<>();
+        ThemedWindows.apply(dialog);
         if (owner != null) dialog.initOwner(owner);
         dialog.setTitle("Capture screen");
         dialog.setHeaderText("Which screen do you want to capture?");

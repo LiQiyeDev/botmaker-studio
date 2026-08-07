@@ -4,6 +4,7 @@ import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.sharing.BotPublisher;
 import com.botmaker.studio.sharing.GitHubAuth;
 import com.botmaker.studio.sharing.GitHubClient;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.geometry.Insets;
 import javafx.scene.Scene;
 import javafx.scene.layout.VBox;
@@ -38,7 +39,7 @@ public class VcsDialog {
         VBox root = new VBox(panel.getView());
         root.setPadding(new Insets(4));
         VBox.setVgrow(panel.getView(), javafx.scene.layout.Priority.ALWAYS);
-        stage.setScene(new Scene(root, 720, 520));
+        stage.setScene(ThemedWindows.scene(root, 720, 520));
         stage.show();
         panel.refresh();
     }

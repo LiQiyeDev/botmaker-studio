@@ -9,6 +9,7 @@ import com.botmaker.studio.project.ProjectTemplate;
 import com.botmaker.studio.project.StudioContext;
 import com.botmaker.studio.project.activity.ActivityDefinition;
 import com.botmaker.studio.services.ActivityService;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonType;
@@ -58,7 +59,7 @@ final class ProjectRecoveryAction {
                 ProjectRepair.findDamaged(config, state.getTemplate(), canonicalScaffold(ctx));
 
         if (missing.isEmpty() && damaged.isEmpty()) {
-            Alert ok = new Alert(Alert.AlertType.INFORMATION);
+            Alert ok = ThemedWindows.alert(Alert.AlertType.INFORMATION);
             ok.setTitle("Recover Project Files");
             ok.setHeaderText("Nothing to recover.");
             ok.setContentText("Every file this project needs is present, and nothing BotMaker generates has "
@@ -67,7 +68,7 @@ final class ProjectRecoveryAction {
             return;
         }
 
-        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+        Alert confirm = ThemedWindows.alert(Alert.AlertType.CONFIRMATION);
         confirm.setTitle("Recover Project Files");
         confirm.setHeaderText(headerFor(missing, damaged));
         confirm.setContentText(detailOf(missing, damaged)
@@ -97,7 +98,7 @@ final class ProjectRecoveryAction {
                 ctx.codeEditorService().switchToFile(state.getActiveFile().getPath());
             }
         } catch (IOException ex) {
-            Alert err = new Alert(Alert.AlertType.ERROR);
+            Alert err = ThemedWindows.alert(Alert.AlertType.ERROR);
             err.setTitle("Recover Project Files");
             err.setHeaderText("Could not recover the project files.");
             err.setContentText(ex.getMessage());

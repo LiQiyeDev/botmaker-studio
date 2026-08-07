@@ -12,6 +12,7 @@ import com.botmaker.studio.project.launch.QuickLaunch;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -126,7 +127,7 @@ public final class ProjectSetupDialog {
         });
 
         refresh();
-        stage.setScene(new Scene(root, 520, 440));
+        stage.setScene(ThemedWindows.scene(root, 520, 440));
         stage.show();
     }
 

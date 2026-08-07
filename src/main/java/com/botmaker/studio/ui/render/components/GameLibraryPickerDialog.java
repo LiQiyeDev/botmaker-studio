@@ -2,6 +2,7 @@ package com.botmaker.studio.ui.render.components;
 
 import com.botmaker.studio.game.GameLibraryProvider;
 import com.botmaker.studio.game.InstalledGame;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -46,6 +47,7 @@ public final class GameLibraryPickerDialog {
     /** Shows the picker for {@code provider}; resolves to the chosen game, or empty if cancelled. */
     public static Optional<InstalledGame> show(Window owner, GameLibraryProvider provider) {
         Dialog<InstalledGame> dialog = new Dialog<>();
+        ThemedWindows.apply(dialog);
         dialog.setTitle("Choose a " + provider.displayName() + " game");
         if (owner != null) dialog.initOwner(owner);
         dialog.getDialogPane().getButtonTypes().add(ButtonType.CANCEL);

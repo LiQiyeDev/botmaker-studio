@@ -1,5 +1,6 @@
 package com.botmaker.studio.ui.app;
 
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
@@ -105,7 +106,7 @@ public final class GettingStartedDialog {
 
         VBox root = new VBox(12, heading, intro, new Separator(), scroll, new Separator(), bar);
         root.setPadding(new Insets(18));
-        stage.setScene(new Scene(root, 560, 620));
+        stage.setScene(ThemedWindows.scene(root, 560, 620));
         stage.show();
     }
 

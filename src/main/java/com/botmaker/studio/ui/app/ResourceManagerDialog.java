@@ -6,6 +6,7 @@ import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -99,7 +100,7 @@ public class ResourceManagerDialog {
         root.setPadding(new Insets(16));
 
         reload();
-        stage.setScene(new Scene(root, 760, 560));
+        stage.setScene(ThemedWindows.scene(root, 760, 560));
         stage.show();
     }
 

@@ -2,6 +2,7 @@ package com.botmaker.studio.ui.app;
 
 import com.botmaker.studio.project.ProjectPreferences;
 import com.botmaker.studio.services.platform.SessionEnvironment;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.event.ActionEvent;
 import javafx.geometry.Insets;
@@ -38,7 +39,7 @@ public final class ForceX11Notice {
     }
 
     private static void show(Window owner) {
-        Alert alert = new Alert(Alert.AlertType.WARNING);
+        Alert alert = ThemedWindows.alert(Alert.AlertType.WARNING);
         if (owner != null) alert.initOwner(owner);
         alert.setTitle("Switch to X11 for full support");
         alert.setHeaderText("BotMaker needs an X11 (Xorg) session");

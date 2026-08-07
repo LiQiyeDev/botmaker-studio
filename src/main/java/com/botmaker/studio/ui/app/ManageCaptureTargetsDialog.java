@@ -8,6 +8,7 @@ import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.ui.app.capture.CaptureSourcePicker;
 import com.botmaker.studio.ui.app.capture.TargetThumbnail;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -119,7 +120,7 @@ public class ManageCaptureTargetsDialog {
         root.setPadding(new Insets(16));
         root.getChildren().addAll(buildList(), buildAddRow(), buildButtonBar());
 
-        stage.setScene(new Scene(root, 560, 520));
+        stage.setScene(ThemedWindows.scene(root, 560, 520));
         stage.setOnHidden(e -> {
             thumbExec.shutdownNow();
             if (onClosed != null) onClosed.run();

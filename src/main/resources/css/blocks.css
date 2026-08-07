@@ -125,6 +125,9 @@
     -bm-severity-warning-text: #d35400;
     -bm-severity-info: #3498db;
     -bm-severity-info-text: #2980b9;
+    /* "It worked" green, for the status lines dialogs write after an action. Only severities have text
+       tokens; this is the fourth, and like them it is per-theme because a fixed green fails on one end. */
+    -bm-severity-ok-text: #2e7d32;
 }
 
 /*
@@ -179,6 +182,31 @@
     -fx-border-width: 1 0 0 0;
     -fx-padding: 2 5 2 5;
     -fx-text-fill: -fx-text-background-color;
+}
+
+/* ---------------------------------------------------------------------------
+ * Dialog chrome — the handful of looks every secondary window builds by hand.
+ *
+ * Secondary windows are themed by ui/render/theme/ThemedWindows (this stylesheet + the theme's style class);
+ * these classes exist so their *content* stops setting the same things inline. An inline style beats the
+ * stylesheet in every theme, so a literal `gray` hint or a `#b00020` error line survived the theme switch and
+ * became the unreadable part of an otherwise dark dialog.
+ *
+ * The hint deliberately has no colour of its own: dimming is `-fx-opacity` over the inherited text colour,
+ * which is correct under a light *and* a dark theme (see the -bm-text-on-color note above).
+ * --------------------------------------------------------------------------- */
+.dialog-heading    { -fx-font-weight: bold; -fx-font-size: 14px; }
+.dialog-subheading { -fx-font-weight: bold; -fx-font-size: 12px; }
+.dialog-hint       { -fx-font-size: 11px; -fx-opacity: 0.75; }
+.dialog-status     { -fx-font-size: 11px; }
+.dialog-compact    { -fx-font-size: 11px; }  /* a secondary row of controls: MRU entries, inline buttons */
+.dialog-status--ok    { -fx-text-fill: -bm-severity-ok-text; }
+.dialog-status--error { -fx-text-fill: -bm-severity-error-text; }
+
+/* A scroll pane used purely for overflow, inside a dialog that already paints its own background. */
+.transparent-scroll,
+.transparent-scroll > .viewport {
+    -fx-background-color: transparent;
 }
 
 /* ---------------------------------------------------------------------------
@@ -1447,6 +1475,7 @@
     -bm-severity-warning-text: #f5b041;
     -bm-severity-info: #4a90d9;
     -bm-severity-info-text: #7ab6ec;
+    -bm-severity-ok-text: #81c784;
 }
 
 /* Black Theme */
@@ -1520,6 +1549,7 @@
     -bm-severity-warning-text: #ffca28;
     -bm-severity-info: #2196f3;
     -bm-severity-info-text: #64b5f6;
+    -bm-severity-ok-text: #66bb6a;
 }
 
 /* High Contrast Theme — pure black/white/yellow, maximised text and border contrast. */
@@ -1601,4 +1631,5 @@
     -bm-severity-warning-text: #ffff00;
     -bm-severity-info: #00ffff;
     -bm-severity-info-text: #00ffff;
+    -bm-severity-ok-text: #00ff00;
 }

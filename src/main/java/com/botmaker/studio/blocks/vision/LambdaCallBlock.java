@@ -15,6 +15,7 @@ import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.ui.render.components.BlockUIComponents;
 import com.botmaker.studio.ui.render.layout.BlockLayout;
 import com.botmaker.studio.ui.render.layout.SentenceLayoutBuilder;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import com.botmaker.studio.util.MethodSignature;
 import javafx.scene.Node;
 import javafx.scene.control.Alert;
@@ -174,7 +175,7 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
      */
     private boolean confirmBodyDiscard(String newClass) {
         if (body == null || body.getChildren().isEmpty()) return true;
-        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
+        Alert confirm = ThemedWindows.alert(Alert.AlertType.CONFIRMATION,
                 "Only ImageFinder's loop helpers take an action body.\n\n"
                         + "Switching to " + newClass + " will delete the " + body.getChildren().size()
                         + " statement(s) inside this loop.",

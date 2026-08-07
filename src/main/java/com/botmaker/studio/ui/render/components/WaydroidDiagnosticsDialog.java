@@ -2,6 +2,7 @@ package com.botmaker.studio.ui.render.components;
 
 import com.botmaker.shared.emulator.WaydroidDiagnostics;
 import com.botmaker.shared.emulator.WaydroidDiagnostics.Finding;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -44,6 +45,7 @@ public final class WaydroidDiagnosticsDialog {
     /** Runs the probes off the FX thread and shows the results. Returns as soon as the dialog is dismissed. */
     public static void show(Window owner) {
         Dialog<ButtonType> dialog = new Dialog<>();
+        ThemedWindows.apply(dialog);
         dialog.setTitle("Waydroid diagnostics");
         if (owner != null) dialog.initOwner(owner);
         dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);

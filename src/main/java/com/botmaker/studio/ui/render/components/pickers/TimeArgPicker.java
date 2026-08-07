@@ -3,6 +3,7 @@ package com.botmaker.studio.ui.render.components.pickers;
 import com.botmaker.studio.core.AbstractCodeBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.services.CodeEditorService;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -70,6 +71,7 @@ public final class TimeArgPicker {
 
     private static LocalTime showClock(Window owner, LocalTime current) {
         Dialog<ButtonType> dialog = new Dialog<>();
+        ThemedWindows.apply(dialog);
         if (owner != null) dialog.initOwner(owner);
         dialog.setTitle("Time of day");
         dialog.setHeaderText(null);

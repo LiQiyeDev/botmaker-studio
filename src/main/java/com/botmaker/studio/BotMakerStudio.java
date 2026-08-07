@@ -8,6 +8,7 @@ import com.botmaker.studio.project.ProjectPreferences;
 import com.botmaker.studio.ui.app.ForceX11Notice;
 import com.botmaker.studio.ui.app.ProjectSelectionScreen;
 import com.botmaker.studio.ui.app.UIManager;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.concurrent.Task;
@@ -207,11 +208,12 @@ public class BotMakerStudio extends Application {
         Label title = new Label("Opening " + projectName + "…");
         title.setStyle("-fx-font-size: 18px; -fx-font-weight: bold;");
 
-        statusLabel.setStyle("-fx-font-size: 12px; -fx-text-fill: gray;");
+        // Not inline: `gray` is a literal, and a literal survives the theme switch that everything around it obeys.
+        statusLabel.getStyleClass().add("dialog-hint");
 
         VBox box = new VBox(15, title, progressBar, statusLabel);
         box.setAlignment(Pos.CENTER);
-        return new Scene(box, 620, 600);
+        return ThemedWindows.scene(box, 620, 600);
     }
 
     private UIManager getUiManager(Stage primaryStage) {
@@ -343,7 +345,7 @@ public class BotMakerStudio extends Application {
     }
 
     private void showErrorDialog(String message) {
-        Alert alert = new Alert(Alert.AlertType.ERROR);
+        Alert alert = ThemedWindows.alert(Alert.AlertType.ERROR);
         if (primaryStage != null) alert.initOwner(primaryStage);
         alert.setTitle("Error");
         alert.setHeaderText("Failed to open project");

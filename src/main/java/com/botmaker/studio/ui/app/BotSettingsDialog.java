@@ -3,6 +3,7 @@ package com.botmaker.studio.ui.app;
 import com.botmaker.shared.capture.linux.input.LinuxInputBackendId;
 import com.botmaker.studio.project.BotSettings;
 import com.botmaker.studio.project.ProjectConfig;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
@@ -94,7 +95,7 @@ public final class BotSettingsDialog {
                 buildSessionPane(), new Separator(), buildVisionPane(), new Separator(), bar);
         root.setPadding(new Insets(18));
 
-        stage.setScene(new Scene(root, 620, 720));
+        stage.setScene(ThemedWindows.scene(root, 620, 720));
         stage.show();
     }
 

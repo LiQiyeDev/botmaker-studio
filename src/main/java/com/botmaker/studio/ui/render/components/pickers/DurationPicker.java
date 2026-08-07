@@ -5,6 +5,7 @@ import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.parser.helpers.SdkNodes;
 import com.botmaker.studio.services.CodeEditorService;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -201,6 +202,7 @@ public final class DurationPicker {
     /** Value + unit + range, in one small modal. Returns null when cancelled. */
     private static Span showDialog(Window owner, Span current, boolean rangeable) {
         Dialog<ButtonType> dialog = new Dialog<>();
+        ThemedWindows.apply(dialog);
         if (owner != null) dialog.initOwner(owner);
         dialog.setTitle("Duration");
         dialog.setHeaderText(null);

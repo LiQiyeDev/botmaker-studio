@@ -3,6 +3,7 @@ package com.botmaker.studio.ui.app;
 import com.botmaker.studio.sharing.GitHubAuth;
 import com.botmaker.studio.sharing.GitHubClient;
 import com.botmaker.studio.ui.render.theme.BlockTheme;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.geometry.Insets;
@@ -128,7 +129,7 @@ final class IdentityCluster {
                 () -> refreshGitHubButton(gitHub));
         VBox box = new VBox(bar);
         box.setPadding(new Insets(14));
-        popup.setScene(new Scene(box));
+        popup.setScene(ThemedWindows.scene(box));
         popup.show();
     }
 

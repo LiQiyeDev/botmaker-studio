@@ -1,6 +1,7 @@
 package com.botmaker.studio.ui.app.flow;
 
 import com.botmaker.studio.project.activity.FlowEdge;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -113,7 +114,7 @@ public final class NewActivityDialog {
         root.setPadding(new Insets(16));
 
         rebuildOutcomeRows();
-        stage.setScene(new Scene(root, 460, 460));
+        stage.setScene(ThemedWindows.scene(root, 460, 460));
         // After the stage is up: a requestFocus before the window exists has nothing to focus.
         Platform.runLater(name::requestFocus);
         stage.showAndWait();

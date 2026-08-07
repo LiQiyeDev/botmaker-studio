@@ -2,6 +2,7 @@ package com.botmaker.studio.ui.app;
 
 import com.botmaker.studio.project.ProjectInfo;
 import com.botmaker.studio.project.ProjectManager;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
@@ -84,7 +85,7 @@ public final class ArchivedProjectsDialog {
         root.setPadding(new Insets(16));
 
         reload();
-        stage.setScene(new Scene(root, 560, 460));
+        stage.setScene(ThemedWindows.scene(root, 560, 460));
         stage.show();
     }
 
@@ -107,7 +108,7 @@ public final class ArchivedProjectsDialog {
     private void deleteSelected() {
         ProjectInfo sel = list.getSelectionModel().getSelectedItem();
         if (sel == null) return;
-        Alert confirm = new Alert(Alert.AlertType.WARNING,
+        Alert confirm = ThemedWindows.alert(Alert.AlertType.WARNING,
                 "Permanently delete “" + sel.name() + "”?\n\nThis removes the project and all its files from "
                         + "disk. This cannot be undone.",
                 ButtonType.OK, ButtonType.CANCEL);
@@ -125,7 +126,7 @@ public final class ArchivedProjectsDialog {
     }
 
     private void error(String header, String body) {
-        Alert alert = new Alert(Alert.AlertType.ERROR);
+        Alert alert = ThemedWindows.alert(Alert.AlertType.ERROR);
         alert.initOwner(stage);
         alert.setTitle("Error");
         alert.setHeaderText(header);

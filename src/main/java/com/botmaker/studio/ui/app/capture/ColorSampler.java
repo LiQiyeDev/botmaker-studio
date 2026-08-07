@@ -3,6 +3,7 @@ package com.botmaker.studio.ui.app.capture;
 import com.botmaker.shared.opencv.ColorMatcher;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.ScreenCaptureService;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.geometry.Insets;
 import javafx.geometry.Point2D;
 import javafx.geometry.Pos;
@@ -140,7 +141,7 @@ public final class ColorSampler {
 
             BorderPane root = new BorderPane(pane);
             root.setBottom(buildBar());
-            Scene scene = new Scene(root);
+            Scene scene = ThemedWindows.scene(root);
             scene.setOnKeyPressed(e -> {
                 if (e.getCode() == KeyCode.ESCAPE) stage.close();
                 if (e.isControlDown() && (e.getCode() == KeyCode.DIGIT0 || e.getCode() == KeyCode.NUMPAD0)) {

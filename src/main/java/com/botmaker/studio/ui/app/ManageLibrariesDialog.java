@@ -5,6 +5,7 @@ import com.botmaker.studio.services.JitPackSearch;
 import com.botmaker.studio.services.LibraryService;
 import com.botmaker.studio.services.MavenCentralSearch;
 import com.botmaker.studio.services.MavenService;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.animation.PauseTransition;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
@@ -94,7 +95,7 @@ public class ManageLibrariesDialog {
         root.setPadding(new Insets(16));
         root.getChildren().addAll(buildTable(), buildAddRow(), buildButtonBar());
 
-        stage.setScene(new Scene(root, 560, 460));
+        stage.setScene(ThemedWindows.scene(root, 560, 460));
         stage.show();
     }
 

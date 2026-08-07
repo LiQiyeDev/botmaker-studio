@@ -15,6 +15,7 @@ import com.botmaker.studio.ui.app.flow.ActivityValueWidgets.ValueEditor;
 import com.botmaker.studio.ui.app.flow.FlowCanvas;
 import com.botmaker.studio.ui.app.flow.FlowNames;
 import com.botmaker.studio.ui.app.flow.NewActivityDialog;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Point2D;
@@ -127,7 +128,7 @@ public class ActivityFlowDialog {
         showInSidePanel(null);
         refreshOrderLabel();
 
-        stage.setScene(new Scene(root, 1040, 680));
+        stage.setScene(ThemedWindows.scene(root, 1040, 680));
         stage.show();
         // Cards have real bounds only after the first layout pass; re-draw so the wires land on the ports —
         // and auto-arrange there too, since it stacks cards by their real heights and would otherwise lay the
@@ -234,6 +235,7 @@ public class ActivityFlowDialog {
 
     private void saveCurrentSelectionAsPreset() {
         TextInputDialog prompt = new TextInputDialog();
+        ThemedWindows.apply(prompt);
         prompt.initOwner(stage);
         prompt.setTitle("Save preset");
         prompt.setHeaderText("Name this selection of activities");

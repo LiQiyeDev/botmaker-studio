@@ -5,6 +5,7 @@ import com.botmaker.studio.project.StudioProjectSettings;
 import com.botmaker.studio.project.StudioProjectSettings.Resolution;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import com.botmaker.studio.util.MethodSignature;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
@@ -105,7 +106,7 @@ public class ProjectSettingsDialog {
         root.setPadding(new Insets(16));
         root.getChildren().addAll(buildResolutionPane(), buildFavMethodsPane(), buildFavOverloadsPane(), buildButtonBar());
 
-        stage.setScene(new Scene(root, 560, 560));
+        stage.setScene(ThemedWindows.scene(root, 560, 560));
         stage.show();
     }
 

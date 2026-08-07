@@ -14,6 +14,7 @@ import com.botmaker.studio.project.capture.CaptureTarget.DesktopTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.EmulatorTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.ScreenTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.WindowTarget;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -155,7 +156,7 @@ public final class CaptureSourcePicker {
         loadDesktop(desktop);
         loadEmulators(emulators);
 
-        stage.setScene(new Scene(rootBox, 760, 560));
+        stage.setScene(ThemedWindows.scene(rootBox, 760, 560));
         stage.setOnHidden(e -> stopThumbs());
         stage.showAndWait();
         return Optional.ofNullable(selected);

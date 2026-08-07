@@ -1,5 +1,6 @@
 package com.botmaker.studio.ui.render.components;
 
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.geometry.Insets;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Dialog;
@@ -24,6 +25,7 @@ public final class NumberFieldsDialog {
      */
     public static void show(String title, String[] labels, int[] current, Window owner, Consumer<int[]> onAccept) {
         Dialog<ButtonType> dialog = new Dialog<>();
+        ThemedWindows.apply(dialog);
         if (owner != null) dialog.initOwner(owner);
         dialog.setTitle(title);
         dialog.setHeaderText(null);

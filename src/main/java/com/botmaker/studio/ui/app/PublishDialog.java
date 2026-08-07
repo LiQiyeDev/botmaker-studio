@@ -6,6 +6,7 @@ import com.botmaker.studio.sharing.GitHubAuth;
 import com.botmaker.studio.sharing.GitHubClient;
 import com.botmaker.studio.sharing.GitHubGallery;
 import com.botmaker.studio.sharing.SemVer;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import com.botmaker.studio.util.BrowserLauncher;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -96,7 +97,7 @@ public class PublishDialog {
                     wrapped("This build has no GitHub OAuth client id, so publishing is disabled. "
                             + "Browsing and installing bots still works."),
                     closeBar());
-            stage.setScene(new Scene(root, 460, 200));
+            stage.setScene(ThemedWindows.scene(root, 460, 200));
             stage.show();
             return;
         }
@@ -123,7 +124,7 @@ public class PublishDialog {
         });
 
         root.getChildren().addAll(accountBar, buildForm(), buildButtonBar());
-        stage.setScene(new Scene(root, 520, 400));
+        stage.setScene(ThemedWindows.scene(root, 520, 400));
         stage.show();
 
         refreshPublishEnabled();
@@ -288,7 +289,7 @@ public class PublishDialog {
             return;
         }
 
-        Alert confirm = new Alert(Alert.AlertType.WARNING,
+        Alert confirm = ThemedWindows.alert(Alert.AlertType.WARNING,
                 "Remove “" + repo + "” from the gallery? Your GitHub repo and releases stay intact — "
                         + "this only delists it from discovery.",
                 ButtonType.OK, ButtonType.CANCEL);
@@ -325,7 +326,7 @@ public class PublishDialog {
     }
 
     private void showResult(BotPublisher.PublishResult result) {
-        Alert a = new Alert(Alert.AlertType.INFORMATION);
+        Alert a = ThemedWindows.alert(Alert.AlertType.INFORMATION);
         a.initOwner(stage);
         a.setTitle("Published");
         a.setHeaderText("“" + projectName + "” " + result.tag() + " is published");

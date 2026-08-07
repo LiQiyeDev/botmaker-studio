@@ -6,6 +6,22 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-08 — the theme reaches every window, not just the main one
+  (`ui/render/theme/ThemedWindows`, ~40 dialogs, `css/blocks.css`).** Dark and Black stopped at the editor:
+  Flow, Pilot, Resources, the setup wizards and every `Alert` opened as a white Modena pane. A themed window
+  needs *two* things — `blocks.css` **and** the theme's style class (`.dark-theme` redefines Modena's own
+  `-fx-base`/`-fx-background`) — and each JavaFX window owns a separate `Scene` that inherits neither from its
+  owner, so there was no styling them by parenting. `ThemedWindows` is now the single place that hands out
+  both: `apply(Scene/DialogPane/Dialog/Stage)`, plus `scene(...)` and `alert(...)` constructors so a new
+  dialog is themed by default rather than by remembering. It also subscribes the window to `BlockTheme` while
+  it is showing and unsubscribes on hide, so a theme switched with dialogs open reaches them without leaking
+  listeners. `UIManager`'s private copy is gone; `OverlayStyles.applyThemeClass` delegates. New dialog-chrome
+  classes (`.dialog-heading/-hint/-status/--ok/--error`, `.transparent-scroll`) replace the inline literals in
+  `LaunchTargetDialog` and the loading screen — a literal `gray` or `#b00020` beats the stylesheet in every
+  theme, which is exactly how those lines stayed unreadable. `-bm-severity-ok-text` joins the severity tokens
+  in all four themes. Deliberately untouched: the transparent capture overlays, which are chrome-less by
+  design and load `blocks.css` themselves.
+
 - **2026-08-08 — Interact can no longer wedge the host pointer
   (`services/pilot/PilotInputService`, `PilotServer`, `TargetCapture`).** With the Firestone *window* picked as
   the capture source, a few taps and the whole desktop stopped responding until Studio was killed. Two causes,

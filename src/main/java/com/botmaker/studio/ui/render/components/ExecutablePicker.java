@@ -3,6 +3,7 @@ package com.botmaker.studio.ui.render.components;
 import com.botmaker.studio.core.AbstractCodeBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.services.CodeEditorService;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import com.botmaker.studio.util.NativeFileDialog;
 import javafx.application.Platform;
 import javafx.scene.Node;
@@ -47,6 +48,7 @@ public final class ExecutablePicker {
         manual.setOnAction(e -> {
             String current = currentPath(arg);
             TextInputDialog dialog = new TextInputDialog(current == null ? "" : current);
+            ThemedWindows.apply(dialog);
             if (button.getScene() != null) dialog.initOwner(button.getScene().getWindow());
             dialog.setTitle("Program path");
             dialog.setHeaderText(null);

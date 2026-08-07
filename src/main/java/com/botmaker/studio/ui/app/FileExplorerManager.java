@@ -10,6 +10,7 @@ import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityDefinition;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.CodeEditorService;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.scene.control.*;
 import javafx.scene.layout.VBox;
@@ -317,6 +318,7 @@ public class FileExplorerManager {
      */
     private void showCreateActivityDialog() {
         TextInputDialog dialog = new TextInputDialog();
+        ThemedWindows.apply(dialog);
         dialog.setTitle("New Activity");
         dialog.setHeaderText("Create a new activity");
         dialog.setContentText("Name (e.g. Mining):");
@@ -330,7 +332,7 @@ public class FileExplorerManager {
             boolean exists = current.activities().stream()
                     .anyMatch(a -> a.name().equalsIgnoreCase(className));
             if (exists) {
-                Alert alert = new Alert(Alert.AlertType.WARNING);
+                Alert alert = ThemedWindows.alert(Alert.AlertType.WARNING);
                 alert.setTitle("Activity exists");
                 alert.setHeaderText("There is already an activity called " + className + ".");
                 alert.showAndWait();

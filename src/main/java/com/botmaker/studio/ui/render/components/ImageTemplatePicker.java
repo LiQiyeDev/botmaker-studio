@@ -11,6 +11,7 @@ import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.types.ResolvedType;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -130,7 +131,7 @@ public final class ImageTemplatePicker {
             try {
                 onSaved.accept(ImageTemplateLibrary.saveTemplate(config, img, name.get(), sourceW, sourceH, targetTitle));
             } catch (IOException ex) {
-                Alert error = new Alert(Alert.AlertType.ERROR, "Failed to save template: " + ex.getMessage());
+                Alert error = ThemedWindows.alert(Alert.AlertType.ERROR, "Failed to save template: " + ex.getMessage());
                 error.initOwner(owner);
                 error.showAndWait();
             }
@@ -158,6 +159,7 @@ public final class ImageTemplatePicker {
                                                       BufferedImage preview) {
         while (true) {
             Dialog<String> dialog = new Dialog<>();
+            ThemedWindows.apply(dialog);
             if (owner != null) dialog.initOwner(owner);
             dialog.setTitle("Template name");
             dialog.setHeaderText(null);
@@ -202,7 +204,7 @@ public final class ImageTemplatePicker {
     }
 
     private static void warn(Window owner, String message) {
-        Alert alert = new Alert(Alert.AlertType.WARNING, message);
+        Alert alert = ThemedWindows.alert(Alert.AlertType.WARNING, message);
         alert.initOwner(owner);
         alert.showAndWait();
     }

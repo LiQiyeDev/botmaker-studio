@@ -3,6 +3,7 @@ package com.botmaker.studio.ui.app.capture;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.ScreenCaptureService;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Alert;
@@ -127,7 +128,7 @@ public final class BatchTemplateNamingDialog {
     }
 
     private static List<NamedTemplate> fail(Window owner, String message) {
-        Alert alert = new Alert(Alert.AlertType.WARNING, message);
+        Alert alert = ThemedWindows.alert(Alert.AlertType.WARNING, message);
         if (owner != null) alert.initOwner(owner);
         alert.showAndWait();
         return null;

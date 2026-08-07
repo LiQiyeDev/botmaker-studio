@@ -8,6 +8,7 @@ import com.botmaker.studio.sharing.BotPublisher;
 import com.botmaker.studio.sharing.BotSource;
 import com.botmaker.studio.sharing.GitHubAuth;
 import com.botmaker.studio.sharing.GitHubClient;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import com.botmaker.studio.util.BrowserLauncher;
 import com.fasterxml.jackson.databind.JsonNode;
 import javafx.application.Platform;
@@ -334,7 +335,7 @@ public final class VcsPanel {
     private void doRollback() {
         ProjectVcs.CommitInfo target = history.getSelectionModel().getSelectedItem();
         if (target == null) return;
-        Alert confirm = new Alert(Alert.AlertType.WARNING,
+        Alert confirm = ThemedWindows.alert(Alert.AlertType.WARNING,
                 "Roll the project back to “" + target.message() + "” (" + target.shortSha() + ")?\n\n"
                         + "Your current state is snapshotted first, so nothing is lost. The project will "
                         + "reload from disk.",
@@ -351,7 +352,7 @@ public final class VcsPanel {
 
     private void doDiscard(ChangedFile file) {
         boolean isNew = file.status().uncommitted();
-        Alert confirm = new Alert(Alert.AlertType.WARNING,
+        Alert confirm = ThemedWindows.alert(Alert.AlertType.WARNING,
                 (isNew ? "Delete the new file “" : "Discard your changes to “") + file.path() + "”?"
                         + (isNew ? "" : "\n\nIt will be restored to its last committed content."),
                 ButtonType.OK, ButtonType.CANCEL);
@@ -436,7 +437,7 @@ public final class VcsPanel {
     }
 
     private boolean confirmRepoCreation(String repoName) {
-        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
+        Alert confirm = ThemedWindows.alert(Alert.AlertType.CONFIRMATION,
                 "This project has no GitHub remote yet.\n\nCreate a private repository “" + repoName
                         + "” on your account and push the project's history to it?\n\n"
                         + "Private means only you can see it. This is a backup, not a publish — no release is "
@@ -456,7 +457,7 @@ public final class VcsPanel {
                 () -> status(auth.isAuthenticated() ? "Signed in — press Push again." : "Not signed in."));
         VBox box = new VBox(bar);
         box.setPadding(new Insets(14));
-        popup.setScene(new javafx.scene.Scene(box));
+        popup.setScene(ThemedWindows.scene(box));
         popup.show();
     }
 

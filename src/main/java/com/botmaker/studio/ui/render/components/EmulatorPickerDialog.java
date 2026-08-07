@@ -9,6 +9,7 @@ import com.botmaker.studio.emulator.EmulatorAppCache;
 import com.botmaker.studio.emulator.EmulatorInstanceScanner;
 import com.botmaker.studio.emulator.EmulatorProbe;
 import com.botmaker.studio.services.ScreenCaptureService;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -89,6 +90,7 @@ public final class EmulatorPickerDialog {
     /** Shows the picker; resolves to the chosen instance (and optional app), or empty if cancelled. */
     public static Optional<Selection> show(Window owner) {
         Dialog<Selection> dialog = new Dialog<>();
+        ThemedWindows.apply(dialog);
         dialog.setTitle("Choose an emulator");
         if (owner != null) dialog.initOwner(owner);
         dialog.getDialogPane().getButtonTypes().add(ButtonType.CANCEL);
@@ -429,6 +431,7 @@ public final class EmulatorPickerDialog {
     /** Prompts for a package name and, if given, resolves the dialog to {@code (instance, package)}. */
     private static void promptForPackage(EmulatorInstance instance, Dialog<Selection> dialog) {
         TextInputDialog input = new TextInputDialog();
+        ThemedWindows.apply(input);
         input.setTitle("Enter app package");
         input.setHeaderText("App package to launch on " + instance.name());
         input.setContentText("Package (e.g. com.supercell.clashofclans):");

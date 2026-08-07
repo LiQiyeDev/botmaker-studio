@@ -4,6 +4,7 @@ import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.ui.app.ManageCaptureTargetsDialog;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
@@ -61,7 +62,7 @@ public record GameFrame(BufferedImage image, String label) {
                 context.getConfig(), context.getState(), context.getEventBus());
         boolean configured = settings.defaultTarget() != null;
 
-        Alert alert = new Alert(Alert.AlertType.WARNING);
+        Alert alert = ThemedWindows.alert(Alert.AlertType.WARNING);
         alert.setTitle("No frame to sample");
         alert.setHeaderText(configured
                 ? "The capture target produced a blank frame"

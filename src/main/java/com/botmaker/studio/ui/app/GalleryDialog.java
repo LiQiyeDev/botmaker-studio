@@ -9,6 +9,7 @@ import com.botmaker.studio.sharing.GitHubAuth;
 import com.botmaker.studio.sharing.GitHubClient;
 import com.botmaker.studio.sharing.GitHubConfig;
 import com.botmaker.studio.sharing.GitHubGallery;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import com.botmaker.studio.util.BrowserLauncher;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
@@ -101,7 +102,7 @@ public class GalleryDialog {
         installedTab.setClosable(false);
         tabs.getTabs().addAll(browseTab, installedTab);
 
-        stage.setScene(new Scene(tabs, 620, 500));
+        stage.setScene(ThemedWindows.scene(tabs, 620, 500));
         stage.show();
 
         refreshBrowse();
@@ -257,7 +258,7 @@ public class GalleryDialog {
     }
 
     private void installEntry(GalleryEntry entry, Button installBtn) {
-        Alert confirm = new Alert(Alert.AlertType.WARNING,
+        Alert confirm = ThemedWindows.alert(Alert.AlertType.WARNING,
                 "“" + entry.name() + "” by " + entry.owner() + " is a bot that can control your mouse, "
                         + "keyboard and screen. Only install bots from authors you trust.\n\nInstall it now?",
                 ButtonType.OK, ButtonType.CANCEL);
@@ -366,7 +367,7 @@ public class GalleryDialog {
     }
 
     private void updateBot(InstalledBot bot, Button updateBtn, Label status) {
-        Alert confirm = new Alert(Alert.AlertType.WARNING,
+        Alert confirm = ThemedWindows.alert(Alert.AlertType.WARNING,
                 "Updating will overwrite any local changes to “" + bot.info().name() + "”.\n\nContinue?",
                 ButtonType.OK, ButtonType.CANCEL);
         confirm.initOwner(stage);
@@ -405,14 +406,14 @@ public class GalleryDialog {
     // -------------------------------------------------------------------------
 
     private void info(String header, String body) {
-        Alert a = new Alert(Alert.AlertType.INFORMATION, body, ButtonType.OK);
+        Alert a = ThemedWindows.alert(Alert.AlertType.INFORMATION, body, ButtonType.OK);
         a.initOwner(stage);
         a.setHeaderText(header);
         a.showAndWait();
     }
 
     private void error(String header, String body) {
-        Alert a = new Alert(Alert.AlertType.ERROR, body, ButtonType.OK);
+        Alert a = ThemedWindows.alert(Alert.AlertType.ERROR, body, ButtonType.OK);
         a.initOwner(stage);
         a.setHeaderText(header);
         a.showAndWait();

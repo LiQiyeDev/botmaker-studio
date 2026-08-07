@@ -3,6 +3,7 @@ package com.botmaker.studio.ui.render.components;
 import com.botmaker.studio.core.AbstractCodeBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.services.CodeEditorService;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.geometry.Insets;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
@@ -74,6 +75,7 @@ public final class BotSettingsArgPicker {
                 || methodName.equals("setCompareMargin");
 
         Dialog<ButtonType> dialog = new Dialog<>();
+        ThemedWindows.apply(dialog);
         dialog.setTitle(readableName(methodName));
         if (button.getScene() != null) dialog.initOwner(button.getScene().getWindow());
         dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);

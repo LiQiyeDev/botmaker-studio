@@ -14,6 +14,7 @@ import com.botmaker.studio.project.launch.QuickLaunch;
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.studio.ui.render.components.EmulatorPickerDialog;
 import com.botmaker.studio.ui.render.components.GameLibraryPickerDialog;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
@@ -102,15 +103,15 @@ public final class LaunchTargetDialog {
         currentSpec = ProjectCreator.readLaunchTarget(resourcesDir);
 
         Label heading = new Label("What should the bot launch?");
-        heading.setStyle("-fx-font-weight: bold; -fx-font-size: 14px;");
+        heading.getStyleClass().add("dialog-heading");
         Label hint = new Label("Baked into the project (launch.target) so the bot launches it when it "
                 + "bot runs. Choose a game from a launcher's library (Steam, Epic, Heroic, Faugus), an "
                 + "executable or command, or an app inside an emulator.");
         hint.setWrapText(true);
-        hint.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
+        hint.getStyleClass().add("dialog-hint");
 
         currentLabel = new Label();
-        currentLabel.setStyle("-fx-font-size: 12px;");
+        currentLabel.getStyleClass().add("dialog-subheading");
         refreshCurrentLabel();
 
         Button steam = new Button("🎮 Steam game…");
@@ -138,7 +139,7 @@ public final class LaunchTargetDialog {
         VBox choices = new VBox(6, steam, epic, heroic, faugus, exe, cli, emu);
 
         Label recentHeading = new Label("Recently used");
-        recentHeading.setStyle("-fx-font-weight: bold; -fx-font-size: 12px;");
+        recentHeading.getStyleClass().add("dialog-subheading");
         recentList = new VBox(4);
         recentBox = new VBox(4, recentHeading, recentList);
         refreshRecent();
@@ -151,11 +152,11 @@ public final class LaunchTargetDialog {
                 + "(gamescope for Steam/Epic/Heroic/Faugus/exe games, Xephyr for a CLI command) so your real "
                 + "cursor stays free. Off: it launches on your real desktop (:0).");
         backgroundHint.setWrapText(true);
-        backgroundHint.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
+        backgroundHint.getStyleClass().add("dialog-hint");
         VBox backgroundBox = new VBox(2, background, backgroundHint);
 
         statusLabel = new Label();
-        statusLabel.setStyle("-fx-font-size: 11px;");
+        statusLabel.getStyleClass().add("dialog-status");
         // The status text is the flexible element: it grows to fill the row and ellipsizes when long, so it
         // never squeezes the buttons below their label width (which is what truncated them to "…").
         statusLabel.setMaxWidth(Double.MAX_VALUE);
@@ -180,14 +181,12 @@ public final class LaunchTargetDialog {
         ScrollPane scroller = new ScrollPane(content);
         scroller.setFitToWidth(true);
         scroller.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
-        // This dialog carries no stylesheet (only the main scene loads blocks.css), so it styles inline the
-        // way its heading, hint and status line already do.
-        scroller.setStyle("-fx-background-color: transparent;");
+        scroller.getStyleClass().add("transparent-scroll");
         VBox.setVgrow(scroller, Priority.ALWAYS);
 
         VBox root = new VBox(12, scroller, bar);
         root.setPadding(new Insets(16));
-        stage.setScene(new Scene(root, 440, 560));
+        stage.setScene(ThemedWindows.scene(root, 440, 560));
         stage.show();
     }
 
@@ -321,7 +320,7 @@ public final class LaunchTargetDialog {
             Button entry = new Button(LaunchSpec.describe(spec));
             entry.setMaxWidth(Double.MAX_VALUE);
             entry.setAlignment(Pos.CENTER_LEFT);
-            entry.setStyle("-fx-font-size: 11px;");
+            entry.getStyleClass().add("dialog-compact");
             entry.setTooltip(new Tooltip(spec));
             entry.setOnAction(e -> applyRecent(spec));
             recentList.getChildren().add(entry);
@@ -334,7 +333,8 @@ public final class LaunchTargetDialog {
     /** Shows an outcome on the status line — green when it worked, the usual red when it didn't. */
     private void report(boolean ok, String message) {
         if (ok) {
-            statusLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: #2e7d32;");
+            statusLabel.getStyleClass().removeAll("dialog-status--error", "dialog-status--ok");
+            statusLabel.getStyleClass().add("dialog-status--ok");
             statusLabel.setText(message);
         } else {
             error(message);
@@ -346,7 +346,8 @@ public final class LaunchTargetDialog {
     }
 
     private void error(String message) {
-        statusLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: #b00020;");
+        statusLabel.getStyleClass().removeAll("dialog-status--ok", "dialog-status--error");
+        statusLabel.getStyleClass().add("dialog-status--error");
         statusLabel.setText(message);
     }
 }

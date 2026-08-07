@@ -4,6 +4,7 @@ import com.botmaker.studio.config.AppVersion;
 import com.botmaker.studio.sharing.GitHubAuth;
 import com.botmaker.studio.sharing.GitHubClient;
 import com.botmaker.studio.sharing.GitHubConfig;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import com.botmaker.studio.util.BrowserLauncher;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -54,6 +55,7 @@ public final class ReportIssueDialog {
         GitHubAuth auth = new GitHubAuth();
 
         Dialog<ButtonType> dialog = new Dialog<>();
+        ThemedWindows.apply(dialog);
         dialog.setTitle("Report an Issue");
         if (owner != null) dialog.initOwner(owner);
         dialog.setHeaderText("Found a bug or have a suggestion? Send it to the BotMaker team.");
@@ -195,7 +197,7 @@ public final class ReportIssueDialog {
     }
 
     private void info(String header, String content) {
-        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        Alert alert = ThemedWindows.alert(Alert.AlertType.INFORMATION);
         if (owner != null) alert.initOwner(owner);
         alert.setTitle(header);
         alert.setHeaderText(header);

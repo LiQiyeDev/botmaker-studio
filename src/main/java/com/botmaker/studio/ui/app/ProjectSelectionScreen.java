@@ -11,6 +11,7 @@ import com.botmaker.studio.sharing.BotSource;
 import com.botmaker.studio.sharing.GitHubAuth;
 import com.botmaker.studio.sharing.GitHubClient;
 import com.botmaker.studio.sharing.GitHubGallery;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -192,7 +193,7 @@ public class ProjectSelectionScreen {
 
         rebuildRows();
 
-        return new Scene(root, 620, 600);
+        return ThemedWindows.scene(root, 620, 600);
     }
 
     /** Renders a row: a bold group header (non-selectable) or the project card. */
@@ -355,7 +356,7 @@ public class ProjectSelectionScreen {
     private void archiveSelectedProject() {
         ProjectInfo selected = selectedProject();
         if (selected == null) return;
-        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
+        Alert confirm = ThemedWindows.alert(Alert.AlertType.CONFIRMATION,
                 "Archive “" + selected.name() + "”?\n\nIt will be moved to the archive and hidden from "
                         + "the project list. You can restore or permanently delete it later via “View Archived…”.",
                 ButtonType.OK, ButtonType.CANCEL);
@@ -409,6 +410,7 @@ public class ProjectSelectionScreen {
 
     private void showCreateProjectDialog() {
         Dialog<CreateRequest> dialog = new Dialog<>();
+        ThemedWindows.apply(dialog);
         dialog.setTitle("Create New Project");
         dialog.setHeaderText("Enter project name");
 
@@ -620,7 +622,7 @@ public class ProjectSelectionScreen {
     }
 
     private void error(String header, String body) {
-        Alert errorAlert = new Alert(Alert.AlertType.ERROR);
+        Alert errorAlert = ThemedWindows.alert(Alert.AlertType.ERROR);
         errorAlert.initOwner(stage);
         errorAlert.setTitle("Error");
         errorAlert.setHeaderText(header);

@@ -2,6 +2,7 @@ package com.botmaker.studio.ui.app.pilot;
 
 import com.botmaker.studio.ui.app.pilot.RemotePilotUi.PilotMode;
 import com.botmaker.studio.ui.app.pilot.RemotePilotUi.PilotOutcome;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import com.botmaker.studio.ui.util.QrCodes;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -62,7 +63,7 @@ final class RemotePilotDialog {
         String funnelError = outcome.funnelError();
         boolean funnelLive = mode == PilotMode.FUNNEL_HTTPS;
 
-        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        Alert alert = ThemedWindows.alert(Alert.AlertType.INFORMATION);
         alert.initOwner(owner);
         alert.setTitle("Remote Pilot");
         alert.setHeaderText(switch (mode) {

@@ -4,6 +4,7 @@ import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.parser.guard.RefusalJournal;
 import com.botmaker.studio.ui.render.theme.BlockTheme;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import com.botmaker.studio.util.BrowserLauncher;
 import javafx.scene.control.Menu;
 import javafx.scene.control.MenuBar;
@@ -425,7 +426,7 @@ public class MenuBarManager {
         dialog.initOwner(primaryStage);
         dialog.initModality(javafx.stage.Modality.APPLICATION_MODAL);
         dialog.setTitle("Updating…");
-        dialog.setScene(new javafx.scene.Scene(box));
+        dialog.setScene(ThemedWindows.scene(box));
         dialog.setOnCloseRequest(javafx.event.Event::consume); // no manual close mid-download
         dialog.show();
 

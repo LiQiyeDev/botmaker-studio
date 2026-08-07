@@ -8,6 +8,7 @@ import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.ui.app.capture.ColorSampler;
 import com.botmaker.studio.ui.app.capture.GameFrame;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.animation.PauseTransition;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -143,6 +144,7 @@ public final class PrecisionArgPicker {
         Knobs knobs = knobsFor(methodName);
 
         Dialog<ButtonType> dialog = new Dialog<>();
+        ThemedWindows.apply(dialog);
         dialog.setTitle("How exact should the match be?");
         if (button.getScene() != null) dialog.initOwner(button.getScene().getWindow());
         dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
