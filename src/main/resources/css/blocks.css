@@ -32,11 +32,44 @@
     -bm-cat-game: #16a085;
     -bm-cat-utility: #7f8c8d;
 
+    /*
+     * The text colour that is *readable on* each fill above — one per category, and the reason a block can be
+     * filled at all. Each was measured, not eyed: WCAG 2.1 contrast of #1a1a1a and #ffffff against the fill,
+     * higher one wins, and every pair below clears AA (4.5:1) for normal text. The measurement is the whole
+     * point — "dark fill ⇒ white text" is the intuition and it is wrong for most of this palette. #3498db
+     * looks dark and scores 3.15 against white but 5.52 against near-black; only the two purples (input,
+     * functions) genuinely want white. Every hardcoded `white` these rules used to carry failed AA on the
+     * majority of categories, which is the bug this fixes.
+     *
+     * Only these two values are ever used. Keep it that way: a third on-colour is a third contrast audit.
+     */
+    -bm-on-cat-output: #1a1a1a;
+    -bm-on-cat-input: #ffffff;
+    -bm-on-cat-variables: #1a1a1a;
+    -bm-on-cat-flow: #1a1a1a;
+    -bm-on-cat-loops: #1a1a1a;
+    -bm-on-cat-control: #1a1a1a;
+    -bm-on-cat-functions: #ffffff;
+    -bm-on-cat-vision: #1a1a1a;
+    -bm-on-cat-game: #1a1a1a;
+    -bm-on-cat-utility: #1a1a1a;
+
     /* Block surfaces */
     -bm-block-radius: 6px;
     -bm-block-padding: 6px 10px 6px 10px;
+
+    /*
+     * The default text colour on a coloured surface. Every rule that paints one — .category-*, .block-header,
+     * .reader-banner, a badge — redefines this locally to its own on-colour; JavaFX looked-up colours cascade
+     * to descendants, so that one line fixes every label inside the block without a per-label rule.
+     *
+     * There is deliberately no companion "-bm-text-dim" token. There was one, unused by any rule, and the
+     * plan for this change was to give it a per-category value — but a dim colour has to move *away* from the
+     * on-colour, and the direction flips with the on-colour (darker under white, lighter under near-black),
+     * which a single derive() can't express. A dim label is `-fx-text-fill: -bm-text-on-color` plus
+     * `-fx-opacity`, which is correct under either.
+     */
     -bm-text-on-color: white;
-    -bm-text-dim: rgba(255, 255, 255, 0.7);
 
     /* Read-only: a lock reads as *flat and quiet*, never as a colour of its own — see :read-only below. */
     -bm-locked-fill: rgba(127, 140, 141, 0.15);
@@ -222,11 +255,13 @@
  * the header: solid accent fill, white text, not a 10px tint that lost a contrast fight with the purple
  * header it sat on.
  */
+/* The accent is a light teal: near-black clears AA on it at 7.2:1, the white it used to inherit scored 2.4. */
 .method-lock-badge {
     -fx-font-size: 11px;
     -fx-font-weight: bold;
     -fx-padding: 2 8 2 8;
     -fx-background-radius: 8px;
+    -bm-text-on-color: -bm-on-cat-vision;
     -fx-text-fill: -bm-text-on-color;
     -fx-background-color: -bm-accent;
 }
@@ -256,9 +291,18 @@
  * root node by AbstractCodeBlock. A block's colour follows from what it *does*.
  * ============================================================================================================
  *
- * A block that overrides category() gets a left accent bar in its category's colour: enough to group blocks at
- * a glance without repainting a working editor. The token is the single place the colour lives — do not put a
- * hex literal in these rules.
+ * A block that overrides category() is *filled* with its category's colour and outlined in that category's
+ * on-colour. It used to be a 3px left accent bar over the theme's default surface — which left every label
+ * inside it painted the hardcoded white this file assumed everywhere, on a surface that was white in the
+ * default theme. That is the "block text is unreadable" report: the palette had been written for coloured
+ * fills that were never applied.
+ *
+ * The `-bm-text-on-color` line in each rule is what makes the fill safe. JavaFX looked-up colours cascade,
+ * so redefining it on the block's root node re-points every descendant label at once — there is no per-label
+ * rule below that needs to know which category it landed in, and a block dropped inside another block picks
+ * up its own category's on-colour rather than its parent's.
+ *
+ * The token is the single place each colour lives — do not put a hex literal in these rules.
  */
 .category-output,
 .category-input,
@@ -270,22 +314,79 @@
 .category-game,
 .category-utility,
 .category-bot-variable {
-    -fx-border-width: 0 0 0 3;
-    -fx-border-radius: 0;
+    -fx-border-width: 2;
+    -fx-border-radius: -bm-block-radius;
+    -fx-background-radius: -bm-block-radius;
+    -fx-padding: 3 6 3 6;
 }
 
-.category-output        { -fx-border-color: -bm-cat-output; }
-.category-input         { -fx-border-color: -bm-cat-input; }
-.category-variables     { -fx-border-color: -bm-cat-variables; }
-.category-flow          { -fx-border-color: -bm-cat-flow; }
-.category-loops         { -fx-border-color: -bm-cat-loops; }
-.category-control       { -fx-border-color: -bm-cat-control; }
-.category-functions     { -fx-border-color: -bm-cat-functions; }
-.category-game          { -fx-border-color: -bm-cat-game; }
-.category-utility       { -fx-border-color: -bm-cat-utility; }
-.category-bot-variable  { -fx-border-color: -bm-cat-vision; }
+.category-output {
+    -fx-background-color: -bm-cat-output;
+    -fx-border-color: -bm-on-cat-output;
+    -bm-text-on-color: -bm-on-cat-output;
+}
 
-/* A read-only block's category is still true, but it must not shout it: grey the accent with everything else. */
+.category-input {
+    -fx-background-color: -bm-cat-input;
+    -fx-border-color: -bm-on-cat-input;
+    -bm-text-on-color: -bm-on-cat-input;
+}
+
+.category-variables {
+    -fx-background-color: -bm-cat-variables;
+    -fx-border-color: -bm-on-cat-variables;
+    -bm-text-on-color: -bm-on-cat-variables;
+}
+
+.category-flow {
+    -fx-background-color: -bm-cat-flow;
+    -fx-border-color: -bm-on-cat-flow;
+    -bm-text-on-color: -bm-on-cat-flow;
+}
+
+.category-loops {
+    -fx-background-color: -bm-cat-loops;
+    -fx-border-color: -bm-on-cat-loops;
+    -bm-text-on-color: -bm-on-cat-loops;
+}
+
+.category-control {
+    -fx-background-color: -bm-cat-control;
+    -fx-border-color: -bm-on-cat-control;
+    -bm-text-on-color: -bm-on-cat-control;
+}
+
+.category-functions {
+    -fx-background-color: -bm-cat-functions;
+    -fx-border-color: -bm-on-cat-functions;
+    -bm-text-on-color: -bm-on-cat-functions;
+}
+
+.category-game {
+    -fx-background-color: -bm-cat-game;
+    -fx-border-color: -bm-on-cat-game;
+    -bm-text-on-color: -bm-on-cat-game;
+}
+
+.category-utility {
+    -fx-background-color: -bm-cat-utility;
+    -fx-border-color: -bm-on-cat-utility;
+    -bm-text-on-color: -bm-on-cat-utility;
+}
+
+.category-bot-variable {
+    -fx-background-color: -bm-cat-vision;
+    -fx-border-color: -bm-on-cat-vision;
+    -bm-text-on-color: -bm-on-cat-vision;
+}
+
+/*
+ * A read-only block's category is still true, but it must not shout it: drop the fill as well as the accent.
+ * The `*:read-only` desaturation above would have washed the fill rather than removed it, which reads as "a
+ * faded version of an active block" — the opposite of the flat, obviously-not-yours surface that rule exists
+ * to produce. With no fill left, the on-colour would be wrong too, so hand the labels back to the theme's own
+ * text colour (-fx-text-background-color, which every theme block below already sets).
+ */
 .category-output:read-only,
 .category-input:read-only,
 .category-variables:read-only,
@@ -297,6 +398,8 @@
 .category-utility:read-only,
 .category-bot-variable:read-only {
     -fx-border-color: -bm-muted;
+    -fx-background-color: -bm-locked-fill;
+    -bm-text-on-color: -fx-text-background-color;
 }
 
 /*
@@ -316,20 +419,61 @@
     -fx-border-color: transparent;
     -fx-background-color: transparent;
 }
-.reader-mode .category-output:read-only        { -fx-border-color: -bm-cat-output; }
-.reader-mode .category-input:read-only         { -fx-border-color: -bm-cat-input; }
-.reader-mode .category-variables:read-only     { -fx-border-color: -bm-cat-variables; }
-.reader-mode .category-flow:read-only          { -fx-border-color: -bm-cat-flow; }
-.reader-mode .category-loops:read-only         { -fx-border-color: -bm-cat-loops; }
-.reader-mode .category-control:read-only       { -fx-border-color: -bm-cat-control; }
-.reader-mode .category-functions:read-only     { -fx-border-color: -bm-cat-functions; }
-.reader-mode .category-game:read-only          { -fx-border-color: -bm-cat-game; }
-.reader-mode .category-utility:read-only       { -fx-border-color: -bm-cat-utility; }
-.reader-mode .category-bot-variable:read-only  { -fx-border-color: -bm-cat-vision; }
+.reader-mode .category-output:read-only {
+    -fx-background-color: -bm-cat-output;
+    -fx-border-color: -bm-on-cat-output;
+    -bm-text-on-color: -bm-on-cat-output;
+}
+.reader-mode .category-input:read-only {
+    -fx-background-color: -bm-cat-input;
+    -fx-border-color: -bm-on-cat-input;
+    -bm-text-on-color: -bm-on-cat-input;
+}
+.reader-mode .category-variables:read-only {
+    -fx-background-color: -bm-cat-variables;
+    -fx-border-color: -bm-on-cat-variables;
+    -bm-text-on-color: -bm-on-cat-variables;
+}
+.reader-mode .category-flow:read-only {
+    -fx-background-color: -bm-cat-flow;
+    -fx-border-color: -bm-on-cat-flow;
+    -bm-text-on-color: -bm-on-cat-flow;
+}
+.reader-mode .category-loops:read-only {
+    -fx-background-color: -bm-cat-loops;
+    -fx-border-color: -bm-on-cat-loops;
+    -bm-text-on-color: -bm-on-cat-loops;
+}
+.reader-mode .category-control:read-only {
+    -fx-background-color: -bm-cat-control;
+    -fx-border-color: -bm-on-cat-control;
+    -bm-text-on-color: -bm-on-cat-control;
+}
+.reader-mode .category-functions:read-only {
+    -fx-background-color: -bm-cat-functions;
+    -fx-border-color: -bm-on-cat-functions;
+    -bm-text-on-color: -bm-on-cat-functions;
+}
+.reader-mode .category-game:read-only {
+    -fx-background-color: -bm-cat-game;
+    -fx-border-color: -bm-on-cat-game;
+    -bm-text-on-color: -bm-on-cat-game;
+}
+.reader-mode .category-utility:read-only {
+    -fx-background-color: -bm-cat-utility;
+    -fx-border-color: -bm-on-cat-utility;
+    -bm-text-on-color: -bm-on-cat-utility;
+}
+.reader-mode .category-bot-variable:read-only {
+    -fx-background-color: -bm-cat-vision;
+    -fx-border-color: -bm-on-cat-vision;
+    -bm-text-on-color: -bm-on-cat-vision;
+}
 
 /* The "Reading — switch to Editor to change" banner above the canvas (UIManager). */
 .reader-banner {
     -fx-background-color: -bm-cat-flow;
+    -bm-text-on-color: -bm-on-cat-flow;
     -fx-padding: 6 12 6 12;
     -fx-alignment: center-left;
 }
@@ -446,7 +590,10 @@
 
 /*
  * Inline bracketed list/array display ([ … ] / { … }), built by LayoutComponents.createInlineListDisplay.
- * The "--light" variant renders brackets white for use on dark-background blocks (e.g. class fields).
+ * The "--light" variant renders brackets in the surface's on-colour, for use on a coloured block (e.g. class
+ * fields). The name is now a misnomer — it was literally white before the fills landed — but it is passed as
+ * a boolean from LayoutComponents.createInlineListDisplay and reads at the call sites as "on a coloured
+ * block", which is still what it means.
  */
 .inline-list-display .list-bracket {
     -fx-font-weight: bold;
@@ -454,7 +601,7 @@
 }
 
 .inline-list-display--light .list-bracket {
-    -fx-text-fill: white;
+    -fx-text-fill: -bm-text-on-color;
 }
 
 /*
@@ -544,7 +691,8 @@
 
 .sdk-call-block .sdk-badge {
     -fx-background-color: -bm-cat-functions;
-    -fx-text-fill: white;
+    -bm-text-on-color: -bm-on-cat-functions;
+    -fx-text-fill: -bm-text-on-color;
     -fx-font-size: 9px;
     -fx-font-weight: bold;
     -fx-background-radius: 8;
@@ -578,6 +726,7 @@
  */
 .block-header {
     -fx-background-color: -bm-cat-functions;
+    -bm-text-on-color: -bm-on-cat-functions;
     -fx-background-radius: 8 8 0 0;
     -fx-padding: 8 10 8 10;
 }
@@ -586,8 +735,10 @@
     -fx-background-radius: 8;
 }
 
+/* Green, not purple — and green is one of the fills near-black wins on (6.1:1 against 2.9:1 for white). */
 .block-header--constructor {
     -fx-background-color: #27AE60;
+    -bm-text-on-color: #1a1a1a;
 }
 
 .block-body-wrapper {
@@ -601,9 +752,16 @@
     -fx-background-color: rgba(39, 174, 96, 0.05);
 }
 
+/*
+ * Everything from here to the end of the header/param rules sits ON a coloured surface — a .category-* block,
+ * a .block-header, a badge. None of them names a colour: they take -bm-text-on-color, which the surface has
+ * already re-pointed at its own on-colour. A rule below that wants a *dimmer* label uses -fx-opacity rather
+ * than a paler colour, because "paler" means whiter under a near-black on-colour and blacker under a white
+ * one — see the token block at the top.
+ */
 .collapse-button {
     -fx-background-color: transparent;
-    -fx-text-fill: white;
+    -fx-text-fill: -bm-text-on-color;
     -fx-font-weight: bold;
     -fx-padding: 0 5 0 0;
     -fx-cursor: hand;
@@ -611,30 +769,78 @@
 
 .header-keyword-label,
 .keyword-label {
-    -fx-text-fill: rgba(255, 255, 255, 0.8);
+    -fx-text-fill: -bm-text-on-color;
+    -fx-opacity: 0.85;
     -fx-font-weight: bold;
     -fx-font-size: 10px;
 }
 
 /*
- * The fixed `break;` closing a switch case. Dimmer than a live keyword on purpose: it is chrome the user can't
- * move or remove (see SwitchBlock), so it should read as part of the case's frame rather than as a block sitting
- * in the body that they might try to drag.
+ * The fixed `break;` closing a switch case, and the `otherwise` label on a matchswitch default. Dimmer than a
+ * live keyword on purpose: it is chrome the user can't move or remove (see SwitchBlock), so it should read as
+ * part of the case's frame rather than as a block sitting in the body that they might try to drag. It was
+ * 45% white, which on the orange Logic fill was the single least readable thing in the editor; 0.7 opacity
+ * over the on-colour is still visibly quieter than the keyword above it without disappearing.
  */
 .switch-case-break {
-    -fx-text-fill: rgba(255, 255, 255, 0.45);
+    -fx-text-fill: -bm-text-on-color;
+    -fx-opacity: 0.7;
     -fx-font-weight: normal;
 }
 
 .header-name-label {
-    -fx-text-fill: white;
+    -fx-text-fill: -bm-text-on-color;
     -fx-font-weight: bold;
     -fx-font-size: 14px;
 }
 
 .header-params-label {
-    -fx-text-fill: rgba(255, 255, 255, 0.7);
+    -fx-text-fill: -bm-text-on-color;
+    -fx-opacity: 0.8;
     -fx-font-size: 11px;
+}
+
+/*
+ * MATCHSWITCH — the two classes that had no rule at all. MatchesSwitchBlock has always tagged its "any of" /
+ * "all of" toggle and each branch body, and blocks.css has never styled either, so the toggle rendered as a
+ * default Modena button (grey-on-grey, invisible against a Logic block) and the branch body as nothing.
+ *
+ * Both are drawn from -bm-text-on-color and a neutral wash, so they follow whatever category they land in.
+ */
+.matches-case-mode {
+    -fx-background-color: transparent;
+    -fx-background-radius: 10;
+    -fx-border-color: -bm-text-on-color;
+    -fx-border-width: 1;
+    -fx-border-radius: 10;
+    -fx-text-fill: -bm-text-on-color;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-padding: 1 9 1 9;
+    -fx-cursor: hand;
+}
+
+/*
+ * "all of" — the stricter of the two modes, so it is the filled state. Filled with a neutral wash rather than
+ * with the on-colour: inverting to on-colour-fill would need the *category*'s colour back for the text, which
+ * this rule can't name (it is shared by every category), and a translucent grey reads as pressed on all of
+ * them.
+ */
+.matches-case-mode:selected {
+    -fx-background-color: rgba(127, 127, 127, 0.35);
+    -fx-border-width: 2;
+}
+
+.matches-case-mode:disabled {
+    -fx-opacity: 0.6;
+}
+
+/* A switch/matchswitch branch body: a wash and a left bar, so nested blocks read as *inside* the branch. */
+.switch-case-body {
+    -fx-background-color: rgba(127, 127, 127, 0.18);
+    -fx-background-radius: 0 4 4 0;
+    -fx-border-color: -bm-text-on-color;
+    -fx-border-width: 0 0 0 2;
 }
 
 .header-delete-button {
@@ -645,16 +851,23 @@
     -fx-cursor: hand;
 }
 
+/*
+ * The three inset controls in a header. Their wash is neutral grey rather than the translucent white/black it
+ * used to be: rgba(127,127,127,·) lightens a dark fill and darkens a light one, so one value reads as "inset"
+ * on every category. A translucent *white* wash is invisible on the yellow Variables fill, and a translucent
+ * black one is invisible on the purple Functions header.
+ */
 .method-name-field {
-    -fx-background-color: rgba(0, 0, 0, 0.2);
-    -fx-text-fill: white;
+    -fx-background-color: rgba(127, 127, 127, 0.28);
+    -fx-text-fill: -bm-text-on-color;
     -fx-font-weight: bold;
     -fx-font-size: 13px;
     -fx-padding: 2 5 2 5;
 }
 
 .method-returns-label {
-    -fx-text-fill: rgba(255, 255, 255, 0.7);
+    -fx-text-fill: -bm-text-on-color;
+    -fx-opacity: 0.8;
     -fx-font-style: italic;
     -fx-font-size: 11px;
 }
@@ -662,16 +875,16 @@
 .add-param-button {
     -fx-font-size: 10px;
     -fx-padding: 2 6 2 6;
-    -fx-background-color: rgba(255, 255, 255, 0.2);
-    -fx-text-fill: white;
+    -fx-background-color: rgba(127, 127, 127, 0.28);
+    -fx-text-fill: -bm-text-on-color;
     -fx-background-radius: 10;
 }
 
-/* White-on-dark combo box used for return-type selection in method headers. */
+/* Combo box used for return-type selection in method headers. */
 .inline-type-selector {
     -fx-font-size: 11px;
-    -fx-background-color: rgba(255, 255, 255, 0.2);
-    -fx-text-fill: white;
+    -fx-background-color: rgba(127, 127, 127, 0.28);
+    -fx-text-fill: -bm-text-on-color;
     -fx-background-radius: 4;
 }
 
@@ -744,7 +957,8 @@
 
 .list-empty-label {
     -fx-font-style: italic;
-    -fx-text-fill: rgba(255, 255, 255, 0.4);
+    -fx-text-fill: -bm-text-on-color;
+    -fx-opacity: 0.65;
     -fx-font-size: 10px;
 }
 
@@ -912,7 +1126,10 @@
 
     /* Per-category block colours */
     -bm-cat-output: #4a90d9;
-    -bm-cat-input: #a569bd;
+    /* Was #a569bd, which cleared AA against neither on-colour (3.92 white / 4.44 near-black). Nudged down
+       until white passes, which also keeps it consistent with -bm-cat-functions — the two purples are the
+       only fills in this theme that take white text, and they sit next to each other constantly. */
+    -bm-cat-input: #9d5cb5;
     -bm-cat-variables: #f5b041;
     -bm-cat-flow: #e88e32;
     -bm-cat-loops: #31d077;
@@ -922,9 +1139,20 @@
     -bm-cat-game: #19a883;
     -bm-cat-utility: #95a5a6;
 
+    /* On-colours — measured against the fills above, same rule as :root. */
+    -bm-on-cat-output: #1a1a1a;
+    -bm-on-cat-input: #ffffff;
+    -bm-on-cat-variables: #1a1a1a;
+    -bm-on-cat-flow: #1a1a1a;
+    -bm-on-cat-loops: #1a1a1a;
+    -bm-on-cat-control: #1a1a1a;
+    -bm-on-cat-functions: #ffffff;
+    -bm-on-cat-vision: #1a1a1a;
+    -bm-on-cat-game: #1a1a1a;
+    -bm-on-cat-utility: #1a1a1a;
+
     /* Block surfaces */
     -bm-text-on-color: #ffffff;
-    -bm-text-dim: rgba(255, 255, 255, 0.8);
 
     /* Read-only */
     -bm-locked-fill: rgba(149, 165, 166, 0.20);
@@ -972,9 +1200,20 @@
     -bm-cat-game: #009688;
     -bm-cat-utility: #b0bec5;
 
+    /* On-colours — measured against the fills above, same rule as :root. */
+    -bm-on-cat-output: #1a1a1a;
+    -bm-on-cat-input: #ffffff;
+    -bm-on-cat-variables: #1a1a1a;
+    -bm-on-cat-flow: #1a1a1a;
+    -bm-on-cat-loops: #1a1a1a;
+    -bm-on-cat-control: #1a1a1a;
+    -bm-on-cat-functions: #ffffff;
+    -bm-on-cat-vision: #1a1a1a;
+    -bm-on-cat-game: #1a1a1a;
+    -bm-on-cat-utility: #1a1a1a;
+
     /* Block surfaces */
     -bm-text-on-color: #ffffff;
-    -bm-text-dim: rgba(255, 255, 255, 0.9);
 
     /* Read-only */
     -bm-locked-fill: rgba(176, 190, 197, 0.25);
@@ -1022,9 +1261,23 @@
     -bm-cat-game: #00ff80;
     -bm-cat-utility: #ffffff;
 
+    /* On-colours. Every fill here is a saturated primary at full brightness, so near-black wins on all ten —
+       including the two purples that take white in the other three themes (#ff00ff scores 5.55 against
+       near-black and 3.14 against white). This is the theme where "dark fill ⇒ white text" would have been
+       most wrong, and it is the theme that can least afford it. */
+    -bm-on-cat-output: #1a1a1a;
+    -bm-on-cat-input: #1a1a1a;
+    -bm-on-cat-variables: #1a1a1a;
+    -bm-on-cat-flow: #1a1a1a;
+    -bm-on-cat-loops: #1a1a1a;
+    -bm-on-cat-control: #1a1a1a;
+    -bm-on-cat-functions: #1a1a1a;
+    -bm-on-cat-vision: #1a1a1a;
+    -bm-on-cat-game: #1a1a1a;
+    -bm-on-cat-utility: #1a1a1a;
+
     /* Block surfaces */
     -bm-text-on-color: #000000;
-    -bm-text-dim: rgba(255, 255, 255, 0.85);
 
     /* Read-only */
     -bm-locked-fill: rgba(255, 255, 255, 0.15);

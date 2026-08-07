@@ -8,13 +8,14 @@ import org.eclipse.jdt.core.dom.ContinueStatement;
 import org.eclipse.jdt.core.dom.DoStatement;
 import org.eclipse.jdt.core.dom.EnhancedForStatement;
 import org.eclipse.jdt.core.dom.ForStatement;
+import org.eclipse.jdt.core.dom.SwitchCase;
 import org.eclipse.jdt.core.dom.SwitchStatement;
 import org.eclipse.jdt.core.dom.WhileStatement;
 
 /**
  * Where a statement is <em>allowed</em> to go. Today that's only the jump statements: {@code break} and
- * {@code continue} are legal solely inside an enclosing loop ({@code break} also inside a {@code switch}), and
- * anywhere else they don't compile.
+ * {@code continue} are legal solely inside an enclosing loop ({@code break} also inside a colon-form
+ * {@code switch}), and anywhere else they don't compile.
  *
  * <p>This is the single implementation behind all four enforcement points, which is the whole reason it's a
  * class rather than an inline check: the drag-over handler (so an illegal drop zone never lights up), the "+"
@@ -30,7 +31,7 @@ public final class StatementPlacement {
 
     /** The two statements whose legality depends on where they land. */
     public enum Jump {
-        BREAK("Break", "a loop or switch"),
+        BREAK("Break", "a loop, or a switch written with \"case …:\" labels"),
         CONTINUE("Continue", "a loop");
 
         private final String label;
@@ -73,9 +74,31 @@ public final class StatementPlacement {
                     || n instanceof ForStatement || n instanceof EnhancedForStatement) {
                 return true;
             }
-            if (jump == Jump.BREAK && n instanceof SwitchStatement) return true;
+            if (n instanceof SwitchStatement sw) {
+                // An arrow switch is a hard boundary for *both* jumps, so stop walking rather than fall
+                // through to an enclosing loop: JLS 14.15/14.16 make an unlabelled break or continue inside
+                // a switch rule a compile error outright, not a jump that targets something further out.
+                // (A loop *inside* the rule body is already handled — the walk hits it before this.)
+                if (isArrowForm(sw)) return false;
+                if (jump == Jump.BREAK) return true;
+            }
         }
         return false;
+    }
+
+    /**
+     * Whether this switch is written with Java 14 arrow rules ({@code case X -> …}) rather than the classic
+     * colon form. {@code break} closes a colon case and is illegal in an arrow one, so the two forms have
+     * opposite answers — and {@code MatchesSwitchBlock} emits the arrow form, which is why the matchswitch
+     * block used to offer a {@code break} that could not compile.
+     *
+     * <p>A switch is all one form or the other (mixing them doesn't compile), so the first label decides.
+     */
+    private static boolean isArrowForm(SwitchStatement switchStatement) {
+        for (Object statement : switchStatement.statements()) {
+            if (statement instanceof SwitchCase switchCase) return switchCase.isSwitchLabeledRule();
+        }
+        return false;   // no labels at all — an empty switch; the colon form's answer is the safe one
     }
 
     /** Convenience for the palette side: is this block type legal in this body? */

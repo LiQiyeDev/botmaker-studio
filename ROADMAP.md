@@ -6,6 +6,32 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-07 — blocks are filled with their category colour, and the on-colour is measured
+  (`resources/css/blocks.css`).** Blocks had a neutral surface with a 3px left accent bar, but every label
+  colour in the file was a hardcoded white — a palette written for coloured fills that were never applied, so
+  in the default (light) theme the editor was white-on-white in places. Each `-bm-cat-*` token now has an
+  `-bm-on-cat-*` beside it, per theme, chosen by WCAG contrast rather than by eye: **only the two purples take
+  white.** `#3498db` scores 3.15 against white and 5.52 against `#1a1a1a`, so "dark-looking fill ⇒ white text"
+  was wrong for eight of the ten categories. Each `.category-*` rule fills, outlines in the on-colour, and
+  redefines `-bm-text-on-color` locally — JavaFX looked-up colours cascade, so that one line re-points every
+  descendant label and a nested block picks up its own category's on-colour. Dark theme's `-bm-cat-input` was
+  nudged `#a569bd` → `#9d5cb5`; it cleared AA against neither on-colour. `-bm-text-dim` is **gone** (it was
+  unused, and a dim colour has to move away from the on-colour in a direction that flips with it, which one
+  `derive()` can't express) — dim labels are the on-colour plus `-fx-opacity`. Also added `.matches-case-mode`
+  and `.switch-case-body`, which `MatchesSwitchBlock` has always tagged and this file had never styled.
+  `ui/render/theme/ColorPalette` was **left alone**: it mirrors editor text/accent colours, not the category
+  palette, and is live behind `BlockDragAndDropManager` + `StyleBuilder`, so there was nothing duplicated to
+  delete. Guarded by `ui/render/BlockPaletteContrastTest` — every fill/on-colour pair in all four themes is
+  re-measured on each build, plus a JavaFX `CssParser` syntax check on the file.
+
+- **2026-08-07 — `break` is no longer offered inside a matchswitch (`parser/StatementPlacement`).** The
+  placement rule whitelisted `break` in any `SwitchStatement`, but `MatchesSwitchBlock` emits Java 21 **arrow**
+  rules, where an unlabelled `break` is a compile error (JLS 14.15) — so the insert menu offered a block that
+  broke the build on drop. An arrow switch is now a hard boundary for both jumps: the walk stops there instead
+  of falling through to an enclosing loop, since `continue` can't escape a switch rule either. All four
+  enforcement points (insert menu, drag-over, palette drop, block move) already delegate here, so the one edit
+  covers them. `parser/StatementPlacementTest` pins both forms and both nesting directions.
+
 - **2026-08-07 — a new project's `Popups.run()` ships the loop, not a TODO (`project/ProjectCreator`).** The
   scaffold documented `whileFindAny` in its javadoc and then emitted an empty body, so the popup guard a new
   bot installs had nothing in it and the editor had no block to drop templates into — the user had to author
