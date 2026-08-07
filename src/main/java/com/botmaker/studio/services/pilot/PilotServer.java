@@ -356,16 +356,19 @@ public final class PilotServer implements AutoCloseable {
 
     private void pushFrame() {
         if (clients.isEmpty()) return;
-        PilotRoute route = routes.current();
-        TargetCapture.Capture cap = capture.resolve(route, lastTarget);
-        if (cap == null) return;
+        TargetCapture.Resolved resolved = capture.resolve(routes.current(), lastTarget);
+        if (resolved == null) return;
+        TargetCapture.Capture cap = resolved.cap();
         byte[] jpeg = TargetCapture.jpegBytes(cap.img());
         if (jpeg == null) return;
 
         // Interact gestures are replayed on the route that produced this frame and clamped to what the client
         // was actually shown, so both must be published from here — the one place that knows what went over the
-        // wire. A route change also changes whether input is background-safe, which the client renders as a
-        // warning, so tell it rather than leaving a stale one on screen.
+        // wire — and both must come from the *same* resolution. The route is therefore the one the capture
+        // reports, never the one we asked for: those differed whenever a grab failed, and the client was then
+        // told it was touching a surface it had not been shown. A route change also changes whether input is
+        // background-safe, which the client renders as a warning, so tell it rather than leaving a stale one up.
+        PilotRoute route = resolved.route();
         boolean routeChanged = lastRoute == null || !lastRoute.getClass().equals(route.getClass());
         lastRoute = route;
         lastBounds = new PilotInputService.Bounds(cap.sx(), cap.sy(), cap.sw(), cap.sh());

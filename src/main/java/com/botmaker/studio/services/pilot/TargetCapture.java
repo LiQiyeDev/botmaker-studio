@@ -24,7 +24,7 @@ import java.io.ByteArrayOutputStream;
  * reusable on its own; {@code PilotServer} (raw JPEG bytes over WebSocket) is its one
  * capture pipeline.
  *
- * <p>Target resolution starts with the {@link PilotRoute}: a nested session's {@code :N} window or an
+ * <p>Target resolution starts with the {@link PilotRoute}: a nested session's {@code :N} screen or an
  * emulator's framebuffer <em>is</em> the surface, and needs no picking. Only on the {@code :0} desktop route is
  * there a choice to make — a live window from telemetry wins; else the project default (window / monitor /
  * whole desktop); else a whole-screen telemetry target; else the primary screen. Window targets use shared JNA
@@ -36,6 +36,19 @@ public final class TargetCapture {
     /** A captured frame plus the absolute surface origin/size its pixel (0,0) maps to. */
     public record Capture(BufferedImage img, int sx, int sy, int sw, int sh) {}
 
+    /**
+     * A frame together with <b>the route it was actually taken on</b> — the two halves of one fact, returned as
+     * one value so they cannot disagree.
+     *
+     * <p>They used to be computed apart: the caller asked for a frame on the route it intended, and published
+     * that intended route beside whatever bounds came back. A session grab that failed then fell through to a
+     * {@code :0} desktop capture, and the client was shown the user's desktop while being told it was looking at
+     * a session — so a tap was clamped to host multi-monitor coordinates and replayed through the session's
+     * {@code :N} controller, which is the "Interact teleports the cursor to the other screen" report. Returning
+     * both from the same resolution makes that state unrepresentable.
+     */
+    public record Resolved(PilotRoute route, Capture cap) {}
+
     private final ProjectSettingsService settings;
 
     public TargetCapture(ProjectSettingsService settings) {
@@ -43,26 +56,38 @@ public final class TargetCapture {
     }
 
     /**
-     * Grabs the frame to preview this tick, on the surface {@code route} names.
+     * Grabs the frame to preview this tick, on the surface {@code route} names, and reports which route it came
+     * from — see {@link Resolved}. {@code null} means "no frame this tick"; the client shows its last one and
+     * the pilot's published bounds are left untouched.
      *
-     * <p>A {@link PilotRoute.Session} or {@link PilotRoute.Emulator} <em>is</em> the answer — those routes exist
-     * precisely because the bot is not on the user's desktop — and each falls back to the {@code :0} path only
-     * if its own grab fails, so a momentarily unreachable emulator shows something rather than nothing. On the
-     * {@link PilotRoute.Desktop} route, {@code lastTarget} is the most recent telemetry target (may be
+     * <p><b>A non-desktop route never falls back to the desktop.</b> A {@link PilotRoute.Session} or
+     * {@link PilotRoute.Emulator} exists precisely because the bot is not on the user's desktop, so a failed
+     * grab there resolves to nothing rather than to {@code :0}. Serving the user's screen under a session route
+     * was both the cursor-teleport bug and a privacy leak — a pilot session is reachable over a public Funnel
+     * URL, and "the emulator hiccuped" is not consent to stream a desktop.
+     *
+     * <p>On the {@link PilotRoute.Desktop} route, {@code lastTarget} is the most recent telemetry target (may be
      * {@code null} when idle) and a live window target wins over the project default.
      */
-    public Capture resolve(PilotRoute route, TelemetryEvent.Target lastTarget) {
-        switch (route == null ? PilotRoute.DESKTOP : route) {
+    public Resolved resolve(PilotRoute route, TelemetryEvent.Target lastTarget) {
+        PilotRoute r = route == null ? PilotRoute.DESKTOP : route;
+        switch (r) {
             case PilotRoute.Session(DesktopSession s) -> {
-                Capture c = captureSession(s);
-                if (c != null) return c;
+                return wrap(r, captureSession(s));
             }
             case PilotRoute.Emulator(EmulatorSurface surface) -> {
-                Capture c = captureEmulator(surface);
-                if (c != null) return c;
+                return wrap(r, captureEmulator(surface));
             }
             case PilotRoute.Desktop ignored -> { /* the :0 resolution below */ }
         }
+        return wrap(r, captureDesktop(lastTarget));
+    }
+
+    private static Resolved wrap(PilotRoute route, Capture cap) {
+        return cap == null ? null : new Resolved(route, cap);
+    }
+
+    private Capture captureDesktop(TelemetryEvent.Target lastTarget) {
         TelemetryEvent.Target t = lastTarget;
         if (t != null && t.title() != null && t.width() > 0 && t.height() > 0) {
             Capture c = captureWindowTarget(t.title());
@@ -82,19 +107,34 @@ public final class TargetCapture {
     }
 
     /**
-     * Grab the window the nested session launched into {@code :N}, tagged with that window's rect <em>on
-     * {@code :N}</em>. Because {@link PilotInputService} drives the same {@code :N} controller, that rect is
-     * the one coordinate space both capture and Interact live in — a tap on the streamed frame lands on the
-     * same pixel the bot sees.
+     * Grab the nested session's <b>screen</b> — the whole {@code :N} root, tagged with {@link
+     * DesktopSession#screen()}. Because {@link PilotInputService} drives the same {@code :N} controller in root
+     * coordinates, that rect is the one space both capture and Interact live in: a tap on the streamed frame
+     * lands on the same pixel the bot sees.
+     *
+     * <p><b>Why the screen and not the attached window.</b> This used to grab {@code s.attached()}, one specific
+     * window, and return {@code null} the moment there wasn't one — which is exactly what a launcher chain does:
+     * Heroic comes up and is attached, Firestone replaces it, and for the seconds in between (and after, if the
+     * swap isn't observed) there is no window to grab. That produced the reported "cannot capture the session"
+     * and, through the old desktop fallback, the cursor teleport. The screen has no such dependency. Under
+     * gamescope the client is forced fullscreen, so these are the same pixels anyway.
+     *
+     * <p>The attached window is still the fallback: a session backend that can't hand over a root frame keeps
+     * streaming exactly what it did before, tagged with that window's rect.
      */
     private Capture captureSession(DesktopSession s) {
         try {
+            BufferedImage img = s.captureScreen(); // the :N root — no :0 focus, non-intrusive
+            Rectangle screen = s.screen();
+            if (img != null && screen != null && !screen.isEmpty()) {
+                return new Capture(img, screen.x, screen.y, screen.width, screen.height);
+            }
             GenericWindow win = s.attached();
             if (win == null) return null;
-            BufferedImage img = s.capture(); // the :N-bound controller's captureWindow — no :0 focus, non-intrusive
-            if (img == null) return null;
+            BufferedImage windowImg = s.capture();
+            if (windowImg == null) return null;
             Rectangle b = win.getRect();
-            return new Capture(img, b.x, b.y, b.width, b.height);
+            return new Capture(windowImg, b.x, b.y, b.width, b.height);
         } catch (Throwable ex) {
             return null;
         }

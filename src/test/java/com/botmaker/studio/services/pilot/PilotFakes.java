@@ -59,6 +59,12 @@ final class PilotFakes {
         private final BufferedImage frame;
         private final Set<Capability> caps;
 
+        /** The {@code :N} root frame, when this session has one distinct from its window frame. */
+        BufferedImage screenFrame;
+
+        /** The session screen, when it is not simply the attached window's rect. */
+        Rectangle screenRect;
+
         FakeSession(NativeController controller, GenericWindow attached, BufferedImage frame, Set<Capability> caps) {
             this.controller = controller;
             this.attached = attached;
@@ -67,7 +73,18 @@ final class PilotFakes {
         }
 
         @Override public Set<Capability> capabilities() { return caps; }
-        @Override public Rectangle screen() { return attached == null ? new Rectangle() : attached.getRect(); }
+
+        @Override
+        public Rectangle screen() {
+            if (screenRect != null) return screenRect;
+            return attached == null ? new Rectangle() : attached.getRect();
+        }
+
+        @Override
+        public BufferedImage captureScreen() {
+            return screenFrame != null ? screenFrame : frame;
+        }
+
         @Override public SessionPointer pointer() { return null; }
         @Override public SessionKeyboard keyboard() { return null; }
         @Override public void attach(GenericWindow window) { }

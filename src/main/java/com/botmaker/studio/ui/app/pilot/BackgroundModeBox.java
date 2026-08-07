@@ -3,6 +3,8 @@ package com.botmaker.studio.ui.app.pilot;
 import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeControllerFactory;
 import com.botmaker.shared.emulator.EmulatorInstances;
+import com.botmaker.shared.launch.HostLauncherProbe;
+import com.botmaker.shared.launch.LaunchKind;
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.session.display.SessionBackends;
 import com.botmaker.session.impl.NestedSession;
@@ -43,15 +45,24 @@ final class BackgroundModeBox {
                 + "mirrors your real desktop and Interact moves your actual cursor.");
 
         ChoiceBox<NestedSession.Backend> backend = new ChoiceBox<>();
-        backend.getItems().addAll(NestedSession.Backend.XEPHYR, NestedSession.Backend.GAMESCOPE);
-        // Preselect the backend the configured target actually needs (gamescope for a game, Xephyr otherwise),
-        // single-sourced through SessionBackends so the pilot and the Launch buttons can't disagree.
+        backend.getItems().addAll(NestedSession.Backend.GAMESCOPE, NestedSession.Backend.XEPHYR);
+        // Preselect the default — gamescope for everything now — single-sourced through SessionBackends so the
+        // pilot and the Launch buttons can't disagree. Xephyr stays in the list only as the manual escape hatch.
         backend.setValue(SessionBackends.preferredBackend(launcher.configuredTarget()));
         backend.setTooltip(new Tooltip(
-                "Xephyr: 2D targets. gamescope: hardware-3D (Proton/DXVK/Vulkan) — needs a GPU box."));
+                "gamescope (recommended): its own window manager, a real GPU inside the display, and the "
+                + "geometry the pilot's capture and Interact agree on. Xephyr: 2D only and software GL — keep "
+                + "it for bisecting a gamescope problem."));
 
         Button start = new Button("Start background mode");
         Button stop = new Button("Stop");
+        // The one refusal the user can act on from here. HOST_LAUNCHER_OPEN used to be a dead end: a sentence
+        // saying "close Heroic and try again" about a launcher that is often tray-resident or left over from an
+        // earlier run, with no window to close. The blocker names its processes now, so the box can offer the
+        // close instead of instructing it.
+        Button closeLauncher = new Button();
+        closeLauncher.setVisible(false);
+        closeLauncher.setManaged(false);
         Button showWin = new Button("Show display window");
         showWin.setTooltip(new Tooltip(
                 "Raise the Xephyr host window on your desktop so you can watch the private display."));
@@ -74,6 +85,18 @@ final class BackgroundModeBox {
             showWin.setVisible(xephyr);
             showWin.setManaged(xephyr);
             showWin.setDisable(!running);
+        };
+        // Revealed only by a refusal that names this blocker — never probed speculatively. Both the probe and
+        // the close walk the whole process table, which is not something to do on the FX thread on the chance
+        // that it might be needed.
+        Runnable offerToCloseLauncher = () -> {
+            LaunchSpec configured = launcher.configuredTarget();
+            LaunchKind kind = configured == null ? null : configured.kind();
+            boolean blocked = kind != null && HostLauncherProbe.isRunning(kind);
+            closeLauncher.setText(blocked ? "Close " + kind.productName() : "");
+            closeLauncher.setUserData(blocked ? kind : null);
+            closeLauncher.setVisible(blocked);
+            closeLauncher.setManaged(blocked);
         };
         // The persistent resting status line: green when isolated, amber when mirroring / unavailable.
         Runnable refreshStatus = () -> {
@@ -110,9 +133,11 @@ final class BackgroundModeBox {
             start.setDisable(true);
             launcher.start(backend.getValue(), size[0], size[1], (ok, msg) -> {
                 if (!ok) {
-                    // Loud failure (e.g. a host launcher stole the game onto :0) — show it, stay amber.
+                    // Loud failure (e.g. a host launcher stole the game onto :0) — show it, stay amber, and
+                    // offer the one thing the user can do about it from here.
                     status.setText("● " + msg);
                     status.setStyle("-fx-text-fill: #e67e22;");
+                    offerToCloseLauncher.run();
                 } else if (launcher.isRunning()) {
                     refreshStatus.run(); // terminal success → green "Isolated on :N"
                 } else {
@@ -128,9 +153,20 @@ final class BackgroundModeBox {
             refreshStatus.run();
         });
         showWin.setOnAction(e -> raiseXephyrHostWindow(launcher.activeDisplay(), status));
+        closeLauncher.setOnAction(e -> {
+            LaunchKind kind = (LaunchKind) closeLauncher.getUserData();
+            if (kind == null) return;
+            int closed = HostLauncherProbe.closeHostLaunchers(kind);
+            status.setText(closed == 0
+                    ? "● Couldn't close " + kind.productName() + " — close it yourself, then start again."
+                    : "● Asked " + kind.productName() + " to quit (" + closed + " process"
+                            + (closed == 1 ? "" : "es") + "). Give it a moment, then start background mode.");
+            status.setStyle("-fx-text-fill: #e67e22;");
+            offerToCloseLauncher.run();
+        });
 
         box.getChildren().addAll(title, help,
-                new HBox(8, new Label("Backend:"), backend, start, stop, showWin), status);
+                new HBox(8, new Label("Backend:"), backend, start, stop, showWin, closeLauncher), status);
         return box;
     }
 

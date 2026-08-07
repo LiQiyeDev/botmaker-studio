@@ -6,6 +6,20 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-07 — the pilot's route and its frame become one value (`services/pilot/`).** `TargetCapture.resolve`
+  returns `Resolved(PilotRoute route, Capture cap)` — the route the frame was *actually* taken on — and
+  `PilotServer.pushFrame` publishes `lastRoute`/`lastBounds` from that single value. They used to be computed
+  apart: a session grab that failed fell through to a `:0` desktop capture while the published route still said
+  "session", so a tap was clamped to host multi-monitor coordinates and replayed through the `:N` controller.
+  That is the reported "Interact teleports the cursor to the other screen", and it was also streaming the user's
+  desktop over a link opened to watch a bot. A `Session`/`Emulator` route that cannot grab now resolves to
+  `null` (the client keeps its last frame) and never to the desktop.
+- **2026-08-07 — session capture follows the `:N` screen, not the attached window.** `captureSession` grabs
+  `DesktopSession.captureScreen()` tagged with `screen()`, falling back to the attached window only if a
+  backend can't produce a root frame. The window grab returned `null` for the whole Heroic→Firestone swap —
+  the "cannot capture the session" report — and under gamescope the client is fullscreen, so it is the same
+  pixels anyway. `BackgroundModeBox` preselects gamescope (now the default for every launch kind) and offers a
+  **Close &lt;launcher&gt;** button when a launch is refused because the launcher is open on `:0`.
 - **2026-08-07 — refused edits are journalled, not printed (`parser/guard/`).** The edit guard's refusal used
   to leave two `System.err` lines (gone when Studio closes, never seen in a packaged build) and an unindexed
   `refused-<ts>.java` dump that couldn't be matched to the problem, the rewrite or the block. Now every refusal

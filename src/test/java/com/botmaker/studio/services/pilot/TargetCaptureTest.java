@@ -10,34 +10,65 @@ import java.util.EnumSet;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
 /**
  * Route capture: the {@link PilotRoute} the frame loop resolved is the surface {@link TargetCapture} grabs —
- * a nested session's {@code :N} window or an emulator's framebuffer — each tagged with the rect that makes
- * capture and Interact share one coordinate space, in preference to any {@code :0} telemetry/default target.
+ * a nested session's {@code :N} screen or an emulator's framebuffer — each tagged with the rect that makes
+ * capture and Interact share one coordinate space, and each reported back beside its own frame so the two can
+ * never disagree.
  */
 class TargetCaptureTest {
 
     @Test
-    void anActiveSessionsFrameAndRectAreWhatGetsCaptured() {
-        BufferedImage frame = new BufferedImage(640, 480, BufferedImage.TYPE_INT_RGB);
+    void anActiveSessionsScreenFrameAndRectAreWhatGetsCaptured() {
+        BufferedImage windowFrame = new BufferedImage(640, 480, BufferedImage.TYPE_INT_RGB);
+        BufferedImage rootFrame = new BufferedImage(1280, 800, BufferedImage.TYPE_INT_RGB);
         GenericWindow win = new GenericWindow(1, "Nested Game", new Rectangle(0, 0, 640, 480));
         PilotFakes.RecordingController nc = new PilotFakes.RecordingController();
-        nc.windowFrame = frame;
+        nc.windowFrame = windowFrame;
 
-        PilotRoute route = new PilotRoute.Session(
-                new PilotFakes.FakeSession(nc, win, frame, EnumSet.of(Capability.BACKGROUND_CLICK)));
+        PilotFakes.FakeSession session =
+                new PilotFakes.FakeSession(nc, win, windowFrame, EnumSet.of(Capability.BACKGROUND_CLICK));
+        session.screenFrame = rootFrame;
+        session.screenRect = new Rectangle(0, 0, 1280, 800);
+        PilotRoute route = new PilotRoute.Session(session);
 
         // lastTarget is null (idle on :0) — the session must still win.
-        TargetCapture.Capture cap = new TargetCapture(null).resolve(route, null);
+        TargetCapture.Resolved resolved = new TargetCapture(null).resolve(route, null);
 
-        assertNotNull(cap, "an active session with an attached window always yields a frame");
-        assertSame(frame, cap.img(), "the session's own :N frame is streamed");
+        assertNotNull(resolved, "an active session always yields a frame");
+        assertSame(route, resolved.route(), "the frame is reported on the route it was taken from");
+        TargetCapture.Capture cap = resolved.cap();
+        assertSame(rootFrame, cap.img(), "the :N root is streamed, not the attached window");
         assertEquals(0, cap.sx());
         assertEquals(0, cap.sy());
-        assertEquals(640, cap.sw());
-        assertEquals(480, cap.sh());
+        assertEquals(1280, cap.sw());
+        assertEquals(800, cap.sh());
+    }
+
+    /**
+     * The cursor-teleport fix, at the resolution level: a session that cannot produce a frame resolves to
+     * nothing. Falling through to the {@code :0} desktop published host multi-monitor bounds under a route that
+     * still claimed to be the session, so a tap was replayed through the {@code :N} controller at host
+     * coordinates — and it streamed the user's desktop over a link they opened to watch a bot.
+     */
+    @Test
+    void aSessionThatCannotBeGrabbedResolvesToNothingRatherThanTheDesktop() {
+        PilotRoute route = new PilotRoute.Session(new PilotFakes.FakeSession(
+                new PilotFakes.RecordingController(), null, null, EnumSet.noneOf(Capability.class)));
+
+        assertNull(new TargetCapture(null).resolve(route, null),
+                "a failed session grab must never fall back to the user's desktop");
+    }
+
+    /** The same refusal for the emulator route — an unreachable emulator is not consent to stream {@code :0}. */
+    @Test
+    void anEmulatorThatCannotBeGrabbedResolvesToNothingRatherThanTheDesktop() {
+        PilotFakes.RecordingSurface surface = new PilotFakes.RecordingSurface(null);
+
+        assertNull(new TargetCapture(null).resolve(new PilotRoute.Emulator(surface), null));
     }
 
     /**
@@ -50,9 +81,12 @@ class TargetCaptureTest {
         BufferedImage frame = new BufferedImage(1280, 720, BufferedImage.TYPE_INT_RGB);
         PilotFakes.RecordingSurface surface = new PilotFakes.RecordingSurface(frame);
 
-        TargetCapture.Capture cap = new TargetCapture(null).resolve(new PilotRoute.Emulator(surface), null);
+        PilotRoute route = new PilotRoute.Emulator(surface);
+        TargetCapture.Resolved resolved = new TargetCapture(null).resolve(route, null);
 
-        assertNotNull(cap);
+        assertNotNull(resolved);
+        assertSame(route, resolved.route());
+        TargetCapture.Capture cap = resolved.cap();
         assertSame(frame, cap.img());
         assertEquals(0, cap.sx());
         assertEquals(0, cap.sy());
