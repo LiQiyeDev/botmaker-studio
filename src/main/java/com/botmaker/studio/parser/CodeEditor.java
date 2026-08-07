@@ -1,6 +1,5 @@
 package com.botmaker.studio.parser;
 
-import com.botmaker.studio.config.BotMakerDirs;
 import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.StatementBlock;
 import com.botmaker.studio.events.CoreApplicationEvents;
@@ -20,6 +19,8 @@ import com.botmaker.studio.parser.handlers.OperatorReplacementHandler;
 import com.botmaker.studio.parser.handlers.RawExpressionHandler;
 import com.botmaker.studio.parser.handlers.SwitchNormalizer;
 import com.botmaker.studio.parser.handlers.TypeHandler;
+import com.botmaker.studio.parser.guard.RefusalJournal;
+import com.botmaker.studio.parser.guard.RefusedEdit;
 import com.botmaker.studio.parser.helpers.AstRewriteHelper;
 import com.botmaker.studio.parser.helpers.SdkNodes;
 import com.botmaker.studio.parser.helpers.SourceFormatter;
@@ -37,8 +38,6 @@ import org.eclipse.jdt.core.dom.rewrite.ListRewrite;
 import org.eclipse.jface.text.Document;
 import org.eclipse.jface.text.IDocument;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -71,6 +70,7 @@ public class CodeEditor {
     private final ProjectState state;
     private final EventBus eventBus;
     private final ProjectAnalyzer analyzer;
+    private final RefusalJournal journal;
 
     private static final Map<String, InfixExpression.Operator> INFIX_OPS = Map.ofEntries(
             Map.entry("+", InfixExpression.Operator.PLUS),
@@ -105,10 +105,17 @@ public class CodeEditor {
     );
 
     public CodeEditor(ProjectConfig config, ProjectState state, EventBus eventBus, ProjectAnalyzer analyzer) {
+        this(config, state, eventBus, analyzer, RefusalJournal.inCacheDir());
+    }
+
+    /** As above, writing refusals somewhere other than the cache dir — for a test that asserts on them. */
+    public CodeEditor(ProjectConfig config, ProjectState state, EventBus eventBus, ProjectAnalyzer analyzer,
+                      RefusalJournal journal) {
         this.config = config;
         this.state = state;
         this.eventBus = eventBus;
         this.analyzer = analyzer;
+        this.journal = journal;
     }
 
     private String getCurrentCode() { return state.getCurrentCode(); }
@@ -169,18 +176,25 @@ public class CodeEditor {
         return false;
     }
 
-    private boolean triggerUpdate(String newCode) {
-        return triggerUpdate(newCode, false);
+    private boolean triggerUpdate(String newCode, ASTNode target) {
+        return triggerUpdate(newCode, false, target, EditKind.BODY);
     }
 
     /**
      * Publishes {@code newCode} as the file's new content — unless it wouldn't parse. Returns whether it was
      * published, so a caller with a follow-up event of its own can drop that too.
+     *
+     * <p>{@code target} and {@code kind} are carried only for the refusal journal — they say <em>which block</em>
+     * the rewrite that emitted broken source was editing, which is the one thing a refusal can't be diagnosed
+     * without and the one thing the guard couldn't see when it only took two strings. Both are nullable: a
+     * whole-file rewrite ({@code normalizeSwitches}) has no target, and the journal treats every field as
+     * best-effort.
      */
-    private boolean triggerUpdate(String newCode, boolean markNewIdentifiersAsUnedited) {
+    private boolean triggerUpdate(String newCode, boolean markNewIdentifiersAsUnedited,
+                                  ASTNode target, EditKind kind) {
         String previousCode = getCurrentCode();
         newCode = formatted(newCode);
-        if (wouldBreak(newCode, previousCode)) return false;
+        if (wouldBreak(newCode, previousCode, target, kind)) return false;
         eventBus.publish(new CoreApplicationEvents.CodeUpdatedEvent(newCode, previousCode, markNewIdentifiersAsUnedited));
         return true;
     }
@@ -228,15 +242,20 @@ public class CodeEditor {
      * <p>Costs one full-file parse on the edit path, and only on the path that already parses: the new code is
      * checked first, so the overwhelmingly common clean edit pays a single parse and never touches the old
      * code. {@code refreshUI} parses the same file on every edit anyway.
+     *
+     * <p><b>Every refusal is recorded</b>, not just printed — see {@link RefusalJournal}. The refusal is the
+     * symptom; the rewrite that emitted broken source is the bug, and it is fixed later, usually from someone
+     * else's machine. So the problem, the rewrite, the block, the project and both full sources go to disk.
      */
-    private boolean wouldBreak(String newCode, String previousCode) {
+    private boolean wouldBreak(String newCode, String previousCode, ASTNode target, EditKind kind) {
         if (newCode == null || newCode.equals(previousCode)) return false;
         IProblem problem = SourceParser.firstSyntaxError(SourceParser.parse(newCode));
         if (problem == null) return false;
         if (SourceParser.hasSyntaxErrors(SourceParser.parse(previousCode))) return false;
-        System.err.println("Refused an edit that would have broken the code (" + refusedBy() + "): "
-                + problem.getMessage() + " at line " + problem.getSourceLineNumber());
-        System.err.println("  the source it would have published: " + dumpRefused(newCode));
+        RefusedEdit refused = RefusedEdit.of(problem, refusedBy(), kind, target, previousCode, config, state);
+        System.err.println("Refused an edit that would have broken the code " + refused.summary());
+        System.err.println("  the source it would have published: "
+                + journal.record(refused, newCode, previousCode));
         eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(
                 "That change would have broken the code, so nothing was changed."));
         return true;
@@ -266,26 +285,6 @@ public class CodeEditor {
     }
 
     /**
-     * Writes the refused source to the cache dir and returns where it went, or why it couldn't be written.
-     *
-     * <p>The problem message and the caller's name say <em>that</em> a rewrite is broken and which one; only
-     * the emitted text says <em>how</em>. Without it a refusal has to be reproduced before it can be read, and
-     * a rewrite that misbehaves on one user's file and not on a reconstruction of it — which is exactly the
-     * shape this has taken — cannot be diagnosed at all. Best-effort: a diagnostic that throws would turn a
-     * refused edit into a lost one.
-     */
-    private static String dumpRefused(String newCode) {
-        try {
-            Path dir = Files.createDirectories(BotMakerDirs.getCacheDir().resolve("refused-edits"));
-            Path file = dir.resolve("refused-" + System.currentTimeMillis() + ".java");
-            Files.writeString(file, newCode);
-            return file.toString();
-        } catch (Exception e) {
-            return "(could not be written: " + e + ")";
-        }
-    }
-
-    /**
      * The write-path context for a rewrite of {@code cu} — this editor's analyzer and project state, plus a
      * fresh {@link ASTRewrite}. Every {@link #edit} lambda that calls a handler builds one of these, which is
      * why the handlers take a single {@link EditContext} rather than re-listing the same four arguments.
@@ -309,7 +308,7 @@ public class CodeEditor {
         CompilationUnit cu = getCompilationUnit();
         if (cu == null) return;
         String newCode = op.apply(cu, getCurrentCode());
-        if (newCode != null) triggerUpdate(newCode, markUnedited);
+        if (newCode != null) triggerUpdate(newCode, markUnedited, target, kind);
     }
 
     // =================================================================================
@@ -882,7 +881,7 @@ public class CodeEditor {
         if (newCode == null) return;
         // The refusal has to take the announcement with it: a BlockAddedEvent for a block that was never
         // published scrolls the canvas to a block that isn't there.
-        if (!triggerUpdate(newCode, true)) return;
+        if (!triggerUpdate(newCode, true, targetBody.getAstNode(), EditKind.BODY)) return;
         eventBus.publish(new CoreApplicationEvents.BlockAddedEvent(type));
     }
 
@@ -947,7 +946,8 @@ public class CodeEditor {
         CompilationUnit cu = getCompilationUnit();
         if (cu == null) return;
         String newCode = SwitchNormalizer.normalize(cu, getCurrentCode());
-        if (newCode != null) triggerUpdate(newCode, true);
+        // No target: this normalises every switch in the file, so there is no one block it is editing.
+        if (newCode != null) triggerUpdate(newCode, true, null, null);
     }
 
     public void moveSwitchCase(SwitchCase caseNode, boolean moveUp) {
@@ -1008,7 +1008,7 @@ public class CodeEditor {
             PostfixExpression.Operator op = POSTFIX_OPS.get(newOperatorSymbol);
             if (op != null) newCode = OperatorReplacementHandler.replacePostfixOperator(getCompilationUnit(), getCurrentCode(), (PostfixExpression) node, op);
         }
-        if (newCode != null) triggerUpdate(newCode);
+        if (newCode != null) triggerUpdate(newCode, node);
     }
 
     public void updateBinaryOperator(ASTNode node, String newOperatorSymbol) {
@@ -1017,7 +1017,7 @@ public class CodeEditor {
             InfixExpression.Operator op = INFIX_OPS.get(newOperatorSymbol);
             if (op != null) {
                 String newCode = OperatorReplacementHandler.replaceInfixOperator(getCompilationUnit(), getCurrentCode(), (InfixExpression) node, op);
-                triggerUpdate(newCode);
+                triggerUpdate(newCode, node);
             }
         }
     }

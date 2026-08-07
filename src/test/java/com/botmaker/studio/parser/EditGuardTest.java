@@ -2,13 +2,21 @@ package com.botmaker.studio.parser;
 
 import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.CodeBlock;
+import com.botmaker.studio.parser.guard.RefusalJournal;
+import com.botmaker.studio.parser.guard.RefusedEdit;
 import org.eclipse.jdt.core.dom.Comment;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -97,6 +105,61 @@ class EditGuardTest {
         assertNotNull(f.lastCode, "an edit to an already-broken file must land");
         assertTrue(f.lastCode.contains("// renamed"), f.lastCode);
         assertTrue(f.statusMessages.isEmpty(), "nothing to report: " + f.statusMessages);
+    }
+
+    /**
+     * The point of the journal: a refusal is diagnosed later, from disk, so the entry has to carry the rewrite
+     * that emitted the broken source, the JDT problem, and the block it was editing. The last of those is the
+     * one the guard couldn't see when it took two strings — asserting on it is what keeps the context threaded
+     * through {@code triggerUpdate}.
+     */
+    @Test
+    void aRefusedEditIsRecordedWithTheRewriteTheProblemAndTheBlock(@TempDir Path dir) throws Exception {
+        RefusalJournal journal = RefusalJournal.in(dir);
+        EditorFixture f = new EditorFixture(source("// marker"), Paths.get("Subject.java").toAbsolutePath(), journal);
+
+        f.editor.updateComment(comment(f), ESCAPES_THE_COMMENT);
+
+        List<RefusedEdit> entries = journal.entries();
+        assertEquals(1, entries.size(), "one refusal, one line");
+        RefusedEdit entry = entries.getFirst();
+        assertTrue(entry.refusedBy().startsWith("updateComment"),
+            () -> "the entry must name the rewrite: " + entry.refusedBy());
+        assertEquals("MyBot", entry.projectName());
+        assertNotNull(entry.message(), "JDT's complaint is the whole reason the edit was refused");
+        assertTrue(entry.problemId() != 0, "the problem id is what groups refusals across messages");
+        assertEquals("LineComment", entry.nodeType());
+        assertNotNull(entry.blockClass(), "the block being edited is the handle on which affordance did it");
+        assertNotNull(entry.blockId());
+        assertEquals("BODY", entry.editKind());
+
+        assertTrue(readDump(dir, entry.newSourceFile()).contains("*/"),
+            "the refused source is dumped beside the entry — only it says *how* the rewrite broke");
+        assertTrue(readDump(dir, entry.previousSourceFile()).contains("// marker"),
+            "and so is the source it would have replaced");
+    }
+
+    /** A journal that can't be written must cost the diagnostic, never the edit — which is already refused. */
+    @Test
+    void aJournalThatCannotBeWrittenStillRefusesTheEditWithoutThrowing(@TempDir Path dir) {
+        RefusalJournal unwritable = RefusalJournal.in(dir.resolve("a-file-not-a-dir").resolve("refusals"));
+        try {
+            Files.writeString(dir.resolve("a-file-not-a-dir"), "not a directory");
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+        EditorFixture f = new EditorFixture(source("// marker"), Paths.get("Subject.java").toAbsolutePath(), unwritable);
+
+        f.editor.updateComment(comment(f), ESCAPES_THE_COMMENT);
+
+        assertNull(f.lastCode, "broken source must still never reach the canvas");
+        assertTrue(f.statusMessages.stream().anyMatch(m -> m.contains("would have broken the code")),
+            "and the user must still be told: " + f.statusMessages);
+    }
+
+    private static String readDump(Path dir, String fileName) throws Exception {
+        assertNotNull(fileName, "the entry must reference its dump by name");
+        return Files.readString(dir.resolve(fileName));
     }
 
     /** The body's comment child — the node the "edit comment" affordance hands the editor. */

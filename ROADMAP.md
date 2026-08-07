@@ -6,6 +6,18 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-07 — refused edits are journalled, not printed (`parser/guard/`).** The edit guard's refusal used
+  to leave two `System.err` lines (gone when Studio closes, never seen in a packaged build) and an unindexed
+  `refused-<ts>.java` dump that couldn't be matched to the problem, the rewrite or the block. Now every refusal
+  appends one JSON line to `<cacheDir>/refused-edits/refusals.jsonl` — `RefusedEdit`: the JDT problem (id,
+  message, line, offsets, arguments), the rewrite that emitted it (`refusedBy`), the **block** being edited
+  (node type, line, snippet, block class + id, `EditKind`), the project/file/template, the Studio build, and a
+  `fingerprint` that groups repeats — with both full sources dumped beside it. `RefusalJournal` owns the
+  writing, the rotation (4 MB) and the pruning (200 refusals of dumps); nothing in it can throw, since the edit
+  is already refused by the time it runs. The block context required threading a nullable `target`/`kind`
+  through `CodeEditor.triggerUpdate` — the guard previously saw only two strings. **Help ▸ Open Diagnostics
+  Folder** opens the directory.
+
 - **2026-08-07 — the Studio-only closed sets that had no type at all (`VcsFileStatus`, `DiagnosticLevel`,
   `InputKind`, `PilotCommand`).** Six small sets, each spelled as strings in two to four files. VCS file
   status was produced as `"new"/"added"/"modified"/"deleted"` and consumed by a colour `switch` that only

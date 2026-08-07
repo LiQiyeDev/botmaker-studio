@@ -2,6 +2,7 @@ package com.botmaker.studio.ui.app;
 
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
+import com.botmaker.studio.parser.guard.RefusalJournal;
 import com.botmaker.studio.ui.render.theme.BlockTheme;
 import com.botmaker.studio.util.BrowserLauncher;
 import javafx.scene.control.Menu;
@@ -363,12 +364,18 @@ public class MenuBarManager {
         MenuItem reportIssueItem = new MenuItem("Report Issue…");
         reportIssueItem.setOnAction(e -> new ReportIssueDialog(primaryStage).show());
 
+        // Where the edit guard records every refused edit — the directory a user is asked to attach to a
+        // report, because the refusal itself is diagnosed from those entries and not from the screenshot.
+        MenuItem diagnosticsItem = new MenuItem("Open Diagnostics Folder");
+        diagnosticsItem.setOnAction(e ->
+                BrowserLauncher.open(RefusalJournal.inCacheDir().openableDirectory().toUri().toString()));
+
         MenuItem aboutItem = new MenuItem("About BotMaker");
         aboutItem.setOnAction(e -> showAboutDialog());
 
         helpMenu.getItems().addAll(gettingStartedItem, new SeparatorMenuItem(),
                 studioRepoItem, sdkRepoItem, new SeparatorMenuItem(),
-                reportIssueItem, checkUpdatesItem, aboutItem);
+                reportIssueItem, diagnosticsItem, checkUpdatesItem, aboutItem);
 
         return helpMenu;
     }

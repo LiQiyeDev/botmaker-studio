@@ -8,6 +8,7 @@ import com.botmaker.studio.core.CodeBlock;
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.services.SdkDocsService;
+import com.botmaker.studio.parser.guard.RefusalJournal;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
@@ -61,6 +62,15 @@ public final class EditorFixture {
 
     /** As {@link #EditorFixture(String)} but with an explicit file path — e.g. one under the activities dir. */
     public EditorFixture(String source, Path file) {
+        this(source, file, RefusalJournal.in(Paths.get(System.getProperty("java.io.tmpdir"), "botmaker-test-refusals")));
+    }
+
+    /**
+     * As above with an explicit {@link RefusalJournal} — for a test that asserts on what a refused edit
+     * records. The other constructors point the journal at a temp directory rather than the real cache dir, so
+     * running the suite never writes into the developer's diagnostics.
+     */
+    public EditorFixture(String source, Path file, RefusalJournal journal) {
         state = new ProjectState();
         state.addFile(new ProjectFile(file, source));
         state.setActiveFile(file);
@@ -84,7 +94,7 @@ public final class EditorFixture {
         root = result.root();
         assertNotNull(root, "converter should produce a root block");
 
-        editor = new CodeEditor(CONFIG, state, bus, analyzer);
+        editor = new CodeEditor(CONFIG, state, bus, analyzer, journal);
     }
 
     /**
