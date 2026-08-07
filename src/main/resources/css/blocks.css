@@ -87,6 +87,23 @@
     -bm-on-cat-functions: #ffffff;
 
     /*
+     * The SDK call surface (.sdk-call-block) and its "→ ReturnType" badge. An eleventh fill/on-fill pair
+     * rather than a reuse of `functions`: the SDK block is deliberately *not* the purple of a method
+     * declaration — it is a paler lilac frame around a call — so it needs its own surface, and having one is
+     * what lets the theme override it. It was the literal `#f3ecfb` with no on-colour at all, which meant the
+     * labels inside fell back to the .root default `white` — white on near-white, in every theme, and no
+     * theme could reach it to fix it.
+     *
+     * Measured like the rest: #1a1a1a on #f3ecfb is 15.08, on the badge's #e7dcf5 13.22. (The badge's old
+     * #6c3fa0 text scored 5.0 and would have passed, but it is a third on-colour and the rule above is that
+     * there are only two.)
+     */
+    -bm-fill-sdk: #f3ecfb;
+    -bm-on-fill-sdk: #1a1a1a;
+    -bm-badge-sdk: #e7dcf5;
+    -bm-on-badge-sdk: #1a1a1a;
+
+    /*
      * There is deliberately no -bm-block-radius / -bm-block-padding here, and no size token of any kind.
      * A JavaFX looked-up value is *colour-only*: `-bm-block-radius: 6px` parses, but the moment a rule says
      * `-fx-border-radius: -bm-block-radius` the resolved value arrives as a java.lang.Double and conversion
@@ -937,17 +954,21 @@
 }
 
 /*
- * Call-argument pill, built by BlockUIComponents.createArgumentPill. Shared by InstantiationBlock (light
- * background → translucent-black fill) and MethodInvocationBlock (the "--on-dark" variant → translucent-white).
+ * Call-argument pill, built by BlockUIComponents.createArgumentPill. Shared by InstantiationBlock and
+ * MethodInvocationBlock, and the wash has to move *away* from whatever they land on: a translucent-black pill
+ * disappears on a dark fill and a translucent-white one on a light fill.
+ *
+ * That used to be a boolean the caller passed ("--on-dark"), fixed at construction — so MethodInvocationBlock
+ * asked for the white wash on every theme, including the light one where its surface is pale. `ladder` picks
+ * by the *brightness of the surface's on-colour*, which is exactly the flip we need and the one thing a
+ * derive() can't express (see the -bm-text-dim note in the token block). Near-black on-colour ⇒ light surface
+ * ⇒ black wash, and the other way round; the stops are one percent apart because this is a switch, not a
+ * gradient.
  */
 .argument-pill {
-    -fx-background-color: rgba(0, 0, 0, 0.05);
+    -fx-background-color: ladder(-bm-text-on-color, rgba(0, 0, 0, 0.05) 49%, rgba(255, 255, 255, 0.10) 50%);
     -fx-background-radius: 4;
     -fx-padding: 2;
-}
-
-.argument-pill--on-dark {
-    -fx-background-color: rgba(255, 255, 255, 0.1);
 }
 
 .argument-pill .expression-add-button {
@@ -966,7 +987,10 @@
  * a rounded "SDK" badge and a bold class dropdown.
  */
 .sdk-call-block {
-    -fx-background-color: #f3ecfb;
+    -fx-background-color: -bm-fill-sdk;
+    /* The line that fixes the white-on-near-white: looked-up colours cascade, so re-pointing the default here
+       recolours every label, field and pill inside the call without a rule per widget. */
+    -bm-text-on-color: -bm-on-fill-sdk;
     -fx-border-color: -bm-cat-functions;
     -fx-border-width: 1.5;
     -fx-border-radius: 6;
@@ -1005,8 +1029,9 @@
 /* "→ ReturnType" badge on an SDK call: tells the user whether the call yields a boolean guard,
    an int count, or a MatchResult. Muted (informational, not interactive). */
 .return-type-badge {
-    -fx-background-color: #e7dcf5;
-    -fx-text-fill: #6c3fa0;
+    -fx-background-color: -bm-badge-sdk;
+    -bm-text-on-color: -bm-on-badge-sdk;
+    -fx-text-fill: -bm-text-on-color;
     -fx-font-size: 9px;
     -fx-font-family: monospace;
     -fx-background-radius: 6;
@@ -1460,6 +1485,13 @@
     -bm-on-fill-game: #ffffff;
     -bm-on-fill-utility: #ffffff;
 
+    /* SDK surface — the same lilac at 20% lightness, one step lighter than -bm-fill-functions so an SDK call
+       still reads as distinct from the method declaration it sits in. White scores 14.53 / 10.89. */
+    -bm-fill-sdk: #3a1c4a;
+    -bm-on-fill-sdk: #ffffff;
+    -bm-badge-sdk: #55296e;
+    -bm-on-badge-sdk: #ffffff;
+
     /* Block surfaces */
     -bm-text-on-color: #ffffff;
 
@@ -1533,6 +1565,12 @@
     -bm-on-fill-vision: #ffffff;
     -bm-on-fill-game: #ffffff;
     -bm-on-fill-utility: #ffffff;
+
+    /* SDK surface — as .dark-theme, one step deeper (16% lightness). White scores 16.93 / 13.95. */
+    -bm-fill-sdk: #2a1237;
+    -bm-on-fill-sdk: #ffffff;
+    -bm-badge-sdk: #3f1c54;
+    -bm-on-badge-sdk: #ffffff;
 
     /* Block surfaces */
     -bm-text-on-color: #ffffff;
@@ -1615,6 +1653,13 @@
     /* The one accent on-colour that flips here: #bf80ff is light enough that near-black wins (6.42 vs 2.71).
        -bm-on-accent needs no override — near-black is right on #00ffff and #ff8000 too. */
     -bm-on-cat-functions: #1a1a1a;
+
+    /* SDK surface — fill == accent here as everywhere in this theme, so it takes the same near-black
+       (#bf80ff scores 6.42) rather than the white the other two dark themes give it. */
+    -bm-fill-sdk: -bm-cat-functions;
+    -bm-on-fill-sdk: #1a1a1a;
+    -bm-badge-sdk: -bm-cat-functions;
+    -bm-on-badge-sdk: #1a1a1a;
 
     /* Block surfaces */
     -bm-text-on-color: #000000;

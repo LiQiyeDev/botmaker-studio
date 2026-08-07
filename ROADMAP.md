@@ -6,6 +6,14 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-08 — SDK-call and method-call blocks are readable in all four themes (`css/blocks.css`,
+  `BlockUIComponents.createArgumentPill`).** `.sdk-call-block` was the literal `#f3ecfb` and never redefined
+  `-bm-text-on-color`, so its labels took the `.root` default `white` — white on near-white, and outside the
+  token system, so no theme could reach it. It now has a measured fill/on-fill pair (`-bm-fill-sdk` /
+  `-bm-on-fill-sdk`, plus `-bm-badge-sdk` for `.return-type-badge`) overridden per theme, and the on-colour
+  cascades to everything inside the call. The argument pill's light/dark wash was a boolean passed at
+  construction (`--on-dark`, always true from `MethodInvocationBlock`); it is now one `ladder()` on the
+  surface's on-colour, so it follows the fill it lands on and the flag is gone from the Java API.
 - **2026-08-08 — the theme reaches every window, not just the main one
   (`ui/render/theme/ThemedWindows`, ~40 dialogs, `css/blocks.css`).** Dark and Black stopped at the editor:
   Flow, Pilot, Resources, the setup wizards and every `Alert` opened as a white Modena pane. A themed window

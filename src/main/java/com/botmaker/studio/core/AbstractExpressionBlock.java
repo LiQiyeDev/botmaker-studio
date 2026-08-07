@@ -64,14 +64,14 @@ public abstract class AbstractExpressionBlock extends AbstractCodeBlock implemen
      * Builds one call-argument "pill" for {@code arg}: its rendered node, a "+" change button wired to the
      * type-aware replace menu for {@code paramType}, and an optional {@code leadingLabel} (a parameter name or
      * type hint, may be null). Shared by {@code InstantiationBlock} / {@code MethodInvocationBlock} — only the
-     * leading label and {@code onDark} background styling differ between them.
+     * leading label differs between them; the pill's wash follows its surface, from CSS.
      */
     protected Node createArgumentPill(CodeEditorService context, ExpressionBlock arg, ResolvedType paramType,
-                                      Node leadingLabel, boolean onDark) {
+                                      Node leadingLabel) {
         // Null when read-only: the pill renders as its argument alone, with nothing to change it by.
         Button changeBtn = createChangeButton(e ->
                 showExpressionMenuAndReplace((Button) e.getSource(), context, paramType, (Expression) arg.getAstNode()));
-        return BlockUIComponents.createArgumentPill(leadingLabel, arg.getUINode(context), changeBtn, onDark);
+        return BlockUIComponents.createArgumentPill(leadingLabel, arg.getUINode(context), changeBtn);
     }
 
     protected void showExpressionMenuAndReplace(Button button,

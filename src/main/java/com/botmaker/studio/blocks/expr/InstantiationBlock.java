@@ -111,7 +111,7 @@ public class InstantiationBlock extends AbstractExpressionBlock {
                     ? currentSig.paramTypes().get(i)
                     : ResolvedType.UNKNOWN;
 
-            sentenceBuilder.addNode(createArgumentPill(context, arg, paramType, paramLabel, false));
+            sentenceBuilder.addNode(createArgumentPill(context, arg, paramType, paramLabel));
         }
 
         sentenceBuilder.addLabel(")");

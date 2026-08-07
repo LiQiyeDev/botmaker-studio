@@ -627,13 +627,13 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
                 Label pickerLabel = argName != null ? argLabel(argName, argDesc) : null;
                 Button changeBtn = createChangeButton(e ->
                         showExpressionMenuAndReplace((Button) e.getSource(), context, finalParamType, (Expression) arg.getAstNode()));
-                builder.addNode(BlockUIComponents.createArgumentPill(pickerLabel, editor, changeBtn, true));
+                builder.addNode(BlockUIComponents.createArgumentPill(pickerLabel, editor, changeBtn));
                 addRemoveVarargsButton(builder, context, varargsFrom, i);
                 continue;
             }
 
             Label typeLabel = argLabel(argName != null ? argName : paramType.simpleName(), argDesc);
-            builder.addNode(createArgumentPill(context, arg, paramType, typeLabel, true));
+            builder.addNode(createArgumentPill(context, arg, paramType, typeLabel));
             addRemoveVarargsButton(builder, context, varargsFrom, i);
         }
 

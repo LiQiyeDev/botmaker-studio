@@ -91,19 +91,16 @@ public final class BlockUIComponents {
     /**
      * A call-argument "pill": {@code [leadingLabel] argNode changeButton} laid out horizontally. Shared by
      * {@code InstantiationBlock} and {@code MethodInvocationBlock}. Styled via the {@code argument-pill} class in
-     * blocks.css; pass {@code onDarkBackground=true} for blocks whose background is dark (translucent-white fill)
-     * vs. light (translucent-black fill). {@code leadingLabel} may be null.
+     * blocks.css, which picks its own light/dark wash from the surface it lands on — the caller used to pass
+     * that as a boolean, and got it wrong in every theme but one. {@code leadingLabel} may be null.
      */
-    public static HBox createArgumentPill(Node leadingLabel, Node argNode, Button changeButton, boolean onDarkBackground) {
+    public static HBox createArgumentPill(Node leadingLabel, Node argNode, Button changeButton) {
         // A wrapping pill (tight hgap, small hanging indent): when the parent row clamps this pill to the
         // canvas width, its own contents (label / nested expression / change button) wrap internally rather
         // than overflow — so a deeply-nested argument is still fully visible.
         WrappingSentencePane argBox = new WrappingSentencePane(2, 2, 12);
         argBox.setAlignment(Pos.CENTER_LEFT);
         argBox.getStyleClass().add("argument-pill");
-        if (onDarkBackground) {
-            argBox.getStyleClass().add("argument-pill--on-dark");
-        }
         if (leadingLabel != null) {
             argBox.getChildren().add(leadingLabel);
         }
