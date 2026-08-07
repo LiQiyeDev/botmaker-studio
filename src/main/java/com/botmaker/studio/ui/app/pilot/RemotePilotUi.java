@@ -169,7 +169,7 @@ public final class RemotePilotUi implements AutoCloseable {
      */
     NestedSessionLauncher launcher() {
         if (nestedLauncher == null) {
-            nestedLauncher = new NestedSessionLauncher(config.resourcesRoot(), pilotServer);
+            nestedLauncher = new NestedSessionLauncher(config.resourcesRoot());
         }
         return nestedLauncher;
     }

@@ -51,8 +51,8 @@ public final class PilotServer implements AutoCloseable {
     private static final int FRAME_FPS = 12;
 
     private final EventBus eventBus;
-    /** Holds the bot-owned {@code :N} session, when one is live — the highest-priority {@link PilotRoute}. */
-    private final PilotSession session = new PilotSession();
+    /** Answers which bot-owned {@code :N} session is live — the highest-priority {@link PilotRoute}. */
+    private final PilotSession session;
     /** Decides which surface is streamed and driven ({@code :0} / {@code :N} / an emulator) and owns its connection. */
     private final PilotRoutes routes;
     private final TargetCapture capture;
@@ -90,25 +90,12 @@ public final class PilotServer implements AutoCloseable {
     public PilotServer(EventBus eventBus, ProjectSettingsService settings, PilotControlService control,
                        java.nio.file.Path resourcesDir) {
         this.eventBus = eventBus;
+        // The project's one nested session, read live — whether the ▶ Launch toolbar or the pilot's own
+        // Background-mode box started it. Nobody has to remember to tell this server about it.
+        this.session = PilotSession.forProject(resourcesDir);
         this.routes = PilotRoutes.forProject(session, resourcesDir, settings);
         this.capture = new TargetCapture(settings);
         this.control = control;
-    }
-
-    /**
-     * Route the pilot's live preview and Interact gestures through {@code desktopSession}'s nested {@code :N}
-     * display instead of the user's {@code :0} desktop — the Phase 5 integration point a nested-session launcher
-     * calls once the game is up. Pass {@code null} (or call {@link #clearActiveSession()}) to return to {@code :0}.
-     * Takes effect on the next frame/gesture; safe to call while the server is running. A live session is the
-     * top of {@link PilotRoutes}' order, so it also displaces an emulator route while it lasts.
-     */
-    public void setActiveSession(com.botmaker.session.DesktopSession desktopSession) {
-        session.set(desktopSession);
-    }
-
-    /** Return the pilot to previewing and driving the real {@code :0} desktop. */
-    public void clearActiveSession() {
-        session.clear();
     }
 
     /**

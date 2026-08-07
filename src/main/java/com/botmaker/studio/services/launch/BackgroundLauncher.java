@@ -12,8 +12,6 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.function.Consumer;
 
 /**
  * The one place a game is brought up in a private nested display ({@code :N}) and <em>held</em>, shared by
@@ -23,10 +21,11 @@ import java.util.function.Consumer;
  * "▶ Launch" and the pilot's Stop/status reflect the same live session, because there is exactly one holder per
  * project (keyed by the resources dir, {@link #forProject}).
  *
- * <p>It knows nothing about the pilot. A consumer that wants to react to the session coming up or going away
- * (the pilot routes it to {@code PilotServer}) registers a listener ({@link #addStartedListener} /
- * {@link #addStoppedListener}); a listener added while a session is already live is fired immediately, so a
- * pilot opened <em>after</em> a Launch-button bring-up still picks the session up.
+ * <p>It knows nothing about the pilot, and it <b>tells nobody</b>: a consumer asks {@link #session()} (or
+ * {@link #isRunning()}) when it needs to know. There were started/stopped listeners here instead, and the
+ * pilot's subscription to them lived in an object created only when the user opened the Background-mode box —
+ * so a game launched from the ▶ Launch toolbar was invisible to the pilot, which then streamed and drove the
+ * user's real {@code :0} desktop. A pull cannot be registered too late.
  *
  * <p>The bring-up runs <b>off the FX thread</b> ({@code NestedSession.start} spawns Xephyr/gamescope and blocks
  * on display readiness, then {@code launch} blocks up to the window timeout), reporting back through
@@ -59,32 +58,8 @@ public final class BackgroundLauncher implements AutoCloseable {
 
     /** The live nested session, or {@code null} when none is running. Written on the worker, read on FX. */
     private volatile NestedSession active;
-    private final CopyOnWriteArrayList<Consumer<NestedSession>> onStarted = new CopyOnWriteArrayList<>();
-    private final CopyOnWriteArrayList<Runnable> onStopped = new CopyOnWriteArrayList<>();
 
     private BackgroundLauncher() {}
-
-    /** Notified when a session comes up. Fired immediately with the current session if one is already live. */
-    public void addStartedListener(Consumer<NestedSession> listener) {
-        onStarted.add(listener);
-        NestedSession current = active;
-        if (current != null) {
-            listener.accept(current);
-        }
-    }
-
-    public void removeStartedListener(Consumer<NestedSession> listener) {
-        onStarted.remove(listener);
-    }
-
-    /** Notified when the live session is torn down. */
-    public void addStoppedListener(Runnable listener) {
-        onStopped.add(listener);
-    }
-
-    public void removeStoppedListener(Runnable listener) {
-        onStopped.remove(listener);
-    }
 
     /**
      * The JVM arguments that offer the live session to a bot we are about to run, or empty when none is live.
@@ -101,6 +76,30 @@ public final class BackgroundLauncher implements AutoCloseable {
     /** True while a nested session is live (so a UI can show Stop rather than Start). */
     public boolean isRunning() {
         return active != null;
+    }
+
+    /**
+     * The live nested session, or {@code null} when none is running — the <em>pull</em> half of this holder.
+     *
+     * <p>Prefer it to the started/stopped listeners for anything that only needs to know what is live *now*:
+     * a listener has to be registered before the session comes up (or by a consumer that exists at all), and
+     * that is precisely how the pilot came to stream {@code :0} while a game ran on {@code :N} — its
+     * subscription lived in a UI object the user hadn't opened. See {@code PilotSession}.
+     */
+    public NestedSession session() {
+        return active;
+    }
+
+    /**
+     * The X id of the live session's host window on the real desktop, or {@code 0} — <b>without</b> touching
+     * it. The non-mutating half of {@link #revealHostWindow()}, for a caller that needs to *recognise* that
+     * window rather than look at it: gamescope renames its output window after the app it hosts, so a
+     * title-matched window on {@code :0} can be a session's own container, and driving input into it is what
+     * wedged the host pointer. {@code 0} is an ordinary answer for the first seconds of a session.
+     */
+    public long hostWindowId() {
+        NestedSession session = active;
+        return session == null ? 0 : session.hostWindowId();
     }
 
     /** The live session's display (e.g. {@code :3}), or {@code null} when none is running. For a status line. */
@@ -137,8 +136,7 @@ public final class BackgroundLauncher implements AutoCloseable {
     }
 
     /**
-     * Bring up a nested session on {@code backend}, launch {@code spec} into it, and notify the started
-     * listeners. No-ops (reporting why) when a session is already running. The caller has already chosen the
+     * Bring up a nested session on {@code backend}, launch {@code spec} into it, and hold it. No-ops (reporting why) when a session is already running. The caller has already chosen the
      * backend (via {@code SessionBackends}) and confirmed a target — this method owns only the bring-up and the
      * held session. Runs off the FX thread; {@code report} is marshalled back onto it.
      */
@@ -182,7 +180,6 @@ public final class BackgroundLauncher implements AutoCloseable {
             }
             active = session;
             watch(session);
-            fireStarted(session);
             report(report, true, "Running " + spec.describe() + " on the private " + backend + " display "
                     + session.displayName() + " — your real cursor stays free.");
         } catch (Exception e) {
@@ -216,11 +213,10 @@ public final class BackgroundLauncher implements AutoCloseable {
                     return;
                 }
                 if (active != session) {
-                    return; // stop() got there first — it fires the listeners itself
+                    return; // stop() got there first
                 }
                 if (session.closeIfDead()) {
                     active = null;
-                    Platform.runLater(this::fireStopped);
                     return;
                 }
             }
@@ -230,14 +226,14 @@ public final class BackgroundLauncher implements AutoCloseable {
     }
 
     /**
-     * Tear down the live session (reaps its Xephyr/gamescope + WM + game tree) and notify the stopped
-     * listeners. Safe to call when nothing is running.
+     * Tear down the live session (reaps its Xephyr/gamescope + WM + game tree). Safe to call when nothing is
+     * running; {@link #session()} answers {@code null} from the first line on, so a consumer mid-frame sees
+     * the session go away without being told.
      */
     public void stop() {
         NestedSession session = active;
         active = null;
         if (session != null) {
-            fireStopped();
             try {
                 session.close();
             } catch (Exception ignored) {
@@ -262,18 +258,6 @@ public final class BackgroundLauncher implements AutoCloseable {
             case GAMESCOPE -> NestedSession.Options.gamescope(w, h);
             case XEPHYR -> NestedSession.Options.xephyr(w, h);
         };
-    }
-
-    private void fireStarted(NestedSession session) {
-        for (Consumer<NestedSession> listener : onStarted) {
-            listener.accept(session);
-        }
-    }
-
-    private void fireStopped() {
-        for (Runnable listener : onStopped) {
-            listener.run();
-        }
     }
 
     private static void report(Report report, boolean ok, String message) {

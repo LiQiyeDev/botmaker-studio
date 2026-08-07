@@ -1,12 +1,14 @@
 package com.botmaker.studio.services.pilot;
 
 import com.botmaker.session.Capability;
+import com.botmaker.session.DesktopSession;
 import com.botmaker.studio.emulator.EmulatorSurface;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -37,17 +39,29 @@ class PilotRoutesTest {
         return new PilotRoutes(session, () -> name[0], opener);
     }
 
+    /** A holder standing in for the project's {@code BackgroundLauncher}: the pilot asks it on every read. */
+    private static final class SessionHolder extends AtomicReference<DesktopSession> {
+        PilotSession asked() {
+            return new PilotSession(this::get);
+        }
+    }
+
+    /** No session live — the common case for the emulator/desktop rungs below. */
+    private static PilotSession noSession() {
+        return new SessionHolder().asked();
+    }
+
     @Test
     void withNothingConfiguredTheRouteIsTheRealDesktop() {
         assertInstanceOf(PilotRoute.Desktop.class,
-                routes(new PilotSession(), new String[]{null}, new Opener()).current());
+                routes(noSession(), new String[]{null}, new Opener()).current());
     }
 
     @Test
     void aConfiguredEmulatorNameBecomesAnEmulatorRoute() {
         Opener opener = new Opener();
 
-        PilotRoute route = routes(new PilotSession(), new String[]{"Waydroid"}, opener).current();
+        PilotRoute route = routes(noSession(), new String[]{"Waydroid"}, opener).current();
 
         assertInstanceOf(PilotRoute.Emulator.class, route);
         assertEquals(List.of("Waydroid"), opener.opened);
@@ -56,21 +70,40 @@ class PilotRoutesTest {
     /**
      * A nested session outranks an emulator: the user explicitly asked for background mode and it launched the
      * game itself. The emulator connection is dropped rather than left held behind a route nobody is using.
+     *
+     * <p>Note what does <em>not</em> happen here: nobody tells the routes about the session. It appears in the
+     * holder — as it does when Studio's ▶ Launch toolbar starts one — and the next frame's question finds it.
+     * The pilot used to be *pushed* the session by an object the user had to open a dialog to create, so this
+     * exact sequence left it streaming and clicking the real {@code :0} desktop.
      */
     @Test
     void aLiveSessionOutranksAConfiguredEmulatorAndReleasesIt() {
         Opener opener = new Opener();
-        PilotSession session = new PilotSession();
-        PilotRoutes routes = routes(session, new String[]{"Waydroid"}, opener);
+        SessionHolder holder = new SessionHolder();
+        PilotRoutes routes = routes(holder.asked(), new String[]{"Waydroid"}, opener);
 
         PilotRoute first = routes.current();
         PilotFakes.RecordingSurface surface = (PilotFakes.RecordingSurface) ((PilotRoute.Emulator) first).surface();
 
-        session.set(new PilotFakes.FakeSession(new PilotFakes.RecordingController(), null, null,
+        holder.set(new PilotFakes.FakeSession(new PilotFakes.RecordingController(), null, null,
                 EnumSet.of(Capability.BACKGROUND_CLICK)));
 
         assertInstanceOf(PilotRoute.Session.class, routes.current());
         assertTrue(surface.closed, "the emulator connection must not stay open behind a session route");
+    }
+
+    /** A session that goes away (stopped, or its display died) returns the pilot to {@code :0} on the next frame. */
+    @Test
+    void aSessionThatLeavesTheHolderFallsBackToTheDesktop() {
+        SessionHolder holder = new SessionHolder();
+        holder.set(new PilotFakes.FakeSession(new PilotFakes.RecordingController(), null, null,
+                EnumSet.of(Capability.BACKGROUND_CLICK)));
+        PilotRoutes routes = routes(holder.asked(), new String[]{null}, new Opener());
+        assertInstanceOf(PilotRoute.Session.class, routes.current());
+
+        holder.set(null);
+
+        assertInstanceOf(PilotRoute.Desktop.class, routes.current());
     }
 
     /** An instance no product reports degrades to the desktop — a stopped emulator must not blank the pilot. */
@@ -80,7 +113,7 @@ class PilotRoutesTest {
         opener.unknown = "GhostDroid";
 
         assertInstanceOf(PilotRoute.Desktop.class,
-                routes(new PilotSession(), new String[]{"GhostDroid"}, opener).current());
+                routes(noSession(), new String[]{"GhostDroid"}, opener).current());
     }
 
     /**
@@ -91,7 +124,7 @@ class PilotRoutesTest {
     void theSurfaceIsOpenedOncePerNameAndReopenedWhenItChanges() {
         Opener opener = new Opener();
         String[] name = {"Waydroid"};
-        PilotRoutes routes = routes(new PilotSession(), name, opener);
+        PilotRoutes routes = routes(noSession(), name, opener);
 
         PilotRoute first = routes.current();
         PilotRoute again = routes.current();
@@ -109,7 +142,7 @@ class PilotRoutesTest {
     /** The name comes from project I/O; a failing read is the desktop, not an exception into the frame loop. */
     @Test
     void aFailingLookupIsTheDesktopRatherThanAThrow() {
-        PilotRoutes routes = new PilotRoutes(new PilotSession(), () -> {
+        PilotRoutes routes = new PilotRoutes(noSession(), () -> {
             throw new IllegalStateException("settings not loaded yet");
         }, name -> null);
 
@@ -119,7 +152,7 @@ class PilotRoutesTest {
     @Test
     void closingReleasesTheHeldConnection() {
         Opener opener = new Opener();
-        PilotRoutes routes = routes(new PilotSession(), new String[]{"Waydroid"}, opener);
+        PilotRoutes routes = routes(noSession(), new String[]{"Waydroid"}, opener);
         PilotFakes.RecordingSurface surface =
                 (PilotFakes.RecordingSurface) ((PilotRoute.Emulator) routes.current()).surface();
 

@@ -14,11 +14,16 @@ import java.nio.file.Path;
  * so the pilot's preview and Interact gestures flow through {@code :N} instead of the user's real {@code :0}
  * desktop. Stopping reaps the whole tree and returns the pilot to {@code :0}.
  *
- * <p>The bring-up and the held session now live in {@link BackgroundLauncher} (one holder per project), so the
+ * <p>The bring-up and the held session live in {@link BackgroundLauncher} (one holder per project), so the
  * Studio Launch buttons and this pilot box drive the <em>same</em> session and can't disagree on what's
- * running. This class adds only the pilot-specific wiring: a started/stopped listener that hands the session to
- * (and clears it from) the {@link PilotServer}. A nested session <em>owns the single window it launches</em>
- * (see {@link NestedSession}), so there is no capture <em>target</em> to pick — the launched game is the target.
+ * running. This class is now <b>only</b> that box's Start/Stop and status line: it holds nothing and routes
+ * nothing. It used to also register a started/stopped listener that pushed the session into {@link PilotServer}
+ * — which made the pilot's knowledge of {@code :N} depend on this object existing, and it is created lazily on
+ * first use of the Background-mode box, so a game launched from the ▶ Launch toolbar was invisible to the
+ * pilot. The server asks {@link BackgroundLauncher} itself now (see {@link PilotSession#forProject}).
+ *
+ * <p>A nested session <em>owns the single window it launches</em> (see {@link NestedSession}), so there is no
+ * capture <em>target</em> to pick — the launched game is the target.
  */
 public final class NestedSessionLauncher implements AutoCloseable {
 
@@ -34,16 +39,10 @@ public final class NestedSessionLauncher implements AutoCloseable {
 
     private final Path resourcesDir;
     private final BackgroundLauncher launcher;
-    private final java.util.function.Consumer<NestedSession> onStarted;
-    private final Runnable onStopped;
 
-    public NestedSessionLauncher(Path resourcesDir, PilotServer pilotServer) {
+    public NestedSessionLauncher(Path resourcesDir) {
         this.resourcesDir = resourcesDir;
         this.launcher = BackgroundLauncher.forProject(resourcesDir);
-        this.onStarted = pilotServer::setActiveSession;
-        this.onStopped = pilotServer::clearActiveSession;
-        launcher.addStartedListener(onStarted);
-        launcher.addStoppedListener(onStopped);
     }
 
     /** True while a nested session is live (so the UI can show Stop rather than Start). */
@@ -106,8 +105,6 @@ public final class NestedSessionLauncher implements AutoCloseable {
 
     @Override
     public void close() {
-        launcher.removeStartedListener(onStarted);
-        launcher.removeStoppedListener(onStopped);
         launcher.stop();
     }
 }

@@ -6,6 +6,18 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-08 — the pilot asks which session is live instead of waiting to be told
+  (`services/pilot/PilotSession`, `PilotServer`, `NestedSessionLauncher`, `services/launch/BackgroundLauncher`).**
+  Launch a game from the ▶ Launch toolbar and the pilot went on streaming — and, with Interact armed,
+  *clicking* — the real `:0` desktop while the game ran on `:N`. There is only ever one session per project
+  (`BackgroundLauncher.forProject`), but the pilot learned about it by **push**, and the push was registered in
+  `NestedSessionLauncher`'s constructor, which the pilot dialog creates lazily on first use of its
+  Background-mode box: never opened, never subscribed. `PilotSession` is now a `Supplier` asked on every read
+  (`PilotSession.forProject` → `BackgroundLauncher.session()`), so the answer cannot be missed by a consumer
+  that didn't exist yet. `setActiveSession`/`clearActiveSession` and the holder's four listener methods are
+  gone with the mechanism; `BackgroundLauncher.hostWindowId()` is added (non-mutating twin of
+  `revealHostWindow`) for the next step, which stops `:0` input landing in a session's gamescope window.
+
 - **2026-08-08 — the block fill, corrected; and every inline colour style swept into the stylesheet
   (`resources/css/blocks.css`, ~15 files under `blocks/` + `ui/render/`, `suggestions/ProjectAnalyzer`).**
   Three things, one cause between the first two. (1) **The fill itself.** `-fx-border-radius: -bm-block-radius`
