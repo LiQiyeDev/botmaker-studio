@@ -90,7 +90,7 @@ public final class AdbEmulatorSurface implements EmulatorSurface {
         if (device != null && !device.isConnected()) drop();
         if (device == null) {
             try {
-                device = AdbDevice.connect(instance.host(), instance.adbPort());
+                device = AdbDevice.connect(instance.adb());
             } catch (Throwable t) {
                 device = null;
             }

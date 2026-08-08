@@ -6,6 +6,12 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-08 — editor-side ADB follows shared onto `AdbEndpoint` (`emulator/AdbEmulatorSurface`,
+  `emulator/EmulatorProbe`).** Both now open a connection with `AdbDevice.connect(instance.adb())` instead of
+  a host and a port, which is what lets a *physical phone* — reachable only as a serial through the host adb
+  server when it's on a cable — flow through the pilot surface and the picker probe unchanged. Phase 1 of the
+  phone-target plan; the rationale is in `../botmaker-shared/ROADMAP.md`. Studio's own "Connect a phone…"
+  dialog is phase 4, and until it lands a phone is added with `-Dbotmaker.adb.devices=<ip>:<port>`.
 - **2026-08-08 — "📸 Pick all" applies its picks, and names them like Capture many
   (`services/ScreenCaptureService`, `ui/render/components/PickAllSession`,
   `ui/app/capture/BatchTemplateNamingDialog`).** The button did nothing: `SessionOverlay` stored the

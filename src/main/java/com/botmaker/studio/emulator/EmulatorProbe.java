@@ -104,7 +104,7 @@ public final class EmulatorProbe {
      * propagating one.
      */
     private static <T> T withDevice(EmulatorInstance instance, DeviceQuery<T> query, T fallback) {
-        try (AdbDevice device = AdbDevice.connect(instance.host(), instance.adbPort())) {
+        try (AdbDevice device = AdbDevice.connect(instance.adb())) {
             T result = query.run(device);
             return result == null ? fallback : result;
         } catch (Throwable t) {
