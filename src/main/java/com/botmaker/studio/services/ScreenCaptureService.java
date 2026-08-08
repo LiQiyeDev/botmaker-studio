@@ -848,9 +848,19 @@ public final class ScreenCaptureService {
         /** A {@code Point} → {@code [x, y]} absolute logical coordinates. */
         record PointStep(String label, Consumer<int[]> onResult) implements PickStep {}
 
-        /** An {@code ImageTemplate} → the cropped image (caller names + saves it). */
-        record ImageStep(String label, Consumer<BufferedImage> onResult) implements PickStep {}
+        /** An {@code ImageTemplate} → the crop and the frame it came from (caller names + saves it). */
+        record ImageStep(String label, Consumer<CapturedCrop> onResult) implements PickStep {}
     }
+
+    /**
+     * A crop taken during a {@link #runSession} pass, together with the frame it was cut out of.
+     *
+     * <p>The frame size and target title are what a template's sidecar records as its <em>reference
+     * resolution</em>, so a match can be scaled when the bot runs against a differently-sized surface. The
+     * crop alone cannot answer that — it is a sub-rectangle, and the numbers that matter belong to the whole
+     * grab — which is why they travel with it rather than being re-derived by the caller.
+     */
+    public record CapturedCrop(BufferedImage image, int frameWidth, int frameHeight, String targetTitle) {}
 
     /**
      * Captures the target once and drives a single reusable overlay through {@code steps} in order — for a
@@ -865,6 +875,15 @@ public final class ScreenCaptureService {
 
     /** Height of the top instruction/Quit band; presses inside it don't start a selection. */
     private static final double SESSION_HEADER_H = 44;
+
+    /**
+     * The title a template captured through this service records as the window it came from, or {@code null}
+     * for a screen/desktop grab (there is no window to name). Same rule as the capture toolbar's own.
+     */
+    private String targetTitle() {
+        CaptureTarget target = (settings != null) ? settings.defaultTarget() : null;
+        return (target instanceof WindowTarget wt) ? wt.titleSubstring() : null;
+    }
 
     /** A single overlay reused across a call's pick steps: swaps mouse handlers + header per step. */
     private final class SessionOverlay {
@@ -883,6 +902,8 @@ public final class ScreenCaptureService {
         private final Label header = new Label();
         private int index = 0;
         private final double[] origin = new double[2];
+        /** One-shot guard: {@link #onDone} runs exactly once, whichever way the overlay closes. */
+        private boolean finished;
 
         SessionOverlay(Window owner, ScreenShot shot, List<PickStep> steps, Runnable onDone) {
             this.owner = owner;
@@ -938,6 +959,16 @@ public final class ScreenCaptureService {
             quit.setLayoutY(6);
             quit.layoutXProperty().bind(scene.widthProperty().subtract(72));
             stage.setScene(scene);
+
+            // The callback hangs off the stage closing rather than off the last step completing, so that all
+            // three exits — the final pick, the Quit button and Esc — apply what the user picked. Quitting
+            // half-way through a call's arguments keeps the picks already made, which is what "Capture many"
+            // does with a partial selection; dropping them would be the more surprising of the two.
+            stage.setOnHidden(e -> {
+                if (finished) return;
+                finished = true;
+                if (onDone != null) onDone.run();
+            });
         }
 
         void start() {
@@ -1024,7 +1055,10 @@ public final class ScreenCaptureService {
                             (int) Math.round(selection.getHeight())});
                 } else if (step instanceof PickStep.ImageStep is) {
                     BufferedImage cropped = crop(shot.image(), pane, selection);
-                    if (cropped != null) is.onResult().accept(cropped);
+                    if (cropped != null) {
+                        is.onResult().accept(new CapturedCrop(cropped,
+                                shot.image().getWidth(), shot.image().getHeight(), targetTitle()));
+                    }
                 }
                 pane.setOnMousePressed(null);
                 pane.setOnMouseDragged(null);

@@ -35,8 +35,14 @@ public final class BatchTemplateNamingDialog {
 
     private BatchTemplateNamingDialog() {}
 
-    /** A crop the user chose to keep, paired with its validated (sanitized, unique) template name. */
-    public record NamedTemplate(String name, BufferedImage image) {}
+    /**
+     * A crop the user chose to keep, paired with its validated (sanitized, unique) template name.
+     *
+     * <p>{@code index} is the crop's position in the list handed to {@link #show} — carried through because
+     * only the kept rows come back, so a caller that keyed something else off that list (the "Pick all"
+     * session keys an <em>argument slot</em>) cannot recover it positionally once a row is discarded.
+     */
+    public record NamedTemplate(int index, String name, BufferedImage image) {}
 
     private record Row(BufferedImage image, TextField name, CheckBox discard) {}
 
@@ -122,7 +128,7 @@ public final class BatchTemplateNamingDialog {
                 return fail(owner, "Row " + (i + 1) + ": a template named \"" + name + "\" already exists.");
             }
             seen.add(lower);
-            kept.add(new NamedTemplate(name, row.image()));
+            kept.add(new NamedTemplate(i, name, row.image()));
         }
         return kept;
     }

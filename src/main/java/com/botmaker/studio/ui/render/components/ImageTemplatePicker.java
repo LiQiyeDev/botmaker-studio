@@ -209,17 +209,6 @@ public final class ImageTemplatePicker {
         alert.showAndWait();
     }
 
-    /**
-     * Saves {@code img} as {@code <imagesRoot>/<name>.png} (+ its metadata sidecar) and returns its
-     * project-root-relative path (the string inside {@code new ImageTemplate("…")}). Used by the multi-argument
-     * "Pick all on screen" session, which doesn't know the capture source resolution — the sidecar records it
-     * as unknown ({@code 0}). {@code name} must already be sanitized.
-     */
-    public static String saveTemplate(ProjectConfig config, java.awt.image.BufferedImage img, String name)
-            throws IOException {
-        return ImageTemplateLibrary.saveTemplate(config, img, name, 0, 0, null);
-    }
-
     /** A capture service bound to this project's settings, so it honors the default capture target. */
     private static ScreenCaptureService screenCapture(CodeEditorService context) {
         return ScreenCaptureService.forProject(context);

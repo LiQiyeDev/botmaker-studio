@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-08 — "📸 Pick all" applies its picks, and names them like Capture many
+  (`services/ScreenCaptureService`, `ui/render/components/PickAllSession`,
+  `ui/app/capture/BatchTemplateNamingDialog`).** The button did nothing: `SessionOverlay` stored the
+  `onDone` callback and never invoked it, and that callback held the entire payoff — the one
+  `setCallArguments` rewrite every pick was being collected for. It now fires from `stage.setOnHidden`, so
+  the last step, **Quit** and **Esc** all apply what was picked rather than only the first of the three.
+  Image arguments no longer auto-name (`myMethod_arg1_k3f9`, renamed later in the Resource Manager): the
+  crops are held until the overlay is gone and then named or discarded in `BatchTemplateNamingDialog`, the
+  same tail `Capture many` uses. `NamedTemplate` gained an `index` so a discarded row can't shift the
+  remaining crops onto the wrong argument slot, and a new `ScreenCaptureService.CapturedCrop` carries the
+  frame size and window title with each crop — the old path wrote `0, 0, null` into every sidecar, leaving
+  those templates with no reference resolution to scale against.
+
 - **2026-08-08 — the private display says how big it is and why (`services/launch/BackgroundLauncher`,
   `services/pilot/NestedSessionLauncher`, `ui/app/pilot/BackgroundModeBox`).** "I can't resize the screen"
   was a documented, measured decision (`NestedDisplay.startXephyr` omits `-resizeable` because a WM-clamped
@@ -2800,6 +2813,10 @@ whenever work lands here (see CLAUDE.md → Roadmap).
   away from the terminal on every keystroke-triggered rebuild. Left as-is deliberately during the `UIManager`
   split (2026-08-06, maintainer's call) — the alternative is raising it only when the *set* of errors changes,
   which needs a diff and a decision about what counts as a change.
+- [ ] **A8 — "📸 Pick all" needs written argument slots.** `PickAllSession.hasPickableArgs`/`run` iterate
+  `args.size()`, so a call whose arguments haven't been written yet — a varargs `ImageTemplate...` overload
+  invoked with none — gets no button and picks nothing. Driving it off the *signature*'s parameter list
+  instead means deciding how many varargs slots to offer, which is a UI question, not a wiring one.
 
 ## Overlay Editor backlog
 

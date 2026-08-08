@@ -1,16 +1,22 @@
 package com.botmaker.studio.ui.render.components;
 
 import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.events.CoreApplicationEvents.ResourcesChangedEvent;
 import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.parser.CodeEditor;
 import com.botmaker.studio.services.CodeEditorService;
+import com.botmaker.studio.services.ImageTemplateLibrary;
+import com.botmaker.studio.services.ScreenCaptureService.CapturedCrop;
 import com.botmaker.studio.services.ScreenCaptureService.PickStep;
 import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.types.ResolvedType;
+import com.botmaker.studio.ui.app.capture.BatchTemplateNamingDialog;
+import com.botmaker.studio.ui.app.capture.BatchTemplateNamingDialog.NamedTemplate;
 import com.botmaker.studio.util.MethodSignature;
 import javafx.stage.Window;
 import org.eclipse.jdt.core.dom.MethodInvocation;
 
+import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -27,6 +33,12 @@ import java.util.Map;
  * assembles the {@link PickStep}s (collecting their results into a slot→value map), and applies them in one
  * rewrite when the pass finishes. Applying per-argument would invalidate the other cached argument nodes
  * after the first re-parse, hence the batch.
+ *
+ * <p>Image arguments finish through the same tail as {@code Capture many}
+ * ({@link BatchTemplateNamingDialog}): the crops are held until the overlay is gone, then named or discarded
+ * in one dialog. The naming cannot happen <em>during</em> the pass — a modal dialog over a full-screen,
+ * application-modal capture overlay is fragile — but it does not have to, and auto-naming (what this used to
+ * do) only moved the work to the Resource Manager.
  */
 public final class PickAllSession {
 
@@ -51,6 +63,9 @@ public final class PickAllSession {
         return false;
     }
 
+    /** A crop picked for one argument slot, waiting to be named once the overlay is out of the way. */
+    private record PendingImage(int argIndex, CapturedCrop crop) {}
+
     /**
      * Captures the target once and walks every pickable argument of {@code mi} through one overlay, then
      * applies all picks in a single rewrite. No-op if nothing is pickable or the user quits before any pick.
@@ -60,6 +75,7 @@ public final class PickAllSession {
         if (signature == null) return;
         String methodName = mi.getName().getIdentifier();
         Map<Integer, CodeEditor.ArgValue> values = new LinkedHashMap<>();
+        List<PendingImage> pending = new ArrayList<>();
         List<PickStep> steps = new ArrayList<>();
 
         for (int i = 0; i < args.size(); i++) {
@@ -69,14 +85,7 @@ public final class PickAllSession {
             String label = methodName + " · " + type.simpleName() + " (arg " + (i + 1) + ")";
 
             if (ImageTemplatePicker.isImageTemplateType(type)) {
-                steps.add(new PickStep.ImageStep(label, img -> {
-                    try {
-                        String rel = ImageTemplatePicker.saveTemplate(context.getConfig(), img, autoName(methodName, idx));
-                        values.put(idx, new CodeEditor.ArgValue.ImageVal(rel));
-                    } catch (IOException e) {
-                        System.err.println("Pick-all: failed to save template for arg " + idx + ": " + e.getMessage());
-                    }
-                }));
+                steps.add(new PickStep.ImageStep(label, crop -> pending.add(new PendingImage(idx, crop))));
             } else if (isType(type, SdkType.RECT)) {
                 steps.add(new PickStep.RegionStep(label,
                         r -> values.put(idx, new CodeEditor.ArgValue.RectVal(r[0], r[1], r[2], r[3]))));
@@ -88,17 +97,36 @@ public final class PickAllSession {
 
         if (steps.isEmpty()) return;
         ScreenCaptureService.forProject(context).runSession(owner, steps, () -> {
+            saveNamedTemplates(context, owner, pending, values);
             if (!values.isEmpty()) context.getCodeEditor().setCallArguments(mi, values);
         });
     }
 
     /**
-     * A unique, filesystem-safe template name for a batch-captured image (the "Pick all" flow does not
-     * prompt per image — a modal name dialog over the full-screen capture overlay is fragile — so it
-     * auto-names; the author can rename later in the Resource Manager).
+     * Names {@code pending} through the batch dialog, saves what the user kept, and records each saved path
+     * against its argument slot in {@code values}. A discarded crop simply leaves that slot untouched — the
+     * rewrite is a slot→value map, not a full replacement, so the argument keeps whatever it already had.
      */
-    private static String autoName(String methodName, int argIndex) {
-        String safe = methodName.replaceAll("[^A-Za-z0-9_-]", "_");
-        return safe + "_arg" + (argIndex + 1) + "_" + Long.toString(System.currentTimeMillis(), 36);
+    private static void saveNamedTemplates(CodeEditorService context, Window owner,
+                                           List<PendingImage> pending, Map<Integer, CodeEditor.ArgValue> values) {
+        if (pending.isEmpty()) return;
+        List<BufferedImage> crops = new ArrayList<>();
+        for (PendingImage p : pending) crops.add(p.crop().image());
+
+        List<NamedTemplate> kept = BatchTemplateNamingDialog.show(owner, context.getConfig(), crops);
+        int saved = 0;
+        for (NamedTemplate t : kept) {
+            PendingImage p = pending.get(t.index());
+            try {
+                String rel = ImageTemplateLibrary.saveTemplate(context.getConfig(), t.image(), t.name(),
+                        p.crop().frameWidth(), p.crop().frameHeight(), p.crop().targetTitle());
+                values.put(p.argIndex(), new CodeEditor.ArgValue.ImageVal(rel));
+                saved++;
+            } catch (IOException e) {
+                System.err.println("Pick-all: failed to save template for arg "
+                        + (p.argIndex() + 1) + ": " + e.getMessage());
+            }
+        }
+        if (saved > 0) context.getEventBus().publish(new ResourcesChangedEvent());
     }
 }
