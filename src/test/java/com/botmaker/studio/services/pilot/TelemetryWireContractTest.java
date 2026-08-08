@@ -44,7 +44,7 @@ class TelemetryWireContractTest {
      * The corpus, byte for byte. Update this together with {@code GOLDEN_SHA256} in the pilot repo's
      * {@code wire.test.ts} — and with the copy of the file itself, which must stay byte-identical.
      */
-    private static final String GOLDEN_SHA256 = "823d631b3ebc58d2dcc6aaba6f3951552bacc829d081ff997235d959e8e954cc";
+    private static final String GOLDEN_SHA256 = "6ae62fe097feae4e3e9dd2cc7c3b5837be80d6b9d2369f740942b3c2ccb117c3";
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final JsonNode CORPUS = corpus();
@@ -109,6 +109,28 @@ class TelemetryWireContractTest {
         assertWire("state.running.background", TelemetrySerializer.stateJson("running", true));
         assertWire("state.paused.foreground", TelemetrySerializer.stateJson("paused", false));
         assertWire("state.stopped.background", TelemetrySerializer.stateJson("stopped", true));
+    }
+
+    @Test
+    void aStateMessageCarriesAReasonOnlyWhenThereIsOne() {
+        // The key is omitted rather than sent as null when there is no reason — which is why the three cases
+        // above and this one are separate corpus entries rather than one shape with a nullable field.
+        assertWire("state.stopped.reason", TelemetrySerializer.stateJson("stopped", true,
+                "The background session is not showing any pixels on its X display."));
+    }
+
+    @Test
+    void theVideoMessageCarriesTheCodecAndTheSurfaceRectTheStreamCovers() {
+        // The rect lives here and not on each access unit: one encoder on one display means it changes only
+        // when the stream does, and the client wants to hand the decoder a buffer with no header on it.
+        assertWire("video.started", TelemetrySerializer.videoJson("avc1.42E01E", 0, 0, 1920, 1080));
+    }
+
+    @Test
+    void aNullCodecIsHowAStreamEnds() {
+        // Sent on every way a stream can end — route change, dead encoder, last H.264 client gone — because
+        // the client has to tear its decoder down and start reading JPEG frames again for any of them.
+        assertWire("video.stopped", TelemetrySerializer.videoStoppedJson());
     }
 
     // --- What the corpus cannot express ---

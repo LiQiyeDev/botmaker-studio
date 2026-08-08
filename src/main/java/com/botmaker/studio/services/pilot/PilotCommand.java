@@ -24,7 +24,14 @@ public enum PilotCommand {
     /** Arm or disarm manual pointer control for this connection. */
     INTERACT("interact"),
     /** One manual gesture; only honoured while {@link #INTERACT} is armed. */
-    INPUT("input");
+    INPUT("input"),
+    /**
+     * The client naming what it can decode: {@code {"cmd":"hello","accept":["h264"]}}. Optional, and its
+     * absence is the answer for every build that predates it — a client that never says hello is served the
+     * JPEG frames it has always been served, which is why the H.264 stream needed no change to the JPEG
+     * framing and no version number anywhere.
+     */
+    HELLO("hello");
 
     private final String token;
 

@@ -45,6 +45,30 @@ public final class TelemetrySerializer {
                 + (reason == null ? "" : ",\"reason\":" + jsonStr(reason)) + "}";
     }
 
+    /**
+     * The {@code video} message: "binary frames from here on are H.264 access units for this codec, covering
+     * this surface rect". Sent to a client that declared H.264 support, immediately before the first packet.
+     *
+     * <p>The rect is here rather than on each frame, which is the point of the message existing at all. A JPEG
+     * frame carries a 16-byte header because its surface can change between any two frames; a video stream is
+     * one encoder on one display, so the rect changes only when the stream does — sending it 24 times a second
+     * would be 384 bytes/s of a constant, and parsing it would mean the client stripping a header off a buffer
+     * it wants to hand to the decoder untouched.
+     */
+    public static String videoJson(String codec, int sx, int sy, int sw, int sh) {
+        return "{\"type\":\"video\",\"codec\":" + jsonStr(codec)
+                + ",\"sx\":" + sx + ",\"sy\":" + sy + ",\"sw\":" + sw + ",\"sh\":" + sh + "}";
+    }
+
+    /**
+     * The {@code video} message that ends a stream — a null codec. The client tears its decoder down and goes
+     * back to drawing the JPEG frames that resume in its place, so this is sent on <em>every</em> way a stream
+     * can end (route change, encoder death, last H.264 client leaving) and not only on a tidy shutdown.
+     */
+    public static String videoStoppedJson() {
+        return "{\"type\":\"video\",\"codec\":null}";
+    }
+
     /** The event body only (no {@code type} wrapper) — callers wrap it as needed for SSE vs. WS. */
     public static String eventJson(TelemetryEvent te) {
         StringBuilder sb = new StringBuilder("{");

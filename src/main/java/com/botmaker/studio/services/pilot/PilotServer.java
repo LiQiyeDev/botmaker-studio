@@ -1,5 +1,7 @@
 package com.botmaker.studio.services.pilot;
 
+import com.botmaker.session.DesktopSession;
+import com.botmaker.session.video.VideoPacket;
 import com.botmaker.shared.Diag;
 import com.botmaker.shared.ipc.TelemetryEvent;
 import com.botmaker.studio.events.CoreApplicationEvents;
@@ -13,6 +15,7 @@ import io.javalin.websocket.WsContext;
 import javafx.application.Platform;
 import org.eclipse.jetty.websocket.api.WriteCallback;
 
+import java.awt.Rectangle;
 import java.nio.ByteBuffer;
 import java.security.SecureRandom;
 import java.util.Base64;
@@ -31,14 +34,26 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *   <li><b>binary</b> server→client: a live JPEG frame of the bot's target surface, prefixed with a 16-byte
  *       header ({@code sx,sy,sw,sh} as big-endian int32) so the client can map overlays. Loss-tolerant —
  *       a frame is <em>dropped</em> for any client whose previous send is still in flight (backpressure).</li>
- *   <li><b>text</b> server→client: telemetry events ({@code {"type":"telemetry",…}}) and run-state
+ *   <li><b>binary</b> server→client, <em>instead of</em> the above for a client that asked: one H.264 access
+ *       unit behind a {@link #BINARY_H264} tag byte, at the encoder's own pace rather than the frame loop's —
+ *       see {@link #followVideo}.</li>
+ *   <li><b>text</b> server→client: telemetry events ({@code {"type":"telemetry",…}}), run-state
  *       ({@code {"type":"state","run":"running|stopped|paused","backgroundInput":true}}, plus a
- *       {@code "reason"} sentence while the stream has no frames to send — see {@link #reportEmpty}).</li>
+ *       {@code "reason"} sentence while the stream has no frames to send — see {@link #reportEmpty}) and the
+ *       video stream's start/stop ({@code {"type":"video","codec":"avc1.42E01E","sx":…}}).</li>
  *   <li><b>text</b> client→server: control commands ({@code {"cmd":"start|stop|pause|resume"}}), the
- *       Interact arm/disarm ({@code {"cmd":"interact","on":true}}) and, once armed, manual gestures
+ *       Interact arm/disarm ({@code {"cmd":"interact","on":true}}), once armed, manual gestures
  *       ({@code {"cmd":"input","kind":"tap|down|move|up|scroll","x":…,"y":…,"button":1,"amount":-3}} in
- *       absolute screen coordinates — see {@link PilotInputService}).</li>
+ *       absolute screen coordinates — see {@link PilotInputService}) and the codec negotiation
+ *       ({@code {"cmd":"hello","accept":["h264"]}} — see {@link #handleHello}).</li>
  * </ul>
+ *
+ * <p><b>Two frame formats, and only one of them is negotiated.</b> JPEG is what every client gets and what
+ * every client got before there was anything to negotiate; H.264 is offered only to a client that asks for it
+ * by name, only on a session route, and only while an encoder is actually producing. Every step of that can
+ * fail — no {@code ffmpeg}, no working encoder, no {@code VideoDecoder} in the phone's WebView, a route that is
+ * an emulator — and every failure lands on the JPEG path, which is why it is not a fallback so much as the
+ * floor.
  *
  * <p>Interact is <b>armed per connection</b> and starts disarmed: a passive viewer must never poke the game
  * because someone brushed the screen, and a leaked URL must not become a remote desktop.
@@ -68,6 +83,10 @@ public final class PilotServer implements AutoCloseable {
     /** Decides which surface is streamed and driven ({@code :0} / {@code :N} / an emulator) and owns its connection. */
     private final PilotRoutes routes;
     private final TargetCapture capture;
+    /** The at-most-one H.264 encode of the current session route; see {@link #followVideo}. */
+    private final PilotVideo video = new PilotVideo(com.botmaker.session.Preview.MAX_EDGE, FRAME_FPS);
+    /** Whether clients have been told a stream is running, so start/stop are each announced exactly once. */
+    private boolean videoAnnounced;
     private final PilotControlService control;
     private final PilotInputService input = new PilotInputService();
     private final ObjectMapper json = new ObjectMapper();
@@ -80,7 +99,32 @@ public final class PilotServer implements AutoCloseable {
     private static final class Client {
         final AtomicBoolean frameInFlight = new AtomicBoolean(false);
         final AtomicBoolean interact = new AtomicBoolean(false);
+        /** Whether this client said hello and named H.264 — false for every build that predates {@code hello}. */
+        volatile boolean h264;
+        /**
+         * Whether this client has been given a decodable entry point and may therefore be sent inter-coded
+         * pictures. Cleared whenever a packet is dropped for it: a decoder fed a picture whose reference is
+         * missing does not recover on its own, so a dropped frame has to cost a resync to the next keyframe
+         * rather than a stream that stays broken until the route changes.
+         */
+        final AtomicBoolean decoding = new AtomicBoolean(false);
     }
+
+    /**
+     * The first byte of an H.264 binary message. There is no such byte on a JPEG frame, and deliberately so:
+     * the JPEG framing is already deployed on phones this Studio cannot update, so the new payload is the one
+     * that carries a tag. A client only ever sees this after the {@code video} text message that announced the
+     * stream, on the same ordered socket, so the tag is a check rather than the discriminator.
+     */
+    private static final byte BINARY_H264 = 2;
+
+    /**
+     * The same tag for an access unit a decoder can start on. It is a separate value rather than a second byte
+     * because the client needs the fact anyway — WebCodecs' {@code EncodedVideoChunk} is constructed with
+     * {@code type: "key" | "delta"} and has no way to work it out from the bytes — and the tag byte had 254
+     * spare values.
+     */
+    private static final byte BINARY_H264_KEY = 3;
 
     /** Connected, authorized clients. */
     private final Map<WsContext, Client> clients = new ConcurrentHashMap<>();
@@ -169,7 +213,7 @@ public final class PilotServer implements AutoCloseable {
             });
             ws.onMessage(ctx -> {
                 Client client = clients.get(ctx);
-                if (client != null) handleCommand(client, ctx.message());
+                if (client != null) handleCommand(client, ctx);
             });
             // A phone that vanishes mid-drag never sends its UP, so the release happens here instead. It is
             // unconditional rather than gated on "was it this client's drag": a drag cut short is a gesture
@@ -217,6 +261,7 @@ public final class PilotServer implements AutoCloseable {
     @Override
     public synchronized void close() {
         if (frameExec != null) { frameExec.shutdownNow(); frameExec = null; }
+        video.close(); // the ffmpeg is reaped with its session anyway, but not until the session goes
         input.close();  // never hand the desktop back with a mouse button still down
         routes.close(); // drop any held emulator connection with the loop that was using it
         clients.clear();
@@ -281,10 +326,10 @@ public final class PilotServer implements AutoCloseable {
 
     // --- Inbound control commands ---
 
-    private void handleCommand(Client client, String message) {
+    private void handleCommand(Client client, io.javalin.websocket.WsMessageContext ctx) {
         JsonNode node;
         try {
-            node = json.readTree(message);
+            node = json.readTree(ctx.message());
         } catch (Exception e) {
             return;
         }
@@ -299,6 +344,33 @@ public final class PilotServer implements AutoCloseable {
             case RESUME -> { control.resume(); refreshPausedState(); }
             case INTERACT -> client.interact.set(node.path("on").asBoolean(false));
             case INPUT -> handleInput(client, node);
+            case HELLO -> handleHello(client, ctx, node);
+        }
+    }
+
+    /**
+     * The client naming what it can decode. Only {@code h264} means anything today, and saying nothing means
+     * JPEG — so an older phone, or one whose WebView has no {@code VideoDecoder}, needs no special case
+     * anywhere: it simply never appears in the set of clients the video path sends to.
+     *
+     * <p>A client may say hello again at any time, and the pilot client does exactly that when configuring its
+     * decoder throws — a hardware decoder can refuse a stream it advertised support for, and the only honest
+     * recovery is to stop being an H.264 client. Re-sending hello with an empty {@code accept} is that.
+     */
+    private void handleHello(Client client, WsContext ctx, JsonNode node) {
+        boolean wantsH264 = false;
+        for (JsonNode codec : node.path("accept")) {
+            wantsH264 |= "h264".equals(codec.asText(null));
+        }
+        client.h264 = wantsH264;
+        client.decoding.set(false);
+        if (!wantsH264) {
+            return;
+        }
+        // A client that joins a running stream is told about it now rather than at the next route change,
+        // which on a stable session would be never.
+        if (video.live()) {
+            sendVideoStart(ctx);
         }
     }
 
@@ -373,11 +445,119 @@ public final class PilotServer implements AutoCloseable {
         broadcastText(stateJson());
     }
 
+    /** A frame arrived — by either path. Retract the warning, or the client explains a problem it no longer has. */
+    private void clearEmptyReport() {
+        emptyFrames = 0;
+        if (emptyReported) {
+            emptyReported = false;
+            emptyReason = null;
+            broadcastText(stateJson());
+        }
+    }
+
     private void broadcastText(String text) {
         for (WsContext ctx : clients.keySet()) {
             try {
                 ctx.send(text);
             } catch (Exception e) {
+                clients.remove(ctx);
+            }
+        }
+    }
+
+    // --- H.264 (the fast path, when both ends can take it) ---
+
+    /**
+     * Brings the H.264 encode in line with {@code asked} and reports whether it now carries <em>every</em>
+     * client — in which case this tick has no JPEG to grab at all, which is the saving that makes the video
+     * path worth having on Studio's side as well as the phone's.
+     *
+     * <p>Video is only ever offered on a {@link PilotRoute.Session}: it grabs an X display directly, so the
+     * emulator route (pixels that arrive over ADB, never on a display) and the {@code :0} route (the user's own
+     * screen, which this must not hand a GPU encoder) have nothing for it to read. Both keep the JPEG path,
+     * which is what they had.
+     */
+    private boolean followVideo(PilotRoute asked) {
+        DesktopSession wanted = asked instanceof PilotRoute.Session(DesktopSession s) && anyClientWantsVideo()
+                ? s : null;
+        boolean live = video.follow(wanted, this::onVideoPacket);
+        if (live != videoAnnounced) {
+            videoAnnounced = live;
+            announceVideo(live);
+        }
+        if (!live) return false;
+
+        // The video is the frame source now, so it owes the same two facts the JPEG path publishes: an Interact
+        // gesture is clamped to the surface the client was shown and replayed on the route that produced it.
+        Rectangle surface = video.rect();
+        lastRoute = asked;
+        lastBounds = new PilotInputService.Bounds(surface.x, surface.y, surface.width, surface.height);
+        clearEmptyReport();
+        return clients.values().stream().allMatch(c -> c.h264);
+    }
+
+    private boolean anyClientWantsVideo() {
+        return clients.values().stream().anyMatch(c -> c.h264);
+    }
+
+    /** Tells the H.264 clients that a stream started (with its codec and rect) or ended. */
+    private void announceVideo(boolean started) {
+        for (Map.Entry<WsContext, Client> e : clients.entrySet()) {
+            if (!e.getValue().h264) continue;
+            e.getValue().decoding.set(false);
+            if (started) {
+                sendVideoStart(e.getKey());
+            } else {
+                try {
+                    e.getKey().send(TelemetrySerializer.videoStoppedJson());
+                } catch (Exception gone) {
+                    clients.remove(e.getKey());
+                }
+            }
+        }
+    }
+
+    private void sendVideoStart(WsContext ctx) {
+        Rectangle r = video.rect();
+        try {
+            ctx.send(TelemetrySerializer.videoJson(video.codec(), r.x, r.y, r.width, r.height));
+        } catch (Exception gone) {
+            clients.remove(ctx);
+        }
+    }
+
+    /**
+     * One encoded picture, on the encoder's reader thread. Sent to each H.264 client that has an entry point,
+     * with the same in-flight backpressure the JPEG path uses — and one extra consequence: a dropped picture
+     * puts that client back to waiting for a keyframe, because a decoder handed a picture whose reference never
+     * arrived produces garbage indefinitely rather than one bad frame.
+     */
+    private void onVideoPacket(VideoPacket packet) {
+        if (clients.isEmpty()) return;
+        byte[] payload = new byte[1 + packet.annexB().length];
+        payload[0] = packet.keyframe() ? BINARY_H264_KEY : BINARY_H264;
+        System.arraycopy(packet.annexB(), 0, payload, 1, packet.annexB().length);
+
+        for (Map.Entry<WsContext, Client> e : clients.entrySet()) {
+            WsContext ctx = e.getKey();
+            Client client = e.getValue();
+            if (!client.h264) continue;
+            // A client that has not been given a decodable entry point yet waits for the next keyframe; the
+            // encoder's GOP is what bounds that wait.
+            if (!client.decoding.get() && !packet.keyframe()) continue;
+            AtomicBoolean inFlight = client.frameInFlight;
+            if (!inFlight.compareAndSet(false, true)) {
+                client.decoding.set(false);
+                continue;
+            }
+            client.decoding.set(true);
+            try {
+                ctx.session.getRemote().sendBytes(ByteBuffer.wrap(payload), new WriteCallback() {
+                    @Override public void writeSuccess() { inFlight.set(false); }
+                    @Override public void writeFailed(Throwable x) { inFlight.set(false); clients.remove(ctx); }
+                });
+            } catch (Exception ex) {
+                inFlight.set(false);
                 clients.remove(ctx);
             }
         }
@@ -426,8 +606,12 @@ public final class PilotServer implements AutoCloseable {
     }
 
     private void pushFrame() {
-        if (clients.isEmpty()) return;
+        if (clients.isEmpty()) {
+            followVideo(null);   // nobody to encode for; let the ffmpeg go rather than heat a GPU for no one
+            return;
+        }
         PilotRoute asked = routes.current();
+        if (followVideo(asked)) return;   // every client is on video; there is no JPEG left to grab one for
         TargetCapture.Resolved resolved = capture.resolve(asked, lastTarget);
         if (resolved == null) {
             reportEmpty(asked);
@@ -441,13 +625,7 @@ public final class PilotServer implements AutoCloseable {
             reportEmpty(asked);
             return;
         }
-        emptyFrames = 0;
-        if (emptyReported) {
-            // Frames are back — retract the warning, or the client keeps explaining a problem it no longer has.
-            emptyReported = false;
-            emptyReason = null;
-            broadcastText(stateJson());
-        }
+        clearEmptyReport();
 
         // Interact gestures are replayed on the route that produced this frame and clamped to what the client
         // was actually shown, so both must be published from here — the one place that knows what went over the
@@ -468,7 +646,11 @@ public final class PilotServer implements AutoCloseable {
 
         for (Map.Entry<WsContext, Client> e : clients.entrySet()) {
             WsContext ctx = e.getKey();
-            AtomicBoolean inFlight = e.getValue().frameInFlight;
+            Client client = e.getValue();
+            // A client being fed H.264 must not also be fed JPEG: it would draw the two interleaved, at two
+            // different latencies, which looks exactly like a stutter in the video.
+            if (client.h264 && video.live()) continue;
+            AtomicBoolean inFlight = client.frameInFlight;
             // Drop this frame for any client still flushing the previous one — keeps real-time feel and
             // stops one slow client from stalling the whole loop.
             if (!inFlight.compareAndSet(false, true)) continue;

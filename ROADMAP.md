@@ -6,6 +6,23 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-08 — the pilot streams H.264 when both ends can, and JPEG when either can't
+  (`services/pilot/PilotVideo`, `PilotServer`, `botmaker-pilot/web/src/usePilot.ts`).** A session route is now
+  encoded by an `ffmpeg` inside the session (`botmaker-session`'s `video` package) and relayed over the
+  **existing** socket as tagged access units, so a mostly-static game screen costs kilobytes a frame instead of
+  a whole JPEG. Negotiated by a new `{"cmd":"hello","accept":["h264"]}`: a client that never says hello — every
+  build that predates this — keeps the unchanged 16-byte JPEG framing, so nothing needed a version number. The
+  surface rect moved to the `{"type":"video",…}` announcement (one encoder on one display ⇒ it changes only
+  when the stream does), and the client draws the `VideoFrame` through the same `drawImage`, so the fit maths,
+  the Interact mapping and the telemetry overlay are untouched.
+  **Worth knowing:** every failure lands on JPEG *by design* — no `ffmpeg`, no working encoder, no
+  `VideoDecoder`, a `configure` that throws, a decoder that errors mid-stream, an emulator or `:0` route. The
+  last three are the client re-sending `hello` with an empty `accept`, which is the only recovery that ends
+  with a picture. Also: a **dropped** H.264 packet costs that client a resync to the next keyframe, unlike a
+  dropped JPEG — a decoder fed a picture whose reference never arrived stays broken rather than glitching once.
+  Three wire-corpus cases were added (`state.stopped.reason`, `video.started`, `video.stopped`), which also
+  closes the reason-shape gap left open by the Phase-2 change.
+
 - **2026-08-08 — every popup gets the theme, from one hook (`ui/render/theme/ThemedWindows.install()`,
   `css/blocks.css`).** A `ContextMenu`/`Tooltip`/dropdown is its own `Window` with its own `Scene`, created by
   the skin at show time — no constructor to route through — so every block menu, right-click menu and tooltip

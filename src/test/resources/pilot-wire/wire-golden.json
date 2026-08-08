@@ -86,5 +86,23 @@
     "type": "state",
     "run": "stopped",
     "backgroundInput": true
+  },
+  "state.stopped.reason": {
+    "type": "state",
+    "run": "stopped",
+    "backgroundInput": true,
+    "reason": "The background session is not showing any pixels on its X display."
+  },
+  "video.started": {
+    "type": "video",
+    "codec": "avc1.42E01E",
+    "sx": 0,
+    "sy": 0,
+    "sw": 1920,
+    "sh": 1080
+  },
+  "video.stopped": {
+    "type": "video",
+    "codec": null
   }
 }
