@@ -7,6 +7,7 @@ import javafx.geometry.Insets;
 import javafx.geometry.Point2D;
 import javafx.geometry.Pos;
 import javafx.scene.Group;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.scene.Scene;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
@@ -128,6 +129,8 @@ public final class ObjectCaptureSurface {
         stage.setY(bounds.y);
         stage.setWidth(bounds.width);
         stage.setHeight(bounds.height);
+        // Opted out of ThemedWindows.install() — see CaptureSurface: a translucent surface over the game.
+        pane.getStyleClass().add(ThemedWindows.UNTHEMED);
         Scene scene = new Scene(pane, bounds.width, bounds.height, Color.TRANSPARENT);
         scene.setOnKeyPressed(this::onKeyPressed);
         stage.setScene(scene);

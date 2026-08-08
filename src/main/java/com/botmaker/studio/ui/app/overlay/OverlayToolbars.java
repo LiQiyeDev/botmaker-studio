@@ -36,6 +36,9 @@ public final class OverlayToolbars {
      * The returned stage is intentionally ownerless.
      */
     public static Stage show(HBox bar, java.awt.Rectangle windowBounds) {
+        // Opted out of ThemedWindows.install(): the bar paints its own pill over the game, and a scene
+        // background from the shell's theme would show up as an opaque rectangle around it.
+        bar.getStyleClass().add(com.botmaker.studio.ui.render.theme.ThemedWindows.UNTHEMED);
         Scene scene = new Scene(bar, Color.TRANSPARENT);
         Stage stage = new Stage(StageStyle.TRANSPARENT);
         stage.setAlwaysOnTop(true);

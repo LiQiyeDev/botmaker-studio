@@ -3,6 +3,7 @@ package com.botmaker.studio.ui.app.capture;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import com.botmaker.studio.services.ScreenCaptureService;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
@@ -109,6 +110,9 @@ public final class CaptureSurface {
         stage.setWidth(bounds.width);
         stage.setHeight(bounds.height);
 
+        // Opted out of ThemedWindows.install(): this surface is a translucent tint over the live game, and
+        // the shell's chrome is the one thing it must not acquire.
+        pane.getStyleClass().add(ThemedWindows.UNTHEMED);
         Scene scene = new Scene(pane, bounds.width, bounds.height, Color.TRANSPARENT);
         scene.setOnKeyPressed(e -> { if (e.getCode() == KeyCode.ESCAPE) cancel(); });
         stage.setScene(scene);

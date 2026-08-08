@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-08 — every popup gets the theme, from one hook (`ui/render/theme/ThemedWindows.install()`,
+  `css/blocks.css`).** A `ContextMenu`/`Tooltip`/dropdown is its own `Window` with its own `Scene`, created by
+  the skin at show time — no constructor to route through — so every block menu, right-click menu and tooltip
+  rendered stock light Modena in a dark app, and Modena's own rules for them resolved lookups against nothing
+  (the four `CssStyleHelper` ClassCastException warnings). `install()` is a listener on `Window.getWindows()`
+  that themes each window as it appears, plus one theme-change subscription that rewalks the set; the
+  transparent overlays opt out with `ThemedWindows.UNTHEMED`. New popup-chrome section in `blocks.css`
+  (`.context-menu`, `.menu-item`, the scroll arrows, the separator, `.tooltip`, `.combo-box-popup`) over new
+  per-theme `-bm-popup-*` tokens, measured like the rest (white 11.03 on the dark pane, 8.21 on its hover).
+  **Worth knowing:** a popup resolves its looked-up colours through the styleable parent its `PopupControl`
+  bridge reports — the *owner node* — not its own scene root, so the class on the popup root is the fallback
+  and the owner chain is what actually carries the theme. `PopupThemeTest` asserts the stylesheet, the class
+  and the opt-out; the resolved fill is a manual check (see the note in that test).
 - **2026-08-08 — the pilot's frame loop stops paying for what it throws away (`services/pilot/TargetCapture`,
   `PilotServer`).** A session frame cost three codec passes (see `botmaker-session/ROADMAP.md`); it now
   arrives already encoded from the display agent and goes to the wire untouched, so `Capture.img()` is null on

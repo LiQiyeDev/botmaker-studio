@@ -46,6 +46,9 @@ public class BotMakerStudio extends Application {
     @Override
     public void start(Stage primaryStage) {
         this.primaryStage = primaryStage;
+        // Before any window is shown: from here on every window gets the stylesheet and the theme class as it
+        // appears, including the popups (context menus, tooltips, dropdowns) that no call site can reach.
+        ThemedWindows.install();
         // Collect what a previous run (or a killed bot JVM) left behind, before anything asks the process table
         // whether a launcher is open: a leftover session reads as one, and a launch is then refused on its account.
         // Off the FX thread — it shells out to systemctl.

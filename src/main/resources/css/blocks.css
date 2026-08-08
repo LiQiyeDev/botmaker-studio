@@ -134,6 +134,22 @@
     -bm-divider: #dcdcdc;
     -bm-band: #f0f0f0;
 
+    /*
+     * Popup chrome — a context menu, a tooltip, a combo-box dropdown. These need tokens of their own rather
+     * than reusing -fx-control-inner-background because a popup is a *floating* surface: it has to read as
+     * lifted off whatever is behind it, which in the Black theme means lighter than the near-black window and
+     * in the light theme means brighter than the panels. See the popup-chrome rules further down for why
+     * these exist at all — a popup lives in its own Window and inherits none of the shell's styling.
+     *
+     * Measured like every other on-colour pair in this file, same two candidates: #1a1a1a on #ffffff is
+     * 17.41, on the #e0e0e0 hover 13.20.
+     */
+    -bm-popup-bg: #ffffff;
+    -bm-on-popup: #1a1a1a;
+    -bm-popup-hover: #e0e0e0;
+    -bm-on-popup-hover: #1a1a1a;
+    -bm-popup-border: #c8c8c8;
+
     /* Diagnostic severities (DiagnosticsPanel): the bright colour marks the icon and the filter toggle, the
        -text colour carries the row's message — a message set in the icon's colour is hard to read at 12px. */
     -bm-severity-error: #e74c3c;
@@ -1414,6 +1430,87 @@
 }
 
 /* ============================================================================================================
+ * POPUP CHROME — context menus, tooltips, combo-box dropdowns.
+ * ============================================================================================================
+ *
+ * A ContextMenu / Tooltip / dropdown is not a node inside the window that opened it: it is its own JavaFX
+ * `Window` with its own `Scene`, inheriting neither this stylesheet nor the theme's style class from its
+ * owner. So until ui/render/theme/ThemedWindows.install() started theming every window as it appears, every
+ * block menu, right-click menu and tooltip in Studio rendered stock light Modena in a dark app — and Modena's
+ * own rules for these controls resolved their lookups against nothing, which is where the four CssStyleHelper
+ * "Caught ClassCastException ... String cannot be cast to Color" warnings came from (an unresolved JavaFX
+ * lookup reaches the converter as the lookup's *name*; upstream JDK-8182152 — cosmetic, but noisy).
+ *
+ * The rules below are the other half of that fix and are worth having on their own: a concrete value here
+ * wins the cascade over Modena's declaration for the same property (a Scene stylesheet outranks the platform
+ * default), so Modena's version is never converted and cannot warn. They are written against -bm-popup-*
+ * rather than -fx-base so the popup follows the theme by token, like the rest of this file.
+ */
+.context-menu,
+.combo-box-popup > .list-view {
+    -fx-background-color: -bm-popup-border, -bm-popup-bg;
+    -fx-background-insets: 0, 1;
+    -fx-background-radius: 4, 3;
+    -fx-padding: 4 0 4 0;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.35), 10, 0, 0, 3);
+}
+
+.menu-item {
+    -fx-background-color: transparent;
+    -fx-padding: 4 10 4 10;
+}
+
+.menu-item .label,
+.menu-item > .label {
+    -fx-text-fill: -bm-on-popup;
+}
+
+/* :focused, not :hover — a menu row is highlighted by keyboard *and* pointer, and Modena drives both off the
+   focus pseudo-class. Styling :hover alone leaves arrow-key navigation invisible. */
+.menu-item:focused {
+    -fx-background-color: -bm-popup-hover;
+}
+
+.menu-item:focused .label,
+.menu-item:focused > .label {
+    -fx-text-fill: -bm-on-popup-hover;
+}
+
+/* The scroll arrows a menu taller than the screen grows. They sit on the popup pane, so they are painted with
+   it — Modena paints them with -fx-color, which is the lookup that was resolving to nothing. */
+.menu-up-arrow,
+.menu-down-arrow {
+    -fx-background-color: -bm-on-popup;
+}
+
+.context-menu .separator .line,
+.context-menu .separator:horizontal .line {
+    -fx-border-color: -bm-popup-border transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+}
+
+.tooltip {
+    -fx-background-color: -bm-popup-border, -bm-popup-bg;
+    -fx-background-insets: 0, 1;
+    -fx-background-radius: 4, 3;
+    -fx-text-fill: -bm-on-popup;
+    -fx-padding: 5 8 5 8;
+    -fx-font-size: 11px;
+}
+
+.combo-box-popup > .list-view > .virtual-flow > .clipped-container > .sheet > .list-cell {
+    -fx-background-color: transparent;
+    -fx-text-fill: -bm-on-popup;
+    -fx-padding: 4 10 4 10;
+}
+
+.combo-box-popup > .list-view > .virtual-flow > .clipped-container > .sheet > .list-cell:filled:selected,
+.combo-box-popup > .list-view > .virtual-flow > .clipped-container > .sheet > .list-cell:filled:hover {
+    -fx-background-color: -bm-popup-hover;
+    -fx-text-fill: -bm-on-popup-hover;
+}
+
+/* ============================================================================================================
  * THEME OVERLAYS
  * ============================================================================================================
  *
@@ -1501,6 +1598,16 @@
     /* Window chrome + severities: lighter than the surface, where the light theme's are darker than it. */
     -bm-divider: #4a4a4a;
     -bm-band: #353535;
+
+    /* Popup chrome — a step above -fx-base so a menu reads as floating over the window. White scores 11.03
+       on the pane and 8.21 on the hover row. A blue hover (-bm-primary, #4a90d9) was the obvious choice and
+       is measurably wrong: white on it is 3.32, and the near-black that would pass reads as a light-theme
+       row dropped into a dark menu. A neutral lift passes and looks like what it is. */
+    -bm-popup-bg: #3c3c3c;
+    -bm-on-popup: #ffffff;
+    -bm-popup-hover: #4a4a4a;
+    -bm-on-popup-hover: #ffffff;
+    -bm-popup-border: #565656;
     -bm-severity-error: #e95c4c;
     -bm-severity-error-text: #ff8b7b;
     -bm-severity-warning: #f5b041;
@@ -1581,6 +1688,14 @@
     /* Window chrome + severities */
     -bm-divider: #2a2a2a;
     -bm-band: #141414;
+
+    /* Popup chrome — as .dark-theme, lifted off a pure-black window instead of a grey one. White scores
+       16.67 on the pane and 11.38 on the hover row. */
+    -bm-popup-bg: #1e1e1e;
+    -bm-on-popup: #ffffff;
+    -bm-popup-hover: #3a3a3a;
+    -bm-on-popup-hover: #ffffff;
+    -bm-popup-border: #3a3a3a;
     -bm-severity-error: #f44336;
     -bm-severity-error-text: #ff6f60;
     -bm-severity-warning: #ffc107;
@@ -1670,6 +1785,15 @@
     /* Window chrome + severities — a white hairline, and severities that stay at full contrast. */
     -bm-divider: #ffffff;
     -bm-band: #1a1a1a;
+
+    /* Popup chrome. The one theme where the popup is *not* lifted by lightness — it is black like everything
+       else and separated by its white hairline, because a grey lift is exactly the low-contrast edge this
+       theme refuses. The hover keeps the theme's yellow accent: #1a1a1a on #ffff00 is 16.21. */
+    -bm-popup-bg: #000000;
+    -bm-on-popup: #ffffff;
+    -bm-popup-hover: #ffff00;
+    -bm-on-popup-hover: #1a1a1a;
+    -bm-popup-border: #ffffff;
     -bm-severity-error: #ff4040;
     -bm-severity-error-text: #ff4040;
     -bm-severity-warning: #ffff00;

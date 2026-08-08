@@ -40,6 +40,63 @@ public final class ThemedWindows {
     private static final List<String> THEME_CLASSES =
             List.of("default-theme", "dark-theme", "black-theme", "high-contrast-theme", "light-theme");
 
+    /**
+     * The opt-out. A scene root carrying this class is skipped by {@link #install()} — for the deliberately
+     * chrome-less transparent overlays (the capture surfaces, the overlay toolbars, the program overlay),
+     * which paint their own translucent body over a live game and must not be given the shell's chrome.
+     */
+    public static final String UNTHEMED = "unthemed-window";
+
+    /** Guards {@link #install()} against a second call — the listeners it adds are process-lived. */
+    private static boolean installed;
+
+    /**
+     * Themes every window in the process, as it appears — the one hook that covers the windows nobody can
+     * reach by hand. A {@link javafx.scene.control.ContextMenu}, a {@link javafx.scene.control.Tooltip} and a
+     * combo-box dropdown each live in their own {@link Window} with their own {@link Scene}, created by the
+     * control's skin at show time; there is no constructor to route through and no owner to inherit from. The
+     * alternative was a call at each of the ~15 sites that build a menu, which would still miss every popup a
+     * skin makes for itself — which is exactly why the block menus, dropdowns and tooltips were the last
+     * light-Modena surfaces left in a dark Studio.
+     *
+     * <p>Call once, on the FX thread, before the first window is shown. Idempotent, and deliberately never
+     * uninstalled: the listener is bound to the process, not to a project, so a reload cannot drop it.
+     */
+    public static void install() {
+        if (installed) return;
+        installed = true;
+        javafx.collections.ObservableList<Window> windows = Window.getWindows();
+        windows.forEach(ThemedWindows::themeWindow);
+        windows.addListener((javafx.collections.ListChangeListener<Window>) change -> {
+            while (change.next()) change.getAddedSubList().forEach(ThemedWindows::themeWindow);
+        });
+        // One subscription for every window there will ever be, rather than one per window with a hide-time
+        // unsubscribe: the set is walked on each switch, so a popup that opened between switches is covered
+        // without ever having been registered.
+        BlockTheme.addThemeChangeListener(t -> Window.getWindows().forEach(ThemedWindows::retheme));
+    }
+
+    /** Stylesheet + current theme class on a window's scene, once it has one, unless it opted out. */
+    private static void themeWindow(Window window) {
+        if (window == null) return;
+        once(window.sceneProperty(), window.getScene(), ThemedWindows::themeScene);
+    }
+
+    /**
+     * The theme-switch counterpart of {@link #themeWindow}: it does <em>not</em> wait for a scene. Waiting
+     * would register another one-shot listener on every switch, on a window that may never get one.
+     */
+    private static void retheme(Window window) {
+        if (window != null && window.getScene() != null) themeScene(window.getScene());
+    }
+
+    private static void themeScene(Scene scene) {
+        Parent root = scene.getRoot();
+        if (root == null || root.getStyleClass().contains(UNTHEMED)) return;
+        addBlocksCss(scene.getStylesheets());
+        applyThemeClass(root);
+    }
+
     /** The style class for a theme, i.e. the selector {@code blocks.css} defines its token overrides under. */
     public static String styleClass(BlockTheme.ThemeType theme) {
         return switch (theme) {

@@ -353,6 +353,10 @@ public final class ProgramShapeOverlay {
         // No fixed height: the window sizes to content (header + controls + tree), so a growing controls
         // panel doesn't squeeze the tree panel out — the tree's own ScrollPane (buildTreePanel) is capped
         // instead, so a long program scrolls internally rather than pushing the window past the screen.
+        // Opted out of ThemedWindows.install() — not because it wants no theme (it takes both the stylesheet
+        // and the class, just below) but because it is a transparent always-on-top overlay whose styling is
+        // its own business, like the capture surfaces it sits beside.
+        rootPane.getStyleClass().add(com.botmaker.studio.ui.render.theme.ThemedWindows.UNTHEMED);
         Scene scene = new Scene(rootPane, Color.TRANSPARENT);
         java.net.URL css = getClass().getResource("/css/blocks.css");
         if (css != null) scene.getStylesheets().add(css.toExternalForm());
