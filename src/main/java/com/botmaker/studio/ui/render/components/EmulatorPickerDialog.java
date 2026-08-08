@@ -9,6 +9,7 @@ import com.botmaker.studio.emulator.EmulatorAppCache;
 import com.botmaker.studio.emulator.EmulatorInstanceScanner;
 import com.botmaker.studio.emulator.EmulatorProbe;
 import com.botmaker.studio.services.ScreenCaptureService;
+import com.botmaker.studio.ui.app.ConnectPhoneDialog;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -98,17 +99,28 @@ public final class EmulatorPickerDialog {
         VBox rows = new VBox(6);
         rows.setPadding(new Insets(8));
 
-        Label status = new Label("Scanning for emulators…");
-        status.setPadding(new Insets(8));
-        rows.getChildren().add(status);
-
         ScrollPane scroll = new ScrollPane(rows);
         scroll.setFitToWidth(true);
         scroll.setPrefViewportHeight(440);
         scroll.setPrefViewportWidth(420);
         dialog.getDialogPane().setContent(scroll);
 
-        // Discover instances off the FX thread (registry + config reads), then build a row per instance.
+        populate(rows, dialog);
+
+        dialog.setResultConverter(bt -> bt == ButtonType.CANCEL ? null : dialog.getResult());
+        return Optional.ofNullable(dialog.showAndWait().orElse(null));
+    }
+
+    /**
+     * Discovers instances off the FX thread (registry + config reads + the saved-phone list), then builds a
+     * row per instance.
+     *
+     * <p>Re-runnable, because a phone is the one target a user can add <em>while this dialog is open</em> —
+     * {@link ConnectPhoneDialog} writes shared's saved list, and re-scanning is how the row for it appears
+     * without making the user close and reopen the picker.
+     */
+    private static void populate(VBox rows, Dialog<Selection> dialog) {
+        rows.getChildren().setAll(new Label("Scanning for emulators…"));
         new Thread(() -> {
             EmulatorInstanceScanner.Scan scan = new EmulatorInstanceScanner().scan();
             Platform.runLater(() -> {
@@ -117,14 +129,31 @@ public final class EmulatorPickerDialog {
                     // No instances — show what each product's discovery actually saw so the user can tell
                     // "not installed" from "installed but nothing running / ADB off".
                     rows.getChildren().add(buildStatusSummary(scan.statuses(), dialog));
-                    return;
+                } else {
+                    for (EmulatorInstance instance : scan.instances()) {
+                        rows.getChildren().add(buildRow(instance, dialog));
+                    }
                 }
-                for (EmulatorInstance instance : scan.instances()) rows.getChildren().add(buildRow(instance, dialog));
+                rows.getChildren().add(connectPhoneRow(rows, dialog));
             });
         }, "emulator-picker-scan").start();
+    }
 
-        dialog.setResultConverter(bt -> bt == ButtonType.CANCEL ? null : dialog.getResult());
-        return Optional.ofNullable(dialog.showAndWait().orElse(null));
+    /**
+     * The way to a phone from the picker. It sits under the list on <em>every</em> scan, not only the empty
+     * one: a user who already has an emulator configured is exactly the user who would otherwise conclude
+     * this stack cannot talk to their phone at all.
+     */
+    private static Button connectPhoneRow(VBox rows, Dialog<Selection> dialog) {
+        Button connect = new Button("＋ Connect a phone…");
+        connect.getStyleClass().add("emulator-picker-app");
+        connect.setMaxWidth(Double.MAX_VALUE);
+        connect.setAlignment(Pos.CENTER_LEFT);
+        connect.setOnAction(e -> {
+            ConnectPhoneDialog.show(windowOf(dialog));
+            populate(rows, dialog);
+        });
+        return connect;
     }
 
     /** Thumbnail size for a row's live emulator screencap preview. */

@@ -1,6 +1,7 @@
 package com.botmaker.studio.ui.render.components;
 
 import com.botmaker.shared.config.CaptureSourceKind;
+import com.botmaker.shared.emulator.EmulatorInstances;
 import com.botmaker.studio.core.AbstractCodeBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.project.ProjectCreator;
@@ -69,9 +70,14 @@ public final class EmulatorArgPicker {
         }
     }
 
+    /**
+     * The chip's caption. Only a name is in hand here — it comes out of a string literal in the user's source
+     * — so the product is unknown and {@link EmulatorInstances#captionFor} is what can honestly be said; a
+     * phone reached this picker the same way an emulator does.
+     */
     private static String label(String instanceName) {
         return (instanceName == null || instanceName.isBlank())
-                ? "Choose emulator…" : "Emulator: " + instanceName;
+                ? "Choose a device…" : EmulatorInstances.captionFor(instanceName);
     }
 
     /** The current value if the backing expression is a string literal, else null. */

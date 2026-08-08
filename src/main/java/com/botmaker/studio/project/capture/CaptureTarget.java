@@ -1,5 +1,6 @@
 package com.botmaker.studio.project.capture;
 
+import com.botmaker.shared.emulator.EmulatorInstances;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 
@@ -71,13 +72,19 @@ public sealed interface CaptureTarget
     }
 
     /**
-     * An Android emulator instance, captured over ADB by its instance name (matches the SDK's
-     * {@code EmulatorSource} / {@code emulator:<name>} capture-source spec).
+     * An Android surface, captured over ADB by its instance name (matches the SDK's {@code EmulatorSource} /
+     * {@code emulator:<name>} capture-source spec).
+     *
+     * <p>The name is deliberately still all this stores, even though a physical phone can now be one of the
+     * things it names. A second target variant would fork every picker, every settings migration and every
+     * switch over this type for what amounts to a caption — and the spec on the other side is
+     * {@code emulator:<name>} either way. So the <em>type</em> stays one and the <em>label</em> stops
+     * claiming a product: see {@link EmulatorInstances#captionFor}.
      */
     record EmulatorTarget(String instanceName) implements CaptureTarget {
         @Override
         public String label() {
-            return "Emulator: " + (instanceName == null || instanceName.isBlank() ? "(any)" : instanceName);
+            return EmulatorInstances.captionFor(instanceName);
         }
     }
 }

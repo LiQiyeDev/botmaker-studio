@@ -281,6 +281,11 @@ public class MenuBarManager {
         MenuItem remotePilotItem = new MenuItem("Enable Remote Pilot…");
         remotePilotItem.setOnAction(e -> { if (onEnableRemotePilot != null) onEnableRemotePilot.run(); });
 
+        // Wired here rather than through a callback like its neighbours: the dialog holds no project state —
+        // it writes shared's saved-device list, which every picker and every generated bot reads for itself.
+        MenuItem connectPhoneItem = new MenuItem("Connect a phone…");
+        connectPhoneItem.setOnAction(e -> ConnectPhoneDialog.show(primaryStage));
+
         // Theme submenu
         Menu themeMenu = new Menu("Theme");
         ToggleGroup themeGroup = new ToggleGroup();
@@ -318,6 +323,7 @@ public class MenuBarManager {
                 zoomOutItem,
                 resetZoomItem,
                 new SeparatorMenuItem(),
+                connectPhoneItem,
                 remotePilotItem,
                 new SeparatorMenuItem(),
                 themeMenu

@@ -6,6 +6,22 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-09 — "Connect a phone…" (`ui/app/ConnectPhoneDialog`, `ui/app/MenuBarManager`,
+  `ui/render/components/EmulatorPickerDialog`).** The last phone-target phase: the surface that makes a phone
+  *discoverable*, after which it flows through every existing picker as an ordinary `EmulatorInstance`. Two
+  sections, because the two routes need different things — the adb server's live device list (with
+  `unauthorized` called out by name; it is the commonest reason a plugged-in phone does nothing, and it is
+  invisible otherwise) and a saved `host:port` list for a phone in `adb tcpip` mode, which needs no binary at
+  all. It writes shared's `SavedDevices`, **not** a Studio preference, so a generated bot resolves the same
+  phone. Reachable from **View ▸ Connect a phone…** and from a row under the emulator picker's list — on every
+  scan, not just the empty one, since a user with an emulator configured is exactly the one who would conclude
+  this can't reach their phone. Carries the two gotchas that otherwise present as "my templates stopped
+  matching": keep the screen awake, and unlock before running.
+- **2026-08-09 — a saved target stops calling every Android surface an "Emulator"
+  (`project/capture/CaptureTarget`, `ui/render/components/EmulatorArgPicker`).** Both captions now come from
+  shared (`EmulatorInstances.captionFor` / `EmulatorInstance.caption()`). The persisted `EmulatorTarget` was
+  **not** forked into a second variant for this: the spec on the other side is `emulator:<name>` either way,
+  and a second variant would fork every picker and every settings migration for a caption.
 - **2026-08-08 — the pilot's emulator route gets a fast path with the old one underneath it
   (`emulator/ScrcpyEmulatorSurface`, `services/pilot/PilotRoutes`).** A scrcpy session streams the device
   continuously and injects input directly, instead of a `screencap` per frame and an `app_process` JVM start
