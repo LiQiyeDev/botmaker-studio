@@ -44,7 +44,7 @@ class TelemetryWireContractTest {
      * The corpus, byte for byte. Update this together with {@code GOLDEN_SHA256} in the pilot repo's
      * {@code wire.test.ts} — and with the copy of the file itself, which must stay byte-identical.
      */
-    private static final String GOLDEN_SHA256 = "6ae62fe097feae4e3e9dd2cc7c3b5837be80d6b9d2369f740942b3c2ccb117c3";
+    private static final String GOLDEN_SHA256 = "c12e8c813f6de5088718103b3af6c4620963c1ae45adb46f36dd226aaf1675a7";
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final JsonNode CORPUS = corpus();
@@ -78,6 +78,14 @@ class TelemetryWireContractTest {
     void aClickCarriesAbsoluteCoordinatesAndTheButton() {
         assertWire("telemetry.click",
                 TelemetrySerializer.telemetryJson(new TelemetryEvent.Click(TARGET, 300, 220, 3)));
+    }
+
+    @Test
+    void aSwipeCarriesBothEndsAndHowLongItTook() {
+        // Both ends in one message, not a stream of moves: the client draws an arrow, and a gesture arriving
+        // as fifty little segments would be fifty overlays fading out of step with each other.
+        assertWire("telemetry.swipe",
+                TelemetrySerializer.telemetryJson(new TelemetryEvent.Swipe(TARGET, 200, 400, 200, 120, 450)));
     }
 
     @Test

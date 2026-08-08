@@ -86,6 +86,10 @@ public final class TelemetrySerializer {
                     .append(",\"button\":").append(c.button());
             case TelemetryEvent.Region r -> sb.append(",\"kind\":\"Region\"")
                     .append(",\"rect\":").append(rectJson(r.rect()));
+            case TelemetryEvent.Swipe s -> sb.append(",\"kind\":\"Swipe\"")
+                    .append(",\"x1\":").append(s.x1()).append(",\"y1\":").append(s.y1())
+                    .append(",\"x2\":").append(s.x2()).append(",\"y2\":").append(s.y2())
+                    .append(",\"duration\":").append(s.durationMs());
         }
         return sb.append("}").toString();
     }

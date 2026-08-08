@@ -43,6 +43,19 @@
       "button": 3
     }
   },
+  "telemetry.swipe": {
+    "type": "telemetry",
+    "event": {
+      "ts": 0,
+      "target": { "title": "Nested Game", "x": 100, "y": 50, "w": 640, "h": 480 },
+      "kind": "Swipe",
+      "x1": 200,
+      "y1": 400,
+      "x2": 200,
+      "y2": 120,
+      "duration": 450
+    }
+  },
   "telemetry.region": {
     "type": "telemetry",
     "event": {

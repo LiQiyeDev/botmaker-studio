@@ -6,6 +6,15 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-08 — the pilot draws swipes, and the overlay layer has an off switch
+  (`services/pilot/TelemetrySerializer`, `TelemetryWireContractTest`, `src/test/resources/pilot-wire/`,
+  `src/main/resources/pilot/`).** `Swipe` is serialized as `kind:"Swipe"` with `x1/y1/x2/y2/duration`, and the
+  golden corpus gained a `telemetry.swipe` case. The corpus is digest-locked against a byte-identical copy in
+  the pilot repo, so this was **four** edits in one change — both files and both SHA-256 constants
+  (`6ae62fe0…` → `c12e8c81…`) — because either half alone turns both suites red. The served dist under
+  `src/main/resources/pilot/` was rebuilt from `botmaker-pilot/web`, which is what any browser pilot picks up;
+  the APK still needs its own release.
+
 - **2026-08-08 — the resolution dropdown says what the project will be saved with, and Waydroid may run in
   the background (`ui/app/ResolutionChoices`, `ProjectSettingsDialog`, `ProjectSelectionScreen`,
   `ToolbarManager`, `project/launch/QuickLaunch`).** Both resolution dropdowns held the landscape catalog and
