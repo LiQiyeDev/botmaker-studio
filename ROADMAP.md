@@ -6,6 +6,15 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-08 — an emulator's templates are cropped from the frame the bot matches against
+  (`services/ScreenCaptureService`, `ui/app/capture/CaptureSurface`, `OverlayTemplateCapture`).** An
+  `EmulatorTarget` had no branch in `grabOffThread`, so it fell through to "grab the virtual desktop": the
+  template was cut out of the **host window** the emulator is drawn in, while the bot matches it against the
+  frame it pulls over ADB. On Waydroid those were a scale factor apart and nothing matched — see shared's
+  same-day entry for the other half. `captureDefaultTargetAsync` now takes one ADB `screencap` for an emulator
+  target, and `TargetShot` carries `onScreen`: false means those pixels are nowhere on the desktop, so
+  `CaptureSurface` paints the frame as a backdrop instead of staying transparent over the user's own screen.
+  Region-select and point-pick are deliberately untouched — they answer in desktop coordinates.
 - **2026-08-08 — SDK-call and method-call blocks are readable in all four themes (`css/blocks.css`,
   `BlockUIComponents.createArgumentPill`).** `.sdk-call-block` was the literal `#f3ecfb` and never redefined
   `-bm-text-on-color`, so its labels took the `.root` default `white` — white on near-white, and outside the

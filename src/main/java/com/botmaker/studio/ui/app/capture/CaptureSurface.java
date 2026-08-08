@@ -2,9 +2,11 @@ package com.botmaker.studio.ui.app.capture;
 
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import com.botmaker.studio.services.ScreenCaptureService;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.image.ImageView;
 import javafx.scene.input.KeyCode;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
@@ -15,6 +17,7 @@ import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import javafx.stage.Window;
 
+import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
@@ -68,7 +71,7 @@ public final class CaptureSurface {
     private Button doneButton;
     private boolean finished;
 
-    private CaptureSurface(Window owner, java.awt.Rectangle bounds, Mode mode, Shape shape,
+    private CaptureSurface(Window owner, java.awt.Rectangle bounds, BufferedImage backdrop, Mode mode, Shape shape,
                            Consumer<Region> onRegion, Consumer<List<Region>> onDone, Runnable onCancel) {
         this.mode = mode;
         this.shape = shape;
@@ -85,6 +88,15 @@ public final class CaptureSurface {
         // A faint tint gives the transparent surface a pickable body (so drags register) and signals that
         // capture mode is active, while keeping the live window clearly visible underneath.
         pane.setStyle("-fx-background-color: rgba(20,110,220,0.06);");
+        if (backdrop != null) {
+            // The frame isn't on the desktop behind us (an emulator's pixels arrive over ADB), so draw it —
+            // otherwise the user rubber-bands over their own desktop and crops something else entirely.
+            ImageView frame = new ImageView(ScreenCaptureService.toFxImage(backdrop));
+            frame.setFitWidth(bounds.width);
+            frame.setFitHeight(bounds.height);
+            frame.setMouseTransparent(true);
+            pane.getChildren().add(0, frame);
+        }
         pane.getChildren().add(buildControlBar());
         installDrawHandlers();
 
@@ -102,19 +114,31 @@ public final class CaptureSurface {
         stage.setScene(scene);
     }
 
-    /** Opens a one-shot surface: the first drawn region fires {@code onRegion}; Esc/Cancel fires {@code onCancel}. */
-    public static CaptureSurface single(Window owner, java.awt.Rectangle bounds, Shape shape,
-                                        Consumer<Region> onRegion, Runnable onCancel) {
-        CaptureSurface s = new CaptureSurface(owner, bounds, Mode.SINGLE, shape, onRegion, null, onCancel);
+    /**
+     * Opens a one-shot surface: the first drawn region fires {@code onRegion}; Esc/Cancel fires
+     * {@code onCancel}.
+     *
+     * <p>{@code backdrop} is the frame to paint under the rubber band, and is {@code null} for every target
+     * whose pixels are genuinely on the desktop at {@code bounds} — the surface is transparent and the live
+     * window shows through. Pass the captured frame when it is <em>not</em>
+     * ({@link com.botmaker.studio.services.ScreenCaptureService.TargetShot#onScreen()} false, i.e. an
+     * emulator), so what the user draws over is what the crop is taken from.
+     */
+    public static CaptureSurface single(Window owner, java.awt.Rectangle bounds, BufferedImage backdrop,
+                                        Shape shape, Consumer<Region> onRegion, Runnable onCancel) {
+        CaptureSurface s = new CaptureSurface(owner, bounds, backdrop, Mode.SINGLE, shape, onRegion, null, onCancel);
         s.stage.show();
         com.botmaker.studio.ui.app.overlay.OverlayToolbars.promoteAboveFullscreen(s.stage);
         return s;
     }
 
-    /** Opens a multi-region surface: draw several, then Done fires {@code onDone}; Esc/Cancel fires {@code onCancel}. */
-    public static CaptureSurface many(Window owner, java.awt.Rectangle bounds, Shape shape,
-                                      Consumer<List<Region>> onDone, Runnable onCancel) {
-        CaptureSurface s = new CaptureSurface(owner, bounds, Mode.MANY, shape, null, onDone, onCancel);
+    /**
+     * Opens a multi-region surface: draw several, then Done fires {@code onDone}; Esc/Cancel fires
+     * {@code onCancel}. {@code backdrop} as in {@link #single}.
+     */
+    public static CaptureSurface many(Window owner, java.awt.Rectangle bounds, BufferedImage backdrop,
+                                      Shape shape, Consumer<List<Region>> onDone, Runnable onCancel) {
+        CaptureSurface s = new CaptureSurface(owner, bounds, backdrop, Mode.MANY, shape, null, onDone, onCancel);
         s.stage.show();
         com.botmaker.studio.ui.app.overlay.OverlayToolbars.promoteAboveFullscreen(s.stage);
         return s;

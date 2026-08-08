@@ -3,10 +3,14 @@ package com.botmaker.studio.services;
 import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeController;
 import com.botmaker.shared.capture.NativeControllerFactory;
+import com.botmaker.shared.emulator.EmulatorInstance;
+import com.botmaker.shared.emulator.EmulatorInstances;
+import com.botmaker.studio.emulator.EmulatorProbe;
 import com.botmaker.studio.services.capture.DesktopGrab;
 import com.botmaker.studio.project.ProjectPreferences;
 import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.DesktopTarget;
+import com.botmaker.studio.project.capture.CaptureTarget.EmulatorTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.ScreenTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.WindowTarget;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
@@ -396,22 +400,36 @@ public final class ScreenCaptureService {
 
     /**
      * A target-agnostic captured frame: the pixels, the absolute logical {@code bounds} to place an overlay
-     * over and map coordinates against, a human {@code label}, and whether the source is a window (so callers
-     * can skip window-only steps like resize for a screen/desktop target).
+     * over and map coordinates against, a human {@code label}, whether the source is a window (so callers can
+     * skip window-only steps like resize for a screen/desktop target), and whether those pixels are actually
+     * <em>on the desktop</em> at {@code bounds}.
+     *
+     * <p>{@code onScreen} is false for exactly one target kind today — an emulator, whose frame comes over ADB
+     * rather than off the desktop. That distinction is load-bearing: a transparent rubber-band surface shows
+     * the user whatever is behind it, so over an emulator it would show the host window (gamescope's scaled
+     * output, or nothing at all if the emulator is minimised) while the crop is taken from the ADB frame.
+     * Callers must draw the frame themselves when this is false — see {@code CaptureSurface}'s backdrop.
      */
-    public record TargetShot(BufferedImage image, java.awt.Rectangle bounds, String label, boolean isWindow) {}
+    public record TargetShot(BufferedImage image, java.awt.Rectangle bounds, String label, boolean isWindow,
+                             boolean onScreen) {}
 
     /**
-     * Off-thread grab of the project's current <b>default</b> capture target — a window, a monitor, or the
-     * whole desktop — as a {@link TargetShot}, delivered back on the FX thread ({@code null} on failure or a
-     * blank Wayland grab). Unlike {@link #captureWindow}, this works for any target type, so overlay tools
-     * (Capture Templates / Overlay Editor) can operate over a screen/desktop and not only a window. Requires a
-     * default to be set (there is always one after project creation); it does not run the screen chooser.
+     * Off-thread grab of the project's current <b>default</b> capture target — a window, a monitor, the whole
+     * desktop, or an emulator — as a {@link TargetShot}, delivered back on the FX thread ({@code null} on
+     * failure or a blank Wayland grab). Unlike {@link #captureWindow}, this works for any target type, so
+     * overlay tools (Capture Templates / Overlay Editor) can operate over a screen/desktop and not only a
+     * window. Requires a default to be set (there is always one after project creation); it does not run the
+     * screen chooser.
      */
     public void captureDefaultTargetAsync(Window owner, Consumer<TargetShot> onFx) {
         Thread t = new Thread(() -> {
             TargetShot result = null;
             try {
+                TargetShot adb = emulatorShot();
+                if (adb != null) {
+                    Platform.runLater(() -> onFx.accept(adb));
+                    return;
+                }
                 Grab grab = grabOffThread(owner);
                 ScreenShot shot = grab.shot();
                 if (shot != null && !shot.blank()) {
@@ -422,7 +440,7 @@ public final class ScreenCaptureService {
                     CaptureTarget def = (settings != null) ? settings.defaultTarget() : null;
                     String label = (def != null)
                             ? com.botmaker.studio.project.capture.CaptureTargetNames.shortLabel(def) : "Screen";
-                    result = new TargetShot(shot.image(), awt, label, def instanceof WindowTarget);
+                    result = new TargetShot(shot.image(), awt, label, def instanceof WindowTarget, true);
                 }
             } catch (Throwable ex) {
                 System.err.println("Default-target capture failed: " + ex.getMessage());
@@ -432,6 +450,47 @@ public final class ScreenCaptureService {
         }, "capture-default-target");
         t.setDaemon(true);
         t.start();
+    }
+
+    /**
+     * One ADB {@code screencap} of the default target when that target is an <b>emulator</b>, or {@code null}
+     * when it isn't one (so the caller falls through to the desktop grab). Blocking — off the FX thread only.
+     *
+     * <p><b>Why this branch has to exist.</b> Without it an emulator target fell all the way through
+     * {@link #grabOffThread} to "grab the virtual desktop", so a template was cropped out of the <em>host
+     * window</em> the emulator happens to be drawn in, while the bot matches that template against the frame it
+     * pulls over ADB. On Waydroid those two were a scale factor apart and nothing ever matched — the crop
+     * looked perfectly accurate, because it was accurate in the space it was taken in. Capturing the same way
+     * the bot does makes the two spaces the same one by construction rather than by luck.
+     *
+     * <p>The bounds are a placement, not a location: these pixels are not on the desktop anywhere (see
+     * {@link TargetShot#onScreen()}), so the frame is centred on the primary screen at its own aspect ratio and
+     * the surface draws it. Aspect ratio is what matters — every crop is mapped back by the width/height ratio.
+     */
+    private TargetShot emulatorShot() {
+        CaptureTarget target = (settings != null) ? settings.defaultTarget() : null;
+        if (!(target instanceof EmulatorTarget(String instanceName))) {
+            return null;
+        }
+        EmulatorInstance instance = EmulatorInstances.byName(instanceName).orElse(null);
+        BufferedImage frame = (instance == null) ? null : EmulatorProbe.screencap(instance);
+        if (frame == null || frame.getWidth() <= 0 || frame.getHeight() <= 0) {
+            return null;   // not running, or the grab failed — the caller reports "couldn't capture the target"
+        }
+        return new TargetShot(frame, fitToPrimaryScreen(frame.getWidth(), frame.getHeight()),
+                com.botmaker.studio.project.capture.CaptureTargetNames.shortLabel(target), false, false);
+    }
+
+    /** A {@code w}×{@code h}-shaped rectangle centred on the primary screen, at most 80% of its visual area. */
+    private static java.awt.Rectangle fitToPrimaryScreen(int w, int h) {
+        Rectangle2D visual = Screen.getPrimary().getVisualBounds();
+        double scale = Math.min(1.0, Math.min(visual.getWidth() * 0.8 / w, visual.getHeight() * 0.8 / h));
+        int width = Math.max(1, (int) Math.round(w * scale));
+        int height = Math.max(1, (int) Math.round(h * scale));
+        return new java.awt.Rectangle(
+                (int) Math.round(visual.getMinX() + (visual.getWidth() - width) / 2),
+                (int) Math.round(visual.getMinY() + (visual.getHeight() - height) / 2),
+                width, height);
     }
 
     /**

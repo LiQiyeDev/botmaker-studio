@@ -219,7 +219,8 @@ public final class OverlayTemplateCapture {
         toolbarStage.hide();
         captureTargetAsync(shot -> {
             if (shot == null) { warnClosed(); endSession(); return; }
-            surface = CaptureSurface.single(owner, shot.bounds(), shape, this::onSingleRegion, this::endSession);
+            surface = CaptureSurface.single(owner, shot.bounds(), backdropFor(shot), shape,
+                    this::onSingleRegion, this::endSession);
         });
     }
 
@@ -250,7 +251,8 @@ public final class OverlayTemplateCapture {
         toolbarStage.hide();
         captureTargetAsync(shot -> {
             if (shot == null) { warnClosed(); endSession(); return; }
-            surface = CaptureSurface.many(owner, shot.bounds(), shape, this::onManyDone, this::endSession);
+            surface = CaptureSurface.many(owner, shot.bounds(), backdropFor(shot), shape,
+                    this::onManyDone, this::endSession);
         });
     }
 
@@ -316,6 +318,15 @@ public final class OverlayTemplateCapture {
 
     // ── Shared plumbing ────────────────────────────────────────────────────────────────────────────────
 
+    /**
+     * The frame the rubber-band surface must paint itself, or {@code null} when the pixels are really on the
+     * desktop behind it and it can stay transparent. Non-null for an emulator target, whose frame comes over
+     * ADB and is nowhere on screen — see {@link ScreenCaptureService.TargetShot#onScreen()}.
+     */
+    private static BufferedImage backdropFor(ScreenCaptureService.TargetShot shot) {
+        return shot.onScreen() ? null : shot.image();
+    }
+
     /** Disposes the active surface (if any) and returns to the mini-toolbar. */
     private void endSession() {
         if (surface != null) {
@@ -346,7 +357,7 @@ public final class OverlayTemplateCapture {
                 WindowShot shot = capture.captureWindow(wt);
                 ScreenCaptureService.TargetShot ts = (shot == null) ? null
                         : new ScreenCaptureService.TargetShot(shot.image(), shot.bounds(),
-                        CaptureTargetNames.shortLabel(wt), true);
+                        CaptureTargetNames.shortLabel(wt), true, true);
                 Platform.runLater(() -> onFx.accept(ts));
             }, "overlay-template-capture");
             t.setDaemon(true);
