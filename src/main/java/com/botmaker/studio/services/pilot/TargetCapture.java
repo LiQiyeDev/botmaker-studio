@@ -6,6 +6,7 @@ import com.botmaker.shared.capture.WindowMatch;
 import com.botmaker.shared.ipc.TelemetryEvent;
 import com.botmaker.session.DesktopSession;
 import com.botmaker.session.Preview;
+import com.botmaker.session.PreviewFrame;
 import com.botmaker.session.remote.WindowIds;
 import com.botmaker.studio.emulator.EmulatorSurface;
 import com.botmaker.studio.project.capture.CaptureTarget;
@@ -161,27 +162,32 @@ public final class TargetCapture {
      * and, through the old desktop fallback, the cursor teleport. The screen has no such dependency. Under
      * gamescope the client is forced fullscreen, so these are the same pixels anyway.
      *
-     * <p>The attached window is still the fallback: a session backend that can't hand over a root frame keeps
-     * streaming exactly what it did before, tagged with that window's rect.
+     * <p><b>The root is not always painted.</b> A compositing backend (gamescope) redirects every client and
+     * paints it to its own output, leaving the X root permanently black — so this rung's blank test is not an
+     * edge case there, it is the normal path, and the attached window below is what actually streams. Sessions
+     * that answer {@link DesktopSession#previewFrame} never reach here at all: that path makes the same choice
+     * one process earlier, where the pixels are.
      */
     /**
-     * The fast path for a nested session: ask it to encode its own root and take the bytes as they are.
+     * The fast path for a nested session: ask it to encode a frame of itself and take the bytes as they are.
+     * The pixels are never decoded here; that is the saving.
      *
-     * <p>Everything about the frame that this side needs is in the rect, which comes from
-     * {@link DesktopSession#screen()} — the same rect the slow path tags its pixels with, so Interact's
-     * coordinate space is identical either way. The pixels themselves are never decoded here; that is the
-     * saving.
+     * <p><b>The rect comes back with the bytes and is not assumed.</b> It used to be {@link DesktopSession#screen()},
+     * on the reading that a session's preview is its whole root — but a compositing backend never paints its
+     * root, so the frame that has pixels on it is a <em>window</em> (see {@link com.botmaker.session.PreviewFrame}).
+     * Under gamescope's forced fullscreen the two rects coincide, which is exactly what makes assuming it the
+     * kind of bug that surfaces later, on a windowed client, as every Interact tap landing somewhere else.
      *
-     * <p>{@code null} means "no fast path" — the session doesn't offer one, or its root was blank/ungrabbable —
-     * and the caller falls back to {@link #captureSession}, which still has the attached-window rung to try.
+     * <p>{@code null} means "no fast path" — the session doesn't offer one, or nothing on it had pixels — and
+     * the caller falls back to {@link #captureSession}, which still has the attached-window rung to try.
      */
     private Resolved encodedSession(PilotRoute route, DesktopSession s) {
         try {
-            Rectangle screen = s.screen();
-            if (screen == null || screen.isEmpty()) return null;
-            byte[] jpeg = s.previewJpeg(Preview.MAX_EDGE, Preview.QUALITY);
-            if (jpeg == null || jpeg.length == 0) return null;
-            return new Resolved(route, new Capture(null, screen.x, screen.y, screen.width, screen.height), jpeg);
+            PreviewFrame frame = s.previewFrame(Preview.MAX_EDGE, Preview.QUALITY);
+            if (frame == null || frame.jpeg() == null || frame.jpeg().length == 0) return null;
+            Rectangle r = frame.surface();
+            if (r == null || r.isEmpty()) return null;
+            return new Resolved(route, new Capture(null, r.x, r.y, r.width, r.height), frame.jpeg());
         } catch (Throwable ex) {
             return null;
         }

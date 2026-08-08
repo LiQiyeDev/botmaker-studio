@@ -4,6 +4,7 @@ import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeControllerFactory;
 import com.botmaker.shared.ipc.TelemetryEvent;
 import com.botmaker.session.Capability;
+import com.botmaker.session.PreviewFrame;
 import org.junit.jupiter.api.Test;
 
 import java.awt.Rectangle;
@@ -67,16 +68,16 @@ class TargetCaptureTest {
     }
 
     /**
-     * The one-codec-pass path: a session that encoded its own root hands the bytes straight through, and
+     * The one-codec-pass path: a session that encoded a frame itself hands the bytes straight through, and
      * nothing on this side decodes them. The frame is therefore <em>not</em> pixels here — {@code cap().img()}
-     * is null on purpose — while the rect, which is the half Interact needs, is the session's screen either way.
+     * is null on purpose — while the rect, which is the half Interact needs, comes back with the bytes.
      */
     @Test
-    void aSessionThatEncodesItsOwnRootIsNotDecodedHere() {
+    void aSessionThatEncodesItsOwnFrameIsNotDecodedHere() {
         byte[] encoded = "not really a jpeg".getBytes(java.nio.charset.StandardCharsets.UTF_8);
         PilotFakes.FakeSession session = new PilotFakes.FakeSession(
                 new PilotFakes.RecordingController(), null, null, EnumSet.noneOf(Capability.class));
-        session.previewJpeg = encoded;
+        session.previewFrame = new PreviewFrame(encoded, new Rectangle(0, 0, 1280, 800));
         session.screenRect = new Rectangle(0, 0, 1280, 800);
         // No screenFrame at all: if this path decoded or re-grabbed, there would be nothing to resolve.
 
@@ -87,6 +88,45 @@ class TargetCaptureTest {
         assertNull(resolved.cap().img(), "the frame is never decoded on this side");
         assertEquals(1280, resolved.cap().sw());
         assertEquals(800, resolved.cap().sh());
+    }
+
+    /**
+     * The rect is the encoder's, not the screen's. Under a compositing backend the frame with pixels on it is a
+     * <em>window</em>, so the two differ — and this side used to tag the bytes with {@code screen()} regardless,
+     * which under gamescope's forced fullscreen happens to be right and on any windowed client silently
+     * misplaces every Interact tap by the window's offset.
+     */
+    @Test
+    void theEncodedFramesRectIsTheOneTheEncoderReportsNotTheSessionScreen() {
+        PilotFakes.FakeSession session = new PilotFakes.FakeSession(
+                new PilotFakes.RecordingController(), null, null, EnumSet.noneOf(Capability.class));
+        session.screenRect = new Rectangle(0, 0, 1920, 1080);
+        session.previewFrame = new PreviewFrame("jpeg".getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                new Rectangle(307, 239, 1280, 661));
+
+        TargetCapture.Resolved resolved = new TargetCapture(null).resolve(new PilotRoute.Session(session), null);
+
+        assertNotNull(resolved);
+        assertEquals(307, resolved.cap().sx(), "the window's origin, not the screen's");
+        assertEquals(239, resolved.cap().sy());
+        assertEquals(1280, resolved.cap().sw());
+        assertEquals(661, resolved.cap().sh());
+    }
+
+    /** An encoder that reports an empty rect has told us nothing about what it sent; fall back and re-grab. */
+    @Test
+    void anEncodedFrameWithNoRectFallsBackToGrabbingHere() {
+        PilotFakes.FakeSession session = new PilotFakes.FakeSession(
+                new PilotFakes.RecordingController(), null, null, EnumSet.noneOf(Capability.class));
+        session.previewFrame = new PreviewFrame("jpeg".getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                new Rectangle());
+        session.screenFrame = painted(1280, 800);
+        session.screenRect = new Rectangle(0, 0, 1280, 800);
+
+        TargetCapture.Resolved resolved = new TargetCapture(null).resolve(new PilotRoute.Session(session), null);
+
+        assertNotNull(resolved);
+        assertSame(session.screenFrame, resolved.cap().img(), "the slow path produced this frame");
     }
 
     /**

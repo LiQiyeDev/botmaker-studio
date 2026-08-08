@@ -31,13 +31,17 @@ import java.util.function.Supplier;
  *   <li>otherwise the real {@code :0} desktop.</li>
  * </ol>
  *
- * <p><b>Rung 1's condition is the Waydroid case.</b> gamescope with {@code --expose-wayland} hosts a
- * Wayland-only client whose surface never reaches its embedded Xwayland, so grabbing that session's root
- * returns a valid frame of an empty display — black, no error. Unconditionally preferring a live session
- * therefore suppressed the one route that <em>can</em> see those pixels (the emulator's ADB surface) in favour
- * of one that never could. A session that loses rung 1 is <b>demoted, not skipped</b>: rung 4 hands it back
- * ahead of the desktop, because streaming the user's real screen to a possibly-public URL and replaying taps
- * on it is a worse answer than a black frame.
+ * <p><b>Rung 1's condition is the Waydroid case.</b> A gamescope session can host a Wayland-only client whose
+ * surface never reaches its embedded Xwayland, leaving a display with no X11 client mapped on it at all — every
+ * grab succeeds and every grab is black. Unconditionally preferring a live session therefore suppressed the one
+ * route that <em>can</em> see those pixels (the emulator's ADB surface) in favour of one that never could. A
+ * session that loses rung 1 is <b>demoted, not skipped</b>: rung 4 hands it back ahead of the desktop, because
+ * streaming the user's real screen to a possibly-public URL and replaying taps on it is a worse answer than a
+ * black frame.
+ *
+ * <p>Note what the condition is <em>not</em>: it was once "does the session serve a Wayland socket", which
+ * gamescope always does, so every gamescope session lost rung 1 including the X11 games this route is for.
+ * {@code x11Capturable()} now counts mapped clients instead — see its javadoc.
  *
  * <p>An emulator that can't be resolved or reached <b>degrades to the desktop</b> rather than to a route that
  * streams nothing: a stopped emulator should leave the pilot showing something and saying so, not freeze it.

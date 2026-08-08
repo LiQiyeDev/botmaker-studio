@@ -5,6 +5,7 @@ import com.botmaker.shared.capture.NativeController;
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.session.Capability;
 import com.botmaker.session.DesktopSession;
+import com.botmaker.session.PreviewFrame;
 import com.botmaker.session.SessionKeyboard;
 import com.botmaker.session.SessionPointer;
 import com.botmaker.studio.emulator.EmulatorSurface;
@@ -71,11 +72,13 @@ final class PilotFakes {
         boolean x11Capturable = true;
 
         /**
-         * Pre-encoded preview bytes, standing in for a display agent that encoded the root itself. {@code null}
-         * — the default, and what the real {@code DesktopSession} answers unless it is nested — means the
-         * caller must fall back to grabbing and encoding pixels here.
+         * A pre-encoded preview, standing in for a display agent that encoded a frame itself — carrying the
+         * rect it chose, which is deliberately settable apart from {@link #screenRect}: a compositing backend
+         * answers with a <em>window's</em> rect, and the whole point of the record is that the caller must not
+         * assume otherwise. {@code null} — the default, and what the real {@code DesktopSession} answers unless
+         * it is nested — means the caller must fall back to grabbing and encoding pixels here.
          */
-        byte[] previewJpeg;
+        PreviewFrame previewFrame;
 
         FakeSession(NativeController controller, GenericWindow attached, BufferedImage frame, Set<Capability> caps) {
             this.controller = controller;
@@ -98,7 +101,7 @@ final class PilotFakes {
         }
 
         @Override public boolean x11Capturable() { return x11Capturable; }
-        @Override public byte[] previewJpeg(int maxEdge, float quality) { return previewJpeg; }
+        @Override public PreviewFrame previewFrame(int maxEdge, float quality) { return previewFrame; }
         @Override public SessionPointer pointer() { return null; }
         @Override public SessionKeyboard keyboard() { return null; }
         @Override public void attach(GenericWindow window) { }

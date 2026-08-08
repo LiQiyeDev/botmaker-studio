@@ -433,6 +433,9 @@ public final class PilotServer implements AutoCloseable {
     private void reportEmpty(PilotRoute route) {
         if (++emptyFrames < EMPTY_FRAMES_BEFORE_SAYING_SO || emptyReported) return;
         emptyReported = true;
+        // Forget what was last logged, so the frames coming back is a line too and not just their stopping.
+        loggedSurface = null;
+        Diag.log("[Pilot] no frame for " + emptyFrames + " ticks on " + (route == null ? "the desktop" : route));
         emptyReason = switch (route == null ? PilotRoute.DESKTOP : route) {
             case PilotRoute.Session ignored ->
                     "The background session is not showing any pixels on its X display. A Wayland-only app "
@@ -443,6 +446,29 @@ public final class PilotServer implements AutoCloseable {
             case PilotRoute.Desktop ignored -> "The screen could not be captured.";
         };
         broadcastText(stateJson());
+    }
+
+    /** The last surface logged, so {@link #logSurface} can print on change instead of 24 times a second. */
+    private String loggedSurface;
+
+    /**
+     * Say what is being streamed, and from where, <b>whenever that changes</b>.
+     *
+     * <p>This exists because its absence was expensive. "The pilot is black" was indistinguishable from the
+     * outside between a route that had been demoted, a grab that returned nothing, and a grab that returned a
+     * frame of a display nothing was painting — and the answer turned out to be the third, which no log line
+     * anywhere would have shown. One line per change costs nothing on a stable session and names the surface
+     * the next report is about.
+     */
+    private void logSurface(PilotRoute route, int sx, int sy, int sw, int sh) {
+        String line = switch (route == null ? PilotRoute.DESKTOP : route) {
+            case PilotRoute.Session ignored -> "session";
+            case PilotRoute.Emulator ignored -> "emulator";
+            case PilotRoute.Desktop ignored -> "desktop";
+        } + " " + sw + "x" + sh + "+" + sx + "+" + sy;
+        if (line.equals(loggedSurface)) return;
+        loggedSurface = line;
+        Diag.log("[Pilot] streaming " + line);
     }
 
     /** A frame arrived — by either path. Retract the warning, or the client explains a problem it no longer has. */
@@ -493,6 +519,7 @@ public final class PilotServer implements AutoCloseable {
         lastRoute = asked;
         lastBounds = new PilotInputService.Bounds(surface.x, surface.y, surface.width, surface.height);
         clearEmptyReport();
+        logSurface(asked, surface.x, surface.y, surface.width, surface.height);
         return clients.values().stream().allMatch(c -> c.h264);
     }
 
@@ -626,6 +653,7 @@ public final class PilotServer implements AutoCloseable {
             return;
         }
         clearEmptyReport();
+        logSurface(resolved.route(), cap.sx(), cap.sy(), cap.sw(), cap.sh());
 
         // Interact gestures are replayed on the route that produced this frame and clamped to what the client
         // was actually shown, so both must be published from here — the one place that knows what went over the

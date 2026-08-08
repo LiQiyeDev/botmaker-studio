@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-08 — the pilot went black on every gamescope session; it was grabbing the wrong surface
+  (`services/pilot/TargetCapture`, `PilotRoutes`, `PilotServer`).** gamescope's built-in compositor redirects
+  every client to its own output and never paints the X root, so the `:N` root grab the pilot had switched to
+  returned a permanently black frame — measured live as 0 of 8160 sampled pixels while a fullscreen game was
+  mapped on that display. `botmaker-session` now chooses the surface with pixels (root, else largest window)
+  and returns **the rect it chose** with the bytes; `TargetCapture.encodedSession` tags the frame with that
+  rect instead of assuming `screen()`. **Worth knowing:** under `--force-windows-fullscreen` the two rects
+  coincide, which is why assuming it survived — on a windowed client it would have misplaced every Interact
+  tap by the window's offset with nothing to show for it.
+  Also: `PilotServer` now logs the streamed surface **on change** (`[Pilot] streaming session 1920x1080+0+0`)
+  and logs an outage once. Its absence is why "the pilot is black" was indistinguishable from the outside
+  between a demoted route, a failed grab, and a successful grab of a display nothing was painting.
+
 - **2026-08-08 — the pilot streams H.264 when both ends can, and JPEG when either can't
   (`services/pilot/PilotVideo`, `PilotServer`, `botmaker-pilot/web/src/usePilot.ts`).** A session route is now
   encoded by an `ffmpeg` inside the session (`botmaker-session`'s `video` package) and relayed over the
