@@ -67,6 +67,9 @@ final class PilotFakes {
         /** The session screen, when it is not simply the attached window's rect. */
         Rectangle screenRect;
 
+        /** Whether this session's pixels are on X11 — false stands in for gamescope hosting a Wayland-only client. */
+        boolean x11Capturable = true;
+
         FakeSession(NativeController controller, GenericWindow attached, BufferedImage frame, Set<Capability> caps) {
             this.controller = controller;
             this.attached = attached;
@@ -87,6 +90,7 @@ final class PilotFakes {
             return screenFrame != null ? screenFrame : frame;
         }
 
+        @Override public boolean x11Capturable() { return x11Capturable; }
         @Override public SessionPointer pointer() { return null; }
         @Override public SessionKeyboard keyboard() { return null; }
         @Override public void attach(GenericWindow window) { }

@@ -24,10 +24,25 @@ import static org.junit.jupiter.api.Assertions.assertSame;
  */
 class TargetCaptureTest {
 
+    /**
+     * A frame with pixels in it. Not {@code new BufferedImage(...)}: a fresh {@code TYPE_INT_RGB} is uniformly
+     * black, and an all-black session root is exactly what {@link TargetCapture} now reads as "nothing was
+     * captured" (see {@link #aSessionShowingAnEmptyX11RootResolvesToNothing}). A default-constructed image
+     * silently became a *negative* fixture the day that check landed.
+     */
+    private static BufferedImage painted(int w, int h) {
+        BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        java.awt.Graphics2D g = img.createGraphics();
+        g.setColor(java.awt.Color.DARK_GRAY);
+        g.fillRect(0, 0, w, h);
+        g.dispose();
+        return img;
+    }
+
     @Test
     void anActiveSessionsScreenFrameAndRectAreWhatGetsCaptured() {
-        BufferedImage windowFrame = new BufferedImage(640, 480, BufferedImage.TYPE_INT_RGB);
-        BufferedImage rootFrame = new BufferedImage(1280, 800, BufferedImage.TYPE_INT_RGB);
+        BufferedImage windowFrame = painted(640, 480);
+        BufferedImage rootFrame = painted(1280, 800);
         GenericWindow win = new GenericWindow(1, "Nested Game", new Rectangle(0, 0, 640, 480));
         PilotFakes.RecordingController nc = new PilotFakes.RecordingController();
         nc.windowFrame = windowFrame;
@@ -64,6 +79,35 @@ class TargetCaptureTest {
 
         assertNull(new TargetCapture(null).resolve(route, null),
                 "a failed session grab must never fall back to the user's desktop");
+    }
+
+    /**
+     * The Waydroid failure mode, one layer below the route choice: gamescope's embedded Xwayland has nothing
+     * mapped on it, so the grab <em>succeeds</em> and hands back a full-size, entirely black root — no
+     * exception, no null, nothing to distinguish it from a game on a dark screen. Treating it as no capture is
+     * what lets the frame loop say why instead of streaming black forever.
+     */
+    @Test
+    void aSessionShowingAnEmptyX11RootResolvesToNothing() {
+        PilotFakes.FakeSession session = new PilotFakes.FakeSession(
+                new PilotFakes.RecordingController(), null, null, EnumSet.noneOf(Capability.class));
+        session.screenFrame = new BufferedImage(1280, 800, BufferedImage.TYPE_INT_RGB); // untouched = black
+        session.screenRect = new Rectangle(0, 0, 1280, 800);
+
+        assertNull(new TargetCapture(null).resolve(new PilotRoute.Session(session), null));
+    }
+
+    /** One lit pixel is a frame. The blank check samples a coarse grid, so it must be a pixel the grid visits. */
+    @Test
+    void aRootWithAnythingOnItIsStillAFrame() {
+        BufferedImage root = new BufferedImage(1280, 800, BufferedImage.TYPE_INT_RGB);
+        root.setRGB(640, 400, 0x00FF00);
+        PilotFakes.FakeSession session = new PilotFakes.FakeSession(
+                new PilotFakes.RecordingController(), null, null, EnumSet.noneOf(Capability.class));
+        session.screenFrame = root;
+        session.screenRect = new Rectangle(0, 0, 1280, 800);
+
+        assertNotNull(new TargetCapture(null).resolve(new PilotRoute.Session(session), null));
     }
 
     /** The same refusal for the emulator route — an unreachable emulator is not consent to stream {@code :0}. */

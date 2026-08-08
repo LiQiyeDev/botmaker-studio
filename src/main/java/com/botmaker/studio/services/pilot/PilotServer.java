@@ -31,7 +31,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *       header ({@code sx,sy,sw,sh} as big-endian int32) so the client can map overlays. Loss-tolerant —
  *       a frame is <em>dropped</em> for any client whose previous send is still in flight (backpressure).</li>
  *   <li><b>text</b> server→client: telemetry events ({@code {"type":"telemetry",…}}) and run-state
- *       ({@code {"type":"state","run":"running|stopped|paused","backgroundInput":true}}).</li>
+ *       ({@code {"type":"state","run":"running|stopped|paused","backgroundInput":true}}, plus a
+ *       {@code "reason"} sentence while the stream has no frames to send — see {@link #reportEmpty}).</li>
  *   <li><b>text</b> client→server: control commands ({@code {"cmd":"start|stop|pause|resume"}}), the
  *       Interact arm/disarm ({@code {"cmd":"interact","on":true}}) and, once armed, manual gestures
  *       ({@code {"cmd":"input","kind":"tap|down|move|up|scroll","x":…,"y":…,"button":1,"amount":-3}} in
@@ -86,6 +87,15 @@ public final class PilotServer implements AutoCloseable {
     private volatile PilotRoute lastRoute = PilotRoute.DESKTOP;
     private volatile String token;
     private volatile String runState = "stopped";
+    /**
+     * How many ticks in a row produced no frame, and whether that has already been said. Both are touched only
+     * from the single {@code pilot-frame} thread, so they need no synchronization; {@link #emptyReason} is
+     * volatile because {@link #stateJson()} is also called from the WS threads.
+     */
+    private int emptyFrames;
+    private boolean emptyReported;
+    /** The sentence sent with the {@code state} message while frames are missing, or {@code null} when they aren't. */
+    private volatile String emptyReason;
 
     public PilotServer(EventBus eventBus, ProjectSettingsService settings, PilotControlService control,
                        java.nio.file.Path resourcesDir) {
@@ -318,7 +328,38 @@ public final class PilotServer implements AutoCloseable {
 
     /** Built by {@link TelemetrySerializer}, which owns every text message that leaves here. */
     private String stateJson() {
-        return TelemetrySerializer.stateJson(runState, input.supportsBackgroundInput(lastRoute));
+        return TelemetrySerializer.stateJson(runState, input.supportsBackgroundInput(lastRoute), emptyReason);
+    }
+
+    /**
+     * How many consecutive frameless ticks are worth mentioning. A grab that misses once is normal — an
+     * emulator between screens, a window mid-swap — and saying so would flicker a warning on every route. Two
+     * seconds of nothing at {@link #FRAME_FPS} is not a hiccup.
+     */
+    private static final int EMPTY_FRAMES_BEFORE_SAYING_SO = FRAME_FPS * 2;
+
+    /**
+     * A tick produced no frame. Count it, and once the run is long enough to mean something, tell the client
+     * <em>why</em> instead of leaving it staring at a canvas that simply stopped updating.
+     *
+     * <p>The reason is derived from the route, because that is what determines the answer: a session route with
+     * nothing on its {@code :N} root is the Wayland-only case ({@code PilotRoutes} rung 1 and
+     * {@link com.botmaker.session.DesktopSession#x11Capturable()}); an emulator route is a device that stopped
+     * answering ADB. Said once per outage, not once per tick.
+     */
+    private void reportEmpty(PilotRoute route) {
+        if (++emptyFrames < EMPTY_FRAMES_BEFORE_SAYING_SO || emptyReported) return;
+        emptyReported = true;
+        emptyReason = switch (route == null ? PilotRoute.DESKTOP : route) {
+            case PilotRoute.Session ignored ->
+                    "The background session is not showing any pixels on its X display. A Wayland-only app "
+                            + "(such as Waydroid) renders where an X11 grab cannot see it — point the project's "
+                            + "capture source at the emulator instead.";
+            case PilotRoute.Emulator ignored ->
+                    "The emulator stopped answering over ADB — check that the instance is still running.";
+            case PilotRoute.Desktop ignored -> "The screen could not be captured.";
+        };
+        broadcastText(stateJson());
     }
 
     private void broadcastText(String text) {
@@ -347,11 +388,25 @@ public final class PilotServer implements AutoCloseable {
 
     private void pushFrame() {
         if (clients.isEmpty()) return;
-        TargetCapture.Resolved resolved = capture.resolve(routes.current(), lastTarget);
-        if (resolved == null) return;
+        PilotRoute asked = routes.current();
+        TargetCapture.Resolved resolved = capture.resolve(asked, lastTarget);
+        if (resolved == null) {
+            reportEmpty(asked);
+            return;
+        }
         TargetCapture.Capture cap = resolved.cap();
         byte[] jpeg = TargetCapture.jpegBytes(cap.img());
-        if (jpeg == null) return;
+        if (jpeg == null) {
+            reportEmpty(asked);
+            return;
+        }
+        emptyFrames = 0;
+        if (emptyReported) {
+            // Frames are back — retract the warning, or the client keeps explaining a problem it no longer has.
+            emptyReported = false;
+            emptyReason = null;
+            broadcastText(stateJson());
+        }
 
         // Interact gestures are replayed on the route that produced this frame and clamped to what the client
         // was actually shown, so both must be published from here — the one place that knows what went over the

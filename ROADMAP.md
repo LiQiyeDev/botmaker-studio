@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-08 — the pilot follows the pixels, not the session (`services/pilot/PilotRoutes`,
+  `TargetCapture`, `PilotServer`, `TelemetrySerializer`).** A live nested session won rung 1 unconditionally
+  *and released the ADB surface while doing so*, so a gamescope session hosting Waydroid — a Wayland-only
+  client whose surface never reaches the embedded Xwayland — suppressed the one route that could see those
+  pixels in favour of an X11 grab of an empty root. Rung 1 is now conditional on the new
+  `DesktopSession.x11Capturable()`; losing it is a **demotion, not a skip** — a new rung 4 hands the session
+  back ahead of the `:0` desktop, because streaming the user's real screen to a possibly-public Funnel URL and
+  replaying taps on it is a worse answer than a black frame. Two backstops behind the flag: `captureSession`
+  reads an entirely black root as *no capture* (a coarse 16-px grid, not a full scan — this runs every frame),
+  and `pushFrame` counts consecutive frameless ticks and, after two seconds, broadcasts the `state` message
+  with a `reason` so the client says why instead of showing nothing. `reason` is **omitted** when absent,
+  which keeps the three existing `wire-golden.json` cases byte-identical against the digest-locked copy in the
+  pilot repo; a corpus entry belongs with the client change that renders it.
 - **2026-08-08 — an emulator's templates are cropped from the frame the bot matches against
   (`services/ScreenCaptureService`, `ui/app/capture/CaptureSurface`, `OverlayTemplateCapture`).** An
   `EmulatorTarget` had no branch in `grabOffThread`, so it fell through to "grab the virtual desktop": the

@@ -27,7 +27,22 @@ public final class TelemetrySerializer {
      * leave the host's real cursor alone, so it can warn before the user's pointer visibly gets hijacked.
      */
     public static String stateJson(String runState, boolean backgroundInput) {
-        return "{\"type\":\"state\",\"run\":\"" + runState + "\",\"backgroundInput\":" + backgroundInput + "}";
+        return stateJson(runState, backgroundInput, null);
+    }
+
+    /**
+     * The {@code state} message carrying an optional {@code reason} — a short human sentence for why the client
+     * is not receiving frames, so a blank canvas says something instead of nothing.
+     *
+     * <p>The key is <b>omitted</b> when there is no reason, rather than sent as {@code null}. That is what keeps
+     * the three no-reason cases in {@code wire-golden.json} byte-identical: the corpus is digest-locked against
+     * a copy in the pilot repo that this session cannot edit, so an unconditional field would fail both halves
+     * of the contract test at once. A corpus entry for the reason-bearing shape belongs with the client change
+     * that renders it.
+     */
+    public static String stateJson(String runState, boolean backgroundInput, String reason) {
+        return "{\"type\":\"state\",\"run\":\"" + runState + "\",\"backgroundInput\":" + backgroundInput
+                + (reason == null ? "" : ",\"reason\":" + jsonStr(reason)) + "}";
     }
 
     /** The event body only (no {@code type} wrapper) — callers wrap it as needed for SSE vs. WS. */

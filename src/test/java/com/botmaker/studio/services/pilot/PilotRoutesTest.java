@@ -106,6 +106,56 @@ class PilotRoutesTest {
         assertInstanceOf(PilotRoute.Desktop.class, routes.current());
     }
 
+    /**
+     * The Waydroid case: gamescope hosts a Wayland-only client, so the session's {@code :N} root has nothing on
+     * it and an X11 grab of it returns black forever. The configured emulator is the route that can actually
+     * see those pixels, and it must win.
+     */
+    @Test
+    void aSessionThatCannotBeCapturedOverX11LosesToAConfiguredEmulator() {
+        Opener opener = new Opener();
+        SessionHolder holder = new SessionHolder();
+        PilotFakes.FakeSession wayland = new PilotFakes.FakeSession(new PilotFakes.RecordingController(), null, null,
+                EnumSet.of(Capability.BACKGROUND_CLICK));
+        wayland.x11Capturable = false;
+        holder.set(wayland);
+
+        PilotRoute route = routes(holder.asked(), new String[]{"Waydroid"}, opener).current();
+
+        assertInstanceOf(PilotRoute.Emulator.class, route);
+        assertEquals(List.of("Waydroid"), opener.opened);
+    }
+
+    /**
+     * Losing rung 1 is a demotion, not a skip. With no emulator to fall to, an uncapturable session still beats
+     * the real desktop — streaming the user's screen to a possibly-public URL and replaying taps on it is a
+     * worse answer than a black frame, and the server says why rather than showing it.
+     */
+    @Test
+    void anUncapturableSessionStillOutranksTheUsersRealDesktop() {
+        SessionHolder holder = new SessionHolder();
+        PilotFakes.FakeSession wayland = new PilotFakes.FakeSession(new PilotFakes.RecordingController(), null, null,
+                EnumSet.of(Capability.BACKGROUND_CLICK));
+        wayland.x11Capturable = false;
+        holder.set(wayland);
+
+        assertInstanceOf(PilotRoute.Session.class,
+                routes(holder.asked(), new String[]{null}, new Opener()).current());
+    }
+
+    /** The ordinary gamescope case — an X11 game in the session — is untouched: rung 1 still wins outright. */
+    @Test
+    void anX11CapturableSessionStillWinsOverAConfiguredEmulator() {
+        Opener opener = new Opener();
+        SessionHolder holder = new SessionHolder();
+        holder.set(new PilotFakes.FakeSession(new PilotFakes.RecordingController(), null, null,
+                EnumSet.of(Capability.BACKGROUND_CLICK)));
+
+        assertInstanceOf(PilotRoute.Session.class,
+                routes(holder.asked(), new String[]{"Waydroid"}, opener).current());
+        assertEquals(List.of(), opener.opened, "the emulator must not even be opened behind a winning session");
+    }
+
     /** An instance no product reports degrades to the desktop — a stopped emulator must not blank the pilot. */
     @Test
     void anUnresolvableInstanceFallsBackToTheDesktop() {

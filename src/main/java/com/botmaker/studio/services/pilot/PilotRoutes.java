@@ -19,15 +19,25 @@ import java.util.function.Supplier;
  *
  * <p>The order is the point, and each rung is someone stating an intent:
  * <ol>
- *   <li>a live nested {@code :N} {@link DesktopSession} — the user explicitly asked for background mode, and
- *       it launched the game itself, so nothing outranks it;</li>
+ *   <li>a live nested {@code :N} {@link DesktopSession} <b>whose pixels are on X11</b>
+ *       ({@link DesktopSession#x11Capturable()}) — the user explicitly asked for background mode, and it
+ *       launched the game itself, so nothing outranks it;</li>
  *   <li>{@code capture.source = emulator:<name>} — what the Launch Target dialog writes for <em>every</em>
  *       {@code emu-app:} target, so an emulator project needs no second piece of setup, and what the running
  *       bot reads, so the pilot streams what the bot sees;</li>
  *   <li>an {@code EmulatorTarget} chosen as the project's default capture target — the editor-picker path to
  *       the same statement;</li>
+ *   <li>a live session that lost rung 1 — see below;</li>
  *   <li>otherwise the real {@code :0} desktop.</li>
  * </ol>
+ *
+ * <p><b>Rung 1's condition is the Waydroid case.</b> gamescope with {@code --expose-wayland} hosts a
+ * Wayland-only client whose surface never reaches its embedded Xwayland, so grabbing that session's root
+ * returns a valid frame of an empty display — black, no error. Unconditionally preferring a live session
+ * therefore suppressed the one route that <em>can</em> see those pixels (the emulator's ADB surface) in favour
+ * of one that never could. A session that loses rung 1 is <b>demoted, not skipped</b>: rung 4 hands it back
+ * ahead of the desktop, because streaming the user's real screen to a possibly-public URL and replaying taps
+ * on it is a worse answer than a black frame.
  *
  * <p>An emulator that can't be resolved or reached <b>degrades to the desktop</b> rather than to a route that
  * streams nothing: a stopped emulator should leave the pilot showing something and saying so, not freeze it.
@@ -71,21 +81,45 @@ public final class PilotRoutes implements AutoCloseable {
     /** The route to stream and drive right now. Cheap enough for a frame: a field read plus, at most, a scan. */
     public synchronized PilotRoute current() {
         DesktopSession live = session != null ? session.get() : null;
-        if (live != null) {
+        if (live != null && safeX11Capturable(live)) {
             releaseSurface(); // a nested session outranks the emulator; don't hold ADB open behind it
             return new PilotRoute.Session(live);
         }
         String wanted = safeName();
         if (wanted == null) {
             releaseSurface();
-            return PilotRoute.DESKTOP;
+            return fallback(live);
         }
         if (surface == null || !wanted.equals(openedFor)) {
             releaseSurface();
             surface = open.apply(wanted);
             openedFor = surface == null ? null : wanted;
         }
-        return surface == null ? PilotRoute.DESKTOP : new PilotRoute.Emulator(surface);
+        return surface == null ? fallback(live) : new PilotRoute.Emulator(surface);
+    }
+
+    /**
+     * What a session that can't be captured over X11 falls back <em>to</em> — and the reason rung 1 is a
+     * demotion rather than a skip.
+     *
+     * <p>A live session still outranks the {@code :0} desktop even when nothing here can read its pixels. The
+     * alternative is worse than a black frame: streaming the user's real screen to a URL that may be public,
+     * and replaying taps on it through a controller the frame's coordinates don't belong to — the cursor
+     * teleport this class already refuses elsewhere. So the desktop is only reached when there is no session at
+     * all. A session route that yields nothing is handled downstream, where {@code TargetCapture} returns no
+     * frame and {@code PilotServer} says why.
+     */
+    private static PilotRoute fallback(DesktopSession live) {
+        return live != null ? new PilotRoute.Session(live) : PilotRoute.DESKTOP;
+    }
+
+    /** A session that throws when asked is one we can't vouch for; treat it as capturable and let the grab decide. */
+    private static boolean safeX11Capturable(DesktopSession live) {
+        try {
+            return live.x11Capturable();
+        } catch (Exception e) {
+            return true;
+        }
     }
 
     /** Drops the held emulator connection, if any. The pilot server calls this when it shuts down. */

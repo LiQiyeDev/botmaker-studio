@@ -148,18 +148,48 @@ public final class TargetCapture {
         try {
             BufferedImage img = s.captureScreen(); // the :N root — no :0 focus, non-intrusive
             Rectangle screen = s.screen();
+            if (isBlank(img)) img = null;
             if (img != null && screen != null && !screen.isEmpty()) {
                 return new Capture(img, screen.x, screen.y, screen.width, screen.height);
             }
             GenericWindow win = s.attached();
             if (win == null) return null;
             BufferedImage windowImg = s.capture();
-            if (windowImg == null) return null;
+            if (isBlank(windowImg)) return null;
             Rectangle b = win.getRect();
             return new Capture(windowImg, b.x, b.y, b.width, b.height);
         } catch (Throwable ex) {
             return null;
         }
+    }
+
+    /** Every {@value #BLANK_STRIDE}th pixel on both axes — see {@link #isBlank}. */
+    private static final int BLANK_STRIDE = 16;
+
+    /**
+     * Whether {@code img} is missing, degenerate, or <b>entirely black</b> — which on a session route means "no
+     * capture", not "a black frame".
+     *
+     * <p>An X11 root with nothing mapped on it reads as opaque black, so a session hosting a Wayland-only client
+     * (Waydroid under {@code gamescope --expose-wayland}) grabs successfully and forever. Answering {@code null}
+     * here is what lets the caller's next route be tried instead of the client staring at a black canvas.
+     * {@link DesktopSession#x11Capturable()} is meant to have caught this a rung earlier; this is the net for
+     * the cases it can't see — a compositor build that announces no socket, a client that dies mid-session.
+     *
+     * <p><b>Coarse on purpose.</b> This runs on every frame of the pilot's loop, so it samples a
+     * {@value #BLANK_STRIDE}-pixel grid rather than scanning the image the way {@code LinuxController}'s
+     * one-shot {@code isAllBlack} does. A real frame is overwhelmingly likely to hit a non-black sample in the
+     * first few reads; the only image that pays for the whole grid is one that really is blank. A genuinely
+     * black game frame that slips through costs one dropped frame, which the client already tolerates.
+     */
+    static boolean isBlank(BufferedImage img) {
+        if (img == null || img.getWidth() <= 0 || img.getHeight() <= 0) return true;
+        for (int y = 0; y < img.getHeight(); y += BLANK_STRIDE) {
+            for (int x = 0; x < img.getWidth(); x += BLANK_STRIDE) {
+                if ((img.getRGB(x, y) & 0x00FFFFFF) != 0) return false;
+            }
+        }
+        return true;
     }
 
     /**
