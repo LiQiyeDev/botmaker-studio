@@ -6,6 +6,7 @@ import com.botmaker.shared.emulator.EmulatorInstances;
 import com.botmaker.session.DesktopSession;
 import com.botmaker.studio.emulator.AdbEmulatorSurface;
 import com.botmaker.studio.emulator.EmulatorSurface;
+import com.botmaker.studio.emulator.ScrcpyEmulatorSurface;
 import com.botmaker.studio.project.ProjectCreator;
 import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.services.ProjectSettingsService;
@@ -172,9 +173,17 @@ public final class PilotRoutes implements AutoCloseable {
         return null;
     }
 
-    /** One ADB-backed surface for the discovered instance of this name, or {@code null} when there is none. */
+    /**
+     * One surface for the discovered instance of this name, or {@code null} when there is none.
+     *
+     * <p>Always the scrcpy surface, never the bare ADB one — <b>including for emulators</b>. That is not an
+     * oversight: {@link ScrcpyEmulatorSurface} <em>is</em> an {@link AdbEmulatorSurface} with a faster path
+     * tried in front of it, so asking for the fast one can only be better, and a running emulator is a device
+     * scrcpy can drive exactly as well as a phone. Where the fast path can't start, this is the old behaviour
+     * with one push attempt in front of it, retried at most every 30 seconds.
+     */
     private static EmulatorSurface openAdbSurface(String name) {
         EmulatorInstance instance = EmulatorInstances.byName(name).orElse(null);
-        return instance == null ? null : new AdbEmulatorSurface(instance);
+        return instance == null ? null : new ScrcpyEmulatorSurface(instance);
     }
 }

@@ -6,6 +6,15 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-08 — the pilot's emulator route gets a fast path with the old one underneath it
+  (`emulator/ScrcpyEmulatorSurface`, `services/pilot/PilotRoutes`).** A scrcpy session streams the device
+  continuously and injects input directly, instead of a `screencap` per frame and an `app_process` JVM start
+  per tap. It does not *replace* `AdbEmulatorSurface` — it **holds** one and switches per call, because the
+  fast path can fail both at bring-up (no scrcpy installed, a push refused) and mid-session (the phone
+  sleeps), retrying every 30 s. Both paths are native resolution, so switching cannot move where a tap lands.
+  `PilotRoutes` opens it for **every** instance, emulators included: it is the old surface with something
+  faster tried in front. Phase 3 of the phone-target plan; the protocol and its caveats are in
+  `../botmaker-shared/ROADMAP.md` — notably that nothing has yet spoken to a real scrcpy server.
 - **2026-08-08 — editor-side ADB follows shared onto `AdbEndpoint` (`emulator/AdbEmulatorSurface`,
   `emulator/EmulatorProbe`).** Both now open a connection with `AdbDevice.connect(instance.adb())` instead of
   a host and a port, which is what lets a *physical phone* — reachable only as a serial through the host adb
