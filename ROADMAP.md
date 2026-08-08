@@ -6,6 +6,18 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-09 — "Connect a phone…" stops dead-ending on two sentences (`ui/app/ConnectPhoneDialog`).** The
+  dialog's two "go and install something" hints are now buttons: **Download adb** (Google's pinned
+  platform-tools, size read off the pin, per-OS — no button on an OS Google publishes no build for) and
+  **Download scrcpy-server** (0.7 MB — the *file* the fast path actually needs; "install scrcpy" was asking
+  for a whole application to use one dex out of it). Both are behind a click on purpose: platform-tools
+  carries Google's SDK Terms of Use, so opening a dialog is not consent. Each runs on its own thread with a
+  progress bar, and a failure is one sentence — nothing that worked before the click stops working.
+  Added a **wireless pairing** block (Android 11+ `adb pair`/`adb connect`, the one route needing no cable
+  ever), with the pairing and debugging ports as **separate fields** because the phone shows two different
+  ports; adb's own message is surfaced verbatim, since "Failed: Wrong password…" is actionable where
+  "pairing failed" is not. The scrcpy probe moved off the FX thread (locating one can shell out to a
+  `scrcpy --version`), and the stay-awake note now says the fast path handles it for you.
 - **2026-08-09 — "Connect a phone…" (`ui/app/ConnectPhoneDialog`, `ui/app/MenuBarManager`,
   `ui/render/components/EmulatorPickerDialog`).** The last phone-target phase: the surface that makes a phone
   *discoverable*, after which it flows through every existing picker as an ordinary `EmulatorInstance`. Two
