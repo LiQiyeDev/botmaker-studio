@@ -6,6 +6,15 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-08 — the H.264 stream is aimed at the surface with pixels, and ends when it moves
+  (`services/pilot/PilotVideo`).** `ffmpeg` was still grabbing the `:N` root after the JPEG path had learned
+  not to, so video on a gamescope session would have encoded black. `PilotVideo.rect()` is now
+  `VideoStream.surface()` — the window's own rect — rather than `session.screen()`, for the same Interact
+  reason as the frame path; it stops and reopens when `DesktopSession.videoSurface()` moves under it (a
+  launcher chain swapping its window for the game's, which the root grab could not experience); and a session
+  that offers no stream *yet* is retried after 2 s instead of being written off for its lifetime, which is
+  what a pilot opened before the game mapped its window used to be. New `PilotVideoTest` (5).
+
 - **2026-08-08 — the pilot went black on every gamescope session; it was grabbing the wrong surface
   (`services/pilot/TargetCapture`, `PilotRoutes`, `PilotServer`).** gamescope's built-in compositor redirects
   every client to its own output and never paints the X root, so the `:N` root grab the pilot had switched to

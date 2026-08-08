@@ -33,6 +33,15 @@ final class PilotVideo implements AutoCloseable {
      */
     private static final long OPEN_BUDGET_MS = 20_000;
 
+    /**
+     * How long after a session declined to open a stream before asking it again. A decline is cheap — a null
+     * return off a memoised probe, no process — and it is <em>temporary</em>: a session whose game has not
+     * mapped its window yet has nothing to encode, and half a minute later it does. Latching that answer for
+     * the life of the session, as the encoder-failure case below rightly does, would mean a pilot opened one
+     * second too early stayed on JPEG until the session was restarted.
+     */
+    private static final long DECLINE_RETRY_MS = 2000;
+
     private final int maxEdge;
     private final int fps;
 
@@ -45,11 +54,13 @@ final class PilotVideo implements AutoCloseable {
     /** Latched the first time the stream speaks, so a later silence reads as "died" rather than "starting". */
     private boolean producedOnce;
     /**
-     * Set when this session has been shown not to give us video — it offered none, or its encoders all failed.
-     * Without it the frame loop would ask again 24 times a second. Cleared by a change of session, which is the
-     * only thing that could change the answer.
+     * Set when this session has been shown it <b>cannot</b> give us video: every encoder it offered failed to
+     * produce a frame. Without it the frame loop would start another {@code ffmpeg} every tick, forever.
+     * Cleared by a change of session, which is the only thing that could change the answer.
      */
     private boolean declined;
+    /** When the session last offered no stream at all — a temporary no, unlike {@link #declined}. */
+    private long offeredNothingAt;
 
     PilotVideo(int maxEdge, int fps) {
         this.maxEdge = maxEdge;
@@ -68,6 +79,9 @@ final class PilotVideo implements AutoCloseable {
         if (open != null) {
             if (wanted != source) {
                 stop("the pilot moved to another surface");
+                open = null;
+            } else if (surfaceMoved(wanted)) {
+                stop("the encoded window is no longer the one with the pixels");
                 open = null;
             } else if (open.alive()) {
                 producedOnce = true;
@@ -93,19 +107,48 @@ final class PilotVideo implements AutoCloseable {
         return open.alive();
     }
 
+    /**
+     * Whether the session is now painting somewhere other than where the running stream is pointed.
+     *
+     * <p>This is the case the root grab did not have. A root cannot vanish, so a stream aimed at one only ever
+     * ended with its display; a <em>window</em> is destroyed when a store launcher swaps itself for the game
+     * it started, and an encoder holding that drawable has no way to say so except by dying — if it dies at
+     * all, rather than going on emitting the last thing it saw. Watching the surface makes the swap a
+     * reopen with a fresh rect instead of a frozen picture.
+     */
+    private boolean surfaceMoved(DesktopSession wanted) {
+        try {
+            Rectangle now = wanted.videoSurface();
+            // Nothing painted right now is not a move: mid-swap there is briefly no window at all, and the
+            // stream is about to end on its own if the drawable it holds really went away.
+            return now != null && !now.isEmpty() && !now.equals(rect);
+        } catch (Throwable ex) {
+            return false;
+        }
+    }
+
     /** Opens a stream on {@code wanted}. Always returns false — a stream that just opened has produced nothing. */
     private boolean start(DesktopSession wanted, Consumer<VideoPacket> sink) {
+        long now = System.currentTimeMillis();
+        if (wanted == source && now - offeredNothingAt < DECLINE_RETRY_MS) {
+            return false;
+        }
         source = wanted;
         declined = false;
         producedOnce = false;
-        rect = safeScreen(wanted);
-        openedAt = System.currentTimeMillis();
+        openedAt = now;
         stream = wanted.openVideoStream(maxEdge, fps, sink);
         if (stream == null) {
-            // Not worth a log line per tick: a session with no ffmpeg, or a Wayland-only one, is simply a
-            // session the JPEG path serves. Retried when the session changes.
-            declined = true;
+            // Not worth a log line per tick: a session with no ffmpeg, a Wayland-only one, or one whose game
+            // has yet to paint anything, is simply a session the JPEG path serves for now.
+            offeredNothingAt = now;
+            rect = safeScreen(wanted);
+            return false;
         }
+        // The stream, not the session, says what it is a picture of: on a compositing backend it encodes a
+        // client window, and tagging its frames with the screen would misplace every Interact tap by that
+        // window's offset. safeScreen is the floor for a stream that cannot answer.
+        rect = safeRect(stream.surface(), wanted);
         return false;
     }
 
@@ -121,7 +164,11 @@ final class PilotVideo implements AutoCloseable {
         return open == null ? null : open.codec();
     }
 
-    /** The surface rect the stream's pictures map to — the same rect the JPEG path would tag them with. */
+    /**
+     * The surface rect the stream's pictures map to — the same rect the JPEG path would tag them with, because
+     * both ask the session the same question. Read once at open so it cannot drift under a client that is
+     * already fitting its canvas to it; a surface that really changed ends the stream instead.
+     */
     Rectangle rect() {
         return rect;
     }
@@ -142,6 +189,10 @@ final class PilotVideo implements AutoCloseable {
     public void close() {
         stop("the pilot shut down");
         declined = false;
+    }
+
+    private static Rectangle safeRect(Rectangle reported, DesktopSession fallback) {
+        return reported == null || reported.isEmpty() ? safeScreen(fallback) : reported;
     }
 
     private static Rectangle safeScreen(DesktopSession session) {

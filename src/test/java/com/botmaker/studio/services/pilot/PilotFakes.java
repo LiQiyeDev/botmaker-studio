@@ -8,6 +8,8 @@ import com.botmaker.session.DesktopSession;
 import com.botmaker.session.PreviewFrame;
 import com.botmaker.session.SessionKeyboard;
 import com.botmaker.session.SessionPointer;
+import com.botmaker.session.video.VideoPacket;
+import com.botmaker.session.video.VideoStream;
 import com.botmaker.studio.emulator.EmulatorSurface;
 
 import java.awt.Rectangle;
@@ -80,6 +82,17 @@ final class PilotFakes {
          */
         PreviewFrame previewFrame;
 
+        /**
+         * The surface a stream opened now would encode, and what {@link #videoSurface()} reports — {@code null}
+         * for a session with nothing painted on it, which declines to open a stream at all rather than encode
+         * a display that has yet to show anything. Set it to a rect other than {@link #screenRect} for the
+         * gamescope case, where the drawable with pixels is a client window.
+         */
+        Rectangle videoSurface;
+
+        /** How many streams this session has been asked for — a decline must not become a per-tick retry. */
+        int videoOpens;
+
         FakeSession(NativeController controller, GenericWindow attached, BufferedImage frame, Set<Capability> caps) {
             this.controller = controller;
             this.attached = attached;
@@ -102,6 +115,13 @@ final class PilotFakes {
 
         @Override public boolean x11Capturable() { return x11Capturable; }
         @Override public PreviewFrame previewFrame(int maxEdge, float quality) { return previewFrame; }
+        @Override public Rectangle videoSurface() { return videoSurface; }
+
+        @Override
+        public VideoStream openVideoStream(int maxEdge, int fps, java.util.function.Consumer<VideoPacket> sink) {
+            videoOpens++;
+            return videoSurface == null ? null : new FakeStream(videoSurface);
+        }
         @Override public SessionPointer pointer() { return null; }
         @Override public SessionKeyboard keyboard() { return null; }
         @Override public void attach(GenericWindow window) { }
@@ -110,6 +130,24 @@ final class PilotFakes {
         @Override public BufferedImage capture() { return frame; }
         @Override public NativeController controller() { return controller; }
         @Override public void close() { }
+    }
+
+    /**
+     * A {@link VideoStream} that is alive from the moment it opens and reports a fixed surface — the encoder's
+     * asynchronous start is {@code FfmpegVideoStream}'s business and not what {@link PilotVideo} is asked here.
+     */
+    static final class FakeStream implements VideoStream {
+        private final Rectangle surface;
+        boolean closed;
+
+        FakeStream(Rectangle surface) {
+            this.surface = surface;
+        }
+
+        @Override public boolean alive() { return !closed; }
+        @Override public String codec() { return "avc1.42E01E"; }
+        @Override public Rectangle surface() { return surface; }
+        @Override public void close() { closed = true; }
     }
 
     /**
