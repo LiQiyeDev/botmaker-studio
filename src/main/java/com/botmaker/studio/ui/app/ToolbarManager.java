@@ -61,6 +61,8 @@ public class ToolbarManager {
 
     /** Opens the Project Setup checklist hub; wired by {@link UIManager}. */
     private Runnable onProjectSetup;
+    /** Opens the Project Settings dialog; the same action the Project menu fires. */
+    private Runnable onProjectSettings;
     /** Opens the Manage Capture Targets dialog; wired by {@link UIManager}. */
     private Runnable onManageCaptureTargets;
     /** Opens the Launch Target dialog (what the bot launches); wired by {@link UIManager}. */
@@ -142,6 +144,11 @@ public class ToolbarManager {
         this.onProjectSetup = callback;
     }
 
+    /** Sets the callback invoked when the toolbar's Project Settings button is clicked. */
+    public void setOnProjectSettings(Runnable callback) {
+        this.onProjectSettings = callback;
+    }
+
     /** Sets the callback invoked when the toolbar's Capture Targets button is clicked. */
     public void setOnManageCaptureTargets(Runnable callback) {
         this.onManageCaptureTargets = callback;
@@ -218,6 +225,14 @@ public class ToolbarManager {
                 "Set the project up to run: launch target, capture target, resolution and templates in one checklist"));
         projectSetupButton.setOnAction(e -> {
             if (onProjectSetup != null) onProjectSetup.run();
+        });
+
+        Button projectSettingsButton = new Button("⚙ Settings");
+        projectSettingsButton.getStyleClass().add("toolbar-btn");
+        projectSettingsButton.setTooltip(new Tooltip(
+                "Project settings: the standard resolution templates are authored at, and favourite methods"));
+        projectSettingsButton.setOnAction(e -> {
+            if (onProjectSettings != null) onProjectSettings.run();
         });
 
         captureButton = new Button(captureButtonText());
@@ -333,7 +348,10 @@ public class ToolbarManager {
         FlowPane group = new FlowPane(Orientation.HORIZONTAL, 5, 5,
                 // Launch before Capture: you pick what the bot opens, then where it looks — and a game's
                 // window can only be picked as a capture target once the game is actually up.
-                projectSetupButton, launchTargetButton, quickLaunchButton, captureButton, activityFlowButton,
+                // Settings sits next to Setup: the checklist is the guided path, this is the same project's
+                // stored values (the resolution the label at the end of this bar is reading) in one dialog.
+                projectSetupButton, projectSettingsButton, launchTargetButton, quickLaunchButton, captureButton,
+                activityFlowButton,
                 remotePilotButton,
                 debugOutputButton, inputConfigButton, captureTemplatesButton, overlayEditorButton, recordButton,
                 resourcesButton, resolutionLabel);

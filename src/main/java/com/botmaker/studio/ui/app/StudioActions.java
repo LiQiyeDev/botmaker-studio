@@ -104,6 +104,7 @@ final class StudioActions {
         menuBar.setOnManageResources(this::openResourceManager);
         toolbar.setOnAccessResources(this::openResourceManager);
         menuBar.setOnProjectSettings(this::openProjectSettings);
+        toolbar.setOnProjectSettings(this::openProjectSettings);
 
         // --- Capture / launch / input ---
         toolbar.setResourcesDir(config.resourcesRoot());

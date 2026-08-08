@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-08 — the resolution dropdown says what the project will be saved with, and Waydroid may run in
+  the background (`ui/app/ResolutionChoices`, `ProjectSettingsDialog`, `ProjectSelectionScreen`,
+  `ToolbarManager`, `project/launch/QuickLaunch`).** Both resolution dropdowns held the landscape catalog and
+  swapped the pair only when the value was read, so a portrait project offered, displayed and confirmed
+  "1920 × 1080" for a resolution stored as 1080×1920 — the stored value was always right, every visible label
+  was wrong. `ResolutionChoices.orient(combo, landscape)` re-orients the *items* (a `ComboBox` consults its
+  converter when a cell refreshes, not when a toggle elsewhere flips, so a converter reading the toggle renders
+  correctly exactly once). Project Settings also seeded the combo *before* building it, which replaced the
+  items and left the reference resolution blank. Added `⚙ Settings` to the toolbar beside `🧭 Setup`, firing
+  the same `StudioActions.openProjectSettings` the Project menu does. Background mode, `QuickLaunch` routing
+  and the Launch Target dialog now ask `LaunchSpec.runsOffDesktop()` instead of the kind's, so Waydroid keeps
+  the private display it can actually use while every ADB-driven emulator is still refused one.
+
 - **2026-08-08 — Waydroid is one capture source, not two, and its thumbnail isn't black
   (`ui/app/capture/CaptureSourcePicker`, `services/launch/BackgroundLauncher`).** The picker listed the same
   Android twice: an "Waydroid" emulator tile (black — ADB `screencap` returns black under a GPU-composited

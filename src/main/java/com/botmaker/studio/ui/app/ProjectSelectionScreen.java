@@ -476,6 +476,10 @@ public class ProjectSelectionScreen {
         landscapeBtn.setToggleGroup(orientation);
         portraitBtn.setToggleGroup(orientation);
         landscapeBtn.setSelected(true);
+        // The catalog follows the toggle so the labels say what will be written: picking Portrait turns the
+        // list into 1080 × 1920 and friends, instead of offering landscape pairs that get swapped on save.
+        portraitBtn.selectedProperty().addListener(
+                (o, was, portrait) -> ResolutionChoices.orient(resolutionCombo, !portrait));
         HBox orientationRow = new HBox(8, landscapeBtn, portraitBtn);
 
         ComboBox<com.botmaker.studio.project.ProjectTemplate> templateCombo = new ComboBox<>(
@@ -533,8 +537,8 @@ public class ProjectSelectionScreen {
                             .findFirst()
                             .orElse(MavenService.SDK_FALLBACK_VERSION);
                 }
-                com.botmaker.studio.project.StudioProjectSettings.Resolution resolution =
-                        ResolutionChoices.oriented(resolutionCombo.getValue(), !portraitBtn.isSelected());
+                // Already in the chosen orientation — the combo's items are what the toggle re-orients.
+                com.botmaker.studio.project.StudioProjectSettings.Resolution resolution = resolutionCombo.getValue();
                 com.botmaker.studio.project.ProjectTemplate template = templateCombo.getValue() == null
                         ? com.botmaker.studio.project.ProjectTemplate.EMPTY : templateCombo.getValue();
                 return new CreateRequest(projectNameField.getText(), version, resolution, template);

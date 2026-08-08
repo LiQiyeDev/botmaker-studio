@@ -23,6 +23,15 @@ class QuickLaunchRoutingTest {
         assertFalse(QuickLaunch.usesBackgroundSession(spec(LaunchKind.EMULATOR_APP, "com.app@Pie64"), true));
     }
 
+    /**
+     * Waydroid is the exception, and asking the spec instead of the kind is what makes room for it: its UI is a
+     * Wayland client started under our own gamescope, so a private display is exactly where it belongs.
+     */
+    @Test
+    void aWaydroidAppDoesUseTheBackgroundSession() {
+        assertTrue(QuickLaunch.usesBackgroundSession(spec(LaunchKind.EMULATOR_APP, "com.app@Waydroid"), true));
+    }
+
     @Test
     void everyOnDesktopKindStillUsesItWhenIsolationIsOn() {
         for (LaunchKind kind : LaunchKind.values()) {

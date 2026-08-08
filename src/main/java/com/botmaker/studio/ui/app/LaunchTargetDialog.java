@@ -217,7 +217,7 @@ public final class LaunchTargetDialog {
      */
     private void refreshBackgroundAvailability() {
         LaunchSpec spec = (currentSpec == null || currentSpec.isBlank()) ? null : LaunchSpec.parse(currentSpec);
-        boolean offDesktop = spec != null && spec.kind().runsOffDesktop();
+        boolean offDesktop = spec != null && spec.runsOffDesktop();
         background.setDisable(offDesktop);
         background.setTooltip(offDesktop
                 ? new Tooltip("Doesn't apply to an emulator app: it runs inside the emulator and is driven over "

@@ -74,9 +74,10 @@ final class BackgroundModeBox {
             boolean running = launcher.isRunning();
             boolean backendOk = SessionBackends.isAvailable(backend.getValue());
             LaunchSpec configured = launcher.configuredTarget();
-            // An emulator app is already off the desktop, so there is nothing for a private display to add and
-            // NestedSessionLauncher would refuse anyway — don't offer a button whose only outcome is a refusal.
-            boolean offDesktop = configured != null && configured.kind().runsOffDesktop();
+            // An ADB-driven emulator app is already off the desktop, so there is nothing for a private display
+            // to add and NestedSessionLauncher would refuse anyway — don't offer a button whose only outcome is
+            // a refusal. Waydroid is not one of those (it renders into a compositor we start), so it keeps it.
+            boolean offDesktop = configured != null && configured.runsOffDesktop();
             boolean canStart = configured != null && backendOk && !offDesktop;
             start.setDisable(running || !canStart);
             stop.setDisable(!running);
@@ -109,7 +110,7 @@ final class BackgroundModeBox {
                 return;
             }
             LaunchSpec spec = launcher.configuredTarget();
-            if (spec != null && spec.kind().runsOffDesktop()) {
+            if (spec != null && spec.runsOffDesktop()) {
                 emulatorIsolationStatus(spec, status);
                 return;
             }

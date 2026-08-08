@@ -92,15 +92,19 @@ public final class QuickLaunch {
      * Whether a launch of {@code spec} should go through a private nested display: the project's
      * {@code session.isolated} setting, <em>except</em> for a target that doesn't run on a desktop at all.
      *
-     * <p>That exception is the whole point of this predicate. An {@code emu-app:} target is started, captured
-     * and clicked over ADB inside the emulator; there is no child process of ours to hand a {@code DISPLAY} to,
-     * so {@code LaunchIsolation} refuses it — and with isolation on by default that refusal was the <b>only</b>
-     * thing the Launch button ever did for an emulator app. It isn't a failure to route around: the target is
-     * already off the user's desktop, which is what background mode is for. Kept static and pure so the routing
-     * is unit-testable without an FX button.
+     * <p>That exception is the whole point of this predicate. An {@code emu-app:} target on most products is
+     * started, captured and clicked over ADB inside the emulator; there is no child process of ours to hand a
+     * {@code DISPLAY} to, so {@code LaunchIsolation} refuses it — and with isolation on by default that refusal
+     * was the <b>only</b> thing the Launch button ever did for such a target. It isn't a failure to route
+     * around: the target is already off the user's desktop, which is what background mode is for.
+     *
+     * <p>The question is asked of the <em>spec</em>, not its kind, because Waydroid answers differently: its UI
+     * is a Wayland client we start under our own gamescope, so it does map a window on a display we own and
+     * does belong in a background session. Kept static and pure so the routing is unit-testable without an FX
+     * button.
      */
     public static boolean usesBackgroundSession(LaunchSpec spec, boolean isolated) {
-        return isolated && spec != null && !spec.kind().runsOffDesktop();
+        return isolated && spec != null && !spec.runsOffDesktop();
     }
 
     /**
@@ -109,7 +113,7 @@ public final class QuickLaunch {
      * without it the user is left to wonder whether the launch respected the setting they can see.
      */
     private static String offDesktopNote(LaunchSpec spec) {
-        return spec.kind().runsOffDesktop()
+        return spec.runsOffDesktop()
                 ? " It runs inside the emulator over ADB, so background mode doesn't apply to it."
                 : "";
     }

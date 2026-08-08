@@ -85,10 +85,11 @@ public final class NestedSessionLauncher implements AutoCloseable {
             report.accept(false, "No launch target configured — set one in the Launch Target dialog first.");
             return;
         }
-        if (spec.kind().runsOffDesktop()) {
+        if (spec.runsOffDesktop()) {
             // Refused here rather than three layers down, where it comes back as a generic isolation failure.
             // The refusal itself is right — this box is an explicit request for a nested display, and an
-            // emulator app has no use for one — so only the explanation is ours to get right.
+            // ADB-driven emulator app has no use for one — so only the explanation is ours to get right.
+            // Waydroid does not reach this branch: it runs in the private display like any other target.
             report.accept(false, LaunchIsolation.check(spec).reason());
             return;
         }

@@ -92,8 +92,6 @@ public class ProjectSettingsDialog {
 
         StudioProjectSettings s = settingsService.current();
 
-        seedResolution(s.referenceResolution());
-
         favMethodRows.setAll(s.favoriteMethods().entrySet().stream()
                 .map(e -> new FavMethodRow(e.getKey(), String.join(", ", e.getValue())))
                 .collect(Collectors.toList()));
@@ -104,7 +102,11 @@ public class ProjectSettingsDialog {
 
         VBox root = new VBox(12);
         root.setPadding(new Insets(16));
-        root.getChildren().addAll(buildResolutionPane(), buildFavMethodsPane(), buildFavOverloadsPane(), buildButtonBar());
+        // Built before it is seeded: buildResolutionPane replaces the combo's items wholesale, which would drop
+        // a selection made ahead of it — the reference resolution used to come up blank for exactly that reason.
+        TitledPane resolutionPane = buildResolutionPane();
+        seedResolution(s.referenceResolution());
+        root.getChildren().addAll(resolutionPane, buildFavMethodsPane(), buildFavOverloadsPane(), buildButtonBar());
 
         stage.setScene(ThemedWindows.scene(root, 560, 560));
         stage.show();
@@ -118,6 +120,10 @@ public class ProjectSettingsDialog {
         });
         landscapeToggle.setToggleGroup(orientationGroup);
         portraitToggle.setToggleGroup(orientationGroup);
+        // The catalog itself follows the toggle, so every label reads as the project will be saved: a portrait
+        // project says "1080 × 1920", not the landscape pair it is derived from.
+        portraitToggle.selectedProperty().addListener(
+                (o, was, portrait) -> ResolutionChoices.orient(resolutionCombo, !portrait));
         Button clear = new Button("Clear");
         clear.setOnAction(e -> { resolutionCombo.getSelectionModel().clearSelection(); });
 
@@ -141,21 +147,21 @@ public class ProjectSettingsDialog {
             return;
         }
         boolean landscape = ResolutionChoices.isLandscape(ref);
+        // Selecting the toggle re-orients the catalog, so from here on the entries are in ref's own orientation
+        // and it can be matched as it is stored — no landscape round-trip, and no label to un-swap later.
         (landscape ? landscapeToggle : portraitToggle).setSelected(true);
-        Resolution landscapeForm = ResolutionChoices.toLandscape(ref);
         resolutionCombo.getItems().stream()
-                .filter(r -> r.equals(landscapeForm))
+                .filter(r -> r.equals(ref))
                 .findFirst()
                 .ifPresentOrElse(resolutionCombo.getSelectionModel()::select,
-                        () -> { resolutionCombo.getItems().add(landscapeForm);
-                                resolutionCombo.getSelectionModel().select(landscapeForm); });
+                        () -> { resolutionCombo.getItems().add(ref);
+                                resolutionCombo.getSelectionModel().select(ref); });
     }
 
     /** The chosen reference resolution (null when the selection was cleared), in the chosen orientation. */
     private Resolution selectedResolution() {
-        Resolution base = resolutionCombo.getSelectionModel().getSelectedItem();
-        if (base == null) return null;
-        return ResolutionChoices.oriented(base, !portraitToggle.isSelected());
+        // Already oriented: the items follow the toggle, which is what the labels are read from too.
+        return resolutionCombo.getSelectionModel().getSelectedItem();
     }
 
     private TitledPane buildFavMethodsPane() {

@@ -45,6 +45,26 @@ public final class ResolutionChoices {
         return isLandscape(r) == landscape ? r : new Resolution(r.height(), r.width());
     }
 
+    /**
+     * Re-orients every entry of {@code combo} — and its selection — to {@code landscape}, so the labels say
+     * what the project will actually be saved with.
+     *
+     * <p>The dropdowns used to hold the landscape catalog and swap the pair only at read time, which meant a
+     * portrait project offered, showed and confirmed "1920 × 1080" for a resolution stored as 1080×1920. The
+     * value was never wrong; only every label the user could see was. Re-orienting the <em>items</em> rather
+     * than the converter's output is what makes the fix stick: a {@code ComboBox} consults its converter when a
+     * cell is refreshed, not when a toggle elsewhere changes, so a converter that reads the toggle renders
+     * correctly exactly once.
+     */
+    public static void orient(javafx.scene.control.ComboBox<Resolution> combo, boolean landscape) {
+        if (combo == null) return;
+        Resolution selected = combo.getSelectionModel().getSelectedItem();
+        combo.getItems().replaceAll(r -> oriented(r, landscape));
+        if (selected != null) {
+            combo.getSelectionModel().select(oriented(selected, landscape));
+        }
+    }
+
     /** Human label, e.g. {@code "1920 × 1080"}. */
     public static String label(Resolution r) {
         return r == null ? "" : r.width() + " × " + r.height();
