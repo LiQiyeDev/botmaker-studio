@@ -6,6 +6,17 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-08 — the pilot's frame loop stops paying for what it throws away (`services/pilot/TargetCapture`,
+  `PilotServer`).** A session frame cost three codec passes (see `botmaker-session/ROADMAP.md`); it now
+  arrives already encoded from the display agent and goes to the wire untouched, so `Capture.img()` is null on
+  that route by design — decoding it here purely to fill the field would reinstate the pass. `Resolved` carries
+  the optional bytes and `bytes()` encodes on demand for the `:0`/emulator routes. `jpegBytes` delegates to
+  `session.Preview` (cached writer, 1280-px long edge, quality 0.6) instead of a per-frame `ImageIO.write` at
+  full size; `captureBounds` caches its `Robot` per thread instead of building one every frame. The loop is now
+  self-rescheduling at `clamp(period − work, 5 ms, period)` targeting **24 fps** — it keeps the fixed-delay
+  no-backlog property (a tick is only scheduled once the last returned) without charging the full period on top
+  of the work. Downscaling is safe because the client fits and maps touches through the header's `sw`/`sh`
+  surface rect, never the bitmap's pixel size.
 - **2026-08-08 — the pilot follows the pixels, not the session (`services/pilot/PilotRoutes`,
   `TargetCapture`, `PilotServer`, `TelemetrySerializer`).** A live nested session won rung 1 unconditionally
   *and released the ADB surface while doing so*, so a gamescope session hosting Waydroid — a Wayland-only

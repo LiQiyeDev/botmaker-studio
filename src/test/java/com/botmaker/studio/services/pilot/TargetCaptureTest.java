@@ -67,6 +67,48 @@ class TargetCaptureTest {
     }
 
     /**
+     * The one-codec-pass path: a session that encoded its own root hands the bytes straight through, and
+     * nothing on this side decodes them. The frame is therefore <em>not</em> pixels here — {@code cap().img()}
+     * is null on purpose — while the rect, which is the half Interact needs, is the session's screen either way.
+     */
+    @Test
+    void aSessionThatEncodesItsOwnRootIsNotDecodedHere() {
+        byte[] encoded = "not really a jpeg".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        PilotFakes.FakeSession session = new PilotFakes.FakeSession(
+                new PilotFakes.RecordingController(), null, null, EnumSet.noneOf(Capability.class));
+        session.previewJpeg = encoded;
+        session.screenRect = new Rectangle(0, 0, 1280, 800);
+        // No screenFrame at all: if this path decoded or re-grabbed, there would be nothing to resolve.
+
+        TargetCapture.Resolved resolved = new TargetCapture(null).resolve(new PilotRoute.Session(session), null);
+
+        assertNotNull(resolved);
+        assertSame(encoded, resolved.bytes(), "the agent's bytes go to the wire untouched");
+        assertNull(resolved.cap().img(), "the frame is never decoded on this side");
+        assertEquals(1280, resolved.cap().sw());
+        assertEquals(800, resolved.cap().sh());
+    }
+
+    /**
+     * A session with no encoder of its own still streams: the resolution falls back to grabbing the root here,
+     * and the encode happens on demand. This is every non-nested session, and every nested one whose agent
+     * refused the verb.
+     */
+    @Test
+    void aSessionWithoutAPreviewEncoderStillYieldsPixelsAndBytes() {
+        PilotFakes.FakeSession session = new PilotFakes.FakeSession(
+                new PilotFakes.RecordingController(), null, null, EnumSet.noneOf(Capability.class));
+        session.screenFrame = painted(1280, 800);
+        session.screenRect = new Rectangle(0, 0, 1280, 800);
+
+        TargetCapture.Resolved resolved = new TargetCapture(null).resolve(new PilotRoute.Session(session), null);
+
+        assertNotNull(resolved);
+        assertSame(session.screenFrame, resolved.cap().img());
+        assertNotNull(resolved.bytes(), "the fallback path must still be able to encode");
+    }
+
+    /**
      * The cursor-teleport fix, at the resolution level: a session that cannot produce a frame resolves to
      * nothing. Falling through to the {@code :0} desktop published host multi-monitor bounds under a route that
      * still claimed to be the session, so a tap was replayed through the {@code :N} controller at host

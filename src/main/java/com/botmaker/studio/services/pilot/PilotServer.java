@@ -1,5 +1,6 @@
 package com.botmaker.studio.services.pilot;
 
+import com.botmaker.shared.Diag;
 import com.botmaker.shared.ipc.TelemetryEvent;
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
@@ -49,7 +50,17 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public final class PilotServer implements AutoCloseable {
 
-    private static final int FRAME_FPS = 12;
+    /**
+     * The frame rate the loop <em>aims</em> for. Raised from 12 once a session frame stopped costing three codec
+     * passes ({@link com.botmaker.session.Preview}); a route that can't sustain it simply runs slower, because
+     * {@link #tick} never queues a frame behind an unfinished one.
+     */
+    private static final int FRAME_FPS = 24;
+
+    private static final long FRAME_PERIOD_MS = 1000L / FRAME_FPS;
+
+    /** The floor between frames, so a route slower than the period yields the thread rather than spinning. */
+    private static final long MIN_FRAME_GAP_MS = 5;
 
     private final EventBus eventBus;
     /** Answers which bot-owned {@code :N} session is live — the highest-priority {@link PilotRoute}. */
@@ -380,10 +391,38 @@ public final class PilotServer implements AutoCloseable {
             t.setDaemon(true);
             return t;
         });
-        // Fixed *delay*, not fixed rate: an emulator frame is a full-frame PNG pulled over ADB and is routinely
-        // slower than the period. At a fixed rate those pile up back-to-back on this single thread, which is a
-        // backlog rather than a frame rate; a delay lets each route run at whatever its transport sustains.
-        frameExec.scheduleWithFixedDelay(this::pushFrame, 300, 1000 / FRAME_FPS, TimeUnit.MILLISECONDS);
+        frameExec.schedule(this::tick, 300, TimeUnit.MILLISECONDS);
+    }
+
+    /**
+     * One frame, then reschedule for what is <em>left</em> of the period.
+     *
+     * <p>This replaced a fixed delay, and it is not the same thing as a fixed rate. A fixed rate queues ticks
+     * back-to-back on this single thread the moment a grab runs long — an emulator frame pulled over ADB
+     * routinely does — which is a backlog, not a frame rate, and the reason the loop was a fixed *delay* to
+     * begin with. But a fixed delay charges the full period <em>on top of</em> the work, so a route that
+     * captures in 5 ms still ran at {@link #FRAME_FPS} rather than at what it could sustain. Subtracting the
+     * work keeps the no-backlog property (the next tick is only ever scheduled once this one has returned)
+     * while letting a fast route reach the target rate. The floor is there so a route that cannot keep up still
+     * yields the thread instead of spinning.
+     */
+    private void tick() {
+        long started = System.nanoTime();
+        try {
+            pushFrame();
+        } catch (Throwable ex) {
+            // A frame that threw must not silently end the loop — that is a pilot that goes dark forever.
+            Diag.error("[Pilot] frame failed: " + ex);
+        }
+        long workMs = (System.nanoTime() - started) / 1_000_000L;
+        long delay = Math.max(MIN_FRAME_GAP_MS, Math.min(FRAME_PERIOD_MS, FRAME_PERIOD_MS - workMs));
+        ScheduledExecutorService exec = frameExec;
+        if (exec == null || exec.isShutdown()) return;
+        try {
+            exec.schedule(this::tick, delay, TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.RejectedExecutionException stopped) {
+            // close() won the race; there is nothing left to serve frames to.
+        }
     }
 
     private void pushFrame() {
@@ -395,7 +434,9 @@ public final class PilotServer implements AutoCloseable {
             return;
         }
         TargetCapture.Capture cap = resolved.cap();
-        byte[] jpeg = TargetCapture.jpegBytes(cap.img());
+        // Already-encoded on the session route: the agent that holds :N produced these bytes, so nothing here
+        // decoded a PNG only to re-encode it.
+        byte[] jpeg = resolved.bytes();
         if (jpeg == null) {
             reportEmpty(asked);
             return;

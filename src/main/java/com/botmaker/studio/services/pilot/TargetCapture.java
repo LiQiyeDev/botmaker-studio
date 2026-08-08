@@ -5,20 +5,18 @@ import com.botmaker.shared.capture.NativeControllerFactory;
 import com.botmaker.shared.capture.WindowMatch;
 import com.botmaker.shared.ipc.TelemetryEvent;
 import com.botmaker.session.DesktopSession;
+import com.botmaker.session.Preview;
 import com.botmaker.session.remote.WindowIds;
 import com.botmaker.studio.emulator.EmulatorSurface;
 import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.launch.BackgroundLauncher;
 
-import javax.imageio.ImageIO;
 import java.awt.GraphicsDevice;
 import java.awt.GraphicsEnvironment;
-import java.awt.Graphics2D;
 import java.awt.Rectangle;
 import java.awt.Robot;
 import java.awt.image.BufferedImage;
-import java.io.ByteArrayOutputStream;
 import java.nio.file.Path;
 import java.util.function.LongSupplier;
 
@@ -37,7 +35,14 @@ import java.util.function.LongSupplier;
  */
 public final class TargetCapture {
 
-    /** A captured frame plus the absolute surface origin/size its pixel (0,0) maps to. */
+    /**
+     * A captured frame plus the absolute surface origin/size its pixel (0,0) maps to.
+     *
+     * <p>{@code img} is {@code null} when the frame never existed as pixels on this side — a nested session
+     * encodes its own preview in the process that holds the display (see {@link Resolved#jpeg()}), and decoding
+     * it here purely to satisfy this field would reinstate the codec pass that change removed. The rect is the
+     * half that every consumer needs, and it is present either way.
+     */
     public record Capture(BufferedImage img, int sx, int sy, int sw, int sh) {}
 
     /**
@@ -51,7 +56,21 @@ public final class TargetCapture {
      * {@code :N} controller, which is the "Interact teleports the cursor to the other screen" report. Returning
      * both from the same resolution makes that state unrepresentable.
      */
-    public record Resolved(PilotRoute route, Capture cap) {}
+    public record Resolved(PilotRoute route, Capture cap, byte[] jpeg) {
+
+        /** A frame that is still pixels here; the encode happens when someone asks for {@link #bytes()}. */
+        Resolved(PilotRoute route, Capture cap) {
+            this(route, cap, null);
+        }
+
+        /**
+         * The frame as JPEG bytes, encoding it now if it wasn't encoded at the source. {@code null} means the
+         * encode failed, which the caller treats exactly like a missed grab.
+         */
+        public byte[] bytes() {
+            return jpeg != null ? jpeg : Preview.jpeg(cap.img(), Preview.MAX_EDGE, Preview.QUALITY);
+        }
+    }
 
     private final ProjectSettingsService settings;
 
@@ -95,7 +114,8 @@ public final class TargetCapture {
         PilotRoute r = route == null ? PilotRoute.DESKTOP : route;
         switch (r) {
             case PilotRoute.Session(DesktopSession s) -> {
-                return wrap(r, captureSession(s));
+                Resolved encoded = encodedSession(r, s);
+                return encoded != null ? encoded : wrap(r, captureSession(s));
             }
             case PilotRoute.Emulator(EmulatorSurface surface) -> {
                 return wrap(r, captureEmulator(surface));
@@ -144,6 +164,29 @@ public final class TargetCapture {
      * <p>The attached window is still the fallback: a session backend that can't hand over a root frame keeps
      * streaming exactly what it did before, tagged with that window's rect.
      */
+    /**
+     * The fast path for a nested session: ask it to encode its own root and take the bytes as they are.
+     *
+     * <p>Everything about the frame that this side needs is in the rect, which comes from
+     * {@link DesktopSession#screen()} — the same rect the slow path tags its pixels with, so Interact's
+     * coordinate space is identical either way. The pixels themselves are never decoded here; that is the
+     * saving.
+     *
+     * <p>{@code null} means "no fast path" — the session doesn't offer one, or its root was blank/ungrabbable —
+     * and the caller falls back to {@link #captureSession}, which still has the attached-window rung to try.
+     */
+    private Resolved encodedSession(PilotRoute route, DesktopSession s) {
+        try {
+            Rectangle screen = s.screen();
+            if (screen == null || screen.isEmpty()) return null;
+            byte[] jpeg = s.previewJpeg(Preview.MAX_EDGE, Preview.QUALITY);
+            if (jpeg == null || jpeg.length == 0) return null;
+            return new Resolved(route, new Capture(null, screen.x, screen.y, screen.width, screen.height), jpeg);
+        } catch (Throwable ex) {
+            return null;
+        }
+    }
+
     private Capture captureSession(DesktopSession s) {
         try {
             BufferedImage img = s.captureScreen(); // the :N root — no :0 focus, non-intrusive
@@ -163,33 +206,13 @@ public final class TargetCapture {
         }
     }
 
-    /** Every {@value #BLANK_STRIDE}th pixel on both axes — see {@link #isBlank}. */
-    private static final int BLANK_STRIDE = 16;
-
     /**
-     * Whether {@code img} is missing, degenerate, or <b>entirely black</b> — which on a session route means "no
-     * capture", not "a black frame".
-     *
-     * <p>An X11 root with nothing mapped on it reads as opaque black, so a session hosting a Wayland-only client
-     * (Waydroid under {@code gamescope --expose-wayland}) grabs successfully and forever. Answering {@code null}
-     * here is what lets the caller's next route be tried instead of the client staring at a black canvas.
-     * {@link DesktopSession#x11Capturable()} is meant to have caught this a rung earlier; this is the net for
-     * the cases it can't see — a compositor build that announces no socket, a client that dies mid-session.
-     *
-     * <p><b>Coarse on purpose.</b> This runs on every frame of the pilot's loop, so it samples a
-     * {@value #BLANK_STRIDE}-pixel grid rather than scanning the image the way {@code LinuxController}'s
-     * one-shot {@code isAllBlack} does. A real frame is overwhelmingly likely to hit a non-black sample in the
-     * first few reads; the only image that pays for the whole grid is one that really is blank. A genuinely
-     * black game frame that slips through costs one dropped frame, which the client already tolerates.
+     * Whether a frame counts as "nothing was captured" — {@link Preview#isBlank}, which the agent applies to
+     * the same frames on its side of the pipe, so the fast and slow session paths cannot disagree about what an
+     * empty root is.
      */
     static boolean isBlank(BufferedImage img) {
-        if (img == null || img.getWidth() <= 0 || img.getHeight() <= 0) return true;
-        for (int y = 0; y < img.getHeight(); y += BLANK_STRIDE) {
-            for (int x = 0; x < img.getWidth(); x += BLANK_STRIDE) {
-                if ((img.getRGB(x, y) & 0x00FFFFFF) != 0) return false;
-            }
-        }
-        return true;
+        return Preview.isBlank(img);
     }
 
     /**
@@ -234,10 +257,27 @@ public final class TargetCapture {
         }
     }
 
+    /**
+     * One {@link Robot} per thread, built once. Constructing one is not free — it goes through AWT's
+     * headless/permission checks and allocates a peer — and the frame loop was paying that on <em>every</em>
+     * screen-route frame. It is per-thread rather than shared because {@code Robot} is not documented
+     * thread-safe, and null when this JVM has no display at all, which reads as "no frame this tick" like every
+     * other failure here.
+     */
+    private static final ThreadLocal<Robot> ROBOTS = ThreadLocal.withInitial(() -> {
+        try {
+            return new Robot();
+        } catch (Throwable ex) {
+            return null;
+        }
+    });
+
     private Capture captureBounds(Rectangle b) {
         if (b == null) return null;
         try {
-            BufferedImage img = new Robot().createScreenCapture(b);
+            Robot robot = ROBOTS.get();
+            if (robot == null) return null;
+            BufferedImage img = robot.createScreenCapture(b);
             return img == null ? null : new Capture(img, b.x, b.y, b.width, b.height);
         } catch (Throwable ex) {
             return null;
@@ -309,23 +349,15 @@ public final class TargetCapture {
 
     // --- Encoding ---
 
-    /** Encodes as JPEG bytes (RGB, no alpha), or {@code null} on failure. */
+    /**
+     * Encodes a preview JPEG at the shared {@link Preview} settings, or {@code null} on failure.
+     *
+     * <p>It used to be an {@code ImageIO.write(...,"jpg")} at default quality and full size, which allocated a
+     * writer per frame and shipped a 4K desktop as a 4K JPEG. Downscaling is safe here because the pilot's
+     * client fits the frame — and maps touches — through the {@code sw}/{@code sh} <em>surface</em> rect in the
+     * header, never through the bitmap's own pixel size.
+     */
     public static byte[] jpegBytes(BufferedImage img) {
-        try {
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            BufferedImage rgb = img.getType() == BufferedImage.TYPE_INT_RGB ? img : toRgb(img);
-            ImageIO.write(rgb, "jpg", out);
-            return out.toByteArray();
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private static BufferedImage toRgb(BufferedImage src) {
-        BufferedImage rgb = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_RGB);
-        Graphics2D g = rgb.createGraphics();
-        g.drawImage(src, 0, 0, null);
-        g.dispose();
-        return rgb;
+        return Preview.jpeg(img, Preview.MAX_EDGE, Preview.QUALITY);
     }
 }

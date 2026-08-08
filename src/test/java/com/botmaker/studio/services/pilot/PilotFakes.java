@@ -70,6 +70,13 @@ final class PilotFakes {
         /** Whether this session's pixels are on X11 — false stands in for gamescope hosting a Wayland-only client. */
         boolean x11Capturable = true;
 
+        /**
+         * Pre-encoded preview bytes, standing in for a display agent that encoded the root itself. {@code null}
+         * — the default, and what the real {@code DesktopSession} answers unless it is nested — means the
+         * caller must fall back to grabbing and encoding pixels here.
+         */
+        byte[] previewJpeg;
+
         FakeSession(NativeController controller, GenericWindow attached, BufferedImage frame, Set<Capability> caps) {
             this.controller = controller;
             this.attached = attached;
@@ -91,6 +98,7 @@ final class PilotFakes {
         }
 
         @Override public boolean x11Capturable() { return x11Capturable; }
+        @Override public byte[] previewJpeg(int maxEdge, float quality) { return previewJpeg; }
         @Override public SessionPointer pointer() { return null; }
         @Override public SessionKeyboard keyboard() { return null; }
         @Override public void attach(GenericWindow window) { }
