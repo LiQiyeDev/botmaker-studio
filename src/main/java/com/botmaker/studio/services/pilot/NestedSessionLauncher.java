@@ -2,6 +2,7 @@ package com.botmaker.studio.services.pilot;
 
 import com.botmaker.shared.launch.LaunchIsolation;
 import com.botmaker.shared.launch.LaunchSpec;
+import com.botmaker.session.display.SessionBackends;
 import com.botmaker.session.impl.NestedSession;
 import com.botmaker.studio.project.launch.QuickLaunch;
 import com.botmaker.studio.services.launch.BackgroundLauncher;
@@ -53,6 +54,15 @@ public final class NestedSessionLauncher implements AutoCloseable {
     /** The live session's display (e.g. {@code :3}), or {@code null} when none is running. For the UI status line. */
     public String activeDisplay() {
         return launcher.activeDisplay();
+    }
+
+    /**
+     * The live session's size and where it came from, or {@code null} when none is running — what the status
+     * line shows so a fixed, undraggable display reads as a decision rather than a fault. See
+     * {@link com.botmaker.session.display.SessionBackends#FIXED_SIZE_NOTE}.
+     */
+    public SessionBackends.DisplaySize activeSize() {
+        return launcher.activeSize();
     }
 
     /** Title of the window the live session attached, or {@code null} when none is running / nothing attached. */

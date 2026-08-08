@@ -36,9 +36,12 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class BackgroundLauncher implements AutoCloseable {
 
-    /** Nested display size used when the caller has no reference resolution to pass. */
-    public static final int DEFAULT_WIDTH = 1280;
-    public static final int DEFAULT_HEIGHT = 720;
+    /**
+     * Nested display size used when the caller has no reference resolution to pass — single-sourced in
+     * {@link SessionBackends}, which also owns <em>which</em> of the two a session ended up on.
+     */
+    public static final int DEFAULT_WIDTH = SessionBackends.DEFAULT_WIDTH;
+    public static final int DEFAULT_HEIGHT = SessionBackends.DEFAULT_HEIGHT;
 
     /** How often the held session is checked for a display that has gone away. See {@link #watch}. */
     private static final long DEAD_SESSION_POLL_MS = 2_000;
@@ -59,6 +62,7 @@ public final class BackgroundLauncher implements AutoCloseable {
 
     /** The live nested session, or {@code null} when none is running. Written on the worker, read on FX. */
     private volatile NestedSession active;
+    private volatile SessionBackends.DisplaySize activeSize;
 
     private BackgroundLauncher() {}
 
@@ -101,6 +105,19 @@ public final class BackgroundLauncher implements AutoCloseable {
     public long hostWindowId() {
         NestedSession session = active;
         return session == null ? 0 : session.hostWindowId();
+    }
+
+    /**
+     * The size the live session was brought up at and where that size came from, or {@code null} when none is
+     * running — the status line's answer to "why can't I resize this window?".
+     *
+     * <p>Read through {@link #active} rather than cleared alongside it. The field is written once at bring-up
+     * and never reset, so there are no teardown paths to keep in step and no way to report a dead session's
+     * size: whatever it holds is invisible the moment {@code active} is null.
+     */
+    public SessionBackends.DisplaySize activeSize() {
+        NestedSession session = active;
+        return session == null ? null : activeSize;
     }
 
     /** The live session's display (e.g. {@code :3}), or {@code null} when none is running. For a status line. */
@@ -179,10 +196,16 @@ public final class BackgroundLauncher implements AutoCloseable {
                         + " — it didn't map a window there. " + LaunchIsolation.noWindowDiagnosis(spec));
                 return;
             }
+            SessionBackends.DisplaySize size = SessionBackends.sizeFor(width, height);
+            activeSize = size;
             active = session;
             watch(session);
+            // The size and its source go in the success line because that is where the question gets asked:
+            // the user is now looking at a window they cannot resize, and this is the only surface that knows
+            // both what size the display actually is and why it is that size.
             report(report, true, "Running " + spec.describe() + " on the private " + backend + " display "
-                    + session.displayName() + " — your real cursor stays free.");
+                    + session.displayName() + " at " + size.describe() + " — your real cursor stays free. "
+                    + SessionBackends.FIXED_SIZE_NOTE);
         } catch (Exception e) {
             if (session != null) {
                 try { session.close(); } catch (Exception ignored) { /* best-effort teardown */ }
@@ -256,9 +279,8 @@ public final class BackgroundLauncher implements AutoCloseable {
      */
     static NestedSession.Options optionsFor(LaunchSpec spec, NestedSession.Backend backend,
                                             int width, int height) {
-        int w = width > 0 ? width : DEFAULT_WIDTH;
-        int h = height > 0 ? height : DEFAULT_HEIGHT;
-        return SessionBackends.optionsFor(spec, backend, w, h);
+        SessionBackends.DisplaySize size = SessionBackends.sizeFor(width, height);
+        return SessionBackends.optionsFor(spec, backend, size.width(), size.height());
     }
 
     private static void report(Report report, boolean ok, String message) {

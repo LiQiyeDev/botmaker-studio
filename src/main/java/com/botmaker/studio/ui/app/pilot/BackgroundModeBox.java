@@ -104,8 +104,15 @@ final class BackgroundModeBox {
             if (launcher.isRunning()) {
                 String disp = launcher.activeDisplay();
                 String game = launcher.attachedTitle();
+                SessionBackends.DisplaySize size = launcher.activeSize();
+                // The size belongs on the resting line, not only in the bring-up message: the question it
+                // answers ("why won't this window resize?") is asked minutes later, by which time the
+                // transient success text is long gone. The full explanation is the tooltip — one line of
+                // status, the paragraph on hover.
                 status.setText("● Isolated on " + disp + (game != null ? " — " + game + " attached" : " — attached")
+                        + (size != null ? " at " + size.describe() : "")
                         + ". Interact drives it; your real cursor stays free.");
+                status.setTooltip(size == null ? null : new Tooltip(SessionBackends.FIXED_SIZE_NOTE));
                 status.setStyle("-fx-text-fill: #27ae60;"); // green — the good, isolated state
                 return;
             }
@@ -130,9 +137,9 @@ final class BackgroundModeBox {
         refreshStatus.run();
 
         start.setOnAction(e -> {
-            int[] size = referenceSize(settings);
+            SessionBackends.DisplaySize size = referenceSize(settings);
             start.setDisable(true);
-            launcher.start(backend.getValue(), size[0], size[1], (ok, msg) -> {
+            launcher.start(backend.getValue(), size.width(), size.height(), (ok, msg) -> {
                 if (!ok) {
                     // Loud failure (e.g. a host launcher stole the game onto :0) — show it, stay amber, and
                     // offer the one thing the user can do about it from here.
@@ -226,19 +233,23 @@ final class BackgroundModeBox {
     }
 
     /**
-     * The project's reference resolution (what image templates were authored at) as {@code [width, height]},
-     * or the launcher's default when unset — the nested display is sized to match so captures line up with the
-     * templates.
+     * The project's reference resolution (what image templates were authored at), or the default when unset —
+     * the nested display is sized to match so captures line up with the templates.
+     *
+     * <p>The fallback itself is {@link SessionBackends#sizeFor}, not a local {@code int[]}, because the answer
+     * has to carry <em>which</em> of the two it is: this method used to resolve the default and hand down bare
+     * numbers, so nothing downstream could tell an authored 1280×720 from an unauthored one, and the status
+     * line could not say why the display is the size it is.
      */
-    private static int[] referenceSize(ProjectSettingsService settings) {
+    private static SessionBackends.DisplaySize referenceSize(ProjectSettingsService settings) {
         try {
             var res = settings.current().referenceResolution();
-            if (res != null && res.width() > 0 && res.height() > 0) {
-                return new int[]{res.width(), res.height()};
+            if (res != null) {
+                return SessionBackends.sizeFor(res.width(), res.height());
             }
         } catch (Exception ignored) {
-            // fall through to the launcher default
+            // fall through to the default
         }
-        return new int[]{NestedSessionLauncher.DEFAULT_WIDTH, NestedSessionLauncher.DEFAULT_HEIGHT};
+        return SessionBackends.sizeFor(0, 0);
     }
 }

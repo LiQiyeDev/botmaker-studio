@@ -6,6 +6,17 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-08 — the private display says how big it is and why (`services/launch/BackgroundLauncher`,
+  `services/pilot/NestedSessionLauncher`, `ui/app/pilot/BackgroundModeBox`).** "I can't resize the screen"
+  was a documented, measured decision (`NestedDisplay.startXephyr` omits `-resizeable` because a WM-clamped
+  Xephyr window shrank the framebuffer with it) that no surface ever stated. The size and its **source** are
+  now one type, `SessionBackends.DisplaySize` — three call sites each carried the "project reference
+  resolution, else the default" rule, and this box resolved its fallback *before* handing the numbers down,
+  so nothing downstream could tell an authored 1280×720 from an unauthored one. The resting status line now
+  reads "Isolated on :1 — Game attached at 1080×1920 (the project's reference resolution)", with the full
+  explanation as a tooltip; the bring-up message carries it too, for the seconds before the resting line
+  replaces it.
+
 - **2026-08-08 — the pilot draws swipes, and the overlay layer has an off switch
   (`services/pilot/TelemetrySerializer`, `TelemetryWireContractTest`, `src/test/resources/pilot-wire/`,
   `src/main/resources/pilot/`).** `Swipe` is serialized as `kind:"Swipe"` with `x1/y1/x2/y2/duration`, and the
