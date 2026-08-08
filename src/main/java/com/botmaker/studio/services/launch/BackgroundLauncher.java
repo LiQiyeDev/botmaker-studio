@@ -4,6 +4,7 @@ import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.launch.LaunchIsolation;
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.session.impl.AdoptedSession;
+import com.botmaker.session.display.SessionBackends;
 import com.botmaker.session.impl.NestedSession;
 import javafx.application.Platform;
 
@@ -163,7 +164,7 @@ public final class BackgroundLauncher implements AutoCloseable {
     private void runStart(NestedSession.Backend backend, int width, int height, LaunchSpec spec, Report report) {
         NestedSession session = null;
         try {
-            session = NestedSession.start(optionsFor(backend, width, height));
+            session = NestedSession.start(optionsFor(spec, backend, width, height));
             session.launch(spec);
             GenericWindow window = session.attached();
             if (window == null) {
@@ -248,16 +249,16 @@ public final class BackgroundLauncher implements AutoCloseable {
     }
 
     /**
-     * The session shape for a backend at a given size. Xephyr is the 2D default; gamescope is the hardware-3D
-     * opt-in. Kept package-visible and pure so the backend selection is unit-tested without a live X server.
+     * The session shape for {@code spec} on a backend at a given size, with this launcher's fallback applied to
+     * a non-positive size. The shape itself is {@link SessionBackends#optionsFor}, shared with the SDK's
+     * bootstrap; only the fallback is ours. Kept package-visible and pure so it is unit-tested without a live
+     * X server.
      */
-    static NestedSession.Options optionsFor(NestedSession.Backend backend, int width, int height) {
+    static NestedSession.Options optionsFor(LaunchSpec spec, NestedSession.Backend backend,
+                                            int width, int height) {
         int w = width > 0 ? width : DEFAULT_WIDTH;
         int h = height > 0 ? height : DEFAULT_HEIGHT;
-        return switch (backend) {
-            case GAMESCOPE -> NestedSession.Options.gamescope(w, h);
-            case XEPHYR -> NestedSession.Options.xephyr(w, h);
-        };
+        return SessionBackends.optionsFor(spec, backend, w, h);
     }
 
     private static void report(Report report, boolean ok, String message) {

@@ -1,7 +1,9 @@
 package com.botmaker.studio.ui.app.capture;
 
+import com.botmaker.shared.capture.GamescopeHost;
 import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeControllerFactory;
+import com.botmaker.session.Preview;
 import com.botmaker.shared.emulator.EmulatorInstance;
 import com.botmaker.shared.emulator.Platforms.PlatformStatus;
 import com.botmaker.studio.emulator.EmulatorInstanceScanner;
@@ -299,7 +301,7 @@ public final class CaptureSourcePicker {
             for (EmulatorInstance instance : instances) {
                 String name = instance.name();
                 boolean running = EmulatorProbe.isRunning(instance);
-                Image img = running ? ScreenCaptureService.toFxImage(EmulatorProbe.screencap(instance)) : null;
+                Image img = running ? ScreenCaptureService.toFxImage(emulatorThumbnail(instance)) : null;
                 Platform.runLater(() -> {
                     VBox tile = tile(name, running ? "Emulator · running" : "Emulator · stopped");
                     CaptureTarget target = new EmulatorTarget(name);
@@ -312,6 +314,30 @@ public final class CaptureSourcePicker {
                 });
             }
         });
+    }
+
+    /**
+     * One thumbnail for an emulator tile: ADB {@code screencap}, falling back to gamescope's output window
+     * when that comes back blank.
+     *
+     * <p>The fallback exists because {@code screencap} is not reliable on a GPU-composited container — under
+     * Waydroid it returns a fully black frame, which is what put a black tile next to a correct-looking
+     * "gamescope" one in this very grid. The window grab is lossy (the desktop sizes that window, so the image
+     * is scaled and letterboxed), which is fine for a thumbnail and is <em>not</em> how the pilot or a bot
+     * reads the same emulator — those run it on a private display where the surface is 1:1.
+     */
+    private static BufferedImage emulatorThumbnail(EmulatorInstance instance) {
+        BufferedImage shot = EmulatorProbe.screencap(instance);
+        if (shot != null && !Preview.isBlank(shot)) {
+            return shot;
+        }
+        try {
+            GenericWindow host = GamescopeHost.firstIn(NativeControllerFactory.get().getAllWindows());
+            BufferedImage composited = host == null ? null : NativeControllerFactory.get().captureWindow(host);
+            return composited != null ? composited : shot;
+        } catch (Throwable t) {
+            return shot;
+        }
     }
 
     /**
@@ -353,6 +379,9 @@ public final class CaptureSourcePicker {
             for (GenericWindow w : wins) {
                 String title = w.getTitle();
                 if (title == null || title.isBlank()) continue;
+                // A compositor's output window is not an application: whatever is inside it is already listed
+                // under its own name (the emulator tile, or the session). See GamescopeHost.
+                if (GamescopeHost.isHost(w)) continue;
                 BufferedImage shot;
                 try {
                     shot = NativeControllerFactory.get().captureWindow(w);

@@ -6,6 +6,16 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-08 — Waydroid is one capture source, not two, and its thumbnail isn't black
+  (`ui/app/capture/CaptureSourcePicker`, `services/launch/BackgroundLauncher`).** The picker listed the same
+  Android twice: an "Waydroid" emulator tile (black — ADB `screencap` returns black under a GPU-composited
+  container) and a "gamescope" window tile (correct), with nothing to say they were one device. `loadWindows`
+  now skips `GamescopeHost.isHost(w)` — a compositor's output window is not an application, and whatever is
+  inside it is already listed under its own name — and the emulator tile falls back to grabbing that window
+  when its screencap comes back blank. `BackgroundLauncher.optionsFor` takes the `LaunchSpec` and delegates
+  the shape to `SessionBackends.optionsFor`, which is now shared with the SDK's bootstrap so the two cannot
+  answer the window-manager question differently.
+
 - **2026-08-08 — the H.264 stream is aimed at the surface with pixels, and ends when it moves
   (`services/pilot/PilotVideo`).** `ffmpeg` was still grabbing the `:N` root after the JPEG path had learned
   not to, so video on a gamescope session would have encoded black. `PilotVideo.rect()` is now
