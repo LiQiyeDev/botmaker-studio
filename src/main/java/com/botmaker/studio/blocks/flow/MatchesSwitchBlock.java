@@ -5,29 +5,40 @@ import com.botmaker.studio.core.BlockWithChildren;
 import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.BranchingBlock;
 import com.botmaker.studio.core.CodeBlock;
+import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.palette.MatchesCheck;
+import com.botmaker.studio.palette.MatchesJoin;
 import com.botmaker.studio.parser.handlers.MatchesSwitchHandler;
 import com.botmaker.studio.services.CodeEditorService;
+import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.ui.render.components.BlockUIComponents;
 import com.botmaker.studio.ui.render.components.pickers.ImageTemplateGroupPicker;
 import com.botmaker.studio.ui.render.layout.BlockLayout;
+import javafx.geometry.Side;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
+import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
+import javafx.scene.control.MenuItem;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
+import org.eclipse.jdt.core.dom.Expression;
 import org.eclipse.jdt.core.dom.SwitchCase;
 import org.eclipse.jdt.core.dom.SwitchStatement;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 /**
- * A {@code switch} over a {@code Matches} value, rendered as one row per branch: an <b>any/all</b> toggle and
- * the set of templates that branch tests for.
+ * A {@code switch} over a {@code Matches} value, rendered as one row group per branch: an <b>any/all</b> toggle
+ * over the set of templates that branch tests for, joined by <b>and</b>/<b>or</b> and inverted by <b>not</b>
+ * when the branch asks for more than one thing.
  *
  * <p>It answers the question a bot actually asks of a group — "which of these are on screen <em>together</em>?"
  * — which an ordinary condition can state but not organise. The source it edits is a real Java 21 guarded
@@ -37,10 +48,19 @@ import java.util.List;
  * switch (found) {
  *     case Matches m when m.hasAny(new ImageTemplate("popups/mail.png"),
  *                                  new ImageTemplate("popups/gift.png")) -> { … }
- *     case Matches m when m.hasAll(new ImageTemplate("popups/chest.png")) -> { … }
+ *     case Matches m when m.hasAll(new ImageTemplate("popups/chest.png"))
+ *                        && !m.hasAny(new ImageTemplate("popups/ad.png")) -> { … }
  *     default -> { }
  * }
  * }</pre>
+ *
+ * <p><b>A branch's condition is a tree, and renders as one.</b> {@code MatchesSwitchHandler.Guard} reads the
+ * guard as checks at the leaves under {@code and}/{@code or}/{@code not}; this block walks that tree into rows,
+ * one per leaf, with the join word between them and a bracketed indent wherever the source is bracketed —
+ * because a flat list cannot distinguish {@code A and (B or C)} from {@code (A and B) or C}. A leaf the chip
+ * row cannot describe (a template held in a constant, a comparison, anything hand-written) renders as an
+ * ordinary expression slot, so it stays droppable rather than degrading to text. What did not change is the
+ * common case: one check is still one row, still an any/all toggle over chips.
  *
  * <p><b>Nothing but the branches is shown.</b> The {@code case Matches m when} boilerplate is identical on
  * every branch; the selector — {@code switch (found)} — names a lambda parameter the user never chose and
@@ -66,6 +86,8 @@ public class MatchesSwitchBlock extends AbstractStatementBlock implements BlockW
     private static final String OTHERWISE = "otherwise";
 
     private final List<CaseRow> rows = new ArrayList<>();
+    /** The expression block behind each {@code Guard.Other} leaf, keyed by the node it renders. */
+    private final Map<Expression, ExpressionBlock> guardSlots = new LinkedHashMap<>();
     private BodyBlock defaultBody;
     private SwitchCase defaultCase;
 
@@ -75,6 +97,14 @@ public class MatchesSwitchBlock extends AbstractStatementBlock implements BlockW
 
     public void addCase(SwitchCase caseNode, MatchesSwitchHandler.Guard guard, BodyBlock body) {
         rows.add(new CaseRow(caseNode, guard, body));
+    }
+
+    /**
+     * Registers the expression block for a guard leaf this block cannot say in chips. Filled by
+     * {@code BlockConverter}, which is the only place that can parse one.
+     */
+    public void putGuardSlot(Expression node, ExpressionBlock block) {
+        if (node != null && block != null) guardSlots.put(node, block);
     }
 
     public void setDefault(SwitchCase caseNode, BodyBlock body) {
@@ -87,7 +117,7 @@ public class MatchesSwitchBlock extends AbstractStatementBlock implements BlockW
 
     @Override
     public List<CodeBlock> getChildren() {
-        List<CodeBlock> children = new ArrayList<>();
+        List<CodeBlock> children = new ArrayList<>(guardSlots.values());
         for (CaseRow row : rows) {
             if (row.body() != null) children.add(row.body());
         }
@@ -110,15 +140,41 @@ public class MatchesSwitchBlock extends AbstractStatementBlock implements BlockW
         return out;
     }
 
+    /**
+     * A guard as one line of words — {@code "any of: mail, gift and not all of: chest"}. Recursive because the
+     * guard is a tree; a nested group is bracketed, since that is the only thing distinguishing
+     * {@code A and (B or C)} from {@code (A and B) or C}.
+     */
     private static String caption(MatchesSwitchHandler.Guard guard) {
-        StringBuilder sb = new StringBuilder(guard.check().label() + ": ");
-        for (int i = 0; i < guard.paths().size(); i++) {
-            if (i > 0) sb.append(", ");
-            String path = guard.paths().get(i);
-            int slash = path.lastIndexOf('/');
-            sb.append(slash >= 0 ? path.substring(slash + 1) : path);
-        }
-        return sb.toString();
+        return switch (guard) {
+            case MatchesSwitchHandler.Guard.Check check -> {
+                StringBuilder sb = new StringBuilder(check.check().label() + ": ");
+                for (int i = 0; i < check.paths().size(); i++) {
+                    if (i > 0) sb.append(", ");
+                    String path = check.paths().get(i);
+                    int slash = path.lastIndexOf('/');
+                    sb.append(slash >= 0 ? path.substring(slash + 1) : path);
+                }
+                yield sb.toString();
+            }
+            case MatchesSwitchHandler.Guard.Not not -> "not " + bracketed(not.operand());
+            case MatchesSwitchHandler.Guard.Junction junction -> {
+                StringBuilder sb = new StringBuilder();
+                for (int i = 0; i < junction.operands().size(); i++) {
+                    if (i > 0) sb.append(' ').append(junction.join().label()).append(' ');
+                    sb.append(bracketed(junction.operands().get(i)));
+                }
+                yield sb.toString();
+            }
+            case MatchesSwitchHandler.Guard.Other other -> other.node().toString();
+        };
+    }
+
+    /** {@link #caption} of a sub-guard, bracketed when it is itself a group. */
+    private static String bracketed(MatchesSwitchHandler.Guard guard) {
+        return guard instanceof MatchesSwitchHandler.Guard.Junction
+                ? "(" + caption(guard) + ")"
+                : caption(guard);
     }
 
     @Override
@@ -173,48 +229,218 @@ public class MatchesSwitchBlock extends AbstractStatementBlock implements BlockW
     private String seedTemplate(List<String> allowed) {
         if (allowed != null && !allowed.isEmpty()) return allowed.getFirst();
         for (CaseRow row : rows) {
-            if (!row.guard().paths().isEmpty()) return row.guard().paths().getFirst();
+            String fromGuard = firstPath(row.guard());
+            if (fromGuard != null) return fromGuard;
         }
         return null;
+    }
+
+    /** The first template named anywhere in a guard tree, or null when it names none. */
+    private static String firstPath(MatchesSwitchHandler.Guard guard) {
+        return switch (guard) {
+            case MatchesSwitchHandler.Guard.Check check -> check.paths().getFirst();
+            case MatchesSwitchHandler.Guard.Not not -> firstPath(not.operand());
+            case MatchesSwitchHandler.Guard.Junction junction -> junction.operands().stream()
+                    .map(MatchesSwitchBlock::firstPath)
+                    .filter(Objects::nonNull)
+                    .findFirst()
+                    .orElse(null);
+            case MatchesSwitchHandler.Guard.Other ignored -> null;
+        };
     }
 
     private Node caseRowNode(CodeEditorService context, SwitchStatement switchStmt, CaseRow row,
                              List<String> allowed) {
         VBox rowBox = new VBox(5);
 
-        MatchesCheck check = row.guard().check();
-        ToggleButton mode = new ToggleButton(check.label());
-        mode.getStyleClass().add("matches-case-mode");
-        mode.setSelected(check == MatchesCheck.ALL);
-        mode.setTooltip(new Tooltip(check == MatchesCheck.ALL
-                ? "Runs only when every image below was found. Click for \"any of\"."
-                : "Runs when at least one image below was found. Click for \"all of\"."));
-        mode.setDisable(isReadOnly());
-        mode.setOnAction(e ->
-                context.getCodeEditor().setMatchesCaseMode(row.caseNode(), MatchesCheck.of(mode.isSelected())));
+        Label ifWord = new Label("if");
+        ifWord.getStyleClass().add("keyword-label");
+        Node condition = guardNode(context, row, row.guard(), null, ifWord, allowed);
 
-        Node chips = ImageTemplateGroupPicker.chipRow(context, row.guard().paths(),
-                ImageTemplateGroupPicker.Restrictions.of(allowed, 1),
-                paths -> context.getCodeEditor().setMatchesCaseTemplates(row.caseNode(), paths));
-
-        HBox header = BlockLayout.sentence()
-                .addKeyword("if")
-                .addNode(mode)
-                .addNode(chips)
-                .build();
-
-        // Only removable while there is more than one branch: a switch whose every case is gone is a
-        // `default`-only switch, which is a block that no longer says anything.
+        // The branch's delete sits on the condition's first row, where the header used to be. A composed
+        // condition is several rows tall, so hanging it off the group as a whole would leave it floating.
         if (!isReadOnly() && rows.size() > 1) {
-            header.getChildren().add(BlockUIComponents.createSpacer());
-            header.getChildren().add(BlockUIComponents.createDeleteButton(
-                    () -> context.getCodeEditor().removeMatchesCase(row.caseNode())));
+            HBox first = firstRowOf(condition);
+            if (first != null) {
+                first.getChildren().add(BlockUIComponents.createSpacer());
+                first.getChildren().add(BlockUIComponents.createDeleteButton(
+                        () -> context.getCodeEditor().removeMatchesCase(row.caseNode())));
+            }
         }
 
-        rowBox.getChildren().add(header);
+        rowBox.getChildren().add(condition);
         VBox body = createIndentedBody(row.body(), context, "switch-case-body");
         if (body != null) rowBox.getChildren().add(body);
         return rowBox;
+    }
+
+    /** The topmost sentence row of a rendered condition — where the branch-level controls belong. */
+    private static HBox firstRowOf(Node condition) {
+        if (condition instanceof HBox row) return row;
+        if (condition instanceof VBox group && !group.getChildren().isEmpty()) {
+            return firstRowOf(group.getChildren().getFirst());
+        }
+        return null;
+    }
+
+    /**
+     * One guard, as a row or — when it is a group — a stack of them.
+     *
+     * <p>Recursive, because the guard is a tree: a junction becomes one row per operand with the
+     * {@code and}/{@code or} word between them, a negation puts {@code not} in front of what it negates, and a
+     * leaf is either the any/all toggle over a chip row or an ordinary expression slot. Flat wherever the
+     * source is flat — JDT models {@code A && B && C} as one junction, and it renders as three rows rather than
+     * stepping right twice.
+     *
+     * @param guard  the guard at this position, negation included — what a delete here would remove
+     * @param parent the junction it is an operand of, or null when it is the whole condition (which is
+     *               therefore not removable: a case with no guard is unconditional and dominates the rest)
+     * @param prefix the node that opens the first row — the {@code if} keyword, or the parent's join word
+     */
+    private Node guardNode(CodeEditorService context, CaseRow row, MatchesSwitchHandler.Guard guard,
+                           MatchesSwitchHandler.Guard.Junction parent, Node prefix, List<String> allowed) {
+        MatchesSwitchHandler.Guard inner =
+                guard instanceof MatchesSwitchHandler.Guard.Not not ? not.operand() : guard;
+        boolean negated = inner != guard;
+
+        if (inner instanceof MatchesSwitchHandler.Guard.Junction junction) {
+            VBox operands = new VBox(4);
+            for (int i = 0; i < junction.operands().size(); i++) {
+                Node operandPrefix = i == 0
+                        ? (negated ? null : prefix)
+                        : joinToggle(context, junction);
+                operands.getChildren().add(
+                        guardNode(context, row, junction.operands().get(i), junction, operandPrefix, allowed));
+            }
+            Node addRow = joinRow(context, junction.node(), allowed);
+            if (addRow != null) operands.getChildren().add(addRow);
+
+            // Bracketed on screen exactly when it is bracketed in the source: a nested group, or one a `not`
+            // applies to as a whole.
+            if (parent != null || negated) operands.getStyleClass().add("matches-guard-group");
+            if (!negated) return operands;
+
+            VBox negatedGroup = new VBox(4);
+            negatedGroup.getChildren().add(BlockLayout.sentence()
+                    .addNode(prefix)
+                    .addNode(notToggle(context, guard))
+                    .build());
+            negatedGroup.getChildren().add(operands);
+            return negatedGroup;
+        }
+
+        return leafRow(context, row, guard, inner, parent, prefix, allowed);
+    }
+
+    /** A check ({@code any of} + chips) or an expression slot, plus the controls that act on it. */
+    private HBox leafRow(CodeEditorService context, CaseRow row, MatchesSwitchHandler.Guard guard,
+                         MatchesSwitchHandler.Guard inner, MatchesSwitchHandler.Guard.Junction parent,
+                         Node prefix, List<String> allowed) {
+        var sentence = BlockLayout.sentence()
+                .addNode(prefix)
+                .addNode(notToggle(context, guard));
+
+        if (inner instanceof MatchesSwitchHandler.Guard.Check check) {
+            sentence.addNode(modeToggle(context, check))
+                    .addNode(ImageTemplateGroupPicker.chipRow(context, check.paths(),
+                            ImageTemplateGroupPicker.Restrictions.of(allowed, 1),
+                            paths -> context.getCodeEditor().setMatchesCheckTemplates(check.call(), paths)));
+        } else {
+            // A condition the chip row cannot describe — a check against a template held in a constant, a
+            // comparison, anything hand-written. It renders as the ordinary expression slot it is, so it stays
+            // droppable and editable instead of being flattened to text.
+            ExpressionBlock slot = guardSlots.get(inner.node());
+            if (slot != null) {
+                sentence.addExpressionSlot(slot, context, ResolvedType.BOOLEAN);
+            } else {
+                sentence.addLabel(inner.node().toString());
+            }
+        }
+
+        HBox built = sentence.build();
+        // The ＋ belongs to the whole condition when this leaf *is* the whole condition; inside a junction the
+        // group's own ＋ row owns it, so every operand doesn't carry a duplicate.
+        if (parent == null) {
+            Node add = joinButton(context, guard.node(), allowed);
+            if (add != null) built.getChildren().add(add);
+        } else if (!isReadOnly()) {
+            MatchesSwitchHandler.Guard.Junction owner = parent;
+            built.getChildren().add(BlockUIComponents.createDeleteButton(
+                    () -> context.getCodeEditor().removeMatchesGuardOperand(owner, guard)));
+        }
+        return built;
+    }
+
+    /** The any/all toggle — the fast path, and the shape almost every branch has. */
+    private ToggleButton modeToggle(CodeEditorService context, MatchesSwitchHandler.Guard.Check check) {
+        MatchesCheck current = check.check();
+        ToggleButton mode = new ToggleButton(current.label());
+        mode.getStyleClass().add("matches-case-mode");
+        mode.setSelected(current == MatchesCheck.ALL);
+        mode.setTooltip(new Tooltip(current == MatchesCheck.ALL
+                ? "Runs only when every image below was found. Click for \"any of\"."
+                : "Runs when at least one image below was found. Click for \"all of\"."));
+        mode.setDisable(isReadOnly());
+        mode.setOnAction(e -> context.getCodeEditor()
+                .setMatchesCheckMode(check.call(), MatchesCheck.of(mode.isSelected())));
+        return mode;
+    }
+
+    /** The {@code and}/{@code or} word between two operands. One operator per group, so it flips all of them. */
+    private ToggleButton joinToggle(CodeEditorService context, MatchesSwitchHandler.Guard.Junction junction) {
+        MatchesJoin join = junction.join();
+        ToggleButton toggle = new ToggleButton(join.label());
+        toggle.getStyleClass().add("matches-case-mode");
+        toggle.setSelected(join == MatchesJoin.OR);
+        toggle.setTooltip(new Tooltip(join == MatchesJoin.AND
+                ? "Every condition in this group has to hold. Click for \"or\"."
+                : "At least one condition in this group has to hold. Click for \"and\"."));
+        toggle.setDisable(isReadOnly());
+        toggle.setOnAction(e ->
+                context.getCodeEditor().setMatchesGuardJoin(junction.infix(), join.flipped()));
+        return toggle;
+    }
+
+    /** The {@code not} in front of a condition — a toggle, so clicking it again removes the negation. */
+    private ToggleButton notToggle(CodeEditorService context, MatchesSwitchHandler.Guard guard) {
+        boolean negated = guard instanceof MatchesSwitchHandler.Guard.Not;
+        ToggleButton toggle = new ToggleButton("not");
+        toggle.getStyleClass().add("matches-case-mode");
+        toggle.setSelected(negated);
+        toggle.setTooltip(new Tooltip(negated
+                ? "Runs when this condition does *not* hold. Click to drop the \"not\"."
+                : "Click to invert this condition."));
+        toggle.setDisable(isReadOnly());
+        toggle.setOnAction(e -> context.getCodeEditor().toggleMatchesGuardNegation(guard));
+        return toggle;
+    }
+
+    /** The trailing {@code ＋} row of a group, or null when there is nothing to add (read-only, or no seed). */
+    private Node joinRow(CodeEditorService context, Expression junctionNode, List<String> allowed) {
+        Node add = joinButton(context, junctionNode, allowed);
+        return add == null ? null : BlockLayout.sentence().addNode(add).build();
+    }
+
+    /**
+     * The {@code ＋} that joins another check onto {@code target}: {@code and} keeps the group's shape,
+     * {@code or} starts a new one. Null when read-only or when no template could seed the new check — a guard
+     * with no templates would not compile.
+     */
+    private Node joinButton(CodeEditorService context, Expression target, List<String> allowed) {
+        String seed = seedTemplate(allowed);
+        if (isReadOnly() || seed == null) return null;
+
+        Button add = new Button("+");
+        add.getStyleClass().add("matches-case-mode");
+        add.setTooltip(new Tooltip("Add another condition to this branch."));
+        ContextMenu menu = new ContextMenu();
+        for (MatchesJoin join : MatchesJoin.values()) {
+            MenuItem item = new MenuItem(join.label() + " …");
+            item.setOnAction(e -> context.getCodeEditor().joinMatchesGuard(target, join, seed));
+            menu.getItems().add(item);
+        }
+        add.setOnAction(e -> menu.show(add, Side.BOTTOM, 0, 0));
+        return add;
     }
 
     /**

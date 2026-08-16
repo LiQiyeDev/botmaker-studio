@@ -6,6 +6,17 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-16 — a match/switch branch tests a real condition, not one check
+  (`parser/handlers/MatchesSwitchHandler`, `palette/MatchesJoin`, `blocks/flow/MatchesSwitchBlock`).** A branch's
+  guard was exactly one `m.hasAny(…)`/`m.hasAll(…)`, and anything else — "these two *and* not that one", a
+  template held in a constant — made the whole switch fall back to the colon-form renderer, which reads an
+  arrow label as an expression and shows nonsense. `Guard` is now the tree the guard expression really is:
+  checks at the leaves under `&&`/`||`/`!`, flat where JDT is flat, bracketed where the source is bracketed.
+  The block walks it into one row per leaf with the join word between them, and a leaf it cannot say in chips
+  renders as an ordinary droppable expression slot. The switch is claimed on its `case Matches m` label rather
+  than on the guard's shape, which is what makes all of that reachable. The single-check branch is unchanged:
+  one row, one any/all toggle, one chip row.
+
 - **2026-08-16 — the workflow is written down once and rendered twice (`docs/Workflow`, `docs/WorkflowMarkdown`,
   `ui/app/GettingStartedDialog`, `WORKFLOW.md`).** How you get from an empty project to a published bot existed
   only as tribal knowledge: Getting Started listed features, and no file in any repo told the story end to end.

@@ -8,6 +8,7 @@ import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.palette.ExpressionCatalog;
 import com.botmaker.studio.palette.ExpressionType;
 import com.botmaker.studio.palette.MatchesCheck;
+import com.botmaker.studio.palette.MatchesJoin;
 import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.parser.handlers.EnumManipulationHandler;
 import com.botmaker.studio.parser.handlers.InstantiationHandler;
@@ -996,16 +997,46 @@ public class CodeEditor {
 
     // --- The Matches switch (guarded arrow rules; see MatchesSwitchHandler) ---
 
-    /** Rewrites one branch's templates to exactly {@code paths}, keeping its any/all mode. */
-    public void setMatchesCaseTemplates(SwitchCase caseNode, List<String> paths) {
-        edit(caseNode, EditKind.BODY, true,
-                (cu, code) -> MatchesSwitchHandler.setCaseTemplates(cu, code, caseNode, paths));
+    /** Rewrites one check's templates to exactly {@code paths}, keeping its any/all mode. */
+    public void setMatchesCheckTemplates(MethodInvocation call, List<String> paths) {
+        edit(call, EditKind.BODY, true,
+                (cu, code) -> MatchesSwitchHandler.setCheckTemplates(cu, code, call, paths));
     }
 
-    /** Flips one branch between "any of" ({@code hasAny}) and "all of" ({@code hasAll}). */
-    public void setMatchesCaseMode(SwitchCase caseNode, MatchesCheck check) {
-        edit(caseNode, EditKind.BODY, true,
-                (cu, code) -> MatchesSwitchHandler.setCaseMode(cu, code, caseNode, check));
+    /** Flips one check between "any of" ({@code hasAny}) and "all of" ({@code hasAll}). */
+    public void setMatchesCheckMode(MethodInvocation call, MatchesCheck check) {
+        edit(call, EditKind.BODY, true,
+                (cu, code) -> MatchesSwitchHandler.setCheckMode(cu, code, call, check));
+    }
+
+    /**
+     * Joins {@code target} with a fresh check on {@code seedPath} — the {@code and}/{@code or} the branch row
+     * offers. A null path is a no-op for the same reason {@link #addMatchesCase} refuses one.
+     */
+    public void joinMatchesGuard(Expression target, MatchesJoin join, String seedPath) {
+        if (seedPath == null) return;
+        edit(target, EditKind.BODY, true,
+                (cu, code) -> MatchesSwitchHandler.joinWithCheck(cu, code, target, join, seedPath));
+    }
+
+    /** Flips a guard's {@code and} to {@code or} and back. */
+    public void setMatchesGuardJoin(InfixExpression infix, MatchesJoin join) {
+        edit(infix, EditKind.BODY, true, (cu, code) -> MatchesSwitchHandler.setJoin(cu, code, infix, join));
+    }
+
+    /** Negates one guard, or drops the negation it already has. */
+    public void toggleMatchesGuardNegation(MatchesSwitchHandler.Guard guard) {
+        if (guard == null) return;
+        edit(guard.node(), EditKind.BODY, true,
+                (cu, code) -> MatchesSwitchHandler.toggleNegation(cu, code, guard));
+    }
+
+    /** Removes one operand of a composed guard; the last one is not removable (an empty guard can't compile). */
+    public void removeMatchesGuardOperand(MatchesSwitchHandler.Guard.Junction junction,
+                                          MatchesSwitchHandler.Guard operand) {
+        if (junction == null || operand == null) return;
+        edit(junction.node(), EditKind.BODY, true,
+                (cu, code) -> MatchesSwitchHandler.removeOperand(cu, code, junction, operand));
     }
 
     /**

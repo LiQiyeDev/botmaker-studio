@@ -1,6 +1,7 @@
 package com.botmaker.studio.parser.handlers;
 
 import com.botmaker.studio.palette.MatchesCheck;
+import com.botmaker.studio.palette.MatchesJoin;
 import com.botmaker.studio.parser.EditorFixture;
 import org.eclipse.jdt.core.dom.ASTVisitor;
 import org.eclipse.jdt.core.dom.SwitchCase;
@@ -13,6 +14,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -91,18 +93,82 @@ class MatchesSwitchHandlerTest {
         return code.replaceAll("\\s+", "");
     }
 
+    /** The first branch's guard. */
+    private static MatchesSwitchHandler.Guard guardIn(EditorFixture fixture) {
+        return MatchesSwitchHandler.guardOf(casesIn(fixture).getFirst()).orElseThrow();
+    }
+
+    /** The first branch's guard as the single check it is — the fast path most branches are. */
+    private static MatchesSwitchHandler.Guard.Check checkIn(EditorFixture fixture) {
+        MatchesSwitchHandler.Guard guard = guardIn(fixture);
+        assertInstanceOf(MatchesSwitchHandler.Guard.Check.class, guard, "expected a single-check guard");
+        return (MatchesSwitchHandler.Guard.Check) guard;
+    }
+
+    /** {@code SOURCE} with the seeded guard replaced by {@code guard}. */
+    private static EditorFixture withGuard(String guard) {
+        return new EditorFixture(SOURCE.replace("m.hasAny(new ImageTemplate(\"popups/mail.png\"))", guard));
+    }
+
     // ---- Reading ----
 
     @Test
     void aGuardIsReadAsItsModeAndItsTemplates() {
         EditorFixture fixture = new EditorFixture(SOURCE);
 
-        MatchesSwitchHandler.Guard guard = MatchesSwitchHandler.guardOf(casesIn(fixture).getFirst()).orElse(null);
+        MatchesSwitchHandler.Guard.Check check = checkIn(fixture);
 
-        assertNotNull(guard, "the seeded case should read as a guard");
         assertAll(
-                () -> assertEquals(MatchesCheck.ANY, guard.check(), "hasAny is the any-of mode"),
-                () -> assertEquals(List.of("popups/mail.png"), guard.paths()));
+                () -> assertEquals(MatchesCheck.ANY, check.check(), "hasAny is the any-of mode"),
+                () -> assertEquals(List.of("popups/mail.png"), check.paths()));
+    }
+
+    /** The point of the tree: a branch that asks for two things at once is read as both of them. */
+    @Test
+    void aComposedGuardIsReadAsItsOperands() {
+        EditorFixture fixture = withGuard("m.hasAny(new ImageTemplate(\"popups/mail.png\")) "
+                + "&& !m.hasAll(new ImageTemplate(\"popups/ad.png\"))");
+
+        MatchesSwitchHandler.Guard guard = guardIn(fixture);
+
+        assertInstanceOf(MatchesSwitchHandler.Guard.Junction.class, guard);
+        MatchesSwitchHandler.Guard.Junction junction = (MatchesSwitchHandler.Guard.Junction) guard;
+        assertAll(
+                () -> assertEquals(MatchesJoin.AND, junction.join()),
+                () -> assertEquals(2, junction.operands().size()),
+                () -> assertInstanceOf(MatchesSwitchHandler.Guard.Check.class, junction.operands().get(0)),
+                () -> assertInstanceOf(MatchesSwitchHandler.Guard.Not.class, junction.operands().get(1)));
+    }
+
+    /**
+     * A chain is flat, not nested: JDT models {@code A && B && C} as one expression with an extended operand,
+     * and the block draws it as three rows rather than stepping right twice.
+     */
+    @Test
+    void aChainOfTheSameJoinIsOneFlatGroup() {
+        EditorFixture fixture = withGuard("m.hasAny(new ImageTemplate(\"a.png\")) "
+                + "&& m.hasAny(new ImageTemplate(\"b.png\")) && m.hasAny(new ImageTemplate(\"c.png\"))");
+
+        MatchesSwitchHandler.Guard guard = guardIn(fixture);
+
+        assertInstanceOf(MatchesSwitchHandler.Guard.Junction.class, guard);
+        assertEquals(3, ((MatchesSwitchHandler.Guard.Junction) guard).operands().size());
+    }
+
+    /** Brackets are structure, not noise: they are what says which operator binds first. */
+    @Test
+    void aBracketedGroupIsReadAsANestedJunction() {
+        EditorFixture fixture = withGuard("m.hasAny(new ImageTemplate(\"a.png\")) "
+                + "&& (m.hasAny(new ImageTemplate(\"b.png\")) || m.hasAny(new ImageTemplate(\"c.png\")))");
+
+        MatchesSwitchHandler.Guard.Junction outer =
+                (MatchesSwitchHandler.Guard.Junction) guardIn(fixture);
+
+        assertAll(
+                () -> assertEquals(MatchesJoin.AND, outer.join()),
+                () -> assertEquals(2, outer.operands().size()),
+                () -> assertEquals(MatchesJoin.OR,
+                        ((MatchesSwitchHandler.Guard.Junction) outer.operands().get(1)).join()));
     }
 
     /**
@@ -132,20 +198,44 @@ class MatchesSwitchHandlerTest {
     }
 
     /**
-     * A guard calling something else, or holding a template reference the chip row can't show, is source this
-     * block would misrepresent — so it is not claimed, and the ordinary rendering keeps it intact.
+     * A guard the chip row can't describe — another method, or a template held in a constant — is still this
+     * block's switch: the case label is what identifies it, and the guard renders as an expression slot. The
+     * alternative was falling back to the colon-form rendering, which reads an arrow label as an expression and
+     * shows the branch as nonsense.
      */
     @Test
-    void anUnrecognisedGuardIsNotClaimed() {
-        EditorFixture other = new EditorFixture(SOURCE.replace("m.hasAny(new ImageTemplate(\"popups/mail.png\"))",
-                "m.isEmpty()"));
-        assertFalse(MatchesSwitchHandler.isMatchesSwitch(switchIn(other)),
-                "a guard that isn't hasAny/hasAll is not this block's shape");
+    void aGuardTheChipRowCannotDescribeIsStillClaimed() {
+        EditorFixture other = withGuard("m.isEmpty()");
+        assertAll(
+                () -> assertTrue(MatchesSwitchHandler.isMatchesSwitch(switchIn(other))),
+                () -> assertInstanceOf(MatchesSwitchHandler.Guard.Other.class, guardIn(other),
+                        "a guard that isn't hasAny/hasAll is not a check"));
 
         EditorFixture reference = new EditorFixture(SOURCE.replace("new ImageTemplate(\"popups/mail.png\")",
                 "MAIL"));
-        assertFalse(MatchesSwitchHandler.isMatchesSwitch(switchIn(reference)),
+        assertInstanceOf(MatchesSwitchHandler.Guard.Other.class, guardIn(reference),
                 "a template held in a constant has no path to show, so the chip row must not own it");
+    }
+
+    /** The label is what claims the switch, so a pattern over some other type is somebody else's. */
+    @Test
+    void aGuardedSwitchOverAnotherTypeIsNotClaimed() {
+        EditorFixture strings = new EditorFixture("""
+                package test;
+                public class Subject {
+                    void run() {
+                        Object o = "a";
+                        switch (o) {
+                            case String s when s.isEmpty() -> {
+                            }
+                            default -> {
+                            }
+                        }
+                    }
+                }
+                """);
+        assertFalse(MatchesSwitchHandler.isMatchesSwitch(switchIn(strings)),
+                "only a `case Matches m` label is this block's shape");
     }
 
     // ---- Writing ----
@@ -154,7 +244,7 @@ class MatchesSwitchHandlerTest {
     void growingABranchAddsASecondTemplateToItsGuard() {
         EditorFixture fixture = new EditorFixture(SOURCE);
 
-        fixture.editor.setMatchesCaseTemplates(casesIn(fixture).getFirst(),
+        fixture.editor.setMatchesCheckTemplates(checkIn(fixture).call(),
                 List.of("popups/mail.png", "popups/gift.png"));
 
         assertNotNull(fixture.lastCode, "the edit should have produced new source");
@@ -167,7 +257,7 @@ class MatchesSwitchHandlerTest {
     void togglingTheModeRewritesOnlyTheMethodName() {
         EditorFixture fixture = new EditorFixture(SOURCE);
 
-        fixture.editor.setMatchesCaseMode(casesIn(fixture).getFirst(), MatchesCheck.ALL);
+        fixture.editor.setMatchesCheckMode(checkIn(fixture).call(), MatchesCheck.ALL);
 
         assertNotNull(fixture.lastCode);
         assertAll(
@@ -183,7 +273,7 @@ class MatchesSwitchHandlerTest {
     void togglingToTheSameModeChangesNothing() {
         EditorFixture fixture = new EditorFixture(SOURCE);
 
-        fixture.editor.setMatchesCaseMode(casesIn(fixture).getFirst(), MatchesCheck.ANY);
+        fixture.editor.setMatchesCheckMode(checkIn(fixture).call(), MatchesCheck.ANY);
 
         assertNull(fixture.lastCode, "an unchanged mode should not publish an edit");
     }
@@ -249,6 +339,126 @@ class MatchesSwitchHandlerTest {
         assertNull(fixture.lastCode, "removing default would make the switch non-exhaustive");
     }
 
+    // ---- Composing ----
+
+    @Test
+    void joiningAddsASecondCheckToTheBranch() {
+        EditorFixture fixture = new EditorFixture(SOURCE);
+
+        fixture.editor.joinMatchesGuard(guardIn(fixture).node(), MatchesJoin.AND, "popups/gift.png");
+
+        assertNotNull(fixture.lastCode);
+        assertTrue(dense(fixture.lastCode).contains(
+                        "m.hasAny(newImageTemplate(\"popups/mail.png\"))&&m.hasAny(newImageTemplate(\"popups/gift.png\"))"),
+                () -> "expected both checks in the guard: " + fixture.lastCode);
+    }
+
+    /** Adding a third {@code and} extends the chain instead of nesting a group inside it. */
+    @Test
+    void joiningWithTheSameOperatorStaysFlat() {
+        EditorFixture fixture = withGuard("m.hasAny(new ImageTemplate(\"a.png\")) "
+                + "&& m.hasAny(new ImageTemplate(\"b.png\"))");
+
+        fixture.editor.joinMatchesGuard(guardIn(fixture).node(), MatchesJoin.AND, "c.png");
+
+        EditorFixture reopened = new EditorFixture(fixture.lastCode);
+        assertAll(
+                () -> assertFalse(fixture.lastCode.contains("("
+                        + "m.hasAny(new ImageTemplate(\"a.png\"))"), "no bracket should have appeared"),
+                () -> assertEquals(3,
+                        ((MatchesSwitchHandler.Guard.Junction) guardIn(reopened)).operands().size()));
+    }
+
+    /**
+     * Mixing the operators brackets what was there. Without it {@code a && b || c} would silently mean
+     * {@code (a && b) || c} — which is what the rows would already have been showing, but only by luck.
+     */
+    @Test
+    void joiningWithTheOtherOperatorBracketsWhatWasThere() {
+        EditorFixture fixture = withGuard("m.hasAny(new ImageTemplate(\"a.png\")) "
+                + "&& m.hasAny(new ImageTemplate(\"b.png\"))");
+
+        fixture.editor.joinMatchesGuard(guardIn(fixture).node(), MatchesJoin.OR, "c.png");
+
+        assertNotNull(fixture.lastCode);
+        String dense = dense(fixture.lastCode);
+        assertTrue(dense.contains("(m.hasAny(newImageTemplate(\"a.png\"))&&m.hasAny(newImageTemplate(\"b.png\")))"
+                        + "||m.hasAny(newImageTemplate(\"c.png\"))"),
+                () -> "the existing group must be bracketed: " + fixture.lastCode);
+    }
+
+    @Test
+    void flippingTheJoinRewritesOnlyTheOperator() {
+        EditorFixture fixture = withGuard("m.hasAny(new ImageTemplate(\"a.png\")) "
+                + "&& m.hasAny(new ImageTemplate(\"b.png\"))");
+
+        fixture.editor.setMatchesGuardJoin(
+                ((MatchesSwitchHandler.Guard.Junction) guardIn(fixture)).infix(), MatchesJoin.OR);
+
+        assertNotNull(fixture.lastCode);
+        assertAll(
+                () -> assertTrue(dense(fixture.lastCode).contains("\"a.png\"))||m.hasAny("), fixture.lastCode),
+                () -> assertTrue(fixture.lastCode.contains("b.png"), "both operands must survive"));
+    }
+
+    /** {@code not} is a toggle in the UI, so it must be one in the source: never {@code !!}. */
+    @Test
+    void negatingIsAToggle() {
+        EditorFixture fixture = new EditorFixture(SOURCE);
+        fixture.editor.toggleMatchesGuardNegation(guardIn(fixture));
+        assertTrue(dense(fixture.lastCode).contains("when!m.hasAny("), () -> fixture.lastCode);
+
+        EditorFixture negated = new EditorFixture(fixture.lastCode);
+        negated.editor.toggleMatchesGuardNegation(guardIn(negated));
+        assertAll(
+                () -> assertFalse(negated.lastCode.contains("!"), () -> "the not is gone: " + negated.lastCode),
+                () -> assertTrue(negated.lastCode.contains("hasAny"), "the check itself survives"));
+    }
+
+    /** Negating a group brackets it — {@code !a && b} negates only {@code a}. */
+    @Test
+    void negatingAGroupBracketsIt() {
+        EditorFixture fixture = withGuard("m.hasAny(new ImageTemplate(\"a.png\")) "
+                + "&& m.hasAny(new ImageTemplate(\"b.png\"))");
+
+        fixture.editor.toggleMatchesGuardNegation(guardIn(fixture));
+
+        assertTrue(dense(fixture.lastCode).contains("when!(m.hasAny("), () -> fixture.lastCode);
+    }
+
+    @Test
+    void removingAnOperandCollapsesTheGroupToWhatIsLeft() {
+        EditorFixture fixture = withGuard("m.hasAny(new ImageTemplate(\"a.png\")) "
+                + "&& m.hasAny(new ImageTemplate(\"b.png\"))");
+        MatchesSwitchHandler.Guard.Junction junction =
+                (MatchesSwitchHandler.Guard.Junction) guardIn(fixture);
+
+        fixture.editor.removeMatchesGuardOperand(junction, junction.operands().getFirst());
+
+        assertNotNull(fixture.lastCode);
+        assertAll(
+                () -> assertFalse(fixture.lastCode.contains("a.png"), () -> fixture.lastCode),
+                () -> assertFalse(fixture.lastCode.contains("&&"), "one operand left is not a junction"),
+                () -> assertTrue(fixture.lastCode.contains("b.png")));
+    }
+
+    /** A three-operand group loses one and stays a group. */
+    @Test
+    void removingFromALongerChainKeepsTheRest() {
+        EditorFixture fixture = withGuard("m.hasAny(new ImageTemplate(\"a.png\")) "
+                + "&& m.hasAny(new ImageTemplate(\"b.png\")) && m.hasAny(new ImageTemplate(\"c.png\"))");
+        MatchesSwitchHandler.Guard.Junction junction =
+                (MatchesSwitchHandler.Guard.Junction) guardIn(fixture);
+
+        fixture.editor.removeMatchesGuardOperand(junction, junction.operands().get(1));
+
+        EditorFixture reopened = new EditorFixture(fixture.lastCode);
+        assertAll(
+                () -> assertFalse(fixture.lastCode.contains("b.png"), () -> fixture.lastCode),
+                () -> assertEquals(2,
+                        ((MatchesSwitchHandler.Guard.Junction) guardIn(reopened)).operands().size()));
+    }
+
     // ---- Round trip ----
 
     /**
@@ -259,19 +469,50 @@ class MatchesSwitchHandlerTest {
     @Test
     void anEditedSwitchStillReadsBackAsTheSameBranches() {
         EditorFixture first = new EditorFixture(SOURCE);
-        first.editor.setMatchesCaseTemplates(casesIn(first).getFirst(),
+        first.editor.setMatchesCheckTemplates(checkIn(first).call(),
                 List.of("popups/mail.png", "popups/gift.png"));
 
         // Each edit is driven by the fixture that owns the tree it targets — a rewrite validates its nodes
         // belong to its own AST, which is also why reopening is the honest way to chain two edits.
         EditorFixture second = new EditorFixture(first.lastCode);
-        second.editor.setMatchesCaseMode(casesIn(second).getFirst(), MatchesCheck.ALL);
+        second.editor.setMatchesCheckMode(checkIn(second).call(), MatchesCheck.ALL);
 
         EditorFixture reopened = new EditorFixture(second.lastCode);
-        MatchesSwitchHandler.Guard guard = MatchesSwitchHandler.guardOf(casesIn(reopened).getFirst()).orElseThrow();
 
         assertAll(
                 () -> assertTrue(MatchesSwitchHandler.isMatchesSwitch(switchIn(reopened))),
-                () -> assertEquals(List.of("popups/mail.png", "popups/gift.png"), guard.paths()));
+                () -> assertEquals(List.of("popups/mail.png", "popups/gift.png"), checkIn(reopened).paths()));
+    }
+
+    /**
+     * The same property for a composed guard, built the way the UI builds one: join, negate the new operand,
+     * then read the whole tree back. This is the shape the phase exists for — {@code (A and B) or not C} — and
+     * the one where a lost bracket would change what the bot does rather than how it looks.
+     */
+    @Test
+    void aGuardComposedThroughTheUiReadsBackAsTheTreeItWrote() {
+        EditorFixture first = new EditorFixture(SOURCE);
+        first.editor.joinMatchesGuard(guardIn(first).node(), MatchesJoin.AND, "popups/gift.png");
+
+        EditorFixture second = new EditorFixture(first.lastCode);
+        second.editor.joinMatchesGuard(guardIn(second).node(), MatchesJoin.OR, "popups/ad.png");
+
+        EditorFixture third = new EditorFixture(second.lastCode);
+        MatchesSwitchHandler.Guard.Junction top =
+                (MatchesSwitchHandler.Guard.Junction) guardIn(third);
+        third.editor.toggleMatchesGuardNegation(top.operands().get(1));
+
+        EditorFixture reopened = new EditorFixture(third.lastCode);
+        MatchesSwitchHandler.Guard.Junction reread =
+                (MatchesSwitchHandler.Guard.Junction) guardIn(reopened);
+
+        assertAll(
+                () -> assertTrue(MatchesSwitchHandler.isMatchesSwitch(switchIn(reopened))),
+                () -> assertEquals(MatchesJoin.OR, reread.join(), "the outer join is the or"),
+                () -> assertEquals(2, reread.operands().size()),
+                () -> assertEquals(MatchesJoin.AND,
+                        ((MatchesSwitchHandler.Guard.Junction) reread.operands().get(0)).join(),
+                        "the bracketed group kept its own operator"),
+                () -> assertInstanceOf(MatchesSwitchHandler.Guard.Not.class, reread.operands().get(1)));
     }
 }

@@ -86,4 +86,17 @@ class VisionLoopTest {
                 () -> assertSame(MatchesCheck.ALL, MatchesCheck.fromMethodName("hasAll").orElseThrow()),
                 () -> assertEquals(Optional.empty(), MatchesCheck.fromMethodName("has")));
     }
+
+    /** The companion of the check: how several of them combine into one branch's condition. */
+    @Test
+    void aMatchesJoinKnowsItsWordAndItsOperator() {
+        assertAll(
+                () -> assertEquals("and", MatchesJoin.AND.label()),
+                () -> assertEquals("&&", MatchesJoin.AND.symbol()),
+                () -> assertEquals("||", MatchesJoin.OR.symbol()),
+                () -> assertSame(MatchesJoin.OR, MatchesJoin.AND.flipped()),
+                () -> assertSame(MatchesJoin.AND, MatchesJoin.OR.flipped()),
+                () -> assertSame(MatchesJoin.OR, MatchesJoin.fromSymbol("||").orElseThrow()),
+                () -> assertEquals(Optional.empty(), MatchesJoin.fromSymbol("&")));
+    }
 }

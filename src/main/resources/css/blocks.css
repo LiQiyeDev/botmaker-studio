@@ -1250,6 +1250,17 @@
     -fx-opacity: 0.6;
 }
 
+/*
+ * A nested group of guard rows — the operands of a bracketed `(A or B)` inside a branch's condition, and the
+ * rows under a `not`. The left bar is the bracket: precedence is the one thing a flat list of rows cannot
+ * show, and `A and (B or C)` means something different from `(A and B) or C`.
+ */
+.matches-guard-group {
+    -fx-padding: 0 0 0 8;
+    -fx-border-color: -bm-text-on-color;
+    -fx-border-width: 0 0 0 2;
+}
+
 /* A switch/matchswitch branch body: a wash and a left bar, so nested blocks read as *inside* the branch. */
 .switch-case-body {
     -fx-background-color: rgba(127, 127, 127, 0.18);

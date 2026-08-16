@@ -454,9 +454,11 @@ public class BlockConverter {
     /**
      * The guarded-arrow {@code switch (found) { case Matches m when … -> { … } }}.
      *
-     * <p>Unlike {@link #parseSwitch}, a case's label contributes no block: it is entirely described by the
-     * {@code Guard} the block renders as a toggle and a chip row, so there is nothing for the user to drag or
-     * to fill. Only the bodies become blocks, which is what makes the branches ordinary drop targets.
+     * <p>Unlike {@link #parseSwitch}, a case's label mostly contributes no block: the checks and the
+     * {@code and}/{@code or} that join them are described by the {@code Guard} tree, which the block renders as
+     * toggles and chip rows, so there is nothing there for the user to drag or to fill. The exception is a
+     * {@code Guard.Other} leaf — a condition this block cannot say in chips — which becomes a real expression
+     * block so it renders as an ordinary, droppable expression slot instead of as text.
      */
     private Optional<StatementBlock> parseMatchesSwitch(SwitchStatement stmt, ParseContext ctx) {
         MatchesSwitchBlock block = new MatchesSwitchBlock(BlockId.of(stmt), stmt);
@@ -473,10 +475,25 @@ public class BlockConverter {
             if (sc.isDefault()) {
                 block.setDefault(sc, body);
             } else {
-                MatchesSwitchHandler.guardOf(sc).ifPresent(guard -> block.addCase(sc, guard, body));
+                MatchesSwitchHandler.guardOf(sc).ifPresent(guard -> {
+                    block.addCase(sc, guard, body);
+                    parseGuardSlots(guard, block, ctx);
+                });
             }
         }
         return Optional.of(block);
+    }
+
+    /** Gives every {@code Other} leaf of a guard tree the expression block its slot renders. */
+    private void parseGuardSlots(MatchesSwitchHandler.Guard guard, MatchesSwitchBlock block, ParseContext ctx) {
+        switch (guard) {
+            case MatchesSwitchHandler.Guard.Other other ->
+                    parseExpression(other.node(), ctx).ifPresent(e -> block.putGuardSlot(other.node(), e));
+            case MatchesSwitchHandler.Guard.Not not -> parseGuardSlots(not.operand(), block, ctx);
+            case MatchesSwitchHandler.Guard.Junction junction ->
+                    junction.operands().forEach(operand -> parseGuardSlots(operand, block, ctx));
+            case MatchesSwitchHandler.Guard.Check ignored -> { }
+        }
     }
 
     private Optional<StatementBlock> parseSwitch(SwitchStatement stmt, ParseContext ctx) {
