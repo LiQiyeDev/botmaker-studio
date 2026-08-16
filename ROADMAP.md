@@ -6,6 +6,21 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-16 — blocks can declare their fields, so the editor can stop showing users its scaffolding
+  (`core/component/*`, `ui/render/layout/ComponentLayoutBuilder`, `project/ProjectState`).** Studio had no
+  axis for *who the canvas is drawn for*: author and runner were the same person, so every component of every
+  block was rendered unconditionally — which is why a user sees an activity's generated `Outcome` enum,
+  scaffold statics, and the empty `ImageTemplateGroup` `Popups.java` carries purely to give the editor a drop
+  target. Blocks build their fields imperatively in `createUINode`, so each new show/hide rule had to be
+  re-implemented per block and the copies drift (the same failure as the duplicated id→name switches). This
+  phase adds the mechanism only, migrating nothing: `BlockComponent` (a declared field + `Visibility` +
+  `WhenLocked`, its node behind a `Supplier` so a hidden one is never built), `ComponentSpec`, `Audience`
+  (`EDITOR`/`USER`, forced to `USER` by reader mode) and `ComponentResolver` — a pure three-line verdict table
+  over `LockResolver`'s existing answer. **`LockResolver` stays the sole authority on editability**; the
+  resolver adds only the visible axis, and audience is explicitly not a permission level. `BlockLayout.components(…)`
+  renders a spec into the same `WrappingSentencePane` a sentence layout produces, marking a locked component
+  with the existing `:read-only` pseudo-class rather than a second mechanism. Blocks with no spec are
+  untouched — that is what makes the migration one block at a time. 9 headless tests on the verdict table.
 - **2026-08-09 — "Connect a phone…" stops dead-ending on two sentences (`ui/app/ConnectPhoneDialog`).** The
   dialog's two "go and install something" hints are now buttons: **Download adb** (Google's pinned
   platform-tools, size read off the pin, per-OS — no button on an OS Google publishes no build for) and

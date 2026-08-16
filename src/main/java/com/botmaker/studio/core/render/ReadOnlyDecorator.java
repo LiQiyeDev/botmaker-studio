@@ -11,7 +11,12 @@ import javafx.scene.Node;
  */
 public final class ReadOnlyDecorator implements BlockDecorator {
 
-    static final PseudoClass READ_ONLY = PseudoClass.getPseudoClass("read-only");
+    /**
+     * The single source of the {@code :read-only} pseudo-class name. Public because the component schema
+     * ({@code core/component}) marks an individual locked component with the same pseudo-class rather than
+     * inventing a second one — a block can be editable while one of its fields is not.
+     */
+    public static final PseudoClass READ_ONLY = PseudoClass.getPseudoClass("read-only");
 
     @Override
     public void decorate(Node node, AbstractCodeBlock block, CodeEditorService context) {

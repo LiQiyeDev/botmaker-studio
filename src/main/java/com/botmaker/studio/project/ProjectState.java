@@ -1,6 +1,7 @@
 package com.botmaker.studio.project;
 
 import com.botmaker.studio.core.CodeBlock;
+import com.botmaker.studio.core.component.Audience;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.jdt.core.dom.CompilationUnit;
@@ -306,4 +307,18 @@ public class ProjectState {
 
     public boolean isReaderMode() { return readerMode; }
     public void setReaderMode(boolean readerMode) { this.readerMode = readerMode; }
+
+    /**
+     * Who the canvas is drawn for. Defaults to {@link Audience#EDITOR} so a project someone authored looks
+     * exactly as it did before the component schema existed.
+     */
+    private Audience audience = Audience.EDITOR;
+
+    /**
+     * The audience to render at. Reader mode forces {@link Audience#USER}: someone reading a bot they did not
+     * write is by definition not its editor, so the two settings cannot contradict each other.
+     */
+    public Audience getAudience() { return readerMode ? Audience.USER : audience; }
+
+    public void setAudience(Audience audience) { this.audience = audience == null ? Audience.EDITOR : audience; }
 }
