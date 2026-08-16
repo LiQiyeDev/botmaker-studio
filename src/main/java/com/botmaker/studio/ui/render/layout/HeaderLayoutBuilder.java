@@ -1,6 +1,5 @@
 package com.botmaker.studio.ui.render.layout;
 
-import com.botmaker.studio.ui.dnd.DropZoneFactory;
 import com.botmaker.studio.services.CodeEditorService;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -31,18 +30,6 @@ public class HeaderLayoutBuilder {
 
     public HeaderLayoutBuilder withLabel(String text) {
         leftContent.add(new Label(text));
-        return this;
-    }
-
-    public HeaderLayoutBuilder withExpressionSlot(
-            com.botmaker.studio.core.ExpressionBlock expr,
-            CodeEditorService context,
-            String targetType) {
-        if (expr != null) {
-            leftContent.add(expr.getUINode(context));
-        } else {
-            leftContent.add(createDropZone(context));
-        }
         return this;
     }
 
@@ -144,10 +131,4 @@ public class HeaderLayoutBuilder {
 
     // ===== HELPER METHODS =====
 
-    /**
-     * Creates a drop zone for expressions with drag-and-drop support
-     */
-    private Node createDropZone(CodeEditorService context) {
-        return DropZoneFactory.createExpressionDropZone(context);
-    }
 }

@@ -2,6 +2,7 @@ package com.botmaker.studio.blocks.flow;
 
 import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.project.LockResolver;
+import com.botmaker.studio.project.activity.FlowEdge;
 import com.botmaker.studio.ui.render.menu.ExpressionMenu;
 
 import com.botmaker.studio.core.AbstractStatementBlock;
@@ -97,12 +98,20 @@ public class ReturnBlock extends AbstractStatementBlock {
         return LockResolver.forActiveFile(context.getConfig(), context.getState()).isPinnedReturn(this.astNode);
     }
 
-    /** The pinned return: {@code return} + the current outcome + an outcome-only picker; no delete/move. */
+    /**
+     * The pinned return: {@code return} + the current outcome + an outcome-only picker; no delete/move.
+     *
+     * <p>Outcomes are labelled through {@link FlowEdge#outcomeLabelWithConstant} rather than by their raw
+     * constant, so the implicit one reads as the "then" it is called on the flow canvas and in the activity
+     * dialog. It was the bare {@code NEXT} here and nowhere else, which is what made the same outcome look
+     * like two different things depending on which editor the user was in. The <em>value</em> written to the
+     * source is still the constant — only the label changes.
+     */
     private Node buildPinnedOutcomeReturn(CodeEditorService context) {
-        MenuButton picker = new MenuButton(currentOutcome());
+        MenuButton picker = new MenuButton(FlowEdge.outcomeLabelWithConstant(currentOutcome()));
         picker.getStyleClass().add("outcome-picker");
         for (String outcome : outcomeConstants()) {
-            MenuItem item = new MenuItem(outcome);
+            MenuItem item = new MenuItem(FlowEdge.outcomeLabelWithConstant(outcome));
             item.setOnAction(e -> context.getCodeEditor()
                     .replaceWithEnumConstant((Expression) expression.getAstNode(), OUTCOME_ENUM, outcome));
             picker.getItems().add(item);

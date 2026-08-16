@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-16 — expression slots accept drops, comments stay readable when locked, and one outcome reads the
+  same way everywhere (`ui/dnd/BlockDragAndDropManager`, `parser/CodeEditor`, `css/blocks.css`,
+  `project/activity/FlowEdge`).** Three defects with one theme: an affordance that existed but did nothing.
+  (1) *No* expression slot accepted anything — `addExpressionDropHandlers` took only palette drops and then
+  published no event, so the drop silently vanished. Slots now take an SDK facade call from the palette or an
+  existing expression statement (which *moves*, leaving no orphan line), type-checked during drag-over via the
+  new `TypeExpectation.fits`, routed through `ExpressionDropRequestedEvent` → `CodeEditor.fillSlotFromPalette` /
+  `moveExpressionIntoSlot`. (2) A locked comment's fixed amber card washed to near-black-on-grey under the
+  `*:read-only` treatment; the comment card is now three per-theme tokens with `:read-only` and `.reader-mode`
+  rules like every other surface. (3) `NEXT` was spelled "then", "then  (NEXT)" and `NEXT` in three editors —
+  `FlowEdge.outcomeLabel`/`outcomeLabelWithConstant` now own both forms. Dead `DropZoneFactory` and the two
+  unused `createDropZone` helpers removed with their inline styles.
+
 - **2026-08-16 — archiving an activity actually retires it, and the file explorer stops offering delete
   (`services/ActivityService`, `project/activity/ActivitiesConfig`, `ui/app/FileExplorerManager`).** Archiving
   used to be a mute: the activity left the canvas and the registry, but its enable flag, its params and its

@@ -32,6 +32,14 @@
     -bm-cat-game: #16a085;
     -bm-cat-utility: #7f8c8d;
 
+    /* A comment card. Not a BlockCategory (a comment has no category — CommentBlock reports UTILITY only so
+       the gutter has something), but it is painted like one, so it needs the same three tokens per theme.
+       They used to be three hex literals in the .comment-block rules, which is why a comment stayed a light
+       amber sticky note on a dark canvas, and why a *locked* one washed to near-black on grey. */
+    -bm-cat-comment: #d6c26a;
+    -bm-fill-comment: #fff8e1;
+    -bm-on-fill-comment: #1a1a1a;
+
     /*
      * The block *surface* — what a whole block is filled with — kept separate from the accent above, because
      * the two want opposite things in a dark theme. The accent has to stay bright (it is a 1px border, a
@@ -822,12 +830,15 @@
  * wrapping note that is read-only until the ✎ button opens it. See CommentBlock for the swap logic.
  */
 .comment-block {
-    -fx-background-color: #fff8e1;
+    -fx-background-color: -bm-fill-comment;
     -fx-background-radius: 6;
-    -fx-border-color: #f0e0a8;
+    -fx-border-color: -bm-cat-comment;
     -fx-border-radius: 6;
     -fx-border-width: 1;
     -fx-padding: 5 8 5 8;
+    /* Same rule the filled .category-* selectors follow: paint a surface, re-point the on-colour in the same
+       breath, or every descendant label keeps the canvas's foreground and lands unreadable on it. */
+    -bm-text-on-color: -bm-on-fill-comment;
 }
 .comment-icon {
     -fx-font-size: 12px;
@@ -835,7 +846,7 @@
 }
 .comment-view {
     -fx-font-style: italic;
-    -fx-text-fill: #7a6a2e;
+    -fx-text-fill: -bm-on-fill-comment;
     -fx-font-size: 12px;
 }
 .comment-edit-area {
@@ -844,7 +855,7 @@
 }
 .comment-edit-button {
     -fx-background-color: transparent;
-    -fx-text-fill: #7a6a2e;
+    -fx-text-fill: -bm-on-fill-comment;
     -fx-font-size: 11px;
     -fx-padding: 1 5 1 5;
     -fx-cursor: hand;
@@ -852,6 +863,39 @@
 .comment-edit-button:hover {
     -fx-background-color: rgba(0,0,0,0.06);
     -fx-background-radius: 4;
+}
+
+/*
+ * A comment in a LOCKED file. The *:read-only wash above (0.75 opacity) fades whatever is under it toward the
+ * canvas, and the card's own fill went with it — a pale amber note over a dark canvas landed as near-black
+ * text on grey, which is the "some comments are impossible to read" report. Documentation in a file you
+ * cannot edit is exactly when it most needs reading, so a locked comment drops the card and becomes plain
+ * quiet text: -fx-text-background-color is the theme's own foreground, so it is correct on either canvas
+ * without a per-theme token (the same reasoning as .menu-icon and .ui-caption).
+ *
+ * Both selectors are needed because the pseudo-class is set on the block's *root* node, which is the
+ * .comment-block itself for a top-level comment and an ancestor for one inside a locked method body.
+ */
+.comment-block:read-only,
+*:read-only .comment-block {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+}
+.comment-view:read-only,
+*:read-only .comment-view {
+    -fx-text-fill: -fx-text-background-color;
+}
+
+/* Reader mode undoes the wash for every other block (see the .category-* rules above); the comment card was
+   the one surface that had no such rule, so it stayed stripped while the blocks around it came back. */
+.reader-mode .comment-block:read-only,
+.reader-mode *:read-only .comment-block {
+    -fx-background-color: -bm-fill-comment;
+    -fx-border-color: -bm-cat-comment;
+}
+.reader-mode .comment-view:read-only,
+.reader-mode *:read-only .comment-view {
+    -fx-text-fill: -bm-on-fill-comment;
 }
 
 /* A locked stand-in for a control (MethodInvocationBlock.staticValueLabel, read-only name fields). */
@@ -903,6 +947,42 @@
     -fx-background-insets: 5 0 5 0;
     -fx-background-radius: 2;
     -fx-opacity: 0.55;
+}
+
+/*
+ * An EMPTY expression slot — the dashed well a block draws where it has no expression yet. Styled here rather
+ * than with the inline -fx-background-color it used to carry, which beat the stylesheet in every theme and so
+ * stayed light grey on a dark canvas. It takes no drops: every fill path rewrites an existing expression node,
+ * and an empty slot has none to name (see BlockDragAndDropManager.markEmptyExpressionSlot).
+ */
+.expression-drop-zone {
+    -fx-background-color: -bm-locked-fill;
+    -fx-background-radius: 4;
+    -fx-border-color: -bm-divider;
+    -fx-border-radius: 4;
+    -fx-border-style: dashed;
+    -fx-border-width: 1;
+}
+
+/*
+ * A FILLED expression slot under a drag. The three rules above fill the whole node, which is right for a
+ * separator (a 12px gap that becomes an insertion bar) and wrong for a slot — it would paint over the very
+ * expression the user is aiming at. So a slot outlines instead. Class + pseudo-class beats the bare `*`, so
+ * these win without !important.
+ */
+.expression-drop-target:drag-over-copy,
+.expression-drop-target:drag-over-move {
+    -fx-border-color: -bm-primary;
+    -fx-border-width: 2;
+    -fx-border-radius: 4;
+    -fx-background-color: transparent;
+}
+.expression-drop-target:drag-over-illegal {
+    -fx-border-color: -bm-danger;
+    -fx-border-width: 2;
+    -fx-border-radius: 4;
+    -fx-background-color: transparent;
+    -fx-opacity: 1.0;
 }
 
 /*
@@ -1555,6 +1635,11 @@
     -bm-cat-game: #19a883;
     -bm-cat-utility: #95a5a6;
 
+    /* Comment card — the amber at 22% lightness, matching the block surfaces above. White scores 9.7. */
+    -bm-cat-comment: #f5b041;
+    -bm-fill-comment: #4a3f14;
+    -bm-on-fill-comment: #ffffff;
+
     /* Block surfaces — the same ten hues at 22% lightness. The accents above stay bright because they are
        now only ever a 1px border, a badge or a header; the *fill* is what a whole block is painted with, and
        a saturated fill on a dark canvas is what read as "the dark theme isn't applied to the blocks". White
@@ -1649,6 +1734,11 @@
     -bm-cat-game: #009688;
     -bm-cat-utility: #b0bec5;
 
+    /* Comment card — as .dark-theme, one step deeper (16% lightness). */
+    -bm-cat-comment: #ffc107;
+    -bm-fill-comment: #3a3006;
+    -bm-on-fill-comment: #ffffff;
+
     /* Block surfaces — as .dark-theme, one step deeper (16% lightness) to sit on a pure-black canvas. */
     -bm-fill-output: #042d4d;
     -bm-fill-input: #3b0f43;
@@ -1736,6 +1826,11 @@
     -bm-cat-vision: #00ffff;
     -bm-cat-game: #00ff80;
     -bm-cat-utility: #ffffff;
+
+    /* Comment card — fill == accent here as everywhere in this theme, so near-black on saturated yellow. */
+    -bm-cat-comment: #ffff00;
+    -bm-fill-comment: #ffff00;
+    -bm-on-fill-comment: #1a1a1a;
 
     /* Block surfaces. High contrast is the one dark theme that keeps the *saturated* fill: dimming it to 22%
        lightness is exactly the contrast this theme exists to refuse. Fill == accent here, as in :root. */

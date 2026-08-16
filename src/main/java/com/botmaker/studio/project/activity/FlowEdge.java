@@ -55,6 +55,29 @@ public record FlowEdge(String from, String to, String outcome) {
         return outcome.isBlank() || NEXT_OUTCOME.equals(outcome);
     }
 
+    /**
+     * How an outcome is written for the user where space is tight — a port chip, a tooltip. The implicit
+     * outcome reads "then" (what the wire means), a declared one is its own name.
+     *
+     * <p>Here rather than in each view for the usual reason: three places had hand-spelled it and they had
+     * drifted into three different forms of the same outcome — {@code "then"} on a flow port,
+     * {@code "then  (NEXT)"} in the new-activity dialog, and the bare constant {@code NEXT} in the return
+     * block's picker, so the same thing read differently depending on which editor you were in.
+     */
+    public static String outcomeLabel(String outcome) {
+        return outcome == null || outcome.isBlank() || NEXT_OUTCOME.equals(outcome) ? "then" : outcome;
+    }
+
+    /**
+     * {@link #outcomeLabel} plus the generated constant, for a menu entry or a form row — anywhere the user is
+     * choosing an outcome and the name that will appear in their Java is worth showing. A declared outcome is
+     * already its own constant, so only the implicit one gains the suffix.
+     */
+    public static String outcomeLabelWithConstant(String outcome) {
+        String label = outcomeLabel(outcome);
+        return "then".equals(label) ? label + " (" + NEXT_OUTCOME + ")" : label;
+    }
+
     /** The same wire re-pointed at {@code newFrom}/{@code newTo} — used when a node is renamed. */
     public FlowEdge rewired(String newFrom, String newTo) {
         return new FlowEdge(newFrom, newTo, outcome);

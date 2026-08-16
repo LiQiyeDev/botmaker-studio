@@ -918,7 +918,7 @@ public final class FlowCanvas extends StackPane {
                 Circle circle = port("#4a7ebb");
                 installPortHandlers(circle, outcome);
                 outPorts.put(outcome, circle);
-                Label label = new Label(FlowEdge.NEXT_OUTCOME.equals(outcome) ? "then" : outcome);
+                Label label = new Label(FlowEdge.outcomeLabel(outcome));
                 label.setStyle("-fx-font-size: 9px; -fx-text-fill: #666;");
                 HBox row = new HBox(3, label, circle);
                 row.setAlignment(Pos.CENTER_RIGHT);

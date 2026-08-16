@@ -158,7 +158,7 @@ public final class NewActivityDialog {
     private void rebuildOutcomeRows() {
         outcomeRows.getChildren().clear();
 
-        Label next = new Label("then  (" + FlowEdge.NEXT_OUTCOME + ")");
+        Label next = new Label(FlowEdge.outcomeLabelWithConstant(FlowEdge.NEXT_OUTCOME));
         next.setStyle("-fx-text-fill: #666;");
         Label always = new Label("always present");
         always.setStyle("-fx-font-size: 10px; -fx-text-fill: gray;");

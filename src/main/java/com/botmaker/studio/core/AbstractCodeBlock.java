@@ -177,7 +177,7 @@ public abstract class AbstractCodeBlock implements CodeBlock {
             return lbl;
         }
         Region dropZone = new Region();
-        context.getDragAndDropManager().addExpressionDropHandlers(dropZone);
+        context.getDragAndDropManager().markEmptyExpressionSlot(dropZone);
         return dropZone;
     }
 

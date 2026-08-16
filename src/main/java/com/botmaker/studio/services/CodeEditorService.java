@@ -19,6 +19,7 @@ import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.palette.SdkDocs;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
 import com.botmaker.studio.ui.dnd.DropInfo;
+import com.botmaker.studio.ui.dnd.ExpressionDropInfo;
 import com.botmaker.studio.ui.dnd.MoveBlockInfo;
 import com.botmaker.studio.core.BlockWithChildren;
 import com.botmaker.studio.validation.DiagnosticsManager;
@@ -27,6 +28,8 @@ import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
 import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.jdt.core.dom.BodyDeclaration;
+import org.eclipse.jdt.core.dom.Expression;
+import org.eclipse.jdt.core.dom.ExpressionStatement;
 import org.eclipse.jdt.core.dom.TypeDeclaration;
 
 import java.nio.file.Files;
@@ -111,6 +114,7 @@ public class CodeEditorService {
 
         eventBus.subscribe(CoreApplicationEvents.BlockDropRequestedEvent.class, e -> handleBlockDrop(e.info()), false);
         eventBus.subscribe(CoreApplicationEvents.BlockMoveRequestedEvent.class, e -> handleBlockMove(e.info()), false);
+        eventBus.subscribe(CoreApplicationEvents.ExpressionDropRequestedEvent.class, e -> handleExpressionDrop(e.info()), false);
 
         // Debug/trace Follow: DebuggingService publishes BlockHighlightEvent as the program advances (and to
         // clear on stop). Apply it to ProjectState so the executing/paused block is highlighted live.
@@ -169,6 +173,35 @@ public class CodeEditorService {
                 codeEditor.moveBodyDeclaration(decl, (TypeDeclaration) info.targetClass().getAstNode(), info.insertionIndex());
             }
         }
+    }
+
+    /**
+     * Resolves a drop onto an expression slot into the matching {@code CodeEditor} call. The drag layer knows
+     * only ids; the AST nodes they name live here, which is the same split {@link #handleBlockMove} makes.
+     */
+    private void handleExpressionDrop(ExpressionDropInfo info) {
+        CodeBlock target = findBlockById(info.targetBlockId());
+        if (target == null || !(target.getAstNode() instanceof Expression slot)) return;
+
+        if (info.paletteType() != null) {
+            codeEditor.fillSlotFromPalette(slot, info.paletteType());
+            return;
+        }
+        CodeBlock source = findBlockById(info.sourceBlockId());
+        if (source == null || !(source.getAstNode() instanceof ExpressionStatement stmt)) return;
+        // Dropping a statement into a slot inside itself would delete the statement and leave the slot
+        // referring to a node that no longer exists. Nothing upstream can see this — drag-over has ids, not
+        // ancestry — so the refusal has to be here.
+        if (encloses(stmt, slot)) return;
+        codeEditor.moveExpressionIntoSlot(slot, stmt);
+    }
+
+    /** Whether {@code ancestor} contains {@code node} — including being it. */
+    private static boolean encloses(ASTNode ancestor, ASTNode node) {
+        for (ASTNode cur = node; cur != null; cur = cur.getParent()) {
+            if (cur == ancestor) return true;
+        }
+        return false;
     }
 
     private CodeBlock findBlockById(String id) {

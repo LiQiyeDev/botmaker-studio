@@ -10,8 +10,13 @@ import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.CodeBlock;
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
+import com.botmaker.studio.types.ResolvedType;
+import com.botmaker.studio.types.TypeExpectation;
 import com.botmaker.studio.ui.render.theme.BlockTheme;
 import com.botmaker.studio.ui.render.theme.StyleBuilder;
+import org.eclipse.jdt.core.dom.ASTNode;
+import org.eclipse.jdt.core.dom.ExpressionStatement;
+import org.eclipse.jdt.core.dom.ITypeBinding;
 import javafx.css.PseudoClass;
 import javafx.event.EventTarget;
 import javafx.scene.Node;
@@ -47,6 +52,17 @@ public class BlockDragAndDropManager {
      * an existing-block move the id is all the other format carries, and the AST node it names lives service-side.
      */
     public static final DataFormat JUMP_KIND_FORMAT = new DataFormat("application/x-java-jump-kind");
+
+    /**
+     * The qualified type of the value a dragged statement <em>evaluates to</em>, when it is an expression
+     * statement — so an expression slot can refuse a drop during drag-over rather than after it.
+     *
+     * <p>Carried on the dragboard for the same reason {@link #JUMP_KIND_FORMAT} is: drag-over has only the
+     * block id, and the binding that answers this lives on the AST node the id names, service-side. Absent
+     * whenever the type doesn't resolve — and absent is read as unknown, which
+     * {@link com.botmaker.studio.types.TypeExpectation#fits} accepts, so an unresolved file keeps working.
+     */
+    public static final DataFormat EXPRESSION_TYPE_FORMAT = new DataFormat("application/x-java-expression-type");
 
     // Drag-over feedback is driven by pseudo-classes (styled in blocks.css), not inline -fx-style strings,
     // consistent with the :highlighted / :error / :breakpoint approach in AbstractCodeBlock.
@@ -94,6 +110,7 @@ public class BlockDragAndDropManager {
             ClipboardContent content = new ClipboardContent();
             content.put(EXISTING_BLOCK_FORMAT, block.getId());
             putJumpKind(content, StatementPlacement.jumpOf(block.getAstNode()));
+            putExpressionType(content, block.getAstNode());
             db.setContent(content);
             node.setOpacity(0.5);
             event.consume();
@@ -115,6 +132,18 @@ public class BlockDragAndDropManager {
 
     private static void putJumpKind(ClipboardContent content, StatementPlacement.Jump jump) {
         if (jump != null) content.put(JUMP_KIND_FORMAT, jump.name());
+    }
+
+    /**
+     * Advertises the value an expression statement produces, so it can be dropped into a slot expecting that
+     * type. Only {@code ExpressionStatement} qualifies: it is the one statement shape that <em>is</em> an
+     * expression wearing a semicolon, so moving it into a slot loses nothing.
+     */
+    private static void putExpressionType(ClipboardContent content, ASTNode node) {
+        if (!(node instanceof ExpressionStatement stmt)) return;
+        ITypeBinding binding = stmt.getExpression().resolveTypeBinding();
+        if (binding == null) return;
+        content.put(EXPRESSION_TYPE_FORMAT, ResolvedType.of(binding).qualifiedName());
     }
 
     // --- Drag-over feedback helpers ---
@@ -486,26 +515,91 @@ public class BlockDragAndDropManager {
         });
     }
 
-    public void addExpressionDropHandlers(Region target) {
-        String defaultStyle = "-fx-background-color: #f0f0f0; -fx-border-color: #c0c0c0; -fx-border-style: dashed; -fx-min-width: 50; -fx-min-height: 25;";
-        String hoverStyle = defaultStyle + "-fx-border-color: #007bff;";
-        target.setStyle(defaultStyle);
+    /**
+     * The empty {@code ⟨expression⟩} placeholder, when a slot has no expression to replace. It is styled like a
+     * slot but takes no drops, and that is the honest state rather than a gap: every fill path here rewrites an
+     * <em>existing</em> expression node, and an empty slot has none to name. Use the "+" / change button, which
+     * goes through the expression menu and knows the owning block.
+     */
+    public void markEmptyExpressionSlot(Region target) {
+        target.getStyleClass().add("expression-drop-zone");
+        target.setMinWidth(50);
+        target.setMinHeight(25);
+    }
+
+    /**
+     * Makes a filled expression slot accept a drop, replacing the expression it holds. This is the "drag a
+     * {@code Window.title()} call into a print" path.
+     *
+     * <p>Both dragboard formats are accepted, each narrowed to what can legally become an expression:
+     * <ul>
+     *   <li>a palette {@link BlockType.LibraryCall} — an SDK facade call, whose statement form is only the
+     *       invocation plus a semicolon;</li>
+     *   <li>an existing statement that carries an {@link #EXPRESSION_TYPE_FORMAT}, i.e. one already parsed as an
+     *       expression statement — dropping it <em>moves</em> its expression into the slot.</li>
+     * </ul>
+     * Anything else (an {@code if}, a loop, a declaration) is refused during drag-over, so the cursor says no
+     * before the mouse is released. The previous version accepted every palette drop and then published
+     * nothing, which read as "this slot is broken" — it was, for all of them.
+     *
+     * @param slotType what the slot expects; unresolved slots pass {@link ResolvedType#UNKNOWN} and accept
+     *                 anything, matching how {@link com.botmaker.studio.types.TypeExpectation} filters menus
+     */
+    public void addExpressionDropHandlers(Region target, CodeBlock slot, ResolvedType slotType) {
+        target.getStyleClass().add("expression-drop-target");
+
         target.setOnDragEntered(event -> {
-            if (event.getDragboard().hasContent(ADDABLE_BLOCK_FORMAT)) target.setStyle(hoverStyle);
+            if (carriesExpression(event.getDragboard()))
+                applyDragOver(target, event.getDragboard(), acceptsExpression(event.getDragboard(), slotType));
             event.consume();
         });
+
         target.setOnDragExited(event -> {
-            target.setStyle(defaultStyle);
+            clearDragOver(target);
             event.consume();
         });
+
         target.setOnDragOver(event -> {
-            if (event.getDragboard().hasContent(ADDABLE_BLOCK_FORMAT)) event.acceptTransferModes(TransferMode.COPY);
+            if (acceptsExpression(event.getDragboard(), slotType))
+                event.acceptTransferModes(TransferMode.ANY);
             event.consume();
         });
+
         target.setOnDragDropped(event -> {
-            boolean success = event.getDragboard().hasContent(ADDABLE_BLOCK_FORMAT);
+            clearDragOver(target);
+            boolean success = publishExpressionDrop(event.getDragboard(), slot, slotType);
             event.setDropCompleted(success);
             event.consume();
         });
+    }
+
+    /** Whether the dragboard holds something that could conceivably fill an expression slot. */
+    private static boolean carriesExpression(Dragboard db) {
+        return (db.hasContent(ADDABLE_BLOCK_FORMAT) && blockTypeFrom(db) instanceof BlockType.LibraryCall)
+                || (db.hasContent(EXISTING_BLOCK_FORMAT) && db.hasContent(EXPRESSION_TYPE_FORMAT));
+    }
+
+    /** {@link #carriesExpression}, plus the slot's own type check. */
+    private static boolean acceptsExpression(Dragboard db, ResolvedType slotType) {
+        if (!carriesExpression(db)) return false;
+        Object typeName = db.getContent(EXPRESSION_TYPE_FORMAT);
+        // A palette call carries no type: nothing has resolved its return type yet, and doing so here would
+        // mean running the analyzer on every drag-over. Unknown is accepted, as everywhere else.
+        if (typeName == null) return true;
+        return TypeExpectation.fits(slotType, ResolvedType.named((String) typeName));
+    }
+
+    private boolean publishExpressionDrop(Dragboard db, CodeBlock slot, ResolvedType slotType) {
+        if (slot == null || !acceptsExpression(db, slotType)) return false;
+        ExpressionDropInfo info;
+        if (db.hasContent(ADDABLE_BLOCK_FORMAT)) {
+            BlockType type = blockTypeFrom(db);
+            if (!(type instanceof BlockType.LibraryCall)) return false;
+            info = ExpressionDropInfo.fromPalette(slot.getId(), type);
+        } else {
+            info = ExpressionDropInfo.fromExistingBlock(slot.getId(), (String) db.getContent(EXISTING_BLOCK_FORMAT));
+        }
+        eventBus.publish(new CoreApplicationEvents.ExpressionDropRequestedEvent(info));
+        return true;
     }
 }

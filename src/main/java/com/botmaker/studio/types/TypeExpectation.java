@@ -31,6 +31,25 @@ public enum TypeExpectation {
         };
     }
 
+    /**
+     * Whether a value of {@code actual} may fill a slot declared {@code slotType} — the question a drag over an
+     * expression slot asks, and the reason this lives beside {@link #accepts} rather than in the drag manager:
+     * the answer is pure type reasoning, so it is unit-testable without a scene graph.
+     *
+     * <p>Unknown on either side is accepted, for the same reason {@link #accepts} is fuzzy — a slot on a file
+     * that hasn't resolved yet must not start refusing every drop. Beyond the four categories, {@link #ANY}
+     * means "some object type", where the name is all there is left to compare; the simple name counts because
+     * a slot is routinely declared with the bare identifier a lambda parameter wrote.
+     */
+    public static boolean fits(ResolvedType slotType, ResolvedType actual) {
+        if (slotType == null || slotType.isUnknown()) return true;
+        if (actual == null || actual.isUnknown()) return true;
+        TypeExpectation expected = of(slotType);
+        if (expected != ANY) return expected.accepts(actual);
+        return actual.isAssignmentCompatible(slotType)
+                || slotType.simpleName().equals(actual.simpleName());
+    }
+
     /** The category a concrete type falls into (object/unknown types map to {@link #ANY}). */
     public static TypeExpectation of(ResolvedType type) {
         if (type == null || type.isUnknown()) return ANY;

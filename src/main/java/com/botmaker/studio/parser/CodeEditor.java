@@ -841,6 +841,46 @@ public class CodeEditor {
         edit(fieldDecl, EditKind.SIGNATURE, true, (cu, code) -> setFieldInitializer(ctx(cu), code, fieldDecl, defaultType));
     }
 
+    /**
+     * Fills an expression slot with a palette block dropped onto it — the drag counterpart of picking the same
+     * call from the expression menu.
+     *
+     * <p>The block is built as the statement it normally is and then unwrapped, rather than given a second
+     * expression-shaped factory: a {@link BlockType.LibraryCall}'s statement form is only the invocation plus a
+     * semicolon, so the statement builder already knows the receiver, the default overload and the import. A
+     * block whose statement is not an {@code ExpressionStatement} has no expression to contribute and is left
+     * alone — the drag layer refuses those before they reach here, and this is the second door.
+     */
+    public void fillSlotFromPalette(Expression toReplace, BlockType type) {
+        edit(toReplace, EditKind.BODY, true, (cu, code) -> {
+            EditContext context = ctx(cu);
+            Statement built = NodeCreator.createDefaultStatement(context, type, toReplace);
+            if (!(built instanceof ExpressionStatement stmt)) return code;
+            // copySubtree: the built expression is still parented to the throwaway statement, and a rewrite
+            // may only place a node that belongs to no other tree.
+            context.rewriter().replace(toReplace, ASTNode.copySubtree(cu.getAST(), stmt.getExpression()), null);
+            return AstRewriteHelper.applyRewrite(context.rewriter(), code);
+        });
+    }
+
+    /**
+     * Moves an existing statement's value into an expression slot: the slot takes the expression, and the
+     * statement it came from is removed. Dropping {@code Window.title();} onto a print's argument leaves
+     * {@code print(Window.title())} and no orphan line.
+     *
+     * <p>A move, not a copy, because the alternative is worse in both directions: leaving the statement behind
+     * duplicates a call the user dragged away, and an expression statement whose value is now consumed
+     * elsewhere is exactly the dead line they were trying to get rid of.
+     */
+    public void moveExpressionIntoSlot(Expression toReplace, ExpressionStatement source) {
+        edit(toReplace, EditKind.BODY, true, (cu, code) -> {
+            ASTRewrite rewriter = ASTRewrite.create(cu.getAST());
+            rewriter.replace(toReplace, ASTNode.copySubtree(cu.getAST(), source.getExpression()), null);
+            rewriter.remove(source, null);
+            return AstRewriteHelper.applyRewrite(rewriter, code);
+        });
+    }
+
     public void replaceExpression(Expression toReplace, ExpressionType type) {
         edit(toReplace, EditKind.BODY, true, (cu, code) -> replaceExpression(cu, code, toReplace, type, analyzer));
     }

@@ -1,6 +1,5 @@
 package com.botmaker.studio.ui.render.layout;
 
-import com.botmaker.studio.ui.dnd.DropZoneFactory;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.ui.render.components.SelectorComponents;
 import javafx.geometry.Pos;
@@ -66,7 +65,9 @@ public class SentenceLayoutBuilder {
             // slots — so e.g. the whileFind/ifFind image slot is fillable, not just a raw expression node.
             Node picker = com.botmaker.studio.ui.render.components.pickers.PickerRegistry.pickerNodeFor(
                     com.botmaker.studio.ui.render.components.pickers.PickerContext.of(context, expression, expectedType));
-            nodes.add(picker != null ? picker : expression.getUINode(context));
+            Node slotNode = picker != null ? picker : expression.getUINode(context);
+            makeDroppable(slotNode, expression, context, expectedType);
+            nodes.add(slotNode);
         } else {
             javafx.scene.control.Label placeholder = new javafx.scene.control.Label("⟨expression⟩");
             placeholder.getStyleClass().add("block-placeholder");
@@ -108,7 +109,20 @@ public class SentenceLayoutBuilder {
         return container;
     }
 
-    private Node createDropZone(CodeEditorService context) {
-        return DropZoneFactory.createExpressionDropZone(context);
+    /**
+     * Lets an expression slot receive a dropped block. This is the single place every slot in the editor is
+     * built — {@code if}/{@code while} conditions, call arguments, print's argument — so wiring it here is what
+     * makes "drag it into the slot" mean the same thing everywhere instead of per-block.
+     *
+     * <p>Read-only slots are left alone: a locked block offers no interaction at all, the same rule
+     * {@code AbstractCodeBlock.createChangeButton} follows by returning null.
+     */
+    private static void makeDroppable(Node slotNode, com.botmaker.studio.core.ExpressionBlock expression,
+                                      CodeEditorService context,
+                                      com.botmaker.studio.types.ResolvedType expectedType) {
+        if (!(slotNode instanceof javafx.scene.layout.Region region)) return;
+        if (context == null || context.getDragAndDropManager() == null) return;
+        if (expression.isReadOnly()) return;
+        context.getDragAndDropManager().addExpressionDropHandlers(region, expression, expectedType);
     }
 }

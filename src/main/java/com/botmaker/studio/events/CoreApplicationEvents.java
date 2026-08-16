@@ -5,6 +5,7 @@ import com.botmaker.studio.core.CodeBlock;
 import com.botmaker.studio.project.UserLibrary;
 import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.ui.dnd.DropInfo;
+import com.botmaker.studio.ui.dnd.ExpressionDropInfo;
 import com.botmaker.studio.ui.dnd.MoveBlockInfo;
 import org.eclipse.lsp4j.Diagnostic;
 
@@ -31,6 +32,8 @@ public class CoreApplicationEvents {
     public record BlockDropRequestedEvent(DropInfo info) implements ApplicationEvent {}
     /** Published when an existing block is dropped onto a drop zone (reorder/move). */
     public record BlockMoveRequestedEvent(MoveBlockInfo info) implements ApplicationEvent {}
+    /** Published when a block is dropped onto an expression slot (fill the slot, not the body). */
+    public record ExpressionDropRequestedEvent(ExpressionDropInfo info) implements ApplicationEvent {}
 
     public record UIRefreshRequestedEvent(String code) implements ApplicationEvent {}
     public record BlockHighlightEvent(CodeBlock block) implements ApplicationEvent {}
