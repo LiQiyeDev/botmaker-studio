@@ -1,5 +1,6 @@
 package com.botmaker.studio.ui.app;
 
+import com.botmaker.studio.docs.StudioAction;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectCreator;
@@ -225,16 +226,25 @@ final class StudioActions {
                 activityService, remotePilot::liveSessionWindow, startRecording, this::openLaunchTarget);
     }
 
-    /** Opens Help ▸ Getting Started, whose section jump-buttons reuse the actions above. */
+    /**
+     * Opens Help ▸ Getting Started. The dialog owns none of the prose — it renders
+     * {@link com.botmaker.studio.docs.Workflow}, the same source {@code WORKFLOW.md} is generated from — so all
+     * this has to supply is the way to actually open each destination a step names.
+     */
     private void openGettingStarted() {
-        GettingStartedDialog.Actions actions = new GettingStartedDialog.Actions(
-                this::openProjectSetup,
-                this::openManageCaptureTargets,
-                () -> openLaunchTarget(null),
-                this::openOverlayTemplateCapture,
-                this::openResourceManager,
-                remotePilot::open,
-                this::openManageLibraries);
+        GettingStartedDialog.Actions actions = GettingStartedDialog.Actions.builder()
+                .on(StudioAction.PROJECT_SETUP, this::openProjectSetup)
+                .on(StudioAction.CAPTURE_TARGETS, this::openManageCaptureTargets)
+                .on(StudioAction.LAUNCH_TARGET, () -> openLaunchTarget(null))
+                .on(StudioAction.CAPTURE_TEMPLATES, this::openOverlayTemplateCapture)
+                .on(StudioAction.RESOURCES, this::openResourceManager)
+                .on(StudioAction.ACTIVITY_FLOW, this::openActivityFlow)
+                .on(StudioAction.OVERLAY_EDITOR, () -> openOverlayEditor(false))
+                .on(StudioAction.REMOTE_PILOT, remotePilot::open)
+                .on(StudioAction.MANAGE_LIBRARIES, this::openManageLibraries)
+                .on(StudioAction.PUBLISH, this::openPublishDialog)
+                .on(StudioAction.GALLERY, this::openGallery)
+                .build();
         new GettingStartedDialog(primaryStage, actions).show();
     }
 }

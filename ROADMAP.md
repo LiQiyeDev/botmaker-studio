@@ -6,6 +6,15 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-16 — the workflow is written down once and rendered twice (`docs/Workflow`, `docs/WorkflowMarkdown`,
+  `ui/app/GettingStartedDialog`, `WORKFLOW.md`).** How you get from an empty project to a published bot existed
+  only as tribal knowledge: Getting Started listed features, and no file in any repo told the story end to end.
+  `docs/Workflow` is now that story — thirteen steps, each with a typed `StudioAction` destination carrying
+  *both* a button label (for the dialog) and a menu path (for a reader with no button to press). The dialog
+  renders it as a walkthrough with a jump button per step, `WorkflowMarkdown` renders it as the committed
+  `WORKFLOW.md`, and `WorkflowDocTest` fails the build when the two diverge, so the doc cannot rot. The
+  umbrella root gets a signpost `WORKFLOW.md` rather than a second copy of the prose.
+
 - **2026-08-16 — a bot declares what it runs on; the machine running it owns capture
   (`project/launch/SupportedTargets`, `sharing/ProjectArchive`, `sharing/GalleryEntry`, `ui/app/PublishDialog`,
   `ui/app/LaunchTargetDialog`).** The editor picked both the launch target and the capture target, and both
