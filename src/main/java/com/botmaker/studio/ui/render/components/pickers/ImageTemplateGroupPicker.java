@@ -96,18 +96,12 @@ public final class ImageTemplateGroupPicker {
     }
 
     /**
-     * The library, narrowed to what {@code limits} allows. Order follows the library rather than the
-     * restriction so the menu reads the same as everywhere else, and an allowed path the library no longer
-     * holds simply doesn't appear.
+     * Whether {@code file} may be offered under {@code limits}. Used as the filter the shared tag-grouped
+     * menu is built through, so this row's narrowing and the single picker's tag submenus are the same menu
+     * with one predicate between them.
      */
-    private static List<Path> offerable(ProjectConfig config, Restrictions limits) {
-        List<Path> all = ImageTemplateLibrary.list(config);
-        if (limits.allowed() == null) return all;
-        List<Path> narrowed = new ArrayList<>();
-        for (Path file : all) {
-            if (limits.allowed().contains(ImageTemplateLibrary.pathFor(config, file))) narrowed.add(file);
-        }
-        return narrowed;
+    private static boolean isOfferable(ProjectConfig config, Path file, Restrictions limits) {
+        return limits.allowed() == null || limits.allowed().contains(ImageTemplateLibrary.pathFor(config, file));
     }
 
     /** One template chip: thumbnail + name, with a menu to change (from the library) or remove it. */
@@ -123,11 +117,9 @@ public final class ImageTemplateGroupPicker {
 
         button.setOnShowing(e -> {
             button.getItems().clear();
-            for (Path lib : offerable(config, limits)) {
-                MenuItem item = new MenuItem(ImageTemplateLibrary.baseName(lib), ImageTemplatePicker.thumbnail(lib, 18));
-                item.setOnAction(a -> apply.accept(replace(paths, index, ImageTemplateLibrary.pathFor(config, lib))));
-                button.getItems().add(item);
-            }
+            button.getItems().addAll(ImageTemplatePicker.templateMenuItems(config,
+                    lib -> isOfferable(config, lib, limits),
+                    lib -> apply.accept(replace(paths, index, ImageTemplateLibrary.pathFor(config, lib)))));
             if (!button.getItems().isEmpty()) button.getItems().add(new SeparatorMenuItem());
             MenuItem remove = new MenuItem("Remove");
             // Disabled rather than hidden at the floor: the row still shows removal exists, and the tooltip
@@ -154,15 +146,12 @@ public final class ImageTemplateGroupPicker {
         add.getStyleClass().add("image-template-group-add");
         add.setOnShowing(e -> {
             add.getItems().clear();
-            for (Path lib : offerable(config, limits)) {
-                String path = ImageTemplateLibrary.pathFor(config, lib);
-                // Within a closed group, adding a template the row already holds says nothing new — so a
-                // narrowed row offers only what's left. An unrestricted row keeps allowing repeats.
-                if (limits.allowed() != null && paths.contains(path)) continue;
-                MenuItem item = new MenuItem(ImageTemplateLibrary.baseName(lib), ImageTemplatePicker.thumbnail(lib, 18));
-                item.setOnAction(a -> apply.accept(append(paths, path)));
-                add.getItems().add(item);
-            }
+            add.getItems().addAll(ImageTemplatePicker.templateMenuItems(config,
+                    // Within a closed group, adding a template the row already holds says nothing new — so a
+                    // narrowed row offers only what's left. An unrestricted row keeps allowing repeats.
+                    lib -> isOfferable(config, lib, limits)
+                            && !(limits.allowed() != null && paths.contains(ImageTemplateLibrary.pathFor(config, lib))),
+                    lib -> apply.accept(append(paths, ImageTemplateLibrary.pathFor(config, lib)))));
             if (!add.getItems().isEmpty()) add.getItems().add(new SeparatorMenuItem());
             MenuItem openManager = new MenuItem("Open Resource Manager…");
             openManager.setOnAction(a ->

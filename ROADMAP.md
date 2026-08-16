@@ -6,6 +6,16 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-16 — templates organise by tag and travel on their own (`services/TemplateManifest`,
+  `services/ImageTemplateLibrary`, `sharing/TemplateArchive`, `ui/app/ResourceManagerDialog`).** Templates were
+  one flat pile with no grouping and no sharing unit smaller than a whole project. They stay flat on disk —
+  the path is embedded in generated source and a template shared by two activities would otherwise have to be
+  duplicated — and gain a `templates.json` tag manifest rendered as a folder-like tree in the resource manager
+  and as submenus in both template pickers. Rename/delete now go through the library so the manifest can't
+  drift from the files; a "Capture many" batch takes one tag for the lot, pre-filled with the open activity's
+  name. New `.bmtemplates` export/import carries PNGs, resolution sidecars and a manifest slice, never
+  overwrites an existing template (it suffixes and reports) and unions tags on merge.
+
 - **2026-08-16 — expression slots accept drops, comments stay readable when locked, and one outcome reads the
   same way everywhere (`ui/dnd/BlockDragAndDropManager`, `parser/CodeEditor`, `css/blocks.css`,
   `project/activity/FlowEdge`).** Three defects with one theme: an affordance that existed but did nothing.

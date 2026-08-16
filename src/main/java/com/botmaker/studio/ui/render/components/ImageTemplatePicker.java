@@ -10,6 +10,7 @@ import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
+import com.botmaker.studio.services.TemplateManifest;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
@@ -21,6 +22,7 @@ import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
+import javafx.scene.control.Menu;
 import javafx.scene.control.MenuButton;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.SeparatorMenuItem;
@@ -40,6 +42,9 @@ import org.eclipse.jdt.core.dom.StringLiteral;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -70,11 +75,8 @@ public final class ImageTemplatePicker {
 
         button.setOnShowing(e -> {
             button.getItems().clear();
-            for (Path file : ImageTemplateLibrary.list(config)) {
-                MenuItem item = new MenuItem(ImageTemplateLibrary.baseName(file), thumbnail(file, 18));
-                item.setOnAction(a -> applyTemplate(context, templateArg, ImageTemplateLibrary.pathFor(config, file)));
-                button.getItems().add(item);
-            }
+            button.getItems().addAll(templateMenuItems(config,
+                    file -> applyTemplate(context, templateArg, ImageTemplateLibrary.pathFor(config, file))));
             if (!button.getItems().isEmpty()) button.getItems().add(new SeparatorMenuItem());
             MenuItem capture = new MenuItem("Capture new…");
             capture.setOnAction(a -> captureNewTemplate(context, templateArg, button));
@@ -84,6 +86,51 @@ public final class ImageTemplatePicker {
             button.getItems().addAll(capture, openManager);
         });
         return button;
+    }
+
+    /**
+     * The saved templates as menu entries, one submenu per tag — the "folders" the tags stand in for. A
+     * project with no tags at all gets a flat list, exactly as before tags existed, so organisation costs
+     * nothing until it is used; untagged templates in a tagged project sit under
+     * {@link TemplateManifest#UNTAGGED} rather than being hidden or floated to the top level.
+     *
+     * <p>Shared with the group picker so both menus group identically.
+     */
+    public static List<MenuItem> templateMenuItems(ProjectConfig config, java.util.function.Consumer<Path> onPick) {
+        return templateMenuItems(config, file -> true, onPick);
+    }
+
+    /**
+     * As {@link #templateMenuItems(ProjectConfig, java.util.function.Consumer)}, but offering only the
+     * templates {@code filter} accepts — the group picker narrows to what an enclosing
+     * {@code ImageTemplateGroup} allows. A tag left with nothing to show is dropped rather than rendered
+     * empty.
+     */
+    public static List<MenuItem> templateMenuItems(ProjectConfig config, java.util.function.Predicate<Path> filter,
+                                                   java.util.function.Consumer<Path> onPick) {
+        Map<String, List<Path>> byTag = ImageTemplateLibrary.listByTag(config);
+        List<MenuItem> items = new ArrayList<>();
+        boolean flat = byTag.size() <= 1;
+        for (Map.Entry<String, List<Path>> group : byTag.entrySet()) {
+            List<MenuItem> children = new ArrayList<>();
+            for (Path file : group.getValue()) {
+                if (!filter.test(file)) continue;
+                MenuItem item = new MenuItem(ImageTemplateLibrary.baseName(file), thumbnail(file, 18));
+                item.setOnAction(a -> onPick.accept(file));
+                children.add(item);
+            }
+            if (children.isEmpty()) {
+                continue;
+            }
+            if (flat) {
+                items.addAll(children);
+            } else {
+                Menu submenu = new Menu(group.getKey());
+                submenu.getItems().addAll(children);
+                items.add(submenu);
+            }
+        }
+        return items;
     }
 
     /** Reads the current template path from {@code new ImageTemplate("path")}, or null. */
@@ -197,6 +244,10 @@ public final class ImageTemplatePicker {
             }
             if (!name.equalsIgnoreCase(allowExisting) && ImageTemplateLibrary.exists(config, name)) {
                 warn(owner, "A template named \"" + name + "\" already exists. Choose a different name.");
+                continue;
+            }
+            if (ImageTemplateLibrary.isReservedName(name)) {
+                warn(owner, "\"" + name + "\" is reserved for the template tag list. Choose a different name.");
                 continue;
             }
             return Optional.of(name);

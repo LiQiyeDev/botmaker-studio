@@ -3,6 +3,7 @@ package com.botmaker.studio.ui.app.capture;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.ScreenCaptureService;
+import com.botmaker.studio.services.TemplateManifest;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -44,14 +45,31 @@ public final class BatchTemplateNamingDialog {
      */
     public record NamedTemplate(int index, String name, BufferedImage image) {}
 
+    /**
+     * The dialog's whole result: the kept templates and the one tag to file them all under (blank for none).
+     *
+     * <p>The tag rides along rather than being applied here because the templates do not exist yet — the
+     * caller is what saves them, so it is also what tags them, after the save succeeds.
+     */
+    public record Batch(List<NamedTemplate> templates, String tag) {
+
+        static Batch none() {
+            return new Batch(List.of(), "");
+        }
+    }
+
     private record Row(BufferedImage image, TextField name, CheckBox discard) {}
 
     /**
      * Shows the modal naming dialog for {@code crops} and returns the kept, named templates (empty if the
      * user cancelled or discarded them all). Must be called on the FX thread.
+     *
+     * <p>{@code suggestedTag} pre-fills the batch's tag — the open activity's name when the capture started
+     * from one, since that is the grouping the user would otherwise type by hand. It is only a default: the
+     * field is editable and may be cleared.
      */
-    public static List<NamedTemplate> show(Window owner, ProjectConfig config, List<BufferedImage> crops) {
-        Dialog<List<NamedTemplate>> dialog = new Dialog<>();
+    public static Batch show(Window owner, ProjectConfig config, List<BufferedImage> crops, String suggestedTag) {
+        Dialog<Batch> dialog = new Dialog<>();
         if (owner != null) dialog.initOwner(owner);
         dialog.setTitle("Name captured templates");
         dialog.setHeaderText("Name each template, or tick Discard to skip it.");
@@ -73,15 +91,28 @@ public final class BatchTemplateNamingDialog {
         ScrollPane scroll = new ScrollPane(list);
         scroll.setFitToWidth(true);
         scroll.setPrefViewportHeight(Math.min(420, 8 + crops.size() * 88));
-        dialog.getDialogPane().setContent(scroll);
+
+        TextField tagField = new TextField(TemplateManifest.sanitizeTag(suggestedTag));
+        tagField.setPromptText("no tag");
+        HBox tagRow = new HBox(8, new Label("Tag them all as:"), tagField);
+        tagRow.setAlignment(Pos.CENTER_LEFT);
+        tagRow.setPadding(new Insets(4, 12, 0, 12));
+        HBox.setHgrow(tagField, javafx.scene.layout.Priority.ALWAYS);
+
+        VBox pane = new VBox(8, scroll, tagRow);
+        dialog.getDialogPane().setContent(pane);
 
         // Intercept "Save all" so validation failures keep the dialog open instead of closing it.
         dialog.getDialogPane().lookupButton(saveAll).addEventFilter(javafx.event.ActionEvent.ACTION, e -> {
             if (validate(owner, config, rows) == null) e.consume();
         });
 
-        dialog.setResultConverter(bt -> bt == saveAll ? validate(owner, config, rows) : List.of());
-        return dialog.showAndWait().orElse(List.of());
+        dialog.setResultConverter(bt -> {
+            if (bt != saveAll) return Batch.none();
+            List<NamedTemplate> kept = validate(owner, config, rows);
+            return kept == null ? Batch.none() : new Batch(kept, TemplateManifest.sanitizeTag(tagField.getText()));
+        });
+        return dialog.showAndWait().orElse(Batch.none());
     }
 
     private static HBox buildRow(int index, Row row) {
@@ -126,6 +157,9 @@ public final class BatchTemplateNamingDialog {
             }
             if (ImageTemplateLibrary.exists(config, name)) {
                 return fail(owner, "Row " + (i + 1) + ": a template named \"" + name + "\" already exists.");
+            }
+            if (ImageTemplateLibrary.isReservedName(name)) {
+                return fail(owner, "Row " + (i + 1) + ": \"" + name + "\" is reserved — choose another name.");
             }
             seen.add(lower);
             kept.add(new NamedTemplate(i, name, row.image()));

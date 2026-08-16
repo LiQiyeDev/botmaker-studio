@@ -81,15 +81,24 @@ public final class OverlayTemplateCapture {
      *  Only used for a window target — a screen/desktop is never resized. */
     private StudioProjectSettings.Resolution referenceResolution;
 
+    /**
+     * The tag a "Capture many" batch is pre-filled with — the activity that was open when the overlay was
+     * opened, or null. Fixed at open time on purpose: the overlay is long-lived and deliberately keeps the
+     * editor out of the way, so a tag that changed underneath the user mid-session would be a worse default
+     * than the one they started from.
+     */
+    private final String suggestedTag;
+
     private OverlayTemplateCapture(Window owner, ProjectConfig config, ScreenCaptureService capture,
                                    ProjectSettingsService settings, EventBus eventBus,
-                                   CaptureTarget target) {
+                                   CaptureTarget target, String suggestedTag) {
         this.owner = owner;
         this.config = config;
         this.capture = capture;
         this.settings = settings;
         this.eventBus = eventBus;
         this.target = target;
+        this.suggestedTag = suggestedTag;
     }
 
     /**
@@ -97,7 +106,7 @@ public final class OverlayTemplateCapture {
      * else) when the default target isn't a window, or the window can't be found. Must be called on the FX thread.
      */
     public static void open(Window owner, ProjectConfig config, ProjectSettingsService settings,
-                            ScreenCaptureService capture, EventBus eventBus) {
+                            ScreenCaptureService capture, EventBus eventBus, String suggestedTag) {
         CaptureTarget target = null;
         try {
             target = settings.defaultTarget();
@@ -114,7 +123,7 @@ public final class OverlayTemplateCapture {
             active.toolbarStage.toFront();
             return;
         }
-        new OverlayTemplateCapture(owner, config, capture, settings, eventBus, target).start();
+        new OverlayTemplateCapture(owner, config, capture, settings, eventBus, target, suggestedTag).start();
     }
 
     private void start() {
@@ -269,14 +278,16 @@ public final class OverlayTemplateCapture {
                     if (c != null) crops.add(c);
                 }
                 if (crops.isEmpty()) return;
-                List<NamedTemplate> kept = BatchTemplateNamingDialog.show(owner, config, crops);
-                int saved = 0;
-                for (NamedTemplate t : kept) {
+                BatchTemplateNamingDialog.Batch batch =
+                        BatchTemplateNamingDialog.show(owner, config, crops, suggestedTag);
+                List<String> saved = new ArrayList<>();
+                for (NamedTemplate t : batch.templates()) {
                     ImageTemplateLibrary.saveTemplate(config, t.image(), t.name(),
                             full.getWidth(), full.getHeight(), windowTitleOrNull());
-                    saved++;
+                    saved.add(t.name());
                 }
-                if (saved > 0) eventBus.publish(new ResourcesChangedEvent());
+                ImageTemplateLibrary.tagAll(config, saved, batch.tag());
+                if (!saved.isEmpty()) eventBus.publish(new ResourcesChangedEvent());
             } catch (Exception ex) {
                 warn(owner, "Failed to save templates: " + ex.getMessage());
             } finally {

@@ -1,6 +1,7 @@
 package com.botmaker.studio.services;
 
 import com.botmaker.studio.project.ProjectConfig;
+import com.botmaker.studio.project.ProjectState;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import javax.imageio.ImageIO;
@@ -8,10 +9,15 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Stream;
 
 /**
@@ -61,6 +67,16 @@ public final class ImageTemplateLibrary {
      */
     public static String sanitizeName(String raw) {
         return raw == null ? "" : raw.trim().replaceAll("[^A-Za-z0-9_-]", "_");
+    }
+
+    /**
+     * Whether {@code baseName} would collide with a file the library owns rather than a template — today the
+     * one name whose {@code <name>.json} sidecar <em>is</em> {@link TemplateManifest#FILE_NAME}. Checked by
+     * every naming path alongside {@link #exists}: saving a template called "templates" would otherwise
+     * overwrite the tag manifest with a resolution sidecar.
+     */
+    public static boolean isReservedName(String baseName) {
+        return baseName != null && TemplateManifest.FILE_NAME.equalsIgnoreCase(baseName + ".json");
     }
 
     /** All saved template PNGs, sorted by file name. */
@@ -134,5 +150,86 @@ public final class ImageTemplateLibrary {
                 Math.max(0, captureWidth), Math.max(0, captureHeight), targetTitle, Instant.now().toString());
         MAPPER.writerWithDefaultPrettyPrinter().writeValue(sidecarFor(png).toFile(), meta);
         return pathFor(config, png);
+    }
+
+    // ── Tags ────────────────────────────────────────────────────────────────────────────────────────────
+    //
+    // The manifest is read from disk on every call rather than cached. Templates are captured by an overlay,
+    // a batch dialog and the resource manager, and imported by an archive — a cache here would be a fifth
+    // thing to invalidate, for a file of a few hundred bytes read only when a menu opens.
+
+    /** The project's tag manifest, or an empty one when it has none. */
+    public static TemplateManifest manifest(ProjectConfig config) {
+        return TemplateManifest.read(config.imagesRoot());
+    }
+
+    /** Persists {@code manifest} for the project; best-effort — a failure loses tags, never templates. */
+    public static void saveManifest(ProjectConfig config, TemplateManifest manifest) {
+        try {
+            manifest.write(config.imagesRoot());
+        } catch (IOException e) {
+            System.err.println("Failed to save template tags: " + e.getMessage());
+        }
+    }
+
+    /**
+     * The saved templates grouped as {@code tag → files}, with untagged ones under
+     * {@link TemplateManifest#UNTAGGED} — what the picker and the resource manager render as a folder tree.
+     * A template carrying two tags appears under both; there is only ever one file.
+     */
+    public static Map<String, List<Path>> listByTag(ProjectConfig config) {
+        List<Path> files = list(config);
+        Map<String, Path> byName = new LinkedHashMap<>();
+        for (Path file : files) byName.put(baseName(file), file);
+
+        Map<String, List<Path>> grouped = new LinkedHashMap<>();
+        manifest(config).byTag(byName.keySet()).forEach((tag, names) ->
+                grouped.put(tag, names.stream().map(byName::get).filter(Objects::nonNull).toList()));
+        return grouped;
+    }
+
+    /** Adds {@code tag} to every template in {@code baseNames} and saves. */
+    public static void tagAll(ProjectConfig config, Collection<String> baseNames, String tag) {
+        if (tag == null || tag.isBlank() || baseNames.isEmpty()) return;
+        saveManifest(config, manifest(config).tagged(baseNames, tag));
+    }
+
+    /**
+     * Renames a template: the PNG, its resolution sidecar and its tags, in that order. Single entry point
+     * because the three used to be moved by the caller and the tags weren't moved at all — the manifest is
+     * keyed by base name, so a rename that skips it silently untags the template.
+     */
+    public static void renameTemplate(ProjectConfig config, Path file, String newBaseName) throws IOException {
+        Path target = config.imagesRoot().resolve(newBaseName + ".png");
+        Files.move(file, target, StandardCopyOption.REPLACE_EXISTING);
+        Path oldSidecar = sidecarFor(file);
+        if (Files.exists(oldSidecar)) {
+            Files.move(oldSidecar, sidecarFor(target), StandardCopyOption.REPLACE_EXISTING);
+        }
+        saveManifest(config, manifest(config).renamed(baseName(file), newBaseName));
+    }
+
+    /** Deletes a template: the PNG, its resolution sidecar and its manifest entry. */
+    public static void deleteTemplate(ProjectConfig config, Path file) throws IOException {
+        Files.deleteIfExists(file);
+        Files.deleteIfExists(sidecarFor(file));
+        saveManifest(config, manifest(config).without(baseName(file)));
+    }
+
+    /**
+     * The tag to offer by default for a capture started while an activity is open — its name. Capturing from
+     * inside an activity is the common case, and that activity is the grouping the user would have typed;
+     * a template later used by a second activity simply gains its tag too.
+     *
+     * <p>Returns {@code null} when the open file isn't an activity (or nothing is open), which every caller
+     * treats as "no suggestion" rather than a blank tag.
+     */
+    public static String activityTagFor(ProjectConfig config, ProjectState state) {
+        if (state == null || state.getActiveFile() == null) return null;
+        Path file = state.getActiveFile().getPath();
+        if (file == null || file.getParent() == null) return null;
+        if (!file.getParent().equals(config.activitiesPackageDir())) return null;
+        String name = file.getFileName().toString();
+        return name.endsWith(".java") ? name.substring(0, name.length() - ".java".length()) : null;
     }
 }

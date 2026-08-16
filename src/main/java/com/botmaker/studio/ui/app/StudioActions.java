@@ -7,6 +7,7 @@ import com.botmaker.studio.project.StudioContext;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.JitPackSearch;
+import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.LibraryService;
 import com.botmaker.studio.services.MavenCentralSearch;
 import com.botmaker.studio.services.ProjectSettingsService;
@@ -210,7 +211,8 @@ final class StudioActions {
 
     /** Opens the live overlay template-capture over the project's default window target. */
     private void openOverlayTemplateCapture() {
-        OverlayTemplateCapture.open(primaryStage, config, projectSettingsService, screenCaptureService, eventBus);
+        OverlayTemplateCapture.open(primaryStage, config, projectSettingsService, screenCaptureService, eventBus,
+                ImageTemplateLibrary.activityTagFor(config, codeEditorService.getState()));
     }
 
     /**

@@ -113,20 +113,22 @@ public final class PickAllSession {
         List<BufferedImage> crops = new ArrayList<>();
         for (PendingImage p : pending) crops.add(p.crop().image());
 
-        List<NamedTemplate> kept = BatchTemplateNamingDialog.show(owner, context.getConfig(), crops);
-        int saved = 0;
-        for (NamedTemplate t : kept) {
+        BatchTemplateNamingDialog.Batch batch = BatchTemplateNamingDialog.show(owner, context.getConfig(), crops,
+                ImageTemplateLibrary.activityTagFor(context.getConfig(), context.getState()));
+        List<String> saved = new ArrayList<>();
+        for (NamedTemplate t : batch.templates()) {
             PendingImage p = pending.get(t.index());
             try {
                 String rel = ImageTemplateLibrary.saveTemplate(context.getConfig(), t.image(), t.name(),
                         p.crop().frameWidth(), p.crop().frameHeight(), p.crop().targetTitle());
                 values.put(p.argIndex(), new CodeEditor.ArgValue.ImageVal(rel));
-                saved++;
+                saved.add(t.name());
             } catch (IOException e) {
                 System.err.println("Pick-all: failed to save template for arg "
                         + (p.argIndex() + 1) + ": " + e.getMessage());
             }
         }
-        if (saved > 0) context.getEventBus().publish(new ResourcesChangedEvent());
+        ImageTemplateLibrary.tagAll(context.getConfig(), saved, batch.tag());
+        if (!saved.isEmpty()) context.getEventBus().publish(new ResourcesChangedEvent());
     }
 }
