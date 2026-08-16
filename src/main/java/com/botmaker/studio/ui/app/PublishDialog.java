@@ -1,5 +1,10 @@
 package com.botmaker.studio.ui.app;
 
+import com.botmaker.shared.launch.LaunchKind;
+import com.botmaker.shared.launch.LaunchSpec;
+import com.botmaker.studio.project.ProjectConfig;
+import com.botmaker.studio.project.ProjectCreator;
+import com.botmaker.studio.project.launch.SupportedTargets;
 import com.botmaker.studio.sharing.BotPublisher;
 import com.botmaker.studio.sharing.BotSource;
 import com.botmaker.studio.sharing.GitHubAuth;
@@ -22,6 +27,7 @@ import javafx.scene.control.Label;
 import javafx.scene.control.ProgressIndicator;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
+import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -52,6 +58,7 @@ public class PublishDialog {
     private final GitHubClient client;
     private final GitHubGallery gallery;
     private final BotPublisher publisher;
+    private final ProjectConfig config;
     private final String projectName;
     private final Path projectDir;
 
@@ -68,18 +75,32 @@ public class PublishDialog {
     private final TextField tagsField = new TextField();
     private final CheckBox listInGalleryCheck = new CheckBox("List in the public gallery");
 
+    /**
+     * One checkbox per {@link LaunchKind} — the "runs on" declaration, in enum order so the row reads the same
+     * every time. Kept as a map rather than read back off the pane because the answer is a typed set, and
+     * walking children to rebuild it is how a UI and its model start disagreeing.
+     */
+    private final java.util.Map<LaunchKind, CheckBox> launchKindChecks = new java.util.LinkedHashMap<>();
+
     /** The repo's latest published release tag (""=none); each new version must be strictly greater. */
     private volatile String latestTag = "";
 
+    /**
+     * @param config the open project. It took the name and directory separately until the "runs on"
+     *               declaration arrived, which is persisted into the project's own properties — so the dialog
+     *               now needs the resources dir as well, and re-deriving it from the project dir here would be
+     *               a second answer to a question {@link ProjectConfig} already answers.
+     */
     public PublishDialog(Window owner, GitHubAuth auth, GitHubClient client, GitHubGallery gallery,
-                         BotPublisher publisher, String projectName, Path projectDir) {
+                         BotPublisher publisher, ProjectConfig config) {
         this.owner = owner;
         this.auth = auth;
         this.client = client;
         this.gallery = gallery;
         this.publisher = publisher;
-        this.projectName = projectName;
-        this.projectDir = projectDir;
+        this.config = config;
+        this.projectName = config.projectName();
+        this.projectDir = config.projectPath();
     }
 
     public void show() {
@@ -214,12 +235,48 @@ public class PublishDialog {
         g.addRow(1, new Label("Description:"), descriptionField);
         g.addRow(2, new Label("Version (tag):"), versionCombo);
         g.addRow(3, new Label("Tags:"), tagsField);
-        g.add(listInGalleryCheck, 1, 4);
+        g.addRow(4, new Label("Runs on:"), buildLaunchKindBox());
+        g.add(listInGalleryCheck, 1, 5);
         GridPane.setHgrow(repoField, Priority.ALWAYS);
         GridPane.setHgrow(descriptionField, Priority.ALWAYS);
         GridPane.setHgrow(versionCombo, Priority.ALWAYS);
         GridPane.setHgrow(tagsField, Priority.ALWAYS);
         return g;
+    }
+
+    /**
+     * The "runs on" declaration: which launch kinds the author says this bot works with. A bot targets a
+     * <em>game</em>, and the same game is a different launch on each platform — so this, not the publisher's
+     * own {@code launch.target} (which the archive strips), is what tells an installer whether the bot was
+     * built for their platform.
+     *
+     * <p>Seeded from a previous declaration when there is one, else from the kind of the project's current
+     * launch target: the author built and tested against that one, so it is the honest default. Ticking
+     * nothing publishes an undeclared bot, which stays usable everywhere — the pre-existing behaviour.
+     */
+    private FlowPane buildLaunchKindBox() {
+        SupportedTargets declared = ProjectCreator.readSupportedTargets(config.resourcesRoot());
+        LaunchSpec current = LaunchSpec.parse(ProjectCreator.readLaunchTarget(config.resourcesRoot()));
+        LaunchKind fallback = current == null ? null : current.kind();
+
+        FlowPane box = new FlowPane(10, 4);
+        for (LaunchKind kind : SupportedTargets.selectable()) {
+            CheckBox check = new CheckBox(kind.displayName());
+            check.setSelected(declared.declared() ? declared.supports(kind) : kind == fallback);
+            launchKindChecks.put(kind, check);
+            box.getChildren().add(check);
+        }
+        Tooltip.install(box, new Tooltip("Leave everything unticked to make no claim — the bot then offers "
+                + "every launch kind to whoever installs it."));
+        return box;
+    }
+
+    /** The ticked kinds, as the typed set that is written to the project and shipped in the gallery index. */
+    private SupportedTargets selectedLaunchTargets() {
+        return SupportedTargets.of(launchKindChecks.entrySet().stream()
+                .filter(e -> e.getValue().isSelected())
+                .map(java.util.Map.Entry::getKey)
+                .toList());
     }
 
     private VBox buildButtonBar() {
@@ -245,6 +302,7 @@ public class PublishDialog {
         String version = currentVersion();
         String description = descriptionField.getText() == null ? "" : descriptionField.getText().trim();
         List<String> tags = parseTags(tagsField.getText());
+        SupportedTargets launchTargets = selectedLaunchTargets();
         boolean listInGallery = listInGalleryCheck.isSelected();
         if (repo.isBlank()) {
             statusLabel.setText("Repository name is required.");
@@ -255,13 +313,22 @@ public class PublishDialog {
             return;
         }
 
+        // Persisted before the upload, not after: the archive is collected inside publish(), and this key is
+        // one of the things it has to carry. It also makes the declaration stick for the next publish.
+        try {
+            ProjectCreator.writeSupportedTargets(config.resourcesRoot(), launchTargets);
+        } catch (java.io.IOException ex) {
+            statusLabel.setText("Couldn't save the supported launch targets: " + ex.getMessage());
+            return;
+        }
+
         setBusy(true);
         statusLabel.setText("Publishing…");
         CompletableFuture
                 .supplyAsync(() -> {
                     try {
                         return publisher.publish(projectDir, projectName, repo, description, version, tags,
-                                listInGallery);
+                                launchTargets, listInGallery);
                     } catch (Exception ex) {
                         throw new RuntimeException(ex.getMessage(), ex);
                     }

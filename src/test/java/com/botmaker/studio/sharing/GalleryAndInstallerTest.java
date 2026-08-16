@@ -1,5 +1,6 @@
 package com.botmaker.studio.sharing;
 
+import com.botmaker.studio.project.launch.SupportedTargets;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -33,7 +34,8 @@ class GalleryAndInstallerTest {
 
     @Test
     void entryMatchesQueryAcrossFields() {
-        GalleryEntry e = new GalleryEntry("ClickerBot", "alice", "clicker-bot", "auto clicker", List.of("afk"));
+        GalleryEntry e = new GalleryEntry("ClickerBot", "alice", "clicker-bot", "auto clicker", List.of("afk"),
+                SupportedTargets.any());
         assertTrue(e.matches(""));
         assertTrue(e.matches("clicker"));
         assertTrue(e.matches("ALICE"));

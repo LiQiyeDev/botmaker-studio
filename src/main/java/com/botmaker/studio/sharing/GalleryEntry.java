@@ -1,5 +1,6 @@
 package com.botmaker.studio.sharing;
 
+import com.botmaker.studio.project.launch.SupportedTargets;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 import java.util.List;
@@ -14,9 +15,14 @@ import java.util.List;
  * @param repo        GitHub repo name
  * @param description short human description
  * @param tags        optional free-form tags for filtering
+ * @param launchTargets the launch kinds the author declares the bot works on — so a browser can tell before
+ *                      installing whether their platform is one of them. Absent in every entry written before
+ *                      this field existed, which reads as {@link SupportedTargets#any()}: "the author never
+ *                      said", never "works on nothing".
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record GalleryEntry(String name, String owner, String repo, String description, List<String> tags) {
+public record GalleryEntry(String name, String owner, String repo, String description, List<String> tags,
+                           SupportedTargets launchTargets) {
 
     public GalleryEntry {
         name = name == null ? "" : name.trim();
@@ -24,6 +30,7 @@ public record GalleryEntry(String name, String owner, String repo, String descri
         repo = repo == null ? "" : repo.trim();
         description = description == null ? "" : description;
         tags = tags == null ? List.of() : List.copyOf(tags);
+        launchTargets = launchTargets == null ? SupportedTargets.any() : launchTargets;
     }
 
     public String htmlUrl() {

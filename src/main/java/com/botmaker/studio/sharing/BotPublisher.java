@@ -1,5 +1,6 @@
 package com.botmaker.studio.sharing;
 
+import com.botmaker.studio.project.launch.SupportedTargets;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -40,7 +41,8 @@ public final class BotPublisher {
      * private-in-effect — the repo + release are created but the bot is left out of gallery discovery.
      */
     public PublishResult publish(Path projectDir, String botName, String repoName, String description,
-                                 String version, List<String> tags, boolean listInGallery) throws IOException {
+                                 String version, List<String> tags, SupportedTargets launchTargets,
+                                 boolean listInGallery) throws IOException {
         if (!auth.isAuthenticated()) {
             throw new IOException("Not signed in to GitHub.");
         }
@@ -111,7 +113,7 @@ public final class BotPublisher {
                 // optional
             }
             // Submit to the curated gallery (best-effort; never fails the publish).
-            galleryStatus = submitToGallery(login, repoName, botName, description, tags, token);
+            galleryStatus = submitToGallery(login, repoName, botName, description, tags, launchTargets, token);
         } else {
             galleryStatus = "Published privately — not listed in the public gallery.";
         }
@@ -124,13 +126,16 @@ public final class BotPublisher {
     // -------------------------------------------------------------------------
 
     private String submitToGallery(String login, String repoName, String botName, String description,
-                                   List<String> tags, String token) {
+                                   List<String> tags, SupportedTargets launchTargets, String token) {
         if (!GitHubConfig.isGalleryConfigured()) {
             return "Gallery index not configured — your bot is published, but not yet listed.";
         }
         String slug = login + "/" + repoName;
+        // launchTargets goes in as its wire ids rather than the record: this map is serialised straight to
+        // index.json, and the ids are what every Studio version (including ones that predate the field) reads.
         Map<String, Object> entry = mapOf("name", botName, "owner", login, "repo", repoName,
-                "description", description, "tags", tags == null ? List.of() : List.copyOf(tags));
+                "description", description, "tags", tags == null ? List.of() : List.copyOf(tags),
+                "launchTargets", (launchTargets == null ? SupportedTargets.any() : launchTargets).ids());
 
         try {
             // The maintainer can't fork their own index repo (and a self-PR is a no-op): commit directly.

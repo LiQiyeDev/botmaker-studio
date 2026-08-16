@@ -8,9 +8,12 @@ import com.botmaker.studio.game.HeroicLibraryScanner;
 import com.botmaker.studio.game.SteamLibraryScanner;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectCreator;
+import com.botmaker.studio.project.ProjectMode;
 import com.botmaker.studio.project.ProjectPreferences;
 import com.botmaker.studio.project.SessionSetting;
 import com.botmaker.studio.project.launch.QuickLaunch;
+import com.botmaker.studio.project.launch.SupportedTargets;
+import com.botmaker.shared.launch.LaunchKind;
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.studio.ui.render.components.EmulatorPickerDialog;
 import com.botmaker.studio.ui.render.components.GameLibraryPickerDialog;
@@ -46,8 +49,15 @@ import java.util.function.Consumer;
  * chooser / {@link EmulatorPickerDialog}).
  *
  * <p>Opened from the toolbar's Launch Target button — the project-target sibling of the Capture Targets button
- * ({@link ManageCaptureTargetsDialog}). Picking an emulator app additionally points the project's capture source
- * at that emulator ({@code capture.source = emulator:<instance>}), mirroring the in-block emulator picker.
+ * ({@link ManageCaptureTargetsDialog}).
+ *
+ * <p><b>Two things here belong to two different people.</b> A published bot declares the launch kinds it
+ * <em>works on</em> ({@link SupportedTargets}); which of them this machine actually runs, and what this machine
+ * captures, are the running user's. So: an installed bot offers only the kinds its author declared (an editor
+ * sees them all — narrowing your own project would be a cage of your own making), and the capture source an
+ * emulator target implies is now an <em>offer</em> under {@link #pointCapture} rather than a silent side effect
+ * of picking a launch target. It defaults to on because a bot pointed at an emulator it isn't looking at is
+ * broken in a way that shows up only as vision that never matches.
  */
 public final class LaunchTargetDialog {
 
@@ -69,6 +79,12 @@ public final class LaunchTargetDialog {
     /** The buttons inside {@link #recentBox}, one per remembered spec; rebuilt on every save. */
     private VBox recentList;
     private String currentSpec;
+    /** "Also point capture at it" — the user's say over the capture source a target would imply. */
+    private CheckBox pointCapture;
+    /** What the bot's author declared it runs on; {@link SupportedTargets#any()} for a project that never said. */
+    private SupportedTargets supported = SupportedTargets.any();
+    /** True while reading someone else's bot: the author's declaration is then a limit, not a note. */
+    private boolean reader;
 
     /**
      * @param config the open project — needed in full (not just its resources dir) because the "Run in
@@ -101,6 +117,8 @@ public final class LaunchTargetDialog {
         stage.setTitle("Launch Target");
 
         currentSpec = ProjectCreator.readLaunchTarget(resourcesDir);
+        supported = ProjectCreator.readSupportedTargets(resourcesDir);
+        reader = ProjectMode.isReader(config.projectPath());
 
         Label heading = new Label("What should the bot launch?");
         heading.getStyleClass().add("dialog-heading");
@@ -114,29 +132,22 @@ public final class LaunchTargetDialog {
         currentLabel.getStyleClass().add("dialog-subheading");
         refreshCurrentLabel();
 
-        Button steam = new Button("🎮 Steam game…");
-        steam.setMaxWidth(Double.MAX_VALUE);
-        steam.setOnAction(e -> pickGame(new SteamLibraryScanner(), "steam"));
-        Button epic = new Button("🎮 Epic game…");
-        epic.setMaxWidth(Double.MAX_VALUE);
-        epic.setOnAction(e -> pickGame(new EpicLibraryScanner(), "epic"));
-        Button heroic = new Button("🎮 Heroic game (Epic/GOG on Linux)…");
-        heroic.setMaxWidth(Double.MAX_VALUE);
-        heroic.setOnAction(e -> pickGame(new HeroicLibraryScanner(), "heroic"));
-        Button faugus = new Button("🎮 Faugus game (Proton/Wine on Linux)…");
-        faugus.setMaxWidth(Double.MAX_VALUE);
-        faugus.setOnAction(e -> pickGame(new FaugusLibraryScanner(), "faugus"));
-        Button exe = new Button("📁 Executable…");
-        exe.setMaxWidth(Double.MAX_VALUE);
-        exe.setOnAction(e -> pickExecutable());
-        Button cli = new Button("⌨️ CLI command…");
-        cli.setMaxWidth(Double.MAX_VALUE);
-        cli.setOnAction(e -> pickCliCommand());
-        Button emu = new Button("📱 Emulator app…");
-        emu.setMaxWidth(Double.MAX_VALUE);
-        emu.setOnAction(e -> pickEmulatorApp());
+        VBox choices = new VBox(6,
+                choice(LaunchKind.STEAM, "🎮 Steam game…", () -> pickGame(new SteamLibraryScanner(), "steam")),
+                choice(LaunchKind.EPIC, "🎮 Epic game…", () -> pickGame(new EpicLibraryScanner(), "epic")),
+                choice(LaunchKind.HEROIC, "🎮 Heroic game (Epic/GOG on Linux)…",
+                        () -> pickGame(new HeroicLibraryScanner(), "heroic")),
+                choice(LaunchKind.FAUGUS, "🎮 Faugus game (Proton/Wine on Linux)…",
+                        () -> pickGame(new FaugusLibraryScanner(), "faugus")),
+                choice(LaunchKind.EXE, "📁 Executable…", this::pickExecutable),
+                choice(LaunchKind.CLI, "⌨️ CLI command…", this::pickCliCommand),
+                choice(LaunchKind.EMULATOR_APP, "📱 Emulator app…", this::pickEmulatorApp));
 
-        VBox choices = new VBox(6, steam, epic, heroic, faugus, exe, cli, emu);
+        Label supportedLabel = new Label("This bot's author declared it runs on: " + supported.describe() + ".");
+        supportedLabel.setWrapText(true);
+        supportedLabel.getStyleClass().add("dialog-hint");
+        supportedLabel.setVisible(supported.declared());
+        supportedLabel.setManaged(supported.declared());
 
         Label recentHeading = new Label("Recently used");
         recentHeading.getStyleClass().add("dialog-subheading");
@@ -155,6 +166,15 @@ public final class LaunchTargetDialog {
         backgroundHint.getStyleClass().add("dialog-hint");
         VBox backgroundBox = new VBox(2, background, backgroundHint);
 
+        pointCapture = new CheckBox("Also point capture at this target");
+        pointCapture.setSelected(true);
+        Label captureHint = new Label("On: choosing an emulator app also makes that emulator what the bot "
+                + "looks at (capture.source). Off: your capture target is left exactly as you set it in "
+                + "Capture Targets — which is where it lives either way.");
+        captureHint.setWrapText(true);
+        captureHint.getStyleClass().add("dialog-hint");
+        VBox captureBox = new VBox(2, pointCapture, captureHint);
+
         statusLabel = new Label();
         statusLabel.getStyleClass().add("dialog-status");
         // The status text is the flexible element: it grows to fill the row and ellipsizes when long, so it
@@ -167,7 +187,7 @@ public final class LaunchTargetDialog {
 
         Button clear = new Button("Clear target");
         clear.setMinWidth(Region.USE_PREF_SIZE);
-        clear.setOnAction(e -> apply(null, null));
+        clear.setOnAction(e -> apply(null));
         Button close = new Button("Close");
         close.setMinWidth(Region.USE_PREF_SIZE);
         close.setDefaultButton(true);
@@ -177,7 +197,8 @@ public final class LaunchTargetDialog {
 
         // The recap grows the content by up to ten rows, so the choices scroll and the action bar stays pinned
         // — otherwise a full MRU pushes "Close" off the bottom of a fixed-size dialog.
-        VBox content = new VBox(12, heading, hint, currentLabel, choices, recentBox, backgroundBox);
+        VBox content = new VBox(12, heading, hint, currentLabel, supportedLabel, choices, recentBox,
+                captureBox, backgroundBox);
         ScrollPane scroller = new ScrollPane(content);
         scroller.setFitToWidth(true);
         scroller.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
@@ -225,10 +246,26 @@ public final class LaunchTargetDialog {
                 : null);
     }
 
+    /**
+     * One kind's button, disabled when the bot's author didn't declare that kind and this is their bot, not
+     * ours. The tooltip says who decided, because a silently dead button reads as a bug in Studio.
+     */
+    private Button choice(LaunchKind kind, String label, Runnable onPick) {
+        Button button = new Button(label);
+        button.setMaxWidth(Double.MAX_VALUE);
+        button.setOnAction(e -> onPick.run());
+        if (reader && !supported.supports(kind)) {
+            button.setDisable(true);
+            button.setTooltip(new Tooltip("This bot's author didn't declare support for a "
+                    + kind.displayName().toLowerCase() + ". They declared: " + supported.describe() + "."));
+        }
+        return button;
+    }
+
     private void pickGame(GameLibraryProvider provider, String kind) {
         GameLibraryPickerDialog.show(stage, provider).ifPresent(game -> {
             if (game.id() == null || game.id().isBlank()) return;
-            apply(kind + ":" + game.id(), null);
+            apply(kind + ":" + game.id());
         });
     }
 
@@ -236,7 +273,7 @@ public final class LaunchTargetDialog {
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Choose a program to launch");
         File chosen = chooser.showOpenDialog(stage);
-        if (chosen != null) apply("exe:" + chosen.getAbsolutePath(), null);
+        if (chosen != null) apply("exe:" + chosen.getAbsolutePath());
     }
 
     /** Prompts for an arbitrary command line — the escape hatch for launchers we don't model (e.g. Heroic/legendary). */
@@ -250,7 +287,7 @@ public final class LaunchTargetDialog {
         dialog.getEditor().setPrefColumnCount(40);
         dialog.showAndWait().ifPresent(cmd -> {
             String trimmed = cmd.trim();
-            if (!trimmed.isEmpty()) apply("cli:" + trimmed, null);
+            if (!trimmed.isEmpty()) apply("cli:" + trimmed);
         });
     }
 
@@ -265,20 +302,34 @@ public final class LaunchTargetDialog {
                 error("Pick an app inside the emulator (a launch target needs the app package).");
                 return;
             }
-            String instance = sel.instance().name();
-            // An emulator launch target also points the project's capture source at that emulator (mirrors the
-            // in-block emulator picker), so no-source vision/click calls target it.
-            apply("emu-app:" + sel.appPackage() + "@" + instance, CaptureSourceKind.EMULATOR.spec(instance));
+            apply("emu-app:" + sel.appPackage() + "@" + sel.instance().name());
         });
     }
 
     /**
-     * Writes {@code spec} to {@code launch.target} (a null/blank spec clears it) and, when {@code captureSource}
-     * is given, also updates {@code capture.source}; refreshes the label and notifies the toolbar.
+     * The capture source {@code spec} implies, or {@code null} for a target that implies none. Only an
+     * emulator app does: the bot has to look at the emulator it just started, and nothing else on the machine
+     * can be derived from a launch target — a game's window is picked in Capture Targets, by eye.
      */
-    private void apply(String spec, String captureSource) {
+    private static String impliedCaptureSource(String spec) {
+        LaunchSpec parsed = LaunchSpec.parse(spec);
+        String instance = parsed == null ? null : parsed.emulatorInstance();
+        return (instance == null || instance.isBlank()) ? null : CaptureSourceKind.EMULATOR.spec(instance);
+    }
+
+    /**
+     * Writes {@code spec} to {@code launch.target} (a null/blank spec clears it), refreshes the label and
+     * notifies the toolbar — and, when the target implies a capture source and {@link #pointCapture} is
+     * ticked, points capture there too, saying so on the status line.
+     *
+     * <p>Every path lands here, including "Recently used", which is why the implication is derived from the
+     * spec rather than passed in: it used to be an argument only {@code pickEmulatorApp} filled, so
+     * re-selecting the same emulator app from the MRU silently dropped the capture source it came with.
+     */
+    private void apply(String spec) {
         try {
             ProjectCreator.writeLaunchTarget(resourcesDir, spec);
+            String captureSource = pointCapture.isSelected() ? impliedCaptureSource(spec) : null;
             if (captureSource != null) ProjectCreator.writeCaptureSource(resourcesDir, captureSource);
             currentSpec = (spec == null || spec.isBlank()) ? null : spec.trim();
             // Every pick funnels through here, so the MRU can't miss a kind the way per-call-site recording
@@ -286,25 +337,15 @@ public final class LaunchTargetDialog {
             ProjectPreferences.recordLaunchTarget(currentSpec);
             refreshCurrentLabel();
             refreshRecent();
-            report(true, currentSpec == null ? "Launch target cleared." : "Launch target saved.");
+            report(true, currentSpec == null ? "Launch target cleared."
+                    : captureSource == null ? "Launch target saved."
+                    : "Launch target saved — capture now points at " + captureSource + ".");
             QuickLaunch.bind(launchNow, resourcesDir, this::report);
             refreshBackgroundAvailability();
             if (onChanged != null) onChanged.accept(currentSpec);
         } catch (IOException ex) {
             error("Couldn't save: " + ex.getMessage());
         }
-    }
-
-    /**
-     * Re-selects a target the user picked before. It goes through the same {@link #apply} as a fresh pick — so
-     * it re-records, relabels, rebinds quick launch and re-evaluates the background toggle — and re-derives the
-     * emulator capture source, which {@link #pickEmulatorApp} sets alongside the target and which would
-     * otherwise be silently dropped when an {@code emu-app:} is re-selected from here.
-     */
-    private void applyRecent(String spec) {
-        LaunchSpec parsed = LaunchSpec.parse(spec);
-        String instance = parsed == null ? null : parsed.emulatorInstance();
-        apply(spec, instance == null || instance.isBlank() ? null : CaptureSourceKind.EMULATOR.spec(instance));
     }
 
     /**
@@ -317,12 +358,14 @@ public final class LaunchTargetDialog {
         recentList.getChildren().clear();
         for (String spec : ProjectPreferences.recentLaunchTargets()) {
             if (spec == null || spec.isBlank() || spec.equals(currentSpec)) continue;
+            // The MRU is global across projects, so it will offer kinds this bot's author never claimed.
+            if (reader && !supported.supportsSpec(spec)) continue;
             Button entry = new Button(LaunchSpec.describe(spec));
             entry.setMaxWidth(Double.MAX_VALUE);
             entry.setAlignment(Pos.CENTER_LEFT);
             entry.getStyleClass().add("dialog-compact");
             entry.setTooltip(new Tooltip(spec));
-            entry.setOnAction(e -> applyRecent(spec));
+            entry.setOnAction(e -> apply(spec));
             recentList.getChildren().add(entry);
         }
         boolean any = !recentList.getChildren().isEmpty();

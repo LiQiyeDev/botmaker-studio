@@ -1,6 +1,7 @@
 package com.botmaker.studio.project;
 
 import com.botmaker.shared.config.ProjectProperties;
+import com.botmaker.studio.project.launch.SupportedTargets;
 import com.botmaker.studio.project.vcs.ProjectVcs;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.MavenService;
@@ -329,6 +330,22 @@ public class ProjectCreator {
         }
         String spec = props.getProperty(ProjectProperties.KEY_SESSION_BACKEND);
         return spec == null || spec.isBlank() ? null : spec.trim();
+    }
+
+    /**
+     * Writes/updates the {@code launch.supported} key — the launch kinds the <em>author</em> declares the bot
+     * works on. Unlike {@link #writeLaunchTarget}, this is not about this machine: it is the fact that travels
+     * with a published bot, so whoever installs it knows whether their platform is one the bot was built for.
+     * An undeclared ({@link SupportedTargets#any()}) set removes the key rather than writing an empty value —
+     * absent is what "the author never said" reads as everywhere else in this file.
+     */
+    public static void writeSupportedTargets(Path resourcesDir, SupportedTargets supported) throws IOException {
+        writeProjectKey(resourcesDir, SupportedTargets.KEY, supported == null ? null : supported.spec());
+    }
+
+    /** The declared {@code launch.supported} set, or {@link SupportedTargets#any()} when the key is absent. */
+    public static SupportedTargets readSupportedTargets(Path resourcesDir) {
+        return SupportedTargets.parse(readKey(resourcesDir, SupportedTargets.KEY));
     }
 
     /**

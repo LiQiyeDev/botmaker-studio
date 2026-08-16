@@ -6,6 +6,17 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-16 — a bot declares what it runs on; the machine running it owns capture
+  (`project/launch/SupportedTargets`, `sharing/ProjectArchive`, `sharing/GalleryEntry`, `ui/app/PublishDialog`,
+  `ui/app/LaunchTargetDialog`).** The editor picked both the launch target and the capture target, and both
+  shipped verbatim in a published bot — so an installer inherited the publisher's Steam appId and their
+  emulator instance name. A bot targets a *game*, and the same game is a different launch per platform, so the
+  two facts split: a new typed `launch.supported` set (over `LaunchKind`, undeclared = everything) is declared
+  in the Publish dialog and travels in the archive and the gallery index, while `launch.target` and
+  `capture.source` are stripped on publish. An installed bot's Launch Target dialog then offers only the kinds
+  its author declared, and the capture source an emulator target implies became a tickable offer rather than a
+  silent side effect.
+
 - **2026-08-16 — templates organise by tag and travel on their own (`services/TemplateManifest`,
   `services/ImageTemplateLibrary`, `sharing/TemplateArchive`, `ui/app/ResourceManagerDialog`).** Templates were
   one flat pile with no grouping and no sharing unit smaller than a whole project. They stay flat on disk —

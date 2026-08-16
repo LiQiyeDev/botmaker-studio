@@ -156,8 +156,7 @@ final class StudioActions {
 
     /** Opens the Publish-to-gallery dialog. Shared with the VCS panel's "publish" button. */
     void openPublishDialog() {
-        new PublishDialog(primaryStage, gitHubAuth, gitHubClient, gallery, botPublisher,
-                config.projectName(), config.projectPath()).show();
+        new PublishDialog(primaryStage, gitHubAuth, gitHubClient, gallery, botPublisher, config).show();
     }
 
     private void openVcsDialog() {
