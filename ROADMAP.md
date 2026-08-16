@@ -6,6 +6,18 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-16 — archiving an activity actually retires it, and the file explorer stops offering delete
+  (`services/ActivityService`, `project/activity/ActivitiesConfig`, `ui/app/FileExplorerManager`).** Archiving
+  used to be a mute: the activity left the canvas and the registry, but its enable flag, its params and its
+  stub were all still generated, because a stub left behind referring to a dropped `Activities.<Name>` field is
+  what broke the build. Both halves now move together — an archived activity generates nothing at all, and its
+  hand-written `activities/<Name>.java` is moved to `.botmaker/archived-activities` (`ProjectConfig`), out of
+  the compiler's way but not destroyed. Restoring moves it back verbatim, so what returns is the activity as it
+  was written rather than a fresh stub. `ActivityStubSync`, `ProjectRepair` and `ProjectRecoveryAction` all
+  learned to leave archived activities alone; between them they would otherwise have resurrected the stub.
+  Separately, **Delete File** is gone from the explorer's context menu entirely (with it, the menu itself, and
+  `CodeEditorService.deleteFile`): no file in a bot project stands alone, so removal is a job for the thing that
+  owns both halves.
 - **2026-08-16 — a bot you did not write stops showing you BotMaker's own wiring
   (`core/component/MemberVisibility`, `parser/BlockConverter`, `project/MethodLock`).** The first wave of the
   audience axis, applied one level above a block's fields: whole class *members*. An activity stub opened for

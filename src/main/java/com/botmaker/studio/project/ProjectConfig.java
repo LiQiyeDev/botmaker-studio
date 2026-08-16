@@ -95,4 +95,17 @@ public record ProjectConfig(
     public Path activitiesPackageDir() {
         return sourceRoot.resolve("com").resolve(packageName).resolve("activities");
     }
+
+    /**
+     * {@code .botmaker/archived-activities} — where an archived activity's source waits to be restored.
+     *
+     * <p>Outside {@code src}, so nothing here is compiled: an archived activity's stub refers to
+     * {@code Activities.<Name>} fields that are no longer generated, and leaving it in the source tree is
+     * exactly what used to break the build. It is kept rather than deleted because archiving is advertised as
+     * reversible — the file is the user's {@code run()} body, and regenerating a blank stub would be a
+     * deletion wearing an undo's clothes.
+     */
+    public Path archivedActivitiesDir() {
+        return projectPath.resolve(".botmaker").resolve("archived-activities");
+    }
 }

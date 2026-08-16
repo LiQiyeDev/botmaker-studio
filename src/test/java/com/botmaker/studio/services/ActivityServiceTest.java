@@ -156,7 +156,7 @@ public class ActivityServiceTest {
     }
 
     @Test
-    void anArchivedActivityStopsRunningButKeepsItsGeneratedFields(@TempDir Path dir) {
+    void anArchivedActivityStopsBeingGeneratedAtAll(@TempDir Path dir) {
         ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
         ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
 
@@ -169,13 +169,38 @@ public class ActivityServiceTest {
                 cfg.orderedActivities().stream().map(ActivityDefinition::name).toList());
         assertFalse(service.generateRegistrySource(cfg).contains("new Idle()"));
 
-        // ...but its fields are still generated. This is the whole point: archiving never deletes
-        // activities/Idle.java, and that surviving file says `return Activities.Idle;` — drop the field and
-        // the user's project stops compiling.
+        // ...and neither its enable flag nor its params are generated any more. They were settings for
+        // something that cannot run, offered by the expression menu to code that must not call it. The stub
+        // that referred to them is moved out of the source tree in the same save — see the lifecycle test.
         List<String> fields = cfg.allVariables().stream().map(ActivityVariable::name).toList();
-        assertTrue(fields.contains("Idle"), fields.toString());
-        assertTrue(fields.contains("Idle_pauseMs"), fields.toString());
-        assertTrue(service.generateSource(cfg).contains("public static final boolean Idle;"));
+        assertEquals(List.of("Resources"), fields);
+        assertFalse(service.generateSource(cfg).contains("Idle"), "no field for an archived activity");
+    }
+
+    @Test
+    void archivingMovesTheUsersFileAsideAndRestoringBringsItBackUnchanged(@TempDir Path dir) throws Exception {
+        ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
+        ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
+        Path live = config.activitiesPackageDir().resolve("Idle.java");
+        Path aside = config.archivedActivitiesDir().resolve("Idle.java");
+
+        ActivityDefinition idle = ActivityDefinition.create("Idle", "");
+        service.update(new ActivitiesConfig(List.of(idle), List.of())).join();
+        assertTrue(java.nio.file.Files.exists(live), "a live activity gets its stub");
+
+        // The bit worth protecting: the body is the user's, and it has to survive the round trip verbatim.
+        String written = java.nio.file.Files.readString(live)
+                .replace("// TODO: how to do Idle", "System.out.println(\"mine\");");
+        java.nio.file.Files.writeString(live, written);
+
+        service.update(new ActivitiesConfig(List.of(idle.withArchived(true)), List.of())).join();
+        assertFalse(java.nio.file.Files.exists(live), "archiving takes the stub out of the source tree");
+        assertTrue(java.nio.file.Files.exists(aside), "and puts it aside rather than deleting it");
+
+        service.update(new ActivitiesConfig(List.of(idle), List.of())).join();
+        assertFalse(java.nio.file.Files.exists(aside));
+        assertEquals(written, java.nio.file.Files.readString(live),
+                "restoring returns the activity as it was written, not as a fresh stub");
     }
 
     @Test

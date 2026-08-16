@@ -158,8 +158,10 @@ public final class ProjectRepair {
                 missing.add(new Missing(config.flowDriverSourceFile(), null, "generated activity code"));
             }
 
-            // Per-activity subclass stubs (the same set ActivityService.ensureStubs would create).
-            for (ActivityDefinition a : activities.activities()) {
+            // Per-activity subclass stubs (the same set ActivityService.ensureStubs would create). Archived
+            // activities are excluded for the same reason it excludes them: their file is deliberately not in
+            // the source tree, so "missing" is its correct state and recovering it would un-archive them.
+            for (ActivityDefinition a : activities.liveActivities()) {
                 Path stub = config.activitiesPackageDir().resolve(a.name() + ".java");
                 if (!Files.exists(stub)) {
                     missing.add(new Missing(stub, null, "activity stub"));

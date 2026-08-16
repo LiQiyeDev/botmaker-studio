@@ -16,11 +16,13 @@ import java.util.List;
  * ({@code activities/<Name>.java}) <em>and</em> the enable-flag field on the generated {@code Activities}
  * class ({@code Activities.<Name>}). Each param {@code p} becomes {@code Activities.<Name>_<p>}.
  *
- * <p>{@link #archived()} retires an activity without destroying anything: it leaves the canvas and the
- * generated registry (so it no longer runs), but its {@code activities/<Name>.java} file and its
- * {@code Activities} fields are still generated. That combination is the point — the editor never deletes a
- * file, and the hand-written stub that survives still refers to {@code Activities.<Name>}, so dropping the
- * definition outright would stop the project compiling.
+ * <p>{@link #archived()} retires an activity without destroying anything: it leaves the canvas, the generated
+ * registry <em>and</em> the generated {@code Activities} fields, so nothing about it is compiled or run any
+ * more. The definition survives here — that is what makes it restorable — and the hand-written
+ * {@code activities/<Name>.java} survives too, moved to {@code ProjectConfig.archivedActivitiesDir()} where it
+ * is out of the compiler's way. The two move together on purpose: the stub refers to
+ * {@code Activities.<Name>}, so a stub left in the source tree without its field is exactly the broken build
+ * that once made removal impossible.
  *
  * <p>{@link #outcomes()} are the activity's <em>results</em> — what it can report having happened
  * ({@code BAG_FULL}, {@code NO_ORE}) — which the flow canvas maps to a next node each. They are generated as
@@ -43,7 +45,8 @@ import java.util.List;
  * @param enabled     the default value of the enable flag
  * @param description optional human-readable note (may be empty)
  * @param params      the activity's config variables ("how to do it")
- * @param archived    retired: keeps its file and fields, but doesn't appear on the canvas or run
+ * @param archived    retired: its file is kept aside and restorable, but nothing is generated for it and it
+ *                    neither appears on the canvas nor runs
  * @param outcomes    the named results this activity can report, excluding the implicit NEXT
  * @param goHome      run {@code GoHome.run()} before this activity; null (absent) ⇒ true
  * @param popupCheck  let the popup guard dismiss popups during this activity; null (absent) ⇒ true

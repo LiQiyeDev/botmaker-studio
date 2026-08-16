@@ -333,8 +333,9 @@ public class ActivityFlowDialog {
 
         Button archive = new Button("Archive activity");
         archive.setTooltip(new javafx.scene.control.Tooltip(
-                "Takes it off the canvas so it stops running. Its file and settings are kept — restore it "
-                        + "any time from the panel shown when no card is selected."));
+                "Takes it off the canvas so it stops running, and stops generating its code. Your work is put "
+                        + "aside, not deleted — restore it any time from the panel shown when no card is "
+                        + "selected, and it comes back exactly as you left it."));
         archive.setOnAction(e -> archive(draft));
 
         sidePanel.getChildren().addAll(heading("Activity"), head, new Separator(),
@@ -438,17 +439,21 @@ public class ActivityFlowDialog {
      * Retires {@code draft}: off the canvas and out of the run order, but its definition is remembered and
      * written back on save.
      *
-     * <p>There is deliberately no "delete". Removing an activity outright stopped its
-     * {@code Activities.<Name>} field being generated while its hand-written {@code activities/<Name>.java}
-     * stayed on disk still referring to it — so the project no longer compiled. Archiving keeps the fields and
-     * the file, and only stops the activity running.
+     * <p>Archiving is now a full retirement, not a mute. On save the activity stops generating everything —
+     * its {@code Activities.<Name>} field, its registry entry, its driver case — and its hand-written
+     * {@code activities/<Name>.java} is moved to {@code .botmaker/archived-activities} rather than left in the
+     * source tree referring to fields that no longer exist. (That mismatch is what once made removal break the
+     * build, and why this button used to leave everything generated.) Restoring moves the file back untouched,
+     * so what returns is the activity as it was written.
+     *
+     * <p>There is still deliberately no "delete": nothing here destroys the user's {@code run()} body.
      */
     private void archive(ActivityDraft draft) {
         flushSidePanel();
         archived.add(draft.toDefinition().withArchived(true));
         canvas.remove(draft); // also drops any wires into or out of it
         refreshPresetCombo();
-        error("Archived '" + draft.name() + "'. Its file and settings are kept — restore it from the side panel.");
+        error("Archived '" + draft.name() + "'. Your work is kept aside — restore it from the side panel.");
     }
 
     /**
@@ -549,7 +554,8 @@ public class ActivityFlowDialog {
         VBox box = new VBox(6);
         box.getChildren().add(heading("Archived (" + archived.size() + ")"));
         if (archived.isEmpty()) {
-            Label none = new Label("Nothing archived. Archiving retires an activity without deleting its file.");
+            Label none = new Label("Nothing archived. Archiving retires an activity and puts its file aside, "
+                    + "ready to come back unchanged.");
             none.setWrapText(true);
             none.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
             box.getChildren().add(none);

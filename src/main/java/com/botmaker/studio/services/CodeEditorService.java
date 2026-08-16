@@ -370,28 +370,11 @@ public class CodeEditorService {
         }
     }
 
-    public void deleteFile(Path path) {
-        try {
-            // 1. Delete from disk
-            Files.deleteIfExists(path);
-
-            // 2. Remove from state
-            state.removeFile(path);
-
-            // 3. Update UI if active file was deleted
-            if (state.getActiveFile() != null && state.getActiveFile().getPath().equals(path)) {
-                // Reload main file
-                switchToFile(config.mainSourceFile());
-                eventBus.publish(new CoreApplicationEvents.StatusMessageEvent("Deleted active file. Switched to Main."));
-            } else {
-                eventBus.publish(new CoreApplicationEvents.StatusMessageEvent("File deleted."));
-            }
-
-        } catch (Exception e) {
-            e.printStackTrace();
-            eventBus.publish(new CoreApplicationEvents.StatusMessageEvent("Error deleting file: " + e.getMessage()));
-        }
-    }
+    // There is no deleteFile here any more, and that is deliberate rather than an omission. Its only caller was
+    // the file explorer's context menu, and a file in a bot project is never just a file: an activity's stub is
+    // half of a pair with generated code that names it, and everything else is scaffolding the build needs.
+    // Removing an activity is ActivityService's job (archive — it moves the stub aside and stops generating the
+    // rest), and nothing else here should go.
 
     private void refreshUI(String javaCode, boolean markNewIdentifiersAsUnedited) {
         state.setCurrentCode(javaCode);

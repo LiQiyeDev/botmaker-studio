@@ -73,6 +73,7 @@ public final class ActivityService {
                 writeActivitiesClass(newConfig);
                 writeRegistryClass(newConfig);
                 writeDriverClass(newConfig);
+                moveArchivedStubs(newConfig);
                 ensureStubs(newConfig);
                 ActivityStubSync.sync(config, newConfig);
             } catch (IOException e) {
@@ -126,12 +127,39 @@ public final class ActivityService {
         Files.writeString(file, generateDriverSource(cfg));
     }
 
-    /** Creates a subclass stub for each activity if it does not already exist (never overwrites user edits). */
+    /**
+     * Moves each activity's stub to whichever side of the archive line its definition is now on: an archived
+     * activity's {@code activities/<Name>.java} goes to {@link ProjectConfig#archivedActivitiesDir()}, and a
+     * restored one comes back.
+     *
+     * <p>This is what makes archiving safe rather than merely quiet. An archived activity generates no
+     * {@code Activities.<Name>} field any more, so its stub's {@code isEnabled()} would not compile — the very
+     * breakage that once ruled removal out. Moving the file keeps the project green <em>and</em> keeps the
+     * user's {@code run()} body, so restoring returns the activity exactly as it was written rather than as a
+     * fresh stub. Runs before {@link #ensureStubs}, so a restore is a move back and not a blank rewrite.
+     */
+    private void moveArchivedStubs(ActivitiesConfig cfg) throws IOException {
+        Path live = config.activitiesPackageDir();
+        Path attic = config.archivedActivitiesDir();
+        for (ActivityDefinition a : cfg.activities()) {
+            Path from = (a.archived() ? live : attic).resolve(a.name() + ".java");
+            Path to = (a.archived() ? attic : live).resolve(a.name() + ".java");
+            if (!Files.exists(from) || Files.exists(to)) continue;
+            Files.createDirectories(to.getParent());
+            Files.move(from, to);
+        }
+    }
+
+    /**
+     * Creates a subclass stub for each live activity if it does not already exist (never overwrites user
+     * edits). Archived activities are skipped — {@link #moveArchivedStubs} has just taken their file away, and
+     * writing it straight back is the one thing that would undo the archive.
+     */
     private void ensureStubs(ActivitiesConfig cfg) throws IOException {
-        if (cfg.activities().isEmpty()) return;
+        if (cfg.liveActivities().isEmpty()) return;
         Path dir = config.activitiesPackageDir();
         Files.createDirectories(dir);
-        for (ActivityDefinition a : cfg.activities()) {
+        for (ActivityDefinition a : cfg.liveActivities()) {
             Path stub = dir.resolve(a.name() + ".java");
             if (!Files.exists(stub)) {
                 Files.writeString(stub, generateStubSource(a));

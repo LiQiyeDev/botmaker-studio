@@ -28,9 +28,11 @@ import java.util.Map;
  * the expression menu consume. Old flat {@code activities.json} files (a bare list of {@link ActivityVariable}
  * under {@code "activities"}) still load: their variables come back as {@link #globals()}.
  *
- * <p>An activity is retired by {@link ActivityDefinition#archived() archiving} it, never by deleting it: it
- * drops out of {@link #orderedActivities()} but stays in {@link #allVariables()}, so its generated fields —
- * and therefore the hand-written {@code activities/<Name>.java} that references them — keep compiling.
+ * <p>An activity is retired by {@link ActivityDefinition#archived() archiving} it, never by deleting it: its
+ * definition stays here in full, but it drops out of {@link #orderedActivities()} <em>and</em> out of
+ * {@link #allVariables()}, so it stops generating code entirely. Its hand-written
+ * {@code activities/<Name>.java} is moved aside rather than compiled against fields that no longer exist
+ * (see {@code ProjectConfig.archivedActivitiesDir}); restoring puts both back.
  *
  * <p>{@link #flow()} is the optional visual chain (node placements + wires) built on the Activity Flow
  * canvas; when present it defines the <em>run order</em> ({@link #orderedActivities()}). {@link #presets()}
@@ -92,10 +94,9 @@ public record ActivitiesConfig(List<ActivityDefinition> activities, List<Activit
      * <p>The order is breadth-first from the start and is presentational only — with branching there is no
      * single run order any more; the driver picks the next node from the outcome each activity reports.
      *
-     * <p>Note {@link #allVariables()} still spans <em>all</em> activities, orphaned and archived included, so
-     * their {@code Activities.<field>} flags exist and every generated stub compiles — only running is gated
-     * here. For an archived activity that is the whole point: its file survives and still refers to those
-     * fields.
+     * <p>The two exclusions differ in what they cost. An orphan is still a <em>live</em> activity: it keeps its
+     * {@code Activities.<field>} flags ({@link #allVariables()} spans orphans) and its stub, because wiring it
+     * up is one drag away. An archived one is gone from generation altogether — see the class javadoc.
      */
     public List<ActivityDefinition> orderedActivities() {
         List<ActivityDefinition> live = liveActivities();
@@ -137,13 +138,16 @@ public record ActivitiesConfig(List<ActivityDefinition> activities, List<Activit
     }
 
     /**
-     * Every referenceable {@code Activities.<field>} value, in generation order: each activity's enable
+     * Every referenceable {@code Activities.<field>} value, in generation order: each live activity's enable
      * flag then its params ({@code <Activity>_<param>}), followed by the globals. Names here are exactly the
      * generated field names (and what the expression menu inserts).
+     *
+     * <p>Archived activities contribute nothing: their fields would be settings for something that cannot run,
+     * offered by the expression menu to code that must not call it.
      */
     public List<ActivityVariable> allVariables() {
         List<ActivityVariable> all = new ArrayList<>();
-        for (ActivityDefinition a : activities) {
+        for (ActivityDefinition a : liveActivities()) {
             all.add(a.enabledVariable());
             for (ActivityVariable p : a.params()) {
                 all.add(new ActivityVariable(a.paramFieldName(p), p.type(), p.value(), p.description()));
