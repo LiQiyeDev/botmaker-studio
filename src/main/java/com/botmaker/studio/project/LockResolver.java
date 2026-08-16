@@ -105,6 +105,15 @@ public record LockResolver(ProjectConfig config, ProjectTemplate template, Path 
         };
     }
 
+    /**
+     * True when this file is one the Studio scaffolds and keeps in shape (an activity stub, a {@code Bot.start}
+     * hook) — so members inside it may be BotMaker's even though the file is the user's. See
+     * {@link MethodLock#isScaffoldManaged}.
+     */
+    public boolean isScaffoldManaged() {
+        return MethodLock.isScaffoldManaged(config, template, file);
+    }
+
     /** True when blocks in this file should default to refusing interaction. Per-method locks refine it. */
     public boolean suppressesInteraction() {
         return readerMode || role().suppressesInteraction();

@@ -143,6 +143,19 @@ public enum MethodLock {
      * {@code GoHome.java} vendored under {@code com/botmaker/library} (or any the user parks in a subpackage)
      * would otherwise have its {@code run()} body unlocked inside a file nothing should be able to touch.
      */
+    /**
+     * True when {@code file} is one the Studio scaffolds and keeps in shape — an activity stub or a
+     * {@code Bot.start} hook. Both are the user's files, and both carry members that are not: the {@code Outcome}
+     * enum the flow dialog writes, the {@code INSTANCE} the entry point binds, the {@code isEnabled()} wiring.
+     *
+     * <p>Public because the audience model ({@code core/component/MemberVisibility}) asks the same question when
+     * deciding what a non-author should be shown; the two answers must not be worked out twice.
+     */
+    public static boolean isScaffoldManaged(ProjectConfig config, ProjectTemplate template, Path file) {
+        if (config == null || file == null || template != ProjectTemplate.GAME_BOT) return false;
+        return isActivityStub(config, file) || isSuperviseHook(config, file);
+    }
+
     private static boolean isSuperviseHook(ProjectConfig config, Path file) {
         String fileName = file.getFileName() == null ? "" : file.getFileName().toString();
         return SUPERVISED_HOOKS.contains(fileName) && isChildOf(file, config.mainSourceFile().getParent());

@@ -1,6 +1,7 @@
 package com.botmaker.studio.parser;
 
 import com.botmaker.studio.core.CodeBlock;
+import com.botmaker.studio.core.component.Audience;
 import com.botmaker.studio.project.LockResolver;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
 import org.eclipse.jdt.core.dom.ASTNode;
@@ -21,6 +22,9 @@ import java.util.Map;
  * @param manager                       drag-and-drop manager handed to interactive blocks
  * @param readOnly                      whether blocks parsed under this context are locked
  * @param resolver                      the file's lock rules; null when there is no project (tests)
+ * @param audience                      who the canvas is being drawn for; a {@code USER} parse leaves the
+ *                                      Studio's own scaffolding out of the tree entirely
+ *                                      (see {@code core/component/MemberVisibility})
  * @param markNewIdentifiersAsUnedited  whether freshly created identifiers/field accesses
  *                                      should be visually marked as auto-generated
  */
@@ -32,6 +36,7 @@ public record ParseContext(
         BlockDragAndDropManager manager,
         boolean readOnly,
         LockResolver resolver,
+        Audience audience,
         boolean markNewIdentifiersAsUnedited
 ) {
     /**
@@ -46,7 +51,7 @@ public record ParseContext(
      */
     public ParseContext withReadOnly(boolean ro) {
         return ro == readOnly ? this
-                : new ParseContext(cu, sourceCode, comments, nodeToBlockMap, manager, ro, resolver,
+                : new ParseContext(cu, sourceCode, comments, nodeToBlockMap, manager, ro, resolver, audience,
                         markNewIdentifiersAsUnedited);
     }
 }

@@ -21,6 +21,7 @@ import com.botmaker.studio.blocks.var.DeclareClassVariableBlock;
 import com.botmaker.studio.blocks.var.DeclareEnumBlock;
 import com.botmaker.studio.blocks.var.VariableDeclarationBlock;
 import com.botmaker.studio.core.*;
+import com.botmaker.studio.core.component.MemberVisibility;
 import com.botmaker.studio.palette.BotMakerApi;
 import com.botmaker.studio.palette.InputKind;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
@@ -78,7 +79,8 @@ public class BlockConverter {
 
             ParseContext ctx = new ParseContext(
                     ast, javaCode, comments, nodeToBlockMap, manager, isReadOnly,
-                    LockResolver.forActiveFile(config, state), markNewIdentifiersAsUnedited);
+                    LockResolver.forActiveFile(config, state), state.getAudience(),
+                    markNewIdentifiersAsUnedited);
 
             if (ast.types().isEmpty()) return new ConvertResult(null, ast);
 
@@ -101,6 +103,10 @@ public class BlockConverter {
             ctx.nodeToBlockMap().put(typeDecl, classBlock);
 
             for (Object obj : typeDecl.bodyDeclarations()) {
+                // Scaffolding is left out of the tree for a user audience, not merely greyed out — the Outcome
+                // enum, the INSTANCE static and the isEnabled() wiring are nothing to read or change.
+                if (obj instanceof BodyDeclaration member && isScaffoldingHiddenFrom(member, ctx)) continue;
+
                 if (obj instanceof MethodDeclaration method) {
                     MethodDeclarationBlock methodBlock;
                     if (method.isConstructor()) {
@@ -170,6 +176,16 @@ public class BlockConverter {
             return rootEnumBlock;
         }
         return null;
+    }
+
+    /**
+     * True when {@code member} is the Studio's own scaffolding and the canvas is being drawn for someone who did
+     * not write this bot. Skipping it here rather than hiding its node later is deliberate: an unbuilt block is
+     * also an unregistered one, so nothing downstream — the drop targets, the overlay's row list, the breakpoint
+     * map — can offer a member the user cannot see.
+     */
+    private boolean isScaffoldingHiddenFrom(BodyDeclaration member, ParseContext ctx) {
+        return !MemberVisibility.isVisible(ctx.resolver(), member, ctx.audience());
     }
 
     private void applyReadOnly(CodeBlock block, ParseContext ctx) {

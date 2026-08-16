@@ -54,11 +54,7 @@ public final class ComponentResolver {
      */
     public static Verdict resolve(BlockComponent component, Audience audience, boolean locked) {
         if (component == null) return Verdict.HIDDEN;
-        Audience who = audience == null ? Audience.EDITOR : audience;
-
-        if (component.visibility() == BlockComponent.Visibility.EDITOR_ONLY && !who.seesScaffolding()) {
-            return Verdict.HIDDEN;
-        }
+        if (!isVisibleTo(component.visibility(), audience)) return Verdict.HIDDEN;
         if (!locked) return Verdict.SHOWN_EDITABLE;
         return component.whenLocked() == BlockComponent.WhenLocked.HIDE ? Verdict.HIDDEN : Verdict.SHOWN_LOCKED;
     }
@@ -74,6 +70,20 @@ public final class ComponentResolver {
     public static Verdict resolve(BlockComponent component, Audience audience, LockResolver resolver,
                                   ASTNode node, LockResolver.EditKind kind) {
         return resolve(component, audience, isLocked(resolver, node, kind));
+    }
+
+    /**
+     * Whether something declared with {@code visibility} is drawn at all for {@code audience} — the audience
+     * half of the table on its own.
+     *
+     * <p>Separate from {@link #resolve} because it is asked at two granularities: of a component inside a block,
+     * and of a whole class member ({@code MemberVisibility}, used by the parser to leave a member out of the
+     * tree entirely). Both must answer identically, so both ask here. A null audience is the editor — the
+     * conservative default, since showing scaffolding is the behaviour that predates this axis.
+     */
+    public static boolean isVisibleTo(BlockComponent.Visibility visibility, Audience audience) {
+        Audience who = audience == null ? Audience.EDITOR : audience;
+        return visibility != BlockComponent.Visibility.EDITOR_ONLY || who.seesScaffolding();
     }
 
     /** Whether an edit of {@code kind} at {@code node} is refused. Permissive when there is no resolver. */

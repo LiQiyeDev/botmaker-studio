@@ -6,6 +6,20 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-16 — a bot you did not write stops showing you BotMaker's own wiring
+  (`core/component/MemberVisibility`, `parser/BlockConverter`, `project/MethodLock`).** The first wave of the
+  audience axis, applied one level above a block's fields: whole class *members*. An activity stub opened for
+  reading now shows `run()` and nothing else — the generated `Outcome` enum, the `INSTANCE` static the registry
+  binds and the `MethodLock.FULL` `isEnabled()` are left out of the tree entirely rather than greyed out, which
+  is what the reader actually needs (there is nothing there to read or change). The same rules reach the
+  `Bot.start` hooks: `Popups.POPUPS` — the empty `ImageTemplateGroup` — is the author's template list, not a
+  vestige, since `run()` hands it to `whileFindAny`; it is hidden from a reader rather than removed. Rules are
+  either a `LockResolver` verdict or a structural fact (is the field static?), so nothing re-derives a lock;
+  the one non-lock rule, "a static field in a scaffold-managed file", covers the members that are perfectly
+  editable by their author and meaningless to everyone else. `MethodLock.isScaffoldManaged` is the single
+  answer to "is this a file the Studio keeps in shape", asked by both the lock model and the audience model.
+  Skipping a member at parse time also unregisters it, so no drop target, overlay row or breakpoint can offer
+  what the user cannot see. 6 headless tests.
 - **2026-08-16 — blocks can declare their fields, so the editor can stop showing users its scaffolding
   (`core/component/*`, `ui/render/layout/ComponentLayoutBuilder`, `project/ProjectState`).** Studio had no
   axis for *who the canvas is drawn for*: author and runner were the same person, so every component of every
