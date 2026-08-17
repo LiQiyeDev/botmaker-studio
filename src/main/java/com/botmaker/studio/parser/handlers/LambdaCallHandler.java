@@ -156,6 +156,7 @@ public final class LambdaCallHandler {
 
         ctx.addImport(SdkType.MATCHES);
         ctx.addImport(SdkType.IMAGE_TEMPLATE);
+        ctx.addTemplatesImport();
         return MatchesSwitchHandler.newSeededBody(ctx.ast(), lambdaParam, templatePath);
     }
 

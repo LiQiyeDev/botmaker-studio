@@ -19,7 +19,6 @@ import javafx.scene.layout.HBox;
 import org.eclipse.jdt.core.dom.ClassInstanceCreation;
 import org.eclipse.jdt.core.dom.Expression;
 import org.eclipse.jdt.core.dom.MethodInvocation;
-import org.eclipse.jdt.core.dom.StringLiteral;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -194,13 +193,7 @@ public final class ImageTemplateGroupPicker {
      * per-argument pickers instead.
      */
     public static java.util.Optional<String> templatePath(Object expression) {
-        if (SdkNodes.isInstantiationOf(expression, SdkType.IMAGE_TEMPLATE)
-                && expression instanceof ClassInstanceCreation cic
-                && !cic.arguments().isEmpty()
-                && cic.arguments().get(0) instanceof StringLiteral sl) {
-            return java.util.Optional.of(sl.getLiteralValue());
-        }
-        return java.util.Optional.empty();
+        return SdkNodes.imageTemplatePathOf(expression);
     }
 
     private static List<String> replace(List<String> base, int index, String path) {

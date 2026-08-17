@@ -447,6 +447,7 @@ public class StatementFactory {
         // came from a lambda parameter whose type is inferred and therefore never imported by anything else.
         ctx.addImport(SdkType.MATCHES);
         ctx.addImport(SdkType.IMAGE_TEMPLATE);
+        ctx.addTemplatesImport();
 
         List<String> allowed = MatchesGroupScope.allowedPaths(context);
         String seed = (allowed != null && !allowed.isEmpty())

@@ -410,10 +410,9 @@ public class CodeEditor {
             ASTRewrite rewriter = ASTRewrite.create(ast);
             ClassInstanceCreation cic = ast.newClassInstanceCreation();
             cic.setType(SdkNodes.type(ast, SdkType.IMAGE_TEMPLATE));
-            StringLiteral lit = ast.newStringLiteral();
-            lit.setLiteralValue(path);
-            cic.arguments().add(lit);
+            cic.arguments().add(SdkNodes.templateArgument(ast, path));
             ImportManager.addImport(cu, rewriter, SdkType.IMAGE_TEMPLATE);
+            ImportManager.addTemplatesImport(cu, rewriter);
             rewriter.replace(toReplace, cic, null);
 
             if (windowTitle != null && isSoleFindArgument(toReplace)) {
@@ -469,12 +468,11 @@ public class CodeEditor {
             for (String path : paths) {
                 ClassInstanceCreation cic = ast.newClassInstanceCreation();
                 cic.setType(SdkNodes.type(ast, SdkType.IMAGE_TEMPLATE));
-                StringLiteral lit = ast.newStringLiteral();
-                lit.setLiteralValue(path == null ? "" : path);
-                cic.arguments().add(lit);
+                cic.arguments().add(SdkNodes.templateArgument(ast, path));
                 call.arguments().add(cic);
             }
             ImportManager.addImport(cu, rewriter, SdkType.IMAGE_TEMPLATE);
+            ImportManager.addTemplatesImport(cu, rewriter);
             ImportManager.addImport(cu, rewriter, SdkType.IMAGE_TEMPLATE_GROUP);
             rewriter.replace(toReplace, call, null);
             LambdaCallHandler.seedIfReady(EditContext.of(cu, rewriter, analyzer, state), toReplace,
@@ -506,12 +504,11 @@ public class CodeEditor {
             for (String path : paths) {
                 ClassInstanceCreation cic = ast.newClassInstanceCreation();
                 cic.setType(SdkNodes.type(ast, SdkType.IMAGE_TEMPLATE));
-                StringLiteral lit = ast.newStringLiteral();
-                lit.setLiteralValue(path == null ? "" : path);
-                cic.arguments().add(lit);
+                cic.arguments().add(SdkNodes.templateArgument(ast, path));
                 args.insertLast(cic, null);
             }
             ImportManager.addImport(cu, rewriter, SdkType.IMAGE_TEMPLATE);
+            ImportManager.addTemplatesImport(cu, rewriter);
             return AstRewriteHelper.applyRewrite(rewriter, code);
         });
     }
@@ -604,9 +601,8 @@ public class CodeEditor {
                     case ArgValue.ImageVal im -> {
                         ClassInstanceCreation cic = ast.newClassInstanceCreation();
                         cic.setType(SdkNodes.type(ast, SdkType.IMAGE_TEMPLATE));
-                        StringLiteral lit = ast.newStringLiteral();
-                        lit.setLiteralValue(im.path());
-                        cic.arguments().add(lit);
+                        cic.arguments().add(SdkNodes.templateArgument(ast, im.path()));
+                        ImportManager.addTemplatesImport(cu, rewriter);
                         replacement = cic;
                         imported = SdkType.IMAGE_TEMPLATE;
                     }

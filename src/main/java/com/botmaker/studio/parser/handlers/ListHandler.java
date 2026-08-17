@@ -41,10 +41,9 @@ public class ListHandler {
 
         ClassInstanceCreation cic = ast.newClassInstanceCreation();
         cic.setType(SdkNodes.type(ast, SdkType.IMAGE_TEMPLATE));
-        StringLiteral lit = ast.newStringLiteral();
-        lit.setLiteralValue("");
-        cic.arguments().add(lit);
+        cic.arguments().add(SdkNodes.templateArgument(ast, ""));
         ctx.addImport(SdkType.IMAGE_TEMPLATE);
+        ctx.addTemplatesImport();
 
         insertElement(ctx.rewriter(), listNode, cic, insertIndex);
         return ctx.applyTo(originalCode);

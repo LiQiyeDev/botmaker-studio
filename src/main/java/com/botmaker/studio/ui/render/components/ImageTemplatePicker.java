@@ -31,9 +31,9 @@ import javafx.scene.layout.VBox;
 import javafx.stage.Window;
 
 import java.awt.image.BufferedImage;
+import com.botmaker.studio.parser.helpers.SdkNodes;
 import org.eclipse.jdt.core.dom.ClassInstanceCreation;
 import org.eclipse.jdt.core.dom.Expression;
-import org.eclipse.jdt.core.dom.StringLiteral;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -96,12 +96,9 @@ public final class ImageTemplatePicker {
     /** Reads the current template path from {@code new ImageTemplate("path")}, or null. */
     private static String currentTemplatePath(ExpressionBlock arg) {
         var n = ((AbstractCodeBlock) arg).getAstNode();
-        if (n instanceof ClassInstanceCreation cic && !cic.arguments().isEmpty()
-                && cic.arguments().get(0) instanceof StringLiteral sl) {
-            String v = sl.getLiteralValue();
-            return v.isBlank() ? null : v;
-        }
-        return null;
+        if (!(n instanceof ClassInstanceCreation cic) || cic.arguments().isEmpty()) return null;
+        String path = SdkNodes.templatePathOf(cic.arguments().getFirst()).orElse(null);
+        return path == null || path.isBlank() ? null : path;
     }
 
     private static void applyTemplate(CodeEditorService context, ExpressionBlock arg, String path) {

@@ -1,5 +1,6 @@
 package com.botmaker.studio.parser;
 
+import com.botmaker.studio.project.TemplateConstants;
 import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
@@ -140,6 +141,23 @@ public class ImportManager {
     public static void addImport(CompilationUnit cu, ASTRewrite rewriter, SdkType type) {
         if (type == null) return;
         addImport(cu, rewriter, type.qualifiedName());
+    }
+
+    /**
+     * Imports the project's generated {@code Templates} class when the file being edited needs it — i.e. when
+     * it isn't already in the base package the class lives in.
+     *
+     * <p>The base package is read off the file itself rather than passed in, because these rewrites run from
+     * both the main class and an activity stub and only one of them has the project config to hand. An
+     * activity lives in {@code com.<pkg>.activities}, so the base package is this file's own minus that one
+     * trailing segment — the layout {@code ProjectConfig} creates and the only one Studio generates.
+     */
+    public static void addTemplatesImport(CompilationUnit cu, ASTRewrite rewriter) {
+        if (cu == null || cu.getPackage() == null) return;
+        String pkg = cu.getPackage().getName().getFullyQualifiedName();
+        String base = pkg.endsWith(".activities") ? pkg.substring(0, pkg.length() - ".activities".length()) : pkg;
+        if (base.equals(pkg)) return;   // same package — the class is already visible
+        addImport(cu, rewriter, base + "." + TemplateConstants.CLASS_NAME);
     }
 
     /**

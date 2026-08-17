@@ -2,6 +2,7 @@ package com.botmaker.studio.project;
 
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
+import com.botmaker.studio.services.ImageTemplateLibrary;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -30,6 +31,10 @@ public final class ProjectOpenMigrations {
         // no longer has, so it doesn't compile until this runs.
         migrate(config, state, eventBus, ScaffoldMigration::migrate,
                 "Could not update this project's entry point to the current scaffold: ");
+        // Every project needs a Templates class before a block can write `new ImageTemplate(Templates.X)`,
+        // including one whose templates were all captured before the class existed. Regenerating on open
+        // (not just on capture) is also what repairs a hand-deleted or hand-edited copy.
+        ImageTemplateLibrary.regenerateTemplatesClass(config);
     }
 
     /** One migration: rewrite {@code Main.java} on disk, then tell the editor its cached copy is stale. */

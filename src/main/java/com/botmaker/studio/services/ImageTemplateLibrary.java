@@ -2,6 +2,7 @@ package com.botmaker.studio.services;
 
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
+import com.botmaker.studio.project.TemplateConstants;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -61,13 +62,39 @@ public final class ImageTemplateLibrary {
     }
 
     /**
-     * Normalizes a user-entered template name to the allowed character set: trims surrounding whitespace and
-     * replaces every character outside {@code [A-Za-z0-9_-]} with {@code _}. The result may still be blank
-     * (when the input was blank or all-whitespace) — callers must reject blanks and check {@link #exists}
-     * for uniqueness. Shared by every naming path (the single-capture prompt and the batch dialog).
+     * Normalizes a user-entered template name to the allowed character set: trims surrounding whitespace,
+     * replaces every character outside {@code [A-Za-z0-9_]} with {@code _}, and lowercases the result. The
+     * result may still be blank (when the input was blank or all-whitespace) — callers must reject blanks and
+     * check {@link #exists} for uniqueness. Shared by every naming path (the single-capture prompt and the
+     * batch dialog).
+     *
+     * <p><b>Lowercase, and no {@code -}, because the name is also a Java constant.</b> Every template is
+     * declared in the generated {@code Templates} class as {@code YTUJ = "…/ytuj.png"}, and Studio reads that
+     * constant back to know which file a block refers to. Restricting the name to a lowercase identifier makes
+     * the two exactly reversible — see {@link com.botmaker.studio.project.TemplateConstants}. Names captured
+     * before this rule keep working; they simply get no constant.
      */
     public static String sanitizeName(String raw) {
-        return raw == null ? "" : raw.trim().replaceAll("[^A-Za-z0-9_-]", "_");
+        return raw == null ? "" : raw.trim().replaceAll("[^A-Za-z0-9_]", "_").toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * Rewrites the generated {@code Templates.java} from what is on disk now. Best-effort: a project whose
+     * source tree isn't writable still captures templates, it just doesn't get constants for them.
+     *
+     * <p>Called after every add, rename and delete rather than on a timer or at project open, because the
+     * class is only correct relative to the folder — a stale constant is a use site that compiles and finds
+     * nothing, which is the exact failure the constants exist to turn into a compile error.
+     */
+    public static void regenerateTemplatesClass(ProjectConfig config) {
+        try {
+            Path file = config.templatesSourceFile();
+            Files.createDirectories(file.getParent());
+            List<String> names = list(config).stream().map(ImageTemplateLibrary::baseName).toList();
+            Files.writeString(file, TemplateConstants.generateSource(config.packageName(), names));
+        } catch (IOException e) {
+            System.err.println("Failed to regenerate " + TemplateConstants.CLASS_NAME + ": " + e.getMessage());
+        }
     }
 
     /**
@@ -150,6 +177,7 @@ public final class ImageTemplateLibrary {
         TemplateMetadata meta = new TemplateMetadata(img.getWidth(), img.getHeight(),
                 Math.max(0, captureWidth), Math.max(0, captureHeight), targetTitle, Instant.now().toString());
         MAPPER.writerWithDefaultPrettyPrinter().writeValue(sidecarFor(png).toFile(), meta);
+        regenerateTemplatesClass(config);
         return pathFor(config, png);
     }
 
@@ -235,6 +263,7 @@ public final class ImageTemplateLibrary {
             Files.move(oldSidecar, sidecarFor(target), StandardCopyOption.REPLACE_EXISTING);
         }
         saveManifest(config, manifest(config).renamed(baseName(file), newBaseName));
+        regenerateTemplatesClass(config);
     }
 
     /** Deletes a template: the PNG, its resolution sidecar and its manifest entry. */
@@ -242,6 +271,7 @@ public final class ImageTemplateLibrary {
         Files.deleteIfExists(file);
         Files.deleteIfExists(sidecarFor(file));
         saveManifest(config, manifest(config).without(baseName(file)));
+        regenerateTemplatesClass(config);
     }
 
     /**

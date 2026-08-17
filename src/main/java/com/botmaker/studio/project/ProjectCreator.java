@@ -74,8 +74,11 @@ public class ProjectCreator {
             Files.createDirectories(srcPath);
             writeSources(srcPath, sourcesFor(template, cfg.className(), cfg.packageName()));
 
-            // 4. Built-in default image template so freshly-dropped vision blocks reference a real file.
+            // 4. Built-in default image template so freshly-dropped vision blocks reference a real file,
+            //    and the Templates class that names it — generated here rather than on first capture so a
+            //    brand-new project's `new ImageTemplate(Templates.DEFAULT_TEMPLATE)` compiles at once.
             createDefaultTemplate(cfg.imagesRoot());
+            ImageTemplateLibrary.regenerateTemplatesClass(cfg);
 
             // 5. Seed settings.json (the chosen template + the standard capture resolution) and mirror the
             //    resolution into botmaker-project.properties, so the editor snaps captures to it and the

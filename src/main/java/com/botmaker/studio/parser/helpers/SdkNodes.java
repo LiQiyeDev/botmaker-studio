@@ -1,13 +1,18 @@
 package com.botmaker.studio.parser.helpers;
 
 import com.botmaker.studio.palette.SdkType;
+import com.botmaker.studio.project.TemplateConstants;
 import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.ClassInstanceCreation;
 import org.eclipse.jdt.core.dom.Expression;
 import org.eclipse.jdt.core.dom.MethodInvocation;
 import org.eclipse.jdt.core.dom.Name;
+import org.eclipse.jdt.core.dom.QualifiedName;
 import org.eclipse.jdt.core.dom.SimpleName;
+import org.eclipse.jdt.core.dom.StringLiteral;
 import org.eclipse.jdt.core.dom.Type;
+
+import java.util.Optional;
 
 /**
  * The bridge between {@link SdkType} and the JDT nodes that name it — so a rewrite writes
@@ -76,5 +81,55 @@ public final class SdkNodes {
     /** The source text {@code written} names {@code type}, whether the file imported it or qualified it. */
     private static boolean namesType(String written, SdkType type) {
         return written.equals(type.simpleName()) || written.endsWith("." + type.simpleName());
+    }
+
+    // --- the argument of a new ImageTemplate(…) -------------------------------------------------------
+    //
+    // Two spellings, one meaning. `Templates.YTUJ` is what Studio writes now — the path declared once in the
+    // generated constants class instead of repeated at every use site — and `"src/main/resources/images/…"`
+    // is what it wrote before and what a hand-written bot may still say. Both are read here, in one place,
+    // so no picker has to know there are two; and both round-trip, so opening an old project and editing one
+    // block doesn't rewrite the others.
+
+    /**
+     * The project-relative path a template argument names — the literal itself, or the path the
+     * {@code Templates} constant stands for. Empty for anything else: a variable, a field or a call is a
+     * reference the pickers cannot represent and must not overwrite.
+     */
+    public static Optional<String> templatePathOf(Object argument) {
+        if (argument instanceof StringLiteral literal) {
+            return Optional.of(literal.getLiteralValue());
+        }
+        if (argument instanceof QualifiedName qualified
+                && TemplateConstants.CLASS_NAME.equals(qualified.getQualifier().toString())) {
+            return Optional.ofNullable(TemplateConstants.pathForConstant(qualified.getName().getIdentifier()));
+        }
+        return Optional.empty();
+    }
+
+    /** {@link #templatePathOf} applied to the first argument of a {@code new ImageTemplate(…)}. */
+    public static Optional<String> imageTemplatePathOf(Object node) {
+        if (isInstantiationOf(node, SdkType.IMAGE_TEMPLATE)
+                && node instanceof ClassInstanceCreation cic
+                && !cic.arguments().isEmpty()) {
+            return templatePathOf(cic.arguments().getFirst());
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * How to write {@code path} as the argument of a {@code new ImageTemplate(…)}: {@code Templates.YTUJ} when
+     * the template has a constant, the raw path otherwise. The fallback is what keeps a template named before
+     * the lowercase-identifier rule editable — it has no constant to name it by, so it keeps its literal.
+     */
+    public static Expression templateArgument(AST ast, String path) {
+        String constant = TemplateConstants.constantForPath(path);
+        if (constant != null) {
+            return ast.newQualifiedName(ast.newSimpleName(TemplateConstants.CLASS_NAME),
+                    ast.newSimpleName(constant));
+        }
+        StringLiteral literal = ast.newStringLiteral();
+        literal.setLiteralValue(path == null ? "" : path);
+        return literal;
     }
 }

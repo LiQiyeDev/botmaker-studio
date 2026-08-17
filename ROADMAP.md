@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-17 — A template is named, not pathed (`project/TemplateConstants`, `parser/helpers/SdkNodes`,
+  `services/ImageTemplateLibrary`).** Generated source spelled every template as
+  `new ImageTemplate("src/main/resources/images/ytuj.png")` — one path repeated at each use site, invisible to
+  the compiler, wrong in all of them the moment the file was renamed. Studio now generates a **`Templates`**
+  class in the bot's base package (one `String` constant per template, regenerated on every add, rename,
+  delete, project create and project open) and writes `new ImageTemplate(Templates.YTUJ)`. A rename becomes one
+  regenerated line plus compile errors at exactly the use sites that must change, instead of a bot that
+  compiles and finds nothing. `sanitizeName` now folds a template name to a **lowercase identifier**, which is
+  what makes name↔constant an exact round trip so a block can read the constant back to its file; a template
+  named before that rule keeps its string literal, and `SdkNodes.templatePathOf`/`templateArgument` read and
+  write both spellings in one place (replacing three copies of the literal-only extractor). Needs no SDK
+  change — the constant is an ordinary `String`.
+
 - **2026-08-17 — Guards are All-of / Any-of containers (`parser/handlers/GuardTree`, `MatchesSwitchHandler`,
   `blocks/flow/MatchesSwitchBlock`).** A branch's condition drew its join word in every gap while the source
   had one operator for the whole chain, so clicking one "and" flipped its siblings; the `＋` hung off whichever

@@ -17,7 +17,6 @@ import org.eclipse.jdt.core.dom.Pattern;
 import org.eclipse.jdt.core.dom.PrefixExpression;
 import org.eclipse.jdt.core.dom.SingleVariableDeclaration;
 import org.eclipse.jdt.core.dom.Statement;
-import org.eclipse.jdt.core.dom.StringLiteral;
 import org.eclipse.jdt.core.dom.SwitchCase;
 import org.eclipse.jdt.core.dom.SwitchStatement;
 import org.eclipse.jdt.core.dom.TypePattern;
@@ -190,13 +189,7 @@ public final class MatchesSwitchHandler {
 
     /** The path inside {@code new ImageTemplate("…")}, or empty for anything else. */
     public static Optional<String> templatePath(Object node) {
-        if (SdkNodes.isInstantiationOf(node, SdkType.IMAGE_TEMPLATE)
-                && node instanceof ClassInstanceCreation cic
-                && !cic.arguments().isEmpty()
-                && cic.arguments().getFirst() instanceof StringLiteral sl) {
-            return Optional.of(sl.getLiteralValue());
-        }
-        return Optional.empty();
+        return SdkNodes.imageTemplatePathOf(node);
     }
 
     /** Whether {@code stmt} is a switch this handler owns: a {@code case Matches m when …} in every non-default case. */
@@ -459,9 +452,7 @@ public final class MatchesSwitchHandler {
     private static ClassInstanceCreation newTemplate(AST ast, String path) {
         ClassInstanceCreation cic = ast.newClassInstanceCreation();
         cic.setType(SdkNodes.type(ast, SdkType.IMAGE_TEMPLATE));
-        StringLiteral literal = ast.newStringLiteral();
-        literal.setLiteralValue(path == null ? "" : path);
-        cic.arguments().add(literal);
+        cic.arguments().add(SdkNodes.templateArgument(ast, path));
         return cic;
     }
 

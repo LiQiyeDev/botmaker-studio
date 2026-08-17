@@ -50,6 +50,11 @@ public record EditContext(AST ast, CompilationUnit cu, ASTRewrite rewriter,
         return newState == state ? this : new EditContext(ast, cu, rewriter, analyzer, newState);
     }
 
+    /** Imports the project's generated {@code Templates} class if this file isn't already in its package. */
+    public void addTemplatesImport() {
+        ImportManager.addTemplatesImport(cu, rewriter);
+    }
+
     /** Imports an SDK type by identity — cannot fail to resolve. See {@link ImportManager#addImport}. */
     public void addImport(SdkType type) {
         ImportManager.addImport(cu, rewriter, type);
