@@ -30,7 +30,7 @@ import java.util.Optional;
 /**
  * The "new activity" prompt: name, description, go-home tick and the activity's outcomes, all before the card
  * exists. It replaces the top bar's bare name field, which could only ever produce an activity with no outcomes
- * — leaving the user to discover the side panel before their card had anything but a "then" port to wire from.
+ * — leaving the user to discover the side panel before their card had anything but a NEXT port to wire from.
  *
  * <p>Opened from the "Add activity" button and from a double-click on empty canvas; the caller supplies the
  * point the card should land on, so a double-click drops it under the cursor.
@@ -122,8 +122,8 @@ public final class NewActivityDialog {
     }
 
     private Node buildOutcomes() {
-        Label explain = new Label("What this activity can report. Return one from its run() method, then wire "
-                + "each one on the canvas. Every activity also has a \"then\" outcome, and any outcome you "
+        Label explain = new Label("What this activity can report. Return one from its run() method and wire "
+                + "each one on the canvas. Every activity also has a NEXT outcome, and any outcome you "
                 + "leave unwired ends the run. You can add more later from the side panel.");
         explain.setWrapText(true);
         explain.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
@@ -158,7 +158,7 @@ public final class NewActivityDialog {
     private void rebuildOutcomeRows() {
         outcomeRows.getChildren().clear();
 
-        Label next = new Label(FlowEdge.outcomeLabelWithConstant(FlowEdge.NEXT_OUTCOME));
+        Label next = new Label(FlowEdge.outcomeLabel(FlowEdge.NEXT_OUTCOME));
         next.setStyle("-fx-text-fill: #666;");
         Label always = new Label("always present");
         always.setStyle("-fx-font-size: 10px; -fx-text-fill: gray;");

@@ -101,17 +101,17 @@ public class ReturnBlock extends AbstractStatementBlock {
     /**
      * The pinned return: {@code return} + the current outcome + an outcome-only picker; no delete/move.
      *
-     * <p>Outcomes are labelled through {@link FlowEdge#outcomeLabelWithConstant} rather than by their raw
-     * constant, so the implicit one reads as the "then" it is called on the flow canvas and in the activity
-     * dialog. It was the bare {@code NEXT} here and nowhere else, which is what made the same outcome look
-     * like two different things depending on which editor the user was in. The <em>value</em> written to the
-     * source is still the constant — only the label changes.
+     * <p>Outcomes are labelled through {@link FlowEdge#outcomeLabel}, which is the constant itself — the same
+     * name the flow canvas and the activity dialog now show, and the same one that appears in the generated
+     * source. Nothing is translated into friendlier words on the way to the screen: the implicit outcome used
+     * to read "then" on a port and {@code NEXT} here, so the same outcome looked like two different things
+     * depending on which editor the user was in.
      */
     private Node buildPinnedOutcomeReturn(CodeEditorService context) {
-        MenuButton picker = new MenuButton(FlowEdge.outcomeLabelWithConstant(currentOutcome()));
+        MenuButton picker = new MenuButton(FlowEdge.outcomeLabel(currentOutcome()));
         picker.getStyleClass().add("outcome-picker");
         for (String outcome : outcomeConstants()) {
-            MenuItem item = new MenuItem(FlowEdge.outcomeLabelWithConstant(outcome));
+            MenuItem item = new MenuItem(FlowEdge.outcomeLabel(outcome));
             item.setOnAction(e -> context.getCodeEditor()
                     .replaceWithEnumConstant((Expression) expression.getAstNode(), OUTCOME_ENUM, outcome));
             picker.getItems().add(item);

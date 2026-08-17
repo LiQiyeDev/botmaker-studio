@@ -25,15 +25,13 @@ class ActivityFlowTest {
     @Test
     void oneOutcomeReadsTheSameWayInEveryEditor() {
         // The flow canvas, the new-activity dialog and the return block each used to spell this themselves,
-        // and had drifted to three different forms of the same outcome. Both labels come from here now.
-        assertEquals("then", FlowEdge.outcomeLabel(FlowEdge.NEXT_OUTCOME));
-        assertEquals("then", FlowEdge.outcomeLabel(""), "a blank outcome IS the implicit one — see outcomeOrNext");
-        assertEquals("then", FlowEdge.outcomeLabel(null));
+        // and had drifted to three forms of one outcome — "then", "then (NEXT)" and the bare constant. The
+        // label is the constant now, everywhere, so what is on screen is what is in the generated source.
+        assertEquals(FlowEdge.NEXT_OUTCOME, FlowEdge.outcomeLabel(FlowEdge.NEXT_OUTCOME));
+        assertEquals(FlowEdge.NEXT_OUTCOME, FlowEdge.outcomeLabel(""),
+                "a blank outcome IS the implicit one — see outcomeOrNext");
+        assertEquals(FlowEdge.NEXT_OUTCOME, FlowEdge.outcomeLabel(null));
         assertEquals("BAG_FULL", FlowEdge.outcomeLabel("BAG_FULL"));
-
-        // The longer form names the constant the user's Java will contain; a declared outcome already is one.
-        assertEquals("then (NEXT)", FlowEdge.outcomeLabelWithConstant(FlowEdge.NEXT_OUTCOME));
-        assertEquals("BAG_FULL", FlowEdge.outcomeLabelWithConstant("BAG_FULL"));
     }
 
     @Test

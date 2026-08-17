@@ -4,6 +4,7 @@ import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.core.AbstractStatementBlock;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.ui.render.components.TextFieldComponents;
+import com.botmaker.studio.ui.render.layout.BlockLayout;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
@@ -17,6 +18,10 @@ import org.eclipse.jdt.core.dom.Comment;
  * A code comment, rendered as a read-only note by default with a small edit button — a comment is documentation,
  * not a control, so it shouldn't look like an always-open text field. The text wraps, so a long note stays fully
  * visible instead of scrolling inside a narrow box. In a locked/reader file there is no edit button at all.
+ *
+ * <p>It carries the same header treatment as every other block, so it can be deleted. It returned a bare
+ * {@code HBox} for a long time and so never asked for a delete button — {@code CodeEditor.deleteComment} was
+ * written and then had no caller anywhere, which is why a note you no longer wanted was permanent.
  */
 public class CommentBlock extends AbstractStatementBlock {
 
@@ -45,7 +50,14 @@ public class CommentBlock extends AbstractStatementBlock {
         row.getChildren().add(icon);
 
         showReadOnly(row, context);
-        return row;
+
+        // withGrowingNode, not withCustomNode: the note absorbs the spare width so the delete sits at the far
+        // right and a long comment still wraps across the block instead of inside a narrow column.
+        return BlockLayout.header()
+                .withGrowingNode(row)
+                .withDeleteButton(whenEditable(() ->
+                        context.getCodeEditor().deleteComment((Comment) this.astNode)))
+                .build();
     }
 
     /** Renders the note as wrapping read-only text, with an edit button unless the file is locked. */

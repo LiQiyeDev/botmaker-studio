@@ -56,26 +56,16 @@ public record FlowEdge(String from, String to, String outcome) {
     }
 
     /**
-     * How an outcome is written for the user where space is tight — a port chip, a tooltip. The implicit
-     * outcome reads "then" (what the wire means), a declared one is its own name.
+     * How an outcome is written for the user — a port chip, a tooltip, a picker entry. It is the constant
+     * itself, always: {@link #NEXT_OUTCOME} for the implicit one, its own name for a declared one.
      *
-     * <p>Here rather than in each view for the usual reason: three places had hand-spelled it and they had
-     * drifted into three different forms of the same outcome — {@code "then"} on a flow port,
-     * {@code "then  (NEXT)"} in the new-activity dialog, and the bare constant {@code NEXT} in the return
-     * block's picker, so the same thing read differently depending on which editor you were in.
+     * <p>The implicit outcome used to read {@code "then"} here and {@code "then (NEXT)"} in the forms, while
+     * the return block's picker showed the bare constant — one outcome with three spellings, so the user had
+     * to work out that the word on the wire and the constant in their Java were the same thing. There is one
+     * name now, and it is the one that appears in the generated source.
      */
     public static String outcomeLabel(String outcome) {
-        return outcome == null || outcome.isBlank() || NEXT_OUTCOME.equals(outcome) ? "then" : outcome;
-    }
-
-    /**
-     * {@link #outcomeLabel} plus the generated constant, for a menu entry or a form row — anywhere the user is
-     * choosing an outcome and the name that will appear in their Java is worth showing. A declared outcome is
-     * already its own constant, so only the implicit one gains the suffix.
-     */
-    public static String outcomeLabelWithConstant(String outcome) {
-        String label = outcomeLabel(outcome);
-        return "then".equals(label) ? label + " (" + NEXT_OUTCOME + ")" : label;
+        return outcome == null || outcome.isBlank() ? NEXT_OUTCOME : outcome;
     }
 
     /** The same wire re-pointed at {@code newFrom}/{@code newTo} — used when a node is renamed. */

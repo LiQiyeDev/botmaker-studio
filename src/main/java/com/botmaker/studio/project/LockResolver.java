@@ -120,15 +120,17 @@ public record LockResolver(ProjectConfig config, ProjectTemplate template, Path 
     }
 
     /**
-     * True for a member the Studio generates inside a file the user otherwise owns — today an activity's
-     * {@code Outcome} enum. It outranks both other verdicts in the locking direction only.
+     * True for a member the Studio generates inside a file the user otherwise owns — an activity's
+     * {@code Outcome} enum, and the {@code INSTANCE} the registry and the entry point bind it through. It
+     * outranks both other verdicts in the locking direction only.
      *
      * <p>The pinned trailing {@code return} is deliberately <em>not</em> here: it must stay editable (choosing
      * which outcome to report is the point of it), so it is guarded where the two things it forbids happen —
      * see {@link #pinnedReturnOf} and {@link #isPinnedReturn}.
      */
     private boolean isGeneratedMember(ASTNode node) {
-        return GeneratedMembers.isOutcomeEnum(config, template, file, node);
+        return GeneratedMembers.isOutcomeEnum(config, template, file, node)
+                || GeneratedMembers.isBoundInstance(config, template, file, node);
     }
 
     /**
@@ -171,6 +173,10 @@ public record LockResolver(ProjectConfig config, ProjectTemplate template, Path 
     }
 
     private String reasonFor(ASTNode node, EditKind kind) {
+        if (GeneratedMembers.isBoundInstance(config, template, file, node)) {
+            return "INSTANCE is how BotMaker reaches this activity — the registry and the entry point both "
+                    + "name it, so it stays as it is.";
+        }
         if (isGeneratedMember(node)) {
             return "An activity's outcomes are managed in Project ▸ Activity Flow — add or rename them there "
                     + "and this enum follows.";

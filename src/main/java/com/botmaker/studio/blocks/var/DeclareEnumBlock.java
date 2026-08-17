@@ -77,9 +77,14 @@ public class DeclareEnumBlock extends AbstractStatementBlock {
             }
         });
 
-        Button addConstantBtn = new Button("+ Add Value");
-        addConstantBtn.getStyleClass().addAll("block-action-button", "block-action-button--mini");
-        addConstantBtn.setOnAction(e -> context.getCodeEditor().addEnumConstant(enumDeclaration, "NEW_VALUE"));
+        // Null on a locked enum, and the sentence builder skips nulls: an activity's generated Outcome enum is
+        // edited on the flow canvas, so offering "+ Add Value" here was an invitation the write layer refuses.
+        Button addConstantBtn = null;
+        if (!isReadOnly()) {
+            addConstantBtn = new Button("+ Add Value");
+            addConstantBtn.getStyleClass().addAll("block-action-button", "block-action-button--mini");
+            addConstantBtn.setOnAction(e -> context.getCodeEditor().addEnumConstant(enumDeclaration, "NEW_VALUE"));
+        }
 
         var headerSentence = BlockLayout.sentence()
                 .addNode(label)
@@ -87,13 +92,16 @@ public class DeclareEnumBlock extends AbstractStatementBlock {
                 .addNode(addConstantBtn)
                 .build();
 
-        Runnable deleteAction = () -> {
+        // Not deleteAction(context): a class-level enum is removed from its type, not from a statement list.
+        // The read-only gate is the shared one all the same — this block used to build the delete
+        // unconditionally and hand it straight to createHeaderRow, which is why a locked enum kept its cross.
+        Runnable deleteAction = whenEditable(() -> {
             if (isStatement) {
                 context.getCodeEditor().deleteStatement((Statement) this.astNode);
             } else {
                 context.getCodeEditor().deleteEnumFromClass(enumDeclaration);
             }
-        };
+        });
 
         HBox headerWrapper = BlockUIComponents.createHeaderRow(deleteAction, headerSentence);
         container.getChildren().add(headerWrapper);
@@ -110,6 +118,7 @@ public class DeclareEnumBlock extends AbstractStatementBlock {
                 TextField constField = new TextField(constant);
                 constField.setPrefWidth(120);
                 constField.getStyleClass().add("block-inset-field");
+                constField.setEditable(!isReadOnly());
 
                 constField.focusedProperty().addListener((obs, oldVal, newVal) -> {
                     if (!newVal) {
@@ -120,9 +129,12 @@ public class DeclareEnumBlock extends AbstractStatementBlock {
                     }
                 });
 
-                Button deleteBtn = new Button("×");
-                deleteBtn.getStyleClass().add("block-icon-button");
-                deleteBtn.setOnAction(e -> context.getCodeEditor().deleteEnumConstant(enumDeclaration, index));
+                Button deleteBtn = null;
+                if (!isReadOnly()) {
+                    deleteBtn = new Button("×");
+                    deleteBtn.getStyleClass().add("block-icon-button");
+                    deleteBtn.setOnAction(e -> context.getCodeEditor().deleteEnumConstant(enumDeclaration, index));
+                }
 
                 HBox row = BlockLayout.sentence()
                         .addNode(constField)

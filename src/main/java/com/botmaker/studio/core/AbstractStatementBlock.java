@@ -57,6 +57,19 @@ public abstract class AbstractStatementBlock extends AbstractCodeBlock implement
     }
 
     /**
+     * {@code action}, or null when this block is read-only — for the blocks whose delete isn't
+     * {@link #deleteSelf} (a class-level enum is removed from its type, not from a statement list) and for the
+     * per-row controls a block builds itself.
+     *
+     * <p>Same rule, same null: a locked block gets no control rather than a control that refuses. Reach for
+     * this instead of writing {@code if (!isReadOnly())} around a button — that is the check block classes
+     * were forgetting, and forgetting it is how a read-only enum kept a working delete cross.
+     */
+    protected Runnable whenEditable(Runnable action) {
+        return isReadOnly() ? null : action;
+    }
+
+    /**
      * Removes this block's statement. Goes through {@link #enclosingStatement()} rather than casting
      * {@code astNode}: the cast holds for every block whose own node <em>is</em> a {@link Statement}, which is
      * most of them, but a subclass backed by an expression would throw here — the same confusion that made the

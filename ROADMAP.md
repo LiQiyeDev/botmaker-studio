@@ -6,6 +6,21 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-17 — a locked block is really locked, a comment can be deleted, one outcome has one name
+  (`project/GeneratedMembers`, `core/AbstractStatementBlock`, `blocks/misc/CommentBlock`,
+  `project/activity/FlowEdge`).** Four corrections from hand-testing. `DeclareEnumBlock` built its delete and
+  its `+ Add Value` unconditionally and handed them straight to `createHeaderRow`, bypassing the read-only gate
+  every other block inherits — now via the new `whenEditable`, which is the shared gate for a delete that isn't
+  `deleteSelf`. `GoHome`'s `INSTANCE` had a working delete cross: a field sits in no method, so it inherited no
+  `MethodLock`, and its file is `EDITABLE`; `GeneratedMembers.isBoundInstance` locks the singleton the registry
+  and the entry point bind (only `INSTANCE` by name — `Popups.POPUPS` is the author's own list). `CommentBlock`
+  returned a bare `HBox` and so never asked for a delete button, leaving `CodeEditor.deleteComment` with no
+  caller at all; it now carries the standard header. The implicit outcome read `"then"` on a port,
+  `"then (NEXT)"` in the forms and the bare constant in the return picker — `outcomeLabel` is the constant
+  everywhere now and `outcomeLabelWithConstant` is gone. And the pinned trailing `return` is found
+  structurally (a class extending `Activity`) rather than by directory, so `GoHome.java` and `Popups.java`
+  render their return with the same outcome picker a stub does; the directory test stays as a fallback.
+
 - **2026-08-17 — an expression can be dragged into a slot again (`ui/dnd/BlockDragAndDropManager`,
   `ui/render/layout/ExpressionSlots`).** Every drag of an existing statement was refused by every expression
   slot. `carriesExpression` requires the dragboard to say what type the statement evaluates to, and

@@ -50,7 +50,7 @@ public final class FlowNames {
             return "'" + candidate + "' isn't a valid name — it becomes an enum constant in Java.";
         }
         if (FlowEdge.NEXT_OUTCOME.equals(candidate)) {
-            return "Every activity already has a NEXT outcome — that's the \"then\" port.";
+            return "Every activity already has a NEXT outcome — it is always there.";
         }
         for (String existing : outcomes) {
             if (existing.equals(candidate) && !existing.equals(replacing)) {

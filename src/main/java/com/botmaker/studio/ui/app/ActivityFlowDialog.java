@@ -352,8 +352,8 @@ public class ActivityFlowDialog {
     private Node buildOutcomeEditor(ActivityDraft draft) {
         VBox box = new VBox(6);
 
-        Label explain = new Label("What this activity can report. Return one from its run() method, then wire "
-                + "each one on the canvas. Every activity also has a \"then\" (NEXT) outcome, and any outcome "
+        Label explain = new Label("What this activity can report. Return one from its run() method and wire "
+                + "each one on the canvas. Every activity also has a NEXT outcome, and any outcome "
                 + "you leave unwired ends the run.");
         explain.setWrapText(true);
         explain.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
@@ -805,7 +805,7 @@ public class ActivityFlowDialog {
                 }
                 if (!outcomeNames.add(outcome)) {
                     return FlowEdge.NEXT_OUTCOME.equals(outcome)
-                            ? a.name() + " already has a NEXT outcome — that's its \"then\" port."
+                            ? a.name() + " already has a NEXT outcome — every activity does."
                             : "Duplicate outcome '" + outcome + "' in " + a.name() + ".";
                 }
             }

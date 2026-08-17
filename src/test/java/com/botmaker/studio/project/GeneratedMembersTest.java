@@ -5,6 +5,7 @@ import com.botmaker.studio.project.LockResolver.EditKind;
 import org.eclipse.jdt.core.dom.Block;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jdt.core.dom.EnumDeclaration;
+import org.eclipse.jdt.core.dom.FieldDeclaration;
 import org.eclipse.jdt.core.dom.MethodDeclaration;
 import org.eclipse.jdt.core.dom.Statement;
 import org.eclipse.jdt.core.dom.TypeDeclaration;
@@ -22,9 +23,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * The generated members inside an activity stub — a file that is otherwise entirely the user's.
  *
- * <p>Two different kinds of rule, deliberately: the {@code Outcome} enum is locked outright (it is written from
- * the flow dialog), while the trailing {@code return} stays editable and is only pinned in <em>place</em> —
- * choosing which outcome to report is the whole point of it.
+ * <p>Three different kinds of rule, deliberately: the {@code Outcome} enum and the bound {@code INSTANCE} are
+ * locked outright (the flow dialog writes one, the registry and entry point name the other), while the trailing
+ * {@code return} stays editable and is only pinned in <em>place</em> — choosing which outcome to report is the
+ * whole point of it.
  */
 class GeneratedMembersTest {
 
@@ -32,6 +34,8 @@ class GeneratedMembersTest {
             ProjectConfig.forProject("MyBot", Paths.get("/tmp/projects"));
     private static final Path STUB = CONFIG.activitiesPackageDir().resolve("Mining.java");
     private static final Path PLAIN = CONFIG.mainSourceFile().getParent().resolve("MyHelper.java");
+    /** A supervise hook: an activity that lives beside the entry point rather than under activities/. */
+    private static final Path HOOK = CONFIG.mainSourceFile().getParent().resolve("GoHome.java");
 
     private static final String STUB_SOURCE = """
             package com.mybot.activities;
@@ -113,13 +117,75 @@ class GeneratedMembersTest {
     }
 
     @Test
-    void anOrdinaryFileHasNoGeneratedMembers() {
-        // Same source, different location: the rules are about activity stubs, not about the shape of a class.
-        LockResolver resolver = resolver(PLAIN);
+    void theOutcomeEnumIsLockedOnlyInsideTheActivitiesPackage() {
+        // Same source, different location. What locks the enum is that the flow canvas writes it, and only the
+        // files under activities/ are on that canvas — GoHome and Popups carry an Outcome the canvas never
+        // touches, so locking theirs would leave the user nowhere to edit it.
+        assertTrue(resolver(PLAIN).signatureEditable(outcomeEnum()));
+    }
 
-        assertTrue(resolver.signatureEditable(outcomeEnum()));
-        assertNull(resolver.pinnedReturnOf(runBody()));
-        assertFalse(resolver.isPinnedReturn(lastStatement()));
+    @Test
+    void anActivityOutsideTheActivitiesPackageStillHasItsReturnPinned() {
+        // GoHome.java and Popups.java sit beside the entry point and extend Activity. Their run() ends in the
+        // return their caller routes on exactly as a stub's does, and it used to render as a generic orange
+        // expression chip purely because of which directory the file was in.
+        LockResolver hook = resolver(HOOK);
+
+        assertSame(lastStatement(), hook.pinnedReturnOf(runBody()));
+        assertTrue(hook.isPinnedReturn(lastStatement()));
+    }
+
+    @Test
+    void aClassThatIsNotAnActivityHasNoPinnedReturn() {
+        // The structural test is what carries a file outside activities/, so a plain helper there must fail it.
+        CompilationUnit cu = SourceParser.parse("""
+                package com.mybot;
+                public class MyHelper {
+                    public int run() { return 1; }
+                }
+                """);
+        MethodDeclaration run = ((TypeDeclaration) cu.types().getFirst()).getMethods()[0];
+
+        assertNull(resolver(PLAIN).pinnedReturnOf(run.getBody()));
+    }
+
+    @Test
+    void aStubKeepsItsPinnedReturnEvenWithoutTheExtendsClause() {
+        // The directory rule stays as a fallback: a file ensureStubs created is an activity whatever its header
+        // says right now — mid-edit, or written by an older Studio that spelled the base class differently.
+        CompilationUnit cu = SourceParser.parse("""
+                package com.mybot.activities;
+                public class Mining {
+                    public Outcome run() { return Outcome.NEXT; }
+                }
+                """);
+        MethodDeclaration run = ((TypeDeclaration) cu.types().getFirst()).getMethods()[0];
+
+        assertNotNull(resolver(STUB).pinnedReturnOf(run.getBody()));
+    }
+
+    @Test
+    void theBoundInstanceCannotBeDeletedFromEitherKindOfScaffoldFile() {
+        // The reported symptom was a working delete cross on GoHome's INSTANCE. A field sits in no method, so
+        // it inherited no MethodLock, and its file is EDITABLE — nothing refused it, and removing it breaks the
+        // entry point that binds GoHome.INSTANCE::execute.
+        CompilationUnit cu = SourceParser.parse("""
+                package com.mybot;
+                public class GoHome extends Activity<GoHome.Outcome> {
+                    public static final GoHome INSTANCE = new GoHome();
+                    public static final List<String> POPUPS = List.of();
+                }
+                """);
+        TypeDeclaration hookType = (TypeDeclaration) cu.types().getFirst();
+        FieldDeclaration instance = (FieldDeclaration) hookType.bodyDeclarations().get(0);
+        FieldDeclaration popups = (FieldDeclaration) hookType.bodyDeclarations().get(1);
+
+        assertFalse(resolver(HOOK).signatureEditable(instance));
+        assertFalse(resolver(STUB).signatureEditable(instance), "an activity stub's INSTANCE is bound too");
+        // Not every static: the author's own list in Popups.java is theirs to edit.
+        assertTrue(resolver(HOOK).signatureEditable(popups));
+        // And nothing at all is scaffolding in a file the Studio never wrote.
+        assertTrue(resolver(PLAIN).signatureEditable(instance));
     }
 
     @Test
