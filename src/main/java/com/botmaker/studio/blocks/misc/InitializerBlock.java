@@ -26,6 +26,12 @@ import java.util.List;
  * {@code ClassBlock} rewrites the class from its body-declaration list, so an edit elsewhere in the file could
  * write the initializer out of existence, taking every activity's configured value with it.
  *
+ * <p>That risk did not go away when settings moved into Java — it moved. A java-model project's
+ * {@code Settings.java} is <em>entirely</em> a set of blank finals and one static block assigning them, which
+ * is the shape it must keep (an inline initializer would make each field a compile-time constant; see
+ * {@code SettingsClassWriter}). Both files are generated and read-only in the editor, so this block is there
+ * to be read rather than typed in — but it has to exist for the file to survive being opened at all.
+ *
  * <p>Rendered like a method: a header naming the construct, and the real parsed body beneath it, so the
  * statements inside are ordinary blocks rather than an opaque text dump.
  */

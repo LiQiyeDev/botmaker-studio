@@ -6,6 +6,15 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-18 — The docs say settings, not activity parameters (`docs/Workflow`, `WORKFLOW.md`).** Phase 6,
+  the last of the plan. The workflow guide gained a step of its own — "Give the bot its settings", between the
+  activity flow and the block canvas — because settings stopped being a detail of an activity and became a
+  thing you go and do; `StudioAction.SETTINGS` names both the button and the menu path, and the path names
+  both labels since the entry renames itself per project. Corrected the class javadoc that still described
+  JSON-at-runtime as the only model (`ActivitiesConfig`, `ActivityDefinition`, `InitializerBlock`), each now
+  saying which model it is talking about rather than being quietly half-true. The blank-final rule was already
+  written where the generator lives.
+
 - **2026-08-18 — New projects keep their settings in Java (`ProjectCreator`, `FileRole`, `ProjectRepair`,
   `ExpressionMenu`).** Phase 5, the one that makes the model reachable: `ProjectCreator.seedSettingsModel`
   records `settingsModel=java` in `activities.json` at creation and writes `Settings.java` + its `@Setting`
@@ -3150,6 +3159,18 @@ whenever work lands here (see CLAUDE.md → Roadmap).
   `ExpressionCatalog`/`ExpressionMenuFactory` against a boolean slot rather than a second expression language.
 
 ## Refactoring backlog (Studio)
+
+- [ ] **A9 — "Move settings into Java" for an existing project.** The exit from carrying two models. A
+  pre-2026-08 project keeps `settingsModel=json` indefinitely, so every generator, every load and three
+  dialogs exist twice; nothing retires the legacy half until existing projects can cross over. A one-shot
+  action would read `ActivitiesConfig.allVariables()`, map each `<Activity>_<param>` to a `Setting` tagged
+  with that activity, write `Settings.java` + the annotation, flip the discriminator, and delete
+  `Activities.java` — the mapping is mechanical, since `ActivityType` and `SettingType` agree on every type
+  that exists in both. What makes it a backlog item rather than a small change is the bot's own source: every
+  `Activities.Mining_delay` in hand-written code has to become `Settings.MINING_DELAY` in the same commit, and
+  that is a rename across the project's AST (`SourceParser` can do it; nothing currently asks it to). Offer it
+  as an explicit action with a preview of the renames, never as a silent upgrade on open — a project that
+  fails halfway through would not compile.
 
 - [ ] **A5 — Refresh CLAUDE.md.** It still references the removed `BlockFactory` / `BlockParser` and the old
   `AddableBlock`; document `BlockType` / `BlockCatalog` and the event-driven drag-and-drop.

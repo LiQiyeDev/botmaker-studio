@@ -20,17 +20,25 @@ import java.util.Map;
 
 /**
  * The activities configuration for a project, persisted as {@code activities.json} under the project's
- * {@code src/main/resources} (so it is on the runtime classpath and read by the generated
- * {@code Activities} class). Two-tier:
+ * {@code src/main/resources}. Two-tier:
  * <ul>
  *   <li>{@link #activities()} — the {@link ActivityDefinition}s (each with an enable flag + its own params)</li>
  *   <li>{@link #globals()} — free-standing global config variables not tied to any activity</li>
  * </ul>
  *
+ * <p><b>Whether a running bot reads this file depends on {@link #settingsModel()}.</b> A
+ * {@link SettingsModel#JSON} project — every project made before 2026-08 — keeps its values here, and the
+ * file is on the runtime classpath because the generated {@code Activities} class parses it at startup. A
+ * {@link SettingsModel#JAVA} project keeps them in a generated {@code Settings.java} instead, so this file
+ * holds only what the Studio canvas needs (definitions, flow, presets, archived state) and nothing reads it
+ * at run time. It still lives under {@code resources} for both: moving it would break every legacy project
+ * for no gain.
+ *
  * <p>{@link #allVariables()} flattens everything into the referenceable {@code Activities.<field>} leaves
- * (enable flags, {@code <Activity>_<param>} params, then globals) — the single list the code generator and
- * the expression menu consume. Old flat {@code activities.json} files (a bare list of {@link ActivityVariable}
- * under {@code "activities"}) still load: their variables come back as {@link #globals()}.
+ * (enable flags, {@code <Activity>_<param>} params, then globals) — the single list the legacy code generator
+ * and the expression menu consume; the java model's counterpart is {@link #allSettings()}. Old flat
+ * {@code activities.json} files (a bare list of {@link ActivityVariable} under {@code "activities"}) still
+ * load: their variables come back as {@link #globals()}.
  *
  * <p>An activity is retired by {@link ActivityDefinition#archived() archiving} it, never by deleting it: its
  * definition stays here in full, but it drops out of {@link #orderedActivities()} <em>and</em> out of

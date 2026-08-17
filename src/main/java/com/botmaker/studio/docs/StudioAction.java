@@ -23,6 +23,10 @@ public enum StudioAction {
     CAPTURE_TEMPLATES("Open Capture Templates ▸", "✂ Templates on the toolbar"),
     RESOURCES("Open Resource Manager ▸", "Project ▸ Resource Manager… (or 🗂 Resources on the toolbar)"),
     ACTIVITY_FLOW("Open Activity Flow ▸", "Project ▸ Activity Flow… (or 🔀 Flow on the toolbar)"),
+    // The entry renames itself per project — "Settings…" for a project that keeps its values in Java,
+    // "Parameters…" for one made before that — so the menu path names both rather than sending the reader
+    // of an older project looking for an entry that isn't there.
+    SETTINGS("Open Settings ▸", "Project ▸ Settings… (named Parameters… in a project made before 2026-08)"),
     OVERLAY_EDITOR("Open Overlay Editor ▸", "⧉ Overlay on the toolbar, or F9 anywhere"),
     REMOTE_PILOT("Enable Remote Pilot ▸", "View ▸ Enable Remote Pilot… (or 🎮 Pilot on the toolbar)"),
     PUBLISH("Open Publish ▸", "Project ▸ Publish to Gallery…"),

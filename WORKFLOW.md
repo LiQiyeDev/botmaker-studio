@@ -99,7 +99,19 @@ Studio generates and maintains one source file per activity plus the registry th
 
 *In Studio:* Project ▸ Activity Flow… (or 🔀 Flow on the toolbar)
 
-## 7. Author the logic with blocks
+## 7. Give the bot its settings
+
+> The numbers, texts, durations and switches your logic reads — one list for the whole project, organised by tag.
+
+A setting belongs to the project, not to an activity: the delay two activities both wait for is one setting they both read, rather than a copy each. Tags are what keep that readable — the same tags templates use, so "Mining" means the same thing in both lists and renaming an activity renames its tag in both.
+
+Studio writes them into a generated Settings.java as ordinary Java constants, so your blocks read Settings.RETRIES and the compiler checks the type. Nothing is loaded from a file while the bot runs, which is why a wrong value is something Studio tells you about while you are editing rather than something the bot silently replaces with a default at three in the morning.
+
+Mark a setting shared to offer it to whoever runs the bot: shared settings appear in the Runner under their tag's heading, and the rest stay yours.
+
+*In Studio:* Project ▸ Settings… (named Parameters… in a project made before 2026-08)
+
+## 8. Author the logic with blocks
 
 > The centre canvas is your program: drag blocks to build loops, conditions, clicks and image searches.
 
@@ -107,7 +119,7 @@ Blocks are the Java, not a picture of it — every edit rewrites the real source
 
 Blocks that call the SDK come from the palette on the left, grouped by facade: vision, interaction, capture, timing. Expression slots accept a drop from the palette or an existing expression, and refuse a drop whose type would not compile.
 
-## 8. Author over the running game — the Overlay Editor
+## 9. Author over the running game — the Overlay Editor
 
 > An always-on-top HUD that mirrors your program as one-line rows over the game itself.
 
@@ -115,7 +127,7 @@ The only way to write or record a bot without leaving the game. Add blocks where
 
 *In Studio:* ⧉ Overlay on the toolbar, or F9 anywhere
 
-## 9. Run and debug
+## 10. Run and debug
 
 > Run executes the bot; Debug steps through it block by block with breakpoints.
 
@@ -123,7 +135,7 @@ The Terminal tab shows what the bot printed and the Errors tab what did not comp
 
 If a bot needs to run without taking over your screen, it can run on a private display — a nested X server it owns — so you keep using your machine while it works.
 
-## 10. Watch and drive it from your phone — Remote Pilot
+## 11. Watch and drive it from your phone — Remote Pilot
 
 > Streams what the bot sees to a phone or a browser, and lets you start, stop and touch it from anywhere.
 
@@ -131,7 +143,7 @@ Scan the QR code to pair; no VPN and no port forwarding. Turning on Interact mak
 
 *In Studio:* View ▸ Enable Remote Pilot… (or 🎮 Pilot on the toolbar)
 
-## 11. Publish and share
+## 12. Publish and share
 
 > Push the bot to your own GitHub repo, and optionally list it in the gallery.
 
@@ -141,7 +153,7 @@ The Gallery browses what everyone else has published; installing from it creates
 
 *In Studio:* Project ▸ Publish to Gallery…
 
-## 12. Browse the gallery
+## 13. Browse the gallery
 
 > Install someone else's bot, or see how one is put together.
 

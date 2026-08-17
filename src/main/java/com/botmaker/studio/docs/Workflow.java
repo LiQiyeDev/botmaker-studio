@@ -98,6 +98,22 @@ public final class Workflow {
                         + "knows them. Archiving an activity removes it from the graph and from the generated "
                         + "sources; un-archiving brings it back, which is what makes archiving safe to do."),
 
+                WorkflowStep.of("Give the bot its settings",
+                        "The numbers, texts, durations and switches your logic reads — one list for the whole "
+                        + "project, organised by tag.",
+                        StudioAction.SETTINGS,
+                        "A setting belongs to the project, not to an activity: the delay two activities both "
+                        + "wait for is one setting they both read, rather than a copy each. Tags are what keep "
+                        + "that readable — the same tags templates use, so \"Mining\" means the same thing in "
+                        + "both lists and renaming an activity renames its tag in both.",
+                        "Studio writes them into a generated Settings.java as ordinary Java constants, so your "
+                        + "blocks read Settings.RETRIES and the compiler checks the type. Nothing is loaded "
+                        + "from a file while the bot runs, which is why a wrong value is something Studio tells "
+                        + "you about while you are editing rather than something the bot silently replaces "
+                        + "with a default at three in the morning.",
+                        "Mark a setting shared to offer it to whoever runs the bot: shared settings appear in "
+                        + "the Runner under their tag's heading, and the rest stay yours."),
+
                 WorkflowStep.of("Author the logic with blocks",
                         "The centre canvas is your program: drag blocks to build loops, conditions, clicks and "
                         + "image searches.",

@@ -16,6 +16,14 @@ import java.util.List;
  * ({@code activities/<Name>.java}) <em>and</em> the enable-flag field on the generated {@code Activities}
  * class ({@code Activities.<Name>}). Each param {@code p} becomes {@code Activities.<Name>_<p>}.
  *
+ * <p><b>{@link #params()} is the legacy half.</b> A project made from 2026-08 on
+ * ({@link com.botmaker.studio.project.settings.SettingsModel#JAVA}) keeps every value in one project-wide
+ * list instead — a knob two activities both need is one setting they both read, rather than a copy each —
+ * and files it under a tag named after this activity, so it still reads as belonging here. Such a project
+ * leaves this list empty and its fields live on {@code Settings} ({@code Settings.<Name>} for the enable
+ * flag). The rest of this record — the flag, the outcomes, go-home, the popup check — is per-activity in
+ * both models, because it genuinely is about this activity rather than about a value it reads.
+ *
  * <p>{@link #archived()} retires an activity without destroying anything: it leaves the canvas, the generated
  * registry <em>and</em> the generated {@code Activities} fields, so nothing about it is compiled or run any
  * more. The definition survives here — that is what makes it restorable — and the hand-written
