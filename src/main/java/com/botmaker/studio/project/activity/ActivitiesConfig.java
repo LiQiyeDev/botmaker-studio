@@ -1,5 +1,6 @@
 package com.botmaker.studio.project.activity;
 
+import com.botmaker.studio.project.settings.RawSetting;
 import com.botmaker.studio.project.settings.Setting;
 import com.botmaker.studio.project.settings.SettingsModel;
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -53,11 +54,14 @@ import java.util.Map;
  * @param settings        the project-wide settings, for a {@link SettingsModel#JAVA} project — <b>not
  *                        persisted here</b>: their store is the generated {@code Settings.java}, and this
  *                        field is the in-memory carrier between reading that file and writing it back
+ * @param unknownSettings the settings in that file this build could not read, carried so saving puts them
+ *                        back; also not persisted here, and for the same reason
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record ActivitiesConfig(List<ActivityDefinition> activities, List<ActivityVariable> globals,
                                ActivityFlow flow, List<ActivityPreset> presets, Boolean goHomeByDefault,
-                               SettingsModel settingsModel, @JsonIgnore List<Setting> settings) {
+                               SettingsModel settingsModel, @JsonIgnore List<Setting> settings,
+                               @JsonIgnore List<RawSetting> unknownSettings) {
 
     public static final String FILE_NAME = "activities.json";
 
@@ -73,6 +77,14 @@ public record ActivitiesConfig(List<ActivityDefinition> activities, List<Activit
         if (goHomeByDefault == null) goHomeByDefault = Boolean.TRUE;
         if (settingsModel == null) settingsModel = SettingsModel.JSON;
         settings = settings == null ? List.of() : List.copyOf(settings);
+        unknownSettings = unknownSettings == null ? List.of() : List.copyOf(unknownSettings);
+    }
+
+    /** Convenience for the common case: no settings this build failed to read. */
+    public ActivitiesConfig(List<ActivityDefinition> activities, List<ActivityVariable> globals,
+                            ActivityFlow flow, List<ActivityPreset> presets, Boolean goHomeByDefault,
+                            SettingsModel settingsModel, List<Setting> settings) {
+        this(activities, globals, flow, presets, goHomeByDefault, settingsModel, settings, List.of());
     }
 
     /** Convenience for callers that don't touch the settings model; every pre-2026-08 file loads this way. */
@@ -142,25 +154,36 @@ public record ActivitiesConfig(List<ActivityDefinition> activities, List<Activit
         List<ActivityDefinition> updated = activities.stream()
                 .map(a -> a.withEnabled(preset.enables(a.name())))
                 .toList();
-        return new ActivitiesConfig(updated, globals, flow, presets, goHomeByDefault, settingsModel, settings);
+        return new ActivitiesConfig(updated, globals, flow, presets, goHomeByDefault, settingsModel, settings,
+                unknownSettings);
     }
 
     public ActivitiesConfig withFlow(ActivityFlow newFlow) {
-        return new ActivitiesConfig(activities, globals, newFlow, presets, goHomeByDefault, settingsModel, settings);
+        return new ActivitiesConfig(activities, globals, newFlow, presets, goHomeByDefault, settingsModel, settings,
+                unknownSettings);
     }
 
     public ActivitiesConfig withPresets(List<ActivityPreset> newPresets) {
-        return new ActivitiesConfig(activities, globals, flow, newPresets, goHomeByDefault, settingsModel, settings);
+        return new ActivitiesConfig(activities, globals, flow, newPresets, goHomeByDefault, settingsModel, settings,
+                unknownSettings);
     }
 
     /** A copy holding {@code newSettings} — the whole set, since the generated file is rewritten whole. */
     public ActivitiesConfig withSettings(List<Setting> newSettings) {
-        return new ActivitiesConfig(activities, globals, flow, presets, goHomeByDefault, settingsModel, newSettings);
+        return new ActivitiesConfig(activities, globals, flow, presets, goHomeByDefault, settingsModel, newSettings,
+                unknownSettings);
+    }
+
+    /** A copy holding {@code newUnknown} — what a newer Studio wrote and this one only carries. */
+    public ActivitiesConfig withUnknownSettings(List<RawSetting> newUnknown) {
+        return new ActivitiesConfig(activities, globals, flow, presets, goHomeByDefault, settingsModel, settings,
+                newUnknown);
     }
 
     /** A copy on {@code newModel}. Only {@code ProjectCreator} sets this; nothing migrates a project in place. */
     public ActivitiesConfig withSettingsModel(SettingsModel newModel) {
-        return new ActivitiesConfig(activities, globals, flow, presets, goHomeByDefault, newModel, settings);
+        return new ActivitiesConfig(activities, globals, flow, presets, goHomeByDefault, newModel, settings,
+                unknownSettings);
     }
 
     /**

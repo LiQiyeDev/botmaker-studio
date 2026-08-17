@@ -1,6 +1,7 @@
 package com.botmaker.studio.services;
 
 import com.botmaker.studio.project.settings.JavaLiterals;
+import com.botmaker.studio.project.settings.RawSetting;
 import com.botmaker.studio.project.settings.Setting;
 
 import java.util.ArrayList;
@@ -119,20 +120,50 @@ public final class SettingsClassWriter {
      * is skipped: either one is a compile error in a file nobody can fix by hand.
      */
     public static String settingsSource(String packageName, List<Setting> settings) {
+        return settingsSource(packageName, settings, List.of());
+    }
+
+    /**
+     * As {@link #settingsSource(String, List)}, re-emitting {@code unknown} verbatim after the settings.
+     *
+     * <p>Those are the fields {@link SettingsReader} could not understand — a {@code type} written by a newer
+     * Studio. They are written back as the exact source they were read from, because the alternative is that
+     * opening a project in an older Studio and saving it deletes settings that Studio simply never learned
+     * about. They are grouped under one heading of their own rather than filed by tag: this build cannot read
+     * their tag, and guessing one would move a field for no reason a diff could explain.
+     */
+    public static String settingsSource(String packageName, List<Setting> settings, List<RawSetting> unknown) {
         Map<String, List<Setting>> byTag = groupByTag(settings);
 
         StringBuilder fields = new StringBuilder();
         StringBuilder inits = new StringBuilder();
+        Set<String> emitted = new LinkedHashSet<>();
         for (Map.Entry<String, List<Setting>> group : byTag.entrySet()) {
             fields.append("\n    // ").append(group.getKey()).append('\n');
             for (Setting setting : group.getValue()) {
                 Setting normalized = setting.normalized();
+                emitted.add(normalized.name());
                 fields.append("\n    ").append(annotationFor(normalized)).append('\n');
                 fields.append("    public static final ").append(normalized.type().javaType())
                         .append(' ').append(normalized.name()).append(";\n");
                 inits.append("        ").append(normalized.name()).append(" = ")
                         .append(normalized.literal()).append(";\n");
             }
+        }
+
+        boolean firstUnknown = true;
+        for (RawSetting raw : unknown == null ? List.<RawSetting>of() : unknown) {
+            // A live setting that has taken the name wins: two fields called the same thing is a file that
+            // does not compile, and the one this build understands is the one it can still fix.
+            if (raw == null || !isIdentifier(raw.name()) || !emitted.add(raw.name())) continue;
+            if (firstUnknown) {
+                fields.append("\n    // Written by a newer version of BotMaker Studio\n");
+                firstUnknown = false;
+            }
+            fields.append("\n    ").append(raw.annotation()).append('\n');
+            fields.append("    public static final ").append(raw.javaType())
+                    .append(' ').append(raw.name()).append(";\n");
+            inits.append("        ").append(raw.name()).append(" = ").append(raw.initializer()).append(";\n");
         }
 
         return String.format("""

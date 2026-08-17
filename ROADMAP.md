@@ -6,6 +6,17 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-17 — The generated settings file is read back, not just written (`services/SettingsReader`,
+  `project/settings/RawSetting`).** Phase 3. A java-model project loads its values by parsing
+  `Settings.java`'s `@Setting` annotations (JDT, via `SourceParser`), never its static block —
+  `ActivityService.load()` composes `activities.json` for the canvas with the file for the values. A field
+  with no annotation is somebody's own constant and is invisible; an `ENABLE` field is not read back (the
+  flag's home is `activities.json`, and a second store would disagree the first time a preset was applied);
+  a `type` from a newer Studio is carried as a `RawSetting` of verbatim source and written back unchanged,
+  so an older build cannot silently delete settings it never learned about. A file that exists but will not
+  parse warns loudly rather than reading as "no settings". Tested as a fixed point: write → read → write is
+  byte-identical over every type.
+
 - **2026-08-17 — Settings generate a Java class instead of a JSON reader (`services/SettingsClassWriter`,
   `project/settings/SettingsModel`).** Phase 2. A project now declares which model it uses
   (`ActivitiesConfig.settingsModel`, absent ⇒ the legacy `json`), and a `java` one generates `Settings.java`

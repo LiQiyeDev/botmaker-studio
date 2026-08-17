@@ -67,11 +67,31 @@ public final class ActivityService {
         return c != null ? c : ActivitiesConfig.empty();
     }
 
-    /** Loads activities from disk into project state (called once at project open). */
+    /**
+     * Loads activities from disk into project state (called once at project open).
+     *
+     * <p>Two files for a {@link SettingsModel#JAVA} project, one each for the halves they own:
+     * {@code activities.json} for the canvas model, and the generated {@code Settings.java} for the values. A
+     * legacy project reads the one file, exactly as it always has.
+     */
     public ActivitiesConfig load() {
         ActivitiesConfig loaded = ActivitiesConfig.read(config.resourcesRoot());
+        if (loaded.settingsModel().isJava()) loaded = withSettingsFromDisk(loaded);
         state.setActivities(loaded);
         return loaded;
+    }
+
+    /**
+     * {@code cfg} with the settings read back out of the generated {@code Settings.java}.
+     *
+     * <p>A warning is printed rather than swallowed, because for this model that file <em>is</em> the store: an
+     * empty read is indistinguishable from "every value was deleted", and the next save would make it so. The
+     * settings still load as empty — there is nothing else they could be — but the reason is on the record.
+     */
+    private ActivitiesConfig withSettingsFromDisk(ActivitiesConfig cfg) {
+        SettingsReader.Result result = SettingsReader.read(config.settingsSourceFile());
+        for (String warning : result.warnings()) System.err.println("Settings: " + warning);
+        return cfg.withSettings(result.settings()).withUnknownSettings(result.unknown());
     }
 
     /**
@@ -145,7 +165,8 @@ public final class ActivityService {
     private void writeSettingsClasses(ActivitiesConfig cfg) throws IOException {
         Path settings = config.settingsSourceFile();
         Files.createDirectories(settings.getParent());
-        Files.writeString(settings, SettingsClassWriter.settingsSource(config.packageName(), cfg.allSettings()));
+        Files.writeString(settings, SettingsClassWriter.settingsSource(config.packageName(), cfg.allSettings(),
+                cfg.unknownSettings()));
         Files.writeString(config.settingAnnotationSourceFile(),
                 SettingsClassWriter.annotationSource(config.packageName()));
     }
