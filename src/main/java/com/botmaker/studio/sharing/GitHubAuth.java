@@ -37,6 +37,13 @@ public final class GitHubAuth {
 
     private static final Path CRED_FILE = BotMakerDirs.getCacheDir().resolve("credentials.json");
     private static final String TOKEN_KEY = "github_token";
+    /**
+     * The signed-in login, cached beside the token. Persisted because it answers an <em>offline</em> question
+     * asked before any window exists: {@code ProjectMode} needs to know whether an installed bot is one of
+     * <em>yours</em> — and "ask GitHub" is a network round-trip on the project-open path, which would make
+     * opening your own bot behave differently on a train.
+     */
+    private static final String LOGIN_KEY = "github_login";
 
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(8))
@@ -48,6 +55,7 @@ public final class GitHubAuth {
 
     public GitHubAuth() {
         this.token = loadToken();
+        this.login = emptyToNull(rememberedLogin());
     }
 
     public boolean isConfigured() {
@@ -72,14 +80,41 @@ public final class GitHubAuth {
         if (cached != null) return CompletableFuture.completedFuture(cached);
         return client.get(GitHubConfig.API_BASE + "/user", token).thenApply(node -> {
             String l = node == null ? "" : node.path("login").asText("");
-            if (!l.isBlank()) login = l;
+            if (!l.isBlank()) {
+                login = l;
+                storeLogin(l);
+            }
             return l;
         });
+    }
+
+    /**
+     * The last resolved login, read straight from the credentials file — no instance, no network, no FX
+     * thread. {@code ""} when nobody has signed in on this machine yet.
+     *
+     * <p>It is a <em>recollection</em>, not an authorization: the only thing it decides is whether a bot you
+     * installed opens for editing or for running. Nothing is unlocked by it that a sign-in wouldn't unlock
+     * anyway, and {@link #signOut()} forgets it.
+     */
+    public static String rememberedLogin() {
+        try {
+            if (Files.exists(CRED_FILE)) {
+                return new ObjectMapper().readTree(CRED_FILE.toFile()).path(LOGIN_KEY).asText("");
+            }
+        } catch (Exception e) {
+            System.err.println("Failed to read credentials: " + e.getMessage());
+        }
+        return "";
     }
 
     public void signOut() {
         token = null;
         login = null;
+        try {
+            removeKey(LOGIN_KEY);
+        } catch (Exception e) {
+            System.err.println("Failed to clear the remembered login: " + e.getMessage());
+        }
         try {
             removeTokenKey();
         } catch (Exception e) {
@@ -187,12 +222,20 @@ public final class GitHubAuth {
     }
 
     private void storeToken(String t) {
+        store(TOKEN_KEY, t);
+    }
+
+    private void storeLogin(String l) {
+        store(LOGIN_KEY, l);
+    }
+
+    private void store(String key, String value) {
         try {
             Files.createDirectories(CRED_FILE.getParent());
             // credentials.json is shared with GoogleAuth (distinct keys) — merge, don't overwrite, or signing
             // into one provider would wipe the other's token.
             Map<String, String> all = readAll();
-            all.put(TOKEN_KEY, t);
+            all.put(key, value);
             mapper.writeValue(CRED_FILE.toFile(), all);
             restrictPermissions(CRED_FILE);
         } catch (Exception e) {
@@ -201,15 +244,23 @@ public final class GitHubAuth {
     }
 
     private void removeTokenKey() throws Exception {
+        removeKey(TOKEN_KEY);
+    }
+
+    private void removeKey(String key) throws Exception {
         if (!Files.exists(CRED_FILE)) return;
         Map<String, String> all = readAll();
-        all.remove(TOKEN_KEY);
+        all.remove(key);
         if (all.isEmpty()) {
             Files.deleteIfExists(CRED_FILE);
         } else {
             mapper.writeValue(CRED_FILE.toFile(), all);
             restrictPermissions(CRED_FILE);
         }
+    }
+
+    private static String emptyToNull(String s) {
+        return (s == null || s.isBlank()) ? null : s;
     }
 
     /** Reads the whole credentials map so writing one provider's key preserves the other's. */

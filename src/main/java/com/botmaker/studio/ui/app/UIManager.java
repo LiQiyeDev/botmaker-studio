@@ -45,7 +45,7 @@ import java.util.function.Consumer;
  * {@link VcsPanel}, {@link RemotePilotUi} — and none of them holds a reference back. The actions behind the
  * menus and the toolbar live in {@link StudioActions}.
  */
-public class UIManager {
+public class UIManager implements ProjectWindow {
 
     /** Narrowest the file explorer may be dragged. */
     private static final double EXPLORER_MIN_WIDTH = 150;
@@ -100,6 +100,8 @@ public class UIManager {
     private TextArea outputArea;
     private TabPane bottomTabPane;
     private Consumer<Void> onSelectProject;
+    /** View ▸ Preview as user — hands the project to the Runner window for this session only. */
+    private Runnable onPreviewAsUser;
 
     /**
      * Builds the window for {@code ctx}'s project on {@code primaryStage}.
@@ -160,6 +162,7 @@ public class UIManager {
      * rollback or Reader→Editor switch left behind a bound pilot port, a live nested display with the game
      * still in it, and two theme listeners pinning the dead scene graph. Idempotent.
      */
+    @Override
     public void dispose() {
         if (workspaceLayout != null) {
             workspaceLayout.save();
@@ -254,8 +257,10 @@ public class UIManager {
                 eventBus.publish(new CoreApplicationEvents.SendInputEvent(value)));
     }
 
+    @Override
     public Scene createScene() {
         menuBarManager.setOnSelectProject(v -> { if (onSelectProject != null) onSelectProject.accept(null); });
+        menuBarManager.setOnPreviewAsUser(() -> { if (onPreviewAsUser != null) onPreviewAsUser.run(); });
 
         // --- 1. Top Bar Construction (edit controls left, project actions centered, run controls right) ---
         // A BorderPane, not a FlowPane. Only the *center* group wraps; left and right are pinned to their
@@ -504,4 +509,10 @@ public class UIManager {
     }
 
     public void setOnSelectProject(Consumer<Void> callback) { this.onSelectProject = callback; }
+
+    /**
+     * Sets what View ▸ Preview as user does. The shell owns it rather than this window, because the answer is
+     * to build a <em>different</em> window — see {@link ProjectWindow}.
+     */
+    public void setOnPreviewAsUser(Runnable callback) { this.onPreviewAsUser = callback; }
 }

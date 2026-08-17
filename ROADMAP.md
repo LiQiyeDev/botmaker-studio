@@ -6,6 +6,15 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-17 — The Runner window: a bot you use, not an IDE with things hidden
+  (`ui/app/runner/RunnerWindow`, `ui/app/ProjectWindow`, `BotMakerStudio.openAsUser`).** An installed bot used
+  to open as the full editor with edits refused; now the audience picks the whole *window*, so nothing
+  editor-shaped is constructed for a user at all — targets, activity tickboxes, the `PUBLIC` params from the
+  previous entry, Run/Stop and the log. `ProjectMode` gained the owner rule (a bot whose `BotSource.owner`
+  is the signed-in login is yours, so re-installing your own never presents it as somebody else's), backed by
+  a login `GitHubAuth` now remembers beside the token so the question is answered offline. The toggle is
+  two-way and session-only: **View ▸ Preview as user** from the editor, "Back to editing" / "View the code"
+  from the Runner header — only "Improve this bot" writes the marker.
 - **2026-08-17 — Parameters get their own dialog, a visibility axis and two choice types
   (`ui/app/params/ParametersDialog`, `project/activity/ParamVisibility`, `ActivityType.CHOICE`/`MULTI_CHOICE`).**
   Params were edited inside the Activity Flow dialog's side panel, which made the graph editor also the

@@ -636,6 +636,38 @@
     -bm-text-on-color: -bm-on-fill-vision;
 }
 
+/* ---------------------------------------------------------------------------
+ * The Runner window (ui/app/runner/RunnerWindow) — the whole window someone who
+ * only wants to *use* a bot gets. It is a separate Scene from the editor, so it
+ * inherits nothing from it and every colour here comes from a token.
+ * --------------------------------------------------------------------------- */
+.runner-root {
+    -fx-background-color: -fx-background;
+}
+.runner-header {
+    -fx-background-color: -bm-band;
+    -fx-border-color: -bm-divider;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 12 16 12 16;
+}
+.runner-title    { -fx-font-size: 18px; -fx-font-weight: bold; }
+.runner-subtitle { -fx-font-size: 12px; -fx-opacity: 0.75; }
+
+/* One setting, one target, one activity: a row with its value on the right and a hairline under it. */
+.runner-row {
+    -fx-border-color: transparent transparent -bm-divider transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 6 2 6 2;
+}
+.runner-section { -fx-padding: 0 0 4 0; }
+
+/* The run controls and the log, pinned under the scrolling content. */
+.runner-runbar {
+    -fx-background-color: -bm-band;
+    -fx-border-color: -bm-divider;
+    -fx-border-width: 1 0 0 0;
+}
+
 /* The "Reading — switch to Editor to change" banner above the canvas (UIManager). */
 .reader-banner {
     -fx-background-color: -bm-cat-flow;

@@ -8,7 +8,9 @@ import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectPreferences;
 import com.botmaker.studio.ui.app.ForceX11Notice;
 import com.botmaker.studio.ui.app.ProjectSelectionScreen;
+import com.botmaker.studio.ui.app.ProjectWindow;
 import com.botmaker.studio.ui.app.UIManager;
+import com.botmaker.studio.ui.app.runner.RunnerWindow;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.animation.AnimationTimer;
 import javafx.application.Application;
@@ -37,7 +39,20 @@ public class BotMakerStudio extends Application {
     /** The currently open project (null when on project selection screen). */
     private BotProject currentProject;
     /** The window built for {@link #currentProject}, held only so it can be disposed when that project ends. */
-    private UIManager currentUiManager;
+    private ProjectWindow currentWindow;
+
+    /**
+     * Which window the open project gets, when the user has said. {@code null} means "derive it" — an
+     * installed bot opens in the Runner, your own opens in the editor.
+     *
+     * <p>Session-only and deliberately not on disk: previewing what a user sees, or taking a read-only look at
+     * an installed bot's code, must not change what the project <em>is</em>. Only "Improve this bot" does that,
+     * and it does it through {@link com.botmaker.studio.project.ProjectMode}'s marker. Cleared whenever a
+     * different project is opened, so the choice never outlives the bot it was made about.
+     */
+    private Boolean showAsUser;
+    /** The project {@link #showAsUser} was chosen for. */
+    private String openProjectName;
 
     /** The primary window, kept for owning dialogs. */
     private Stage primaryStage;
@@ -115,6 +130,11 @@ public class BotMakerStudio extends Application {
             currentProject = null;
         }
 
+        // A window choice belongs to the project it was made about. Reloading the same one (the audience
+        // toggle, a VCS rollback) keeps it; moving to another drops it.
+        if (!projectName.equals(openProjectName)) showAsUser = null;
+        openProjectName = projectName;
+
         // 2. Save preference
         ProjectPreferences.updateLastOpened(projectName);
 
@@ -191,16 +211,31 @@ public class BotMakerStudio extends Application {
     private void finishOpen(Stage primaryStage, String projectName, boolean freshlyCreated,
                             java.util.List<ProjectFile> sources) {
         try {
-            UIManager uiManager = getUiManager(primaryStage);
-
-            primaryStage.setScene(uiManager.createScene());
-            primaryStage.setTitle("BotMaker Blocks - " + projectName);
-            uiManager.showEditorLoading();
-
             primaryStage.setOnCloseRequest(e -> {
                 e.consume();
                 shutdown();
             });
+
+            // A VCS rollback rewrites the working tree on disk, and "Improve this bot" changes which window
+            // this project gets; both ask for a reload. Subscribed before either window is built, because
+            // both of them can raise it.
+            currentProject.getEventBus().subscribe(
+                    com.botmaker.studio.events.CoreApplicationEvents.ProjectReloadRequestedEvent.class,
+                    e -> openProject(primaryStage, projectName, false), true);
+
+            // The audience decides the whole window, not a set of hidden controls — so the branch is here,
+            // before anything editor-shaped is constructed. The Runner needs no parsed source at all, which
+            // is why it returns before the block-building work below.
+            if (openAsUser()) {
+                openRunner(primaryStage, projectName);
+                return;
+            }
+
+            UIManager uiManager = getUiManager(primaryStage, projectName);
+
+            primaryStage.setScene(uiManager.createScene());
+            primaryStage.setTitle("BotMaker Blocks - " + projectName);
+            uiManager.showEditorLoading();
 
             primaryStage.show();
             requestSceneLayout(primaryStage);
@@ -213,13 +248,6 @@ public class BotMakerStudio extends Application {
                 if (currentProject != opened) return;
                 try {
                     currentProject.getCodeEditorService().openInitialFile(sources);
-
-                    // A VCS rollback rewrites the working tree on disk; the open project still holds the
-                    // pre-rollback ASTs and would save them back over the restored files. Re-open from disk to
-                    // pick up the new state.
-                    currentProject.getEventBus().subscribe(
-                            com.botmaker.studio.events.CoreApplicationEvents.ProjectReloadRequestedEvent.class,
-                            e -> openProject(primaryStage, projectName, false), true);
 
                     // One-time-per-session: on Wayland, guide the user to switch to X11 (and offer install).
                     if (!waylandNoticeChecked) {
@@ -278,10 +306,40 @@ public class BotMakerStudio extends Application {
         return ThemedWindows.scene(box, 620, 600);
     }
 
-    private UIManager getUiManager(Stage primaryStage) {
+    /** True when this project should open in the Runner: the user said so, or it is somebody else's bot. */
+    private boolean openAsUser() {
+        return showAsUser != null ? showAsUser : currentProject.context().state().isReaderMode();
+    }
+
+    /**
+     * Builds the Runner — the window for using a bot rather than writing one. Its way out is a reload rather
+     * than a scene swap: the project's services and its event bus are rebuilt with it, so nothing from the
+     * window being left behind can still be listening.
+     */
+    private void openRunner(Stage primaryStage, String projectName) {
+        RunnerWindow.Origin origin = Boolean.TRUE.equals(showAsUser)
+                ? RunnerWindow.Origin.PREVIEW
+                : RunnerWindow.Origin.INSTALLED;
+        RunnerWindow runner = new RunnerWindow(currentProject.context(), primaryStage, origin, () -> {
+            showAsUser = Boolean.FALSE;
+            openProject(primaryStage, projectName, false);
+        });
+        this.currentWindow = runner;
+
+        primaryStage.setScene(runner.createScene());
+        primaryStage.setTitle("BotMaker - " + projectName);
+        primaryStage.show();
+        requestSceneLayout(primaryStage);
+    }
+
+    private UIManager getUiManager(Stage primaryStage, String projectName) {
         UIManager uiManager = new UIManager(currentProject.context(), primaryStage);
         uiManager.setOnSelectProject(v -> switchToProjectSelector(primaryStage));
-        this.currentUiManager = uiManager;
+        uiManager.setOnPreviewAsUser(() -> {
+            showAsUser = Boolean.TRUE;
+            openProject(primaryStage, projectName, false);
+        });
+        this.currentWindow = uiManager;
         return uiManager;
     }
 
@@ -291,9 +349,9 @@ public class BotMakerStudio extends Application {
      * a project calls it.
      */
     private void disposeUi() {
-        if (currentUiManager != null) {
-            currentUiManager.dispose();
-            currentUiManager = null;
+        if (currentWindow != null) {
+            currentWindow.dispose();
+            currentWindow = null;
         }
     }
 

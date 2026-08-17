@@ -158,6 +158,42 @@ public record ActivitiesConfig(List<ActivityDefinition> activities, List<Activit
     }
 
     /**
+     * One parameter the editor chose to expose, tagged with the activity it belongs to ({@code null} for a
+     * global). The pair is what the Runner window needs and what a bare {@link ActivityVariable} cannot say:
+     * two activities may each have a {@code delay}, and the person running the bot has to be told which is
+     * which.
+     */
+    public record ExposedParam(String activity, ActivityVariable variable) {
+
+        public boolean isGlobal() { return activity == null; }
+
+        /** The heading this parameter is listed under: its activity, or "General" for a global. */
+        public String scopeLabel() { return isGlobal() ? "General" : activity; }
+    }
+
+    /**
+     * The parameters marked {@link ParamVisibility#PUBLIC} — everything the bot's user is offered, and nothing
+     * else. Globals lead, then each live activity's own in definition order: a global applies to the whole bot,
+     * so it belongs above the per-activity detail rather than after it (the reverse of
+     * {@link #allVariables()}, which is ordered for the code generator, not for a reader).
+     *
+     * <p>Archived activities contribute nothing, for the same reason they contribute no fields: a setting for
+     * something that cannot run is a setting that does nothing.
+     */
+    public List<ExposedParam> publicParams() {
+        List<ExposedParam> exposed = new ArrayList<>();
+        for (ActivityVariable g : globals) {
+            if (g.isPublic()) exposed.add(new ExposedParam(null, g));
+        }
+        for (ActivityDefinition a : liveActivities()) {
+            for (ActivityVariable p : a.params()) {
+                if (p.isPublic()) exposed.add(new ExposedParam(a.name(), p));
+            }
+        }
+        return exposed;
+    }
+
+    /**
      * Reads {@code activities.json} from {@code resourcesDir}; returns {@link #empty()} if absent/invalid.
      * Transparently migrates the legacy flat shape (a list of {@link ActivityVariable} under
      * {@code "activities"}) by loading those variables as {@link #globals()}.

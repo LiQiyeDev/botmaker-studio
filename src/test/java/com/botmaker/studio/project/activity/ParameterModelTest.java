@@ -100,6 +100,31 @@ class ParameterModelTest {
     }
 
     @Test
+    void theRunnerIsOfferedThePublicParametersAndNothingElse() {
+        ActivityVariable speed = new ActivityVariable("speed", ActivityType.INT, JSON.numberNode(3), "",
+                ParamVisibility.PUBLIC, List.of());
+        ActivityVariable retryDelay = ActivityVariable.create("retryDelay", ActivityType.INT);
+        ActivityVariable ore = new ActivityVariable("ore", ActivityType.TEXT, JSON.textNode("iron"), "",
+                ParamVisibility.PUBLIC, List.of());
+
+        ActivitiesConfig config = new ActivitiesConfig(
+                List.of(ActivityDefinition.create("Mining", "").withParams(List.of(ore, retryDelay)),
+                        ActivityDefinition.create("Smelting", "").withParams(List.of(ore)).withArchived(true)),
+                List.of(speed, retryDelay));
+
+        List<ActivitiesConfig.ExposedParam> exposed = config.publicParams();
+
+        assertEquals(2, exposed.size(), "the editor-only ones stay with the editor");
+        // Globals lead: a whole-bot setting reads above the per-activity detail.
+        assertEquals("speed", exposed.getFirst().variable().name());
+        assertTrue(exposed.getFirst().isGlobal());
+        assertEquals("General", exposed.getFirst().scopeLabel());
+        assertEquals("ore", exposed.get(1).variable().name());
+        assertEquals("Mining", exposed.get(1).scopeLabel(),
+                "an archived activity's public param is not offered — it cannot run");
+    }
+
+    @Test
     void onlyTheChoiceTypesCarryOptions() {
         for (ActivityType type : ActivityType.values()) {
             boolean expected = type == ActivityType.CHOICE || type == ActivityType.MULTI_CHOICE;

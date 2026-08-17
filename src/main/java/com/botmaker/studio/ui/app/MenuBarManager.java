@@ -44,6 +44,7 @@ public class MenuBarManager {
     private MenuItem redoItem;
     private MenuItem projectRepoItem;
     private Runnable onEnableRemotePilot;
+    private Runnable onPreviewAsUser;
     private String projectRepoUrl;
     /** The open project's directory, so the About dialog can report the SDK version it pins. May be null. */
     private java.nio.file.Path projectPath;
@@ -326,10 +327,18 @@ public class MenuBarManager {
 
         themeMenu.getItems().addAll(defaultThemeItem, darkThemeItem, blackThemeItem, highContrastItem);
 
+        // The other half of the audience switch. It swaps the whole window for the Runner rather than hiding
+        // controls, so this is the only honest way to see what you have actually exposed — and it is
+        // session-only: nothing about the project changes, and the Runner's header brings you back.
+        MenuItem previewAsUserItem = new MenuItem("Preview as user");
+        previewAsUserItem.setOnAction(e -> { if (onPreviewAsUser != null) onPreviewAsUser.run(); });
+
         viewMenu.getItems().addAll(
                 zoomInItem,
                 zoomOutItem,
                 resetZoomItem,
+                new SeparatorMenuItem(),
+                previewAsUserItem,
                 new SeparatorMenuItem(),
                 connectPhoneItem,
                 remotePilotItem,
@@ -338,6 +347,11 @@ public class MenuBarManager {
         );
 
         return viewMenu;
+    }
+
+    /** Sets the action for View ▸ Preview as user (opens the project in the Runner window for this session). */
+    public void setOnPreviewAsUser(Runnable callback) {
+        this.onPreviewAsUser = callback;
     }
 
     /** Sets the action for View ▸ Enable Remote Pilot (starts the remote BotPilot server over Tailscale). */
