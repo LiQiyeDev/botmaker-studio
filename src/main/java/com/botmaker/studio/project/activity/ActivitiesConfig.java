@@ -1,5 +1,8 @@
 package com.botmaker.studio.project.activity;
 
+import com.botmaker.studio.project.settings.Setting;
+import com.botmaker.studio.project.settings.SettingsModel;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -46,10 +49,15 @@ import java.util.Map;
  * @param goHomeByDefault whether a newly added activity starts with {@link ActivityDefinition#goHome()} ticked;
  *                        boxed for the same reason as that field — absent must mean {@code true}, not
  *                        {@code false}
+ * @param settingsModel   where this project keeps the values its bot reads; absent ⇒ {@link SettingsModel#JSON}
+ * @param settings        the project-wide settings, for a {@link SettingsModel#JAVA} project — <b>not
+ *                        persisted here</b>: their store is the generated {@code Settings.java}, and this
+ *                        field is the in-memory carrier between reading that file and writing it back
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record ActivitiesConfig(List<ActivityDefinition> activities, List<ActivityVariable> globals,
-                               ActivityFlow flow, List<ActivityPreset> presets, Boolean goHomeByDefault) {
+                               ActivityFlow flow, List<ActivityPreset> presets, Boolean goHomeByDefault,
+                               SettingsModel settingsModel, @JsonIgnore List<Setting> settings) {
 
     public static final String FILE_NAME = "activities.json";
 
@@ -63,6 +71,14 @@ public record ActivitiesConfig(List<ActivityDefinition> activities, List<Activit
         flow = flow == null ? ActivityFlow.empty() : flow;
         presets = presets == null ? List.of() : List.copyOf(presets);
         if (goHomeByDefault == null) goHomeByDefault = Boolean.TRUE;
+        if (settingsModel == null) settingsModel = SettingsModel.JSON;
+        settings = settings == null ? List.of() : List.copyOf(settings);
+    }
+
+    /** Convenience for callers that don't touch the settings model; every pre-2026-08 file loads this way. */
+    public ActivitiesConfig(List<ActivityDefinition> activities, List<ActivityVariable> globals,
+                            ActivityFlow flow, List<ActivityPreset> presets, Boolean goHomeByDefault) {
+        this(activities, globals, flow, presets, goHomeByDefault, SettingsModel.JSON, List.of());
     }
 
     /** Convenience for callers that don't touch the go-home default; a pre-goHome file loads this way. */
@@ -126,15 +142,57 @@ public record ActivitiesConfig(List<ActivityDefinition> activities, List<Activit
         List<ActivityDefinition> updated = activities.stream()
                 .map(a -> a.withEnabled(preset.enables(a.name())))
                 .toList();
-        return new ActivitiesConfig(updated, globals, flow, presets, goHomeByDefault);
+        return new ActivitiesConfig(updated, globals, flow, presets, goHomeByDefault, settingsModel, settings);
     }
 
     public ActivitiesConfig withFlow(ActivityFlow newFlow) {
-        return new ActivitiesConfig(activities, globals, newFlow, presets, goHomeByDefault);
+        return new ActivitiesConfig(activities, globals, newFlow, presets, goHomeByDefault, settingsModel, settings);
     }
 
     public ActivitiesConfig withPresets(List<ActivityPreset> newPresets) {
-        return new ActivitiesConfig(activities, globals, flow, newPresets, goHomeByDefault);
+        return new ActivitiesConfig(activities, globals, flow, newPresets, goHomeByDefault, settingsModel, settings);
+    }
+
+    /** A copy holding {@code newSettings} — the whole set, since the generated file is rewritten whole. */
+    public ActivitiesConfig withSettings(List<Setting> newSettings) {
+        return new ActivitiesConfig(activities, globals, flow, presets, goHomeByDefault, settingsModel, newSettings);
+    }
+
+    /** A copy on {@code newModel}. Only {@code ProjectCreator} sets this; nothing migrates a project in place. */
+    public ActivitiesConfig withSettingsModel(SettingsModel newModel) {
+        return new ActivitiesConfig(activities, globals, flow, presets, goHomeByDefault, newModel, settings);
+    }
+
+    /**
+     * Every field the generated {@code Settings} class holds: each live activity's enable flag, then the
+     * project's own settings.
+     *
+     * <p>The enable flags are <b>derived here, not stored</b>. Whether an activity runs is canvas state — the
+     * flow dialog toggles it, a preset flips a dozen at once, archiving takes one away — so
+     * {@link ActivityDefinition#enabled()} in {@code activities.json} stays its one home, and the
+     * {@code ENABLE} field in the generated class is output regenerated from it on every save. That is why
+     * {@link #settings()} never contains one: two stores for one flag is two answers to "is Mining on?".
+     *
+     * <p>Archived activities contribute nothing, for the same reason they contribute no
+     * {@link #allVariables() variables}: a flag for something that cannot run is a flag that does nothing, and
+     * the whole point of archiving is that the generated field goes away.
+     */
+    public List<Setting> allSettings() {
+        List<Setting> all = new ArrayList<>();
+        for (ActivityDefinition a : liveActivities()) {
+            all.add(Setting.enableFlag(a.name(), a.enabled()));
+        }
+        all.addAll(settings);
+        return all;
+    }
+
+    /** The settings the person running the bot is offered, grouped under their tag headings. */
+    public Map<String, List<Setting>> sharedSettings() {
+        Map<String, List<Setting>> byTag = new LinkedHashMap<>();
+        for (Setting s : allSettings()) {
+            if (s.isShared()) byTag.computeIfAbsent(s.tagOrGeneral(), t -> new ArrayList<>()).add(s);
+        }
+        return byTag;
     }
 
     /**

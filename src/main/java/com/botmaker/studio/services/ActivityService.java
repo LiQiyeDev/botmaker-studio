@@ -11,6 +11,7 @@ import com.botmaker.studio.project.activity.FlowEdge;
 import com.botmaker.studio.project.activity.ActivityPreset;
 import com.botmaker.studio.project.activity.ActivityType;
 import com.botmaker.studio.project.activity.ActivityVariable;
+import com.botmaker.studio.project.settings.SettingsModel;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -35,6 +36,14 @@ import java.util.stream.Stream;
  *       once and never overwritten (the user's "how to do it" lives here)</li>
  * </ul>
  *
+ * <p><b>Two models, selected once.</b> Everything above describes a {@link SettingsModel#JSON} project — every
+ * project created before 2026-08. A {@link SettingsModel#JAVA} project instead generates {@code Settings.java}
+ * (values inlined as Java literals) and {@code Setting.java} (the annotation Studio reads them back from), and
+ * reads no JSON at run time at all; {@code activities.json} survives holding only the canvas model. The
+ * discriminator is {@link ActivitiesConfig#settingsModel()} and it is consulted at three edges — writing
+ * ({@link #update}), naming the class a stub reads its flag from ({@link #generateStubSource}), and loading —
+ * never inside a generator. {@link #generateSource} is the legacy generator, kept whole and untouched.
+ *
  * All I/O lives here at the service edge. {@link #update} runs off the calling thread and publishes
  * {@link ActivitiesChangedEvent} once state is refreshed.
  */
@@ -52,7 +61,9 @@ public final class ActivityService {
 
     /** The current activities (from project state, loaded at open and refreshed on change). */
     public ActivitiesConfig current() {
-        ActivitiesConfig c = state.getActivities();
+        // Null-tolerant on state as well as on its contents: the generators below are pure enough to be
+        // exercised with no project state at all, and a null check is cheaper than a second constructor.
+        ActivitiesConfig c = state == null ? null : state.getActivities();
         return c != null ? c : ActivitiesConfig.empty();
     }
 
@@ -76,7 +87,8 @@ public final class ActivityService {
         return CompletableFuture.runAsync(() -> {
             try {
                 newConfig.write(config.resourcesRoot());
-                writeActivitiesClass(newConfig);
+                if (newConfig.settingsModel().isJava()) writeSettingsClasses(newConfig);
+                else writeActivitiesClass(newConfig);
                 writeRegistryClass(newConfig);
                 writeDriverClass(newConfig);
                 moveArchivedStubs(previous, newConfig);
@@ -120,6 +132,22 @@ public final class ActivityService {
         Path file = config.activitiesSourceFile();
         Files.createDirectories(file.getParent());
         Files.writeString(file, generateSource(cfg));
+    }
+
+    /**
+     * Writes the generated {@code Settings.java} and its {@code Setting.java} annotation — the whole store for
+     * a {@link SettingsModel#JAVA} project.
+     *
+     * <p>Both are written every time, the annotation included: its content never changes, so rewriting it
+     * costs one file write and means a project that has lost it (a bad merge, a stray delete) is repaired by
+     * the next save rather than left with a {@code Settings.java} that no longer compiles.
+     */
+    private void writeSettingsClasses(ActivitiesConfig cfg) throws IOException {
+        Path settings = config.settingsSourceFile();
+        Files.createDirectories(settings.getParent());
+        Files.writeString(settings, SettingsClassWriter.settingsSource(config.packageName(), cfg.allSettings()));
+        Files.writeString(config.settingAnnotationSourceFile(),
+                SettingsClassWriter.annotationSource(config.packageName()));
     }
 
     /** Writes the generated {@code ActivityRegistry.java} (empty {@code ALL} when there are no activities). */
@@ -213,9 +241,14 @@ public final class ActivityService {
      * moment beats an archive that costs a build.
      */
     public List<String> archiveBlockers(ActivityDefinition activity) {
+        // In the java model the only field archiving takes away is the enable flag: settings are project-wide,
+        // so one merely *tagged* with this activity outlives it and its use sites keep compiling.
+        String holder = settingsHolder();
         List<String> fields = new ArrayList<>();
         fields.add(activity.enabledVariable().name());
-        for (ActivityVariable p : activity.params()) fields.add(activity.paramFieldName(p));
+        if (!current().settingsModel().isJava()) {
+            for (ActivityVariable p : activity.params()) fields.add(activity.paramFieldName(p));
+        }
 
         Path ownStub = config.activitiesPackageDir().resolve(activity.name() + ".java");
         List<String> blockers = new ArrayList<>();
@@ -224,7 +257,7 @@ public final class ActivityService {
                 if (file.equals(ownStub)) continue;
                 String text = Files.readString(file);
                 for (String field : fields) {
-                    if (mentions(text, field)) {
+                    if (mentions(text, holder, field)) {
                         blockers.add(file.getFileName().toString());
                         break;
                     }
@@ -238,9 +271,18 @@ public final class ActivityService {
         return blockers;
     }
 
-    /** True when {@code text} contains {@code Activities.<field>} as a whole identifier, not as a prefix. */
-    private static boolean mentions(String text, String field) {
-        String needle = "Activities." + field;
+    /**
+     * The generated class a bot reads its values from — {@code Settings} for a
+     * {@link SettingsModel#JAVA} project, {@code Activities} for a legacy one. The one place the two names
+     * are chosen between, so nothing downstream branches on the model itself.
+     */
+    private String settingsHolder() {
+        return current().settingsModel().isJava() ? SettingsClassWriter.SETTINGS_CLASS : "Activities";
+    }
+
+    /** True when {@code text} contains {@code <holder>.<field>} as a whole identifier, not as a prefix. */
+    private static boolean mentions(String text, String holder, String field) {
+        String needle = holder + "." + field;
         for (int at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + 1)) {
             int after = at + needle.length();
             if (after >= text.length() || !Character.isJavaIdentifierPart(text.charAt(after))) return true;
@@ -536,17 +578,24 @@ public final class ActivityService {
     // Public because recovery needs it too: an activity's isEnabled() is generated against that activity's own
     // flag, so this is the only thing that can say what the stub *should* look like when repairing a mangled one.
     public String generateStubSource(ActivityDefinition a) {
+        String holder = settingsHolder();
+        // Where the rest of this activity's configuration is to be found — the sentence differs because the
+        // models differ: a java-model project has no per-activity params to point at, it has a tag.
+        String elsewhere = current().settingsModel().isJava()
+                ? "the bot's other settings are on {@code Settings}, the ones for this activity tagged "
+                        + "&quot;%1$s&quot;".formatted(a.name())
+                : "any config params are {@code Activities.%1$s_<param>}".formatted(a.name());
         return String.format("""
                 package com.%1$s.activities;
 
-                import com.%1$s.Activities;
+                import com.%1$s.%4$s;
                 import com.botmaker.sdk.api.bot.Activity;
 
                 /**
                  * Activity: %2$s. Fill in {@link #run()} with how to do it — that method is the whole point of
                  * this file, and this file is yours to edit (BotMaker Studio creates it once and never
-                 * overwrites it). {@link #isEnabled()} is wired to the enable flag {@code Activities.%2$s} and
-                 * is managed for you; any config params are {@code Activities.%2$s_<param>}.
+                 * overwrites it). {@link #isEnabled()} is wired to the enable flag {@code %4$s.%2$s} and
+                 * is managed for you; %5$s.
                  */
                 public class %2$s extends Activity<%2$s.Outcome> {
 
@@ -559,7 +608,7 @@ public final class ActivityService {
 
                     @Override
                     public boolean isEnabled() {
-                        return Activities.%2$s;
+                        return %4$s.%2$s;
                     }
 
                     @Override
@@ -568,7 +617,7 @@ public final class ActivityService {
                         return Outcome.NEXT;
                     }
                 }
-                """, config.packageName(), a.name(), String.join(", ", a.allOutcomes()));
+                """, config.packageName(), a.name(), String.join(", ", a.allOutcomes()), holder, elsewhere);
     }
 
     /** Generated helper: parse a {@code LocalTime}, defaulting on a missing/invalid/wrong-type node. */

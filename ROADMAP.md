@@ -6,6 +6,16 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-17 — Settings generate a Java class instead of a JSON reader (`services/SettingsClassWriter`,
+  `project/settings/SettingsModel`).** Phase 2. A project now declares which model it uses
+  (`ActivitiesConfig.settingsModel`, absent ⇒ the legacy `json`), and a `java` one generates `Settings.java`
+  (every value a Java literal) plus its `@Setting` annotation, instead of an `Activities.java` that reads
+  `/activities.json` through Jackson at startup. Every field is a **blank final assigned in a static block** —
+  an inline initializer would make it a compile-time constant, and a flag turned off in the Runner would turn
+  `while (Settings.FLAG)` into an unreachable-statement compile error; there is a test that compiles exactly
+  that. Studio reads its values back from `@Setting(value = "90s")`, never from the initializer. Enable flags
+  stay derived from `activities.json`, so no value has two stores. The legacy generator is untouched.
+
 - **2026-08-17 — The settings model: project-wide, tagged, and rendered as Java literals
   (`project/settings/`).** Phase 1 of moving parameters out of `activities.json`. `Setting` replaces
   `ActivityVariable` and belongs to the *project* rather than to an activity — a knob two activities need
