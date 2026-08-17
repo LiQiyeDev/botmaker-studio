@@ -447,9 +447,19 @@ public class ActivityFlowDialog {
      * so what returns is the activity as it was written.
      *
      * <p>There is still deliberately no "delete": nothing here destroys the user's {@code run()} body.
+     *
+     * <p>Refused when another file reads one of the {@code Activities} fields this activity owns. Those fields
+     * stop being generated the moment it is archived, so going ahead would compile-error a file the user never
+     * touched — naming the files here is the difference between a decision and a surprise.
      */
     private void archive(ActivityDraft draft) {
         flushSidePanel();
+        List<String> blockers = activityService.archiveBlockers(draft.toDefinition());
+        if (!blockers.isEmpty()) {
+            error("Can't archive '" + draft.name() + "' — its settings are still used by "
+                    + String.join(", ", blockers) + ". Remove those references first.");
+            return;
+        }
         archived.add(draft.toDefinition().withArchived(true));
         canvas.remove(draft); // also drops any wires into or out of it
         refreshPresetCombo();
@@ -747,8 +757,9 @@ public class ActivityFlowDialog {
             activities.add(d.toDefinition());
             nodes.add(new FlowNode(d.name(), d.x(), d.y()));
         }
-        // Archived activities are persisted too — they keep generating their Activities fields, which is what
-        // lets their surviving activities/<Name>.java still compile. They get no flow node: they don't run.
+        // Archived activities are persisted too — their definition is the whole of what restoring them
+        // restores. They generate nothing (no field, no registry entry, no driver case) and get no flow node:
+        // their source is moved out of the tree instead, which is what keeps the project compiling.
         activities.addAll(archived);
         ActivitiesConfig cfg = new ActivitiesConfig(activities, new ArrayList<>(globals),
                 new ActivityFlow(nodes, new ArrayList<>(canvas.edges()), canvas.start(), maxSteps, stepDelayMs),

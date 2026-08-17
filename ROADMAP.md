@@ -6,6 +6,18 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-17 — archiving an activity stops corrupting the project (`services/ActivityService`,
+  `project/ProjectRepair`, `ui/app/ActivityFlowDialog`).** Archive shipped broken in four independent ways.
+  `ActivityRegistry`/`FlowDriver` chose their `import com.<pkg>.activities.*;` on `activities().isEmpty()`,
+  which counts *archived* definitions — archive the last live activity and the import outlived the package it
+  named. `Activities.java` was *deleted* when no field was left to put in it, breaking anything still
+  importing it; it is now written empty. Worst, `moveArchivedStubs` skipped when the destination already
+  existed and never removed the source, so the file sat on both sides at once and every later archive or
+  restore silently no-opped — the move now always empties the side it leaves, the file being moved winning
+  over any stale copy waiting for it. Archiving is refused (naming the files) while a *sibling* activity still
+  reads one of the `Activities` fields it is about to take away, and `ProjectRepair` no longer offers to
+  recreate a stub whose source is sitting in the attic mid-restore.
+
 - **2026-08-16 — a match/switch branch tests a real condition, not one check
   (`parser/handlers/MatchesSwitchHandler`, `palette/MatchesJoin`, `blocks/flow/MatchesSwitchBlock`).** A branch's
   guard was exactly one `m.hasAny(…)`/`m.hasAll(…)`, and anything else — "these two *and* not that one", a

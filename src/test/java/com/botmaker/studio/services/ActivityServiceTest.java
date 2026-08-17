@@ -278,6 +278,97 @@ public class ActivityServiceTest {
     }
 
     @Test
+    void archivingTheLastActivityLeavesNothingImportingAnEmptyPackage(@TempDir Path dir) {
+        ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
+        ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
+
+        // Every activity archived: their stubs have been moved out of com.mybot.activities, so the package has
+        // no source in it and an import-on-demand of it does not compile. The import used to be keyed on
+        // activities() — which counts the archived ones — and archiving the last activity broke the build.
+        ActivitiesConfig cfg = new ActivitiesConfig(
+                List.of(ActivityDefinition.create("Idle", "").withArchived(true)), List.of());
+
+        assertFalse(service.generateRegistrySource(cfg).contains("import com.mybot.activities.*;"));
+        assertFalse(service.generateDriverSource(cfg).contains("import com.mybot.activities.*;"));
+
+        // One live activity is enough to make the package real again.
+        ActivitiesConfig mixed = new ActivitiesConfig(List.of(
+                ActivityDefinition.create("Idle", "").withArchived(true),
+                ActivityDefinition.create("Resources", "")), List.of());
+        assertTrue(service.generateRegistrySource(mixed).contains("import com.mybot.activities.*;"));
+    }
+
+    @Test
+    void theActivitiesClassIsWrittenEvenWhenItHoldsNothing(@TempDir Path dir) throws Exception {
+        ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
+        ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
+
+        // Archiving the only activity leaves no fields to generate. The class used to be deleted at that
+        // point, which compile-errors anything still saying `import com.mybot.Activities;`.
+        service.update(new ActivitiesConfig(
+                List.of(ActivityDefinition.create("Idle", "").withArchived(true)), List.of())).join();
+
+        assertTrue(java.nio.file.Files.exists(config.activitiesSourceFile()),
+                "an empty Activities class costs nothing and cannot break a build");
+        assertTrue(java.nio.file.Files.readString(config.activitiesSourceFile())
+                .contains("public final class Activities"));
+    }
+
+    @Test
+    void aStubThatEndedUpInBothPlacesReconcilesToTheSideItIsLeaving(@TempDir Path dir) throws Exception {
+        ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
+        ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
+        Path live = config.activitiesPackageDir().resolve("Idle.java");
+        Path aside = config.archivedActivitiesDir().resolve("Idle.java");
+
+        // The state the old skip-if-the-destination-exists guard used to freeze: the same activity on both
+        // sides, every later archive and restore silently doing nothing.
+        java.nio.file.Files.createDirectories(live.getParent());
+        java.nio.file.Files.createDirectories(aside.getParent());
+        java.nio.file.Files.writeString(live, "// what the user last edited");
+        java.nio.file.Files.writeString(aside, "// a stale copy from an earlier attempt");
+
+        ActivityDefinition idle = ActivityDefinition.create("Idle", "");
+        service.update(new ActivitiesConfig(List.of(idle.withArchived(true)), List.of())).join();
+
+        assertFalse(java.nio.file.Files.exists(live), "the side it is leaving is always emptied");
+        assertEquals("// what the user last edited", java.nio.file.Files.readString(aside),
+                "the file being moved wins — it is the one the user last edited");
+
+        // ...and the pair is no longer stuck: restoring moves it straight back.
+        service.update(new ActivitiesConfig(List.of(idle), List.of())).join();
+        assertFalse(java.nio.file.Files.exists(aside));
+        assertEquals("// what the user last edited", java.nio.file.Files.readString(live));
+    }
+
+    @Test
+    void archivingIsRefusedWhileAnotherActivityReadsItsSettings(@TempDir Path dir) throws Exception {
+        ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
+        ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
+
+        ActivityDefinition idle = new ActivityDefinition("Idle", true, "",
+                List.of(ActivityVariable.create("pauseMs", ActivityType.INT)));
+        Path activities = config.activitiesPackageDir();
+        java.nio.file.Files.createDirectories(activities);
+
+        // Its own stub reads its own fields — that file is moved out of the tree, so it is never a blocker.
+        java.nio.file.Files.writeString(activities.resolve("Idle.java"),
+                "class Idle { boolean on = Activities.Idle; int p = Activities.Idle_pauseMs; }");
+        assertEquals(List.of(), service.archiveBlockers(idle));
+
+        // A sibling reading one of them is: archiving would leave it referring to a field that stops being
+        // generated, and the user would meet that as a compile error in a file they never touched.
+        java.nio.file.Files.writeString(activities.resolve("Resources.java"),
+                "class Resources { int p = Activities.Idle_pauseMs; }");
+        assertEquals(List.of("Resources.java"), service.archiveBlockers(idle));
+
+        // A field whose name merely starts with one of ours is not a reference to it.
+        java.nio.file.Files.writeString(activities.resolve("Resources.java"),
+                "class Resources { int p = Activities.IdleOther; }");
+        assertEquals(List.of(), service.archiveBlockers(idle));
+    }
+
+    @Test
     void emptyRegistryHasNoActivitiesImport(@TempDir Path dir) {
         ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
         ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
