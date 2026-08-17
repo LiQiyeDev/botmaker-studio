@@ -2,6 +2,7 @@ package com.botmaker.studio.services;
 
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
+import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import javax.imageio.ImageIO;
@@ -173,9 +174,19 @@ public final class ImageTemplateLibrary {
     }
 
     /**
-     * The saved templates grouped as {@code tag → files}, with untagged ones under
-     * {@link TemplateManifest#UNTAGGED} — what the picker and the resource manager render as a folder tree.
-     * A template carrying two tags appears under both; there is only ever one file.
+     * The project's declared tags — one per activity, plus the custom ones from the manifest. Read from disk
+     * for the same reason the manifest is (see above): the activities are edited by a dialog, a canvas and a
+     * repair pass, and a cache here would be another of them to invalidate.
+     */
+    public static TagCatalog tagCatalog(ProjectConfig config) {
+        return TagCatalog.of(ActivitiesConfig.read(config.resourcesRoot()), manifest(config).customTags());
+    }
+
+    /**
+     * The saved templates grouped as {@code tag → files} over the declared set: {@link TemplateManifest#ALL}
+     * first, then every declared tag (empty ones included — a tag exists because it was declared, not because
+     * something carries it), then {@link TemplateManifest#UNTAGGED}. A template carrying two tags appears
+     * under both; there is only ever one file.
      */
     public static Map<String, List<Path>> listByTag(ProjectConfig config) {
         List<Path> files = list(config);
@@ -183,15 +194,32 @@ public final class ImageTemplateLibrary {
         for (Path file : files) byName.put(baseName(file), file);
 
         Map<String, List<Path>> grouped = new LinkedHashMap<>();
-        manifest(config).byTag(byName.keySet()).forEach((tag, names) ->
+        manifest(config).byTag(byName.keySet(), tagCatalog(config)).forEach((tag, names) ->
                 grouped.put(tag, names.stream().map(byName::get).filter(Objects::nonNull).toList()));
         return grouped;
     }
 
-    /** Adds {@code tag} to every template in {@code baseNames} and saves. */
-    public static void tagAll(ProjectConfig config, Collection<String> baseNames, String tag) {
-        if (tag == null || tag.isBlank() || baseNames.isEmpty()) return;
-        saveManifest(config, manifest(config).tagged(baseNames, tag));
+    /**
+     * Files each template under the tags chosen for it, dropping any that the project doesn't declare, and
+     * saves once. The map is {@code base name → tags}; a name mapped to an empty list is left untagged.
+     *
+     * <p>One call rather than one per template because the manifest is a single file: saving inside a loop
+     * would rewrite it once per capture and, if the last write lost, silently drop the earlier ones.
+     */
+    public static void applyTags(ProjectConfig config, Map<String, ? extends Collection<String>> tagsByTemplate) {
+        if (tagsByTemplate.isEmpty()) return;
+        TagCatalog catalog = tagCatalog(config);
+        TemplateManifest updated = manifest(config);
+        for (Map.Entry<String, ? extends Collection<String>> entry : tagsByTemplate.entrySet()) {
+            updated = updated.withTags(entry.getKey(), catalog.declaredOnly(entry.getValue()));
+        }
+        saveManifest(config, updated);
+    }
+
+    /** Declares {@code tag} as a custom tag and saves; returns the catalog it now belongs to. */
+    public static TagCatalog declareTag(ProjectConfig config, String tag) {
+        saveManifest(config, manifest(config).declaring(tag));
+        return tagCatalog(config);
     }
 
     /**
@@ -217,19 +245,23 @@ public final class ImageTemplateLibrary {
     }
 
     /**
-     * The tag to offer by default for a capture started while an activity is open — its name. Capturing from
-     * inside an activity is the common case, and that activity is the grouping the user would have typed;
-     * a template later used by a second activity simply gains its tag too.
+     * The tag to preselect for a capture started while an activity is open — that activity's tag. Capturing
+     * from inside an activity is the common case, and that activity is the grouping the user would otherwise
+     * pick by hand; a template later used by a second activity simply gains its tag too.
      *
-     * <p>Returns {@code null} when the open file isn't an activity (or nothing is open), which every caller
-     * treats as "no suggestion" rather than a blank tag.
+     * <p>It <em>selects</em> a declared tag, it does not create one: the returned name is checked against
+     * {@link #tagCatalog}, so an open file that is no longer a declared activity offers nothing rather than
+     * conjuring a tag out of a file name. Returns {@code null} when there is no such tag, which every caller
+     * treats as "no suggestion".
      */
-    public static String activityTagFor(ProjectConfig config, ProjectState state) {
+    public static String openActivityTag(ProjectConfig config, ProjectState state) {
         if (state == null || state.getActiveFile() == null) return null;
         Path file = state.getActiveFile().getPath();
         if (file == null || file.getParent() == null) return null;
         if (!file.getParent().equals(config.activitiesPackageDir())) return null;
         String name = file.getFileName().toString();
-        return name.endsWith(".java") ? name.substring(0, name.length() - ".java".length()) : null;
+        if (!name.endsWith(".java")) return null;
+        TagCatalog.Tag tag = tagCatalog(config).find(name.substring(0, name.length() - ".java".length()));
+        return tag == null ? null : tag.name();
     }
 }

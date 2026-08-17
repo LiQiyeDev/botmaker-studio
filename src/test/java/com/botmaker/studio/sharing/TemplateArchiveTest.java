@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -40,11 +41,20 @@ class TemplateArchiveTest {
                 name, 1920, 1080, "Game");
     }
 
+    /**
+     * Tags {@code name} the way Studio does: declare the tag on the project, then assign it. There is no
+     * other way in — an assignment to a tag the project doesn't declare is dropped on the way to disk.
+     */
+    private static void tag(ProjectConfig config, String name, String tag) {
+        ImageTemplateLibrary.declareTag(config, tag);
+        ImageTemplateLibrary.applyTags(config, Map.of(name, List.of(tag)));
+    }
+
     @Test
     void exportThenImportCarriesThePixelsTheSidecarAndTheTags(@TempDir Path root) throws IOException {
         ProjectConfig source = project(root, "Source");
         saveTemplate(source, "gold_ore");
-        ImageTemplateLibrary.tagAll(source, List.of("gold_ore"), "Mining");
+        tag(source, "gold_ore", "Mining");
 
         Path archive = root.resolve("out" + TemplateArchive.EXTENSION);
         TemplateArchive.export(source, ImageTemplateLibrary.list(source), archive);
@@ -85,13 +95,13 @@ class TemplateArchiveTest {
     void importingIntoAProjectWithItsOwnTagsKeepsBoth(@TempDir Path root) throws IOException {
         ProjectConfig source = project(root, "Source");
         saveTemplate(source, "shared");
-        ImageTemplateLibrary.tagAll(source, List.of("shared"), "Imported");
+        tag(source, "shared", "Imported");
         Path archive = root.resolve("out" + TemplateArchive.EXTENSION);
         TemplateArchive.export(source, ImageTemplateLibrary.list(source), archive);
 
         ProjectConfig dest = project(root, "Dest");
         saveTemplate(dest, "keep_me");
-        ImageTemplateLibrary.tagAll(dest, List.of("keep_me"), "Local");
+        tag(dest, "keep_me", "Local");
 
         TemplateArchive.importInto(dest, archive);
 

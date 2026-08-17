@@ -8,6 +8,7 @@ import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.services.TemplateManifest;
 import com.botmaker.studio.sharing.TemplateArchive;
 import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
+import com.botmaker.studio.ui.render.components.TagPicklist;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -18,7 +19,6 @@ import javafx.scene.control.ButtonType;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.SelectionMode;
-import javafx.scene.control.TextField;
 import javafx.scene.control.TreeCell;
 import javafx.scene.control.TreeItem;
 import javafx.scene.control.TreeView;
@@ -35,6 +35,7 @@ import javafx.stage.Window;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -117,6 +118,8 @@ public class ResourceManagerDialog {
         captureBtn.setOnAction(e -> captureNew());
         Button tagBtn = new Button("Tags...");
         tagBtn.setOnAction(e -> editTags(selectedFiles()));
+        Button manageTagsBtn = new Button("Manage tags...");
+        manageTagsBtn.setOnAction(e -> manageTags());
         Button renameBtn = new Button("Rename");
         renameBtn.setOnAction(e -> rename(selectedFile()));
         Button deleteBtn = new Button("Delete");
@@ -130,7 +133,7 @@ public class ResourceManagerDialog {
 
         HBox spacer = new HBox();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox buttons = new HBox(8, captureBtn, tagBtn, renameBtn, deleteBtn, exportBtn, importBtn, spacer, close);
+        HBox buttons = new HBox(8, captureBtn, tagBtn, manageTagsBtn, renameBtn, deleteBtn, exportBtn, importBtn, spacer, close);
         buttons.setAlignment(Pos.CENTER_LEFT);
 
         VBox root = new VBox(12, content, statusLabel, buttons);
@@ -141,13 +144,20 @@ public class ResourceManagerDialog {
         stage.show();
     }
 
-    /** Rebuilds the tag tree from disk. Branches start expanded — the tree is the listing, not a drill-down. */
+    /**
+     * Rebuilds the tag tree from disk over the project's declared tags — so a tag with nothing in it is still
+     * a branch (that is what declaring it means, and it is where a drag would go), and a template assigned to
+     * a tag the project no longer declares surfaces under {@code Untagged} rather than under a ghost.
+     *
+     * <p>Branches start expanded — the tree is the listing, not a drill-down — except
+     * {@link TemplateManifest#ALL}, which would otherwise repeat the entire library above the groups.
+     */
     private void reload() {
         TreeItem<Row> root = new TreeItem<>(new Row("", null));
         Map<String, List<Path>> byTag = ImageTemplateLibrary.listByTag(config);
         for (Map.Entry<String, List<Path>> group : byTag.entrySet()) {
             TreeItem<Row> branch = new TreeItem<>(new Row(group.getKey(), null));
-            branch.setExpanded(true);
+            branch.setExpanded(!TemplateManifest.ALL.equals(group.getKey()));
             for (Path file : group.getValue()) branch.getChildren().add(new TreeItem<>(new Row(group.getKey(), file)));
             root.getChildren().add(branch);
         }
@@ -192,10 +202,12 @@ public class ResourceManagerDialog {
         stage.setIconified(true); // get the dialog out of the way of the capture overlay
         capture.captureRegion(owner, (img, sourceW, sourceH) -> Platform.runLater(() -> {
             stage.setIconified(false);
-            Optional<String> name = ImageTemplatePicker.promptTemplateName(stage, config, null);
-            if (name.isEmpty()) return;
+            Optional<ImageTemplatePicker.NamedCapture> named =
+                    ImageTemplatePicker.promptNewTemplate(stage, config, img, null);
+            if (named.isEmpty()) return;
             try {
-                ImageTemplateLibrary.saveTemplate(config, img, name.get(), sourceW, sourceH, null);
+                ImageTemplateLibrary.saveTemplate(config, img, named.get().name(), sourceW, sourceH, null);
+                ImageTemplateLibrary.applyTags(config, Map.of(named.get().name(), named.get().tags()));
                 published();
                 reload();
             } catch (IOException e) {
@@ -219,7 +231,7 @@ public class ResourceManagerDialog {
         shared.addAll(manifest.tagsOf(ImageTemplateLibrary.baseName(files.get(0))));
         for (Path file : files) shared.retainAll(manifest.tagsOf(ImageTemplateLibrary.baseName(file)));
 
-        Dialog<String> dialog = new Dialog<>();
+        Dialog<ButtonType> dialog = new Dialog<>();
         ThemedWindows.apply(dialog);
         dialog.initOwner(stage);
         dialog.setTitle("Tags");
@@ -229,27 +241,29 @@ public class ResourceManagerDialog {
         ButtonType ok = new ButtonType("Save", ButtonBar.ButtonData.OK_DONE);
         dialog.getDialogPane().getButtonTypes().addAll(ok, ButtonType.CANCEL);
 
-        TextField field = new TextField(String.join(", ", shared));
-        field.setPromptText("Mining, Shared");
-        VBox box = new VBox(8, new Label("Comma-separated. Existing tags: " + String.join(", ", manifest.allTags())),
-                field);
+        TagPicklist picklist = new TagPicklist(config);
+        picklist.select(shared);
+        VBox box = new VBox(8, new Label("Choose the tags to file "
+                + (files.size() == 1 ? "this template" : "these templates") + " under."), picklist);
         box.setPadding(new Insets(10));
         dialog.getDialogPane().setContent(box);
-        dialog.setResultConverter(bt -> bt == ok ? field.getText() : null);
+        dialog.setResultConverter(bt -> bt);
 
-        Optional<String> entered = dialog.showAndWait();
-        if (entered.isEmpty()) return;
+        if (dialog.showAndWait().orElse(ButtonType.CANCEL) != ok) return;
 
-        List<String> tags = new ArrayList<>();
-        for (String raw : entered.get().split(",")) {
-            String tag = TemplateManifest.sanitizeTag(raw);
-            if (!tag.isBlank() && !tags.contains(tag)) tags.add(tag);
-        }
-        TemplateManifest updated = manifest;
-        for (Path file : files) updated = updated.withTags(ImageTemplateLibrary.baseName(file), tags);
-        ImageTemplateLibrary.saveManifest(config, updated);
+        Map<String, List<String>> tags = new LinkedHashMap<>();
+        for (Path file : files) tags.put(ImageTemplateLibrary.baseName(file), picklist.selected());
+        ImageTemplateLibrary.applyTags(config, tags);
         published();
         reload();
+    }
+
+    /** Opens the tag manager, and picks up whatever it changed when it closes. */
+    private void manageTags() {
+        new TagManagerDialog(stage, config, () -> {
+            published();
+            reload();
+        }).show();
     }
 
     private void rename(Path file) {

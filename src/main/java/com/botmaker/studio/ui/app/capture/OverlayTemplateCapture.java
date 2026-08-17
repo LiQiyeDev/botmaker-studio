@@ -36,6 +36,7 @@ import java.awt.geom.Ellipse2D;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
 
@@ -241,10 +242,12 @@ public final class OverlayTemplateCapture {
                 BufferedImage full = shot.image();
                 BufferedImage cropped = cropToImage(full, region);
                 if (cropped == null) return;
-                Optional<String> name = ImageTemplatePicker.promptTemplateName(owner, config, null, cropped);
-                if (name.isEmpty()) return;
-                ImageTemplateLibrary.saveTemplate(config, cropped, name.get(),
+                Optional<ImageTemplatePicker.NamedCapture> named =
+                        ImageTemplatePicker.promptNewTemplate(owner, config, cropped, suggestedTag);
+                if (named.isEmpty()) return;
+                ImageTemplateLibrary.saveTemplate(config, cropped, named.get().name(),
                         full.getWidth(), full.getHeight(), windowTitleOrNull());
+                ImageTemplateLibrary.applyTags(config, Map.of(named.get().name(), named.get().tags()));
                 eventBus.publish(new ResourcesChangedEvent());
             } catch (Exception ex) {
                 warn(owner, "Failed to save template: " + ex.getMessage());
@@ -286,7 +289,7 @@ public final class OverlayTemplateCapture {
                             full.getWidth(), full.getHeight(), windowTitleOrNull());
                     saved.add(t.name());
                 }
-                ImageTemplateLibrary.tagAll(config, saved, batch.tag());
+                ImageTemplateLibrary.applyTags(config, batch.tagsFor(saved));
                 if (!saved.isEmpty()) eventBus.publish(new ResourcesChangedEvent());
             } catch (Exception ex) {
                 warn(owner, "Failed to save templates: " + ex.getMessage());
@@ -313,12 +316,14 @@ public final class OverlayTemplateCapture {
     private void onObjectExtracted(BufferedImage cut) {
         if (objectSurface != null) objectSurface.hide();
         try {
-            Optional<String> name = ImageTemplatePicker.promptTemplateName(owner, config, null, cut);
-            if (name.isEmpty()) { endSession(); return; }
+            Optional<ImageTemplatePicker.NamedCapture> named =
+                    ImageTemplatePicker.promptNewTemplate(owner, config, cut, suggestedTag);
+            if (named.isEmpty()) { endSession(); return; }
             // The sidecar's capture resolution is the full frame the object was cut from (drives runtime scaling),
             // not the crop's own size.
-            ImageTemplateLibrary.saveTemplate(config, cut, name.get(),
+            ImageTemplateLibrary.saveTemplate(config, cut, named.get().name(),
                     objectFrameW, objectFrameH, windowTitleOrNull());
+            ImageTemplateLibrary.applyTags(config, Map.of(named.get().name(), named.get().tags()));
             eventBus.publish(new ResourcesChangedEvent());
         } catch (Exception ex) {
             warn(owner, "Failed to save object: " + ex.getMessage());

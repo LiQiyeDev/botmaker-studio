@@ -1686,6 +1686,24 @@
     -fx-text-fill: -bm-on-popup-hover;
 }
 
+/* The tag picklist's rows. The tick is a real CheckBox inside a CustomMenuItem (only that can keep the menu
+   open across several ticks), so its label is a CheckBox label rather than a .menu-item .label and needs the
+   on-popup colour spelled out — otherwise it inherits the window's text colour and disappears in Dark. */
+.tag-picklist-heading {
+    -fx-text-fill: -bm-on-popup;
+    -fx-opacity: 0.65;
+    -fx-font-size: 10px;
+    -fx-padding: 2 0 2 0;
+}
+
+.menu-item .check-box > .label {
+    -fx-text-fill: -bm-on-popup;
+}
+
+.menu-item:focused .check-box > .label {
+    -fx-text-fill: -bm-on-popup-hover;
+}
+
 /* The scroll arrows a menu taller than the screen grows. They sit on the popup pane, so they are painted with
    it — Modena paints them with -fx-color, which is the lookup that was resolving to nothing. */
 .menu-up-arrow,

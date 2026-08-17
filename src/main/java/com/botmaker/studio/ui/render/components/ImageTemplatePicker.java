@@ -172,11 +172,14 @@ public final class ImageTemplatePicker {
         ProjectConfig config = context.getConfig();
         Window owner = anchor.getScene() != null ? anchor.getScene().getWindow() : null;
         String targetTitle = defaultWindowTitle(context);
+        String suggestedTag = ImageTemplateLibrary.openActivityTag(config, context.getState());
         screenCapture(context).captureRegion(owner, (img, sourceW, sourceH) -> Platform.runLater(() -> {
-            Optional<String> name = promptTemplateName(owner, config, null, img);
-            if (name.isEmpty()) return;
+            Optional<NamedCapture> named = promptNewTemplate(owner, config, img, suggestedTag);
+            if (named.isEmpty()) return;
             try {
-                onSaved.accept(ImageTemplateLibrary.saveTemplate(config, img, name.get(), sourceW, sourceH, targetTitle));
+                onSaved.accept(ImageTemplateLibrary.saveTemplate(config, img, named.get().name(),
+                        sourceW, sourceH, targetTitle));
+                ImageTemplateLibrary.applyTags(config, Map.of(named.get().name(), named.get().tags()));
             } catch (IOException ex) {
                 Alert error = ThemedWindows.alert(Alert.AlertType.ERROR, "Failed to save template: " + ex.getMessage());
                 error.initOwner(owner);
@@ -185,25 +188,38 @@ public final class ImageTemplatePicker {
         }));
     }
 
+    /** A template about to be saved: its validated name and the declared tags chosen for it. */
+    public record NamedCapture(String name, List<String> tags) {}
+
     /**
      * Prompts for a template name, re-prompting until it is non-blank <em>and</em> unique (case-insensitive),
      * or the user cancels. The name field starts empty (no default). {@code allowExisting} — when non-null —
      * is the current name a rename may keep; pass {@code null} for a fresh capture. The returned name is
-     * already sanitized to {@code [A-Za-z0-9_-]}. Shared by both capture paths and the overlay capture.
+     * already sanitized to {@code [A-Za-z0-9_-]}. This is the rename path: it offers no tags, because a
+     * rename is not the moment to re-file something.
      */
     public static Optional<String> promptTemplateName(Window owner, ProjectConfig config, String allowExisting) {
-        return promptTemplateName(owner, config, allowExisting, null);
+        return prompt(owner, config, allowExisting, null, null).map(NamedCapture::name);
     }
 
     /**
-     * As {@link #promptTemplateName(Window, ProjectConfig, String)}, but shows a thumbnail of {@code preview}
-     * (the crop about to be saved) above the name field so the user sees exactly what they are naming — the
-     * batch dialog already previews each row, this brings the single/object flows in line. A null
-     * {@code preview} falls back to a plain name prompt. ARGB (ellipse/object) crops preview with their
+     * The naming step for a freshly captured template: a thumbnail of {@code preview} so the user sees what
+     * they are naming, the name field, and the tag picklist — the single-capture flow had no tag field at
+     * all, so a template captured this way could only be filed later, from the resource manager.
+     *
+     * <p>{@code suggestedTag} is preselected when the project declares it (the open activity's tag, normally);
+     * it is a selection over declared tags, never a new one. ARGB (ellipse/object) crops preview with their
      * transparency, via {@link ScreenCaptureService#toFxImage}.
      */
-    public static Optional<String> promptTemplateName(Window owner, ProjectConfig config, String allowExisting,
-                                                      BufferedImage preview) {
+    public static Optional<NamedCapture> promptNewTemplate(Window owner, ProjectConfig config,
+                                                           BufferedImage preview, String suggestedTag) {
+        TagPicklist tags = new TagPicklist(config);
+        if (suggestedTag != null) tags.select(List.of(suggestedTag));
+        return prompt(owner, config, null, preview, tags);
+    }
+
+    private static Optional<NamedCapture> prompt(Window owner, ProjectConfig config, String allowExisting,
+                                                 BufferedImage preview, TagPicklist tags) {
         while (true) {
             Dialog<String> dialog = new Dialog<>();
             ThemedWindows.apply(dialog);
@@ -231,6 +247,12 @@ public final class ImageTemplatePicker {
             nameRow.setAlignment(Pos.CENTER_LEFT);
             HBox.setHgrow(field, Priority.ALWAYS);
             content.getChildren().add(nameRow);
+            if (tags != null) {
+                HBox tagRow = new HBox(8, new Label("Tags:"), tags);
+                tagRow.setAlignment(Pos.CENTER_LEFT);
+                HBox.setHgrow(tags, Priority.ALWAYS);
+                content.getChildren().add(tagRow);
+            }
             dialog.getDialogPane().setContent(content);
             Platform.runLater(field::requestFocus);
             dialog.setResultConverter(bt -> bt == ok ? field.getText() : null);
@@ -250,7 +272,7 @@ public final class ImageTemplatePicker {
                 warn(owner, "\"" + name + "\" is reserved for the template tag list. Choose a different name.");
                 continue;
             }
-            return Optional.of(name);
+            return Optional.of(new NamedCapture(name, tags == null ? List.of() : tags.selected()));
         }
     }
 

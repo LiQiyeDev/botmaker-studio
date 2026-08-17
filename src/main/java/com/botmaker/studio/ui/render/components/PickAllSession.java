@@ -114,7 +114,7 @@ public final class PickAllSession {
         for (PendingImage p : pending) crops.add(p.crop().image());
 
         BatchTemplateNamingDialog.Batch batch = BatchTemplateNamingDialog.show(owner, context.getConfig(), crops,
-                ImageTemplateLibrary.activityTagFor(context.getConfig(), context.getState()));
+                ImageTemplateLibrary.openActivityTag(context.getConfig(), context.getState()));
         List<String> saved = new ArrayList<>();
         for (NamedTemplate t : batch.templates()) {
             PendingImage p = pending.get(t.index());
@@ -128,7 +128,7 @@ public final class PickAllSession {
                         + (p.argIndex() + 1) + ": " + e.getMessage());
             }
         }
-        ImageTemplateLibrary.tagAll(context.getConfig(), saved, batch.tag());
+        ImageTemplateLibrary.applyTags(context.getConfig(), batch.tagsFor(saved));
         if (!saved.isEmpty()) context.getEventBus().publish(new ResourcesChangedEvent());
     }
 }

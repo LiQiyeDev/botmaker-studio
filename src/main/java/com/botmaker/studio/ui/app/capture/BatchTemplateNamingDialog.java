@@ -3,11 +3,12 @@ package com.botmaker.studio.ui.app.capture;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.ScreenCaptureService;
-import com.botmaker.studio.services.TemplateManifest;
+import com.botmaker.studio.ui.render.components.TagPicklist;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Alert;
+import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
@@ -23,8 +24,11 @@ import javafx.stage.Window;
 
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * The "name them all" step for a {@code Capture many} pass: one row per captured crop (thumbnail + name
@@ -37,36 +41,51 @@ public final class BatchTemplateNamingDialog {
     private BatchTemplateNamingDialog() {}
 
     /**
-     * A crop the user chose to keep, paired with its validated (sanitized, unique) template name.
+     * A crop the user chose to keep, paired with its validated (sanitized, unique) template name and the
+     * tags chosen for it.
      *
      * <p>{@code index} is the crop's position in the list handed to {@link #show} — carried through because
      * only the kept rows come back, so a caller that keyed something else off that list (the "Pick all"
      * session keys an <em>argument slot</em>) cannot recover it positionally once a row is discarded.
      */
-    public record NamedTemplate(int index, String name, BufferedImage image) {}
+    public record NamedTemplate(int index, String name, BufferedImage image, List<String> tags) {}
 
     /**
-     * The dialog's whole result: the kept templates and the one tag to file them all under (blank for none).
+     * The dialog's whole result: the kept templates, each carrying its own tags.
      *
-     * <p>The tag rides along rather than being applied here because the templates do not exist yet — the
+     * <p>The tags ride along rather than being applied here because the templates do not exist yet — the
      * caller is what saves them, so it is also what tags them, after the save succeeds.
      */
-    public record Batch(List<NamedTemplate> templates, String tag) {
+    public record Batch(List<NamedTemplate> templates) {
 
         static Batch none() {
-            return new Batch(List.of(), "");
+            return new Batch(List.of());
+        }
+
+        /**
+         * {@code name → tags} for the rows in {@code saved} — what {@code ImageTemplateLibrary.applyTags}
+         * takes. Narrowed to the names that reached the disk, since a template whose save failed must not
+         * leave an assignment behind for a file that isn't there.
+         */
+        public Map<String, List<String>> tagsFor(Collection<String> saved) {
+            Map<String, List<String>> byName = new LinkedHashMap<>();
+            for (NamedTemplate t : templates) {
+                if (saved.contains(t.name())) byName.put(t.name(), t.tags());
+            }
+            return byName;
         }
     }
 
-    private record Row(BufferedImage image, TextField name, CheckBox discard) {}
+    private record Row(BufferedImage image, TextField name, CheckBox discard, TagPicklist tags) {}
 
     /**
      * Shows the modal naming dialog for {@code crops} and returns the kept, named templates (empty if the
      * user cancelled or discarded them all). Must be called on the FX thread.
      *
-     * <p>{@code suggestedTag} pre-fills the batch's tag — the open activity's name when the capture started
-     * from one, since that is the grouping the user would otherwise type by hand. It is only a default: the
-     * field is editable and may be cleared.
+     * <p>{@code suggestedTag} seeds every row's tags — the open activity's tag when the capture started from
+     * one, since that is the grouping the user would otherwise choose by hand. It is only a default: each
+     * row's picklist can be changed, and the "Tag them all" control at the bottom re-applies a selection
+     * across every kept row for the case where the whole batch belongs together.
      */
     public static Batch show(Window owner, ProjectConfig config, List<BufferedImage> crops, String suggestedTag) {
         Dialog<Batch> dialog = new Dialog<>();
@@ -77,12 +96,15 @@ public final class BatchTemplateNamingDialog {
         ButtonType saveAll = new ButtonType("Save all", ButtonBar.ButtonData.OK_DONE);
         dialog.getDialogPane().getButtonTypes().addAll(saveAll, ButtonType.CANCEL);
 
+        List<String> seedTags = suggestedTag == null ? List.of() : List.of(suggestedTag);
         List<Row> rows = new ArrayList<>();
         VBox list = new VBox(8);
         list.setPadding(new Insets(12));
         for (int i = 0; i < crops.size(); i++) {
             BufferedImage crop = crops.get(i);
-            Row row = new Row(crop, new TextField(), new CheckBox("Discard"));
+            TagPicklist tags = new TagPicklist(config);
+            tags.select(seedTags);
+            Row row = new Row(crop, new TextField(), new CheckBox("Discard"), tags);
             row.name().setPromptText("template name");
             rows.add(row);
             list.getChildren().add(buildRow(i + 1, row));
@@ -92,12 +114,20 @@ public final class BatchTemplateNamingDialog {
         scroll.setFitToWidth(true);
         scroll.setPrefViewportHeight(Math.min(420, 8 + crops.size() * 88));
 
-        TextField tagField = new TextField(TemplateManifest.sanitizeTag(suggestedTag));
-        tagField.setPromptText("no tag");
-        HBox tagRow = new HBox(8, new Label("Tag them all as:"), tagField);
+        TagPicklist batchTags = new TagPicklist(config);
+        batchTags.select(seedTags);
+        Button applyToAll = new Button("Apply to all");
+        applyToAll.setOnAction(e -> {
+            List<String> chosen = batchTags.selected();
+            for (Row row : rows) {
+                row.tags().reloadCatalog();   // a tag declared in the batch picklist has to reach the rows
+                row.tags().select(chosen);
+            }
+        });
+        HBox tagRow = new HBox(8, new Label("Tag them all as:"), batchTags, applyToAll);
         tagRow.setAlignment(Pos.CENTER_LEFT);
         tagRow.setPadding(new Insets(4, 12, 0, 12));
-        HBox.setHgrow(tagField, javafx.scene.layout.Priority.ALWAYS);
+        HBox.setHgrow(batchTags, javafx.scene.layout.Priority.ALWAYS);
 
         VBox pane = new VBox(8, scroll, tagRow);
         dialog.getDialogPane().setContent(pane);
@@ -110,7 +140,7 @@ public final class BatchTemplateNamingDialog {
         dialog.setResultConverter(bt -> {
             if (bt != saveAll) return Batch.none();
             List<NamedTemplate> kept = validate(owner, config, rows);
-            return kept == null ? Batch.none() : new Batch(kept, TemplateManifest.sanitizeTag(tagField.getText()));
+            return kept == null ? Batch.none() : new Batch(kept);
         });
         return dialog.showAndWait().orElse(Batch.none());
     }
@@ -126,10 +156,11 @@ public final class BatchTemplateNamingDialog {
         thumb.setFitHeight(72);
 
         HBox.setHgrow(row.name(), javafx.scene.layout.Priority.ALWAYS);
-        // Discarded rows grey out the name field.
+        // Discarded rows grey out both editors — there is nothing to name or file.
         row.name().disableProperty().bind(row.discard().selectedProperty());
+        row.tags().disableProperty().bind(row.discard().selectedProperty());
 
-        HBox box = new HBox(10, badge, thumb, row.name(), row.discard());
+        HBox box = new HBox(10, badge, thumb, row.name(), row.tags(), row.discard());
         box.setAlignment(Pos.CENTER_LEFT);
         box.setPadding(new Insets(4));
         box.setStyle("-fx-border-color: #d0d0d0; -fx-border-radius: 4; -fx-background-radius: 4;");
@@ -162,7 +193,7 @@ public final class BatchTemplateNamingDialog {
                 return fail(owner, "Row " + (i + 1) + ": \"" + name + "\" is reserved — choose another name.");
             }
             seen.add(lower);
-            kept.add(new NamedTemplate(i, name, row.image()));
+            kept.add(new NamedTemplate(i, name, row.image(), row.tags().selected()));
         }
         return kept;
     }

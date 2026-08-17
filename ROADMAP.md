@@ -6,6 +6,16 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-17 — Tags are declared, not invented (`services/TagCatalog`, `TemplateManifest`,
+  `ui/render/components/TagPicklist`, `ui/app/TagManagerDialog`).** A tag used to come into existence by being
+  typed — a batch capture pre-filled the open activity's name, every tag field was free text, and the set of
+  tags was whatever was in `templates.json`, so a typo was a new tag. Now the project *has* tags: one per
+  activity (derived from `activities.json`, created and removed with it, unrenameable here) plus custom ones
+  declared in the tag manager. Every assignment path is a multi-select picklist over that set — including the
+  single-capture dialog, which had no tag field at all — and `templates.json` gained a `customTags` half
+  (older files still load). Listing is over the declared set: a synthetic **All** bucket, declared-but-empty
+  tags shown, assignments to undeclared tags inert rather than ghost rows, so renaming an activity loses
+  nothing.
 - **2026-08-17 — The Runner window: a bot you use, not an IDE with things hidden
   (`ui/app/runner/RunnerWindow`, `ui/app/ProjectWindow`, `BotMakerStudio.openAsUser`).** An installed bot used
   to open as the full editor with edits refused; now the audience picks the whole *window*, so nothing

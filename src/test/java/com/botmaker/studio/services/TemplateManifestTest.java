@@ -121,6 +121,99 @@ class TemplateManifestTest {
     }
 
     @Test
+    void aDeclaredTagSurvivesWithNothingCarryingIt(@TempDir Path dir) throws IOException {
+        // The whole point of declaring: the tag is there to file things under, so it has to outlive the
+        // moment before anything is filed. The manifest used to be deleted when no template was tagged.
+        TemplateManifest.empty().declaring("Shared").write(dir);
+
+        assertTrue(Files.exists(dir.resolve(TemplateManifest.FILE_NAME)));
+        assertEquals(Set.of("Shared"), Set.copyOf(TemplateManifest.read(dir).customTags()));
+    }
+
+    @Test
+    void aManifestWrittenBeforeTagsWereDeclaredStillLoads(@TempDir Path dir) throws IOException {
+        // The old shape was the assignment map on its own, with no wrapper and no declarations.
+        Files.writeString(dir.resolve(TemplateManifest.FILE_NAME),
+                "{ \"gold_ore\": { \"tags\": [\"Mining\"] } }");
+
+        TemplateManifest read = TemplateManifest.read(dir);
+        assertEquals(Set.of("Mining"), Set.copyOf(read.tagsOf("gold_ore")));
+        assertTrue(read.customTags().isEmpty());
+    }
+
+    @Test
+    void deletingACustomTagTakesItsAssignmentsWithIt() {
+        // Left behind, they are invisible — and come back to life the day someone declares the name again.
+        TemplateManifest manifest = TemplateManifest.empty()
+                .declaring("Shared")
+                .withTags("gold_ore", List.of("Shared", "Mining"));
+
+        TemplateManifest without = manifest.undeclaring("shared");
+        assertEquals(Set.of("Mining"), Set.copyOf(without.tagsOf("gold_ore")));
+        assertTrue(without.customTags().isEmpty());
+    }
+
+    @Test
+    void renamingACustomTagCarriesEveryTemplateWithIt() {
+        TemplateManifest manifest = TemplateManifest.empty()
+                .declaring("Shared")
+                .withTags("a", List.of("Shared"))
+                .withTags("b", List.of("Shared"));
+
+        TemplateManifest renamed = manifest.renamedTag("Shared", "Common");
+        assertEquals(Set.of("Common"), Set.copyOf(renamed.customTags()));
+        assertEquals(Set.of("Common"), Set.copyOf(renamed.tagsOf("a")));
+        assertEquals(Set.of("Common"), Set.copyOf(renamed.tagsOf("b")));
+    }
+
+    @Test
+    void theListingIsOverTheDeclaredSetNotOverWhatWasAssigned() {
+        TagCatalog catalog = TagCatalog.of(null, List.of("Shared", "Empty"));
+        TemplateManifest manifest = TemplateManifest.empty()
+                .declaring("Shared").declaring("Empty")
+                .withTags("gold_ore", List.of("Shared"))
+                // "Mining" was an activity that has since been renamed: still in the file, no longer declared.
+                .withTags("orphan", List.of("Mining"));
+
+        Map<String, List<String>> byTag = manifest.byTag(List.of("gold_ore", "orphan"), catalog);
+
+        assertEquals(List.of(TemplateManifest.ALL, "Empty", "Shared", TemplateManifest.UNTAGGED),
+                List.copyOf(byTag.keySet()), "All first, then the declared tags, then the leftovers");
+        assertEquals(List.of("gold_ore", "orphan"), byTag.get(TemplateManifest.ALL));
+        assertEquals(List.of(), byTag.get("Empty"), "a declared tag is a row even with nothing in it");
+        assertEquals(List.of("gold_ore"), byTag.get("Shared"));
+        // The orphan surfaces where someone will find it again, rather than under a tag that isn't there.
+        assertEquals(List.of("orphan"), byTag.get(TemplateManifest.UNTAGGED));
+    }
+
+    @Test
+    void anAssignmentFindsItsRowWhateverTheSpelling() {
+        TagCatalog catalog = TagCatalog.of(null, List.of("Shared"));
+        TemplateManifest manifest = TemplateManifest.empty().declaring("Shared")
+                .withTags("a", List.of("SHARED"));
+
+        assertEquals(List.of("a"), manifest.byTag(List.of("a"), catalog).get("Shared"));
+    }
+
+    @Test
+    void theComputedBucketsCannotBeUsedAsRealTags() {
+        // Otherwise a tag called "All" would compete with the row that means "everything".
+        assertTrue(TemplateManifest.empty().withTags("a", List.of("All", "Untagged")).tagsOf("a").isEmpty());
+        assertTrue(TemplateManifest.empty().declaring("All").customTags().isEmpty());
+    }
+
+    @Test
+    void anExportCarriesTheDeclarationsItsTagsNeed() {
+        TemplateManifest manifest = TemplateManifest.empty()
+                .declaring("Shared").declaring("Unrelated")
+                .withTags("a", List.of("Shared"));
+
+        TemplateManifest slice = manifest.restrictedTo(List.of("a"));
+        assertEquals(Set.of("Shared"), Set.copyOf(slice.customTags()),
+                "the tag travels with the template; the ones it doesn't use stay behind");
+    }
+
+    @Test
     void tagsAreTrimmedAndBlankOnesAreNotTags() {
         assertEquals("Mining Camp", TemplateManifest.sanitizeTag("  Mining   Camp "));
         assertTrue(TemplateManifest.empty().withTags("a", List.of("  ", "")).tagsOf("a").isEmpty());
