@@ -117,6 +117,9 @@ public final class MavenService {
             new Dep(SDK_GROUP_ID, SDK_ARTIFACT_ID, SDK_FALLBACK_VERSION, null),
             new Dep("net.java.dev.jna", "jna", "5.13.0", null),
             new Dep("net.java.dev.jna", "jna-platform", "5.13.0", null),
+            // Jackson stays even though nothing generated needs it any more: a java-model project's settings
+            // are Java literals, not a JSON read at startup. It is on the list for what the user might write,
+            // and taking it away would break a bot that imports it for a gain nobody would notice.
             new Dep("com.fasterxml.jackson.core", "jackson-databind", "2.15.2", null),
             new Dep("org.junit.jupiter", "junit-jupiter", "5.9.3", "test")
     );

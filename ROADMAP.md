@@ -6,6 +6,17 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-18 — New projects keep their settings in Java (`ProjectCreator`, `FileRole`, `ProjectRepair`,
+  `ExpressionMenu`).** Phase 5, the one that makes the model reachable: `ProjectCreator.seedSettingsModel`
+  records `settingsModel=java` in `activities.json` at creation and writes `Settings.java` + its `@Setting`
+  annotation empty, so both compile before the first setting exists. `FileRole` now classes them GENERATED and
+  derived through one `isRewritten` predicate shared with `isDerived` — which also fixes `Templates.java`,
+  generated on every capture and classed EDITABLE because `of` never listed it. Repair expects the settings
+  pair (and never `Activities.java`) for a java-model project, regenerating from the settings held in memory
+  rather than from defaults; the expression menu offers `Settings.<field>` grouped by tag instead of
+  `Activities.<field>`. Jackson stays in a generated pom deliberately — nothing generated needs it, but user
+  code might.
+
 - **2026-08-18 — One project-wide Settings dialog, organised by tag (`ui/app/settings/`,
   `services/SettingsRailModel`).** Phase 4. A java-model project edits every value in one dialog with a tag
   rail — All, General, the activity tags, then the custom ones — over the same `TagCatalog` the image gallery

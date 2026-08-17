@@ -81,8 +81,11 @@ final class ProjectRecoveryAction {
             List<Path> repaired =
                     ProjectRepair.repairDamaged(config, state.getTemplate(), canonicalScaffold(ctx), damaged);
 
-            // Activity stubs, activities.json, and the generated Activities/ActivityRegistry are
-            // ActivityService's to write — re-running update() with the current config restores them all.
+            // Activity stubs, activities.json, and the generated Activities/ActivityRegistry — or, for a
+            // java-model project, Settings.java and its annotation — are ActivityService's to write:
+            // re-running update() with the current config restores them all. It writes from the config the
+            // Studio holds, which for a java-model project was read back out of Settings.java at open, so a
+            // regenerated file comes back with its values rather than with the type defaults.
             // It writes off-thread, so refresh the tree once it's done rather than racing it.
             if (ProjectRepair.needsActivityRegeneration(missing)) {
                 activityService.update(activityService.current())

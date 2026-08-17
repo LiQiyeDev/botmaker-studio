@@ -89,20 +89,18 @@ public enum FileRole {
         if (template != ProjectTemplate.GAME_BOT) return EDITABLE;
 
         Path abs = file.toAbsolutePath();
-        if (sameFile(abs, config.mainSourceFile())
-                || sameFile(abs, config.activitiesSourceFile())
-                || sameFile(abs, config.activityRegistrySourceFile())
-                || sameFile(abs, config.flowDriverSourceFile())) {
+        if (sameFile(abs, config.mainSourceFile()) || isRewritten(config, abs)) {
             return GENERATED;
         }
         return EDITABLE;
     }
 
     /**
-     * True when {@code file} is one BotMaker <em>re</em>writes from the Activity Flow every time it changes —
-     * {@code Activities}, {@code ActivityRegistry}, {@code FlowDriver}. They are a rendering of
-     * {@code activities.json}, the way the flow canvas is, and opening one shows the user the output of a
-     * drawing they already have on screen; nothing in them can be changed except by changing the flow.
+     * True when {@code file} is one BotMaker <em>re</em>writes whole every time its source changes —
+     * {@code ActivityRegistry} and {@code FlowDriver} from the Activity Flow, {@code Activities} or
+     * {@code Settings}/{@code Setting} from the project's settings, {@code Templates} from the image library.
+     * Each is a rendering of something the user already has on screen — a drawing, a dialog, a gallery — and
+     * nothing in one can be changed except by changing what it renders.
      *
      * <p>A narrower set than {@link #GENERATED}, which also covers the entry point. That one is generated but
      * not derived: it is written once at creation, it is where a reader starts, and it is the only place the
@@ -110,10 +108,23 @@ public enum FileRole {
      */
     public static boolean isDerived(ProjectConfig config, ProjectTemplate template, Path file) {
         if (of(config, template, file) != GENERATED) return false;
-        Path abs = file.toAbsolutePath();
+        return isRewritten(config, file.toAbsolutePath());
+    }
+
+    /**
+     * The files BotMaker rewrites whole every time their source of truth changes — one predicate, because
+     * {@link #of} and {@link #isDerived} must not disagree about a file: {@code isDerived} is only ever asked
+     * about files {@code of} already called {@link #GENERATED}, so a file listed in one and forgotten in the
+     * other is a file the editor calls derived and lets the user edit. {@code Templates.java} was exactly
+     * that: generated on every capture, and classed {@link #EDITABLE} because {@code of} never listed it.
+     */
+    private static boolean isRewritten(ProjectConfig config, Path abs) {
         return sameFile(abs, config.activitiesSourceFile())
                 || sameFile(abs, config.activityRegistrySourceFile())
-                || sameFile(abs, config.flowDriverSourceFile());
+                || sameFile(abs, config.flowDriverSourceFile())
+                || sameFile(abs, config.templatesSourceFile())
+                || sameFile(abs, config.settingsSourceFile())
+                || sameFile(abs, config.settingAnnotationSourceFile());
     }
 
     private static boolean sameFile(Path abs, Path other) {

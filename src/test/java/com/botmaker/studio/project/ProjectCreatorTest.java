@@ -1,9 +1,11 @@
 package com.botmaker.studio.project;
 
+import com.botmaker.studio.project.activity.ActivitiesConfig;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 
@@ -36,6 +38,32 @@ class ProjectCreatorTest {
         StudioProjectSettings settings = StudioProjectSettings.read(config.resourcesRoot());
         assertEquals(ProjectTemplate.GAME_BOT, settings.template());
         assertNull(settings.referenceResolution());
+    }
+
+    /**
+     * A new game bot keeps its values in Java. The model is recorded at creation and never inferred later, so
+     * this is the one moment it can be got wrong — and getting it wrong is silent: the project would simply
+     * behave like a legacy one for the rest of its life.
+     */
+    @Test
+    void aNewGameBotKeepsItsSettingsInJava(@TempDir Path root) throws IOException {
+        ProjectConfig config = ProjectConfig.forProject("MyBot", root);
+        ProjectCreator.seedSettingsModel(config, ProjectTemplate.GAME_BOT);
+
+        assertTrue(ActivitiesConfig.read(config.resourcesRoot()).settingsModel().isJava());
+        assertTrue(Files.exists(config.settingsSourceFile()), "Settings.java is written empty at creation");
+        assertTrue(Files.exists(config.settingAnnotationSourceFile()));
+        assertTrue(Files.readString(config.settingsSourceFile()).contains("public final class Settings"),
+                "an empty settings class still has to compile: something may already import it");
+    }
+
+    @Test
+    void anEmptyProjectHasNoSettingsOfEitherKind(@TempDir Path root) throws IOException {
+        ProjectConfig config = ProjectConfig.forProject("Plain", root);
+        ProjectCreator.seedSettingsModel(config, ProjectTemplate.EMPTY);
+
+        assertFalse(Files.exists(config.settingsSourceFile()));
+        assertFalse(Files.exists(config.resourcesRoot().resolve(ActivitiesConfig.FILE_NAME)));
     }
 
     @Test

@@ -621,6 +621,19 @@ public class ProjectAnalyzer {
     }
 
     /**
+     * The project's settings whose type is assignment-compatible with {@code requiredType} — the java-model
+     * counterpart of {@link #getActivityVariables}, inserting {@code Settings.<name>}.
+     *
+     * <p>{@code allSettings()} rather than {@code settings()}, so an activity's enable flag is offered here
+     * exactly as it is on the legacy path: {@code if (Settings.MINING)} is the first thing anyone writes.
+     */
+    public List<com.botmaker.studio.project.settings.Setting> getSettings(ResolvedType requiredType) {
+        return state.getActivities().allSettings().stream()
+                .filter(s -> isCompatible(s.type().resolvedType(), requiredType))
+                .toList();
+    }
+
+    /**
      * The names of the project's defined activities, in configured (run) order. Used by the enable/disable
      * name picker to offer {@code Activity.enable("…")}/{@code disable("…")} the real activity names instead of
      * a free-typed string. Sourced from project state (not the AST), so it's available regardless of scope.

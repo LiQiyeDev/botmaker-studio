@@ -2,6 +2,8 @@ package com.botmaker.studio.project;
 
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityDefinition;
+import com.botmaker.studio.project.settings.SettingsModel;
+import com.botmaker.studio.services.ActivityService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -173,6 +175,33 @@ class ProjectRepairTest {
         List<ProjectRepair.Missing> missing =
                 ProjectRepair.findMissing(config, ProjectTemplate.GAME_BOT, ActivitiesConfig.empty());
         assertTrue(missing.isEmpty(), "an activity-less project is intact: " + missing);
+    }
+
+    /**
+     * A java-model project's generated files are a different set: {@code Settings.java} and its annotation,
+     * never {@code Activities.java} — nothing writes that one for this model, so reporting it missing would
+     * offer a repair that adds a file the project is not supposed to own, on every run.
+     */
+    @Test
+    void aJavaModelProjectExpectsTheSettingsPairAndNotActivitiesJava() {
+        ActivitiesConfig activities = ActivitiesConfig.empty().withSettingsModel(SettingsModel.JAVA);
+
+        List<ProjectRepair.Missing> missing = ProjectRepair.findMissing(config, ProjectTemplate.GAME_BOT, activities);
+
+        assertEquals(List.of("activities.json", "Settings.java", "Setting.java"),
+                missing.stream().map(ProjectRepair.Missing::fileName).toList());
+        assertTrue(missing.stream().allMatch(m -> m.source() == null));
+        assertTrue(ProjectRepair.needsActivityRegeneration(missing),
+                "regenerating them is ActivityService's, from the settings it already holds in memory");
+    }
+
+    @Test
+    void aJavaModelProjectWithItsFilesInPlaceIsIntact() throws IOException {
+        ActivitiesConfig activities = ActivitiesConfig.empty().withSettingsModel(SettingsModel.JAVA);
+        activities.write(config.resourcesRoot());
+        ActivityService.writeSettingsClasses(config, activities);
+
+        assertTrue(ProjectRepair.findMissing(config, ProjectTemplate.GAME_BOT, activities).isEmpty());
     }
 
     @Test

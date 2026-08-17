@@ -1,8 +1,11 @@
 package com.botmaker.studio.project;
 
 import com.botmaker.shared.config.ProjectProperties;
+import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.launch.SupportedTargets;
+import com.botmaker.studio.project.settings.SettingsModel;
 import com.botmaker.studio.project.vcs.ProjectVcs;
+import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.MavenService;
 
@@ -80,6 +83,9 @@ public class ProjectCreator {
             createDefaultTemplate(cfg.imagesRoot());
             ImageTemplateLibrary.regenerateTemplatesClass(cfg);
 
+            System.out.println("3. Generating settings...");
+            seedSettingsModel(cfg, template);
+
             // 5. Seed settings.json (the chosen template + the standard capture resolution) and mirror the
             //    resolution into botmaker-project.properties, so the editor snaps captures to it and the
             //    generated bot's runtime scaling defaults to it.
@@ -104,6 +110,27 @@ public class ProjectCreator {
             e.printStackTrace();
             throw new IOException("Failed to create project: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Declares where a new project keeps the values its bot reads, and writes the files that hold them.
+     *
+     * <p>A game bot keeps them in Java: {@code activities.json} records {@link SettingsModel#JAVA}, and both
+     * generated files are written straight away — empty, but present, so {@code Settings.<field>} and the
+     * {@code @Setting} annotation compile before the first setting exists.
+     *
+     * <p>The model is recorded here and never inferred afterwards. Every load, save and dialog branches on it,
+     * and a project that didn't declare it at birth could only be guessed at — so this is the one moment it
+     * can be set, which is why it is a named step and not a line inside the creation sequence.
+     *
+     * <p>Any other template writes nothing at all: an empty project has no activities and no settings, and an
+     * {@code activities.json} it never asked for is a file it would carry forever.
+     */
+    static void seedSettingsModel(ProjectConfig cfg, ProjectTemplate template) throws IOException {
+        if (template != ProjectTemplate.GAME_BOT) return;
+        ActivitiesConfig activities = ActivitiesConfig.empty().withSettingsModel(SettingsModel.JAVA);
+        activities.write(cfg.resourcesRoot());
+        ActivityService.writeSettingsClasses(cfg, activities);
     }
 
     /**

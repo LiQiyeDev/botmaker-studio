@@ -141,8 +141,14 @@ public final class ProjectRepair {
             // This can only fire for a file deleted while the project is open: activities are read from this
             // very file at open, so if it was already gone the in-memory config is empty and there is nothing
             // left to restore it from. Recovery can't invent values it never saw.
+            //
+            // For a java-model project it is expected from creation and checked unconditionally: it is where
+            // the model itself is recorded, so losing it doesn't reset the values (those are in Settings.java)
+            // — it makes the project read as a legacy one at the next open, which is worse, because nothing
+            // about the settings on screen would look wrong.
+            boolean java = activities.settingsModel().isJava();
             Path json = config.resourcesRoot().resolve(ActivitiesConfig.FILE_NAME);
-            if (!activities.allVariables().isEmpty() && !Files.exists(json)) {
+            if ((java || !activities.allVariables().isEmpty()) && !Files.exists(json)) {
                 missing.add(new Missing(json, null, "activity settings"));
             }
 
@@ -150,9 +156,19 @@ public final class ProjectRepair {
             // archived and so contributes no field, because ActivityService now writes the class empty rather
             // than deleting it (something may still be importing it). Only a project that has never had an
             // activity or a global is entitled not to have the file.
-            if ((hasActivities || !activities.allVariables().isEmpty())
+            //
+            // A java-model project never has one: its values live in Settings.java, and nothing generates
+            // Activities.java for it. Reporting it missing would offer a repair that writes a file the project
+            // is not supposed to own, every time this ran.
+            if (!java && (hasActivities || !activities.allVariables().isEmpty())
                     && !Files.exists(config.activitiesSourceFile())) {
                 missing.add(new Missing(config.activitiesSourceFile(), null, "generated activity code"));
+            }
+            if (java && !Files.exists(config.settingsSourceFile())) {
+                missing.add(new Missing(config.settingsSourceFile(), null, "generated settings"));
+            }
+            if (java && !Files.exists(config.settingAnnotationSourceFile())) {
+                missing.add(new Missing(config.settingAnnotationSourceFile(), null, "generated settings"));
             }
             if (hasActivities && !Files.exists(config.activityRegistrySourceFile())) {
                 missing.add(new Missing(config.activityRegistrySourceFile(), null, "generated activity code"));

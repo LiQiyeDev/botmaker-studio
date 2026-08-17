@@ -112,7 +112,7 @@ public final class ActivityService {
         return CompletableFuture.runAsync(() -> {
             try {
                 newConfig.write(config.resourcesRoot());
-                if (newConfig.settingsModel().isJava()) writeSettingsClasses(newConfig);
+                if (newConfig.settingsModel().isJava()) writeSettingsClasses(config, newConfig);
                 else writeActivitiesClass(newConfig);
                 writeRegistryClass(newConfig);
                 writeDriverClass(newConfig);
@@ -166,8 +166,13 @@ public final class ActivityService {
      * <p>Both are written every time, the annotation included: its content never changes, so rewriting it
      * costs one file write and means a project that has lost it (a bad merge, a stray delete) is repaired by
      * the next save rather than left with a {@code Settings.java} that no longer compiles.
+     *
+     * <p>Static, and public, because two callers write these files without a service to hand:
+     * {@code ProjectCreator} generates them for a brand-new project (which has no {@code ActivityService}
+     * yet), and project repair regenerates them. One writer, so a project created yesterday and one repaired
+     * today hold the same file.
      */
-    private void writeSettingsClasses(ActivitiesConfig cfg) throws IOException {
+    public static void writeSettingsClasses(ProjectConfig config, ActivitiesConfig cfg) throws IOException {
         Path settings = config.settingsSourceFile();
         Files.createDirectories(settings.getParent());
         Files.writeString(settings, SettingsClassWriter.settingsSource(config.packageName(), cfg.allSettings(),
