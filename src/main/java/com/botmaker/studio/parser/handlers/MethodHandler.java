@@ -5,7 +5,10 @@ import com.botmaker.studio.parser.ExpressionChoice;
 import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.parser.EditContext;
 import com.botmaker.studio.parser.NodeCreator;
+import com.botmaker.studio.palette.BotType;
+import com.botmaker.studio.palette.FunctionDraft;
 import com.botmaker.studio.parser.factories.InitializerFactory;
+import com.botmaker.studio.parser.factories.StatementFactory;
 import com.botmaker.studio.parser.helpers.AstRewriteHelper;
 import com.botmaker.studio.parser.helpers.DefaultValueHelper;
 import com.botmaker.studio.project.ProjectState;
@@ -100,6 +103,77 @@ public class MethodHandler {
         listRewrite.insertAt(newMethod, index, null);
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
     }
+
+    /**
+     * Adds the function described by {@code draft} — name, return type, parameters — at {@code index}.
+     *
+     * <p>The older {@link #addMethodToClass(CompilationUnit, String, TypeDeclaration, String, ResolvedType, int)}
+     * remains for the two callers that have no dialog behind them (a palette drop onto a class header, which
+     * has nowhere to ask). This one exists because a signature is more than a return type: it takes an
+     * {@link EditContext} so the types it names get imported, which a {@code Point} parameter needs and the
+     * plain rewriter could not do.
+     */
+    public static String addFunctionToClass(EditContext ctx, String originalCode, TypeDeclaration typeDecl,
+                                            FunctionDraft draft, int index) {
+        AST ast = ctx.ast();
+        MethodDeclaration method = ast.newMethodDeclaration();
+        method.setName(ast.newSimpleName(draft.name().trim()));
+        method.modifiers().add(ast.newModifier(Modifier.ModifierKeyword.PUBLIC_KEYWORD));
+        method.modifiers().add(ast.newModifier(Modifier.ModifierKeyword.STATIC_KEYWORD));
+        method.setReturnType2(typeNodeFor(ctx, draft.returnType()));
+
+        for (FunctionDraft.Parameter param : draft.parameters()) {
+            SingleVariableDeclaration decl = ast.newSingleVariableDeclaration();
+            decl.setType(typeNodeFor(ctx, param.type()));
+            decl.setName(ast.newSimpleName(param.name().trim()));
+            method.parameters().add(decl);
+        }
+
+        Block body = ast.newBlock();
+        // A non-void function needs a return to compile. Seeding it from the type's own default is what makes
+        // "add a function that gives back a Matches" produce something that builds before it is filled in.
+        if (!draft.returnType().isVoid()) {
+            ReturnStatement ret = ast.newReturnStatement();
+            ret.setExpression(defaultValueFor(ctx, draft.returnType()));
+            body.statements().add(ret);
+        }
+        method.setBody(body);
+
+        ListRewrite listRewrite =
+                ctx.rewriter().getListRewrite(typeDecl, TypeDeclaration.BODY_DECLARATIONS_PROPERTY);
+        listRewrite.insertAt(method, index, null);
+        return ctx.applyTo(originalCode);
+    }
+
+    /** A type node for a curated choice, importing what it names — {@code Point}, or {@code List<Point>}. */
+    private static Type typeNodeFor(EditContext ctx, BotType.Choice choice) {
+        AST ast = ctx.ast();
+        choice.type().sdkType().ifPresent(ctx::addImport);
+        if (!choice.list()) {
+            return ProjectAnalyzer.createTypeNode(ast, choice.type().typeName());
+        }
+        ctx.addImport(LIST_FQN);
+        ParameterizedType listType =
+                ast.newParameterizedType(ast.newSimpleType(ast.newSimpleName("List")));
+        listType.typeArguments().add(ast.newSimpleType(ast.newSimpleName(choice.elementName())));
+        return listType;
+    }
+
+    /** {@code List.of()} for a list, and the type's own catalogue default otherwise. */
+    private static Expression defaultValueFor(EditContext ctx, BotType.Choice choice) {
+        if (choice.list()) {
+            ctx.addImport(LIST_FQN);
+            MethodInvocation of = ctx.ast().newMethodInvocation();
+            of.setExpression(ctx.ast().newSimpleName("List"));
+            of.setName(ctx.ast().newSimpleName("of"));
+            return of;
+        }
+        return choice.type().defaultValue()
+                .map(init -> StatementFactory.buildExpression(ctx, init))
+                .orElseGet(() -> ctx.ast().newNullLiteral());
+    }
+
+    private static final String LIST_FQN = "java.util.List";
 
     /** Default {@code return} value for {@code type}: literal for primitives/String/char, {@code null} for objects. */
     private static Expression defaultReturnExpression(AST ast, ResolvedType type) {

@@ -16,6 +16,7 @@ import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.state.HistoryManager;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.palette.BlockType;
+import com.botmaker.studio.palette.FunctionDraft;
 import com.botmaker.studio.palette.SdkDocs;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
 import com.botmaker.studio.ui.dnd.DropInfo;
@@ -30,15 +31,18 @@ import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.jdt.core.dom.BodyDeclaration;
 import org.eclipse.jdt.core.dom.Expression;
 import org.eclipse.jdt.core.dom.ExpressionStatement;
+import org.eclipse.jdt.core.dom.MethodDeclaration;
 import org.eclipse.jdt.core.dom.TypeDeclaration;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Stream;
 
 public class CodeEditorService {
@@ -139,13 +143,24 @@ public class CodeEditorService {
         } else if (info.targetClass() != null && type.isClassMember()) {
             TypeDeclaration typeDecl = (TypeDeclaration) info.targetClass().getAstNode();
             switch (type) {
+                // No dialog on this path — a drop has nowhere to ask — so the name is made free rather than
+                // refused. See FunctionDraft.freeName; the ClassBlock button does open the dialog.
                 case BlockType.MethodMember ignored ->
-                        codeEditor.addMethodToClass(typeDecl, "newMethod", "void", info.insertionIndex());
+                        codeEditor.addMethodToClass(typeDecl,
+                                FunctionDraft.freeName("newMethod", declaredMethodNames(typeDecl)),
+                                "void", info.insertionIndex());
                 case BlockType.EnumDecl ignored ->
                         codeEditor.addEnumToClass(typeDecl, "NewEnum", info.insertionIndex());
                 default -> { /* no other block type reports isClassMember() */ }
             }
         }
+    }
+
+    /** Every method name a class declares — including the ones the editor doesn't draw. */
+    private static Set<String> declaredMethodNames(TypeDeclaration typeDecl) {
+        Set<String> names = new HashSet<>();
+        for (MethodDeclaration method : typeDecl.getMethods()) names.add(method.getName().getIdentifier());
+        return names;
     }
 
     private void rejectJumpPlacement(StatementPlacement.Jump jump) {

@@ -287,6 +287,45 @@
 .diagnostic-icon--warning { -fx-text-fill: -bm-severity-warning; }
 .diagnostic-icon--info    { -fx-text-fill: -bm-severity-info; }
 
+/* ---------------------------------------------------------------------------
+ * Dialog chrome — the confirm action, the live source preview, the refusal line
+ * and the small per-row buttons. Tokens only: a dialog is a separate Scene and
+ * inherits nothing from the window that opened it (see ThemedWindows).
+ * --------------------------------------------------------------------------- */
+.primary-button {
+    -fx-background-color: -bm-primary;
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+}
+.primary-button:hover {
+    -fx-background-color: derive(-bm-primary, 15%);
+}
+/* Disabled has to stay legible: this button carries the "not yet valid" state, so it is read while off. */
+.primary-button:disabled {
+    -fx-opacity: 0.55;
+}
+
+/* A line of generated source shown back to the user — monospaced, so a signature lines up as code. */
+.dialog-code-preview {
+    -fx-font-family: "Consolas", "Menlo", monospace;
+    -fx-font-size: 13px;
+    -fx-padding: 8;
+    -fx-background-color: -fx-control-inner-background-alt;
+    -fx-background-radius: 4;
+}
+
+.dialog-error-text {
+    -fx-text-fill: -bm-severity-error-text;
+    -fx-font-size: 12px;
+}
+
+/* ▲ ▼ ✕ on a repeated row: square, quiet, and the same size as each other. */
+.row-icon-button {
+    -fx-min-width: 28;
+    -fx-padding: 3 6 3 6;
+    -fx-font-size: 11px;
+}
+
 /* Activity Flow canvas (FlowCanvas) — the "class" surface where Activities are laid out. */
 .flow-canvas-content {
     -fx-background-color: -fx-control-inner-background;
@@ -705,6 +744,17 @@
     -fx-padding: 4 12 4 12;
     -fx-cursor: hand;
 }
+/* The one action on a block that adds something of the user's own, rather than editing what is there.
+   Grey-on-grey read as disabled next to the block's own body colour, which is exactly what "+ Add Function"
+   is not. Filled with the accent every theme redefines, so it reads as the primary action in all of them. */
+.block-action-button--primary {
+    -fx-background-color: -bm-primary;
+    -fx-text-fill: white;
+}
+.block-action-button--primary:hover {
+    -fx-background-color: derive(-bm-primary, 15%);
+}
+
 .block-action-button--mini {
     -fx-font-size: 9px;
     -fx-background-radius: 10;

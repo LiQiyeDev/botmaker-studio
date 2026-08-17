@@ -7,6 +7,7 @@ import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.palette.ExpressionCatalog;
 import com.botmaker.studio.palette.ExpressionType;
+import com.botmaker.studio.palette.FunctionDraft;
 import com.botmaker.studio.palette.MatchesCheck;
 import com.botmaker.studio.palette.MatchesJoin;
 import com.botmaker.studio.palette.SdkType;
@@ -695,6 +696,12 @@ public class CodeEditor {
 
     public void addMethodToClass(TypeDeclaration typeDecl, String methodName, String returnType, int index) {
         edit(typeDecl, EditKind.SIGNATURE, true, (cu, code) -> MethodHandler.addMethodToClass(cu, code, typeDecl, methodName, ResolvedType.named(returnType), index));
+    }
+
+    /** Adds a function the user described in the Add Function dialog. See {@link FunctionDraft}. */
+    public void addFunctionToClass(TypeDeclaration typeDecl, FunctionDraft draft, int index) {
+        edit(typeDecl, EditKind.SIGNATURE, true,
+                (cu, code) -> MethodHandler.addFunctionToClass(ctx(cu), code, typeDecl, draft, index));
     }
 
     public void deleteMethod(MethodDeclaration method) {

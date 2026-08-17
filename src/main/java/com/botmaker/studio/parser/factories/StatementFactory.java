@@ -198,13 +198,24 @@ public class StatementFactory {
         return ast.newExpressionStatement(mi);
     }
 
-    /** Turns a declarative {@link Initializer} into an AST expression (recursive for {@code new T(args...)}). */
-    private static Expression buildExpression(EditContext ctx, Initializer init) {
+    /**
+     * Turns a declarative {@link Initializer} into an AST expression (recursive for {@code new T(args...)}).
+     *
+     * <p>Public because {@code BotType} carries one of these per type as "what a fresh value of this looks
+     * like", and that answer is wanted in two places now: seeding a declaration, and seeding the {@code return}
+     * of a function the user just added.
+     */
+    public static Expression buildExpression(EditContext ctx, Initializer init) {
         AST ast = ctx.ast();
         return switch (init) {
             case Initializer.IntLit i -> ast.newNumberLiteral(i.value());
             case Initializer.DoubleLit d -> ast.newNumberLiteral(d.value());
             case Initializer.BoolLit b -> ast.newBooleanLiteral(b.value());
+            case Initializer.CharLit c -> {
+                CharacterLiteral lit = ast.newCharacterLiteral();
+                lit.setCharValue(c.value());
+                yield lit;
+            }
             case Initializer.StrLit s -> {
                 StringLiteral lit = ast.newStringLiteral();
                 lit.setLiteralValue(s.value());

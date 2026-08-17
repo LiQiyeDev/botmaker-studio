@@ -5,6 +5,7 @@ import com.botmaker.studio.core.AbstractCodeBlock;
 import com.botmaker.studio.core.BlockWithChildren;
 import com.botmaker.studio.core.CodeBlock;
 import com.botmaker.studio.services.CodeEditorService;
+import com.botmaker.studio.ui.app.AddFunctionDialog;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -14,10 +15,13 @@ import javafx.scene.control.Label;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
+import javafx.stage.Window;
 import org.eclipse.jdt.core.dom.*;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class ClassBlock extends AbstractCodeBlock implements BlockWithChildren {
 
@@ -152,18 +156,33 @@ public class ClassBlock extends AbstractCodeBlock implements BlockWithChildren {
         // "Add Constructor" is intentionally hidden — the bot's generated class has no user-authored
         // constructors, and exposing one only invites broken generated code. Keep only "Add Function".
         Button addMethodBtn = new Button("+ Add Function");
-        addMethodBtn.getStyleClass().add("block-action-button");
-        addMethodBtn.setOnAction(e -> {
-            context.getCodeEditor().addMethodToClass(
-                    (TypeDeclaration) this.astNode,
-                    "newMethod",
-                    "void",
-                    bodyDeclarations.size()
-            );
-        });
+        addMethodBtn.getStyleClass().addAll("block-action-button", "block-action-button--primary");
+        addMethodBtn.setOnAction(e -> addFunction(context, addMethodBtn));
 
         toolbar.getChildren().add(addMethodBtn);
         return toolbar;
+    }
+
+    /**
+     * Asks what the function should be, then writes it. The dialog is told which names are taken from the
+     * <b>AST</b> rather than from {@link #bodyDeclarations}: a member hidden from the editor (an activity's
+     * {@code isEnabled()}, see {@code MemberVisibility}) has no block here, and would otherwise look free.
+     */
+    private void addFunction(CodeEditorService context, Node source) {
+        TypeDeclaration typeDecl = (TypeDeclaration) this.astNode;
+        Window owner = source.getScene() == null ? null : source.getScene().getWindow();
+
+        new AddFunctionDialog(owner, declaredMethodNames(typeDecl)).showAndWait().ifPresent(draft ->
+                context.getCodeEditor().addFunctionToClass(typeDecl, draft, bodyDeclarations.size()));
+    }
+
+    /** Every method name this class declares, drawn or not. */
+    private static Set<String> declaredMethodNames(TypeDeclaration typeDecl) {
+        Set<String> names = new HashSet<>();
+        for (MethodDeclaration method : typeDecl.getMethods()) {
+            names.add(method.getName().getIdentifier());
+        }
+        return names;
     }
 
     private Region createClassMemberSeparator(CodeEditorService context, int insertIndex) {

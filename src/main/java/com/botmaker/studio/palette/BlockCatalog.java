@@ -19,6 +19,7 @@ import com.botmaker.studio.services.ImageTemplateLibrary;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import static com.botmaker.studio.palette.BlockCategory.*;
 
@@ -115,22 +116,23 @@ public final class BlockCatalog {
     // excluded from ALL below.
     public static final BlockType FIND_IMAGE_ACTIONS = new LambdaCall("FIND_IMAGE_ACTIONS", "Find Image → Do Actions",
             INPUT, SdkType.IMAGE_FINDER, VisionLoop.IF_FIND.methodName(), List.of(), VisionLoop.IF_FIND.defaultParamName());
-    public static final BlockType DECLARE_POINT = new VarDecl("DECLARE_POINT", "Point", BOT_VARIABLE, SdkType.POINT.simpleName(), false, "p",
-            new NewInstance(SdkType.POINT.simpleName(), List.of(new IntLit("0"), new IntLit("0"))));
-    public static final BlockType DECLARE_RECT = new VarDecl("DECLARE_RECT", "Rect", BOT_VARIABLE, SdkType.RECT.simpleName(), false, "r",
-            new NewInstance(SdkType.RECT.simpleName(), List.of(new IntLit("0"), new IntLit("0"), new IntLit("0"), new IntLit("0"))));
-    public static final BlockType DECLARE_SIZE = new VarDecl("DECLARE_SIZE", "Size", BOT_VARIABLE, SdkType.SIZE.simpleName(), false, "s",
-            new NewInstance(SdkType.SIZE.simpleName(), List.of(new IntLit("0"), new IntLit("0"))));
-    // Vision calls now return boolean/int; the MatchResult lives in VisionContext, so seed the
-    // declaration with VisionContext.getLastMatch() (always non-null) rather than a bare null.
-    public static final BlockType DECLARE_MATCH =
-            new VarDecl("DECLARE_MATCH", "MatchResult", BOT_VARIABLE, SdkType.MATCH_RESULT.simpleName(), false, "match",
-                    new StaticCall(SdkType.VISION_CONTEXT.simpleName(), "getLastMatch", List.of()));
-    // Seed with the built-in default template (shipped by ProjectCreator) so a freshly-declared ImageTemplate
-    // points at a real file and compiles immediately, rather than a missing "image.png".
-    public static final BlockType DECLARE_TEMPLATE = new VarDecl("DECLARE_TEMPLATE", "ImageTemplate", BOT_VARIABLE,
-            SdkType.IMAGE_TEMPLATE.simpleName(), false, "template",
-            new NewInstance(SdkType.IMAGE_TEMPLATE.simpleName(), List.of(new StrLit(ImageTemplateLibrary.DEFAULT_TEMPLATE_PATH))));
+    // The "Declare Bot Variable" submenu is generated from BotType — the same curated list the Add Function
+    // dialog picks a return type and parameter types from. It was five hand-written entries (Point, Rect,
+    // Size, MatchResult, ImageTemplate) while the dialog knew a different set again, so a type you could take
+    // as a parameter was not necessarily one you could declare. Each entry's seed value is the type's own
+    // default, which is why every one of them compiles the moment it is dropped: VisionContext.getLastMatch()
+    // rather than null, ImageTemplateGroup.of() rather than an empty group that throws, and the built-in
+    // template (shipped by ProjectCreator) rather than a missing "image.png".
+    private static final List<BlockType> BOT_VARIABLES = BotType.declarableTypes().stream()
+            .filter(t -> t.group() != BotType.Group.BASICS)
+            .map(BlockCatalog::declareBlock)
+            .toList();
+
+    public static final BlockType DECLARE_POINT = declared(BotType.POINT);
+    public static final BlockType DECLARE_RECT = declared(BotType.RECT);
+    public static final BlockType DECLARE_SIZE = declared(BotType.SIZE);
+    public static final BlockType DECLARE_MATCH = declared(BotType.MATCH_RESULT);
+    public static final BlockType DECLARE_TEMPLATE = declared(BotType.IMAGE_TEMPLATE);
     // (No hardcoded DECLARE_DIRECTION block: a Direction variable is declared through the generic
     // "declare variable → pick type Direction" flow, whose initializer is seeded dynamically from the
     // index-resolved first enum constant (InitializerFactory) and edited via the EnumPicker — so there's a
@@ -158,19 +160,22 @@ public final class BlockCatalog {
     // --- Utility ---
     public static final BlockType COMMENT = cf("COMMENT", "Comment", UTILITY, Kind.COMMENT);
 
-    private static final List<BlockType> ALL = List.of(
-            PRINT,
-            IF, SWITCH,
-            WHILE, FOR, DO_WHILE,
-            BREAK, CONTINUE, RETURN, WAIT,
-            DECLARE_INT, DECLARE_DOUBLE, DECLARE_BOOLEAN, DECLARE_STRING, DECLARE_ARRAY, ASSIGNMENT,
-            CLICK, TYPE_TEXT, PRESS_KEY, READ_LINE, READ_INT, READ_DOUBLE,
-            FUNCTION_CALL, METHOD_DECLARATION, DECLARE_ENUM,
-            FIND_IMAGE, CLICK_IMAGE, WAIT_FOR_IMAGE,
-            DECLARE_POINT, DECLARE_RECT, DECLARE_SIZE, DECLARE_MATCH, DECLARE_TEMPLATE,
-            LAUNCH_GAME, LAUNCH_STEAM_GAME, LAUNCH_EPIC_GAME,
-            USE_EMULATOR, CONNECT_EMULATOR,
-            COMMENT);
+    private static final List<BlockType> ALL = Stream.of(
+                    List.of(PRINT,
+                            IF, SWITCH,
+                            WHILE, FOR, DO_WHILE,
+                            BREAK, CONTINUE, RETURN, WAIT,
+                            DECLARE_INT, DECLARE_DOUBLE, DECLARE_BOOLEAN, DECLARE_STRING, DECLARE_ARRAY,
+                            ASSIGNMENT,
+                            CLICK, TYPE_TEXT, PRESS_KEY, READ_LINE, READ_INT, READ_DOUBLE,
+                            FUNCTION_CALL, METHOD_DECLARATION, DECLARE_ENUM,
+                            FIND_IMAGE, CLICK_IMAGE, WAIT_FOR_IMAGE),
+                    BOT_VARIABLES,
+                    List.of(LAUNCH_GAME, LAUNCH_STEAM_GAME, LAUNCH_EPIC_GAME,
+                            USE_EMULATOR, CONNECT_EMULATOR,
+                            COMMENT))
+            .flatMap(List::stream)
+            .toList();
 
     /** All insertable blocks in palette/menu display order. */
     public static List<BlockType> all() {
@@ -199,5 +204,21 @@ public final class BlockCatalog {
 
     private static ControlFlow cf(String id, String displayName, BlockCategory category, Kind kind) {
         return new ControlFlow(id, displayName, category, kind);
+    }
+
+    /** The declare-a-variable block for one curated type. */
+    private static BlockType declareBlock(BotType type) {
+        return new VarDecl("DECLARE_" + type.name(), type.label(), BOT_VARIABLE,
+                type.typeName(), type.isPrimitive(), type.suggestedName(),
+                type.defaultValue().orElseThrow(
+                        () -> new IllegalStateException(type + " is declarable but has no default value")));
+    }
+
+    /** The generated declare-block for {@code type} — the named handles the rest of the app refers to. */
+    private static BlockType declared(BotType type) {
+        return BOT_VARIABLES.stream()
+                .filter(b -> b.id().equals("DECLARE_" + type.name()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("no declare block for " + type));
     }
 }

@@ -8,8 +8,9 @@ import java.util.List;
  * recursive builder in {@code StatementFactory}, so adding a new default value never needs new dispatch code.
  */
 public sealed interface Initializer
-        permits Initializer.IntLit, Initializer.DoubleLit, Initializer.BoolLit, Initializer.StrLit,
-                Initializer.NullLit, Initializer.NewInstance, Initializer.EnumConst, Initializer.StaticCall {
+        permits Initializer.IntLit, Initializer.DoubleLit, Initializer.BoolLit, Initializer.CharLit,
+                Initializer.StrLit, Initializer.NullLit, Initializer.NewInstance, Initializer.EnumConst,
+                Initializer.StaticCall {
 
     /** Numeric literal rendered as an integer, e.g. {@code 0}. */
     record IntLit(String value) implements Initializer {}
@@ -18,6 +19,9 @@ public sealed interface Initializer
     record DoubleLit(String value) implements Initializer {}
 
     record BoolLit(boolean value) implements Initializer {}
+
+    /** Character literal, e.g. {@code 'a'}. The AST escapes it, so {@code value} is the character itself. */
+    record CharLit(char value) implements Initializer {}
 
     /** String literal; {@code value} is the unescaped content (e.g. {@code "image.png"} or empty). */
     record StrLit(String value) implements Initializer {}

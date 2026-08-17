@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-17 — Add Function asks what the function is, and one curated type list answers both features
+  (`palette/BotType`, `palette/FunctionDraft`, `ui/app/AddFunctionDialog`,
+  `ui/render/components/BotTypePicker`, `parser/handlers/MethodHandler.addFunctionToClass`).** "+ Add
+  Function" wrote `public static void newMethod()` into the class, so a second click collided, a return type
+  could not be chosen and a parameter could not be added at all. It opens a dialog now: name (refused, not
+  uniquified, when illegal, a keyword, or one the class already declares — read from the AST, so a member the
+  editor no longer draws still counts), return type, and parameter rows with add/remove/reorder. The drop path
+  onto a class header has no dialog to ask with, so it takes the next free name instead
+  (`FunctionDraft.freeName`). `BotType` is the curated list — an allow-list over `SdkType`, grouped
+  Basics/Vision/Geometry/Input/Capture, each carrying the default value that makes a fresh declaration compile
+  — and "Declare Bot Variable" is generated from it, so the menu that knew five types and the dialog that knew
+  one now know the same fourteen.
+
 - **2026-08-17 — an activity shows the author their own code and nothing else
   (`core/component/BlockComponent.Visibility.NOBODY`, `core/component/MemberVisibility`,
   `project/FileRole.isDerived`, `ui/app/FileExplorerManager`).** The audience axis hid an activity stub's
