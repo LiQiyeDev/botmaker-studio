@@ -4,6 +4,7 @@ import com.botmaker.studio.core.AbstractExpressionBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.types.ResolvedType;
+import com.botmaker.studio.ui.render.layout.ExpressionSlots;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.layout.HBox;
@@ -40,7 +41,9 @@ public class BinaryExpressionBlock extends AbstractExpressionBlock {
 
         // Left operand + Change Button (null when read-only — nothing to change a locked operand by)
         if (leftOperand != null) {
-            expressionBox.getChildren().add(leftOperand.getUINode(context));
+            Node leftNode = leftOperand.getUINode(context);
+            ExpressionSlots.makeDroppable(leftNode, leftOperand, context, ResolvedType.UNKNOWN);
+            expressionBox.getChildren().add(leftNode);
             javafx.scene.control.Button changeLeft = createChangeButton(e ->
                     showExpressionMenuAndReplace((Button)e.getSource(), context, ResolvedType.INT,
                             (Expression) leftOperand.getAstNode())
@@ -69,7 +72,9 @@ public class BinaryExpressionBlock extends AbstractExpressionBlock {
 
         // Right operand + Change Button
         if (rightOperand != null) {
-            expressionBox.getChildren().add(rightOperand.getUINode(context));
+            Node rightNode = rightOperand.getUINode(context);
+            ExpressionSlots.makeDroppable(rightNode, rightOperand, context, ResolvedType.UNKNOWN);
+            expressionBox.getChildren().add(rightNode);
             javafx.scene.control.Button changeRight = createChangeButton(e ->
                     showExpressionMenuAndReplace((Button)e.getSource(), context, ResolvedType.INT,
                             (Expression) rightOperand.getAstNode())

@@ -140,10 +140,24 @@ public class BlockDragAndDropManager {
      * expression wearing a semicolon, so moving it into a slot loses nothing.
      */
     private static void putExpressionType(ClipboardContent content, ASTNode node) {
-        if (!(node instanceof ExpressionStatement stmt)) return;
+        String type = expressionTypeName(node);
+        if (type != null) content.put(EXPRESSION_TYPE_FORMAT, type);
+    }
+
+    /**
+     * The qualified type name to advertise for {@code node}, or null when it isn't an expression statement at
+     * all — the format's presence is what marks a drag as slot-fillable, so the two answers are one decision.
+     *
+     * <p>An unresolved binding reports {@link ResolvedType#UNKNOWN}'s name rather than nothing. It used to
+     * report nothing, and since the editor parses without bindings for most of a session, that meant the
+     * format was almost never on the dragboard — and {@link #carriesExpression} requires it, so dragging an
+     * {@code ImageClicker.click(…)} into an {@code if} condition was refused every time. Unknown is what
+     * {@link TypeExpectation#fits} already accepts everywhere else; saying it out loud is the fix.
+     */
+    static String expressionTypeName(ASTNode node) {
+        if (!(node instanceof ExpressionStatement stmt)) return null;
         ITypeBinding binding = stmt.getExpression().resolveTypeBinding();
-        if (binding == null) return;
-        content.put(EXPRESSION_TYPE_FORMAT, ResolvedType.of(binding).qualifiedName());
+        return binding == null ? ResolvedType.UNKNOWN.qualifiedName() : ResolvedType.of(binding).qualifiedName();
     }
 
     // --- Drag-over feedback helpers ---

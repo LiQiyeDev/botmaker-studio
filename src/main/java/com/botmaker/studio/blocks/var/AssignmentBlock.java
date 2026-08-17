@@ -73,8 +73,11 @@ public class AssignmentBlock extends AbstractStatementBlock {
 
         // Right hand side (only for non-increment/decrement)
         if (!operator.equals("++") && !operator.equals("--")) {
+            // The value side is a drop target; the target side (left) deliberately is not — what is being
+            // assigned *to* is chosen by name, not by dragging a call onto it.
+            if (rightHandSide != null) sentenceBuilder.addExpressionSlot(rightHandSide, context, ResolvedType.UNKNOWN);
+            else sentenceBuilder.addNode(createExpressionDropZone(context));
             sentenceBuilder
-                    .addNode(rightHandSide != null ? rightHandSide.getUINode(context) : createExpressionDropZone(context))
                     .addNode(createAddButton(e -> showExpressionMenu((javafx.scene.control.Button) e.getSource(), context)));
         }
 

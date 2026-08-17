@@ -7,6 +7,7 @@ import com.botmaker.studio.core.AbstractStatementBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.ui.render.layout.BlockLayout;
+import com.botmaker.studio.ui.render.layout.ExpressionSlots;
 import com.botmaker.studio.ui.render.components.LayoutComponents;
 import com.botmaker.studio.ui.render.components.TextFieldComponents;
 import com.botmaker.studio.ui.render.components.pickers.PickerContext;
@@ -73,6 +74,10 @@ public class VariableDeclarationBlock extends AbstractStatementBlock {
                 // expression node. Falls back to the generic node when no picker matches.
                 Node picker = PickerRegistry.pickerNodeFor(PickerContext.of(context, initializer, varType));
                 initNode = picker != null ? picker : initializer.getUINode(context);
+                // Dropping a call onto the value of a declaration is the same gesture as dropping it into any
+                // other slot. The list/array renderings above stay out of it: they hold several expressions,
+                // and a drop names exactly one to replace.
+                ExpressionSlots.makeDroppable(initNode, initializer, context, varType);
             }
         } else {
             initNode = createExpressionDropZone(context);

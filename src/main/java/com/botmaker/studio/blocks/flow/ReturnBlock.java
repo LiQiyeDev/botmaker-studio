@@ -66,7 +66,7 @@ public class ReturnBlock extends AbstractStatementBlock {
 
         if (expression != null) {
             sentenceBuilder
-                    .addNode(expression.getUINode(context))
+                    .addExpressionSlot(expression, context, ResolvedType.named(methodReturnType))
                     .addNode(createChangeButton(e ->
                             showExpressionMenuAndReplace((Button)e.getSource(), context, ResolvedType.named(methodReturnType),
                                     (org.eclipse.jdt.core.dom.Expression)expression.getAstNode())

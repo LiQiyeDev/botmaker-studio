@@ -38,7 +38,10 @@ public class PrintBlock extends AbstractStatementBlock {
             sentenceBuilder.addNode(createExpressionDropZone(context));
         } else {
             for (ExpressionBlock arg : arguments) {
-                sentenceBuilder.addNode(arg.getUINode(context));
+                // A slot, not a bare node: print's argument is the most obvious thing in the editor to drag a
+                // value into, and it was the one expression that took no drops. UNKNOWN, not STRING — println
+                // is overloaded for every type, so a number or a Point is as legal here as a string.
+                sentenceBuilder.addExpressionSlot(arg, context, ResolvedType.UNKNOWN);
             }
         }
 

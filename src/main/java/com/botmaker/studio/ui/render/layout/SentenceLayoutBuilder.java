@@ -120,9 +120,6 @@ public class SentenceLayoutBuilder {
     private static void makeDroppable(Node slotNode, com.botmaker.studio.core.ExpressionBlock expression,
                                       CodeEditorService context,
                                       com.botmaker.studio.types.ResolvedType expectedType) {
-        if (!(slotNode instanceof javafx.scene.layout.Region region)) return;
-        if (context == null || context.getDragAndDropManager() == null) return;
-        if (expression.isReadOnly()) return;
-        context.getDragAndDropManager().addExpressionDropHandlers(region, expression, expectedType);
+        ExpressionSlots.makeDroppable(slotNode, expression, context, expectedType);
     }
 }

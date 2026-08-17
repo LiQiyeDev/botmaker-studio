@@ -6,6 +6,17 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-17 — an expression can be dragged into a slot again (`ui/dnd/BlockDragAndDropManager`,
+  `ui/render/layout/ExpressionSlots`).** Every drag of an existing statement was refused by every expression
+  slot. `carriesExpression` requires the dragboard to say what type the statement evaluates to, and
+  `putExpressionType` attached that only when JDT had resolved a binding — which, for the editor's usual
+  binding-less parse, is almost never. It now says `UNKNOWN` out loud instead of staying silent, which is
+  what `TypeExpectation.fits` already accepts everywhere else. Alongside it, the expressions that were
+  rendered as bare nodes and so had no slot at all — a print's argument, a `return`'s value, an
+  assignment's right-hand side, both operands of a binary expression, a declaration's initialiser — now go
+  through the one slot helper. Note: `makeDraggable` (the palette-drag source) still has no caller, because
+  there is no palette panel to put it on; `ADDABLE_BLOCK_FORMAT` is produced by nothing today.
+
 - **2026-08-17 — archiving an activity stops corrupting the project (`services/ActivityService`,
   `project/ProjectRepair`, `ui/app/ActivityFlowDialog`).** Archive shipped broken in four independent ways.
   `ActivityRegistry`/`FlowDriver` chose their `import com.<pkg>.activities.*;` on `activities().isEmpty()`,
