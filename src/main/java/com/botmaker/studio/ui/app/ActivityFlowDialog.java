@@ -7,7 +7,11 @@ import com.botmaker.studio.project.activity.FlowEdge;
 import com.botmaker.studio.project.activity.ActivityPreset;
 import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.project.activity.FlowNode;
+import com.botmaker.studio.project.settings.Setting;
 import com.botmaker.studio.services.ActivityService;
+import com.botmaker.studio.services.ImageTemplateLibrary;
+import com.botmaker.studio.services.SettingsRailModel;
+import com.botmaker.studio.ui.app.settings.SettingValueWidgets;
 import com.botmaker.studio.ui.app.flow.ActivityDraft;
 import com.botmaker.studio.ui.app.flow.FlowCanvas;
 import com.botmaker.studio.ui.app.flow.FlowNames;
@@ -279,9 +283,10 @@ public class ActivityFlowDialog {
         sidePanel.getChildren().clear();
 
         if (draft == null) {
-            sidePanel.getChildren().addAll(heading("Global variables"),
+            sidePanel.getChildren().addAll(heading(isJavaModel() ? "Settings" : "Global variables"),
                     new Label("Config not tied to any one activity. Select a card to edit that activity."));
-            sidePanel.getChildren().add(buildVariableSummary(globals, null));
+            sidePanel.getChildren().add(isJavaModel()
+                    ? buildSettingSummary("") : buildVariableSummary(globals, null));
             sidePanel.getChildren().addAll(new Separator(), buildFlowLimitsSection());
             sidePanel.getChildren().addAll(new Separator(), buildArchivedSection());
             return;
@@ -328,7 +333,9 @@ public class ActivityFlowDialog {
 
         sidePanel.getChildren().addAll(heading("Activity"), head, new Separator(),
                 heading("Outcomes"), buildOutcomeEditor(draft), new Separator(),
-                heading("Config params"), buildVariableSummary(draft.params(), draft), new Separator(), archive);
+                heading(isJavaModel() ? "Settings" : "Config params"),
+                isJavaModel() ? buildSettingSummary(draft.name()) : buildVariableSummary(draft.params(), draft),
+                new Separator(), archive);
     }
 
     /**
@@ -609,6 +616,58 @@ public class ActivityFlowDialog {
      * reachable only by deselecting every card. Parameters are defined in <b>Project ▸ Parameters…</b> now;
      * what stays here is the answer to "what does this activity take?", which you want while wiring.
      */
+    /** True for a project whose values live in the generated {@code Settings} class rather than in JSON. */
+    private boolean isJavaModel() {
+        return activityService.current().settingsModel().isJava();
+    }
+
+    /**
+     * The same read-only summary for a project-wide {@link Setting}: what is filed under {@code tag}, or —
+     * for a blank tag — what is filed under nothing.
+     *
+     * <p>A setting is not owned by the activity whose tag it carries; it is merely <em>listed</em> under it.
+     * That is why this shows what an activity is configured with while saying nothing about editing it: the
+     * one editor is <b>Project ▸ Settings…</b>, which sees the whole list at once, which is the only place a
+     * knob two activities share can sensibly be changed.
+     */
+    private Node buildSettingSummary(String tag) {
+        VBox box = new VBox(6);
+        List<Setting> shown = SettingsRailModel.in(activityService.current().settings(),
+                tag == null || tag.isBlank() ? Setting.GENERAL : tag,
+                ImageTemplateLibrary.tagCatalog(activityService.projectConfig()));
+        if (shown.isEmpty()) {
+            Label none = new Label("Nothing filed here yet.");
+            none.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
+            box.getChildren().add(none);
+        } else {
+            GridPane grid = new GridPane();
+            grid.setHgap(8);
+            grid.setVgap(4);
+            int row = 0;
+            for (Setting s : shown) {
+                Label name = new Label(s.displayLabel());
+                Label value = new Label(SettingValueWidgets.display(s));
+                value.setStyle("-fx-text-fill: gray;");
+                grid.add(name, 0, row);
+                grid.add(value, 1, row);
+                if (s.isShared()) {
+                    Label badge = new Label("public");
+                    badge.setStyle("-fx-font-size: 10px; -fx-text-fill: gray;");
+                    badge.setTooltip(new javafx.scene.control.Tooltip(
+                            "Offered to whoever runs the bot, not just to you."));
+                    grid.add(badge, 2, row);
+                }
+                row++;
+            }
+            box.getChildren().add(grid);
+        }
+        Label where = new Label("Add, retype or expose settings in Project ▸ Settings…");
+        where.setWrapText(true);
+        where.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
+        box.getChildren().add(where);
+        return box;
+    }
+
     private Node buildVariableSummary(List<ActivityVariable> variables, ActivityDraft owner) {
         VBox box = new VBox(6);
         if (variables.isEmpty()) {

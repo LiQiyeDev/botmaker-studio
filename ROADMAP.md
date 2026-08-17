@@ -6,6 +6,17 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-18 — One project-wide Settings dialog, organised by tag (`ui/app/settings/`,
+  `services/SettingsRailModel`).** Phase 4. A java-model project edits every value in one dialog with a tag
+  rail — All, General, the activity tags, then the custom ones — over the same `TagCatalog` the image gallery
+  uses, so renaming an activity renames its group in both places. New value widgets: a duration as an amount
+  plus a unit, a template chip opening the gallery picker, an SDK-enum combo for Key/MouseButton, and a
+  `Spinner` for a number that declares a range. Per-activity params are gone from the flow dialog on that
+  path (it keeps the enable flag, outcomes, go-home and popup-check, plus a read-only summary of what is filed
+  under the activity's tag); `RunnerWindow` groups the shared settings under their tag headings. Legacy
+  projects keep `ParametersDialog` untouched — the model is selected once in `StudioActions`, never branched
+  inside either dialog.
+
 - **2026-08-17 — The generated settings file is read back, not just written (`services/SettingsReader`,
   `project/settings/RawSetting`).** Phase 3. A java-model project loads its values by parsing
   `Settings.java`'s `@Setting` annotations (JDT, via `SourceParser`), never its static block —

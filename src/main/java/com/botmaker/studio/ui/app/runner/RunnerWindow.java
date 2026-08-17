@@ -11,6 +11,7 @@ import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityDefinition;
 import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.project.capture.CaptureTarget;
+import com.botmaker.studio.project.settings.Setting;
 import com.botmaker.studio.project.capture.CaptureTargetNames;
 import com.botmaker.studio.project.vcs.ProjectVcs;
 import com.botmaker.studio.services.ActivityService;
@@ -19,6 +20,7 @@ import com.botmaker.studio.ui.app.LaunchTargetDialog;
 import com.botmaker.studio.ui.app.ManageCaptureTargetsDialog;
 import com.botmaker.studio.ui.app.ProjectWindow;
 import com.botmaker.studio.ui.app.params.ParamValueWidgets;
+import com.botmaker.studio.ui.app.settings.SettingValueWidgets;
 import com.botmaker.studio.ui.render.theme.BlockTheme;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
@@ -102,6 +104,8 @@ public final class RunnerWindow implements ProjectWindow {
     private final Map<String, CheckBox> enableBoxes = new LinkedHashMap<>();
     /** Every public parameter's widget, tagged with the activity it belongs to (null for a global). */
     private final List<ScopedEditor> paramEditors = new ArrayList<>();
+    /** The java-model counterpart: every shared setting's widget. A setting's name is project-wide, so no scope. */
+    private final List<SettingValueWidgets.ValueEditor> settingEditors = new ArrayList<>();
 
     /** A value widget plus the activity that owns it, so the edit can be written back to the right place. */
     private record ScopedEditor(String activity, ParamValueWidgets.ValueEditor editor) {}
@@ -306,6 +310,42 @@ public final class RunnerWindow implements ProjectWindow {
      * fact about this bot, not a sign the window failed to load.
      */
     private Node settingsSection() {
+        return activityService.current().settingsModel().isJava() ? sharedSettingsSection() : publicParamsSection();
+    }
+
+    /**
+     * The java-model half: the project's shared settings under their tag headings. The grouping is the whole
+     * reason a setting carries a tag — the bot's user reads "Mining" and "General", not one flat list in which
+     * two activities' delays are told apart only by a prefix in their name.
+     */
+    private Node sharedSettingsSection() {
+        Map<String, List<Setting>> byTag = activityService.current().sharedSettings();
+        VBox rows = new VBox(10);
+        if (byTag.isEmpty()) {
+            rows.getChildren().add(hint("This bot has no settings for you to change."));
+        }
+        byTag.forEach((tag, group) -> {
+            Label heading = new Label(tag);
+            heading.getStyleClass().add("dialog-subheading");
+            rows.getChildren().add(heading);
+            for (Setting s : group) rows.getChildren().add(settingRow(s));
+        });
+        return section("Settings", null, rows);
+    }
+
+    private Node settingRow(Setting setting) {
+        Node widget = SettingValueWidgets.buildFixedWidth(setting, config, settingEditors);
+
+        Label name = new Label(setting.displayLabel());
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        HBox row = new HBox(10, name, spacer, widget);
+        row.setAlignment(Pos.CENTER_LEFT);
+        row.getStyleClass().add("runner-row");
+        return row;
+    }
+
+    private Node publicParamsSection() {
         List<ActivitiesConfig.ExposedParam> exposed = activityService.current().publicParams();
         VBox rows = new VBox(10);
         if (exposed.isEmpty()) {
@@ -451,7 +491,26 @@ public final class RunnerWindow implements ProjectWindow {
             globals.add(values.getOrDefault(key(null, g.name()), g));
         }
 
-        return new ActivitiesConfig(activities, globals, base.flow(), base.presets(), base.goHomeByDefault());
+        return new ActivitiesConfig(activities, globals, base.flow(), base.presets(), base.goHomeByDefault(),
+                base.settingsModel(), editedSettings(base), base.unknownSettings());
+    }
+
+    /**
+     * The project's settings with this window's answers folded in — the java-model counterpart of the
+     * parameter fold above. A setting nobody was offered is carried through as it was, for the same reason an
+     * archived activity is: a user's window must not be able to change what it cannot see.
+     */
+    private List<Setting> editedSettings(ActivitiesConfig base) {
+        if (settingEditors.isEmpty()) return base.settings();
+        Map<String, List<String>> typed = new LinkedHashMap<>();
+        for (SettingValueWidgets.ValueEditor editor : settingEditors) typed.put(editor.name(), editor.read().get());
+
+        List<Setting> updated = new ArrayList<>();
+        for (Setting s : base.settings()) {
+            List<String> value = typed.get(s.name());
+            updated.add(value == null ? s : s.withValues(value));
+        }
+        return updated;
     }
 
     /** Scope-qualified, because two activities may each have a parameter of the same name. */

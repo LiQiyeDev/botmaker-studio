@@ -59,6 +59,11 @@ public final class ActivityService {
         this.eventBus = eventBus;
     }
 
+    /** The project these activities belong to — so a caller holding this service needn't also be handed it. */
+    public ProjectConfig projectConfig() {
+        return config;
+    }
+
     /** The current activities (from project state, loaded at open and refreshed on change). */
     public ActivitiesConfig current() {
         // Null-tolerant on state as well as on its contents: the generators below are pure enough to be

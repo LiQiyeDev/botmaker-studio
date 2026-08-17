@@ -1788,7 +1788,10 @@
  * surface/foreground lookups rather than the -bm-popup-* set — the gallery is a panel in a window, not a
  * floating popup, and it is embedded in the resource manager as often as it is opened as a dialog.
  */
-.template-gallery-heading {
+/* The Settings dialog's tag rail is the same rail over the same tags, so it is the same heading — one rule,
+   because two copies of it are two things to keep in step for no reason a reader could name. */
+.template-gallery-heading,
+.rail-heading {
     -fx-text-fill: -fx-text-background-color;
     -fx-opacity: 0.65;
     -fx-font-size: 10px;
