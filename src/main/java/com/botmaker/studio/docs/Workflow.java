@@ -14,7 +14,8 @@ import java.util.List;
  *
  * <p>What belongs here: what a step <em>is for</em> and what the person has to decide. What does not: how the
  * pixels get from a capture to a phone, which is {@code docs/display-pipeline.md}'s job and is linked from
- * {@link #furtherReading()} rather than summarised badly here.
+ * {@link #furtherReading()} rather than summarised badly here — and how a bot <em>runs</em>, which is a loop
+ * rather than a step and so lives in {@link RuntimeDiagram}, rendered by the same two renderers.
  */
 public final class Workflow {
 
@@ -43,27 +44,30 @@ public final class Workflow {
                         "Project Setup is also where you come back to later: it collects the project's targets, "
                         + "its SDK version and its run settings in one place."),
 
+                WorkflowStep.of("Tell the bot what to launch — the launch target",
+                        "What gets started before the bot runs: a Steam, Epic, Heroic or Faugus game, an "
+                        + "executable, a command line, or an app inside an emulator.",
+                        StudioAction.LAUNCH_TARGET,
+                        "This comes before the capture target for a practical reason: you cannot pick the "
+                        + "window the bot watches until the game is on screen. Launch it from here first, then "
+                        + "choose what to capture.",
+                        "Studio scans your installed libraries so you pick a game from a list instead of typing "
+                        + "an app id. Choosing an emulator app can also point the capture target at that "
+                        + "emulator in the same move — a tickbox in the dialog, since it is a convenience and "
+                        + "not a rule.",
+                        "The launch target is yours and is stripped when you publish. What does travel is what "
+                        + "you declare in the Publish dialog: the kinds of launch target your bot is known to "
+                        + "work with. That is advice for whoever installs it — they still get to try anything "
+                        + "on their machine — so declare what you actually tested, not what you hope works."),
+
                 WorkflowStep.of("Tell the bot what to watch — the capture target",
                         "Where the bot looks: a monitor, a window, the whole desktop, or an Android emulator.",
                         StudioAction.CAPTURE_TARGETS,
                         "Everything visual is relative to this one choice. Image search, OCR, colour sampling "
                         + "and every click coordinate are expressed inside the capture target, so a bot written "
                         + "against a game window keeps working when that window moves.",
-                        "The capture target belongs to the machine that runs the bot, not to the bot. It is not "
-                        + "published: when you install someone else's bot you pick your own."),
-
-                WorkflowStep.of("Tell the bot what to launch — the launch target",
-                        "What gets started before the bot runs: a Steam, Epic, Heroic or Faugus game, an "
-                        + "executable, a command line, or an app inside an emulator.",
-                        StudioAction.LAUNCH_TARGET,
-                        "Studio scans your installed libraries so you pick a game from a list instead of typing "
-                        + "an app id. Choosing an emulator app can also point the capture target at that "
-                        + "emulator in the same move — a tickbox in the dialog, since it is a convenience and "
-                        + "not a rule.",
-                        "Like capture, the launch target is yours and is stripped when you publish. What does "
-                        + "travel is what you declare in the Publish dialog: the kinds of launch target your bot "
-                        + "is known to work with. The same game is a different launch on every platform, so a "
-                        + "bot claims platforms, not app ids."),
+                        "Like the launch target, this belongs to the machine that runs the bot, not to the bot. "
+                        + "It is not published: when you install someone else's bot you pick your own."),
 
                 WorkflowStep.of("Capture image templates",
                         "Little pictures of buttons, icons and text that the bot matches against the screen.",
@@ -86,9 +90,10 @@ public final class Workflow {
                         "An activity is one thing the bot can be doing; the flow graph says what follows what.",
                         StudioAction.ACTIVITY_FLOW,
                         "Rather than one long script, a bot is a set of named activities — \"Mining\", "
-                        + "\"HandleFullInventory\", \"Login\" — each returning an outcome. The flow editor wires "
-                        + "those outcomes to the next activity, so the shape of the bot is a graph you can see "
-                        + "instead of control flow buried in nested ifs.",
+                        + "\"HandleFullInventory\", \"Login\" — each returning an outcome, and the flow editor "
+                        + "wires those outcomes to whatever runs next. \"" + RuntimeDiagram.TITLE + "\" above "
+                        + "is what that looks like at run time; it is worth reading before you draw a graph, "
+                        + "because activities do not run top to bottom, once each.",
                         "Studio generates and maintains one source file per activity plus the registry that "
                         + "knows them. Archiving an activity removes it from the graph and from the generated "
                         + "sources; un-archiving brings it back, which is what makes archiving safe to do."),
@@ -128,19 +133,14 @@ public final class Workflow {
                         + "stream two-way, so a tap on your phone lands as a click in the game at the right "
                         + "coordinate whatever the stream is scaled to."),
 
-                WorkflowStep.of("Add libraries",
-                        "Third-party Maven dependencies, and the SDK version the bot pins.",
-                        StudioAction.MANAGE_LIBRARIES,
-                        "The generated pom.xml is the single source of truth for dependencies — Manage Libraries "
-                        + "edits it and re-resolves the classpath, so a library you add is immediately "
-                        + "autocompletable in the blocks."),
-
                 WorkflowStep.of("Publish and share",
                         "Push the bot to your own GitHub repo, and optionally list it in the gallery.",
                         StudioAction.PUBLISH,
-                        "Publishing declares which launch targets the bot supports and strips the parts of the "
-                        + "project that describe your machine. Someone installing it picks their own capture and "
-                        + "launch targets, and only sees the launch kinds you declared.",
+                        "Publishing declares which launch targets the bot was tested on and strips the parts of "
+                        + "the project that describe your machine. Someone installing it picks their own "
+                        + "capture and launch targets; your declaration is shown to them as what is known to "
+                        + "work, and it recommends rather than restricts — they can still point the bot at a "
+                        + "launcher you never tried.",
                         "The Gallery browses what everyone else has published; installing from it creates a "
                         + "normal project you can run, read, and — if you choose to — start editing."),
 

@@ -203,10 +203,11 @@ public class GalleryDialog {
             meta.setStyle("-fx-text-fill: gray; -fx-font-size: 11px;");
             meta.setWrapText(true);
             VBox text = new VBox(2, name, meta);
-            // Only shown when the author declared something: "runs on: any launch target" would be noise on
-            // every entry published before the field existed, which is most of them.
+            // Only shown when the author declared something: "tested on: any launch target" would be noise on
+            // every entry published before the field existed, which is most of them. "Tested on" rather than
+            // "runs on" because installing never restricts what you may launch — see LaunchTargetDialog.
             if (entry.launchTargets().declared()) {
-                Label runsOn = new Label("Runs on: " + entry.launchTargets().describe());
+                Label runsOn = new Label("Tested on: " + entry.launchTargets().describe());
                 runsOn.setStyle("-fx-text-fill: gray; -fx-font-size: 11px;");
                 runsOn.setWrapText(true);
                 text.getChildren().add(runsOn);

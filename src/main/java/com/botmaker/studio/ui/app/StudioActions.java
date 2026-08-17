@@ -247,7 +247,6 @@ final class StudioActions {
                 .on(StudioAction.ACTIVITY_FLOW, this::openActivityFlow)
                 .on(StudioAction.OVERLAY_EDITOR, () -> openOverlayEditor(false))
                 .on(StudioAction.REMOTE_PILOT, remotePilot::open)
-                .on(StudioAction.MANAGE_LIBRARIES, this::openManageLibraries)
                 .on(StudioAction.PUBLISH, this::openPublishDialog)
                 .on(StudioAction.GALLERY, this::openGallery)
                 .build();

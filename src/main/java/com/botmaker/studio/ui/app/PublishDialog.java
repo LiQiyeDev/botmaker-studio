@@ -266,8 +266,9 @@ public class PublishDialog {
             launchKindChecks.put(kind, check);
             box.getChildren().add(check);
         }
-        Tooltip.install(box, new Tooltip("Leave everything unticked to make no claim — the bot then offers "
-                + "every launch kind to whoever installs it."));
+        Tooltip.install(box, new Tooltip("What you tested on. Whoever installs the bot sees this as advice "
+                + "and can still pick a launcher you never tried — so tick what you actually ran, and leave "
+                + "everything unticked to make no claim at all."));
         return box;
     }
 

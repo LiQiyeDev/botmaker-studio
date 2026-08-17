@@ -28,6 +28,12 @@ import java.util.stream.Collectors;
  * declaration, and an undeclared bot must stay fully usable — so {@link #supports} answers {@code true} for
  * everything until an author says otherwise, and only a declared set narrows anything.
  *
+ * <p><b>And a declared set is advice, not a gate.</b> An author can only test the launchers they own, so this
+ * set is the ones they <em>tried</em> — never a statement that the rest fail. Every reader of it says "tested
+ * on" and marks the undeclared kinds; none of them refuses one. {@link #supports} is therefore a question
+ * about the <em>declaration</em> ("did they say they tested this?"), not about the launch, and a caller that
+ * turns a {@code false} into a disabled control is reading it wrong.
+ *
  * <p>Typed over {@link LaunchKind} (the repo's closed-set rule) rather than free-form strings, so a kind that
  * is launchable is also declarable and the two cannot drift. The persisted and JSON forms are still the
  * enum's stable wire {@link LaunchKind#id()}s, and both parses are <b>total</b>: a kind a newer Studio knows

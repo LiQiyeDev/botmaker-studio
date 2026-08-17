@@ -6,6 +6,18 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-17 — Declared launch targets are advice, and the workflow guide gains a runtime diagram
+  (`docs/RuntimeDiagram`, `ui/app/LaunchTargetDialog`, `docs/Workflow`).** A published bot's declared launch
+  kinds *disabled* the rest for whoever installed it — but an author can only test the launchers they own, so
+  the declaration never said the others fail. It now reads **"Tested on: …"** everywhere (launch dialog,
+  gallery card, publish tooltip), untested kinds are marked and still pickable, and the MRU stops hiding them.
+  The guide asks for the **launch target before the capture target** (you cannot pick the window the bot
+  watches until the game is on screen), drops the "Add libraries" step, and gains **"How a bot runs"** — the
+  entry point → launch → flow driver → `run()` → outcome loop with the popup guard on the side, generated from
+  one model into a Mermaid graph in `WORKFLOW.md` and a column of boxes in Getting Started. `WorkflowMarkdown`
+  now writes to the Studio repo root wherever it is run from, instead of clobbering the umbrella's signpost
+  `WORKFLOW.md`.
+
 - **2026-08-17 — A template is named, not pathed (`project/TemplateConstants`, `parser/helpers/SdkNodes`,
   `services/ImageTemplateLibrary`).** Generated source spelled every template as
   `new ImageTemplate("src/main/resources/images/ytuj.png")` — one path repeated at each use site, invisible to

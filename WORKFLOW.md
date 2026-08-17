@@ -5,6 +5,40 @@
 
 A BotMaker bot watches a game or app on your screen, decides what it sees, and clicks. You build it out of visual blocks in Studio, and Studio writes the Java for you — a real Maven project you could open in any IDE. The steps below are the order things are normally done in; only the first three are mandatory before a bot can do anything useful.
 
+## How a bot runs
+
+Your activities are not a script that runs top to bottom. The generated FlowDriver holds one current activity, runs it, and asks the flow graph what follows the outcome it reported — so the shape of a run is a loop, and it is the graph you drew that decides where it goes next.
+
+```mermaid
+flowchart TD
+    start(["main() — your bot class"])
+    launch["Launch target"]
+    driver{{"FlowDriver — which activity now?"}}
+    run["That activity's run()"]
+    outcome(["The outcome it returns"])
+    start --> launch
+    launch --> driver
+    driver --> run
+    run --> outcome
+    outcome -- "the wire you drew" --> driver
+    guard["Popup guard"]
+    guard -. "before every vision step" .-> run
+```
+
+- **main() — your bot class** — Installs the popup guard and hands control to Bot.start, which supervises the whole run and restarts the game through GoHome if it crashes or gets stuck.
+
+- **Launch target** — The game or app you declared is started if it isn't already running. Nothing is captured or clicked until it is up.
+
+- **FlowDriver — which activity now?** — The current node of the flow graph. This is the only place that decides what runs next; an activity never calls another activity.
+
+- **That activity's run()** — The blocks you authored: capture, match, click, wait. A disabled activity is stepped over here, following the wire it would have taken.
+
+- **The outcome it returns** — One of the activity's own named outcomes — the label on the wire leaving it in the flow editor.
+
+- **Popup guard** (before every vision step) — Popups.run() is called before every vision step, whichever activity is running — so a daily reward covering the button is dismissed by one file instead of by every activity that might trip over it.
+
+The driver follows the wire leaving that outcome and runs whatever is on the other end — for as long as there is one. A run ends when the outcome it reported has no wire leaving it: an unwired outcome is the stop, and there is no terminal node to draw.
+
 ## 1. Create a project
 
 > A project is a normal Maven project under ~/BotMakerProjects/.
@@ -15,25 +49,27 @@ Project Setup is also where you come back to later: it collects the project's ta
 
 *In Studio:* Project ▸ Project Setup… (or 🧭 Setup on the toolbar)
 
-## 2. Tell the bot what to watch — the capture target
+## 2. Tell the bot what to launch — the launch target
+
+> What gets started before the bot runs: a Steam, Epic, Heroic or Faugus game, an executable, a command line, or an app inside an emulator.
+
+This comes before the capture target for a practical reason: you cannot pick the window the bot watches until the game is on screen. Launch it from here first, then choose what to capture.
+
+Studio scans your installed libraries so you pick a game from a list instead of typing an app id. Choosing an emulator app can also point the capture target at that emulator in the same move — a tickbox in the dialog, since it is a convenience and not a rule.
+
+The launch target is yours and is stripped when you publish. What does travel is what you declare in the Publish dialog: the kinds of launch target your bot is known to work with. That is advice for whoever installs it — they still get to try anything on their machine — so declare what you actually tested, not what you hope works.
+
+*In Studio:* 🚀 on the toolbar — it shows the current target
+
+## 3. Tell the bot what to watch — the capture target
 
 > Where the bot looks: a monitor, a window, the whole desktop, or an Android emulator.
 
 Everything visual is relative to this one choice. Image search, OCR, colour sampling and every click coordinate are expressed inside the capture target, so a bot written against a game window keeps working when that window moves.
 
-The capture target belongs to the machine that runs the bot, not to the bot. It is not published: when you install someone else's bot you pick your own.
+Like the launch target, this belongs to the machine that runs the bot, not to the bot. It is not published: when you install someone else's bot you pick your own.
 
 *In Studio:* 🎯 Capture Targets on the toolbar — it shows the current one
-
-## 3. Tell the bot what to launch — the launch target
-
-> What gets started before the bot runs: a Steam, Epic, Heroic or Faugus game, an executable, a command line, or an app inside an emulator.
-
-Studio scans your installed libraries so you pick a game from a list instead of typing an app id. Choosing an emulator app can also point the capture target at that emulator in the same move — a tickbox in the dialog, since it is a convenience and not a rule.
-
-Like capture, the launch target is yours and is stripped when you publish. What does travel is what you declare in the Publish dialog: the kinds of launch target your bot is known to work with. The same game is a different launch on every platform, so a bot claims platforms, not app ids.
-
-*In Studio:* 🚀 on the toolbar — it shows the current target
 
 ## 4. Capture image templates
 
@@ -57,7 +93,7 @@ Rename, preview, re-tag, delete, import and export all happen here, and they go 
 
 > An activity is one thing the bot can be doing; the flow graph says what follows what.
 
-Rather than one long script, a bot is a set of named activities — "Mining", "HandleFullInventory", "Login" — each returning an outcome. The flow editor wires those outcomes to the next activity, so the shape of the bot is a graph you can see instead of control flow buried in nested ifs.
+Rather than one long script, a bot is a set of named activities — "Mining", "HandleFullInventory", "Login" — each returning an outcome, and the flow editor wires those outcomes to whatever runs next. "How a bot runs" above is what that looks like at run time; it is worth reading before you draw a graph, because activities do not run top to bottom, once each.
 
 Studio generates and maintains one source file per activity plus the registry that knows them. Archiving an activity removes it from the graph and from the generated sources; un-archiving brings it back, which is what makes archiving safe to do.
 
@@ -95,25 +131,17 @@ Scan the QR code to pair; no VPN and no port forwarding. Turning on Interact mak
 
 *In Studio:* View ▸ Enable Remote Pilot… (or 🎮 Pilot on the toolbar)
 
-## 11. Add libraries
-
-> Third-party Maven dependencies, and the SDK version the bot pins.
-
-The generated pom.xml is the single source of truth for dependencies — Manage Libraries edits it and re-resolves the classpath, so a library you add is immediately autocompletable in the blocks.
-
-*In Studio:* Project ▸ Manage Libraries…
-
-## 12. Publish and share
+## 11. Publish and share
 
 > Push the bot to your own GitHub repo, and optionally list it in the gallery.
 
-Publishing declares which launch targets the bot supports and strips the parts of the project that describe your machine. Someone installing it picks their own capture and launch targets, and only sees the launch kinds you declared.
+Publishing declares which launch targets the bot was tested on and strips the parts of the project that describe your machine. Someone installing it picks their own capture and launch targets; your declaration is shown to them as what is known to work, and it recommends rather than restricts — they can still point the bot at a launcher you never tried.
 
 The Gallery browses what everyone else has published; installing from it creates a normal project you can run, read, and — if you choose to — start editing.
 
 *In Studio:* Project ▸ Publish to Gallery…
 
-## 13. Browse the gallery
+## 12. Browse the gallery
 
 > Install someone else's bot, or see how one is put together.
 

@@ -11,7 +11,9 @@ package com.botmaker.studio.docs;
  * the dialog no longer opens.
  *
  * <p>Typed rather than a {@code String} key (repo convention): a step that points at a destination Studio
- * cannot open is a compile error, not a dead button.
+ * cannot open is a compile error, not a dead button. The set is exactly the destinations the guide points at
+ * — {@code WorkflowDocTest} fails on a constant no step uses — so a menu entry Studio has but the workflow
+ * does not walk you through (Manage Libraries, for one) simply isn't here.
  */
 public enum StudioAction {
 
@@ -23,7 +25,6 @@ public enum StudioAction {
     ACTIVITY_FLOW("Open Activity Flow ▸", "Project ▸ Activity Flow… (or 🔀 Flow on the toolbar)"),
     OVERLAY_EDITOR("Open Overlay Editor ▸", "⧉ Overlay on the toolbar, or F9 anywhere"),
     REMOTE_PILOT("Enable Remote Pilot ▸", "View ▸ Enable Remote Pilot… (or 🎮 Pilot on the toolbar)"),
-    MANAGE_LIBRARIES("Open Manage Libraries ▸", "Project ▸ Manage Libraries…"),
     PUBLISH("Open Publish ▸", "Project ▸ Publish to Gallery…"),
     GALLERY("Open the Gallery ▸", "Project ▸ Browse Gallery…");
 

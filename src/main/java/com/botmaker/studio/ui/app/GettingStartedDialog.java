@@ -1,5 +1,6 @@
 package com.botmaker.studio.ui.app;
 
+import com.botmaker.studio.docs.RuntimeDiagram;
 import com.botmaker.studio.docs.StudioAction;
 import com.botmaker.studio.docs.Workflow;
 import com.botmaker.studio.docs.WorkflowStep;
@@ -18,6 +19,7 @@ import javafx.stage.Modality;
 import javafx.stage.Stage;
 
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -86,6 +88,8 @@ public final class GettingStartedDialog {
         intro.setStyle("-fx-font-size: 12px; -fx-text-fill: gray;");
 
         VBox steps = new VBox(14);
+        steps.getChildren().add(runtimeDiagram());
+        steps.getChildren().add(new Separator());
         int number = 1;
         for (WorkflowStep step : Workflow.steps()) {
             steps.getChildren().add(render(number++, step));
@@ -108,6 +112,70 @@ public final class GettingStartedDialog {
         root.setPadding(new Insets(18));
         stage.setScene(ThemedWindows.scene(root, 580, 660));
         stage.show();
+    }
+
+    /**
+     * {@link RuntimeDiagram} as a column of boxes with arrows between them — the numbered steps say what you
+     * do, this says what happens when you press Run.
+     *
+     * <p>It sits <em>above</em> step 1 rather than next to the "Run and debug" step, because the thing it
+     * corrects (that activities run top to bottom, once each) is a belief people form while drawing the flow
+     * graph, long before they run anything.
+     */
+    private VBox runtimeDiagram() {
+        Label title = new Label(RuntimeDiagram.TITLE);
+        title.getStyleClass().add("dialog-heading");
+        Label intro = new Label(RuntimeDiagram.INTRO);
+        intro.setWrapText(true);
+        intro.getStyleClass().add("dialog-hint");
+
+        VBox box = new VBox(4, title, intro);
+        List<RuntimeDiagram.Node> chain = RuntimeDiagram.chain();
+        for (int i = 0; i < chain.size(); i++) {
+            if (i > 0) box.getChildren().add(arrow("↓"));
+            box.getChildren().add(node(chain.get(i)));
+        }
+        // The loop back to the driver, drawn as the arrow it is rather than left to the caption to assert.
+        box.getChildren().add(arrow("↺  " + RuntimeDiagram.LOOP_NOTE));
+
+        Label asideEdge = new Label("⇢  " + RuntimeDiagram.GUARD_EDGE_LABEL
+                + ", whichever activity is running:");
+        asideEdge.setWrapText(true);
+        asideEdge.getStyleClass().add("runtime-arrow");
+        box.getChildren().addAll(asideEdge, node(RuntimeDiagram.guard()));
+        return box;
+    }
+
+    /** One box of the diagram: its title, and the sentence that says what happens there. */
+    private static VBox node(RuntimeDiagram.Node node) {
+        Label title = new Label(node.title());
+        title.setWrapText(true);
+        title.getStyleClass().add("runtime-node-title");
+        Label detail = new Label(node.detail());
+        detail.setWrapText(true);
+        detail.getStyleClass().add("dialog-hint");
+
+        VBox box = new VBox(2, title, detail);
+        box.setMaxWidth(Double.MAX_VALUE);
+        box.getStyleClass().addAll("runtime-node", shapeClass(node));
+        return box;
+    }
+
+    /** The style class for a node's shape — the guard is the one node drawn as an aside rather than a step. */
+    private static String shapeClass(RuntimeDiagram.Node node) {
+        if (node.id().equals(RuntimeDiagram.guard().id())) return "runtime-node--aside";
+        return switch (node.shape()) {
+            case TERMINAL -> "runtime-node--terminal";
+            case DECISION -> "runtime-node--decision";
+            case STEP -> "runtime-node--step";
+        };
+    }
+
+    private static Label arrow(String text) {
+        Label label = new Label(text);
+        label.setWrapText(true);
+        label.getStyleClass().add("runtime-arrow");
+        return label;
     }
 
     /** One numbered step: heading, summary, paragraphs, and the jump button when we can open its destination. */

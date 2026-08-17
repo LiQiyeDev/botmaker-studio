@@ -13,8 +13,19 @@ import java.nio.file.Path;
  */
 public final class WorkflowMarkdown {
 
-    /** Where the rendered file lives, relative to the Studio repo root. */
+    /**
+     * The rendered file's name, and its path <em>relative to the Studio repo root</em>.
+     *
+     * <p>It stays relative because the test that guards it runs with the module as its working directory and
+     * has to find the committed copy there. {@link #main}, though, resolves it against {@link #repoRoot()}
+     * rather than against wherever it was invoked: the umbrella repo has a {@code WORKFLOW.md} of its own — a
+     * signpost pointing at this one — and regenerating from the umbrella root used to overwrite that signpost
+     * with the whole guide.
+     */
     public static final Path FILE = Path.of("WORKFLOW.md");
+
+    /** The directory {@link #FILE} is resolved against — {@code botmaker-studio/}, wherever it is checked out. */
+    private static final String MODULE_DIR = "botmaker-studio";
 
     private static final String GENERATED_NOTICE =
             "<!-- Generated from com.botmaker.studio.docs.Workflow — edit that class, not this file.\n"
@@ -28,6 +39,7 @@ public final class WorkflowMarkdown {
         md.append("# ").append(Workflow.TITLE).append("\n\n");
         md.append(GENERATED_NOTICE).append("\n\n");
         md.append(Workflow.INTRO).append("\n");
+        appendRuntimeDiagram(md);
 
         int number = 1;
         for (WorkflowStep step : Workflow.steps()) {
@@ -42,16 +54,52 @@ public final class WorkflowMarkdown {
         }
 
         md.append("\n## Further reading\n\n");
+        appendFurtherReading(md);
+        return md.toString();
+    }
+
+    /**
+     * The runtime as a Mermaid graph plus a legend. The legend is not decoration: GitHub draws the graph, but
+     * a diff, a plain-text viewer and a screen reader all see this file as text, and the sentence explaining
+     * each box is the only place they can get it.
+     */
+    private static void appendRuntimeDiagram(StringBuilder md) {
+        md.append("\n## ").append(RuntimeDiagram.TITLE).append("\n\n");
+        md.append(RuntimeDiagram.INTRO).append("\n\n");
+        md.append("```mermaid\n").append(RuntimeDiagram.mermaid()).append("```\n");
+        for (RuntimeDiagram.Node node : RuntimeDiagram.chain()) {
+            md.append("\n- **").append(node.title()).append("** — ").append(node.detail()).append('\n');
+        }
+        RuntimeDiagram.Node guard = RuntimeDiagram.guard();
+        md.append("\n- **").append(guard.title()).append("** (").append(RuntimeDiagram.GUARD_EDGE_LABEL)
+                .append(") — ").append(guard.detail()).append('\n');
+        md.append('\n').append(RuntimeDiagram.LOOP_NOTE).append('\n');
+    }
+
+    private static void appendFurtherReading(StringBuilder md) {
         for (Workflow.Reference ref : Workflow.furtherReading()) {
             md.append("- [").append(ref.title()).append("](").append(ref.path()).append(") — ")
                     .append(ref.why()).append('\n');
         }
-        return md.toString();
     }
 
-    /** Regenerates {@link #FILE} in the working directory (run it from the Studio repo root). */
+    /** Regenerates {@link #FILE}, wherever it is run from — see {@link #repoRoot()}. */
     public static void main(String[] args) throws Exception {
-        Files.writeString(FILE, render(), StandardCharsets.UTF_8);
-        System.out.println("Wrote " + FILE.toAbsolutePath());
+        Path target = repoRoot().resolve(FILE);
+        Files.writeString(target, render(), StandardCharsets.UTF_8);
+        System.out.println("Wrote " + target.toAbsolutePath());
+    }
+
+    /**
+     * The Studio repo root, whether this was run from there or from the umbrella root above it. Anything else
+     * is left to the caller's working directory, which is the honest answer for a checkout laid out some third
+     * way — and is what the old behaviour was everywhere.
+     */
+    static Path repoRoot() {
+        Path here = Path.of("").toAbsolutePath();
+        Path submodule = here.resolve(MODULE_DIR);
+        return Files.isDirectory(submodule) && !Files.exists(here.resolve("src/main/java/com/botmaker/studio"))
+                ? submodule
+                : here;
     }
 }

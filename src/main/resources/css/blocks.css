@@ -244,6 +244,33 @@
 .dialog-status--ok    { -fx-text-fill: -bm-severity-ok-text; }
 .dialog-status--error { -fx-text-fill: -bm-severity-error-text; }
 
+/* ---------------------------------------------------------------------------
+ * The runtime diagram (Help ▸ Getting Started) — boxes and the arrows between
+ * them. Drawn from tokens for the usual reason: a hard-coded box fill is a
+ * light-theme box that survives into Dark. The three shapes match
+ * docs/RuntimeDiagram.Shape, so the drawn diagram and the Mermaid one in
+ * WORKFLOW.md read as the same picture.
+ * --------------------------------------------------------------------------- */
+.runtime-node {
+    -fx-padding: 6 10 6 10;
+    -fx-border-color: -bm-divider;
+    -fx-border-width: 1;
+    -fx-background-radius: 4;
+    -fx-border-radius: 4;
+}
+.runtime-node--step     { -fx-background-color: -bm-fill-control; -fx-border-radius: 4; }
+.runtime-node--terminal { -fx-background-color: -bm-fill-utility; -fx-background-radius: 14;
+                          -fx-border-radius: 14; }
+.runtime-node--decision { -fx-background-color: -bm-fill-flow; -fx-border-color: -bm-accent;
+                          -fx-border-width: 2; }
+.runtime-node--aside    { -fx-background-color: -bm-fill-comment; -fx-border-style: dashed; }
+.runtime-node-title     { -fx-font-weight: bold; -fx-font-size: 12px; }
+.runtime-node--step .runtime-node-title     { -fx-text-fill: -bm-on-fill-control; }
+.runtime-node--terminal .runtime-node-title { -fx-text-fill: -bm-on-fill-utility; }
+.runtime-node--decision .runtime-node-title { -fx-text-fill: -bm-on-fill-flow; }
+.runtime-node--aside .runtime-node-title    { -fx-text-fill: -bm-on-fill-comment; }
+.runtime-arrow { -fx-font-size: 12px; -fx-opacity: 0.75; }
+
 /* A scroll pane used purely for overflow, inside a dialog that already paints its own background. */
 .transparent-scroll,
 .transparent-scroll > .viewport {

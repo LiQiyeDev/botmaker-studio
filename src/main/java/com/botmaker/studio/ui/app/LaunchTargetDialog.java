@@ -52,10 +52,12 @@ import java.util.function.Consumer;
  * ({@link ManageCaptureTargetsDialog}).
  *
  * <p><b>Two things here belong to two different people.</b> A published bot declares the launch kinds it
- * <em>works on</em> ({@link SupportedTargets}); which of them this machine actually runs, and what this machine
- * captures, are the running user's. So: an installed bot offers only the kinds its author declared (an editor
- * sees them all — narrowing your own project would be a cage of your own making), and the capture source an
- * emulator target implies is now an <em>offer</em> under {@link #pointCapture} rather than a silent side effect
+ * <em>was tested on</em> ({@link SupportedTargets}); which of them this machine actually runs, and what this
+ * machine captures, are the running user's. So: an installed bot marks the kinds its author didn't test but
+ * still offers them — the declaration is advice, not a gate, since an author cannot test a launcher they don't
+ * own (an editor sees no marks at all — annotating your own project would be talking to yourself) — and the
+ * capture source an emulator target implies is an <em>offer</em> under {@link #pointCapture} rather than a
+ * silent side effect
  * of picking a launch target. It defaults to on because a bot pointed at an emulator it isn't looking at is
  * broken in a way that shows up only as vision that never matches.
  */
@@ -143,7 +145,8 @@ public final class LaunchTargetDialog {
                 choice(LaunchKind.CLI, "⌨️ CLI command…", this::pickCliCommand),
                 choice(LaunchKind.EMULATOR_APP, "📱 Emulator app…", this::pickEmulatorApp));
 
-        Label supportedLabel = new Label("This bot's author declared it runs on: " + supported.describe() + ".");
+        Label supportedLabel = new Label("Tested on: " + supported.describe()
+                + ". That is what the author tried, not a limit — anything else here is still yours to pick.");
         supportedLabel.setWrapText(true);
         supportedLabel.getStyleClass().add("dialog-hint");
         supportedLabel.setVisible(supported.declared());
@@ -247,17 +250,25 @@ public final class LaunchTargetDialog {
     }
 
     /**
-     * One kind's button, disabled when the bot's author didn't declare that kind and this is their bot, not
-     * ours. The tooltip says who decided, because a silently dead button reads as a bug in Studio.
+     * One kind's button — always enabled, and marked when the bot's author didn't say they tested that kind.
+     *
+     * <p>It used to be <em>disabled</em> in that case, and that was the wrong reading of the declaration. The
+     * author's set says what they tried, on the machines they had; it cannot say what doesn't work, because a
+     * launcher they don't own is a launcher they never tested. Refusing the untested kinds therefore locked
+     * people out of launchers their copy of the game genuinely runs from — the same game on Heroic instead of
+     * Steam is the ordinary case, not the exotic one. So the declaration is advice now: the untested kinds are
+     * still offered, with a mark saying they are untested and a tooltip saying by whom.
      */
     private Button choice(LaunchKind kind, String label, Runnable onPick) {
-        Button button = new Button(label);
+        boolean untested = reader && supported.declared() && !supported.supports(kind);
+        Button button = new Button(untested ? label + "  ·  untested" : label);
         button.setMaxWidth(Double.MAX_VALUE);
         button.setOnAction(e -> onPick.run());
-        if (reader && !supported.supports(kind)) {
-            button.setDisable(true);
-            button.setTooltip(new Tooltip("This bot's author didn't declare support for a "
-                    + kind.displayName().toLowerCase() + ". They declared: " + supported.describe() + "."));
+        if (untested) {
+            button.getStyleClass().add("dialog-compact");
+            button.setTooltip(new Tooltip("The author didn't say they tested a "
+                    + kind.displayName().toLowerCase() + " — they tested: " + supported.describe()
+                    + ". You can still pick it; it may well work."));
         }
         return button;
     }
@@ -358,13 +369,18 @@ public final class LaunchTargetDialog {
         recentList.getChildren().clear();
         for (String spec : ProjectPreferences.recentLaunchTargets()) {
             if (spec == null || spec.isBlank() || spec.equals(currentSpec)) continue;
-            // The MRU is global across projects, so it will offer kinds this bot's author never claimed.
-            if (reader && !supported.supportsSpec(spec)) continue;
-            Button entry = new Button(LaunchSpec.describe(spec));
+            // The MRU is global across projects, so it offers kinds this bot's author never claimed. Those are
+            // marked rather than hidden, for the reason in choice(): untested is not the same as broken.
+            boolean untested = reader && supported.declared() && !supported.supportsSpec(spec);
+            Button entry = new Button(untested
+                    ? LaunchSpec.describe(spec) + "  ·  untested"
+                    : LaunchSpec.describe(spec));
             entry.setMaxWidth(Double.MAX_VALUE);
             entry.setAlignment(Pos.CENTER_LEFT);
             entry.getStyleClass().add("dialog-compact");
-            entry.setTooltip(new Tooltip(spec));
+            entry.setTooltip(new Tooltip(untested
+                    ? spec + "\nThe author tested: " + supported.describe() + "."
+                    : spec));
             entry.setOnAction(e -> apply(spec));
             recentList.getChildren().add(entry);
         }
