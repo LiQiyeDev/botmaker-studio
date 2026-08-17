@@ -4,11 +4,13 @@ import com.botmaker.session.remote.DisplayAgent;
 import com.botmaker.shared.capture.linux.X11ErrorTrap;
 import com.botmaker.session.impl.NestedSession;
 import com.botmaker.studio.project.BotProject;
+import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectPreferences;
 import com.botmaker.studio.ui.app.ForceX11Notice;
 import com.botmaker.studio.ui.app.ProjectSelectionScreen;
 import com.botmaker.studio.ui.app.UIManager;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
+import javafx.animation.AnimationTimer;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.concurrent.Task;
@@ -130,15 +132,21 @@ public class BotMakerStudio extends Application {
         // 4. Run BotProject.open() on a background thread; its progress feeds the status label AND a real
         //    percentage bar during the (download-heavy) dependency resolution. Non-download phases report a
         //    negative fraction, which JavaFX renders as an indeterminate bar.
-        Task<BotProject> openTask = new Task<>() {
+        Task<OpenedProject> openTask = new Task<>() {
             @Override
-            protected BotProject call() {
-                return BotProject.open(projectName, PROJECTS_ROOT, false, (fraction, message) -> {
+            protected OpenedProject call() {
+                BotProject project = BotProject.open(projectName, PROJECTS_ROOT, false, (fraction, message) -> {
                     updateProgress(fraction, 1.0);
                     updateMessage(fraction >= 0
                             ? message + " — " + Math.round(fraction * 100) + "%"
                             : message);
                 });
+                // Reading the sources belongs here rather than in finishOpen: it is a disk walk plus one
+                // readString per file, and on FX it ran with the main window already shown — a project with a
+                // few dozen activities froze it for as long as the disk took.
+                updateProgress(-1, 1.0);
+                updateMessage("Reading project files…");
+                return new OpenedProject(project, project.getCodeEditorService().readProjectSources());
             }
         };
         statusLabel.textProperty().bind(openTask.messageProperty());
@@ -147,8 +155,9 @@ public class BotMakerStudio extends Application {
         openTask.setOnSucceeded(e -> {
             statusLabel.textProperty().unbind();
             progressBar.progressProperty().unbind();
-            currentProject = openTask.getValue();
-            finishOpen(primaryStage, projectName, freshlyCreated);
+            OpenedProject opened = openTask.getValue();
+            currentProject = opened.project();
+            finishOpen(primaryStage, projectName, freshlyCreated, opened.sources());
         });
 
         openTask.setOnFailed(e -> {
@@ -165,21 +174,28 @@ public class BotMakerStudio extends Application {
         t.start();
     }
 
-    /** Post-open UI wiring that must run on the FX thread once {@link BotProject#open} has completed. */
-    private void finishOpen(Stage primaryStage, String projectName, boolean freshlyCreated) {
+    /** What the background open produced: the project, and the sources read for it off the FX thread. */
+    private record OpenedProject(BotProject project, java.util.List<ProjectFile> sources) {}
+
+    /**
+     * Post-open UI wiring that must run on the FX thread once {@link BotProject#open} has completed.
+     *
+     * <p>The order here is the point. Parsing the entry point with bindings and building its blocks is the one
+     * genuinely slow step left, and it used to run <em>between</em> setting the scene and painting it — the
+     * window was up, sized and completely white for the whole of it, which is indistinguishable from a hang.
+     * So the shell is shown first with the canvas in its loading state, and the parse is handed to
+     * {@link #afterFirstPaint}. Everything after the parse (the reload subscription, the Wayland notice, the
+     * new-project setup dialog) goes with it, since all of it either assumes a rendered program or opens a
+     * dialog over one.
+     */
+    private void finishOpen(Stage primaryStage, String projectName, boolean freshlyCreated,
+                            java.util.List<ProjectFile> sources) {
         try {
             UIManager uiManager = getUiManager(primaryStage);
 
             primaryStage.setScene(uiManager.createScene());
             primaryStage.setTitle("BotMaker Blocks - " + projectName);
-
-            currentProject.getCodeEditorService().loadInitialCode();
-
-            // A VCS rollback rewrites the working tree on disk; the open project still holds the pre-rollback
-            // ASTs and would save them back over the restored files. Re-open from disk to pick up the new state.
-            currentProject.getEventBus().subscribe(
-                    com.botmaker.studio.events.CoreApplicationEvents.ProjectReloadRequestedEvent.class,
-                    e -> openProject(primaryStage, projectName, false), true);
+            uiManager.showEditorLoading();
 
             primaryStage.setOnCloseRequest(e -> {
                 e.consume();
@@ -189,21 +205,64 @@ public class BotMakerStudio extends Application {
             primaryStage.show();
             requestSceneLayout(primaryStage);
 
-            // One-time-per-session: on Wayland, guide the user to switch to X11 (and offer package install).
-            if (!waylandNoticeChecked) {
-                waylandNoticeChecked = true;
-                ForceX11Notice.maybeShow(primaryStage);
-            }
+            // The project this deferred work belongs to. A reload (or a fast switch to another project) can
+            // land between the frame and the tick, and the sources read above are this project's, not its
+            // successor's.
+            BotProject opened = currentProject;
+            afterFirstPaint(() -> {
+                if (currentProject != opened) return;
+                try {
+                    currentProject.getCodeEditorService().openInitialFile(sources);
 
-            // A brand-new project has nothing configured yet — walk the user through setup right away.
-            if (freshlyCreated) {
-                uiManager.openProjectSetup();
-            }
+                    // A VCS rollback rewrites the working tree on disk; the open project still holds the
+                    // pre-rollback ASTs and would save them back over the restored files. Re-open from disk to
+                    // pick up the new state.
+                    currentProject.getEventBus().subscribe(
+                            com.botmaker.studio.events.CoreApplicationEvents.ProjectReloadRequestedEvent.class,
+                            e -> openProject(primaryStage, projectName, false), true);
+
+                    // One-time-per-session: on Wayland, guide the user to switch to X11 (and offer install).
+                    if (!waylandNoticeChecked) {
+                        waylandNoticeChecked = true;
+                        ForceX11Notice.maybeShow(primaryStage);
+                    }
+
+                    // A brand-new project has nothing configured yet — walk the user through setup right away.
+                    if (freshlyCreated) {
+                        uiManager.openProjectSetup();
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    showErrorDialog("Error opening project: " + e.getMessage());
+                    showProjectSelection(primaryStage);
+                }
+            });
         } catch (Exception e) {
             e.printStackTrace();
             showErrorDialog("Error opening project: " + e.getMessage());
             showProjectSelection(primaryStage);
         }
+    }
+
+    /**
+     * Runs {@code work} once the window has actually been drawn.
+     *
+     * <p>Not {@code Platform.runLater}: the runLater queue is drained at the <em>start</em> of a pulse, before
+     * that pulse lays out and paints, so a long task posted there still delays the first frame — the blank
+     * window would just be blank for a pulse longer. An {@link AnimationTimer} ticks once per pulse, so
+     * skipping one tick puts the work after a completed frame.
+     */
+    private static void afterFirstPaint(Runnable work) {
+        new AnimationTimer() {
+            private int pulses;
+
+            @Override
+            public void handle(long now) {
+                if (pulses++ < 2) return;
+                stop();
+                work.run();
+            }
+        }.start();
     }
 
     /** A minimal loading scene: title, a progress bar (bound to the open task), and a live status line. */

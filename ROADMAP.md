@@ -6,6 +6,15 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-17 — a project opens onto a window, not a white rectangle (`BotMakerStudio.finishOpen`,
+  `services/CodeEditorService.readProjectSources`/`openInitialFile`, `ui/app/EditorCanvas.showLoading`).**
+  Dependency resolution was already off the FX thread; the freeze after it was `loadInitialCode` — a walk and
+  a `readString` per source file, then the entry point's parse — running between setting the scene and
+  painting it. The reads moved to the open worker (pure IO, no state, no parse), and the parse now runs after
+  the first frame, with the canvas showing "Loading project…" until its blocks arrive. Reading stays eager
+  because `ProjectAnalyzer` scans `getAllFiles()` for cross-file suggestions; *parsing* is what was already
+  lazy, and stays so.
+
 - **2026-08-17 — a dropped block compiles, and a deliberate `null` stops reading as an error
   (`parser/factories/UnfilledSlot` (new), `parser/factories/StatementFactory`, `validation/BlockValidator`,
   `blocks/expr/NullBlock`).** A slot the factory couldn't seed was left as `null` in every position, and two of

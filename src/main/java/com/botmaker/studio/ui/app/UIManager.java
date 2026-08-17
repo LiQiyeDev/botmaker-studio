@@ -495,5 +495,13 @@ public class UIManager {
         if (bottomTabPane != null && tab != null) bottomTabPane.getSelectionModel().select(tab);
     }
 
+    /**
+     * Puts the canvas in its "Loading project…" state, for the gap between the window appearing and the entry
+     * point being parsed. A no-op before {@code createScene()} has built the canvas.
+     */
+    public void showEditorLoading() {
+        if (editorCanvas != null) editorCanvas.showLoading();
+    }
+
     public void setOnSelectProject(Consumer<Void> callback) { this.onSelectProject = callback; }
 }

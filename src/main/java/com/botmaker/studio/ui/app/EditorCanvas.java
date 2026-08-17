@@ -82,6 +82,23 @@ final class EditorCanvas {
     }
 
     /**
+     * The state the canvas is in between the window appearing and the first file being parsed.
+     *
+     * <p>Project open shows the shell before it has any blocks to put in it — parsing the entry point with
+     * bindings is the slow step and it runs a pulse later, so the frame in between would otherwise be an empty
+     * white canvas indistinguishable from a broken open. There is no matching {@code hideLoading}: the first
+     * {@link #handleBlocksUpdate} clears the container, which removes this along with everything else.
+     */
+    void showLoading() {
+        Label loading = new Label("Loading project…");
+        loading.getStyleClass().add("canvas-placeholder");
+        VBox centred = new VBox(loading);
+        centred.setAlignment(Pos.CENTER);
+        centred.setPadding(new Insets(60, 0, 0, 0));
+        blocksContainer.getChildren().setAll(centred);
+    }
+
+    /**
      * Re-renders the program.
      *
      * <p>The vertical position is captured and restored across the swap. Clearing the container collapses the

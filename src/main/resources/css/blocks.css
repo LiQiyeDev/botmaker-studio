@@ -593,6 +593,12 @@
     -fx-font-weight: bold;
 }
 
+/* The canvas before it has anything to draw — "Loading project…" while the entry point is being parsed. */
+.canvas-placeholder {
+    -fx-text-fill: -bm-muted;
+    -fx-font-size: 14px;
+}
+
 /*
  * ============================================================================================================
  * SHARED BLOCK WIDGET CLASSES — the look of the small controls that sit *on* a block's coloured fill.

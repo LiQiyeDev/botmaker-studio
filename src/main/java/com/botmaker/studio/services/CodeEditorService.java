@@ -35,7 +35,9 @@ import org.eclipse.jdt.core.dom.TypeDeclaration;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Stream;
 
@@ -261,58 +263,75 @@ public class CodeEditorService {
         }
     }
 
-    // --- FIX: LOAD ALL FILES INCLUDING LIBRARY FILES ---
+    /**
+     * Project open, in one call: read every source file, then render the entry point. Split in two because the
+     * halves belong on different threads — see {@link #readProjectSources()} and
+     * {@link #openInitialFile(List)}. Kept for any caller that has no window to keep responsive.
+     */
     public void loadInitialCode() {
-        try {
-            Path mainFile = config.mainSourceFile();
+        openInitialFile(readProjectSources());
+    }
 
-            // Get the source root (src/main/java)
-            Path sourceRoot = mainFile.getParent();
-            while (sourceRoot != null && !sourceRoot.getFileName().toString().equals("java")) {
-                sourceRoot = sourceRoot.getParent();
-            }
+    /**
+     * Reads every {@code .java} under the source root, <b>off the FX thread</b>: disk walk, {@code readString},
+     * and nothing else — no {@link ProjectState}, no parse, no event.
+     *
+     * <p>It has to happen at open and cannot be made lazy: {@link ProjectAnalyzer} answers "what other classes
+     * does this project have, and what can I call on them" by scanning {@code state.getAllFiles()}, so a file
+     * nobody has opened yet still has to be in that collection or it silently vanishes from every suggestion
+     * menu. What *is* lazy is the expensive half — a file is parsed and turned into blocks only when it becomes
+     * the active file ({@link #switchToFile}), so this is a few hundred KB of text, not N compilations.
+     *
+     * @return the files read, for {@link #openInitialFile} to hand to the FX thread
+     */
+    public List<ProjectFile> readProjectSources() {
+        Path mainFile = config.mainSourceFile();
 
-            if (sourceRoot == null) {
-                sourceRoot = mainFile.getParent();
-            }
+        // The source root (src/main/java), walked from the main file upwards.
+        Path sourceRoot = mainFile.getParent();
+        while (sourceRoot != null && !sourceRoot.getFileName().toString().equals("java")) {
+            sourceRoot = sourceRoot.getParent();
+        }
+        if (sourceRoot == null) sourceRoot = mainFile.getParent();
 
-            // Load ALL java files recursively, including library files
-            loadFilesRecursively(sourceRoot);
+        return readSourcesUnder(sourceRoot);
+    }
 
-            // Set Active File to Main and refresh UI
-            switchToFile(mainFile);
+    /** The disk half of {@link #readProjectSources()}, with no project attached so it can be tested headlessly. */
+    static List<ProjectFile> readSourcesUnder(Path sourceRoot) {
+        if (sourceRoot == null || !Files.isDirectory(sourceRoot)) return List.of();
 
+        try (Stream<Path> paths = Files.walk(sourceRoot)) {
+            return paths.filter(p -> p.toString().endsWith(".java"))
+                    .map(path -> {
+                        try {
+                            return new ProjectFile(path, Files.readString(path));
+                        } catch (Exception e) {
+                            System.err.println("Error loading file: " + path + " (" + e.getMessage() + ")");
+                            return null;
+                        }
+                    })
+                    .filter(Objects::nonNull)
+                    .toList();
         } catch (Exception e) {
             e.printStackTrace();
+            return List.of();
         }
     }
 
     /**
-     * Recursively loads all .java files in the directory tree
+     * Adopts the files {@link #readProjectSources()} read and renders the entry point. <b>FX thread only</b> —
+     * it writes {@link ProjectState} and publishes, and the parse of the main file it ends with is the one
+     * genuinely slow step of project open.
      */
-    private void loadFilesRecursively(Path directory) {
-        if (!Files.exists(directory) || !Files.isDirectory(directory)) {
-            return;
-        }
-
-        try (Stream<Path> paths = Files.walk(directory)) {
-            paths.filter(p -> p.toString().endsWith(".java"))
-                    .forEach(path -> {
-                        try {
-                            // Check if already loaded
-                            boolean alreadyLoaded = state.getAllFiles().stream()
-                                    .anyMatch(f -> f.getPath().equals(path));
-
-                            if (!alreadyLoaded) {
-                                String content = Files.readString(path);
-                                ProjectFile pf = new ProjectFile(path, content);
-                                state.addFile(pf);
-                            }
-                        } catch (Exception e) {
-                            System.err.println("Error loading file: " + path);
-                            e.printStackTrace();
-                        }
-                    });
+    public void openInitialFile(List<ProjectFile> sources) {
+        try {
+            for (ProjectFile file : sources) {
+                boolean alreadyLoaded = state.getAllFiles().stream()
+                        .anyMatch(f -> f.getPath().equals(file.getPath()));
+                if (!alreadyLoaded) state.addFile(file);
+            }
+            switchToFile(config.mainSourceFile());
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -321,8 +340,8 @@ public class CodeEditorService {
     /**
      * Makes {@code path} the active file and renders it.
      *
-     * <p>{@code openFiles} is populated by {@link #loadInitialCode()} at project open, but files appear on disk
-     * afterwards too — {@code ActivityService} writes activity stubs, {@code ProjectRepair} restores deleted
+     * <p>{@code openFiles} is populated by {@link #openInitialFile(List)} at project open, but files appear on
+     * disk afterwards too — {@code ActivityService} writes activity stubs, {@code ProjectRepair} restores deleted
      * scaffolding — and neither goes through this service. Such a file showed in the explorer (which reads the
      * real filesystem) but silently refused to open until the next restart re-walked the tree. So a miss here
      * means "not loaded yet", not "doesn't exist": load it from disk and carry on. Only a path that isn't a
@@ -351,7 +370,7 @@ public class CodeEditorService {
 
     /**
      * Reads {@code path} into {@code openFiles} and returns it, or {@code null} when it isn't a readable file.
-     * The lazy counterpart to {@link #loadFilesRecursively}, for files created after project open.
+     * The lazy counterpart to {@link #readProjectSources}, for files created after project open.
      */
     private ProjectFile loadFromDisk(Path path) {
         if (path == null || !Files.isRegularFile(path)) {
