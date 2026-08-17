@@ -116,19 +116,26 @@ class StatementFactoryTest {
     }
 
     /**
-     * The other half of the same rule: where a name would have to <em>resolve</em>, the factory leaves the
-     * empty slot the user fills from the expression menu — a null literal, the convention
-     * {@code buildLibraryCall} already used.
+     * The other half of the same rule, and the correction to it. Where a name would have to <em>resolve</em>,
+     * the factory names nothing — but "names nothing" used to mean {@code null} in every such position, and
+     * {@code switch (null)} / {@code for (var item : null)} are compile errors in Java outright, so a drop into
+     * an empty method produced source that could not build. Where a value can stand, one that compiles now
+     * does; only {@link UnfilledSlot}'s name positions stay empty.
      */
     @Test
-    void thePositionsThatNeedAnExistingNameAreLeftAsAnEmptySlot() {
+    void thePositionsThatCanHoldAValueAreSeededWithOneThatCompiles() {
         assertAll(
-                () -> assertTrue(text(controlFlow(Kind.FOR)).contains(": null"),
+                () -> assertTrue(text(controlFlow(Kind.FOR)).contains(": new String[0]"),
                         "the iterated expression: " + text(controlFlow(Kind.FOR))),
-                () -> assertTrue(text(controlFlow(Kind.SWITCH)).startsWith("switch (null)"),
-                        "the switch subject: " + text(controlFlow(Kind.SWITCH))),
-                () -> assertTrue(text(controlFlow(Kind.ASSIGNMENT)).contains("null"),
-                        "the assignment target: " + text(controlFlow(Kind.ASSIGNMENT))));
+                () -> assertTrue(text(controlFlow(Kind.SWITCH)).startsWith("switch (0)"),
+                        "the switch subject: " + text(controlFlow(Kind.SWITCH))));
+    }
+
+    /** And the one that can't: an lvalue is a name, so there is no literal to stand in for it. */
+    @Test
+    void theAssignmentTargetIsLeftUnfilledBecauseNoValueWouldCompileThere() {
+        assertTrue(text(controlFlow(Kind.ASSIGNMENT)).contains("null"),
+                "the assignment target: " + text(controlFlow(Kind.ASSIGNMENT)));
     }
 
     // ---- The data-carrying variants are built generically from their fields ----

@@ -104,13 +104,15 @@ public class CodeExecutionService {
      * for its whole life, which is also what makes "the console shows what this run compiled" true.
      */
     public void runCode(ProjectState.Snapshot snapshot) {
-        // Pre-compile block validation: an unfilled argument/condition (a red "Select Expression…" slot) would
-        // only surface as a raw javac error. Detect it via BlockValidator, surface it in the Errors panel, and
-        // abort before compiling. Always publish (empty list clears any previously shown empty-slot errors).
+        // Pre-compile block validation: a slot still waiting on one of the user's variables (a red "Choose a
+        // variable…" chip) would only surface as a raw javac error. Detect it via BlockValidator, surface it in
+        // the Errors panel, and abort before compiling. Always publish (an empty list clears any previously
+        // shown slot errors). Every *value* slot now seeds a compiling default, so this fires only for the
+        // positions that need a name — see UnfilledSlot.
         List<org.eclipse.lsp4j.Diagnostic> emptySlotIssues = diagnosticsManager.validateBlocks();
         eventBus.publish(new CoreApplicationEvents.DiagnosticsUpdatedEvent(emptySlotIssues));
         if (!emptySlotIssues.isEmpty()) {
-            status("Run aborted: fill in the highlighted empty value(s) — see the Errors tab.");
+            status("Run aborted: choose a variable for the highlighted slot(s) — see the Errors tab.");
             return;
         }
         if (diagnosticsManager.hasErrors()) {

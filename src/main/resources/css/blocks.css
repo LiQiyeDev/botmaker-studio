@@ -782,6 +782,21 @@
     -fx-cursor: hand;
 }
 
+/* A `null` the author meant (FlowDriver's `return null;`) — a value, not a hole, so none of the alarm above.
+   Same class on the read-only Label and the editable Button, so the two render identically and only the
+   cursor/underline says one of them can be clicked. */
+.null-block-literal {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-text-fill: -bm-text-on-color;
+    -fx-padding: 0 2 0 2;
+}
+
+.null-block-literal:hover {
+    -fx-underline: true;
+    -fx-cursor: hand;
+}
+
 /* An unfilled slot in a sentence layout (SentenceLayoutBuilder) — it sits on the block's fill. */
 .block-placeholder {
     -fx-text-fill: -bm-text-on-color;

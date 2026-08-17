@@ -73,8 +73,13 @@ public class StatementFactory {
     // These four blocks used to be seeded with invented identifiers (`switch (variable)`, `variable = 0`,
     // `for (String item : array)`, `BotMaker.DefaultMethod()`), so every drop produced an immediate
     // "cannot resolve symbol". The rule now: name only something that exists at the drop site, and when
-    // nothing qualifies leave an empty "+" slot (a null literal, the same convention buildLibraryCall uses)
-    // rather than inventing a name the user has to notice and fix.
+    // nothing qualifies leave an empty "+" slot rather than inventing a name the user has to notice and fix.
+    //
+    // That slot used to be a null literal in all four. `null` does not compile in two of them — `switch (null)`
+    // and `for (var item : null)` are errors on the spot — so where a *value* can stand the block is now seeded
+    // with one that compiles and reads as a placeholder (`switch (0)`, an empty array). Only the two positions
+    // that need a *name* — an assignment's left-hand side, a pattern switch's subject — are left unfilled; see
+    // UnfilledSlot, which is what the pre-run check now asks instead of "is it a null".
 
     /** The first variable visible at {@code context} matching {@code filter}, or {@code null} if none is. */
     private static ProjectAnalyzer.VariableOption firstVisibleVariable(
@@ -86,9 +91,9 @@ public class StatementFactory {
                 .orElse(null);
     }
 
-    /** An empty slot the user fills from the expression menu — never an invented identifier. */
+    /** A slot needing a name nothing at the drop site supplies. See {@link UnfilledSlot}. */
     private static Expression emptySlot(AST ast) {
-        return ast.newNullLiteral();
+        return UnfilledSlot.of(ast);
     }
 
     /**
@@ -283,8 +288,12 @@ public class StatementFactory {
 
     /**
      * {@code for (T item : <collection>)} over the first array/{@link Iterable} variable in scope, with the loop
-     * variable typed from its element type. With nothing iterable in scope the loop variable is a {@code var} over
-     * an empty slot, so the user picks the collection and the type follows.
+     * variable typed from its element type.
+     *
+     * <p>With nothing iterable in scope it is {@code for (String item : new String[0])} — a loop over nothing,
+     * which is what an unfilled one means and, unlike the {@code for (var item : null)} it used to emit, is
+     * source that compiles. {@code String} rather than {@code var} because {@code var} needs the collection to
+     * infer from, and an empty array needs no import.
      */
     private static Statement createForStatement(AST ast, ProjectAnalyzer analyzer, ASTNode context) {
         ProjectAnalyzer.VariableOption iterable =
@@ -292,12 +301,24 @@ public class StatementFactory {
 
         EnhancedForStatement enhancedFor = ast.newEnhancedForStatement();
         SingleVariableDeclaration parameter = ast.newSingleVariableDeclaration();
-        parameter.setType(elementTypeNode(ast, iterable == null ? null : iterable.type()));
+        parameter.setType(iterable == null
+                ? ast.newSimpleType(ast.newSimpleName(JdkType.STRING.simpleName()))
+                : elementTypeNode(ast, iterable.type()));
         parameter.setName(ast.newSimpleName("item"));
         enhancedFor.setParameter(parameter);
-        enhancedFor.setExpression(iterable == null ? emptySlot(ast) : ast.newSimpleName(iterable.name()));
+        enhancedFor.setExpression(iterable == null
+                ? emptyArray(ast, JdkType.STRING.simpleName())
+                : ast.newSimpleName(iterable.name()));
         enhancedFor.setBody(ast.newBlock());
         return enhancedFor;
+    }
+
+    /** {@code new T[0]} — the "iterate nothing yet" seed, needing no name and no import. */
+    private static Expression emptyArray(AST ast, String elementTypeName) {
+        ArrayCreation creation = ast.newArrayCreation();
+        creation.setType(ast.newArrayType(ast.newSimpleType(ast.newSimpleName(elementTypeName)), 1));
+        creation.dimensions().add(ast.newNumberLiteral("0"));
+        return creation;
     }
 
     /** Arrays and the common {@code java.util} collection interfaces — what an enhanced-for can walk. */
@@ -362,13 +383,19 @@ public class StatementFactory {
      * {@code default} so the structure is obvious. Every case gets a trailing {@code break} — {@code SwitchBlock}
      * renders those as case chrome rather than deletable child blocks, so fall-through can't be created by
      * accident.
+     *
+     * <p>With nothing switchable in scope the subject is {@code 0}, matching the {@code case 0:} label
+     * {@link #firstCaseLabel} seeds for the same unknown type — a switch that compiles and always takes its
+     * first branch. It was {@code switch (null)}, which is an error in Java outright.
      */
     private static Statement createSwitchStatement(AST ast, ProjectAnalyzer analyzer, ASTNode context) {
         ProjectAnalyzer.VariableOption subject =
                 firstVisibleVariable(analyzer, context, v -> isSwitchable(v.type()));
 
         SwitchStatement switchStmt = ast.newSwitchStatement();
-        switchStmt.setExpression(subject == null ? emptySlot(ast) : ast.newSimpleName(subject.name()));
+        switchStmt.setExpression(subject == null
+                ? ast.newNumberLiteral("0")
+                : ast.newSimpleName(subject.name()));
 
         SwitchCase firstCase = ast.newSwitchCase();
         firstCase.expressions().add(firstCaseLabel(ast, subject == null ? null : subject.type()));

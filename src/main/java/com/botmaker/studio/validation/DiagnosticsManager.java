@@ -68,8 +68,8 @@ public class DiagnosticsManager {
 
     /**
      * Pre-compile validation of the current block tree (active file). Walks the live {@code nodeToBlockMap} for
-     * empty required slots ({@link com.botmaker.studio.validation.BlockValidator#emptySlots}) — an unfilled
-     * argument/condition left as a {@code NullLiteral} — and returns one Error {@link Diagnostic} per slot, its
+     * unfilled slots ({@link com.botmaker.studio.validation.BlockValidator#emptySlots}) — a switch subject or
+     * assignment target left as a {@code NullLiteral} — and returns one Error {@link Diagnostic} per slot, its
      * {@link Range} taken from the placeholder's AST-node span so it round-trips through
      * {@link #findBlockByASTNode} back to the offending block (red mark + click-to-scroll). Empty when the tree
      * is complete. Called by the Run path before handing anything to {@code javac}.
@@ -85,7 +85,7 @@ public class DiagnosticsManager {
             Diagnostic d = new Diagnostic();
             d.setSeverity(DiagnosticSeverity.Error);
             d.setRange(new Range(positionOf(start), positionOf(end)));
-            d.setMessage("This value is empty — choose an expression to fill it in before running.");
+            d.setMessage("This slot needs one of your variables — choose one before running.");
             issues.add(d);
         }
         return issues;

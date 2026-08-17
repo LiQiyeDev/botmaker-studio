@@ -6,6 +6,18 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-17 — a dropped block compiles, and a deliberate `null` stops reading as an error
+  (`parser/factories/UnfilledSlot` (new), `parser/factories/StatementFactory`, `validation/BlockValidator`,
+  `blocks/expr/NullBlock`).** A slot the factory couldn't seed was left as `null` in every position, and two of
+  those don't compile at all: dropping For or Switch into an empty method wrote `for (var item : null)` /
+  `switch (null)`. Where a value can stand there is now one that compiles and reads as a placeholder
+  (`new String[0]`, `0`); only the positions needing a *name* — an assignment target, a pattern switch's
+  subject — stay empty. `UnfilledSlot` is the single answer to which `null`s those are, and it fixes the
+  converse bug too: the pre-run check flagged every `NullLiteral`, so opening the generated `FlowDriver.java`
+  (`String node = null;`, `return null;`) and pressing Run aborted with an instruction nobody could follow.
+  `NullBlock` now renders a real `null` as the literal it is, keeping the red dashed prompt — reworded to
+  "Choose a variable…" — for the holes.
+
 - **2026-08-17 — a locked block is really locked, a comment can be deleted, one outcome has one name
   (`project/GeneratedMembers`, `core/AbstractStatementBlock`, `blocks/misc/CommentBlock`,
   `project/activity/FlowEdge`).** Four corrections from hand-testing. `DeclareEnumBlock` built its delete and
