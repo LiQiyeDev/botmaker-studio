@@ -6,6 +6,18 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-17 — Parameters get their own dialog, a visibility axis and two choice types
+  (`ui/app/params/ParametersDialog`, `project/activity/ParamVisibility`, `ActivityType.CHOICE`/`MULTI_CHOICE`).**
+  Params were edited inside the Activity Flow dialog's side panel, which made the graph editor also the
+  settings editor and put the project's globals behind "deselect every card". They have a dialog of their own
+  now — scopes on the left (globals, then each live activity), and per param a name, type, visibility, value,
+  note and (for the choice types) its declared option list. `ActivityVariable` gained `visibility`
+  (`PUBLIC` | `EDITOR_ONLY`, defaulting to editor-only so nothing is exposed by accident — what the Runner
+  window will read in Phase 9) and `options`, with deleting a choice pruning it from wherever it was chosen.
+  `MULTI_CHOICE` generates an immutable `List<String>` through a total `parseChoices` helper, so a hand-edited
+  `activities.json` of the wrong shape still starts the bot. The flow dialog now only *shows* params, and
+  `ActivityValueWidgets` moved to `ui/app/params/ParamValueWidgets`.
+
 - **2026-08-17 — Add Function asks what the function is, and one curated type list answers both features
   (`palette/BotType`, `palette/FunctionDraft`, `ui/app/AddFunctionDialog`,
   `ui/render/components/BotTypePicker`, `parser/handlers/MethodHandler.addFunctionToClass`).** "+ Add

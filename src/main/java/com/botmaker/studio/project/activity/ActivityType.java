@@ -3,7 +3,10 @@ package com.botmaker.studio.project.activity;
 import com.botmaker.studio.types.JdkType;
 import com.botmaker.studio.types.ResolvedType;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+
+import java.util.List;
 
 /**
  * The fixed, curated set of types an {@link ActivityVariable} can have. Each constant maps to a
@@ -39,6 +42,26 @@ public enum ActivityType {
     DATE("Date", "java.time.LocalDate", ResolvedType.named("java.time.LocalDate")) {
         public String loadExpression(String node) { return "parseDate(" + node + ")"; }
         public JsonNode defaultValue() { return FACTORY.textNode("2000-01-01"); }
+    },
+    /**
+     * One of a declared list of choices, generated as the chosen {@code String}. The list is
+     * {@link ActivityVariable#options()}; the generated field is a plain {@code String}, so a bot compares it
+     * with {@code equals} and nothing about the option set leaks into the generated code.
+     */
+    CHOICE("Choice", "String", ResolvedType.of(JdkType.STRING)) {
+        public String loadExpression(String node) { return node + ".asText(\"\")"; }
+        public JsonNode defaultValue() { return FACTORY.textNode(""); }
+    },
+    /**
+     * Any number of a declared list of choices, generated as an immutable {@code List<String>}. Fully
+     * qualified in {@link #javaType()} for the same reason {@link #TIME} is — the generated {@code Activities}
+     * class has a fixed import block, and a type that needs no import cannot be forgotten from it.
+     */
+    MULTI_CHOICE("Multiple choice", "java.util.List<String>", ResolvedType.named("java.util.List")) {
+        // Via a generated helper, like TIME/DATE: a present-but-wrong-shaped node (a string where an array
+        // belongs) must degrade to "nothing selected", not throw while the bot is starting up.
+        public String loadExpression(String node) { return "parseChoices(" + node + ")"; }
+        public JsonNode defaultValue() { return FACTORY.arrayNode(); }
     };
 
     static final JsonNodeFactory FACTORY = JsonNodeFactory.instance;
@@ -70,4 +93,29 @@ public enum ActivityType {
 
     /** A sensible default JSON value for a freshly created activity of this type. */
     public abstract JsonNode defaultValue();
+
+    /** True for the types whose value is picked from {@link ActivityVariable#options() a declared list}. */
+    public boolean hasOptions() {
+        return this == CHOICE || this == MULTI_CHOICE;
+    }
+
+    /**
+     * {@code value} with anything that is not in {@code options} removed — the identity for every type that
+     * has no options. Called when the editor edits the option list, so deleting a choice also unsets it
+     * wherever it was chosen rather than leaving the bot running on a setting the UI no longer shows.
+     */
+    public JsonNode pruneValue(JsonNode value, List<String> options) {
+        if (!hasOptions()) return value;
+        if (this == CHOICE) {
+            String chosen = value == null ? "" : value.asText("");
+            return options.contains(chosen) ? value : FACTORY.textNode(options.isEmpty() ? "" : options.getFirst());
+        }
+        ArrayNode kept = FACTORY.arrayNode();
+        if (value != null && value.isArray()) {
+            for (JsonNode n : value) {
+                if (options.contains(n.asText(""))) kept.add(n.asText(""));
+            }
+        }
+        return kept;
+    }
 }

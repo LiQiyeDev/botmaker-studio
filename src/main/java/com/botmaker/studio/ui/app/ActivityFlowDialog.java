@@ -5,16 +5,14 @@ import com.botmaker.studio.project.activity.ActivityDefinition;
 import com.botmaker.studio.project.activity.ActivityFlow;
 import com.botmaker.studio.project.activity.FlowEdge;
 import com.botmaker.studio.project.activity.ActivityPreset;
-import com.botmaker.studio.project.activity.ActivityType;
 import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.project.activity.FlowNode;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.ui.app.flow.ActivityDraft;
-import com.botmaker.studio.ui.app.flow.ActivityValueWidgets;
-import com.botmaker.studio.ui.app.flow.ActivityValueWidgets.ValueEditor;
 import com.botmaker.studio.ui.app.flow.FlowCanvas;
 import com.botmaker.studio.ui.app.flow.FlowNames;
 import com.botmaker.studio.ui.app.flow.NewActivityDialog;
+import com.botmaker.studio.ui.app.params.ParamValueWidgets;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -49,12 +47,12 @@ import java.util.Set;
 /**
  * The Activity Flow editor — the single place activities are defined, configured, ordered and switched on.
  * It replaces the old pair of dialogs (schema in one, values in another) with a canvas: drop activities as
- * cards, wire them into the order they should run, tick the ones you want, and fill in their params in the
- * side panel.
+ * cards, wire them into the order they should run, and tick the ones you want.
  *
- * <p>Three panes: the {@link FlowCanvas} in the middle, a side panel showing the selected card's params (or
- * the project's globals when nothing is selected), and a top bar of presets — named on/off selections that
- * flip the enable ticks without touching the wiring. Saving delegates to {@link ActivityService#update},
+ * <p>Three panes: the {@link FlowCanvas} in the middle, a side panel with the selected card's name,
+ * outcomes and a read-only look at its params, and a top bar of presets — named on/off selections that
+ * flip the enable ticks without touching the wiring. Parameters themselves are <em>defined</em> in
+ * {@code ParametersDialog} (Project ▸ Parameters…), not here: this dialog is about the graph. Saving delegates to {@link ActivityService#update},
  * which rewrites {@code activities.json}, regenerates {@code Activities.java} /
  * {@code ActivityRegistry.java} (in flow order) and creates a stub for each new activity.
  */
@@ -95,10 +93,6 @@ public class ActivityFlowDialog {
     private final ProgressIndicator progress = new ProgressIndicator();
     private final VBox sidePanel = new VBox(10);
     private final ComboBox<ActivityPreset> presetCombo = new ComboBox<>();
-
-    /** Readers for whatever the side panel is currently showing; re-created each time the selection changes. */
-    private final List<ValueEditor> panelEditors = new ArrayList<>();
-    private ActivityDraft panelDraft;
 
     private Stage stage;
 
@@ -280,20 +274,14 @@ public class ActivityFlowDialog {
         return scroll;
     }
 
-    /**
-     * Rebuilds the side panel for {@code draft}. Params are read back into {@link #panelEditors}; the panel
-     * is flushed into the draft before it is replaced, so switching cards never loses a typed value.
-     */
+    /** Rebuilds the side panel for {@code draft} — the graph's properties, not its settings (see the class doc). */
     private void showInSidePanel(ActivityDraft draft) {
-        flushSidePanel();
-        panelEditors.clear();
-        panelDraft = draft;
         sidePanel.getChildren().clear();
 
         if (draft == null) {
             sidePanel.getChildren().addAll(heading("Global variables"),
                     new Label("Config not tied to any one activity. Select a card to edit that activity."));
-            sidePanel.getChildren().add(buildVariableEditor(globals, null));
+            sidePanel.getChildren().add(buildVariableSummary(globals, null));
             sidePanel.getChildren().addAll(new Separator(), buildFlowLimitsSection());
             sidePanel.getChildren().addAll(new Separator(), buildArchivedSection());
             return;
@@ -340,7 +328,7 @@ public class ActivityFlowDialog {
 
         sidePanel.getChildren().addAll(heading("Activity"), head, new Separator(),
                 heading("Outcomes"), buildOutcomeEditor(draft), new Separator(),
-                heading("Config params"), buildVariableEditor(draft.params(), draft), new Separator(), archive);
+                heading("Config params"), buildVariableSummary(draft.params(), draft), new Separator(), archive);
     }
 
     /**
@@ -453,7 +441,6 @@ public class ActivityFlowDialog {
      * touched — naming the files here is the difference between a decision and a surprise.
      */
     private void archive(ActivityDraft draft) {
-        flushSidePanel();
         List<String> blockers = activityService.archiveBlockers(draft.toDefinition());
         if (!blockers.isEmpty()) {
             error("Can't archive '" + draft.name() + "' — its settings are still used by "
@@ -615,85 +602,49 @@ public class ActivityFlowDialog {
     }
 
     /**
-     * An editor over a variable list: one row per variable with its value widget, plus an add/remove row.
-     * Used for both an activity's params ({@code owner} non-null) and the project globals ({@code owner} null).
+     * What this scope's parameters currently are, read-only — name, type and value, one row each.
+     *
+     * <p>Deliberately not an editor any more. This dialog used to be both the graph editor and the settings
+     * editor, which put a cramped column of text fields beside the canvas and made the project's globals
+     * reachable only by deselecting every card. Parameters are defined in <b>Project ▸ Parameters…</b> now;
+     * what stays here is the answer to "what does this activity take?", which you want while wiring.
      */
-    private Node buildVariableEditor(List<ActivityVariable> variables, ActivityDraft owner) {
-        VBox box = new VBox(8);
-        GridPane grid = new GridPane();
-        grid.setHgap(8);
-        grid.setVgap(6);
-        int row = 0;
-        for (ActivityVariable v : variables) {
-            Label label = new Label(v.name());
-            label.setTooltip(v.description() == null || v.description().isBlank()
-                    ? null : new javafx.scene.control.Tooltip(v.description()));
-            grid.add(label, 0, row);
-            Node widget = ActivityValueWidgets.build(v, panelEditors);
-            grid.add(widget, 1, row);
-            GridPane.setHgrow(widget, Priority.ALWAYS);
-
-            Button drop = new Button("✕");
-            drop.setOnAction(e -> {
-                flushSidePanel();
-                variables.remove(v);
-                showInSidePanel(owner);
-            });
-            grid.add(drop, 2, row);
-            row++;
-        }
+    private Node buildVariableSummary(List<ActivityVariable> variables, ActivityDraft owner) {
+        VBox box = new VBox(6);
         if (variables.isEmpty()) {
             Label none = new Label(owner == null ? "No globals yet." : "No params yet.");
             none.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
             box.getChildren().add(none);
+        } else {
+            GridPane grid = new GridPane();
+            grid.setHgap(8);
+            grid.setVgap(4);
+            int row = 0;
+            for (ActivityVariable v : variables) {
+                Label name = new Label(v.name());
+                if (v.description() != null && !v.description().isBlank()) {
+                    name.setTooltip(new javafx.scene.control.Tooltip(v.description()));
+                }
+                Label value = new Label(ParamValueWidgets.display(v.value()));
+                value.setStyle("-fx-text-fill: gray;");
+                grid.add(name, 0, row);
+                grid.add(value, 1, row);
+                if (v.isPublic()) {
+                    Label badge = new Label("public");
+                    badge.setStyle("-fx-font-size: 10px; -fx-text-fill: gray;");
+                    badge.setTooltip(new javafx.scene.control.Tooltip(
+                            "Offered to whoever runs the bot, not just to you."));
+                    grid.add(badge, 2, row);
+                }
+                row++;
+            }
+            box.getChildren().add(grid);
         }
-        box.getChildren().addAll(grid, buildAddVariableRow(variables, owner));
+        Label where = new Label("Add, retype or expose parameters in Project ▸ Parameters…");
+        where.setWrapText(true);
+        where.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
+        box.getChildren().add(where);
         return box;
-    }
-
-    private Node buildAddVariableRow(List<ActivityVariable> variables, ActivityDraft owner) {
-        TextField name = new TextField();
-        name.setPromptText(owner == null ? "global name" : "param name");
-        HBox.setHgrow(name, Priority.ALWAYS);
-        ComboBox<ActivityType> type = new ComboBox<>();
-        type.getItems().setAll(ActivityType.values());
-        type.setValue(ActivityType.TEXT);
-        Button add = new Button("Add");
-        add.setOnAction(e -> {
-            String candidate = name.getText() == null ? "" : name.getText().trim();
-            if (!FlowNames.isValidIdentifier(candidate)) {
-                error("Enter a valid name (letters, digits, _; not starting with a digit).");
-                return;
-            }
-            if (variables.stream().anyMatch(v -> v.name().equals(candidate))) {
-                error("'" + candidate + "' already exists here.");
-                return;
-            }
-            flushSidePanel();
-            variables.add(ActivityVariable.create(candidate, type.getValue()));
-            showInSidePanel(owner);
-            error("");
-        });
-        HBox row = new HBox(6, name, type, add);
-        row.setAlignment(Pos.CENTER_LEFT);
-        return row;
-    }
-
-    /** Writes the side panel's widget values back into the variables they came from. */
-    private void flushSidePanel() {
-        if (panelEditors.isEmpty()) return;
-        List<ActivityVariable> target = panelDraft == null ? globals : panelDraft.params();
-        for (ValueEditor editor : panelEditors) {
-            int at = indexOfNamed(target, editor.variable().name());
-            if (at >= 0) target.set(at, editor.readVariable());
-        }
-    }
-
-    private static int indexOfNamed(List<ActivityVariable> variables, String name) {
-        for (int i = 0; i < variables.size(); i++) {
-            if (variables.get(i).name().equals(name)) return i;
-        }
-        return -1;
     }
 
     // --- bottom bar: run-order preview + save ---
@@ -749,7 +700,6 @@ public class ActivityFlowDialog {
 
     private void save(Button save, Button close) {
         error("");
-        flushSidePanel();
 
         List<ActivityDefinition> activities = new ArrayList<>();
         List<FlowNode> nodes = new ArrayList<>();
@@ -776,8 +726,14 @@ public class ActivityFlowDialog {
         }));
     }
 
-    /** Returns an error message if the config can't be generated (bad/duplicate names, collisions), else null. */
-    static String validate(ActivitiesConfig cfg) {
+    /**
+     * Returns an error message if the config can't be generated (bad/duplicate names, collisions), else null.
+     *
+     * <p>Shared with {@code ParametersDialog}, which can produce the same collisions from the other side —
+     * a param renamed there can collide with an activity name set here. One validator, so the two dialogs
+     * cannot disagree about what is writable.
+     */
+    public static String validate(ActivitiesConfig cfg) {
         Set<String> actNames = new HashSet<>();
         Set<String> registryFields = new HashSet<>();
         for (ActivityDefinition a : cfg.activities()) {

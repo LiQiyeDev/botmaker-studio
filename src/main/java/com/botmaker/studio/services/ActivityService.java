@@ -254,6 +254,7 @@ public final class ActivityService {
         StringBuilder inits = new StringBuilder();
         boolean needsTime = false;
         boolean needsDate = false;
+        boolean needsChoices = false;
         for (ActivityVariable a : cfg.allVariables()) {
             String nodeExpr = "node(v, \"" + a.name() + "\")";
             if (a.description() != null && !a.description().isBlank()) {
@@ -265,6 +266,7 @@ public final class ActivityService {
                     .append(a.type().loadExpression(nodeExpr)).append(";\n");
             needsTime |= a.type() == ActivityType.TIME;
             needsDate |= a.type() == ActivityType.DATE;
+            needsChoices |= a.type() == ActivityType.MULTI_CHOICE;
         }
         return String.format("""
                 package com.%s;
@@ -312,12 +314,13 @@ public final class ActivityService {
                     private static JsonNode node(Map<String, JsonNode> v, String name) {
                         return v.getOrDefault(name, MissingNode.getInstance());
                     }
-                %s%s
+                %s%s%s
                     private Activities() {}
                 }
                 """, config.packageName(), fields.toString().stripTrailing(),
                 ActivitiesConfig.FILE_NAME, ActivitiesConfig.FILE_NAME, inits,
-                needsTime ? TIME_HELPER : "", needsDate ? DATE_HELPER : "");
+                needsTime ? TIME_HELPER : "", needsDate ? DATE_HELPER : "",
+                needsChoices ? CHOICES_HELPER : "");
     }
 
     /**
@@ -589,6 +592,24 @@ public final class ActivityService {
                     } catch (Exception e) {
                         return java.time.LocalDate.of(2000, 1, 1);
                     }
+                }
+        """;
+
+    /**
+     * Generated helper: read a multiple-choice value as a list of strings.
+     *
+     * <p>Total, like the two above: a missing key, a {@code null}, or a node of the wrong shape (a bare string
+     * where an array belongs — what an activities file hand-edited by its user tends to contain) all read as
+     * "nothing selected". The bot starts either way.
+     */
+    private static final String CHOICES_HELPER = """
+
+            private static java.util.List<String> parseChoices(JsonNode n) {
+                    java.util.List<String> chosen = new java.util.ArrayList<>();
+                    if (n != null && n.isArray()) {
+                        for (JsonNode each : n) chosen.add(each.asText(""));
+                    }
+                    return java.util.List.copyOf(chosen);
                 }
         """;
 }

@@ -30,6 +30,7 @@ public class MenuBarManager {
     private Runnable onManageLibraries;
     private Runnable onManageImports;
     private Runnable onActivityFlow;
+    private Runnable onParameters;
     private Runnable onRecoverProjectFiles;
     private Runnable onManageResources;
     private Runnable onProjectSettings;
@@ -201,6 +202,13 @@ public class MenuBarManager {
             if (onActivityFlow != null) onActivityFlow.run();
         });
 
+        // Where a parameter is defined, retyped and exposed. Separate from the flow editor on purpose: that
+        // one is about where the bot goes next, this one about what it is configured with.
+        MenuItem parametersItem = new MenuItem("Parameters...");
+        parametersItem.setOnAction(e -> {
+            if (onParameters != null) onParameters.run();
+        });
+
         MenuItem manageResourcesItem = new MenuItem("Resource Manager...");
         manageResourcesItem.setOnAction(e -> {
             if (onManageResources != null) onManageResources.run();
@@ -241,7 +249,7 @@ public class MenuBarManager {
         projectMenu.getItems().addAll(
                 projectSetupItem, new SeparatorMenuItem(),
                 manageLibrariesItem, manageImportsItem, new SeparatorMenuItem(),
-                activityFlowItem, manageResourcesItem,
+                activityFlowItem, parametersItem, manageResourcesItem,
                 new SeparatorMenuItem(),
                 projectSettingsItem, new SeparatorMenuItem(),
                 recoverFilesItem, historyItem, new SeparatorMenuItem(),
@@ -569,6 +577,11 @@ public class MenuBarManager {
     /** Sets the callback for when "Activity Flow..." is clicked. */
     public void setOnActivityFlow(Runnable callback) {
         this.onActivityFlow = callback;
+    }
+
+    /** Sets the callback for when "Parameters..." is clicked. */
+    public void setOnParameters(Runnable callback) {
+        this.onParameters = callback;
     }
 
     /** Sets the callback for when "Resource Manager..." is clicked. */

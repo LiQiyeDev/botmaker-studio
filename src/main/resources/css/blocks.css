@@ -319,6 +319,22 @@
     -fx-font-size: 12px;
 }
 
+/* The quiet explanatory line under a heading or beside a field — never the only carrier of meaning. */
+/* Dimmed the way this file's -bm-text-on-color note prescribes: the theme's own text colour plus an
+   opacity, which moves the right direction under a light *and* a dark background. */
+.dialog-hint-text {
+    -fx-font-size: 11px;
+    -fx-text-fill: -fx-text-base-color;
+    -fx-opacity: 0.7;
+}
+
+/* One parameter in the Parameters dialog: a hairline separating it from the next, no box. */
+.param-card {
+    -fx-border-color: transparent transparent -bm-divider transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 0 0 10 0;
+}
+
 /* ▲ ▼ ✕ on a repeated row: square, quiet, and the same size as each other. */
 .row-icon-button {
     -fx-min-width: 28;

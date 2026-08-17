@@ -4,6 +4,7 @@ import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityType;
 import com.botmaker.studio.project.activity.ActivityVariable;
+import com.botmaker.studio.project.activity.ParamVisibility;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -81,6 +82,47 @@ class ActivityGenerationTest {
         assertEquals("", activities.getField("label").get(null));
         assertEquals(LocalTime.MIDNIGHT, activities.getField("startTime").get(null));
         assertEquals(LocalDate.of(2000, 1, 1), activities.getField("startDate").get(null));
+    }
+
+    /** A config of the two option-bearing types, whose declared choices live on the variable. */
+    private static ActivitiesConfig choices() {
+        return new ActivitiesConfig(List.of(), List.of(
+                new ActivityVariable("mode", ActivityType.CHOICE, JSON.textNode("fast"), "",
+                        ParamVisibility.PUBLIC, List.of("fast", "safe")),
+                new ActivityVariable("skills", ActivityType.MULTI_CHOICE, JSON.arrayNode(), "",
+                        ParamVisibility.EDITOR_ONLY, List.of("mine", "fish", "cook"))));
+    }
+
+    @Test
+    void choicesGenerateAStringAndAListOfStrings(@TempDir Path root) throws Exception {
+        String json = """
+                { "globals": [
+                    { "name": "mode", "value": "safe" },
+                    { "name": "skills", "value": ["mine", "cook"] }
+                ] }
+                """;
+        ProjectConfig cfg = ProjectConfig.forProject("actbot", root);
+        Class<?> activities = compileAndLoad(root,
+                new ActivityService(cfg, null, null).generateSource(choices()), json);
+
+        assertEquals("safe", activities.getField("mode").get(null));
+        assertEquals(List.of("mine", "cook"), activities.getField("skills").get(null),
+                "a multiple choice reads back as the list that was ticked");
+    }
+
+    @Test
+    void aWrongShapedChoiceValueReadsAsNothingSelected(@TempDir Path root) throws Exception {
+        // What a hand-edited activities.json looks like: a bare string where the array belongs. The bot has to
+        // start anyway — the whole point of routing MULTI_CHOICE through a generated helper.
+        String json = """
+                { "globals": [ { "name": "skills", "value": "mine" } ] }
+                """;
+        ProjectConfig cfg = ProjectConfig.forProject("actbot", root);
+        Class<?> activities = compileAndLoad(root,
+                new ActivityService(cfg, null, null).generateSource(choices()), json);
+
+        assertEquals("", activities.getField("mode").get(null), "missing key → the type's default");
+        assertEquals(List.of(), activities.getField("skills").get(null));
     }
 
     /** Compiles {@code source} (package {@code com.actbot}) into a fresh classpath dir with {@code json}

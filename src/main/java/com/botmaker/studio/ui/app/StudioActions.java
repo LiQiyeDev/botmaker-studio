@@ -22,6 +22,7 @@ import com.botmaker.studio.sharing.GitHubGallery;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.ui.app.capture.OverlayTemplateCapture;
 import com.botmaker.studio.ui.app.overlay.ProgramShapeOverlay;
+import com.botmaker.studio.ui.app.params.ParametersDialog;
 import com.botmaker.studio.ui.app.pilot.RemotePilotUi;
 import javafx.stage.Stage;
 
@@ -102,6 +103,7 @@ final class StudioActions {
         menuBar.setOnManageImports(this::openManageImports);
         menuBar.setOnActivityFlow(this::openActivityFlow);
         toolbar.setOnActivityFlow(this::openActivityFlow);
+        menuBar.setOnParameters(this::openParameters);
         menuBar.setOnRecoverProjectFiles(recoverProjectFiles);
         menuBar.setOnManageResources(this::openResourceManager);
         toolbar.setOnAccessResources(this::openResourceManager);
@@ -179,6 +181,10 @@ final class StudioActions {
 
     private void openActivityFlow() {
         new ActivityFlowDialog(primaryStage, activityService).show();
+    }
+
+    private void openParameters() {
+        new ParametersDialog(primaryStage, activityService).show();
     }
 
     private void openProjectSettings() {

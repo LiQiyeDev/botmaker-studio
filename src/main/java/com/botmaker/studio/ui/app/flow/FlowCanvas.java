@@ -1,6 +1,7 @@
 package com.botmaker.studio.ui.app.flow;
 
 import com.botmaker.studio.project.activity.FlowEdge;
+import com.botmaker.studio.ui.app.params.ParamValueWidgets;
 import javafx.application.Platform;
 import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.SimpleObjectProperty;
@@ -862,8 +863,8 @@ public final class FlowCanvas extends StackPane {
             params.setStyle("-fx-font-size: 10px; -fx-text-fill: #666;");
             params.setWrapText(true);
             draft.params().addListener((javafx.collections.ListChangeListener<Object>) c ->
-                    params.setText(ActivityValueWidgets.summarize(draft.params(), 2)));
-            params.setText(ActivityValueWidgets.summarize(draft.params(), 2));
+                    params.setText(ParamValueWidgets.summarize(draft.params(), 2)));
+            params.setText(ParamValueWidgets.summarize(draft.params(), 2));
 
             orphanNote.setStyle("-fx-font-size: 10px; -fx-text-fill: #b06000;");
             orphanNote.setManaged(false);
