@@ -6,6 +6,16 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-17 — Guards are All-of / Any-of containers (`parser/handlers/GuardTree`, `MatchesSwitchHandler`,
+  `blocks/flow/MatchesSwitchBlock`).** A branch's condition drew its join word in every gap while the source
+  had one operator for the whole chain, so clicking one "and" flipped its siblings; the `＋` hung off whichever
+  node was nearest; and brackets were inferred from precedence, so a hand-written grouping came back
+  flattened. A junction is now an **all of** / **any of** container — the word once, above an indented stack
+  of its conditions, with its own `＋` (a condition, or a nested group) and its own delete. Composition is one
+  write: `GuardTree` transforms the tree (pure, JavaFX- and JDT-free, tested) and `setGuard` rebuilds the
+  expression, bracketing every nested container, so what is written is what is read back. Conditions move
+  between groups by dragging the `⋮` handle. The three controls that shared one CSS class — container word,
+  `not`, leaf any/all — now have three.
 - **2026-08-17 — One gallery, two places (`ui/render/components/TemplateGallery`, `TemplateGalleryDialog`,
   `services/TemplateGalleryModel`).** The same grouping used to be drawn twice — a `TreeView` in the resource
   manager, tag submenus in every template picker — and neither showed a template at the size you pick by or

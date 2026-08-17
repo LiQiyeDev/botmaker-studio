@@ -1335,11 +1335,13 @@
 }
 
 /*
- * MATCHSWITCH — the two classes that had no rule at all. MatchesSwitchBlock has always tagged its "any of" /
- * "all of" toggle and each branch body, and blocks.css has never styled either, so the toggle rendered as a
- * default Modena button (grey-on-grey, invisible against a Logic block) and the branch body as nothing.
+ * MATCHSWITCH — the controls in a branch's condition. `.matches-case-mode` is the shared *geometry* only (pill,
+ * size, cursor); the three things a condition row can hold each carry a second class that says which one it is.
+ * They shared a single class for a while and were indistinguishable on screen — which mattered, because they do
+ * very different things: one picks a container's word, one inverts, one picks a check's mode.
  *
- * Both are drawn from -bm-text-on-color and a neutral wash, so they follow whatever category they land in.
+ * All of them are drawn from -bm-text-on-color and neutral washes, so they follow whatever category they land
+ * in and stay legible in both themes.
  */
 .matches-case-mode {
     -fx-background-color: transparent;
@@ -1354,30 +1356,80 @@
     -fx-cursor: hand;
 }
 
-/*
- * "all of" — the stricter of the two modes, so it is the filled state. Filled with a neutral wash rather than
- * with the on-colour: inverting to on-colour-fill would need the *category*'s colour back for the text, which
- * this rule can't name (it is shared by every category), and a translucent grey reads as pressed on all of
- * them.
- */
-.matches-case-mode:selected {
-    -fx-background-color: rgba(127, 127, 127, 0.35);
-    -fx-border-width: 2;
-}
-
 .matches-case-mode:disabled {
     -fx-opacity: 0.6;
 }
 
 /*
- * A nested group of guard rows — the operands of a bracketed `(A or B)` inside a branch's condition, and the
- * rows under a `not`. The left bar is the bracket: precedence is the one thing a flat list of rows cannot
- * show, and `A and (B or C)` means something different from `(A and B) or C`.
+ * "all of" / "any of" — a container's word, and its ＋. Always filled: it is a heading for the rows under it,
+ * not a state that is on or off, so both words read with the same weight and neither looks unset. (Its
+ * :selected state marks "all of" and deliberately changes nothing but the border.)
  */
-.matches-guard-group {
+.matches-container-word {
+    -fx-background-color: rgba(127, 127, 127, 0.30);
+    -fx-border-width: 1;
+    -fx-font-size: 11.5px;
+}
+
+.matches-container-word:selected {
+    -fx-border-width: 2;
+}
+
+/* `not` — grey while off, darker grey while on. It negates rather than names, so it stays quieter than the
+   container word next to it even when active. */
+.matches-not-toggle {
+    -fx-background-color: transparent;
+    -fx-border-color: -bm-muted;
+    -fx-text-fill: -bm-muted;
+    -fx-font-weight: normal;
+}
+
+.matches-not-toggle:selected {
+    -fx-background-color: rgba(127, 127, 127, 0.45);
+    -fx-border-color: derive(-bm-muted, -25%);
+    -fx-text-fill: -bm-text-on-color;
+    -fx-font-weight: bold;
+}
+
+/*
+ * A leaf's own any/all toggle, over its chips. "all of" is the stricter of the two modes, so it is the filled
+ * state. Filled with a neutral wash rather than with the on-colour: inverting to on-colour-fill would need the
+ * *category*'s colour back for the text, which this rule can't name (it is shared by every category), and a
+ * translucent grey reads as pressed on all of them.
+ */
+.matches-leaf-mode:selected {
+    -fx-background-color: rgba(127, 127, 127, 0.35);
+    -fx-border-width: 2;
+}
+
+/*
+ * A container's conditions — the rows under an "all of" / "any of" header. The left bar is the bracket: it is
+ * the one thing a flat list of rows cannot show, and `A and (B or C)` means something different from
+ * `(A and B) or C`. This stack is also the drop zone a dragged `⋮` lands in.
+ */
+.matches-guard-container {
     -fx-padding: 0 0 0 8;
     -fx-border-color: -bm-text-on-color;
     -fx-border-width: 0 0 0 2;
+}
+
+.matches-guard-container:drop-target {
+    -fx-background-color: rgba(127, 127, 127, 0.22);
+    -fx-border-color: -bm-accent;
+    -fx-border-width: 0 0 0 3;
+}
+
+/* The drag handle on a condition inside a container. Muted until hovered — it is a grip, not a control. */
+.matches-guard-handle {
+    -fx-text-fill: -bm-text-on-color;
+    -fx-opacity: 0.45;
+    -fx-font-size: 13px;
+    -fx-padding: 0 2 0 0;
+    -fx-cursor: open-hand;
+}
+
+.matches-guard-handle:hover {
+    -fx-opacity: 1;
 }
 
 /* A switch/matchswitch branch body: a wash and a left bar, so nested blocks read as *inside* the branch. */

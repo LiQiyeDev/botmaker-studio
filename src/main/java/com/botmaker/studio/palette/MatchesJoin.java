@@ -31,6 +31,15 @@ public enum MatchesJoin {
         return label;
     }
 
+    /**
+     * The word a <em>container</em> of guards is headed with — "all of" / "any of". The operator belongs to the
+     * container, not to the gaps between its rows, so it is written once above them: a word per gap over one
+     * shared operator is what let clicking one "and" silently flip its siblings.
+     */
+    public String containerLabel() {
+        return this == AND ? "all of" : "any of";
+    }
+
     /** The Java operator, for the rewrite that writes it. */
     public String symbol() {
         return symbol;

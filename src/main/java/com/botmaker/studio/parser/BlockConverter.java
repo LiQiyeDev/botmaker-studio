@@ -490,8 +490,8 @@ public class BlockConverter {
             case MatchesSwitchHandler.Guard.Other other ->
                     parseExpression(other.node(), ctx).ifPresent(e -> block.putGuardSlot(other.node(), e));
             case MatchesSwitchHandler.Guard.Not not -> parseGuardSlots(not.operand(), block, ctx);
-            case MatchesSwitchHandler.Guard.Junction junction ->
-                    junction.operands().forEach(operand -> parseGuardSlots(operand, block, ctx));
+            case MatchesSwitchHandler.Guard.Container container ->
+                    container.operands().forEach(operand -> parseGuardSlots(operand, block, ctx));
             case MatchesSwitchHandler.Guard.Check ignored -> { }
         }
     }

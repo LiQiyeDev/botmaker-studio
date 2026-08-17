@@ -44,9 +44,13 @@ import java.util.Optional;
  * <p><b>The guard is a boolean expression, not a single check.</b> It started as exactly one
  * {@code m.hasAny(…)} / {@code m.hasAll(…)} call, and a branch that wanted "these two <em>and</em> not that
  * one" had nowhere to say it. {@link Guard} is now the tree that expression really is — checks at the leaves,
- * {@code &&} / {@code ||} junctions and {@code !} above them — so the block renders composition instead of
- * refusing to claim it. The single-check case is still a {@link Guard.Check} at the root and still renders as
- * the any/all toggle over a chip row, which is the shape almost every branch has.
+ * <b>all of</b> / <b>any of</b> {@linkplain Guard.Container containers} and {@code !} above them — so the block
+ * renders composition instead of refusing to claim it. The single-check case is still a {@link Guard.Check} at
+ * the root and still renders as the any/all toggle over a chip row, which is the shape almost every branch has.
+ *
+ * <p><b>Composition is one write, not one per gesture.</b> {@link GuardTree} transforms the tree and
+ * {@link #setGuard} writes the whole guard back; {@link #buildGuard} decides the brackets, one per nested
+ * container. See {@link #setGuard} for why the per-gesture rewrites this replaced could not keep that promise.
  *
  * <p><b>What the switch is claimed on</b> is therefore the <em>label</em>, not the guard: a rule-form case
  * whose pattern is {@code Matches m}. It has to be, now that the guard can be any expression — and it is the
@@ -79,9 +83,11 @@ public final class MatchesSwitchHandler {
     /**
      * What a branch tests, as the tree its guard expression already is.
      *
-     * <p>Every variant carries {@link #node()} — the expression <em>as written</em>, parentheses included —
-     * because that is what a rewrite replaces. The classification looks through parentheses, so
-     * {@code (a && b)} reads as a junction while still being replaceable as one node.
+     * <p>Every variant carries {@link #node()} — the expression <em>as written</em>, parentheses included.
+     * The classification looks through parentheses, so {@code (a && b)} reads as a container while its node
+     * stays the bracketed expression. Only {@link Guard.Other} still <em>needs</em> its node, as the thing
+     * {@link #buildGuard} copies; the rest are rebuilt from what they mean, which is what lets a tree be
+     * edited without an AST at all (see {@link GuardTree}).
      */
     public sealed interface Guard {
 
@@ -100,12 +106,16 @@ public final class MatchesSwitchHandler {
         record Not(Guard operand, Expression node) implements Guard {}
 
         /**
-         * {@code a && b [&& c…]} or the {@code ||} equivalent. Flat by construction: JDT models a chain as one
-         * {@link InfixExpression} with extended operands, and the writes below keep it that way rather than
-         * nesting a new junction per added operand.
+         * An <b>all of</b> / <b>any of</b> container: {@code a && b [&& c…]} or the {@code ||} equivalent.
+         *
+         * <p>The join belongs to the container as a whole — one word above its rows, not one per gap — which
+         * is the shape the source already has and the block now draws. Flat by construction where the source
+         * is flat: JDT models {@code a && b && c} as one {@link InfixExpression} with extended operands, so
+         * that is one container of three rows rather than two nested ones. A container nested inside another
+         * is always written parenthesized (see {@link #buildGuard}), so every bracket on disk is a container
+         * on screen and back again.
          */
-        record Junction(MatchesJoin join, List<Guard> operands, InfixExpression infix,
-                        Expression node) implements Guard {}
+        record Container(MatchesJoin join, List<Guard> operands, Expression node) implements Guard {}
 
         /**
          * Any other boolean expression — {@code m.isEmpty()}, a check against a template held in a constant, a
@@ -150,7 +160,7 @@ public final class MatchesSwitchHandler {
                 for (Object extra : infix.extendedOperands()) {
                     operands.add(read((Expression) extra));
                 }
-                return new Guard.Junction(join, List.copyOf(operands), infix, expression);
+                return new Guard.Container(join, List.copyOf(operands), expression);
             }
         }
         if (inner instanceof MethodInvocation call) {
@@ -273,93 +283,71 @@ public final class MatchesSwitchHandler {
     // =================================================================================
 
     /**
-     * Joins {@code target} with a fresh check on {@code seedPath}: {@code target && m.hasAny(…)}.
+     * Rewrites a branch's whole guard to {@code newTree} — the single write behind every composition the block
+     * offers (add a condition, add a group, remove one, flip a container's word, negate, drag between
+     * containers). {@link GuardTree} produces the tree; this writes it.
      *
-     * <p>A junction of the same kind is <em>extended</em> rather than nested, so "A and B and C" stays one flat
-     * group of rows instead of stepping right with each addition — the same reason JDT models it that way.
+     * <p>It is one write rather than one per gesture because the tree, not the source text, is the thing being
+     * edited: a targeted {@code ASTRewrite} per gesture has to decide for itself where a bracket belongs, which
+     * is exactly the guessing that let a flip reach a sibling and a bracket round-trip differently than it was
+     * written. Rebuilding the expression from the tree makes the brackets a consequence of the containers.
      */
-    public static String joinWithCheck(CompilationUnit cu, String code, Expression target, MatchesJoin join,
-                                       String seedPath) {
-        if (target == null || join == null || seedPath == null) return null;
+    public static String setGuard(CompilationUnit cu, String code, SwitchCase caseNode, Guard newTree) {
+        Expression current = guardExpressionOf(caseNode);
+        if (current == null || newTree == null) return null;
 
         AST ast = cu.getAST();
         ASTRewrite rewriter = ASTRewrite.create(ast);
-        MethodInvocation addition = newCheck(ast, MatchesCheck.ANY, List.of(seedPath));
-
-        Expression inner = unparenthesized(target);
-        if (inner instanceof InfixExpression infix && joinOf(infix.getOperator()).orElse(null) == join) {
-            rewriter.getListRewrite(infix, InfixExpression.EXTENDED_OPERANDS_PROPERTY)
-                    .insertLast(addition, null);
-        } else {
-            InfixExpression combined = ast.newInfixExpression();
-            combined.setOperator(operatorOf(join));
-            combined.setLeftOperand(groupedUnder(ast, copyOf(ast, target), join));
-            combined.setRightOperand(addition);
-            rewriter.replace(target, combined, null);
-        }
-        return AstRewriteHelper.applyRewrite(rewriter, code);
-    }
-
-    /** Flips a junction between {@code &&} and {@code ||}. */
-    public static String setJoin(CompilationUnit cu, String code, InfixExpression infix, MatchesJoin join) {
-        if (infix == null || join == null || joinOf(infix.getOperator()).orElse(null) == join) return null;
-
-        ASTRewrite rewriter = ASTRewrite.create(cu.getAST());
-        rewriter.set(infix, InfixExpression.OPERATOR_PROPERTY, operatorOf(join), null);
+        rewriter.replace(current, buildGuard(ast, newTree), null);
         return AstRewriteHelper.applyRewrite(rewriter, code);
     }
 
     /**
-     * Negates {@code guard}, or removes the negation when it already is one — the {@code not} control is a
-     * toggle, so {@code !!g} is never written.
-     */
-    public static String toggleNegation(CompilationUnit cu, String code, Guard guard) {
-        if (guard == null) return null;
-
-        AST ast = cu.getAST();
-        ASTRewrite rewriter = ASTRewrite.create(ast);
-        if (guard instanceof Guard.Not not) {
-            rewriter.replace(guard.node(), copyOf(ast, not.operand().node()), null);
-        } else {
-            PrefixExpression prefix = ast.newPrefixExpression();
-            prefix.setOperator(PrefixExpression.Operator.NOT);
-            Expression operand = copyOf(ast, guard.node());
-            prefix.setOperand(operand instanceof InfixExpression ? parenthesized(ast, operand) : operand);
-            rewriter.replace(guard.node(), prefix, null);
-        }
-        return AstRewriteHelper.applyRewrite(rewriter, code);
-    }
-
-    /**
-     * Drops one operand from a junction, collapsing the junction to the survivor when only one is left.
+     * The expression {@code guard} is — checks rebuilt from their mode and paths, {@link Guard.Other} leaves
+     * copied verbatim, and <b>a bracket around every nested container</b>.
      *
-     * <p>Refused when it would empty the guard — see the class javadoc: a case with no guard is unconditional
-     * and silently dominates every case after it.
+     * <p>That last rule is the round-trip: {@link #read} treats a bracketed junction as a nested container, so
+     * bracketing every container on the way out means the tree written is the tree read back. The old
+     * "bracket only when the operators differ" rule was correct Java and still lost the user's grouping —
+     * {@code (a && b) && c} came back as one flat container of three.
      */
-    public static String removeOperand(CompilationUnit cu, String code, Guard.Junction junction, Guard operand) {
-        if (junction == null || operand == null) return null;
-
-        List<Guard> survivors = new ArrayList<>();
-        for (Guard g : junction.operands()) {
-            if (g.node() != operand.node()) survivors.add(g);
-        }
-        if (survivors.size() == junction.operands().size() || survivors.isEmpty()) return null;
-
-        AST ast = cu.getAST();
-        ASTRewrite rewriter = ASTRewrite.create(ast);
-        if (survivors.size() == 1) {
-            rewriter.replace(junction.node(), copyOf(ast, survivors.getFirst().node()), null);
-        } else {
-            InfixExpression rebuilt = ast.newInfixExpression();
-            rebuilt.setOperator(operatorOf(junction.join()));
-            rebuilt.setLeftOperand(copyOf(ast, survivors.get(0).node()));
-            rebuilt.setRightOperand(copyOf(ast, survivors.get(1).node()));
-            for (int i = 2; i < survivors.size(); i++) {
-                rebuilt.extendedOperands().add(copyOf(ast, survivors.get(i).node()));
+    public static Expression buildGuard(AST ast, Guard guard) {
+        return switch (guard) {
+            case Guard.Check check -> newCheck(ast, check.check(), check.paths());
+            case Guard.Other other -> copyOf(ast, other.node());
+            case Guard.Not not -> {
+                PrefixExpression prefix = ast.newPrefixExpression();
+                prefix.setOperator(PrefixExpression.Operator.NOT);
+                prefix.setOperand(operandOf(ast, not.operand()));
+                yield prefix;
             }
-            rewriter.replace(junction.node(), rebuilt, null);
-        }
-        return AstRewriteHelper.applyRewrite(rewriter, code);
+            case Guard.Container container -> {
+                List<Guard> operands = container.operands();
+                if (operands.isEmpty()) yield ast.newBooleanLiteral(true);
+                // A container of one is not a junction; it is whatever it holds. Reachable only from a
+                // hand-built tree — every edit below collapses to the survivor rather than emitting one.
+                if (operands.size() == 1) yield buildGuard(ast, operands.getFirst());
+
+                InfixExpression infix = ast.newInfixExpression();
+                infix.setOperator(operatorOf(container.join()));
+                infix.setLeftOperand(operandOf(ast, operands.get(0)));
+                infix.setRightOperand(operandOf(ast, operands.get(1)));
+                for (int i = 2; i < operands.size(); i++) {
+                    infix.extendedOperands().add(operandOf(ast, operands.get(i)));
+                }
+                yield infix;
+            }
+        };
+    }
+
+    /**
+     * One operand as it sits under a container or a {@code !}: bracketed whenever it built to an infix. That
+     * covers both a nested container and a hand-written {@link Guard.Other} comparison, which needs the bracket
+     * for the same reason — {@code !a == b} does not negate what the row above it shows.
+     */
+    private static Expression operandOf(AST ast, Guard guard) {
+        Expression built = buildGuard(ast, guard);
+        return built instanceof InfixExpression ? parenthesized(ast, built) : built;
     }
 
     // =================================================================================
@@ -486,16 +474,6 @@ public final class MatchesSwitchHandler {
         ParenthesizedExpression parens = ast.newParenthesizedExpression();
         parens.setExpression(e);
         return parens;
-    }
-
-    /**
-     * {@code e} ready to sit under a {@code join}: an infix of a <em>different</em> operator is parenthesized,
-     * because {@code a || b && c} does not mean what the rows above it would be showing.
-     */
-    private static Expression groupedUnder(AST ast, Expression e, MatchesJoin join) {
-        return e instanceof InfixExpression infix && infix.getOperator() != operatorOf(join)
-                ? parenthesized(ast, e)
-                : e;
     }
 
     // =================================================================================

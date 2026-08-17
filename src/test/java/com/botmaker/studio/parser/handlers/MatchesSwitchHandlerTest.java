@@ -131,8 +131,8 @@ class MatchesSwitchHandlerTest {
 
         MatchesSwitchHandler.Guard guard = guardIn(fixture);
 
-        assertInstanceOf(MatchesSwitchHandler.Guard.Junction.class, guard);
-        MatchesSwitchHandler.Guard.Junction junction = (MatchesSwitchHandler.Guard.Junction) guard;
+        assertInstanceOf(MatchesSwitchHandler.Guard.Container.class, guard);
+        MatchesSwitchHandler.Guard.Container junction = (MatchesSwitchHandler.Guard.Container) guard;
         assertAll(
                 () -> assertEquals(MatchesJoin.AND, junction.join()),
                 () -> assertEquals(2, junction.operands().size()),
@@ -141,34 +141,34 @@ class MatchesSwitchHandlerTest {
     }
 
     /**
-     * A chain is flat, not nested: JDT models {@code A && B && C} as one expression with an extended operand,
-     * and the block draws it as three rows rather than stepping right twice.
+     * A chain is one container, not nested ones: JDT models {@code A && B && C} as one expression with an
+     * extended operand, and the block draws it as three rows under one word rather than stepping right twice.
      */
     @Test
-    void aChainOfTheSameJoinIsOneFlatGroup() {
+    void aChainOfTheSameJoinIsOneContainer() {
         EditorFixture fixture = withGuard("m.hasAny(new ImageTemplate(\"a.png\")) "
                 + "&& m.hasAny(new ImageTemplate(\"b.png\")) && m.hasAny(new ImageTemplate(\"c.png\"))");
 
         MatchesSwitchHandler.Guard guard = guardIn(fixture);
 
-        assertInstanceOf(MatchesSwitchHandler.Guard.Junction.class, guard);
-        assertEquals(3, ((MatchesSwitchHandler.Guard.Junction) guard).operands().size());
+        assertInstanceOf(MatchesSwitchHandler.Guard.Container.class, guard);
+        assertEquals(3, ((MatchesSwitchHandler.Guard.Container) guard).operands().size());
     }
 
-    /** Brackets are structure, not noise: they are what says which operator binds first. */
+    /** Brackets are structure, not noise: a bracket in the source is a container on screen. */
     @Test
-    void aBracketedGroupIsReadAsANestedJunction() {
+    void aBracketedGroupIsReadAsANestedContainer() {
         EditorFixture fixture = withGuard("m.hasAny(new ImageTemplate(\"a.png\")) "
                 + "&& (m.hasAny(new ImageTemplate(\"b.png\")) || m.hasAny(new ImageTemplate(\"c.png\")))");
 
-        MatchesSwitchHandler.Guard.Junction outer =
-                (MatchesSwitchHandler.Guard.Junction) guardIn(fixture);
+        MatchesSwitchHandler.Guard.Container outer =
+                (MatchesSwitchHandler.Guard.Container) guardIn(fixture);
 
         assertAll(
                 () -> assertEquals(MatchesJoin.AND, outer.join()),
                 () -> assertEquals(2, outer.operands().size()),
                 () -> assertEquals(MatchesJoin.OR,
-                        ((MatchesSwitchHandler.Guard.Junction) outer.operands().get(1)).join()));
+                        ((MatchesSwitchHandler.Guard.Container) outer.operands().get(1)).join()));
     }
 
     /**
@@ -340,12 +340,25 @@ class MatchesSwitchHandlerTest {
     }
 
     // ---- Composing ----
+    //
+    // Every gesture is now one write: GuardTree transforms the branch's tree, setMatchesGuard writes it back.
+    // These assert what reaches the file — GuardTreeTest asserts the transforms themselves.
+
+    /** The branch's guard, as the container it is. */
+    private static MatchesSwitchHandler.Guard.Container containerIn(EditorFixture fixture) {
+        MatchesSwitchHandler.Guard guard = guardIn(fixture);
+        assertInstanceOf(MatchesSwitchHandler.Guard.Container.class, guard, "expected a container guard");
+        return (MatchesSwitchHandler.Guard.Container) guard;
+    }
 
     @Test
-    void joiningAddsASecondCheckToTheBranch() {
+    void groupingACheckMakesTheBranchAContainerOfTwo() {
         EditorFixture fixture = new EditorFixture(SOURCE);
+        MatchesSwitchHandler.Guard guard = guardIn(fixture);
 
-        fixture.editor.joinMatchesGuard(guardIn(fixture).node(), MatchesJoin.AND, "popups/gift.png");
+        fixture.editor.setMatchesGuard(casesIn(fixture).getFirst(),
+                GuardTree.group(guard, guard, MatchesJoin.AND, GuardTree.check("popups/gift.png")));
+
 
         assertNotNull(fixture.lastCode);
         assertTrue(dense(fixture.lastCode).contains(
@@ -353,110 +366,145 @@ class MatchesSwitchHandlerTest {
                 () -> "expected both checks in the guard: " + fixture.lastCode);
     }
 
-    /** Adding a third {@code and} extends the chain instead of nesting a group inside it. */
+    /** A container holds its conditions flat; adding a third is a third row, not a nested group. */
     @Test
-    void joiningWithTheSameOperatorStaysFlat() {
+    void addingToAContainerStaysFlat() {
         EditorFixture fixture = withGuard("m.hasAny(new ImageTemplate(\"a.png\")) "
                 + "&& m.hasAny(new ImageTemplate(\"b.png\"))");
 
-        fixture.editor.joinMatchesGuard(guardIn(fixture).node(), MatchesJoin.AND, "c.png");
+        MatchesSwitchHandler.Guard.Container container = containerIn(fixture);
+        fixture.editor.setMatchesGuard(casesIn(fixture).getFirst(),
+                GuardTree.add(container, container, GuardTree.check("c.png")));
 
         EditorFixture reopened = new EditorFixture(fixture.lastCode);
         assertAll(
                 () -> assertFalse(fixture.lastCode.contains("("
                         + "m.hasAny(new ImageTemplate(\"a.png\"))"), "no bracket should have appeared"),
-                () -> assertEquals(3,
-                        ((MatchesSwitchHandler.Guard.Junction) guardIn(reopened)).operands().size()));
+                () -> assertEquals(3, containerIn(reopened).operands().size()));
     }
 
     /**
-     * Mixing the operators brackets what was there. Without it {@code a && b || c} would silently mean
-     * {@code (a && b) || c} — which is what the rows would already have been showing, but only by luck.
+     * A container nested in another is bracketed — always, not only when the operators differ. The bracket is
+     * what the outer container's rows are drawn from, so one that isn't written is a group that vanishes on
+     * the next open.
      */
     @Test
-    void joiningWithTheOtherOperatorBracketsWhatWasThere() {
+    void aNestedContainerIsBracketed() {
         EditorFixture fixture = withGuard("m.hasAny(new ImageTemplate(\"a.png\")) "
                 + "&& m.hasAny(new ImageTemplate(\"b.png\"))");
 
-        fixture.editor.joinMatchesGuard(guardIn(fixture).node(), MatchesJoin.OR, "c.png");
+        MatchesSwitchHandler.Guard.Container container = containerIn(fixture);
+        fixture.editor.setMatchesGuard(casesIn(fixture).getFirst(),
+                GuardTree.add(container, container,
+                        GuardTree.container(MatchesJoin.AND,
+                                List.of(GuardTree.check("c.png"), GuardTree.check("d.png")))));
 
         assertNotNull(fixture.lastCode);
-        String dense = dense(fixture.lastCode);
-        assertTrue(dense.contains("(m.hasAny(newImageTemplate(\"a.png\"))&&m.hasAny(newImageTemplate(\"b.png\")))"
-                        + "||m.hasAny(newImageTemplate(\"c.png\"))"),
-                () -> "the existing group must be bracketed: " + fixture.lastCode);
+        assertTrue(dense(fixture.lastCode).contains(
+                        "&&(m.hasAny(newImageTemplate(\"c.png\"))&&m.hasAny(newImageTemplate(\"d.png\")))"),
+                () -> "the nested container must keep its bracket: " + fixture.lastCode);
     }
 
+    /** The defect the containers exist for: a container's word is its own, and flipping it reaches nothing else. */
     @Test
-    void flippingTheJoinRewritesOnlyTheOperator() {
+    void flippingOneContainerLeavesItsSiblingsAlone() {
         EditorFixture fixture = withGuard("m.hasAny(new ImageTemplate(\"a.png\")) "
-                + "&& m.hasAny(new ImageTemplate(\"b.png\"))");
+                + "&& (m.hasAny(new ImageTemplate(\"b.png\")) || m.hasAny(new ImageTemplate(\"c.png\")))");
+        MatchesSwitchHandler.Guard.Container outer = containerIn(fixture);
+        MatchesSwitchHandler.Guard.Container inner =
+                (MatchesSwitchHandler.Guard.Container) outer.operands().get(1);
 
-        fixture.editor.setMatchesGuardJoin(
-                ((MatchesSwitchHandler.Guard.Junction) guardIn(fixture)).infix(), MatchesJoin.OR);
+        fixture.editor.setMatchesGuard(casesIn(fixture).getFirst(),
+                GuardTree.setJoin(outer, inner, MatchesJoin.AND));
 
-        assertNotNull(fixture.lastCode);
+        EditorFixture reopened = new EditorFixture(fixture.lastCode);
+        MatchesSwitchHandler.Guard.Container reread = containerIn(reopened);
         assertAll(
-                () -> assertTrue(dense(fixture.lastCode).contains("\"a.png\"))||m.hasAny("), fixture.lastCode),
-                () -> assertTrue(fixture.lastCode.contains("b.png"), "both operands must survive"));
+                () -> assertEquals(MatchesJoin.AND, reread.join(), "the outer container was not the target"),
+                () -> assertEquals(MatchesJoin.AND,
+                        ((MatchesSwitchHandler.Guard.Container) reread.operands().get(1)).join()),
+                () -> assertFalse(fixture.lastCode.contains("||"), () -> fixture.lastCode));
     }
 
     /** {@code not} is a toggle in the UI, so it must be one in the source: never {@code !!}. */
     @Test
     void negatingIsAToggle() {
         EditorFixture fixture = new EditorFixture(SOURCE);
-        fixture.editor.toggleMatchesGuardNegation(guardIn(fixture));
+        MatchesSwitchHandler.Guard guard = guardIn(fixture);
+        fixture.editor.setMatchesGuard(casesIn(fixture).getFirst(), GuardTree.negate(guard, guard));
         assertTrue(dense(fixture.lastCode).contains("when!m.hasAny("), () -> fixture.lastCode);
 
         EditorFixture negated = new EditorFixture(fixture.lastCode);
-        negated.editor.toggleMatchesGuardNegation(guardIn(negated));
+        MatchesSwitchHandler.Guard reread = guardIn(negated);
+        negated.editor.setMatchesGuard(casesIn(negated).getFirst(), GuardTree.negate(reread, reread));
         assertAll(
                 () -> assertFalse(negated.lastCode.contains("!"), () -> "the not is gone: " + negated.lastCode),
                 () -> assertTrue(negated.lastCode.contains("hasAny"), "the check itself survives"));
     }
 
-    /** Negating a group brackets it — {@code !a && b} negates only {@code a}. */
+    /** Negating a container brackets it — {@code !a && b} negates only {@code a}. */
     @Test
-    void negatingAGroupBracketsIt() {
+    void negatingAContainerBracketsIt() {
         EditorFixture fixture = withGuard("m.hasAny(new ImageTemplate(\"a.png\")) "
                 + "&& m.hasAny(new ImageTemplate(\"b.png\"))");
 
-        fixture.editor.toggleMatchesGuardNegation(guardIn(fixture));
+        MatchesSwitchHandler.Guard guard = guardIn(fixture);
+        fixture.editor.setMatchesGuard(casesIn(fixture).getFirst(), GuardTree.negate(guard, guard));
 
         assertTrue(dense(fixture.lastCode).contains("when!(m.hasAny("), () -> fixture.lastCode);
     }
 
     @Test
-    void removingAnOperandCollapsesTheGroupToWhatIsLeft() {
+    void removingAConditionCollapsesTheContainerToWhatIsLeft() {
         EditorFixture fixture = withGuard("m.hasAny(new ImageTemplate(\"a.png\")) "
                 + "&& m.hasAny(new ImageTemplate(\"b.png\"))");
-        MatchesSwitchHandler.Guard.Junction junction =
-                (MatchesSwitchHandler.Guard.Junction) guardIn(fixture);
+        MatchesSwitchHandler.Guard.Container container = containerIn(fixture);
 
-        fixture.editor.removeMatchesGuardOperand(junction, junction.operands().getFirst());
+        fixture.editor.setMatchesGuard(casesIn(fixture).getFirst(),
+                GuardTree.remove(container, container.operands().getFirst()));
 
         assertNotNull(fixture.lastCode);
         assertAll(
                 () -> assertFalse(fixture.lastCode.contains("a.png"), () -> fixture.lastCode),
-                () -> assertFalse(fixture.lastCode.contains("&&"), "one operand left is not a junction"),
+                () -> assertFalse(fixture.lastCode.contains("&&"), "one condition left is not a container"),
                 () -> assertTrue(fixture.lastCode.contains("b.png")));
     }
 
-    /** A three-operand group loses one and stays a group. */
+    /** A three-condition container loses one and stays a container. */
     @Test
-    void removingFromALongerChainKeepsTheRest() {
+    void removingFromALongerContainerKeepsTheRest() {
         EditorFixture fixture = withGuard("m.hasAny(new ImageTemplate(\"a.png\")) "
                 + "&& m.hasAny(new ImageTemplate(\"b.png\")) && m.hasAny(new ImageTemplate(\"c.png\"))");
-        MatchesSwitchHandler.Guard.Junction junction =
-                (MatchesSwitchHandler.Guard.Junction) guardIn(fixture);
+        MatchesSwitchHandler.Guard.Container container = containerIn(fixture);
 
-        fixture.editor.removeMatchesGuardOperand(junction, junction.operands().get(1));
+        fixture.editor.setMatchesGuard(casesIn(fixture).getFirst(),
+                GuardTree.remove(container, container.operands().get(1)));
 
         EditorFixture reopened = new EditorFixture(fixture.lastCode);
         assertAll(
                 () -> assertFalse(fixture.lastCode.contains("b.png"), () -> fixture.lastCode),
-                () -> assertEquals(2,
-                        ((MatchesSwitchHandler.Guard.Junction) guardIn(reopened)).operands().size()));
+                () -> assertEquals(2, containerIn(reopened).operands().size()));
+    }
+
+    /** Dragging a condition into another container: it leaves one group and joins the other, in one write. */
+    @Test
+    void movingAConditionBetweenContainersRewritesBoth() {
+        EditorFixture fixture = withGuard("m.hasAny(new ImageTemplate(\"a.png\")) "
+                + "&& (m.hasAny(new ImageTemplate(\"b.png\")) || m.hasAny(new ImageTemplate(\"c.png\")))");
+        MatchesSwitchHandler.Guard.Container outer = containerIn(fixture);
+        MatchesSwitchHandler.Guard.Container inner =
+                (MatchesSwitchHandler.Guard.Container) outer.operands().get(1);
+
+        fixture.editor.setMatchesGuard(casesIn(fixture).getFirst(),
+                GuardTree.move(outer, outer.operands().getFirst(), inner));
+
+        EditorFixture reopened = new EditorFixture(fixture.lastCode);
+        MatchesSwitchHandler.Guard.Container reread = containerIn(reopened);
+        assertAll(
+                // The outer container had two conditions and gave one away, so it is the survivor now.
+                () -> assertEquals(MatchesJoin.OR, reread.join(), () -> fixture.lastCode),
+                () -> assertEquals(3, reread.operands().size()),
+                () -> assertFalse(fixture.lastCode.contains("&&"), "nothing is left to `and`"));
     }
 
     // ---- Round trip ----
@@ -485,34 +533,38 @@ class MatchesSwitchHandlerTest {
     }
 
     /**
-     * The same property for a composed guard, built the way the UI builds one: join, negate the new operand,
-     * then read the whole tree back. This is the shape the phase exists for — {@code (A and B) or not C} — and
-     * the one where a lost bracket would change what the bot does rather than how it looks.
+     * The same property for a composed guard, built the way the UI builds one: group, group again, negate the
+     * new condition, then read the whole tree back. This is the shape the phase exists for —
+     * {@code (A and B) or not C} — and the one where a lost bracket would change what the bot does rather than
+     * how it looks.
      */
     @Test
     void aGuardComposedThroughTheUiReadsBackAsTheTreeItWrote() {
         EditorFixture first = new EditorFixture(SOURCE);
-        first.editor.joinMatchesGuard(guardIn(first).node(), MatchesJoin.AND, "popups/gift.png");
+        MatchesSwitchHandler.Guard firstGuard = guardIn(first);
+        first.editor.setMatchesGuard(casesIn(first).getFirst(), GuardTree.group(
+                firstGuard, firstGuard, MatchesJoin.AND, GuardTree.check("popups/gift.png")));
 
         EditorFixture second = new EditorFixture(first.lastCode);
-        second.editor.joinMatchesGuard(guardIn(second).node(), MatchesJoin.OR, "popups/ad.png");
+        MatchesSwitchHandler.Guard secondGuard = guardIn(second);
+        second.editor.setMatchesGuard(casesIn(second).getFirst(), GuardTree.group(
+                secondGuard, secondGuard, MatchesJoin.OR, GuardTree.check("popups/ad.png")));
 
         EditorFixture third = new EditorFixture(second.lastCode);
-        MatchesSwitchHandler.Guard.Junction top =
-                (MatchesSwitchHandler.Guard.Junction) guardIn(third);
-        third.editor.toggleMatchesGuardNegation(top.operands().get(1));
+        MatchesSwitchHandler.Guard.Container top = containerIn(third);
+        third.editor.setMatchesGuard(casesIn(third).getFirst(),
+                GuardTree.negate(top, top.operands().get(1)));
 
         EditorFixture reopened = new EditorFixture(third.lastCode);
-        MatchesSwitchHandler.Guard.Junction reread =
-                (MatchesSwitchHandler.Guard.Junction) guardIn(reopened);
+        MatchesSwitchHandler.Guard.Container reread = containerIn(reopened);
 
         assertAll(
                 () -> assertTrue(MatchesSwitchHandler.isMatchesSwitch(switchIn(reopened))),
-                () -> assertEquals(MatchesJoin.OR, reread.join(), "the outer join is the or"),
+                () -> assertEquals(MatchesJoin.OR, reread.join(), "the outer container is the any-of"),
                 () -> assertEquals(2, reread.operands().size()),
                 () -> assertEquals(MatchesJoin.AND,
-                        ((MatchesSwitchHandler.Guard.Junction) reread.operands().get(0)).join(),
-                        "the bracketed group kept its own operator"),
+                        ((MatchesSwitchHandler.Guard.Container) reread.operands().get(0)).join(),
+                        "the bracketed group kept its own word"),
                 () -> assertInstanceOf(MatchesSwitchHandler.Guard.Not.class, reread.operands().get(1)));
     }
 }
