@@ -6,6 +6,14 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-17 — One gallery, two places (`ui/render/components/TemplateGallery`, `TemplateGalleryDialog`,
+  `services/TemplateGalleryModel`).** The same grouping used to be drawn twice — a `TreeView` in the resource
+  manager, tag submenus in every template picker — and neither showed a template at the size you pick by or
+  could be searched. Both are now one component: a tag rail (All, activity tags, custom tags, Untagged, each
+  with a count) beside a searchable thumbnail grid with tag chips. The manager embeds it; a template slot
+  opens it as a dialog with *Capture new…* and *Open Resource Manager…* as actions inside it, so a slot is a
+  button rather than a menu that has to list images it can't show. The rail rows and the search live in a
+  JavaFX-free model, tested.
 - **2026-08-17 — Tags are declared, not invented (`services/TagCatalog`, `TemplateManifest`,
   `ui/render/components/TagPicklist`, `ui/app/TagManagerDialog`).** A tag used to come into existence by being
   typed — a batch capture pre-filled the open activity's name, every tag field was free text, and the set of

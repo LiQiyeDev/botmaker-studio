@@ -9,6 +9,7 @@ import com.botmaker.studio.services.TemplateManifest;
 import com.botmaker.studio.sharing.TemplateArchive;
 import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
 import com.botmaker.studio.ui.render.components.TagPicklist;
+import com.botmaker.studio.ui.render.components.TemplateGallery;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -18,10 +19,6 @@ import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
-import javafx.scene.control.SelectionMode;
-import javafx.scene.control.TreeCell;
-import javafx.scene.control.TreeItem;
-import javafx.scene.control.TreeView;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.HBox;
@@ -34,7 +31,6 @@ import javafx.stage.Window;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -47,9 +43,10 @@ import java.util.TreeSet;
  * ({@link ScreenCaptureService}). Publishes {@link ResourcesChangedEvent} after any change so open template
  * pickers can refresh.
  *
- * <p>Templates are shown as a <em>tag tree</em>. The tree is the only place organisation is visible, and it
- * is built from {@link TemplateManifest} rather than from directories — see that class for why the files
- * stay flat. A template with two tags appears under both branches; selecting either selects the same file.
+ * <p>The listing itself is {@link TemplateGallery} — the same component a template slot opens as a picker, so
+ * "which templates exist and how are they filed" has one rendering rather than a tree here and tag submenus
+ * there. Organisation comes from {@link TemplateManifest} rather than from directories (see that class for
+ * why the files stay flat): a template with two tags appears under either rail row and is still one file.
  */
 public class ResourceManagerDialog {
 
@@ -58,14 +55,7 @@ public class ResourceManagerDialog {
     private final EventBus eventBus;
     private final ScreenCaptureService capture;
 
-    /** A tree row: a tag branch ({@code file == null}) or a template under it. */
-    private record Row(String tag, Path file) {
-        @Override public String toString() {
-            return file == null ? tag : ImageTemplateLibrary.baseName(file);
-        }
-    }
-
-    private final TreeView<Row> tree = new TreeView<>();
+    private TemplateGallery gallery;
     private final ImageView preview = new ImageView();
     private final Label statusLabel = new Label();
     private Stage stage;
@@ -83,24 +73,10 @@ public class ResourceManagerDialog {
         stage.initModality(Modality.APPLICATION_MODAL);
         stage.setTitle("Resource Manager — Image Templates");
 
-        tree.setShowRoot(false);
         // Multi-select so a tag can be applied to a whole group in one go — the bulk case is why tagging
         // lives here rather than only on the capture dialogs.
-        tree.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
-        tree.setCellFactory(v -> new TreeCell<>() {
-            @Override protected void updateItem(Row item, boolean empty) {
-                super.updateItem(item, empty);
-                if (empty || item == null) {
-                    setText(null);
-                    setGraphic(null);
-                    return;
-                }
-                setText(item.toString());
-                setGraphic(item.file() == null ? null : ImageTemplatePicker.thumbnail(item.file(), 18));
-            }
-        });
-        tree.getSelectionModel().selectedItemProperty().addListener((o, old, sel) ->
-                showPreview(sel == null ? null : sel.getValue().file()));
+        gallery = new TemplateGallery(config, true);
+        gallery.setOnSelectionChanged(() -> showPreview(selectedFile()));
 
         preview.setPreserveRatio(true);
         VBox previewBox = new VBox(6, new Label("Preview"), preview);
@@ -110,8 +86,8 @@ public class ResourceManagerDialog {
         preview.fitWidthProperty().bind(previewBox.widthProperty().subtract(12));
         preview.fitHeightProperty().bind(previewBox.heightProperty().subtract(28));
 
-        HBox content = new HBox(8, tree, previewBox);
-        HBox.setHgrow(tree, Priority.ALWAYS);
+        HBox content = new HBox(8, gallery, previewBox);
+        HBox.setHgrow(gallery, Priority.ALWAYS);
         VBox.setVgrow(content, Priority.ALWAYS);
 
         Button captureBtn = new Button("Capture new...");
@@ -144,49 +120,20 @@ public class ResourceManagerDialog {
         stage.show();
     }
 
-    /**
-     * Rebuilds the tag tree from disk over the project's declared tags — so a tag with nothing in it is still
-     * a branch (that is what declaring it means, and it is where a drag would go), and a template assigned to
-     * a tag the project no longer declares surfaces under {@code Untagged} rather than under a ghost.
-     *
-     * <p>Branches start expanded — the tree is the listing, not a drill-down — except
-     * {@link TemplateManifest#ALL}, which would otherwise repeat the entire library above the groups.
-     */
+    /** Re-reads the library after a change here (or in the tag manager) so the grid and the rail counts agree. */
     private void reload() {
-        TreeItem<Row> root = new TreeItem<>(new Row("", null));
-        Map<String, List<Path>> byTag = ImageTemplateLibrary.listByTag(config);
-        for (Map.Entry<String, List<Path>> group : byTag.entrySet()) {
-            TreeItem<Row> branch = new TreeItem<>(new Row(group.getKey(), null));
-            branch.setExpanded(!TemplateManifest.ALL.equals(group.getKey()));
-            for (Path file : group.getValue()) branch.getChildren().add(new TreeItem<>(new Row(group.getKey(), file)));
-            root.getChildren().add(branch);
-        }
-        tree.setRoot(root);
+        gallery.reload();
     }
 
-    /** The one selected template, or null when a tag branch (or nothing, or several) is selected. */
+    /** The one selected template, or null when nothing — or more than one thing — is selected. */
     private Path selectedFile() {
         List<Path> files = selectedFiles();
-        return files.size() == 1 ? files.get(0) : null;
+        return files.size() == 1 ? files.getFirst() : null;
     }
 
-    /**
-     * Every template covered by the selection: selected templates, plus every template under a selected tag
-     * branch — so "tag this whole group" is one click on the branch rather than a rubber-band over its rows.
-     */
+    /** Every selected template. Ctrl/⌘-click extends the selection; that is the bulk-tagging path. */
     private List<Path> selectedFiles() {
-        List<Path> files = new ArrayList<>();
-        for (TreeItem<Row> item : tree.getSelectionModel().getSelectedItems()) {
-            if (item == null) continue;
-            if (item.getValue().file() != null) {
-                if (!files.contains(item.getValue().file())) files.add(item.getValue().file());
-            } else {
-                for (TreeItem<Row> child : item.getChildren()) {
-                    if (!files.contains(child.getValue().file())) files.add(child.getValue().file());
-                }
-            }
-        }
-        return files;
+        return gallery.selectedFiles();
     }
 
     private void showPreview(Path file) {
@@ -218,12 +165,12 @@ public class ResourceManagerDialog {
 
     /**
      * Edits the tags of {@code files}. One file shows its own tags; several show the tags they <em>all</em>
-     * share, so saving the field applies to every one of them — the bulk operation the tree's branch
-     * selection is for.
+     * share, so saving the picklist applies to every one of them — the bulk operation the gallery's
+     * multi-select is for.
      */
     private void editTags(List<Path> files) {
         if (files.isEmpty()) {
-            statusLabel.setText("Select a template or a tag to edit tags.");
+            statusLabel.setText("Select one or more templates to tag.");
             return;
         }
         TemplateManifest manifest = ImageTemplateLibrary.manifest(config);

@@ -9,11 +9,12 @@ import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
+import com.botmaker.studio.ui.render.components.TemplateGalleryDialog;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
+import javafx.scene.control.Button;
 import javafx.scene.control.MenuButton;
 import javafx.scene.control.MenuItem;
-import javafx.scene.control.SeparatorMenuItem;
 import javafx.scene.layout.HBox;
 import org.eclipse.jdt.core.dom.ClassInstanceCreation;
 import org.eclipse.jdt.core.dom.Expression;
@@ -96,9 +97,8 @@ public final class ImageTemplateGroupPicker {
     }
 
     /**
-     * Whether {@code file} may be offered under {@code limits}. Used as the filter the shared tag-grouped
-     * menu is built through, so this row's narrowing and the single picker's tag submenus are the same menu
-     * with one predicate between them.
+     * Whether {@code file} may be offered under {@code limits}. Used as the gallery's filter, so this row's
+     * narrowing and an unrestricted slot's picker are the same gallery with one predicate between them.
      */
     private static boolean isOfferable(ProjectConfig config, Path file, Restrictions limits) {
         return limits.allowed() == null || limits.allowed().contains(ImageTemplateLibrary.pathFor(config, file));
@@ -117,10 +117,11 @@ public final class ImageTemplateGroupPicker {
 
         button.setOnShowing(e -> {
             button.getItems().clear();
-            button.getItems().addAll(ImageTemplatePicker.templateMenuItems(config,
-                    lib -> isOfferable(config, lib, limits),
-                    lib -> apply.accept(replace(paths, index, ImageTemplateLibrary.pathFor(config, lib)))));
-            if (!button.getItems().isEmpty()) button.getItems().add(new SeparatorMenuItem());
+            MenuItem change = new MenuItem("Change…");
+            change.setOnAction(a -> TemplateGalleryDialog.open(ImageTemplatePicker.windowOf(button), config,
+                    galleryFor(context, button, limits, "Change this image"),
+                    picked -> apply.accept(replace(paths, index,
+                            ImageTemplateLibrary.pathFor(config, picked.getFirst())))));
             MenuItem remove = new MenuItem("Remove");
             // Disabled rather than hidden at the floor: the row still shows removal exists, and the tooltip
             // says why this one can't go — silently omitting it reads as a missing feature.
@@ -130,47 +131,44 @@ public final class ImageTemplateGroupPicker {
                         + limits.minimum() + (limits.minimum() == 1 ? " image)" : " images)"));
             }
             remove.setOnAction(a -> apply.accept(without(paths, index)));
-            MenuItem openManager = new MenuItem("Open Resource Manager…");
-            openManager.setOnAction(a ->
-                    context.getEventBus().publish(new CoreApplicationEvents.OpenResourceManagerEvent()));
-            button.getItems().addAll(remove, openManager);
+            button.getItems().addAll(change, remove);
         });
         return button;
     }
 
-    /** The trailing "add another template" button, populated from the library. */
-    private static MenuButton addButton(CodeEditorService context, ProjectConfig config,
-                                        Consumer<List<String>> apply, List<String> paths,
-                                        Restrictions limits) {
-        MenuButton add = new MenuButton(paths.isEmpty() ? "Choose images…" : "＋");
+    /**
+     * The gallery this row opens. Capture is offered only on an unrestricted row: a freshly captured image is
+     * by definition not in the enclosing group, so adding it to a narrowed row would build exactly the dead
+     * branch the narrowing exists to prevent — the image has to join the group first.
+     */
+    private static TemplateGalleryDialog.Options galleryFor(CodeEditorService context, Node anchor,
+                                                            Restrictions limits, String title) {
+        ProjectConfig config = context.getConfig();
+        TemplateGalleryDialog.Options options = limits.allowed() == null
+                ? ImageTemplatePicker.galleryOptions(context, anchor, title)
+                : TemplateGalleryDialog.Options.pickOne(title).withActions(null,
+                        () -> context.getEventBus().publish(new CoreApplicationEvents.OpenResourceManagerEvent()));
+        return options.withFilter(lib -> isOfferable(config, lib, limits));
+    }
+
+    /** The trailing "add another template" button; opens the gallery, which can add several at once. */
+    private static Button addButton(CodeEditorService context, ProjectConfig config,
+                                    Consumer<List<String>> apply, List<String> paths,
+                                    Restrictions limits) {
+        Button add = new Button(paths.isEmpty() ? "Choose images…" : "＋");
         add.getStyleClass().add("image-template-group-add");
-        add.setOnShowing(e -> {
-            add.getItems().clear();
-            add.getItems().addAll(ImageTemplatePicker.templateMenuItems(config,
-                    // Within a closed group, adding a template the row already holds says nothing new — so a
-                    // narrowed row offers only what's left. An unrestricted row keeps allowing repeats.
-                    lib -> isOfferable(config, lib, limits)
-                            && !(limits.allowed() != null && paths.contains(ImageTemplateLibrary.pathFor(config, lib))),
-                    lib -> apply.accept(append(paths, ImageTemplateLibrary.pathFor(config, lib)))));
-            if (!add.getItems().isEmpty()) add.getItems().add(new SeparatorMenuItem());
-            MenuItem openManager = new MenuItem("Open Resource Manager…");
-            openManager.setOnAction(a ->
-                    context.getEventBus().publish(new CoreApplicationEvents.OpenResourceManagerEvent()));
-            // Capture is offered only on an unrestricted row. A freshly captured image is by definition not in
-            // the enclosing group, so adding it to a narrowed row would build exactly the dead branch the
-            // narrowing exists to prevent — the image has to join the group first.
-            if (limits.allowed() == null) {
-                MenuItem capture = new MenuItem("Capture new…");
-                capture.setOnAction(a -> ImageTemplatePicker.captureAndSave(context, add,
-                        path -> apply.accept(append(paths, path))));
-                add.getItems().add(capture);
-            }
-            add.getItems().add(openManager);
-            if (limits.allowed() != null && add.getItems().size() == 1) {
-                MenuItem none = new MenuItem("Every image in this group is already on this branch");
-                none.setDisable(true);
-                add.getItems().addFirst(none);
-            }
+        add.setOnAction(e -> {
+            // Within a closed group, adding a template the row already holds says nothing new — so a narrowed
+            // row offers only what's left. An unrestricted row keeps allowing repeats.
+            TemplateGalleryDialog.Options options = galleryFor(context, add, limits, "Add images").multi()
+                    .withFilter(lib -> isOfferable(config, lib, limits)
+                            && !(limits.allowed() != null
+                                 && paths.contains(ImageTemplateLibrary.pathFor(config, lib))));
+            TemplateGalleryDialog.open(ImageTemplatePicker.windowOf(add), config, options, picked -> {
+                List<String> next = new ArrayList<>(paths);
+                for (Path file : picked) next.add(ImageTemplateLibrary.pathFor(config, file));
+                apply.accept(next);
+            });
         });
         return add;
     }
@@ -203,12 +201,6 @@ public final class ImageTemplateGroupPicker {
             return java.util.Optional.of(sl.getLiteralValue());
         }
         return java.util.Optional.empty();
-    }
-
-    private static List<String> append(List<String> base, String path) {
-        List<String> copy = new ArrayList<>(base);
-        copy.add(path);
-        return copy;
     }
 
     private static List<String> replace(List<String> base, int index, String path) {

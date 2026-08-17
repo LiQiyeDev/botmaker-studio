@@ -10,7 +10,6 @@ import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
-import com.botmaker.studio.services.TemplateManifest;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
@@ -18,14 +17,11 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Alert;
+import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
-import javafx.scene.control.Menu;
-import javafx.scene.control.MenuButton;
-import javafx.scene.control.MenuItem;
-import javafx.scene.control.SeparatorMenuItem;
 import javafx.scene.control.TextField;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
@@ -42,15 +38,15 @@ import org.eclipse.jdt.core.dom.StringLiteral;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 /**
- * A thumbnail/menu control standing in for an {@code ImageTemplate} expression. Shows the current
- * template (if any) and opens a menu of saved templates plus "Capture new…" (crop the screen) and
- * "Open Resource Manager…". A pick rewrites the backing expression to
+ * A thumbnail button standing in for an {@code ImageTemplate} expression. Shows the current template (if
+ * any) and opens the {@link TemplateGallery} to change it — which is also where "Capture new…" (crop the
+ * screen) and "Open Resource Manager…" live, so the slot itself is one button rather than a menu whose first
+ * job was listing images it could not show. A pick rewrites the backing expression to
  * {@code new ImageTemplate("<project-relative path>")} via {@link com.botmaker.studio.parser.CodeEditor#setImageTemplate}.
  *
  * <p>Used both for a method parameter typed {@code ImageTemplate}
@@ -69,68 +65,32 @@ public final class ImageTemplatePicker {
     /** Builds the picker control bound to {@code templateArg} (a {@code new ImageTemplate("…")} expression). */
     public static Node create(CodeEditorService context, ExpressionBlock templateArg) {
         ProjectConfig config = context.getConfig();
-        MenuButton button = new MenuButton();
+        Button button = new Button();
         button.getStyleClass().add("image-template-picker");
         refreshPickerLabel(button, config, currentTemplatePath(templateArg));
-
-        button.setOnShowing(e -> {
-            button.getItems().clear();
-            button.getItems().addAll(templateMenuItems(config,
-                    file -> applyTemplate(context, templateArg, ImageTemplateLibrary.pathFor(config, file))));
-            if (!button.getItems().isEmpty()) button.getItems().add(new SeparatorMenuItem());
-            MenuItem capture = new MenuItem("Capture new…");
-            capture.setOnAction(a -> captureNewTemplate(context, templateArg, button));
-            MenuItem openManager = new MenuItem("Open Resource Manager…");
-            openManager.setOnAction(a ->
-                    context.getEventBus().publish(new CoreApplicationEvents.OpenResourceManagerEvent()));
-            button.getItems().addAll(capture, openManager);
-        });
+        button.setOnAction(e -> TemplateGalleryDialog.open(windowOf(button), config,
+                galleryOptions(context, button, "Choose an image"),
+                picked -> applyTemplate(context, templateArg,
+                        ImageTemplateLibrary.pathFor(config, picked.getFirst()))));
         return button;
     }
 
     /**
-     * The saved templates as menu entries, one submenu per tag — the "folders" the tags stand in for. A
-     * project with no tags at all gets a flat list, exactly as before tags existed, so organisation costs
-     * nothing until it is used; untagged templates in a tagged project sit under
-     * {@link TemplateManifest#UNTAGGED} rather than being hidden or floated to the top level.
-     *
-     * <p>Shared with the group picker so both menus group identically.
+     * The gallery a template slot opens: the whole library, with capture and the resource manager offered
+     * inside it. Shared with the group picker so a template is chosen the same way wherever one is needed —
+     * the two used to build their own tag submenus from the same list and had already grown apart.
      */
-    public static List<MenuItem> templateMenuItems(ProjectConfig config, java.util.function.Consumer<Path> onPick) {
-        return templateMenuItems(config, file -> true, onPick);
+    public static TemplateGalleryDialog.Options galleryOptions(CodeEditorService context, Node anchor,
+                                                               String title) {
+        return TemplateGalleryDialog.Options.pickOne(title).withActions(
+                (owner, onSaved) -> captureAndSave(context, anchor,
+                        path -> onSaved.accept(context.getConfig().projectPath().resolve(path))),
+                () -> context.getEventBus().publish(new CoreApplicationEvents.OpenResourceManagerEvent()));
     }
 
-    /**
-     * As {@link #templateMenuItems(ProjectConfig, java.util.function.Consumer)}, but offering only the
-     * templates {@code filter} accepts — the group picker narrows to what an enclosing
-     * {@code ImageTemplateGroup} allows. A tag left with nothing to show is dropped rather than rendered
-     * empty.
-     */
-    public static List<MenuItem> templateMenuItems(ProjectConfig config, java.util.function.Predicate<Path> filter,
-                                                   java.util.function.Consumer<Path> onPick) {
-        Map<String, List<Path>> byTag = ImageTemplateLibrary.listByTag(config);
-        List<MenuItem> items = new ArrayList<>();
-        boolean flat = byTag.size() <= 1;
-        for (Map.Entry<String, List<Path>> group : byTag.entrySet()) {
-            List<MenuItem> children = new ArrayList<>();
-            for (Path file : group.getValue()) {
-                if (!filter.test(file)) continue;
-                MenuItem item = new MenuItem(ImageTemplateLibrary.baseName(file), thumbnail(file, 18));
-                item.setOnAction(a -> onPick.accept(file));
-                children.add(item);
-            }
-            if (children.isEmpty()) {
-                continue;
-            }
-            if (flat) {
-                items.addAll(children);
-            } else {
-                Menu submenu = new Menu(group.getKey());
-                submenu.getItems().addAll(children);
-                items.add(submenu);
-            }
-        }
-        return items;
+    /** The window a control lives in, or null before it is shown — what a dialog wants as its owner. */
+    public static Window windowOf(Node node) {
+        return node.getScene() == null ? null : node.getScene().getWindow();
     }
 
     /** Reads the current template path from {@code new ImageTemplate("path")}, or null. */
@@ -156,10 +116,6 @@ public final class ImageTemplatePicker {
     static String defaultWindowTitle(CodeEditorService context) {
         CaptureTarget target = ProjectSettingsService.forProject(context).defaultTarget();
         return (target instanceof CaptureTarget.WindowTarget w) ? w.titleSubstring() : null;
-    }
-
-    private static void captureNewTemplate(CodeEditorService context, ExpressionBlock arg, Node anchor) {
-        captureAndSave(context, anchor, path -> applyTemplate(context, arg, path));
     }
 
     /**
@@ -288,7 +244,7 @@ public final class ImageTemplatePicker {
     }
 
     /** Sets the button's label + thumbnail to reflect {@code path} (project-root-relative), or a prompt. */
-    private static void refreshPickerLabel(MenuButton button, ProjectConfig config, String path) {
+    private static void refreshPickerLabel(Button button, ProjectConfig config, String path) {
         if (path == null) {
             button.setText("Choose image…");
             button.setGraphic(null);

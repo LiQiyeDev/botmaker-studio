@@ -1704,6 +1704,55 @@
     -fx-text-fill: -bm-on-popup-hover;
 }
 
+/*
+ * The template gallery: a tag rail beside a grid of thumbnails. Everything here is over the theme's own
+ * surface/foreground lookups rather than the -bm-popup-* set — the gallery is a panel in a window, not a
+ * floating popup, and it is embedded in the resource manager as often as it is opened as a dialog.
+ */
+.template-gallery-heading {
+    -fx-text-fill: -fx-text-background-color;
+    -fx-opacity: 0.65;
+    -fx-font-size: 10px;
+    /* Left-aligned with the tag rows under it, indented by nothing: a heading that lines up with its group
+       reads as a label for it, where a centred one reads as a row of its own. */
+    -fx-padding: 6 0 2 4;
+}
+
+.template-tile {
+    -fx-background-color: -fx-control-inner-background-alt;
+    -fx-background-radius: 6;
+    -fx-border-color: -bm-divider;
+    -fx-border-radius: 6;
+    -fx-padding: 6;
+}
+
+/* Selection is a border, not a fill: a fill behind a template with transparency (an ellipse or object crop)
+   shows *through* it and changes what the user thinks they captured. */
+.template-tile:selected {
+    -fx-border-color: -bm-primary;
+    -fx-border-width: 2;
+    -fx-padding: 5;
+}
+
+.template-tile-name {
+    -fx-text-fill: -fx-text-background-color;
+    -fx-font-size: 11px;
+}
+
+.template-tile-chip {
+    -fx-background-color: -bm-band;
+    -fx-background-radius: 8;
+    -fx-text-fill: -fx-text-background-color;
+    -fx-font-size: 9px;
+    -fx-padding: 1 6 1 6;
+}
+
+.template-gallery-empty {
+    -fx-text-fill: -fx-text-background-color;
+    -fx-opacity: 0.7;
+    -fx-padding: 4 0 0 4;
+}
+
 /* The scroll arrows a menu taller than the screen grows. They sit on the popup pane, so they are painted with
    it — Modena paints them with -fx-color, which is the lookup that was resolving to nothing. */
 .menu-up-arrow,
