@@ -6,6 +6,18 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-17 — an activity shows the author their own code and nothing else
+  (`core/component/BlockComponent.Visibility.NOBODY`, `core/component/MemberVisibility`,
+  `project/FileRole.isDerived`, `ui/app/FileExplorerManager`).** The audience axis hid an activity stub's
+  `Outcome`, `INSTANCE` and `isEnabled()` from a reader and showed them to the author, on the grounds that
+  they are the author's responsibility — which confused responsibility with editability: each is written from
+  the flow dialog or from nowhere, so an edit made in the editor is reverted on the next save. In a
+  scaffold-managed file they are now `Visibility.NOBODY` and never reach the block tree. A static that is not
+  `INSTANCE` (`Popups.POPUPS`) stays the author's. `Activities`/`ActivityRegistry`/`FlowDriver` are the flow
+  rendered as Java and leave the file explorer (`FileRole.isDerived`); the entry point is generated but not
+  derived, and stays listed. No "add static variable" affordance existed to remove — the class-level drop
+  target only ever accepted a method or an enum.
+
 - **2026-08-17 — a project opens onto a window, not a white rectangle (`BotMakerStudio.finishOpen`,
   `services/CodeEditorService.readProjectSources`/`openInitialFile`, `ui/app/EditorCanvas.showLoading`).**
   Dependency resolution was already off the FX thread; the freeze after it was `loadInitialCode` — a walk and

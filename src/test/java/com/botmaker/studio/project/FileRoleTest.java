@@ -100,6 +100,26 @@ class FileRoleTest {
     }
 
     @Test
+    void theThreeFlowDerivedFilesAreDerivedAndTheEntryPointIsNot() {
+        // What the file explorer drops. The entry point is generated too and is deliberately not in this set:
+        // it is written once at creation and is where a reader starts.
+        assertTrue(FileRole.isDerived(CONFIG, ProjectTemplate.GAME_BOT, CONFIG.activitiesSourceFile()));
+        assertTrue(FileRole.isDerived(CONFIG, ProjectTemplate.GAME_BOT, CONFIG.activityRegistrySourceFile()));
+        assertTrue(FileRole.isDerived(CONFIG, ProjectTemplate.GAME_BOT, CONFIG.flowDriverSourceFile()));
+
+        assertFalse(FileRole.isDerived(CONFIG, ProjectTemplate.GAME_BOT, CONFIG.mainSourceFile()));
+        assertFalse(FileRole.isDerived(CONFIG, ProjectTemplate.GAME_BOT, inMainPackage("GoHome.java")));
+        assertFalse(FileRole.isDerived(CONFIG, ProjectTemplate.GAME_BOT, inMainPackage("MyHelper.java")));
+    }
+
+    @Test
+    void nothingIsDerivedOutsideTheGameBotTemplate() {
+        // A FlowDriver.java the user wrote themselves in an empty project is theirs, and has to stay listed.
+        assertFalse(FileRole.isDerived(CONFIG, ProjectTemplate.EMPTY, CONFIG.flowDriverSourceFile()));
+        assertFalse(FileRole.isDerived(CONFIG, null, CONFIG.flowDriverSourceFile()));
+    }
+
+    @Test
     void generatedIsInertByDefault() {
         FileRole generated = FileRole.GENERATED;
         assertTrue(generated.isReadOnly());

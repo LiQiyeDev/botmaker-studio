@@ -98,6 +98,24 @@ public enum FileRole {
         return EDITABLE;
     }
 
+    /**
+     * True when {@code file} is one BotMaker <em>re</em>writes from the Activity Flow every time it changes —
+     * {@code Activities}, {@code ActivityRegistry}, {@code FlowDriver}. They are a rendering of
+     * {@code activities.json}, the way the flow canvas is, and opening one shows the user the output of a
+     * drawing they already have on screen; nothing in them can be changed except by changing the flow.
+     *
+     * <p>A narrower set than {@link #GENERATED}, which also covers the entry point. That one is generated but
+     * not derived: it is written once at creation, it is where a reader starts, and it is the only place the
+     * two {@code Bot.start} hooks are visibly wired up — so it stays listed.
+     */
+    public static boolean isDerived(ProjectConfig config, ProjectTemplate template, Path file) {
+        if (of(config, template, file) != GENERATED) return false;
+        Path abs = file.toAbsolutePath();
+        return sameFile(abs, config.activitiesSourceFile())
+                || sameFile(abs, config.activityRegistrySourceFile())
+                || sameFile(abs, config.flowDriverSourceFile());
+    }
+
     private static boolean sameFile(Path abs, Path other) {
         return other != null && abs.equals(other.toAbsolutePath());
     }

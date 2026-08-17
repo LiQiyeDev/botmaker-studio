@@ -174,16 +174,26 @@ class LockedBlockRenderingTest extends FxHeadlessTest {
     }
 
     @Test
-    void aGeneratedWiringMethodOffersNoControlsAtAll() {
+    void aGeneratedWiringMethodIsNotBuiltAtAll() {
+        // Stronger than "offers nothing to click", which is what this used to assert. isEnabled() is written
+        // from the flow dialog's enable checkbox, so there is no version of it the author edits here — it is
+        // MemberVisibility.NOBODY and never reaches the tree. Its run() sibling is untouched.
         Rendered r = render(CONFIG.activitiesPackageDir().resolve("Mining.java"), ACTIVITY);
-        BodyBlock isEnabled = bodyOf(r.root(), "isEnabled");
-        assertTrue(isEnabled.isReadOnly(), "precondition: isEnabled is MethodLock.FULL");
 
-        Node[] node = new Node[1];
-        interact(() -> node[0] = isEnabled.getUINode(r.context()));
+        assertFalse(hasMethod(r.root(), "isEnabled"), "generated wiring must not be rendered for anyone");
+        assertTrue(hasMethod(r.root(), "run"), "the method the user came to write stays");
+    }
 
-        assertEquals(List.of(), interactiveControls(node[0]),
-                "a fully generated method must offer nothing to click");
+    /** True when the block tree contains a method declaration called {@code methodName}. */
+    private static boolean hasMethod(CodeBlock root, String methodName) {
+        for (CodeBlock b : flatten(root)) {
+            if (b instanceof com.botmaker.studio.blocks.func.MethodDeclarationBlock m
+                    && m.getAstNode() instanceof org.eclipse.jdt.core.dom.MethodDeclaration decl
+                    && decl.getName().getIdentifier().equals(methodName)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Test
@@ -229,12 +239,14 @@ class LockedBlockRenderingTest extends FxHeadlessTest {
 
     @Test
     void aLockedCallOffersNoDropdownToChangeTheMethod() {
-        // The reported bug: the method-call dropdown edited read-only code and the edit stuck.
-        Rendered r = render(CONFIG.activitiesPackageDir().resolve("Mining.java"), ACTIVITY);
-        BodyBlock isEnabled = bodyOf(r.root(), "isEnabled");
+        // The reported bug: the method-call dropdown edited read-only code and the edit stuck. Asserted on the
+        // flow driver's generated run() — an activity's isEnabled(), the other locked call, is no longer drawn
+        // at all (see aGeneratedWiringMethodIsNotBuiltAtAll), so it can no longer carry a dropdown to test.
+        Rendered r = render(CONFIG.flowDriverSourceFile(), FLOW_DRIVER);
+        BodyBlock locked = bodyOf(r.root(), "run");
 
         Node[] node = new Node[1];
-        interact(() -> node[0] = isEnabled.getUINode(r.context()));
+        interact(() -> node[0] = locked.getUINode(r.context()));
 
         assertEquals(List.of(), controlsOfType(node[0], ComboBox.class),
                 "no scope/method selector on a locked call");

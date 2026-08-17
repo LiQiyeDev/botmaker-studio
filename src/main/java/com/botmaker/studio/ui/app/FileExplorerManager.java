@@ -42,6 +42,11 @@ import java.util.stream.Stream;
  *       them breaks the build; Project ▸ Recover Project Files regenerates them).</li>
  * </ul>
  *
+ * <p>The <b>derived</b> files — {@code Activities}, {@code ActivityRegistry}, {@code FlowDriver} — are in
+ * neither group: {@link FileRole#isDerived} keeps them out of the tree entirely. They are the Activity Flow
+ * rendered as Java and are rewritten from it on every change, so listing them offered the user a file they can
+ * read but never change, beside the dialog that is the actual way to change it.
+ *
  * <p>The generated group is deliberately <em>not</em> labelled "read-only": which <em>parts</em> of a file are
  * locked is a per-method question ({@code MethodLock} / {@code LockResolver}), answered where the methods are —
  * in the editor, by the badge and the accent on the method you're meant to write — so a flat file-level claim
@@ -263,6 +268,9 @@ public class FileExplorerManager {
                     collectByRole(path, role, out);
                     continue;
                 }
+                // A derived file is not listed at all — see FileRole.isDerived. It is the flow drawn as Java,
+                // and the tree offering it is the tree offering a file whose every line answers to a dialog.
+                if (FileRole.isDerived(config, state.getTemplate(), path)) continue;
                 FileRole actual = FileRole.of(config, state.getTemplate(), path);
                 if (role == null ? actual != FileRole.EDITABLE : actual == role) out.add(path);
             }

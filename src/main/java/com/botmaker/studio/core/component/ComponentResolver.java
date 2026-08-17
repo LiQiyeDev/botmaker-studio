@@ -18,6 +18,7 @@ import org.eclipse.jdt.core.dom.ASTNode;
  * it is unit-tested headlessly.
  *
  * <pre>
+ * NOBODY component                      -> HIDDEN
  * EDITOR_ONLY component + USER audience -> HIDDEN
  * locked + WhenLocked.HIDE              -> HIDDEN
  * locked                                -> SHOWN_LOCKED
@@ -80,8 +81,12 @@ public final class ComponentResolver {
      * and of a whole class member ({@code MemberVisibility}, used by the parser to leave a member out of the
      * tree entirely). Both must answer identically, so both ask here. A null audience is the editor — the
      * conservative default, since showing scaffolding is the behaviour that predates this axis.
+     *
+     * <p>{@link BlockComponent.Visibility#NOBODY} is the one verdict no audience overrides: the editor's own
+     * default of "show me everything" does not extend to wiring that has no editable form on this canvas.
      */
     public static boolean isVisibleTo(BlockComponent.Visibility visibility, Audience audience) {
+        if (visibility == BlockComponent.Visibility.NOBODY) return false;
         Audience who = audience == null ? Audience.EDITOR : audience;
         return visibility != BlockComponent.Visibility.EDITOR_ONLY || who.seesScaffolding();
     }

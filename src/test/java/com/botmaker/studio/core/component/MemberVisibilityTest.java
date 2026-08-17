@@ -22,11 +22,13 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * What a person who did not write the bot is shown of an activity stub.
+ * What each audience is shown of an activity stub.
  *
  * <p>The shape being asserted is the whole point of the audience axis: everything BotMaker put in the file
- * disappears, and {@code run()} — the one thing its author actually wrote — stays. The editor keeps seeing all
- * of it, because hiding scaffolding from the person responsible for it would be a different (and wrong) feature.
+ * disappears, and {@code run()} — the one thing its author actually wrote — stays. That now holds for the
+ * <em>author</em> too. The three generated members are written from elsewhere ({@code ActivityStubSync}, the
+ * flow dialog's checkbox) or from nowhere, so an edit made to them in the editor is reverted on the next save;
+ * showing the author a control that cannot work is not the same as showing them what they are responsible for.
  */
 class MemberVisibilityTest {
 
@@ -40,6 +42,7 @@ class MemberVisibilityTest {
             package com.mybot.activities;
             public class Mining extends Activity<Mining.Outcome> {
                 public static final Mining INSTANCE = new Mining();
+                public static final String[] POPUPS = {};
                 private int oreCount;
                 public enum Outcome { NEXT, BAG_FULL }
                 @Override
@@ -73,11 +76,18 @@ class MemberVisibilityTest {
     }
 
     @Test
-    void anActivityStubShowsTheUserItsRunMethodAndNothingElse() {
-        assertEquals(Visibility.EDITOR_ONLY, inStub("Outcome"));    // written from the flow dialog
-        assertEquals(Visibility.EDITOR_ONLY, inStub("INSTANCE"));   // wiring the registry binds
-        assertEquals(Visibility.EDITOR_ONLY, inStub("isEnabled"));  // MethodLock.FULL
+    void anActivityStubShowsItsRunMethodAndNothingElse() {
+        assertEquals(Visibility.NOBODY, inStub("Outcome"));         // written from the flow dialog
+        assertEquals(Visibility.NOBODY, inStub("INSTANCE"));        // wiring the registry binds
+        assertEquals(Visibility.NOBODY, inStub("isEnabled"));       // MethodLock.FULL
         assertEquals(Visibility.EVERYONE, inStub("run"));           // the reason the file exists
+    }
+
+    @Test
+    void aStaticTheAuthorDeclaredIsHiddenFromAReaderButNotFromThem() {
+        // The rule is not "statics are scaffolding". Popups.POPUPS is the author's own template list, edited
+        // right there in the file; only INSTANCE, which nothing can edit, is nobody's.
+        assertEquals(Visibility.EDITOR_ONLY, inStub("POPUPS"));
     }
 
     @Test
@@ -87,23 +97,27 @@ class MemberVisibilityTest {
     }
 
     @Test
-    void theEditorSeesEverythingTheUserDoesNot() {
+    void generatedMembersAreHiddenFromBothAudiences() {
         LockResolver resolver = resolver(STUB);
-        for (String name : new String[] {"Outcome", "INSTANCE", "isEnabled", "run", "oreCount"}) {
+        for (String name : new String[] {"Outcome", "INSTANCE", "isEnabled"}) {
+            assertFalse(MemberVisibility.isVisible(resolver, member(name), Audience.EDITOR), name);
+            assertFalse(MemberVisibility.isVisible(resolver, member(name), Audience.USER), name);
+        }
+        // What the author keeps: their own code, and the static a reader is spared.
+        for (String name : new String[] {"run", "oreCount", "POPUPS"}) {
             assertTrue(MemberVisibility.isVisible(resolver, member(name), Audience.EDITOR), name);
         }
-        assertFalse(MemberVisibility.isVisible(resolver, member("Outcome"), Audience.USER));
+        assertFalse(MemberVisibility.isVisible(resolver, member("POPUPS"), Audience.USER));
     }
 
     @Test
     void aSuperviseHooksOutcomeIsHiddenEvenThoughNothingLocksIt() {
         // Popups/GoHome are called directly rather than routed on, so GeneratedMembers doesn't lock their
-        // Outcome — it is still not something a reader of the bot has any use for.
+        // Outcome — ActivityStubSync still writes it, so an edit here would not survive the next save.
         LockResolver hook = resolver(HOOK);
         assertTrue(hook.signatureEditable(member("Outcome")));
-        assertEquals(Visibility.EDITOR_ONLY, MemberVisibility.of(hook, member("Outcome")));
-        // ...and its static template list goes with it, for the same reason INSTANCE does.
-        assertEquals(Visibility.EDITOR_ONLY, MemberVisibility.of(hook, member("INSTANCE")));
+        assertEquals(Visibility.NOBODY, MemberVisibility.of(hook, member("Outcome")));
+        assertEquals(Visibility.NOBODY, MemberVisibility.of(hook, member("INSTANCE")));
     }
 
     @Test
@@ -111,7 +125,7 @@ class MemberVisibilityTest {
         // Same source, different location. These rules are about the files the Studio manages, not about the
         // shape of a class — a user's own helper keeps every member whatever it is named.
         LockResolver plain = resolver(PLAIN);
-        for (String name : new String[] {"Outcome", "INSTANCE", "isEnabled", "run", "oreCount"}) {
+        for (String name : new String[] {"Outcome", "INSTANCE", "isEnabled", "run", "oreCount", "POPUPS"}) {
             assertEquals(Visibility.EVERYONE, MemberVisibility.of(plain, member(name)), name);
         }
     }

@@ -48,7 +48,20 @@ public record BlockComponent(String id, Kind kind, Visibility visibility, WhenLo
          * Shown only to {@link Audience#EDITOR}: generated members, scaffold wiring, and fields that exist to
          * give the editor a drop target rather than to be read.
          */
-        EDITOR_ONLY
+        EDITOR_ONLY,
+
+        /**
+         * Shown to <b>neither</b> audience — BotMaker's own wiring, drawn on the canvas for nobody.
+         *
+         * <p>Not a stricter {@link #EDITOR_ONLY}: it answers a different question. {@code EDITOR_ONLY} is for
+         * something the author is responsible for and a reader has no use for. This is for something <em>no
+         * one</em> edits here, because the place to change it is somewhere else entirely — an activity's
+         * {@code Outcome} constants are drawn on the flow canvas, its {@code isEnabled()} is the checkbox
+         * beside it in the flow dialog, and its {@code INSTANCE} is not editable anywhere at all. Rendering
+         * them in the editor only offered the author a control that either does nothing or is undone on the
+         * next save.
+         */
+        NOBODY
     }
 
     /**
