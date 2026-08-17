@@ -220,6 +220,20 @@ public enum SdkType {
         return role;
     }
 
+    /**
+     * The constant names of an SDK enum, in declaration order — empty for anything that isn't one.
+     *
+     * <p>Read off the real {@code Class<?>} rather than a hand-kept list, which is the whole point of this
+     * enum holding class literals: the settings model offers {@code Key} and {@code MouseButton} as pickable
+     * types, and a constant added or removed in the SDK changes the picker with no Studio edit — while a
+     * <em>renamed</em> class still breaks the build here rather than a menu at runtime.
+     */
+    public List<String> enumConstantNames() {
+        Object[] constants = type.getEnumConstants();
+        if (constants == null) return List.of();
+        return Arrays.stream(constants).map(c -> ((Enum<?>) c).name()).toList();
+    }
+
     /** True for {@link Role#FACADE} and {@link Role#FACADE_HIDDEN} — the recognition set. */
     public boolean isFacade() {
         return role != Role.VALUE;

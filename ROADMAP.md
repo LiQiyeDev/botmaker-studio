@@ -6,6 +6,17 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-17 — The settings model: project-wide, tagged, and rendered as Java literals
+  (`project/settings/`).** Phase 1 of moving parameters out of `activities.json`. `Setting` replaces
+  `ActivityVariable` and belongs to the *project* rather than to an activity — a knob two activities need
+  stops having to exist twice — with `tag()` doing the organising, over the same `TagCatalog` templates use.
+  `SettingType` renders a value straight to a Java literal instead of emitting a `JsonNode` reader for the bot
+  to run at startup, and adds `DURATION` (`90s`, via `DurationWire`), `TEMPLATE` (through the `Templates`
+  constant), `KEY`/`MOUSE_BUTTON` (options read off the SDK enum via `SdkType.enumConstantNames()`) and
+  min/max bounds on the number types. Every conversion is total and idempotent, so a bad value degrades in
+  Studio where the editor can see it rather than silently inside the running bot. Model only — nothing is
+  wired up yet.
+
 - **2026-08-17 — Declared launch targets are advice, and the workflow guide gains a runtime diagram
   (`docs/RuntimeDiagram`, `ui/app/LaunchTargetDialog`, `docs/Workflow`).** A published bot's declared launch
   kinds *disabled* the rest for whoever installed it — but an author can only test the launchers they own, so
