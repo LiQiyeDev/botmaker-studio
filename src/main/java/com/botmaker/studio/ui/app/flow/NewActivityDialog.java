@@ -94,7 +94,7 @@ public final class NewActivityDialog {
         GridPane.setHgrow(name, Priority.ALWAYS);
         GridPane.setHgrow(description, Priority.ALWAYS);
 
-        error.setStyle("-fx-text-fill: #b00020;");
+        error.getStyleClass().add("dialog-error-text");
         error.setWrapText(true);
 
         Button cancel = new Button("Cancel");
@@ -126,7 +126,7 @@ public final class NewActivityDialog {
                 + "each one on the canvas. Every activity also has a NEXT outcome, and any outcome you "
                 + "leave unwired ends the run. You can add more later from the side panel.");
         explain.setWrapText(true);
-        explain.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
+        explain.getStyleClass().add("dialog-hint-text");
 
         TextField newOutcome = new TextField();
         newOutcome.setPromptText("new outcome (e.g. bag full)");
@@ -159,9 +159,9 @@ public final class NewActivityDialog {
         outcomeRows.getChildren().clear();
 
         Label next = new Label(FlowEdge.outcomeLabel(FlowEdge.NEXT_OUTCOME));
-        next.setStyle("-fx-text-fill: #666;");
+        next.getStyleClass().add("dialog-hint-text");
         Label always = new Label("always present");
-        always.setStyle("-fx-font-size: 10px; -fx-text-fill: gray;");
+        always.getStyleClass().add("dialog-hint-text");
         HBox nextRow = new HBox(8, next, always);
         nextRow.setAlignment(Pos.CENTER_LEFT);
         outcomeRows.getChildren().add(nextRow);

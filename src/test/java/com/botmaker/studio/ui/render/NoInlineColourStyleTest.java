@@ -40,7 +40,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class NoInlineColourStyleTest {
 
     private static final Path SOURCE_ROOT = Path.of("src/main/java/com/botmaker/studio");
-    private static final Set<String> SCANNED = Set.of("blocks", "core", "ui/render");
+    private static final Set<String> SCANNED = Set.of("blocks", "core", "ui/render", "ui/app/flow");
 
     /** The literal argument of a {@code setStyle("…")} call, including concatenated continuations. */
     private static final Pattern SET_STYLE = Pattern.compile("setStyle\\(\\s*(\"(?:[^\"\\\\]|\\\\.)*\")");

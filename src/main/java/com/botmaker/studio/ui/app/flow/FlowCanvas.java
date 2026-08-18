@@ -2,11 +2,13 @@ package com.botmaker.studio.ui.app.flow;
 
 import com.botmaker.studio.project.activity.FlowEdge;
 import com.botmaker.studio.ui.app.params.ParamValueWidgets;
+import com.botmaker.studio.ui.render.theme.BlockTheme;
 import javafx.application.Platform;
 import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.SimpleObjectProperty;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
+import javafx.css.PseudoClass;
 import javafx.geometry.Bounds;
 import javafx.geometry.Insets;
 import javafx.geometry.Point2D;
@@ -23,8 +25,12 @@ import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Tooltip;
 import javafx.scene.input.MouseButton;
 import javafx.scene.input.MouseEvent;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Background;
 import javafx.scene.layout.Pane;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
@@ -74,8 +80,13 @@ public final class FlowCanvas extends StackPane {
     private static final double MIN_ZOOM = 0.4;
     private static final double MAX_ZOOM = 2.0;
     private static final double ARROW_LENGTH = 11;
-    private static final Color WIRE = Color.web("#4a7ebb");
-    private static final Color WIRE_HOVER = Color.web("#b00020");
+
+    /** "Won't run" on a card and on its minimap dot; "selected" on a card and on a wire. Both styled in CSS. */
+    private static final PseudoClass OFF = PseudoClass.getPseudoClass("off");
+    private static final PseudoClass PICKED = PseudoClass.getPseudoClass("picked");
+
+    /** The grid dot colour used before CSS has been applied — the light theme's, and never seen for long. */
+    private static final Color GRID_FALLBACK = Color.web("#d8d8d8");
 
     /** Auto-arrange spacing: the pitch between layers, the gap between stacked cards, and the orphan row gap. */
     private static final double ARRANGE_X = 300;
@@ -113,6 +124,20 @@ public final class FlowCanvas extends StackPane {
     /** Fired on a double-click on empty canvas, with the point in unscaled canvas coordinates. */
     private Consumer<Point2D> onCanvasDoubleClick = p -> {};
 
+    /**
+     * The dot grid, and the one surface on this canvas CSS cannot paint: a {@link GraphicsContext} takes a
+     * {@link Color} and has never heard of a stylesheet. So {@code gridInk} — zero-sized, unmanaged, never
+     * drawn — carries the {@code .flow-grid-ink} class, and {@link #paintGrid()} reads the colour back off it.
+     */
+    private final Canvas grid = new Canvas(CANVAS_W, CANVAS_H);
+    private final Region gridInk = new Region();
+
+    /** Repaints the grid on a theme switch; a field so it can be unsubscribed when the canvas leaves its scene. */
+    private final Consumer<BlockTheme.ThemeType> onThemeChanged = t -> paintGrid();
+
+    /** The wire the next Delete removes, or null. A wire is selected first and deleted second — see {@link #selectEdge}. */
+    private FlowEdge selectedEdge;
+
     private CubicCurve pendingWire;
     private ActivityDraft pendingFrom;
     private String pendingOutcome;
@@ -129,7 +154,13 @@ public final class FlowCanvas extends StackPane {
         content.setPrefSize(CANVAS_W, CANVAS_H);
         content.getStyleClass().add("flow-canvas-content");
         content.getTransforms().add(zoom);
-        content.getChildren().addAll(gridBackground(), wires, rubberBand());
+        grid.setMouseTransparent(true);
+        gridInk.getStyleClass().add("flow-grid-ink");
+        gridInk.setManaged(false);
+        gridInk.setMouseTransparent(true);
+        gridInk.resize(0, 0);
+        content.getChildren().addAll(grid, gridInk, wires, rubberBand());
+        paintGrid();
 
         scroller = new ScrollPane(new Group(content));
         // Deliberately NOT pannable: ScrollPane pans on any button, which would steal the left drag from
@@ -145,6 +176,24 @@ public final class FlowCanvas extends StackPane {
             e.consume();
         });
 
+        // The grid is painted rather than styled, so it has to be repainted by hand when the theme changes —
+        // and once when the canvas first joins a scene, which is the first moment CSS has anything to say.
+        sceneProperty().addListener((o, was, is) -> {
+            if (is == null) {
+                BlockTheme.removeThemeChangeListener(onThemeChanged);
+                return;
+            }
+            BlockTheme.addThemeChangeListener(onThemeChanged);
+            paintGrid();
+        });
+
+        // A wire is removed by selecting it and pressing Delete. The filter sits here rather than on the
+        // ScrollPane because the ScrollPane is what takes focus on a click, and a filter runs on the way down.
+        addEventFilter(KeyEvent.KEY_PRESSED, e -> {
+            if (e.getCode() != KeyCode.DELETE && e.getCode() != KeyCode.BACK_SPACE) return;
+            if (deleteSelectedEdge()) e.consume();
+        });
+
         content.setOnMousePressed(this::beginCanvasGesture);
         content.setOnMouseDragged(this::continueCanvasGesture);
         content.setOnMouseReleased(this::endCanvasGesture);
@@ -155,23 +204,32 @@ public final class FlowCanvas extends StackPane {
         scroller.viewportBoundsProperty().addListener((o, was, is) -> drawMinimapViewport());
     }
 
-    /** A faint dot grid, drawn once — it makes dragging and alignment legible without any per-frame cost. */
-    private static Canvas gridBackground() {
-        Canvas grid = new Canvas(CANVAS_W, CANVAS_H);
+    /**
+     * A faint dot grid — it makes dragging and alignment legible without any per-frame cost. Painted once per
+     * theme rather than once ever, in whatever colour {@code .flow-grid-ink} resolves to now.
+     */
+    private void paintGrid() {
         GraphicsContext g = grid.getGraphicsContext2D();
-        g.setFill(Color.web("#d8d8d8"));
+        g.clearRect(0, 0, CANVAS_W, CANVAS_H);
+        g.setFill(gridInk());
         for (double x = 0; x < CANVAS_W; x += GRID_STEP) {
             for (double y = 0; y < CANVAS_H; y += GRID_STEP) {
                 g.fillRect(x, y, 1, 1);
             }
         }
-        grid.setMouseTransparent(true);
-        return grid;
+    }
+
+    /** What the stylesheet says a grid dot is, or {@link #GRID_FALLBACK} before there is a stylesheet to ask. */
+    private Color gridInk() {
+        if (getScene() == null) return GRID_FALLBACK;
+        gridInk.applyCss();
+        Background background = gridInk.getBackground();
+        if (background == null || background.getFills().isEmpty()) return GRID_FALLBACK;
+        return background.getFills().getFirst().getFill() instanceof Color c ? c : GRID_FALLBACK;
     }
 
     private Node rubberBand() {
-        rubberBand.setFill(Color.web("#4a7ebb", 0.12));
-        rubberBand.setStroke(WIRE);
+        rubberBand.getStyleClass().add("flow-band");
         rubberBand.getStrokeDashArray().addAll(4.0, 4.0);
         rubberBand.setVisible(false);
         rubberBand.setMouseTransparent(true);
@@ -566,6 +624,7 @@ public final class FlowCanvas extends StackPane {
                 return;
             }
             select(null);
+            selectEdge(null);
             bandOrigin = new Point2D(e.getX(), e.getY());
             rubberBand.setX(bandOrigin.getX());
             rubberBand.setY(bandOrigin.getY());
@@ -632,9 +691,8 @@ public final class FlowCanvas extends StackPane {
     private Node buildMinimap() {
         minimap.setPrefSize(MINIMAP_W, MINIMAP_H);
         minimap.setMaxSize(MINIMAP_W, MINIMAP_H);
-        minimap.setStyle("-fx-background-color: rgba(255,255,255,0.85); -fx-border-color: #c8c8c8;");
-        minimapViewport.setFill(Color.web("#4a7ebb", 0.15));
-        minimapViewport.setStroke(WIRE);
+        minimap.getStyleClass().add("flow-minimap");
+        minimapViewport.getStyleClass().add("flow-minimap-viewport");
         minimap.setOnMousePressed(this::jumpFromMinimap);
         minimap.setOnMouseDragged(this::jumpFromMinimap);
         StackPane.setAlignment(minimap, Pos.BOTTOM_RIGHT);
@@ -659,7 +717,8 @@ public final class FlowCanvas extends StackPane {
                     card.getLayoutY() / CANVAS_H * MINIMAP_H,
                     Math.max(3, CARD_WIDTH / CANVAS_W * MINIMAP_W),
                     Math.max(2, heightOf(card) / CANVAS_H * MINIMAP_H));
-            dot.setFill(card.draft().enabled() ? WIRE : Color.web("#b8b8b8"));
+            dot.getStyleClass().add("flow-minimap-card");
+            dot.pseudoClassStateChanged(OFF, !card.draft().enabled());
             minimap.getChildren().add(dot);
         }
         minimap.getChildren().add(minimapViewport);
@@ -732,17 +791,56 @@ public final class FlowCanvas extends StackPane {
         // rather than the straight start→end line, so it stays flush with the curve however the cards sit.
         Polygon head = arrowHead(curve.getControlX2(), curve.getControlY2(), end.getX(), end.getY());
 
-        Group wire = new Group(curve, head);
+        // The hitbox: the same curve again, invisible and six times as wide, behind the visible one. Picking
+        // on a 2.5px stroke meant hunting for the pixel — and a wire you cannot hit is a wire you cannot
+        // remove, which is what made a mis-drawn flow feel permanent.
+        CubicCurve hit = new CubicCurve(curve.getStartX(), curve.getStartY(),
+                curve.getControlX1(), curve.getControlY1(), curve.getControlX2(), curve.getControlY2(),
+                curve.getEndX(), curve.getEndY());
+        hit.getStyleClass().add("flow-wire-hit");
+
+        Group wire = new Group(hit, curve, head);
+        wire.getStyleClass().add("flow-wire-group");
+        wire.pseudoClassStateChanged(PICKED, edge.equals(selectedEdge));
         Tooltip.install(wire, new Tooltip(edge.from() + " — " + edge.outcomeOrNext() + " → " + edge.to()
-                + "  (click to remove)"));
-        wire.setOnMouseEntered(e -> paintWire(curve, head, WIRE_HOVER));
-        wire.setOnMouseExited(e -> paintWire(curve, head, WIRE));
+                + "  (click to select, then Delete to remove)"));
+        // Select, don't delete. A single click used to remove the wire outright, so brushing one while
+        // reaching for a card silently unwired the flow, with nothing to undo it.
         wire.setOnMouseClicked(e -> {
-            edges.remove(edge);
-            onMessage.accept("");
-            refresh();
+            selectEdge(edge);
+            e.consume();
+        });
+        wire.setOnContextMenuRequested(e -> {
+            MenuItem remove = new MenuItem("Remove this wire");
+            remove.setOnAction(a -> removeEdge(edge));
+            new ContextMenu(remove).show(wire, e.getScreenX(), e.getScreenY());
+            e.consume();
         });
         return wire;
+    }
+
+    /** Marks {@code edge} as the one Delete will remove — or nothing, when it is null. */
+    private void selectEdge(FlowEdge edge) {
+        if (edge == null && selectedEdge == null) return;
+        selectedEdge = edge;
+        onMessage.accept(edge == null ? ""
+                : "Wire selected: " + edge.from() + " — " + edge.outcomeOrNext() + " → " + edge.to()
+                        + ". Press Delete to remove it.");
+        redrawWires();
+    }
+
+    /** Removes the selected wire, if there is one. Returns whether anything happened, for the key filter. */
+    private boolean deleteSelectedEdge() {
+        if (selectedEdge == null) return false;
+        removeEdge(selectedEdge);
+        return true;
+    }
+
+    private void removeEdge(FlowEdge edge) {
+        edges.remove(edge);
+        selectedEdge = null;
+        onMessage.accept("");
+        refresh();
     }
 
     /** A filled triangle at {@code (tipX, tipY)}, pointing away from {@code (fromX, fromY)}. */
@@ -753,20 +851,13 @@ public final class FlowCanvas extends StackPane {
                 tipX, tipY,
                 tipX - ARROW_LENGTH * Math.cos(angle - spread), tipY - ARROW_LENGTH * Math.sin(angle - spread),
                 tipX - ARROW_LENGTH * Math.cos(angle + spread), tipY - ARROW_LENGTH * Math.sin(angle + spread));
-        head.setFill(WIRE);
+        head.getStyleClass().add("flow-arrow");
         return head;
-    }
-
-    private static void paintWire(CubicCurve curve, Polygon head, Color color) {
-        curve.setStroke(color);
-        head.setFill(color);
     }
 
     private static CubicCurve styledCurve() {
         CubicCurve curve = new CubicCurve();
-        curve.setStroke(WIRE);
-        curve.setStrokeWidth(2.5);
-        curve.setFill(null);
+        curve.getStyleClass().add("flow-wire");
         return curve;
     }
 
@@ -842,7 +933,7 @@ public final class FlowCanvas extends StackPane {
 
             Label title = new Label();
             title.textProperty().bind(draft.nameProperty());
-            title.setStyle("-fx-font-weight: bold;");
+            title.getStyleClass().add("flow-card-title");
 
             CheckBox enabled = new CheckBox();
             enabled.selectedProperty().bindBidirectional(draft.enabledProperty());
@@ -852,17 +943,18 @@ public final class FlowCanvas extends StackPane {
             goHome.selectedProperty().bindBidirectional(draft.goHomeProperty());
             goHome.setTooltip(new Tooltip("Go back to the home screen before running this activity"));
 
-            startBadge.setStyle("-fx-font-size: 10px; -fx-text-fill: #2e7d32; -fx-font-weight: bold;");
+            startBadge.getStyleClass().add("flow-start-badge");
             startBadge.setManaged(false);
             startBadge.setVisible(false);
 
             HBox header = new HBox(8, title, enabled, goHome, startBadge);
             header.setAlignment(Pos.CENTER_LEFT);
 
-            orphanNote.setStyle("-fx-font-size: 10px; -fx-text-fill: #b06000;");
+            orphanNote.getStyleClass().add("flow-orphan-note");
             orphanNote.setManaged(false);
             orphanNote.setVisible(false);
 
+            body.getStyleClass().add("flow-card");
             body.setPrefWidth(CARD_WIDTH);
             body.setMinWidth(CARD_WIDTH);
             body.getChildren().addAll(header, orphanNote);
@@ -880,7 +972,7 @@ public final class FlowCanvas extends StackPane {
 
             // The input port is decoration only — a wire's endpoint is computed from the card's geometry
             // (inPortCenter), so nothing needs to hold on to the circle.
-            getChildren().addAll(port("#8a8a8a"), body, ports);
+            getChildren().addAll(port("flow-port-in"), body, ports);
             setSelected(false);
             // Cards greyed out when disabled: the flow still passes through, the activity just doesn't run.
             draft.enabledProperty().addListener((o, was, is) -> {
@@ -909,11 +1001,11 @@ public final class FlowCanvas extends StackPane {
             ports.getChildren().clear();
             outPorts.clear();
             for (String outcome : draft.allOutcomes()) {
-                Circle circle = port("#4a7ebb");
+                Circle circle = port("flow-port-out");
                 installPortHandlers(circle, outcome);
                 outPorts.put(outcome, circle);
                 Label label = new Label(FlowEdge.outcomeLabel(outcome));
-                label.setStyle("-fx-font-size: 9px; -fx-text-fill: #666;");
+                label.getStyleClass().add("flow-port-label");
                 HBox row = new HBox(3, label, circle);
                 row.setAlignment(Pos.CENTER_RIGHT);
                 ports.getChildren().add(row);
@@ -1016,13 +1108,14 @@ public final class FlowCanvas extends StackPane {
             startBadge.setVisible(isStart);
         }
 
+        /**
+         * The card's two states, as pseudo-classes rather than an inline style. Inline was the reason a dark
+         * Studio drew a white card: {@code setStyle} beats the stylesheet in every theme, so there was no
+         * theme override that could have reached it.
+         */
         void restyle() {
-            String border = selectedNow ? "#4a7ebb" : "#c8c8c8";
-            String background = draft.enabled() ? "white" : "#eeeeee";
-            body.setStyle("-fx-background-color: " + background + ";"
-                    + "-fx-border-color: " + border + ";"
-                    + "-fx-border-width: " + (selectedNow ? 2 : 1) + ";"
-                    + "-fx-border-radius: 6; -fx-background-radius: 6;");
+            body.pseudoClassStateChanged(PICKED, selectedNow);
+            body.pseudoClassStateChanged(OFF, !draft.enabled());
         }
     }
 
@@ -1032,9 +1125,9 @@ public final class FlowCanvas extends StackPane {
         refresh();
     }
 
-    private static Circle port(String color) {
-        Circle c = new Circle(PORT_RADIUS, Color.web(color));
-        c.setStroke(Color.WHITE);
+    private static Circle port(String styleClass) {
+        Circle c = new Circle(PORT_RADIUS);
+        c.getStyleClass().add(styleClass);
         return c;
     }
 }

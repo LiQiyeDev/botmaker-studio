@@ -8,13 +8,11 @@ import com.botmaker.studio.project.activity.ActivityPreset;
 import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.project.activity.FlowNode;
 import com.botmaker.studio.services.ActivityService;
-import com.botmaker.studio.services.ImageTemplateLibrary;
-import com.botmaker.studio.services.VariableRailModel;
 import com.botmaker.studio.ui.app.flow.ActivityDraft;
 import com.botmaker.studio.ui.app.flow.FlowCanvas;
 import com.botmaker.studio.ui.app.flow.FlowNames;
 import com.botmaker.studio.ui.app.flow.NewActivityDialog;
-import com.botmaker.studio.ui.app.params.ParamValueWidgets;
+import com.botmaker.studio.ui.app.params.ParametersDialog;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -52,7 +50,7 @@ import java.util.Set;
  * cards, wire them into the order they should run, and tick the ones you want.
  *
  * <p>Three panes: the {@link FlowCanvas} in the middle, a side panel with the selected card's name,
- * outcomes and a read-only look at its params, and a top bar of presets — named on/off selections that
+ * outcomes and go-home/popup ticks, and a top bar of presets — named on/off selections that
  * flip the enable ticks without touching the wiring. Parameters themselves are <em>defined</em> in
  * {@code ParametersDialog} (Project ▸ Parameters…), not here: this dialog is about the graph. Saving delegates to {@link ActivityService#update},
  * which rewrites {@code activities.json}, regenerates {@code Activities.java} /
@@ -279,9 +277,7 @@ public class ActivityFlowDialog {
         sidePanel.getChildren().clear();
 
         if (draft == null) {
-            sidePanel.getChildren().addAll(heading("Variables"),
-                    new Label("Filed under no tag. Select a card to see that activity's."));
-            sidePanel.getChildren().add(buildVariableSummary(""));
+            sidePanel.getChildren().addAll(heading("Variables"), buildParametersLink());
             sidePanel.getChildren().addAll(new Separator(), buildFlowLimitsSection());
             sidePanel.getChildren().addAll(new Separator(), buildArchivedSection());
             return;
@@ -328,7 +324,7 @@ public class ActivityFlowDialog {
 
         sidePanel.getChildren().addAll(heading("Activity"), head, new Separator(),
                 heading("Outcomes"), buildOutcomeEditor(draft), new Separator(),
-                heading("Variables"), buildVariableSummary(draft.name()),
+                heading("Variables"), buildParametersLink(),
                 new Separator(), archive);
     }
 
@@ -345,7 +341,7 @@ public class ActivityFlowDialog {
                 + "each one on the canvas. Every activity also has a NEXT outcome, and any outcome "
                 + "you leave unwired ends the run.");
         explain.setWrapText(true);
-        explain.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
+        explain.getStyleClass().add("dialog-hint-text");
         box.getChildren().add(explain);
 
         for (String outcome : List.copyOf(draft.outcomes())) {
@@ -473,7 +469,7 @@ public class ActivityFlowDialog {
         Label explain = new Label("A flow can loop on purpose. This is how many activities one run may go "
                 + "through before the bot gives up and stops — it's what catches a loop with no exit.");
         explain.setWrapText(true);
-        explain.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
+        explain.getStyleClass().add("dialog-hint-text");
 
         TextField field = new TextField(String.valueOf(maxSteps));
         field.setPrefColumnCount(6);
@@ -493,7 +489,7 @@ public class ActivityFlowDialog {
                 + "loops back to itself otherwise never lets go of the mouse — this is your window to hit "
                 + "Stop. Set 0 for no pause.");
         delayExplain.setWrapText(true);
-        delayExplain.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
+        delayExplain.getStyleClass().add("dialog-hint-text");
 
         TextField delayField = new TextField(String.valueOf(stepDelayMs));
         delayField.setPrefColumnCount(6);
@@ -555,7 +551,7 @@ public class ActivityFlowDialog {
             Label none = new Label("Nothing archived. Archiving retires an activity and puts its file aside, "
                     + "ready to come back unchanged.");
             none.setWrapText(true);
-            none.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
+            none.getStyleClass().add("dialog-hint-text");
             box.getChildren().add(none);
             return box;
         }
@@ -603,52 +599,29 @@ public class ActivityFlowDialog {
     }
 
     /**
-     * What is filed under {@code tag}, read-only — label, value, and whether the bot's user is offered it.
+     * The one pointer from the graph editor to the value editor — a button, not a list.
      *
-     * <p>Deliberately not an editor any more. This dialog used to be both the graph editor and the settings
-     * editor, which put a cramped column of text fields beside the canvas and made the project's own values
-     * reachable only by deselecting every card.
+     * <p>This panel used to print the variables filed under the selected activity. Two things were wrong with
+     * that. It read as though the activity <em>owned</em> them, when a tag is a filing label and nothing else:
+     * a variable tagged {@code Mining} is readable from every activity. And it was a column of values you
+     * could not change, beside a canvas that is about wiring — the questions "what runs next" and "how many
+     * retries" have no reason to share a panel.
      *
-     * <p>And a variable is <em>not owned</em> by the activity whose tag it carries; it is merely listed under
-     * it. That is the second reason this only reports: the one editor is <b>Project &rarr; Parameters…</b>,
-     * which sees the whole list at once — the only place a knob two activities share can sensibly be changed.
+     * <p>So the whole list is gone and only the way out remains. <b>Project &rarr; Parameters…</b> is the one
+     * editor, and it sees every variable at once — the only place a knob two activities share can sensibly be
+     * changed.
      */
-    private Node buildVariableSummary(String tag) {
-        VBox box = new VBox(6);
-        List<ActivityVariable> shown = VariableRailModel.in(activityService.current().variables(),
-                tag == null || tag.isBlank() ? ActivityVariable.GENERAL : tag,
-                ImageTemplateLibrary.tagCatalog(activityService.projectConfig()));
-        if (shown.isEmpty()) {
-            Label none = new Label("Nothing filed here yet.");
-            none.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
-            box.getChildren().add(none);
-        } else {
-            GridPane grid = new GridPane();
-            grid.setHgap(8);
-            grid.setVgap(4);
-            int row = 0;
-            for (ActivityVariable v : shown) {
-                Label name = new Label(v.displayLabel());
-                Label value = new Label(ParamValueWidgets.display(v));
-                value.setStyle("-fx-text-fill: gray;");
-                grid.add(name, 0, row);
-                grid.add(value, 1, row);
-                if (v.isPublic()) {
-                    Label badge = new Label("shared");
-                    badge.setStyle("-fx-font-size: 10px; -fx-text-fill: gray;");
-                    badge.setTooltip(new javafx.scene.control.Tooltip(
-                            "Offered to whoever runs the bot, not just to you."));
-                    grid.add(badge, 2, row);
-                }
-                row++;
-            }
-            box.getChildren().add(grid);
-        }
-        Label where = new Label("Add, retype or share variables in Project ▸ Parameters…");
-        where.setWrapText(true);
-        where.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
-        box.getChildren().add(where);
-        return box;
+    private Node buildParametersLink() {
+        Label what = new Label("Values belong to the project, not to a card: a variable filed under an "
+                + "activity is still readable from all the others. Add, retype and share them in one place.");
+        what.setWrapText(true);
+        what.getStyleClass().add("dialog-hint-text");
+
+        Button open = new Button("Open Parameters…");
+        open.setOnAction(e ->
+                new ParametersDialog(stage, activityService.projectConfig(), activityService).show());
+
+        return new VBox(6, what, open);
     }
 
     // --- bottom bar: run-order preview + save ---
@@ -656,7 +629,8 @@ public class ActivityFlowDialog {
     private Node buildBottomBar() {
         progress.setVisible(false);
         progress.setPrefSize(20, 20);
-        orderLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: #444;");
+        orderLabel.getStyleClass().add("dialog-hint-text");
+        statusLabel.getStyleClass().add("dialog-error-text");
 
         Button close = new Button("Close");
         close.setOnAction(e -> stage.close());
@@ -792,7 +766,6 @@ public class ActivityFlowDialog {
     }
 
     private void error(String message) {
-        statusLabel.setStyle("-fx-text-fill: #b00020;");
         statusLabel.setText(message);
     }
 

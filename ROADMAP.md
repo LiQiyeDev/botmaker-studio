@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-18 — The flow canvas is themed, its wires are clickable, and it stops listing variables
+  (`ui/app/flow/FlowCanvas`, `ui/app/ActivityFlowDialog`, `services/CodeEditorService`).** Phase 3. The card
+  body, wires, ports, grid, marquee and minimap moved from `setStyle` hex literals to style classes over new
+  `-bm-flow-*` tokens — every one derived from a token the theme overlays already redefine, so a white
+  card in the Dark theme is now unrepresentable rather than merely fixed. The grid keeps a zero-sized
+  `.flow-grid-ink` probe, since a `Canvas` takes a `Color` and cannot be styled. Each wire gained a
+  transparent companion curve at 14px — the hitbox — and a click now *selects* it (Delete, or the context
+  menu, removes it) instead of deleting on contact. The side panel's variable listing is gone: it read as
+  though the activity owned them, so all that remains is the button to **Parameters**. And the outcome picker
+  refreshes — `CodeEditorService` re-reads the activity stubs `ActivityStubSync` rewrote and re-renders the
+  open one, so an outcome added in the flow dialog appears in the `return` block's picker without a restart.
+  `NoInlineColourStyleTest` now scans `ui/app/flow/` too.
+
 - **2026-08-18 — A variable is dragged to its tag, and a number can declare its range
   (`ui/app/params/ParametersDialog`, `VariableWire.isBounded`).** Phase 2. The Parameters dialog gained the two
   things the rail implied but did not offer: a grip on each card that drops onto a rail row to file the

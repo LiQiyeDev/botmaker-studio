@@ -169,6 +169,21 @@
     /* "It worked" green, for the status lines dialogs write after an action. Only severities have text
        tokens; this is the fourth, and like them it is per-theme because a fixed green fails on one end. */
     -bm-severity-ok-text: #2e7d32;
+
+    /*
+     * Activity Flow canvas. Every one of these derives from a token the theme overlays already redefine, so
+     * they are declared once here and nowhere else — a theme that says nothing about the flow still gets a
+     * readable one. That is the bug they exist for: the card body, its border, the wires and the grid were
+     * hex literals set from Java ("white", #c8c8c8, #4a7ebb), so a dark Studio drew a white card with white
+     * text on it and wires the same blue either way.
+     */
+    -bm-flow-card: -fx-control-inner-background;
+    -bm-flow-card-off: derive(-fx-control-inner-background, -10%);
+    -bm-flow-border: -bm-divider;
+    -bm-flow-grid: -bm-divider;
+    -bm-flow-wire: -bm-primary;
+    -bm-flow-wire-hot: -bm-danger;
+    -bm-flow-port: -bm-muted;
 }
 
 /*
@@ -372,6 +387,124 @@
 /* Activity Flow canvas (FlowCanvas) — the "class" surface where Activities are laid out. */
 .flow-canvas-content {
     -fx-background-color: -fx-control-inner-background;
+}
+
+/*
+ * The dot grid's ink. Nothing is ever drawn with this rule: the grid is painted into a Canvas, whose
+ * GraphicsContext takes a Color and has never heard of a stylesheet, so FlowCanvas keeps a zero-sized Region
+ * carrying this class and reads the colour back off it. A probe, but a probe styled like anything else —
+ * which is what keeps the one un-CSS-able surface on the same tokens as the rest.
+ */
+.flow-grid-ink {
+    -fx-background-color: -bm-flow-grid;
+}
+
+/* One activity, as a card. :off is "won't run" (the tick is clear), :picked is "selected". */
+.flow-card {
+    -fx-background-color: -bm-flow-card;
+    -fx-background-radius: 6;
+    -fx-border-color: -bm-flow-border;
+    -fx-border-width: 1;
+    -fx-border-radius: 6;
+}
+
+.flow-card:off {
+    -fx-background-color: -bm-flow-card-off;
+}
+
+.flow-card:picked {
+    -fx-border-color: -bm-primary;
+    -fx-border-width: 2;
+}
+
+.flow-card-title {
+    -fx-font-weight: bold;
+}
+
+.flow-start-badge {
+    -fx-font-size: 10px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -bm-severity-ok-text;
+}
+
+.flow-orphan-note {
+    -fx-font-size: 10px;
+    -fx-text-fill: -bm-severity-warning-text;
+}
+
+.flow-port-label {
+    -fx-font-size: 9px;
+    -fx-text-fill: -bm-muted;
+}
+
+/* The port dots. The stroke is the card's own colour, so a dot reads as punched out of the card's edge. */
+.flow-port-in,
+.flow-port-out {
+    -fx-stroke: -bm-flow-card;
+}
+
+.flow-port-in {
+    -fx-fill: -bm-flow-port;
+}
+
+.flow-port-out {
+    -fx-fill: -bm-flow-wire;
+}
+
+/*
+ * A wire: the visible curve, its arrow head, and — behind both — a transparent curve of the same geometry at
+ * six times the width. That last one is the whole hitbox. Picking on a 2.5px curve meant hunting for the
+ * pixel; picking on this means aiming at the wire.
+ */
+.flow-wire {
+    -fx-stroke: -bm-flow-wire;
+    -fx-stroke-width: 2.5;
+    -fx-fill: transparent;
+}
+
+.flow-wire-hit {
+    -fx-stroke: transparent;
+    -fx-stroke-width: 14;
+    -fx-fill: transparent;
+}
+
+.flow-arrow {
+    -fx-fill: -bm-flow-wire;
+}
+
+.flow-wire-group:hover > .flow-wire,
+.flow-wire-group:picked > .flow-wire {
+    -fx-stroke: -bm-flow-wire-hot;
+}
+
+.flow-wire-group:hover > .flow-arrow,
+.flow-wire-group:picked > .flow-arrow {
+    -fx-fill: -bm-flow-wire-hot;
+}
+
+.flow-wire-group:picked > .flow-wire {
+    -fx-stroke-width: 3.5;
+}
+
+/* Marquee and minimap: outlines rather than washes, because a translucent fill needs an alpha CSS has no
+   function for, and a token with alpha baked in would stop following the theme. */
+.flow-band,
+.flow-minimap-viewport {
+    -fx-fill: transparent;
+    -fx-stroke: -bm-flow-wire;
+}
+
+.flow-minimap {
+    -fx-background-color: -bm-flow-card;
+    -fx-border-color: -bm-flow-border;
+}
+
+.flow-minimap-card {
+    -fx-fill: -bm-flow-wire;
+}
+
+.flow-minimap-card:off {
+    -fx-fill: -bm-flow-port;
 }
 
 .file-explorer .sidebar-header {

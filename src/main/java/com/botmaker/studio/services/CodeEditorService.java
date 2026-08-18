@@ -102,8 +102,11 @@ public class CodeEditorService {
 
         // ActivityService rewrites Activities.java / ActivityRegistry.java on disk behind our back; forget the
         // cached copies so the next open reads the regenerated source instead of a stale snapshot.
-        eventBus.subscribe(CoreApplicationEvents.ActivitiesChangedEvent.class,
-                event -> evictGeneratedActivityFiles(), false);
+        eventBus.subscribe(CoreApplicationEvents.ActivitiesChangedEvent.class, event -> {
+            evictGeneratedActivityFiles();
+            // update() publishes from its background thread; re-rendering the open file is FX-thread work.
+            Platform.runLater(this::reloadActivityStubs);
+        }, false);
 
         eventBus.subscribe(CoreApplicationEvents.CodeUpdatedEvent.class, event -> {
             handleCodeUpdateForHistory(event);
@@ -411,6 +414,38 @@ public class CodeEditorService {
     private void evictGeneratedActivityFiles() {
         state.removeFile(config.activitiesSourceFile());
         state.removeFile(config.activityRegistrySourceFile());
+    }
+
+    /**
+     * Re-reads the activity stubs {@code ActivityStubSync} may have just rewritten, and re-renders the open
+     * one if it was among them.
+     *
+     * <p>Adding an outcome in the flow dialog puts a new constant in that activity's {@code Outcome} enum, on
+     * disk. The editor's copy is a snapshot taken when the file was opened, and every block reads the AST of
+     * that snapshot — so the {@code return} block's outcome picker kept offering yesterday's constants until
+     * Studio was restarted, which read as "adding an outcome doesn't work".
+     *
+     * <p>Re-reading rather than {@link #evictGeneratedActivityFiles evicting}: a stub is ordinary user code,
+     * and dropping it from {@code openFiles} would take it out of {@link ProjectAnalyzer}'s view of the
+     * project until someone happened to open it again.
+     */
+    private void reloadActivityStubs() {
+        Path dir = config.activitiesPackageDir();
+        if (dir == null) return;
+        Path active = state.getActiveFile() == null ? null : state.getActiveFile().getPath();
+        boolean activeChanged = false;
+        for (ProjectFile file : List.copyOf(state.getAllFiles())) {
+            if (!file.getPath().startsWith(dir) || !Files.isRegularFile(file.getPath())) continue;
+            try {
+                String onDisk = Files.readString(file.getPath());
+                if (onDisk.equals(file.getContent())) continue;
+                file.setContent(onDisk);
+                activeChanged |= file.getPath().equals(active);
+            } catch (Exception e) {
+                System.err.println("Error re-reading activity stub: " + file.getPath() + " (" + e.getMessage() + ")");
+            }
+        }
+        if (activeChanged) switchToFile(active);
     }
 
     public void createFile(String className) {
