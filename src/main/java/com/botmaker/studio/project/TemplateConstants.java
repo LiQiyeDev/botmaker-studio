@@ -26,6 +26,15 @@ import java.util.Locale;
  * <p>A template whose name predates that rule (mixed case, or a {@code -}) simply has no constant:
  * {@link #constantFor} answers null, the generated class skips it, and Studio keeps writing its path as a string
  * literal. Both spellings are read, so the two kinds coexist in one project and an old bot keeps compiling.
+ *
+ * <p><b>Why not give every template a constant anyway</b> (sanitising and suffixing the awkward names)? Because
+ * that is exactly the side table this class exists to avoid: two templates called {@code Gold-Ore} and
+ * {@code Gold_Ore} would both want {@code GOLD_ORE}, so one gets a suffix, and the constant no longer says which
+ * file it means — {@link #baseNameFor} would have to consult the images folder, and disagree with it the moment
+ * one is renamed. The problem a universal constant was meant to solve — a rename that breaks a path literal
+ * silently — is solved instead by
+ * {@link com.botmaker.studio.services.TemplateReferences}, which rewrites both spellings at their use sites when
+ * a template is renamed or retargeted. The bijection stays exact and the awkward names stay readable.
  */
 public final class TemplateConstants {
 

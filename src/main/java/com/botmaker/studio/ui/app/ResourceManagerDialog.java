@@ -3,10 +3,15 @@ package com.botmaker.studio.ui.app;
 import com.botmaker.studio.events.CoreApplicationEvents.ResourcesChangedEvent;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.ProjectConfig;
+import com.botmaker.studio.project.ProjectState;
+import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.ImageTemplateLibrary;
+import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.services.TemplateManifest;
+import com.botmaker.studio.services.TemplateReferences;
 import com.botmaker.studio.sharing.TemplateArchive;
+import com.botmaker.studio.ui.app.capture.OverlayTemplateCapture;
 import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
 import com.botmaker.studio.ui.render.components.TagPicklist;
 import com.botmaker.studio.ui.render.components.TemplateGallery;
@@ -15,17 +20,19 @@ import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
-import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
-import javafx.scene.control.Dialog;
+import javafx.scene.control.CheckBox;
+import javafx.scene.control.CustomMenuItem;
 import javafx.scene.control.Label;
-import javafx.scene.control.Tooltip;
-import javafx.scene.image.Image;
-import javafx.scene.image.ImageView;
 import javafx.scene.control.MenuButton;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.SeparatorMenuItem;
+import javafx.scene.control.TextField;
+import javafx.scene.control.Tooltip;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
 import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -35,8 +42,11 @@ import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -45,22 +55,27 @@ import java.util.Set;
 import java.util.TreeSet;
 
 /**
- * Manages the project's saved image templates (PNGs under {@code src/main/resources/images}): preview,
- * rename, delete, tag, import/export, and capture a new one by cropping the screen
- * ({@link ScreenCaptureService}). Publishes {@link ResourcesChangedEvent} after any change so open template
- * pickers can refresh.
+ * Manages the project's saved image templates (PNGs under {@code src/main/resources/images}): preview, rename,
+ * replace, delete, tag, import/export, and capture new ones through the same on-screen overlay the toolbar
+ * opens. Publishes {@link ResourcesChangedEvent} after any change so open template pickers can refresh.
  *
- * <p>Tagging is offered three ways, because the three questions are different. The chips under the preview
- * re-tag the <em>one</em> template being looked at, where the answer is visible. "Add templates…" works from
- * the tag inwards — the only way to fill a tag that is currently empty, which the grid cannot offer because
- * an empty tag draws nothing to select. "Remove from tag" is the bulk inverse, over the grid's selection.
- * The old "Tags…" button remains the fourth: it <em>replaces</em> a template's whole tag set rather than
- * adding or removing one, which is the wrong operation for all three of the above.
+ * <p><b>Everything that acts on one template lives under its preview</b> — its name, its tags, its picture —
+ * because those three are answered by looking at it. The buttons along the bottom are the ones that act on the
+ * <em>selection</em> or on the library: capture, the two per-tag bulk actions, delete, import and export. That
+ * split is why the old bottom "Tags…" button is gone: it replaced a template's whole tag set from a dialog
+ * that showed no picture, duplicating in the worst possible form what the chip row now does one tag at a time
+ * with the template in view.
+ *
+ * <p><b>Renaming and deleting are compile-safe.</b> Both go through {@link TemplateReferences}, which knows
+ * every place a template is named in the bot's own source — the generated {@code Templates} constant and the
+ * raw path literal alike — so a rename carries its use sites with it and a delete either finds none or offers
+ * to point them at another template first. Before that, renaming an old-style template silently broke it at
+ * run time and deleting a used one always did.
  *
  * <p>The listing itself is {@link TemplateGallery} — the same component a template slot opens as a picker, so
- * "which templates exist and how are they filed" has one rendering rather than a tree here and tag submenus
- * there. Organisation comes from {@link TemplateManifest} rather than from directories (see that class for
- * why the files stay flat): a template with two tags appears under either rail row and is still one file.
+ * "which templates exist and how are they filed" has one rendering. Organisation comes from
+ * {@link TemplateManifest} rather than from directories (see that class for why the files stay flat): a
+ * template with two tags appears under either rail row and is still one file.
  */
 public class ResourceManagerDialog {
 
@@ -68,22 +83,34 @@ public class ResourceManagerDialog {
     private final ProjectConfig config;
     private final EventBus eventBus;
     private final ScreenCaptureService capture;
+    private final ProjectSettingsService settings;
+    private final CodeEditorService editor;
 
     private TemplateGallery gallery;
     private final ImageView preview = new ImageView();
+    private final TextField nameField = new TextField();
+    private final Button renameButton = new Button("Rename");
+    private final Label nameMessage = new Label();
     private final FlowPane previewTags = new FlowPane(6, 6);
     private final MenuButton addTagButton = new MenuButton("+ Tag");
-    private final Label previewTagsHint = new Label("Select a single template to tag it here.");
+    private final MenuButton replaceButton = new MenuButton("Replace image…");
+    private final VBox singleBox = new VBox(8);
+    private final Label previewHint = new Label("Select a single template to rename, tag or replace it.");
     private final Button addToTagButton = new Button("Add templates…");
     private final Button removeFromTagButton = new Button("Remove from tag");
+    private final Button deleteButton = new Button("Delete");
     private final Label statusLabel = new Label();
     private Stage stage;
 
-    public ResourceManagerDialog(Window owner, ProjectConfig config, EventBus eventBus, ScreenCaptureService capture) {
+    public ResourceManagerDialog(Window owner, ProjectConfig config, EventBus eventBus,
+                                 ScreenCaptureService capture, ProjectSettingsService settings,
+                                 CodeEditorService editor) {
         this.owner = owner;
         this.config = config;
         this.eventBus = eventBus;
         this.capture = capture;
+        this.settings = settings;
+        this.editor = editor;
     }
 
     public void show() {
@@ -92,22 +119,23 @@ public class ResourceManagerDialog {
         stage.initModality(Modality.APPLICATION_MODAL);
         stage.setTitle("Resource Manager — Image Templates");
 
-        // Multi-select so a tag can be applied to a whole group in one go — the bulk case is why tagging
-        // lives here rather than only on the capture dialogs.
+        // Multi-select: plain click toggles a tile, so filing or deleting a group is the same gesture as
+        // picking one. Every bulk action below reads gallery.selectedFiles().
         gallery = new TemplateGallery(config, true);
         gallery.setOnSelectionChanged(() -> {
             showPreview(selectedFile());
-            refreshTagRow();
+            refreshSingleBox();
+            refreshTagActions();
         });
         gallery.setOnTagChanged(this::refreshTagActions);
 
         preview.setPreserveRatio(true);
-        VBox previewBox = new VBox(6, new Label("Preview"), preview, tagRow());
+        VBox previewBox = new VBox(6, new Label("Preview"), preview, singlePane());
         previewBox.setPadding(new Insets(0, 0, 0, 12));
         previewBox.setMinWidth(380);
         // Let the preview grow with the window rather than a fixed 220px box.
         preview.fitWidthProperty().bind(previewBox.widthProperty().subtract(12));
-        preview.fitHeightProperty().bind(previewBox.heightProperty().subtract(96));
+        preview.fitHeightProperty().bind(previewBox.heightProperty().subtract(220));
         VBox.setVgrow(preview, Priority.ALWAYS);
 
         HBox content = new HBox(8, gallery, previewBox);
@@ -115,17 +143,13 @@ public class ResourceManagerDialog {
         VBox.setVgrow(content, Priority.ALWAYS);
 
         Button captureBtn = new Button("Capture new...");
+        captureBtn.setTooltip(new Tooltip("Opens the capture overlay — capture one, or a batch in a row"));
         captureBtn.setOnAction(e -> captureNew());
-        Button tagBtn = new Button("Tags...");
-        tagBtn.setOnAction(e -> editTags(selectedFiles()));
         addToTagButton.setOnAction(e -> addTemplatesToCurrentTag());
         removeFromTagButton.setOnAction(e -> removeCurrentTagFromSelection());
         Button manageTagsBtn = new Button("Manage tags...");
         manageTagsBtn.setOnAction(e -> manageTags());
-        Button renameBtn = new Button("Rename");
-        renameBtn.setOnAction(e -> rename(selectedFile()));
-        Button deleteBtn = new Button("Delete");
-        deleteBtn.setOnAction(e -> delete(selectedFile()));
+        deleteButton.setOnAction(e -> delete(selectedFiles()));
         Button exportBtn = new Button("Export...");
         exportBtn.setOnAction(e -> export(selectedFiles()));
         Button importBtn = new Button("Import...");
@@ -135,24 +159,22 @@ public class ResourceManagerDialog {
 
         HBox spacer = new HBox();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox buttons = new HBox(8, captureBtn, tagBtn, addToTagButton, removeFromTagButton, manageTagsBtn,
-                renameBtn, deleteBtn, exportBtn, importBtn, spacer, close);
+        HBox buttons = new HBox(8, captureBtn, addToTagButton, removeFromTagButton, manageTagsBtn,
+                deleteButton, exportBtn, importBtn, spacer, close);
         buttons.setAlignment(Pos.CENTER_LEFT);
 
         VBox root = new VBox(12, content, statusLabel, buttons);
         root.setPadding(new Insets(16));
 
         reload();
-        refreshTagRow();
-        refreshTagActions();
-        stage.setScene(ThemedWindows.scene(root, 820, 560));
+        stage.setScene(ThemedWindows.scene(root, 880, 620));
         stage.show();
     }
 
     /** Re-reads the library after a change here (or in the tag manager) so the grid and the rail counts agree. */
     private void reload() {
         gallery.reload();
-        refreshTagRow();
+        refreshSingleBox();
         refreshTagActions();
     }
 
@@ -162,7 +184,7 @@ public class ResourceManagerDialog {
         return files.size() == 1 ? files.getFirst() : null;
     }
 
-    /** Every selected template. Ctrl/⌘-click extends the selection; that is the bulk-tagging path. */
+    /** Every selected template, in the order the tiles were clicked. */
     private List<Path> selectedFiles() {
         return gallery.selectedFiles();
     }
@@ -176,59 +198,135 @@ public class ResourceManagerDialog {
         }
     }
 
-    private void captureNew() {
-        stage.setIconified(true); // get the dialog out of the way of the capture overlay
-        capture.captureRegion(owner, (img, sourceW, sourceH) -> Platform.runLater(() -> {
-            stage.setIconified(false);
-            Optional<ImageTemplatePicker.NamedCapture> named =
-                    ImageTemplatePicker.promptNewTemplate(stage, config, img, null);
-            if (named.isEmpty()) return;
-            try {
-                ImageTemplateLibrary.saveTemplate(config, img, named.get().name(), sourceW, sourceH, null);
-                ImageTemplateLibrary.applyTags(config, Map.of(named.get().name(), named.get().tags()));
-                published();
-                reload();
-            } catch (IOException e) {
-                statusLabel.setText("Failed to save: " + e.getMessage());
-            }
-        }));
+    // -------------------------------------------------------------------------
+    // Everything about the one template being looked at
+    // -------------------------------------------------------------------------
+
+    /**
+     * The panel under the preview: name, tags, and the button that swaps the picture. It gives way to a hint
+     * whenever the selection is not exactly one template — a chip's ✕ has to mean "off this template", and a
+     * name field over two selected templates has no answer at all.
+     */
+    private VBox singlePane() {
+        nameField.setPromptText("template name");
+        nameField.setOnAction(e -> renameToFieldValue());
+        nameField.textProperty().addListener((o, was, is) -> refreshNameState());
+        renameButton.setOnAction(e -> renameToFieldValue());
+        renameButton.setTooltip(new Tooltip("Renames the file and every block that uses it"));
+        nameMessage.getStyleClass().add("template-gallery-empty");
+        nameMessage.setWrapText(true);
+        HBox nameRow = new HBox(6, new Label("Name"), nameField, renameButton);
+        nameRow.setAlignment(Pos.CENTER_LEFT);
+        HBox.setHgrow(nameField, Priority.ALWAYS);
+
+        replaceButton.setTooltip(new Tooltip(
+                "Swap this template's picture, keeping its name, its tags and every block that uses it"));
+        MenuItem recapture = new MenuItem("Capture a new picture…");
+        recapture.setOnAction(e -> replaceByCapture(selectedFile()));
+        MenuItem fromFile = new MenuItem("Use an image file…");
+        fromFile.setOnAction(e -> replaceFromFile(selectedFile()));
+        replaceButton.getItems().setAll(recapture, fromFile);
+
+        previewHint.getStyleClass().add("template-gallery-empty");
+        previewHint.setWrapText(true);
+
+        singleBox.getChildren().setAll(nameRow, nameMessage, new Label("Tags"), previewTags, replaceButton);
+        VBox box = new VBox(6, singleBox, previewHint);
+        box.setPadding(new Insets(6, 0, 0, 0));
+        return box;
+    }
+
+    /** Shows the single-template panel or the hint, and refills the name field and the chips. */
+    private void refreshSingleBox() {
+        Path file = selectedFile();
+        boolean single = file != null;
+        singleBox.setVisible(single);
+        singleBox.setManaged(single);
+        previewHint.setVisible(!single);
+        previewHint.setManaged(!single);
+        previewTags.getChildren().clear();
+        if (!single) {
+            List<Path> selection = selectedFiles();
+            previewHint.setText(selection.isEmpty()
+                    ? "Select a single template to rename, tag or replace it."
+                    : selection.size() + " templates selected — the buttons below act on all of them.");
+            return;
+        }
+
+        String name = ImageTemplateLibrary.baseName(file);
+        nameField.setText(name);
+        boolean isDefault = ImageTemplateLibrary.isDefaultTemplate(file);
+        nameField.setDisable(isDefault);
+        replaceButton.setDisable(false);
+        refreshNameState();
+
+        List<String> tags = ImageTemplateLibrary.tagCatalog(config)
+                .declaredOnly(ImageTemplateLibrary.manifest(config).tagsOf(name));
+        for (String tag : tags) previewTags.getChildren().add(tagChip(name, tag));
+        previewTags.getChildren().add(tagMenu(name, tags));
+    }
+
+    /**
+     * Says inline whether the name in the field can be taken, and enables Rename only when it can. Inline
+     * rather than a dialog that refuses on OK: the answer depends on what else is in the library, which is on
+     * screen right next to the field.
+     */
+    private void refreshNameState() {
+        Path file = selectedFile();
+        if (file == null) return;
+        String current = ImageTemplateLibrary.baseName(file);
+        String wanted = ImageTemplateLibrary.sanitizeName(nameField.getText());
+        String problem = renameProblem(current, wanted);
+        boolean unchanged = wanted.equals(current);
+        renameButton.setDisable(problem != null || unchanged || nameField.isDisabled());
+        if (ImageTemplateLibrary.isDefaultTemplate(file)) {
+            nameMessage.setText("The default template can't be renamed.");
+        } else if (problem != null) {
+            nameMessage.setText(problem);
+        } else if (unchanged) {
+            nameMessage.setText("");
+        } else {
+            nameMessage.setText("Will be saved as " + wanted + ".png");
+        }
+    }
+
+    /** Why {@code wanted} can't be used, or null when it can. */
+    private String renameProblem(String current, String wanted) {
+        if (wanted.isBlank()) return "A template needs a name.";
+        if (wanted.equals(current)) return null;
+        if (ImageTemplateLibrary.isReservedName(wanted)) return "\"" + wanted + "\" is a name the library uses.";
+        if (ImageTemplateLibrary.exists(config, wanted)) return "There is already a template called " + wanted + ".";
+        return null;
+    }
+
+    /** Renames the previewed template and every block that names it, in one step. */
+    private void renameToFieldValue() {
+        Path file = selectedFile();
+        if (file == null || renameButton.isDisabled()) return;
+        String current = ImageTemplateLibrary.baseName(file);
+        String wanted = ImageTemplateLibrary.sanitizeName(nameField.getText());
+        if (renameProblem(current, wanted) != null) return;
+        try {
+            ImageTemplateLibrary.renameTemplate(config, file, wanted);
+            // After the file has moved, so a failure to rewrite leaves the sources naming a template that is
+            // gone (a compile error) rather than one that no longer exists under that name (a silent miss).
+            List<Path> touched = TemplateReferences.retarget(config, state(), current, wanted);
+            refreshEditor();
+            published();
+            reload();
+            gallery.setSelection(List.of(config.imagesRoot().resolve(wanted + ".png")));
+            statusLabel.setText(touched.isEmpty()
+                    ? "Renamed to " + wanted + "."
+                    : "Renamed to " + wanted + " and updated " + touched.size()
+                            + (touched.size() == 1 ? " file" : " files") + " that used it.");
+        } catch (IOException e) {
+            statusLabel.setText("Failed to rename: " + e.getMessage());
+        }
     }
 
     // -------------------------------------------------------------------------
     // Tagging where you are looking
     // -------------------------------------------------------------------------
-
-    /** The row under the preview: the selected template's tags as removable chips, plus one to add. */
-    private VBox tagRow() {
-        previewTagsHint.getStyleClass().add("template-gallery-empty");
-        previewTagsHint.setWrapText(true);
-        VBox box = new VBox(6, new Label("Tags"), previewTags, previewTagsHint);
-        box.setPadding(new Insets(6, 0, 0, 0));
-        return box;
-    }
-
-    /**
-     * Redraws the chips for the one selected template. With nothing — or more than one thing — selected the
-     * chips give way to a hint rather than showing the tags of an arbitrary member of the selection: a chip's
-     * ✕ has to mean "off this template", and with two selected it would be ambiguous. Bulk work is the two
-     * per-tag buttons.
-     */
-    private void refreshTagRow() {
-        Path file = selectedFile();
-        previewTags.getChildren().clear();
-        boolean single = file != null;
-        previewTags.setVisible(single);
-        previewTags.setManaged(single);
-        previewTagsHint.setVisible(!single);
-        previewTagsHint.setManaged(!single);
-        if (!single) return;
-
-        String name = ImageTemplateLibrary.baseName(file);
-        List<String> tags = ImageTemplateLibrary.tagCatalog(config)
-                .declaredOnly(ImageTemplateLibrary.manifest(config).tagsOf(name));
-        for (String tag : tags) previewTags.getChildren().add(tagChip(name, tag));
-        previewTags.getChildren().add(addTagMenu(name, tags));
-    }
 
     /** One tag on the previewed template, with the ✕ that takes it off — one click, no dialog. */
     private HBox tagChip(String templateName, String tag) {
@@ -247,19 +345,29 @@ public class ResourceManagerDialog {
         return chip;
     }
 
-    /** The chips' "+": the declared tags this template does not already carry, plus a way to declare one. */
-    private MenuButton addTagMenu(String templateName, List<String> already) {
+    /**
+     * The chips' "+": every declared tag as a tick box, so filing one template under three tags is one opening
+     * of one menu. Each box applies immediately and the menu stays open ({@code setHideOnClick(false)}) — the
+     * old version was one tag per click <em>and</em> closed itself after each, which is what made a template
+     * with several tags feel like it wasn't supported.
+     */
+    private MenuButton tagMenu(String templateName, List<String> already) {
         addTagButton.getItems().clear();
         Set<String> carried = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         carried.addAll(already);
         for (String tag : ImageTemplateLibrary.tagCatalog(config).names()) {
-            if (carried.contains(tag)) continue;
-            MenuItem item = new MenuItem(tag);
-            item.setOnAction(e -> {
-                ImageTemplateLibrary.addTag(config, List.of(templateName), tag);
+            CheckBox box = new CheckBox(tag);
+            box.setSelected(carried.contains(tag));
+            box.setOnAction(e -> {
+                if (box.isSelected()) ImageTemplateLibrary.addTag(config, List.of(templateName), tag);
+                else ImageTemplateLibrary.removeTag(config, List.of(templateName), tag);
                 published();
-                reload();
+                // Repaint the chips and the rail counts without closing the menu the user is still working in.
+                gallery.reload();
+                refreshTagActions();
             });
+            CustomMenuItem item = new CustomMenuItem(box);
+            item.setHideOnClick(false);
             addTagButton.getItems().add(item);
         }
         if (!addTagButton.getItems().isEmpty()) addTagButton.getItems().add(new SeparatorMenuItem());
@@ -278,10 +386,13 @@ public class ResourceManagerDialog {
     private void refreshTagActions() {
         String tag = gallery.selectedRealTag();
         boolean real = tag != null;
+        int selected = selectedFiles().size();
         addToTagButton.setText(real ? "Add templates to \"" + tag + "\"…" : "Add templates…");
         removeFromTagButton.setText(real ? "Remove from \"" + tag + "\"" : "Remove from tag");
         addToTagButton.setDisable(!real);
-        removeFromTagButton.setDisable(!real || selectedFiles().isEmpty());
+        removeFromTagButton.setDisable(!real || selected == 0);
+        deleteButton.setText(selected > 1 ? "Delete " + selected : "Delete");
+        deleteButton.setDisable(selected == 0);
     }
 
     /**
@@ -320,48 +431,6 @@ public class ResourceManagerDialog {
         statusLabel.setText("Removed \"" + tag + "\" from " + files.size() + " template(s).");
     }
 
-    /**
-     * Edits the tags of {@code files}. One file shows its own tags; several show the tags they <em>all</em>
-     * share, so saving the picklist applies to every one of them — the bulk operation the gallery's
-     * multi-select is for.
-     */
-    private void editTags(List<Path> files) {
-        if (files.isEmpty()) {
-            statusLabel.setText("Select one or more templates to tag.");
-            return;
-        }
-        TemplateManifest manifest = ImageTemplateLibrary.manifest(config);
-        TreeSet<String> shared = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-        shared.addAll(manifest.tagsOf(ImageTemplateLibrary.baseName(files.get(0))));
-        for (Path file : files) shared.retainAll(manifest.tagsOf(ImageTemplateLibrary.baseName(file)));
-
-        Dialog<ButtonType> dialog = new Dialog<>();
-        ThemedWindows.apply(dialog);
-        dialog.initOwner(stage);
-        dialog.setTitle("Tags");
-        dialog.setHeaderText(files.size() == 1
-                ? "Tags for " + ImageTemplateLibrary.baseName(files.get(0))
-                : "Tags for " + files.size() + " templates (only tags they all share are shown)");
-        ButtonType ok = new ButtonType("Save", ButtonBar.ButtonData.OK_DONE);
-        dialog.getDialogPane().getButtonTypes().addAll(ok, ButtonType.CANCEL);
-
-        TagPicklist picklist = new TagPicklist(config);
-        picklist.select(shared);
-        VBox box = new VBox(8, new Label("Choose the tags to file "
-                + (files.size() == 1 ? "this template" : "these templates") + " under."), picklist);
-        box.setPadding(new Insets(10));
-        dialog.getDialogPane().setContent(box);
-        dialog.setResultConverter(bt -> bt);
-
-        if (dialog.showAndWait().orElse(ButtonType.CANCEL) != ok) return;
-
-        Map<String, List<String>> tags = new LinkedHashMap<>();
-        for (Path file : files) tags.put(ImageTemplateLibrary.baseName(file), picklist.selected());
-        ImageTemplateLibrary.applyTags(config, tags);
-        published();
-        reload();
-    }
-
     /** Opens the tag manager, and picks up whatever it changed when it closes. */
     private void manageTags() {
         new TagManagerDialog(stage, config, () -> {
@@ -370,43 +439,186 @@ public class ResourceManagerDialog {
         }).show();
     }
 
-    private void rename(Path file) {
-        if (file == null) {
-            statusLabel.setText("Select a single template to rename.");
-            return;
-        }
-        if (ImageTemplateLibrary.isDefaultTemplate(file)) {
-            statusLabel.setText("The default template can't be renamed.");
-            return;
-        }
-        Optional<String> name = ImageTemplatePicker.promptTemplateName(stage, config, ImageTemplateLibrary.baseName(file));
-        if (name.isEmpty()) return;
+    // -------------------------------------------------------------------------
+    // Capture, replace
+    // -------------------------------------------------------------------------
+
+    /**
+     * Opens the same capture overlay the toolbar's "Capture Templates" opens — capture one, capture many, or
+     * capture an object — rather than the single-shot region crop this button used to run. Two flows for the
+     * same act was the whole complaint: only one of them could take a batch, and it wasn't the one behind the
+     * button named "Capture new".
+     *
+     * <p>The manager hides itself first. It is application-modal, so the overlay's toolbar would take no
+     * clicks at all with this window still up; it comes back through the overlay's {@code onClosed}.
+     */
+    private void captureNew() {
+        stage.hide();
+        OverlayTemplateCapture.open(owner, config, settings, capture, eventBus, gallery.selectedRealTag(),
+                () -> Platform.runLater(() -> {
+                    stage.show();
+                    reload();
+                }));
+    }
+
+    /** Recaptures a template's picture from the screen, keeping everything else about it. */
+    private void replaceByCapture(Path file) {
+        if (file == null) return;
+        stage.setIconified(true);   // a region crop owns the screen; this window is on it
+        capture.captureRegion(owner, (img, sourceW, sourceH) -> Platform.runLater(() -> {
+            stage.setIconified(false);
+            applyReplacement(file, img, sourceW, sourceH);
+        }));
+    }
+
+    /** Replaces a template's picture with an image file from disk. */
+    private void replaceFromFile(Path file) {
+        if (file == null) return;
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Replace " + ImageTemplateLibrary.baseName(file));
+        chooser.getExtensionFilters().add(
+                new FileChooser.ExtensionFilter("Images", "*.png", "*.jpg", "*.jpeg", "*.bmp", "*.gif"));
+        java.io.File picked = chooser.showOpenDialog(stage);
+        if (picked == null) return;
         try {
-            ImageTemplateLibrary.renameTemplate(config, file, name.get());
-            published();
-            reload();
+            BufferedImage img = ImageIO.read(picked);
+            if (img == null) {
+                statusLabel.setText("Couldn't read " + picked.getName() + " as an image.");
+                return;
+            }
+            // Unknown capture resolution: the file came from outside, so there is no window size to record.
+            applyReplacement(file, img, 0, 0);
         } catch (IOException e) {
-            statusLabel.setText("Failed to rename: " + e.getMessage());
+            statusLabel.setText("Failed to read the image: " + e.getMessage());
         }
     }
 
-    private void delete(Path file) {
-        if (file == null) {
-            statusLabel.setText("Select a single template to delete.");
+    private void applyReplacement(Path file, BufferedImage img, int sourceW, int sourceH) {
+        if (img == null) return;
+        try {
+            ImageTemplateLibrary.replaceImage(config, file, img, sourceW, sourceH, null);
+            published();
+            reload();
+            gallery.setSelection(List.of(file));
+            // Straight from disk, past the JavaFX image cache, which would otherwise hand back the old picture
+            // for the same URL.
+            preview.setImage(new Image(file.toUri() + "?t=" + System.currentTimeMillis()));
+            statusLabel.setText("Replaced the picture of " + ImageTemplateLibrary.baseName(file)
+                    + " — every block that uses it now sees the new one.");
+        } catch (IOException e) {
+            statusLabel.setText("Failed to replace the image: " + e.getMessage());
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Delete
+    // -------------------------------------------------------------------------
+
+    /**
+     * Deletes the selection, one template or twenty. Anything the bot's source still names is not deleted
+     * silently: the uses are listed, and the user either cancels or picks the template those blocks should
+     * point at instead — which is the answer they wanted in the first place, since a template is usually
+     * deleted because a better one replaced it.
+     */
+    private void delete(List<Path> selection) {
+        if (selection.isEmpty()) {
+            statusLabel.setText("Select the templates to delete.");
             return;
         }
-        if (ImageTemplateLibrary.isDefaultTemplate(file)) {
+        List<Path> files = new ArrayList<>();
+        boolean skippedDefault = false;
+        for (Path file : selection) {
+            if (ImageTemplateLibrary.isDefaultTemplate(file)) skippedDefault = true;
+            else files.add(file);
+        }
+        if (files.isEmpty()) {
             statusLabel.setText("The default template can't be deleted.");
             return;
         }
-        try {
-            ImageTemplateLibrary.deleteTemplate(config, file);
-            published();
-            reload();
-        } catch (IOException e) {
-            statusLabel.setText("Failed to delete: " + e.getMessage());
+
+        Map<String, TemplateReferences.Scan> used = new LinkedHashMap<>();
+        for (Path file : files) {
+            String name = ImageTemplateLibrary.baseName(file);
+            TemplateReferences.Scan scan = TemplateReferences.find(config, state(), name);
+            if (!scan.isEmpty()) used.put(name, scan);
         }
+        if (used.isEmpty()) {
+            deleteAll(files, skippedDefault, 0);
+            return;
+        }
+        offerTransfer(files, used, skippedDefault);
     }
+
+    /** The "N blocks use this" conversation: cancel, or point them at another template and then delete. */
+    private void offerTransfer(List<Path> files, Map<String, TemplateReferences.Scan> used, boolean skippedDefault) {
+        StringBuilder detail = new StringBuilder();
+        for (TemplateReferences.Scan scan : used.values()) {
+            detail.append(scan.baseName()).append(" — ").append(scan.describe()).append('\n');
+            for (TemplateReferences.Use use : scan.uses()) {
+                detail.append("    ").append(use.file().getFileName()).append(':').append(use.line())
+                        .append("  ").append(use.text()).append('\n');
+            }
+        }
+        ButtonType transfer = new ButtonType("Point them at another template…", ButtonType.OK.getButtonData());
+        Alert alert = new Alert(Alert.AlertType.WARNING,
+                "Deleting " + (used.size() == 1 ? "it" : "them") + " now would leave those blocks looking for a "
+                        + "file that isn't there.\n\nYou can point them at another template first — they keep "
+                        + "working, and the template goes.",
+                transfer, ButtonType.CANCEL);
+        ThemedWindows.apply(alert);
+        alert.initOwner(stage);
+        alert.setTitle("Still in use");
+        alert.setHeaderText(used.size() == 1
+                ? "\"" + used.keySet().iterator().next() + "\" is still used by your blocks"
+                : used.size() + " of the selected templates are still used by your blocks");
+        javafx.scene.control.TextArea where = new javafx.scene.control.TextArea(detail.toString().stripTrailing());
+        where.setEditable(false);
+        where.setPrefRowCount(Math.min(12, detail.toString().split("\n").length + 1));
+        alert.getDialogPane().setExpandableContent(where);
+        alert.getDialogPane().setExpanded(true);
+        if (alert.showAndWait().orElse(ButtonType.CANCEL) != transfer) {
+            statusLabel.setText("Nothing was deleted.");
+            return;
+        }
+
+        Set<Path> going = Set.copyOf(files);
+        TemplateGalleryDialog.Options options = TemplateGalleryDialog.Options
+                .pickOne("Point those blocks at…")
+                .withFilter(file -> !going.contains(file));
+        TemplateGalleryDialog.open(stage, config, options, picked -> {
+            if (picked.isEmpty()) return;
+            String replacement = ImageTemplateLibrary.baseName(picked.getFirst());
+            int rewritten = 0;
+            for (String name : used.keySet()) {
+                rewritten += TemplateReferences.retarget(config, state(), name, replacement).size();
+            }
+            refreshEditor();
+            deleteAll(files, skippedDefault, rewritten);
+        });
+    }
+
+    private void deleteAll(List<Path> files, boolean skippedDefault, int rewritten) {
+        int deleted = 0;
+        for (Path file : files) {
+            try {
+                ImageTemplateLibrary.deleteTemplate(config, file);
+                deleted++;
+            } catch (IOException e) {
+                statusLabel.setText("Failed to delete " + ImageTemplateLibrary.baseName(file) + ": " + e.getMessage());
+                break;
+            }
+        }
+        published();
+        reload();
+        String note = "Deleted " + deleted + (deleted == 1 ? " template" : " templates");
+        if (rewritten > 0) note += ", after pointing " + rewritten + (rewritten == 1 ? " file" : " files") + " elsewhere";
+        if (skippedDefault) note += ". The default template was left alone";
+        statusLabel.setText(note + ".");
+    }
+
+    // -------------------------------------------------------------------------
+    // Import / export
+    // -------------------------------------------------------------------------
 
     /** Exports the selection (or the whole library when nothing is selected) as a {@code .bmtemplates} file. */
     private void export(List<Path> selection) {
@@ -445,6 +657,21 @@ public class ResourceManagerDialog {
         } catch (IOException e) {
             statusLabel.setText("Failed to import: " + e.getMessage());
         }
+    }
+
+    // -------------------------------------------------------------------------
+
+    /** The editor's open files, so a rewrite reaches the buffers as well as the disk. Null in headless use. */
+    private ProjectState state() {
+        return editor == null ? null : editor.getState();
+    }
+
+    /** Re-renders the open file after its text was rewritten behind the editor's back. */
+    private void refreshEditor() {
+        ProjectState state = state();
+        if (state == null || state.getActiveFile() == null) return;
+        eventBus.publish(new com.botmaker.studio.events.CoreApplicationEvents.UIRefreshRequestedEvent(
+                state.getActiveFile().getContent()));
     }
 
     private void published() {

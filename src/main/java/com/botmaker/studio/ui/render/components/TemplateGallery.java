@@ -9,6 +9,7 @@ import javafx.css.PseudoClass;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
+import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
@@ -58,6 +59,9 @@ public final class TemplateGallery extends HBox {
     private final TextField search = new TextField();
     private final FlowPane grid = new FlowPane(10, 10);
     private final Label empty = new Label();
+    /** "N selected · Select all · Clear" — only built, and only shown, for a multi-select gallery. */
+    private final Label selectionCount = new Label();
+    private final HBox selectionBar = new HBox(10);
 
     /** The tiles currently on screen, so a selection change repaints without rebuilding the grid. */
     private final Map<Path, Node> tiles = new LinkedHashMap<>();
@@ -102,7 +106,7 @@ public final class TemplateGallery extends HBox {
         empty.getStyleClass().add("template-gallery-empty");
         empty.setWrapText(true);
 
-        VBox right = new VBox(8, search, scroll, empty);
+        VBox right = new VBox(8, search, selectionBar(), scroll, empty);
         VBox.setVgrow(scroll, Priority.ALWAYS);
         HBox.setHgrow(right, Priority.ALWAYS);
         getChildren().addAll(rail, right);
@@ -157,7 +161,47 @@ public final class TemplateGallery extends HBox {
         selected.clear();
         selected.addAll(files);
         tiles.forEach((file, node) -> node.pseudoClassStateChanged(SELECTED, selected.contains(file)));
+        refreshSelectionBar();
         if (onSelectionChanged != null) onSelectionChanged.run();
+    }
+
+    /** Selects every template the grid is currently showing — the tag being viewed, narrowed by the search. */
+    public void selectAll() {
+        setSelection(List.copyOf(tiles.keySet()));
+    }
+
+    /** Drops the selection without moving the rail or the search. */
+    public void clearSelection() {
+        setSelection(List.of());
+    }
+
+    /**
+     * The bar above the grid that says how many tiles are picked and offers the two answers to "now what" —
+     * all of them, or none. A single-select gallery has no such state, so it gets no bar at all rather than a
+     * permanently-empty strip.
+     */
+    private HBox selectionBar() {
+        if (!multiSelect) {
+            selectionBar.setManaged(false);
+            selectionBar.setVisible(false);
+            return selectionBar;
+        }
+        selectionCount.getStyleClass().add("template-gallery-selection-count");
+        Hyperlink all = new Hyperlink("Select all");
+        all.setOnAction(e -> selectAll());
+        Hyperlink none = new Hyperlink("Clear");
+        none.setOnAction(e -> clearSelection());
+        selectionBar.getChildren().addAll(selectionCount, all, none);
+        selectionBar.setAlignment(Pos.CENTER_LEFT);
+        selectionBar.getStyleClass().add("template-gallery-selection-bar");
+        refreshSelectionBar();
+        return selectionBar;
+    }
+
+    private void refreshSelectionBar() {
+        if (!multiSelect) return;
+        int n = selected.size();
+        selectionCount.setText(n == 0 ? "Click templates to select them" : n + " selected");
     }
 
     /**
@@ -194,6 +238,7 @@ public final class TemplateGallery extends HBox {
         // of surprise a search box invites.
         selected.retainAll(tiles.keySet());
         tiles.forEach((file, node) -> node.pseudoClassStateChanged(SELECTED, selected.contains(file)));
+        refreshSelectionBar();
         if (onSelectionChanged != null) onSelectionChanged.run();
         if (onTagChanged != null) onTagChanged.run();
 
@@ -250,7 +295,11 @@ public final class TemplateGallery extends HBox {
             return;
         }
         List<Path> next = new ArrayList<>();
-        if (multiSelect && (e.isShortcutDown() || e.isShiftDown())) {
+        if (multiSelect) {
+            // Plain click toggles. Batch work here is the common case — filing eight screenshots under a tag,
+            // deleting the six that came from a menu that no longer exists — and requiring Ctrl for it made
+            // the whole feature invisible to anyone who didn't already know it was there. Ctrl and Shift still
+            // work, so muscle memory from every other grid does the same thing it does elsewhere.
             next.addAll(selected);
             if (!next.remove(file)) next.add(file);
         } else {

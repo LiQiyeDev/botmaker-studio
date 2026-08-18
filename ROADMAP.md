@@ -6,6 +6,42 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-18 — Templates: a rename that carries its use sites, a delete that offers a transfer, multi-tagging,
+  batch selection and the real capture overlay (`services/TemplateReferences` (new), `ui/app/ResourceManagerDialog`,
+  `ui/render/components/TemplateGallery`, `ui/app/capture/OverlayTemplateCapture`, `services/ImageTemplateLibrary`,
+  `ui/render/components/ImageTemplatePicker`, `project/TemplateConstants`).** Follow-up phase 3, from hands-on
+  testing.
+
+  **Rename and delete are compile-safe.** New `services/TemplateReferences` finds every place a template is named
+  in the bot's own source — the generated `Templates.NAME` constant *and* the raw path literal, which is how a
+  template whose name predates the lowercase rule is written — and rewrites both, in the file on disk and in the
+  editor's open buffer (the editor writes buffers out on run, so a disk-only rewrite would be undone). Rename now
+  carries its use sites with it instead of leaving a build to break, or — for a literal — nothing to break and a
+  run-time miss. Delete scans first: an unused template goes silently, a used one lists `file:line` for every use
+  and offers *Point them at another template…*, which retargets those blocks and then deletes. The plan's other
+  half — a constant for *every* template, sanitised and collision-suffixed — was deliberately **not** done: it
+  breaks the name↔constant bijection `TemplateConstants` is built on, and the failure it guarded against is what
+  `TemplateReferences` now fixes properly.
+
+  **Tagging where you are looking.** The `+ Tag` chip menu is a list of tick boxes over every declared tag that
+  stays open while you tick (`CustomMenuItem.setHideOnClick(false)`), so filing one template under three tags is
+  one opening of one menu; it was one tag per click, closing after each. The bottom **Tags…** button is gone — it
+  replaced a template's whole tag set from a dialog showing no picture.
+
+  **Name and picture, under the preview.** The name is a text field with an inline verdict ("There is already a
+  template called gold_ore") rather than a dialog that accepts a name and then refuses it, and **Replace image…**
+  swaps a template's picture — recaptured or from a file — keeping its name, its tags and every block that uses
+  it. `ImageTemplatePicker.promptTemplateName` and its `allowExisting` branch went with the old Rename button.
+
+  **Batch without Ctrl.** In the gallery, a plain click toggles a tile when the gallery is multi-select, with an
+  `N selected · Select all · Clear` bar above the grid; Ctrl/Shift still work. Delete now acts on the whole
+  selection (one use-scan over the batch), alongside export, add-to-tag and remove-from-tag which already did.
+
+  **Capture new opens the real overlay.** It ran a single-shot region crop; it now opens
+  `OverlayTemplateCapture` — capture one, capture many, capture object — the same flow the toolbar opens, seeded
+  with the tag the rail is on. The manager is application-modal, so it hides itself and comes back through the
+  overlay's new `onClosed`.
+
 - **2026-08-18 — The editor answers: a slot that says why it refused, an Edit button that always opens,
   no more archived activities (`ui/dnd/BlockDragAndDropManager`, `blocks/func/MethodDeclarationBlock`,
   `parser/helpers/MethodSignatures`, `project/activity/ActivityDefinition`, `services/ActivityService`,

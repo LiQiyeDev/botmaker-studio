@@ -2046,6 +2046,22 @@
     -fx-opacity: 1;
 }
 
+/* The gallery's selection bar: how many tiles are picked, and the two ways out of that state. Understated —
+   it sits above the grid on every multi-select gallery, and it is a readout, not a control panel. */
+.template-gallery-selection-bar {
+    -fx-padding: 0 0 0 4;
+}
+
+.template-gallery-selection-count {
+    -fx-text-fill: -fx-text-background-color;
+    -fx-opacity: 0.75;
+}
+
+.template-gallery-selection-bar .hyperlink {
+    -fx-padding: 0;
+    -fx-border-width: 0;
+}
+
 .template-gallery-empty {
     -fx-text-fill: -fx-text-background-color;
     -fx-opacity: 0.7;

@@ -90,9 +90,18 @@ public final class OverlayTemplateCapture {
      */
     private final String suggestedTag;
 
+    /**
+     * Run once when the overlay is finished with the screen, however it ends — closed, or never opened because
+     * there was no target. A caller that got out of the way to make room for it (the resource manager hides
+     * itself: it is application-modal, so the overlay's toolbar would take no clicks otherwise) uses this to
+     * come back. Never null internally; {@link #open(Window, ProjectConfig, ProjectSettingsService,
+     * ScreenCaptureService, EventBus, String)} passes a no-op.
+     */
+    private final Runnable onClosed;
+
     private OverlayTemplateCapture(Window owner, ProjectConfig config, ScreenCaptureService capture,
                                    ProjectSettingsService settings, EventBus eventBus,
-                                   CaptureTarget target, String suggestedTag) {
+                                   CaptureTarget target, String suggestedTag, Runnable onClosed) {
         this.owner = owner;
         this.config = config;
         this.capture = capture;
@@ -100,6 +109,7 @@ public final class OverlayTemplateCapture {
         this.eventBus = eventBus;
         this.target = target;
         this.suggestedTag = suggestedTag;
+        this.onClosed = onClosed;
     }
 
     /**
@@ -108,6 +118,18 @@ public final class OverlayTemplateCapture {
      */
     public static void open(Window owner, ProjectConfig config, ProjectSettingsService settings,
                             ScreenCaptureService capture, EventBus eventBus, String suggestedTag) {
+        open(owner, config, settings, capture, eventBus, suggestedTag, () -> {});
+    }
+
+    /**
+     * As {@link #open(Window, ProjectConfig, ProjectSettingsService, ScreenCaptureService, EventBus, String)},
+     * running {@code onClosed} once the overlay is done with the screen — including the two paths where it
+     * never opens (no capture target, or one is already up), so a caller that hid itself always comes back.
+     */
+    public static void open(Window owner, ProjectConfig config, ProjectSettingsService settings,
+                            ScreenCaptureService capture, EventBus eventBus, String suggestedTag,
+                            Runnable onClosed) {
+        Runnable done = onClosed == null ? () -> {} : onClosed;
         CaptureTarget target = null;
         try {
             target = settings.defaultTarget();
@@ -117,14 +139,16 @@ public final class OverlayTemplateCapture {
         if (target == null) {
             warn(owner, "Capture templates needs a capture target.\n\nOpen \"Capture Targets\" and set a window, "
                     + "monitor or the desktop as the default first.");
+            done.run();
             return;
         }
         // Single-instance: focus the live overlay instead of stacking another one.
         if (active != null && active.toolbarStage != null && active.toolbarStage.isShowing()) {
             active.toolbarStage.toFront();
+            done.run();
             return;
         }
-        new OverlayTemplateCapture(owner, config, capture, settings, eventBus, target, suggestedTag).start();
+        new OverlayTemplateCapture(owner, config, capture, settings, eventBus, target, suggestedTag, done).start();
     }
 
     private void start() {
@@ -140,6 +164,8 @@ public final class OverlayTemplateCapture {
                 warn(owner, "Couldn't capture the target \"" + CaptureTargetNames.shortLabel(target) + "\". "
                         + "Is it open / on screen?");
                 if (active == this) active = null;
+                closed = true;
+                onClosed.run();
                 return;
             }
             if (target instanceof CaptureTarget.WindowTarget && referenceResolution == null) {
@@ -209,8 +235,13 @@ public final class OverlayTemplateCapture {
         return box;
     }
 
+    /** Set the first time this overlay finishes, so ESC pressed twice doesn't reopen the caller twice. */
+    private boolean closed;
+
     /** Closes the toolbar (and any live surface) and clears the single-instance reference. */
     private void closeTool() {
+        if (closed) return;
+        closed = true;
         if (surface != null) {
             surface.close();
             surface = null;
@@ -221,6 +252,7 @@ public final class OverlayTemplateCapture {
         }
         if (toolbarStage != null) toolbarStage.close();
         if (active == this) active = null;
+        onClosed.run();
     }
 
     // ── Capture one ────────────────────────────────────────────────────────────────────────────────────

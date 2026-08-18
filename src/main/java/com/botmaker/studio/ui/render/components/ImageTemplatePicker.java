@@ -145,17 +145,6 @@ public final class ImageTemplatePicker {
     public record NamedCapture(String name, List<String> tags) {}
 
     /**
-     * Prompts for a template name, re-prompting until it is non-blank <em>and</em> unique (case-insensitive),
-     * or the user cancels. The name field starts empty (no default). {@code allowExisting} — when non-null —
-     * is the current name a rename may keep; pass {@code null} for a fresh capture. The returned name is
-     * already sanitized to {@code [A-Za-z0-9_-]}. This is the rename path: it offers no tags, because a
-     * rename is not the moment to re-file something.
-     */
-    public static Optional<String> promptTemplateName(Window owner, ProjectConfig config, String allowExisting) {
-        return prompt(owner, config, allowExisting, null, null).map(NamedCapture::name);
-    }
-
-    /**
      * The naming step for a freshly captured template: a thumbnail of {@code preview} so the user sees what
      * they are naming, the name field, and the tag picklist — the single-capture flow had no tag field at
      * all, so a template captured this way could only be filed later, from the resource manager.
@@ -168,10 +157,16 @@ public final class ImageTemplatePicker {
                                                            BufferedImage preview, String suggestedTag) {
         TagPicklist tags = new TagPicklist(config);
         if (suggestedTag != null) tags.select(List.of(suggestedTag));
-        return prompt(owner, config, null, preview, tags);
+        return prompt(owner, config, preview, tags);
     }
 
-    private static Optional<NamedCapture> prompt(Window owner, ProjectConfig config, String allowExisting,
+    /**
+     * The naming loop. Only ever reached for a <em>new</em> template: renaming is inline in the resource
+     * manager, under the picture, where the name that is already taken is on screen next to the field — a
+     * dialog that accepts a name and then refuses it was the wrong shape for the one operation whose answer
+     * depends on what else the library holds.
+     */
+    private static Optional<NamedCapture> prompt(Window owner, ProjectConfig config,
                                                  BufferedImage preview, TagPicklist tags) {
         while (true) {
             Dialog<String> dialog = new Dialog<>();
@@ -217,7 +212,7 @@ public final class ImageTemplatePicker {
                 warn(owner, "Please enter a name for the template.");
                 continue;
             }
-            if (!name.equalsIgnoreCase(allowExisting) && ImageTemplateLibrary.exists(config, name)) {
+            if (ImageTemplateLibrary.exists(config, name)) {
                 warn(owner, "A template named \"" + name + "\" already exists. Choose a different name.");
                 continue;
             }

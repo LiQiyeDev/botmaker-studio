@@ -185,6 +185,25 @@ public final class ImageTemplateLibrary {
         return pathFor(config, png);
     }
 
+    /**
+     * Overwrites an existing template's picture, keeping its name, its tags and every block that references
+     * it. The resolution sidecar is rewritten too — a replacement is usually recaptured against a different
+     * window size, and a stale {@code captureWidth} would have the SDK rescale the new picture by the old
+     * picture's ratio.
+     *
+     * <p>Separate from {@link #saveTemplate} even though the file write is the same, because the two answer
+     * different questions: saving refuses an existing name (that would be a silent overwrite), replacing
+     * requires one.
+     */
+    public static void replaceImage(ProjectConfig config, Path templateFile, BufferedImage img,
+                                    int captureWidth, int captureHeight, String targetTitle) throws IOException {
+        Files.createDirectories(templateFile.getParent());
+        ImageIO.write(img, "png", templateFile.toFile());
+        TemplateMetadata meta = new TemplateMetadata(img.getWidth(), img.getHeight(),
+                Math.max(0, captureWidth), Math.max(0, captureHeight), targetTitle, Instant.now().toString());
+        MAPPER.writerWithDefaultPrettyPrinter().writeValue(sidecarFor(templateFile).toFile(), meta);
+    }
+
     // ── Tags ────────────────────────────────────────────────────────────────────────────────────────────
     //
     // The manifest is read from disk on every call rather than cached. Templates are captured by an overlay,

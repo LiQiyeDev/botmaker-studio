@@ -156,7 +156,8 @@ final class StudioActions {
 
     /** Opens the Resource Manager. Reused by the Project menu, the toolbar and the block image-picker. */
     void openResourceManager() {
-        new ResourceManagerDialog(primaryStage, config, eventBus, screenCaptureService).show();
+        new ResourceManagerDialog(primaryStage, config, eventBus, screenCaptureService, projectSettingsService,
+                codeEditorService).show();
     }
 
     /** Opens the Publish-to-gallery dialog. Shared with the VCS panel's "publish" button. */
