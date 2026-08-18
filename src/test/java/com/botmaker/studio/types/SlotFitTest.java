@@ -41,6 +41,21 @@ class SlotFitTest {
         assertFalse(TypeExpectation.fits(ResolvedType.INT, ResolvedType.of(JdkType.STRING)));
     }
 
+    /**
+     * The reported bug: {@code ImageClicker.click(ore);} dropped into an {@code if} condition. Its statement is
+     * an expression statement, so it advertises itself as slot-fillable — and until the return type was
+     * resolved it advertised {@code UNKNOWN}, which every slot accepts. Void is now refused by all of them,
+     * including a slot whose own type is unknown, because there is nothing a statement could be the value of.
+     */
+    @Test
+    void nothingTakesAVoidCall() {
+        assertFalse(TypeExpectation.fits(ResolvedType.BOOLEAN, ResolvedType.VOID));
+        assertFalse(TypeExpectation.fits(ResolvedType.UNKNOWN, ResolvedType.VOID), "not even an unknown slot");
+        assertFalse(TypeExpectation.fits(null, ResolvedType.VOID));
+        assertFalse(TypeExpectation.fits(ResolvedType.of(SdkType.IMAGE_TEMPLATE), ResolvedType.named("void")),
+                "the dragboard carries the name, so the name has to answer the same way");
+    }
+
     @Test
     void anObjectSlotComparesNames() {
         // Neither side falls into one of the four categories, so the name is all there is to go on. The

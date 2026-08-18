@@ -37,11 +37,16 @@ public enum TypeExpectation {
      * the answer is pure type reasoning, so it is unit-testable without a scene graph.
      *
      * <p>Unknown on either side is accepted, for the same reason {@link #accepts} is fuzzy — a slot on a file
-     * that hasn't resolved yet must not start refusing every drop. Beyond the four categories, {@link #ANY}
+     * that hasn't resolved yet must not start refusing every drop. <b>Void is the exception</b>, and it is
+     * refused even by an unresolved slot: a call that produces nothing cannot fill anything. Beyond the four categories, {@link #ANY}
      * means "some object type", where the name is all there is left to compare; the simple name counts because
      * a slot is routinely declared with the bare identifier a lambda parameter wrote.
      */
     public static boolean fits(ResolvedType slotType, ResolvedType actual) {
+        // A void call is not a value. It is the one answer that survives an unknown slot: everywhere else
+        // "we don't know" means accept, but there is no slot anywhere that a statement can fill, so accepting
+        // it would only produce `if (ImageClicker.click(ore))` — which does not compile.
+        if (actual != null && actual.isVoid()) return slotType != null && slotType.isVoid();
         if (slotType == null || slotType.isUnknown()) return true;
         if (actual == null || actual.isUnknown()) return true;
         TypeExpectation expected = of(slotType);

@@ -681,6 +681,38 @@ public class ProjectAnalyzer {
     }
 
     /**
+     * What {@code call} evaluates to — the question a drag over an expression slot has to answer before the
+     * file it came from has resolved.
+     *
+     * <p>Binding first, as everywhere else. Without one the receiver's simple name goes through the library
+     * index, which knows the SDK facades whether or not the editor parsed with bindings this session — that is
+     * the whole point of it here: {@code ImageClicker.click(ore)} gives back {@code void}, and a slot that
+     * cannot see that accepts the drop and produces {@code if (ImageClicker.click(ore))}.
+     *
+     * <p>Overloads that disagree about their return type answer {@link ResolvedType#UNKNOWN}: with no binding
+     * there is no way to tell which one is being dragged, and guessing refuses legal drops. Unknown is the
+     * permissive answer, so the failure stays on the accepting side.
+     */
+    public ResolvedType returnTypeOf(MethodInvocation call) {
+        if (call == null) return ResolvedType.UNKNOWN;
+        IMethodBinding bound = call.resolveMethodBinding();
+        if (bound != null && bound.getReturnType() != null) return ResolvedType.of(bound.getReturnType());
+        if (libraryIndex == null || !(call.getExpression() instanceof Name receiver)) return ResolvedType.UNKNOWN;
+
+        String qualified = receiver.getFullyQualifiedName();
+        String simple = qualified.contains(".") ? qualified.substring(qualified.lastIndexOf('.') + 1) : qualified;
+        Optional<ClassInfo> owner = libraryIndex.findByQualifiedName(qualified);
+        if (owner.isEmpty()) owner = libraryIndex.findBySimpleName(simple);
+        if (owner.isEmpty()) return ResolvedType.UNKNOWN;
+
+        Set<String> returned = owner.get().getMethodInfo(call.getName().getIdentifier()).stream()
+                .filter(MethodInfo::isPublic)
+                .map(mi -> mi.getTypeSignatureOrTypeDescriptor().getResultType().toString())
+                .collect(Collectors.toSet());
+        return returned.size() == 1 ? ResolvedType.named(returned.iterator().next()) : ResolvedType.UNKNOWN;
+    }
+
+    /**
      * Returns public fields of a type, binding-accurate for project types and
      * ClassGraph {@link FieldInfo}-based for external library types.
      */

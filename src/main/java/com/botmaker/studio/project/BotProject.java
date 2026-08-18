@@ -133,6 +133,13 @@ public class BotProject {
         // 7. Create the unified ProjectAnalyzer
         ProjectAnalyzer projectAnalyzer = new ProjectAnalyzer(typeSummaryManager, state);
 
+        // 7-. Teach the drag layer what a dragged call gives back. It judges an expression slot during
+        // drag-over, where the AST usually has no bindings — without this a void call reads as "unknown",
+        // which every slot accepts.
+        dragAndDropManager.setReturnTypeResolver(stmt ->
+                stmt.getExpression() instanceof org.eclipse.jdt.core.dom.MethodInvocation call
+                        ? projectAnalyzer.returnTypeOf(call) : null);
+
         // 7a. Warm the heavy derived caches off the UI thread so the first type/method menu opens without
         // lag (the static-utility scan + per-class ResolvedType build are otherwise paid lazily on the FX
         // thread at first menu open).

@@ -26,9 +26,8 @@ import org.eclipse.jdt.core.dom.Modifier;
  * <p><b>Nothing here re-derives a lock.</b> Every rule below is either a {@link LockResolver} verdict or a
  * structural fact about the member (is it static?), so the rules that decide what may be edited stay in one
  * place and this only decides what is worth showing. The single non-lock rule — a static field in a
- * scaffold-managed file — exists because those fields are perfectly editable by their author and still mean
- * nothing to a reader: {@code INSTANCE} is wiring the entry point binds, and {@code Popups.POPUPS} is the
- * author's template list.
+ * scaffold-managed file — exists because such a field can be perfectly editable by its author and still mean
+ * nothing to a reader.
  */
 public final class MemberVisibility {
 
@@ -74,12 +73,13 @@ public final class MemberVisibility {
                     ? Visibility.NOBODY : Visibility.EVERYONE;
         }
         if (member instanceof FieldDeclaration field) {
-            // The locked one is INSTANCE, and it is nobody's: the registry and the entry point bind through it.
+            // The locked ones are INSTANCE — the registry and the entry point bind through it — and the popup
+            // guard's POPUPS, which names templates the canvas has no editor for. Neither is anybody's.
             if (!resolver.signatureEditable(field)) {
                 return scaffoldManaged ? Visibility.NOBODY : Visibility.EDITOR_ONLY;
             }
-            // Any other static in a scaffolded file is the author's own — Popups.POPUPS is their template list,
-            // theirs to edit — and only noise to someone reading the bot.
+            // Any other static in a scaffolded file is the author's own — a constant they declared — and only
+            // noise to someone reading the bot. (Popups.POPUPS is not one: it is locked, so it left above.)
             return scaffoldManaged && Modifier.isStatic(field.getModifiers())
                     ? Visibility.EDITOR_ONLY : Visibility.EVERYONE;
         }

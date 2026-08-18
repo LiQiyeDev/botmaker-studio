@@ -68,6 +68,12 @@ public class ToolbarManager {
     /** Opens the Launch Target dialog (what the bot launches); wired by {@link UIManager}. */
     private Runnable onManageLaunchTarget;
     private Runnable onActivityFlow;
+    /** Opens the Parameters dialog; the same action the Project menu fires. */
+    private Runnable onParameters;
+
+    /** Turns the reader-mode preview on and off, and what it is when the bar is built. */
+    private Consumer<Boolean> onToggleReaderMode;
+    private boolean readerModeInitial;
     /** Persists the debug-output toggle to the project; wired by {@link UIManager}. */
     private Consumer<Boolean> onToggleDebugOutput;
     /** The debug-output toggle's initial (persisted) state — read by {@link UIManager} before building the bar. */
@@ -197,6 +203,24 @@ public class ToolbarManager {
         this.onOverlayEditor = callback;
     }
 
+    /** Sets the callback invoked when the toolbar's Parameters button is clicked. */
+    public void setOnParameters(Runnable callback) {
+        this.onParameters = callback;
+    }
+
+    /**
+     * Wires the reader-mode toggle. Reader mode renders the bot the way somebody who only wants to <em>run</em>
+     * it sees it — full colour, no controls — and until now an author could not get to it at all: the only
+     * switch was the banner reader mode itself draws, which is to say it was reachable only from a project that
+     * had already been installed from the gallery.
+     *
+     * @param initial whether the project is in reader mode already (an installed bot opens that way)
+     */
+    public void setOnToggleReaderMode(boolean initial, Consumer<Boolean> onToggle) {
+        this.readerModeInitial = initial;
+        this.onToggleReaderMode = onToggle;
+    }
+
     /** Sets the callback invoked when the toolbar's Record button is clicked (overlay + recording). */
     public void setOnRecordMacro(Runnable callback) {
         this.onRecordMacro = callback;
@@ -269,6 +293,14 @@ public class ToolbarManager {
             if (onActivityFlow != null) onActivityFlow.run();
         });
 
+        Button parametersButton = new Button("🎚 Parameters");
+        parametersButton.getStyleClass().add("toolbar-btn");
+        parametersButton.setTooltip(new Tooltip(
+                "The project's variables: every value the bot reads, with its tag and its editor"));
+        parametersButton.setOnAction(e -> {
+            if (onParameters != null) onParameters.run();
+        });
+
         Button remotePilotButton = new Button("🎮 Pilot");
         remotePilotButton.getStyleClass().add("toolbar-btn");
         remotePilotButton.setTooltip(new Tooltip(
@@ -287,6 +319,18 @@ public class ToolbarManager {
             boolean on = debugOutputButton.isSelected();
             debugOutputButton.setText(debugOutputText(on));
             if (onToggleDebugOutput != null) onToggleDebugOutput.accept(on);
+        });
+
+        ToggleButton readerModeButton = new ToggleButton(readerModeText(readerModeInitial));
+        readerModeButton.getStyleClass().add("toolbar-btn");
+        readerModeButton.setSelected(readerModeInitial);
+        readerModeButton.setTooltip(new Tooltip(
+                "Reader mode: see the bot the way someone who only runs it does — full colour, no controls. "
+                        + "This button is the way back."));
+        readerModeButton.setOnAction(e -> {
+            boolean on = readerModeButton.isSelected();
+            readerModeButton.setText(readerModeText(on));
+            if (onToggleReaderMode != null) onToggleReaderMode.accept(on);
         });
 
         Button inputConfigButton = new Button("🖱 Input");
@@ -351,9 +395,12 @@ public class ToolbarManager {
                 // Settings sits next to Setup: the checklist is the guided path, this is the same project's
                 // stored values (the resolution the label at the end of this bar is reading) in one dialog.
                 projectSetupButton, projectSettingsButton, launchTargetButton, quickLaunchButton, captureButton,
-                activityFlowButton,
+                // Flow then Parameters: the activities are drawn first, and their values are what the drawing
+                // reads. Both are Project-menu actions with no button until now.
+                activityFlowButton, parametersButton,
                 remotePilotButton,
-                debugOutputButton, inputConfigButton, captureTemplatesButton, overlayEditorButton, recordButton,
+                debugOutputButton, readerModeButton, inputConfigButton, captureTemplatesButton,
+                overlayEditorButton, recordButton,
                 resourcesButton, resolutionLabel);
         group.setAlignment(Pos.CENTER);
         group.setMinWidth(0);
@@ -376,6 +423,11 @@ public class ToolbarManager {
      */
     private static String debugOutputText(boolean on) {
         return on ? "🐞 Debug ●" : "🐞 Debug ○";
+    }
+
+    /** The reader-mode toggle's label — same length in both states, for the reason above. */
+    private static String readerModeText(boolean on) {
+        return on ? "👁 Reader ●" : "👁 Reader ○";
     }
 
     /** "Std W×H · 🖵 W×H": the project standard resolution (if set) and the primary screen resolution. */

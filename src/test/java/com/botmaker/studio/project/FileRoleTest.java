@@ -101,16 +101,22 @@ class FileRoleTest {
     }
 
     @Test
-    void theThreeFlowDerivedFilesAreDerivedAndTheEntryPointIsNot() {
-        // What the file explorer drops. The entry point is generated too and is deliberately not in this set:
-        // it is written once at creation and is where a reader starts.
+    void everyFileTheStudioWritesIsDerivedIncludingTheEntryPoint() {
+        // What the file explorer drops. The entry point is in the set: it is written once at creation, every
+        // line of it is locked, and a file named after the project that its author may not touch is noise.
         assertTrue(FileRole.isDerived(CONFIG, ProjectTemplate.GAME_BOT, CONFIG.activitiesSourceFile()));
         assertTrue(FileRole.isDerived(CONFIG, ProjectTemplate.GAME_BOT, CONFIG.activityRegistrySourceFile()));
         assertTrue(FileRole.isDerived(CONFIG, ProjectTemplate.GAME_BOT, CONFIG.flowDriverSourceFile()));
+        assertTrue(FileRole.isDerived(CONFIG, ProjectTemplate.GAME_BOT, CONFIG.mainSourceFile()));
 
-        assertFalse(FileRole.isDerived(CONFIG, ProjectTemplate.GAME_BOT, CONFIG.mainSourceFile()));
+        // The files the user writes into stay listed — GoHome and Popups are scaffolded, then theirs.
         assertFalse(FileRole.isDerived(CONFIG, ProjectTemplate.GAME_BOT, inMainPackage("GoHome.java")));
+        assertFalse(FileRole.isDerived(CONFIG, ProjectTemplate.GAME_BOT, inMainPackage("Popups.java")));
         assertFalse(FileRole.isDerived(CONFIG, ProjectTemplate.GAME_BOT, inMainPackage("MyHelper.java")));
+
+        // …and an empty project's main is the user's only file: nothing is derived outside the game-bot
+        // template, so hiding the entry point cannot hide the one file such a project has.
+        assertFalse(FileRole.isDerived(CONFIG, ProjectTemplate.EMPTY, CONFIG.mainSourceFile()));
     }
 
     /**
@@ -133,7 +139,7 @@ class FileRoleTest {
     @Test
     void everyDerivedFileIsAlsoGenerated() {
         for (Path file : List.of(CONFIG.activitiesSourceFile(), CONFIG.activityRegistrySourceFile(),
-                CONFIG.flowDriverSourceFile(), CONFIG.templatesSourceFile())) {
+                CONFIG.flowDriverSourceFile(), CONFIG.templatesSourceFile(), CONFIG.mainSourceFile())) {
             assertEquals(FileRole.GENERATED, FileRole.of(CONFIG, ProjectTemplate.GAME_BOT, file), file.toString());
         }
     }

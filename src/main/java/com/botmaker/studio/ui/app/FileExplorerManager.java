@@ -42,10 +42,11 @@ import java.util.stream.Stream;
  *       them breaks the build; Project ▸ Recover Project Files regenerates them).</li>
  * </ul>
  *
- * <p>The <b>derived</b> files — {@code Activities}, {@code ActivityRegistry}, {@code FlowDriver} — are in
- * neither group: {@link FileRole#isDerived} keeps them out of the tree entirely. They are the Activity Flow
- * rendered as Java and are rewritten from it on every change, so listing them offered the user a file they can
- * read but never change, beside the dialog that is the actual way to change it.
+ * <p>The <b>derived</b> files — {@code Activities}, {@code ActivityRegistry}, {@code FlowDriver},
+ * {@code Templates} and the entry point named after the project — are in neither group:
+ * {@link FileRole#isDerived} keeps them out of the tree entirely. They are the Activity Flow, the parameters
+ * and the image library rendered as Java, so listing them offered the user a file they can read but never
+ * change, beside the dialog that is the actual way to change it.
  *
  * <p>The generated group is deliberately <em>not</em> labelled "read-only": which <em>parts</em> of a file are
  * locked is a per-method question ({@code MethodLock} / {@code LockResolver}), answered where the methods are —

@@ -36,6 +36,8 @@ class GeneratedMembersTest {
     private static final Path PLAIN = CONFIG.mainSourceFile().getParent().resolve("MyHelper.java");
     /** A supervise hook: an activity that lives beside the entry point rather than under activities/. */
     private static final Path HOOK = CONFIG.mainSourceFile().getParent().resolve("GoHome.java");
+    /** The other supervise hook — the only file whose {@code POPUPS} static is BotMaker's. */
+    private static final Path POPUP_HOOK = CONFIG.mainSourceFile().getParent().resolve("Popups.java");
 
     private static final String STUB_SOURCE = """
             package com.mybot.activities;
@@ -182,10 +184,32 @@ class GeneratedMembersTest {
 
         assertFalse(resolver(HOOK).signatureEditable(instance));
         assertFalse(resolver(STUB).signatureEditable(instance), "an activity stub's INSTANCE is bound too");
-        // Not every static: the author's own list in Popups.java is theirs to edit.
+        // Not every static: a constant the author declared in GoHome is theirs, whatever it is called.
         assertTrue(resolver(HOOK).signatureEditable(popups));
         // And nothing at all is scaffolding in a file the Studio never wrote.
         assertTrue(resolver(PLAIN).signatureEditable(instance));
+    }
+
+    /**
+     * {@code Popups.POPUPS} is the one static besides {@code INSTANCE} that BotMaker owns. The canvas drew it
+     * with a delete cross and nothing that could fill it — and the {@code run()} below names it, so the cross
+     * broke the build. Locked here, which is also what stops {@code MemberVisibility} drawing it.
+     */
+    @Test
+    void thePopupGuardsTemplateGroupIsBotMakersInPopupsJavaAndNowhereElse() {
+        CompilationUnit cu = SourceParser.parse("""
+                package com.mybot;
+                public class Popups extends Activity<Popups.Outcome> {
+                    private static final ImageTemplateGroup POPUPS = ImageTemplateGroup.of();
+                }
+                """);
+        FieldDeclaration popups =
+                (FieldDeclaration) ((TypeDeclaration) cu.types().getFirst()).bodyDeclarations().getFirst();
+
+        assertFalse(resolver(POPUP_HOOK).signatureEditable(popups));
+        assertTrue(resolver(HOOK).signatureEditable(popups), "a POPUPS in GoHome.java is the author's");
+        assertTrue(resolver(STUB).signatureEditable(popups), "and so is one in an activity of their own");
+        assertTrue(resolver(PLAIN).signatureEditable(popups));
     }
 
     @Test

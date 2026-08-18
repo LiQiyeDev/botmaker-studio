@@ -32,6 +32,7 @@ import javafx.scene.layout.Pane;
 import javafx.scene.layout.Region;
 
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 /**
  * Installs JavaFX drag-and-drop handlers on palette items, existing blocks and drop zones.
@@ -73,8 +74,20 @@ public class BlockDragAndDropManager {
 
     private final EventBus eventBus;
 
+    /**
+     * What a dragged call gives back, when the AST carries no binding to say. Set by {@code BotProject} from
+     * the {@code ProjectAnalyzer}; a function rather than the analyzer itself, so this class keeps its one
+     * structural property — it knows the event bus and nothing else about the service layer.
+     */
+    private Function<ExpressionStatement, ResolvedType> returnTypeResolver;
+
     public BlockDragAndDropManager(EventBus eventBus) {
         this.eventBus = eventBus;
+    }
+
+    /** @see #returnTypeResolver */
+    public void setReturnTypeResolver(Function<ExpressionStatement, ResolvedType> returnTypeResolver) {
+        this.returnTypeResolver = returnTypeResolver;
     }
 
     // --- Drag sources ---
@@ -139,9 +152,22 @@ public class BlockDragAndDropManager {
      * type. Only {@code ExpressionStatement} qualifies: it is the one statement shape that <em>is</em> an
      * expression wearing a semicolon, so moving it into a slot loses nothing.
      */
-    private static void putExpressionType(ClipboardContent content, ASTNode node) {
+    private void putExpressionType(ClipboardContent content, ASTNode node) {
         String type = expressionTypeName(node);
-        if (type != null) content.put(EXPRESSION_TYPE_FORMAT, type);
+        if (type == null) return;
+        content.put(EXPRESSION_TYPE_FORMAT, resolvedName(node, type));
+    }
+
+    /**
+     * {@code bound}, unless it is the unknown placeholder and the resolver can do better. The editor parses
+     * without bindings for most of a session, so "unknown" is the usual answer and it is the one that let a
+     * {@code void} call into an {@code if} condition — the resolver reaches the same index the menus use.
+     */
+    private String resolvedName(ASTNode node, String bound) {
+        if (returnTypeResolver == null || !ResolvedType.UNKNOWN.qualifiedName().equals(bound)) return bound;
+        if (!(node instanceof ExpressionStatement stmt)) return bound;
+        ResolvedType resolved = returnTypeResolver.apply(stmt);
+        return resolved == null || resolved.isUnknown() ? bound : resolved.qualifiedName();
     }
 
     /**
@@ -530,15 +556,61 @@ public class BlockDragAndDropManager {
     }
 
     /**
-     * The empty {@code ⟨expression⟩} placeholder, when a slot has no expression to replace. It is styled like a
-     * slot but takes no drops, and that is the honest state rather than a gap: every fill path here rewrites an
-     * <em>existing</em> expression node, and an empty slot has none to name. Use the "+" / change button, which
-     * goes through the expression menu and knows the owning block.
+     * The empty {@code ⟨expression⟩} placeholder — a real drop target, named by the statement around it rather
+     * than by an expression it does not have.
+     *
+     * <p>It used to take no drops at all, on the grounds that every fill path rewrites an <em>existing</em>
+     * expression node. The result was the one slot in the editor that visibly asks for a value being the one
+     * that refused every value: a drag over it lit nothing up, accepted nothing, and said nothing about why.
+     * A dashed rectangle that means "drop here" has to accept a drop.
+     *
+     * <p>It keeps {@code expression-drop-zone} for the dashed empty look and gains
+     * {@code expression-drop-target} for the drag-over outline, so an empty slot answers a drag exactly the way
+     * a filled one does — green when the value fits, red when it doesn't.
+     *
+     * @param owner the block whose slot this is; its id is what the drop names
      */
-    public void markEmptyExpressionSlot(Region target) {
-        target.getStyleClass().add("expression-drop-zone");
+    public void markEmptyExpressionSlot(Region target, CodeBlock owner) {
+        target.getStyleClass().addAll("expression-drop-zone", "expression-drop-target");
         target.setMinWidth(50);
         target.setMinHeight(25);
+        if (owner == null) return;
+
+        target.setOnDragEntered(event -> {
+            if (carriesExpression(event.getDragboard()))
+                applyDragOver(target, event.getDragboard(), acceptsExpression(event.getDragboard(), ResolvedType.UNKNOWN));
+            event.consume();
+        });
+
+        target.setOnDragExited(event -> {
+            clearDragOver(target);
+            event.consume();
+        });
+
+        target.setOnDragOver(event -> {
+            // UNKNOWN, not the declared type: an empty slot's own type is whatever the statement around it
+            // declares, and the only rule that matters here — a void call is not a value — needs no slot type.
+            if (acceptsExpression(event.getDragboard(), ResolvedType.UNKNOWN))
+                event.acceptTransferModes(TransferMode.ANY);
+            event.consume();
+        });
+
+        target.setOnDragDropped(event -> {
+            clearDragOver(target);
+            boolean success = publishEmptySlotDrop(event.getDragboard(), owner);
+            event.setDropCompleted(success);
+            event.consume();
+        });
+    }
+
+    private boolean publishEmptySlotDrop(Dragboard db, CodeBlock owner) {
+        if (owner == null || !acceptsExpression(db, ResolvedType.UNKNOWN)) return false;
+        BlockType palette = db.hasContent(ADDABLE_BLOCK_FORMAT) ? blockTypeFrom(db) : null;
+        String sourceId = db.hasContent(EXISTING_BLOCK_FORMAT) ? (String) db.getContent(EXISTING_BLOCK_FORMAT) : null;
+        if (palette == null && sourceId == null) return false;
+        eventBus.publish(new CoreApplicationEvents.ExpressionDropRequestedEvent(
+                ExpressionDropInfo.intoEmptySlot(owner.getId(), palette, sourceId)));
+        return true;
     }
 
     /**

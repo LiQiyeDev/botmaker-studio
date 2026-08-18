@@ -33,6 +33,11 @@ public final class PickerRegistry {
     private PickerRegistry() {}
 
     private static final List<SpecialTypePicker> PICKERS = List.of(
+            // First of all, and regardless of type: a slot that already holds a project variable stays a
+            // variable. Every picker below would otherwise claim it by type and offer to overwrite it with a
+            // literal — the Steam picker on Activities.APP_ID, the enum dropdown on Activities.DIRECTION.
+            VariablePicker.asSpecialType(),
+
             // Method-specific (the class is a simple name on the SDK Game facade). The launch id of
             // launchSteam / launchEpic (+ their IfNotRunning variants) gets the cover-art game picker; the
             // program path of launch / launchIfNotRunning / launchAndWait gets the Browse picker; their

@@ -121,8 +121,8 @@ public record LockResolver(ProjectConfig config, ProjectTemplate template, Path 
 
     /**
      * True for a member the Studio generates inside a file the user otherwise owns — an activity's
-     * {@code Outcome} enum, and the {@code INSTANCE} the registry and the entry point bind it through. It
-     * outranks both other verdicts in the locking direction only.
+     * {@code Outcome} enum, the {@code INSTANCE} the registry and the entry point bind it through, and the
+     * popup guard's {@code POPUPS} group. It outranks both other verdicts in the locking direction only.
      *
      * <p>The pinned trailing {@code return} is deliberately <em>not</em> here: it must stay editable (choosing
      * which outcome to report is the point of it), so it is guarded where the two things it forbids happen —
@@ -130,7 +130,8 @@ public record LockResolver(ProjectConfig config, ProjectTemplate template, Path 
      */
     private boolean isGeneratedMember(ASTNode node) {
         return GeneratedMembers.isOutcomeEnum(config, template, file, node)
-                || GeneratedMembers.isBoundInstance(config, template, file, node);
+                || GeneratedMembers.isBoundInstance(config, template, file, node)
+                || GeneratedMembers.isPopupGroup(config, template, file, node);
     }
 
     /**
@@ -176,6 +177,10 @@ public record LockResolver(ProjectConfig config, ProjectTemplate template, Path 
         if (GeneratedMembers.isBoundInstance(config, template, file, node)) {
             return "INSTANCE is how BotMaker reaches this activity — the registry and the entry point both "
                     + "name it, so it stays as it is.";
+        }
+        if (GeneratedMembers.isPopupGroup(config, template, file, node)) {
+            return "POPUPS is the list run() below dismisses — it stays as BotMaker wrote it until there is an "
+                    + "editor for a template group.";
         }
         if (isGeneratedMember(node)) {
             return "An activity's outcomes are managed in Project ▸ Activity Flow — add or rename them there "

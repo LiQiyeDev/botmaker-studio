@@ -43,6 +43,10 @@ public final class GeneratedMembers {
     /** The singleton the registry and the entry point bind an activity through. */
     private static final String INSTANCE_FIELD = "INSTANCE";
 
+    /** The popup guard's template group, and the one file it belongs to. */
+    private static final String POPUPS_FIELD = "POPUPS";
+    private static final String POPUPS_FILE = "Popups.java";
+
     private GeneratedMembers() {}
 
     /** The SDK base class every activity extends — the structural mark of one, wherever its file lives. */
@@ -75,8 +79,9 @@ public final class GeneratedMembers {
      * {@code GoHome.java} most visibly, because a field sits in no method and so had no {@link MethodLock} to
      * inherit.
      *
-     * <p>Only {@code INSTANCE} by name, not every static in the file: {@code Popups.POPUPS} is a static too and
-     * it is the author's own template list, theirs to edit and delete.
+     * <p>Only {@code INSTANCE} by name, not every static in the file: a constant the author declared in their
+     * own activity is theirs. {@code Popups.POPUPS} is the one other exception, and it has its own rule —
+     * {@link #isPopupGroup}.
      */
     public static boolean isBoundInstance(ProjectConfig config, ProjectTemplate template, Path file,
                                           ASTNode node) {
@@ -88,11 +93,37 @@ public final class GeneratedMembers {
         return false;
     }
 
+    /**
+     * True when {@code node} is {@code Popups.POPUPS}, the popup guard's template group, or anything inside it.
+     *
+     * <p>The block canvas drew it and could offer nothing that fills it: the value is an
+     * {@code ImageTemplateGroup.of(…)} over template constants, and there is no editor for one. What the canvas
+     * <em>did</em> offer was a delete cross — on a field the {@code run()} directly below it names, so removing
+     * it breaks the build from the one file the popup guard lives in. Locked, and therefore
+     * ({@code MemberVisibility}) not drawn at all, until a group editor exists to draw instead.
+     *
+     * <p>Scoped to {@code Popups.java}: a static named {@code POPUPS} that an author declared in an activity of
+     * their own is theirs.
+     */
+    public static boolean isPopupGroup(ProjectConfig config, ProjectTemplate template, Path file, ASTNode node) {
+        if (!appliesTo(config, template, file) || node == null) return false;
+        if (file.getFileName() == null || !POPUPS_FILE.equals(file.getFileName().toString())) return false;
+        if (!MethodLock.isScaffoldManaged(config, template, file)) return false;
+        for (ASTNode n = node; n != null; n = n.getParent()) {
+            if (n instanceof FieldDeclaration field && declaresStatic(field, POPUPS_FIELD)) return true;
+        }
+        return false;
+    }
+
     private static boolean declaresInstance(FieldDeclaration field) {
+        return declaresStatic(field, INSTANCE_FIELD);
+    }
+
+    private static boolean declaresStatic(FieldDeclaration field, String name) {
         if (!Modifier.isStatic(field.getModifiers())) return false;
         for (Object fragment : field.fragments()) {
             if (fragment instanceof VariableDeclarationFragment f
-                    && INSTANCE_FIELD.equals(f.getName().getIdentifier())) {
+                    && name.equals(f.getName().getIdentifier())) {
                 return true;
             }
         }

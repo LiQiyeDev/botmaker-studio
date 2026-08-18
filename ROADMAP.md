@@ -6,6 +6,20 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-18 — What the editor shows, what a slot takes, and two buttons that were missing
+  (`project/FileRole`, `project/GeneratedMembers`, `types/TypeExpectation`, `parser/CodeEditor`,
+  `ui/render/components/pickers/VariablePicker`, `ui/app/ToolbarManager`).** Phase 6. The entry point named
+  after the project is derived like `Activities`/`FlowDriver` and no longer listed — every line of it is
+  locked, so listing it offered the author a file they could not touch; `Popups.POPUPS` is BotMaker's, so the
+  canvas stops drawing a delete cross on a field the `run()` below it names. A `void` call is now refused by
+  every expression slot, including an unresolved one, and the drag layer resolves what a call gives back
+  through the library index instead of reading "unknown" off a binding-less AST. The empty `⟨expression⟩`
+  placeholder — a declaration with no initialiser, a `Print:` with no argument — accepts drops and lights up
+  under one, rather than being a dashed rectangle that says "drop here" and means the opposite. A slot already
+  holding `Activities.X` gets an inline dropdown over the project's variables. The toolbar gained
+  **🎚 Parameters** and a **👁 Reader** toggle (a preview of the no-controls view, reachable before now only
+  from the banner reader mode itself draws).
+
 - **2026-08-18 — Tagging where you are looking (`ui/app/ResourceManagerDialog`, `services/TemplateManifest`,
   `ui/render/components/TemplateGallery`).** Phase 5. Three gaps closed in the Resource Manager: the selected
   template's tags are now removable chips under the preview with a "+ Tag" menu beside them; "Add templates

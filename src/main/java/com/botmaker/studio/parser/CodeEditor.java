@@ -894,6 +894,60 @@ public class CodeEditor {
         });
     }
 
+    /**
+     * Fills an <em>empty</em> expression slot from an existing statement, which is consumed —
+     * {@link #moveExpressionIntoSlot}'s counterpart for a slot that holds nothing to replace.
+     *
+     * <p>The empty slots are the two shapes the editor draws a {@code ⟨drop here⟩} region for: a declaration
+     * with no initialiser ({@code int x;}) and a call with no argument (an empty {@code Print:}). Both were
+     * drawn as decoration, refusing every drop, because every fill path here names the expression it is
+     * replacing and an empty slot has none — so the one slot in the editor that visibly wants a value was the
+     * one that could not take one.
+     *
+     * @return quietly does nothing when {@code owner} is not one of those shapes, or is no longer empty
+     */
+    public void fillEmptySlot(ASTNode owner, ExpressionStatement source) {
+        if (owner == null || source == null) return;
+        edit(owner, EditKind.BODY, true, (cu, code) -> {
+            ASTRewrite rewriter = ASTRewrite.create(cu.getAST());
+            Expression value = (Expression) ASTNode.copySubtree(cu.getAST(), source.getExpression());
+            if (!placeInEmptySlot(rewriter, owner, value)) return code;
+            // A move, not a copy — the same bargain moveExpressionIntoSlot makes: the statement's value is now
+            // consumed somewhere else, so leaving it behind duplicates the call the user dragged away.
+            rewriter.remove(source, null);
+            return AstRewriteHelper.applyRewrite(rewriter, code);
+        });
+    }
+
+    /** Fills an empty expression slot with a palette block, the drag counterpart of picking it from the menu. */
+    public void fillEmptySlotFromPalette(ASTNode owner, BlockType type) {
+        if (owner == null || type == null) return;
+        edit(owner, EditKind.BODY, true, (cu, code) -> {
+            EditContext context = ctx(cu);
+            Statement built = NodeCreator.createDefaultStatement(context, type, owner);
+            if (!(built instanceof ExpressionStatement stmt)) return code;
+            Expression value = (Expression) ASTNode.copySubtree(cu.getAST(), stmt.getExpression());
+            if (!placeInEmptySlot(context.rewriter(), owner, value)) return code;
+            return AstRewriteHelper.applyRewrite(context.rewriter(), code);
+        });
+    }
+
+    /** Where the hole is, given the statement around it. False when there isn't one — the drop is then a no-op. */
+    private static boolean placeInEmptySlot(ASTRewrite rewriter, ASTNode owner, Expression value) {
+        if (owner instanceof VariableDeclarationStatement decl && decl.fragments().size() == 1
+                && decl.fragments().getFirst() instanceof VariableDeclarationFragment fragment) {
+            if (fragment.getInitializer() != null) return false;
+            rewriter.set(fragment, VariableDeclarationFragment.INITIALIZER_PROPERTY, value, null);
+            return true;
+        }
+        if (owner instanceof ExpressionStatement stmt && stmt.getExpression() instanceof MethodInvocation call
+                && call.arguments().isEmpty()) {
+            rewriter.getListRewrite(call, MethodInvocation.ARGUMENTS_PROPERTY).insertLast(value, null);
+            return true;
+        }
+        return false;
+    }
+
     public void replaceExpression(Expression toReplace, ExpressionType type) {
         edit(toReplace, EditKind.BODY, true, (cu, code) -> replaceExpression(cu, code, toReplace, type, analyzer));
     }

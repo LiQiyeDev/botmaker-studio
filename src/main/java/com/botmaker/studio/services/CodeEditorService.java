@@ -201,7 +201,12 @@ public class CodeEditorService {
      */
     private void handleExpressionDrop(ExpressionDropInfo info) {
         CodeBlock target = findBlockById(info.targetBlockId());
-        if (target == null || !(target.getAstNode() instanceof Expression slot)) return;
+        if (target == null) return;
+        if (info.emptySlot()) {
+            handleEmptySlotDrop(target, info);
+            return;
+        }
+        if (!(target.getAstNode() instanceof Expression slot)) return;
 
         if (info.paletteType() != null) {
             codeEditor.fillSlotFromPalette(slot, info.paletteType());
@@ -214,6 +219,25 @@ public class CodeEditorService {
         // ancestry — so the refusal has to be here.
         if (encloses(stmt, slot)) return;
         codeEditor.moveExpressionIntoSlot(slot, stmt);
+    }
+
+    /**
+     * A drop onto a slot that holds nothing. {@code target} is the statement around the hole, not an
+     * expression, so the placement is {@code CodeEditor}'s to work out from its shape — an initialiser, an
+     * argument — and this only has to refuse the one case ids cannot see: dropping a statement into its own
+     * slot, which would consume the statement the slot lives in.
+     */
+    private void handleEmptySlotDrop(CodeBlock target, ExpressionDropInfo info) {
+        ASTNode owner = target.getAstNode();
+        if (owner == null) return;
+        if (info.paletteType() != null) {
+            codeEditor.fillEmptySlotFromPalette(owner, info.paletteType());
+            return;
+        }
+        CodeBlock source = findBlockById(info.sourceBlockId());
+        if (source == null || !(source.getAstNode() instanceof ExpressionStatement stmt)) return;
+        if (stmt == owner || encloses(stmt, owner)) return;
+        codeEditor.fillEmptySlot(owner, stmt);
     }
 
     /** Whether {@code ancestor} contains {@code node} — including being it. */
