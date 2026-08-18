@@ -210,6 +210,41 @@ class ParameterModelTest {
         assertEquals(List.of("ore"), shared.get("Mining").stream().map(ActivityVariable::name).toList());
     }
 
+    /**
+     * A declared range is a clamp, never a refusal: a value outside it is pulled to the nearest bound rather
+     * than making the project unsaveable because somebody tightened a limit after the fact.
+     */
+    @Test
+    void aDeclaredRangePullsAStoredValueBackIntoIt() {
+        ActivityVariable retries = variable("retries", BotType.WHOLE_NUMBER)
+                .withBounds(new Bounds("1", "5", "1"))
+                .withValue("42");
+
+        assertEquals(List.of("5"), retries.value());
+        assertEquals(List.of("1"), retries.withValue("-3").value());
+        assertEquals(List.of("3"), retries.withValue("3").value(), "inside the range, nothing moves");
+    }
+
+    /**
+     * Only the two number types have a range, and the predicate that says so lives with the clamp — the
+     * dialog offering a range and the code enforcing one must not come to disagree about which types have one.
+     */
+    @Test
+    void onlyTheNumbersAreBounded() {
+        for (BotType type : BotType.storableTypes()) {
+            assertEquals(type == BotType.WHOLE_NUMBER || type == BotType.DECIMAL_NUMBER,
+                    VariableWire.isBounded(type), type.toString());
+        }
+    }
+
+    /** Retyping drops the range with the value: a range for a number means nothing to the date replacing it. */
+    @Test
+    void retypingForgetsTheRange() {
+        ActivityVariable retries = variable("retries", BotType.WHOLE_NUMBER).withBounds(new Bounds("1", "5", null));
+
+        assertEquals(Bounds.NONE, retries.withType(BotType.Choice.of(BotType.DATE)).bounds());
+    }
+
     /** An archived activity contributes no enable flag: a switch for something that cannot run. */
     @Test
     void onlyLiveActivitiesContributeAnEnableFlag() {

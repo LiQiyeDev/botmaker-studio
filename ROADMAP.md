@@ -6,6 +6,25 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-18 — A variable is dragged to its tag, and a number can declare its range
+  (`ui/app/params/ParametersDialog`, `VariableWire.isBounded`).** Phase 2. The Parameters dialog gained the two
+  things the rail implied but did not offer: a grip on each card that drops onto a rail row to file the
+  variable there (the same edit its picker makes), and a min/max/step row for the number types — which is what
+  turns the value editor into a bounded `Spinner` and what clamps a stored value that falls outside. The
+  predicate saying which types have a range lives beside the clamp, so the dialog and the normaliser cannot
+  disagree. The drop highlight is a `:rail-drop` pseudo-class in `blocks.css`, never an inline style.
+
+- **2026-08-18 — The Java settings model is retired; variables are project-wide and tagged
+  (`project/activity/`, `services/ActivityService`, `ui/app/params/`).** Phase 1 of the revert.
+  `Settings.java`, `Setting.java`, `SettingsClassWriter`, `SettingsReader` and the whole `project/settings/`
+  package are gone: `activities.json` is the single store again and the generated `Activities` class reads it
+  at startup. Per-activity params are gone with them — one flat project-wide list, each variable carrying at
+  most one tag from the same `TagCatalog` the template gallery uses, and a tag is a view rather than a scope.
+  `ActivityType` retired into `palette/BotType` (+ Date, Time of day, How long, Choice, and a `storable()`
+  axis), so a variable holds anything a method parameter can. Root cause of the empty `Settings.java` was a
+  two-argument `new ActivitiesConfig(...)` in `FileExplorerManager` silently dropping the flow, the presets and
+  every value; the record now has one canonical constructor plus withers, so the mistake is unrepresentable.
+
 - **2026-08-18 — The docs say settings, not activity parameters (`docs/Workflow`, `WORKFLOW.md`).** Phase 6,
   the last of the plan. The workflow guide gained a step of its own — "Give the bot its settings", between the
   activity flow and the block canvas — because settings stopped being a detail of an activity and became a

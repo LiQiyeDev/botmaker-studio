@@ -3,6 +3,7 @@ package com.botmaker.studio.ui.app.params;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityVariable;
+import com.botmaker.studio.project.activity.Bounds;
 import com.botmaker.studio.project.activity.ParamVisibility;
 import com.botmaker.studio.project.activity.VariableWire;
 import com.botmaker.studio.services.ActivityService;
@@ -29,6 +30,11 @@ import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Separator;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
+import javafx.css.PseudoClass;
+import javafx.scene.input.ClipboardContent;
+import javafx.scene.input.DragEvent;
+import javafx.scene.input.Dragboard;
+import javafx.scene.input.TransferMode;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
@@ -72,6 +78,9 @@ public final class ParametersDialog {
     private final Window owner;
     private final ProjectConfig config;
     private final ActivityService activityService;
+
+    /** Lit on the rail row a dragged variable is over — styled in {@code blocks.css}, never inline. */
+    private static final PseudoClass RAIL_DROP = PseudoClass.getPseudoClass("rail-drop");
 
     private final ListView<VariableRailModel.Row> rail = new ListView<>();
     private final VBox paramColumn = new VBox(10);
@@ -120,6 +129,34 @@ public final class ParametersDialog {
     private Node buildRail() {
         rail.setPrefWidth(220);
         rail.setCellFactory(list -> new ListCell<>() {
+            {
+                // Dropping a variable onto a tag files it there — the same edit the row's picker makes, for
+                // people who reach for the rail they are already looking at.
+                setOnDragOver(e -> {
+                    if (acceptsDrop(e)) e.acceptTransferModes(TransferMode.MOVE);
+                    e.consume();
+                });
+                setOnDragEntered(e -> {
+                    if (acceptsDrop(e)) pseudoClassStateChanged(RAIL_DROP, true);
+                });
+                setOnDragExited(e -> pseudoClassStateChanged(RAIL_DROP, false));
+                setOnDragDropped(e -> {
+                    pseudoClassStateChanged(RAIL_DROP, false);
+                    if (!acceptsDrop(e)) return;
+                    e.setDropCompleted(fileUnder(e.getDragboard().getString(),
+                            ((VariableRailModel.TagRow) getItem()).tag()));
+                    e.consume();
+                });
+            }
+
+            /** A drop lands only on a real tag row, and only from this dialog's own drag. */
+            private boolean acceptsDrop(DragEvent e) {
+                return getItem() instanceof VariableRailModel.TagRow tag
+                        && !VariableRailModel.ALL.equals(tag.tag())
+                        && e.getGestureSource() != this
+                        && e.getDragboard().hasString();
+            }
+
             @Override protected void updateItem(VariableRailModel.Row row, boolean empty) {
                 super.updateItem(row, empty);
                 getStyleClass().remove("rail-heading");
@@ -164,6 +201,17 @@ public final class ParametersDialog {
         rail.getSelectionModel().select(keep);
         if (keep instanceof VariableRailModel.TagRow tag) selectedTag = tag.tag();
         rebuildParams();
+    }
+
+    /**
+     * Files the variable called {@code name} under {@code tag} — what a drop onto the rail does, and the same
+     * edit the card's own picker makes. Returns whether anything moved, which is what a drop reports back.
+     */
+    private boolean fileUnder(String name, String tag) {
+        ActivityVariable found = variables.stream().filter(v -> v.name().equals(name)).findFirst().orElse(null);
+        if (found == null) return false;
+        replace(found, found.withTag(ActivityVariable.GENERAL.equals(tag) ? "" : tag));
+        return true;
     }
 
     /** The tags a variable may be filed under: the declared ones, plus "no tag". */
@@ -247,9 +295,22 @@ public final class ParametersDialog {
             rebuildRail();
         });
 
+        // The one thing on the card that starts a drag. The name field cannot be it: a TextField's own drag
+        // is how text is selected, and stealing that would cost more than the shortcut is worth.
+        Label grip = new Label("⠿");
+        grip.getStyleClass().add("dialog-hint-text");
+        grip.setTooltip(new Tooltip("Drag onto a tag on the left to file it there."));
+        grip.setOnDragDetected(e -> {
+            Dragboard board = grip.startDragAndDrop(TransferMode.MOVE);
+            ClipboardContent content = new ClipboardContent();
+            content.putString(v.name());
+            board.setContent(content);
+            e.consume();
+        });
+
         HBox spacer = new HBox();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox head = new HBox(8, name, type, spacer, drop);
+        HBox head = new HBox(8, grip, name, type, spacer, drop);
         head.setAlignment(Pos.CENTER_LEFT);
         HBox.setHgrow(name, Priority.ALWAYS);
         grid.add(head, 0, 0, 2, 1);
@@ -262,6 +323,12 @@ public final class ParametersDialog {
         if (VariableWire.hasOptions(v.type().type())) {
             grid.add(new Label("Choices"), 0, row);
             grid.add(buildOptionsEditor(v), 1, row);
+            row++;
+        }
+
+        if (VariableWire.isBounded(v.type().type())) {
+            grid.add(new Label("Range"), 0, row);
+            grid.add(buildBoundsEditor(v), 1, row);
             row++;
         }
 
@@ -369,6 +436,43 @@ public final class ParametersDialog {
         addRow.setAlignment(Pos.CENTER_LEFT);
         box.getChildren().add(addRow);
         return box;
+    }
+
+    /**
+     * The declared range of a number: smallest, largest, and how much a click of the arrows moves it. All
+     * three optional — leaving them blank is what most numbers want, and is the state a variable starts in.
+     *
+     * <p>Declaring one is what turns the value editor into a {@link javafx.scene.control.Spinner}, and what
+     * clamps a stored value that falls outside it, so committing a bound rebuilds the card: the widget the
+     * range describes is not the widget that was there before it.
+     */
+    private Node buildBoundsEditor(ActivityVariable v) {
+        TextField min = boundField(v.bounds().min(), "min");
+        TextField max = boundField(v.bounds().max(), "max");
+        TextField step = boundField(v.bounds().step(), "step");
+        Runnable commit = () -> {
+            Bounds declared = new Bounds(min.getText(), max.getText(), step.getText());
+            if (!declared.equals(v.bounds())) replace(v, v.withBounds(declared));
+        };
+        for (TextField field : List.of(min, max, step)) {
+            field.focusedProperty().addListener((o, was, is) -> {
+                if (!is) commit.run();
+            });
+            field.setOnAction(e -> {
+                commit.run();
+                e.consume();
+            });
+        }
+        HBox row = new HBox(6, min, max, step);
+        row.setAlignment(Pos.CENTER_LEFT);
+        return row;
+    }
+
+    private static TextField boundField(String value, String prompt) {
+        TextField field = new TextField(value == null ? "" : value);
+        field.setPromptText(prompt);
+        field.setPrefColumnCount(5);
+        return field;
     }
 
     /** A new variable lands in the tag being looked at, which is where somebody adding one means to put it. */

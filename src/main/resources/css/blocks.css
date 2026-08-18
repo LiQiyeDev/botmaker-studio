@@ -1800,6 +1800,14 @@
     -fx-padding: 6 0 2 4;
 }
 
+/* The rail row a variable is being dragged onto. An outline rather than a fill, so the row's own text and
+   count stay legible while the pointer is over it — the same reasoning as the template tile below. */
+.list-cell:rail-drop {
+    -fx-border-color: -bm-primary;
+    -fx-border-width: 2;
+    -fx-border-radius: 4;
+}
+
 .template-tile {
     -fx-background-color: -fx-control-inner-background-alt;
     -fx-background-radius: 6;

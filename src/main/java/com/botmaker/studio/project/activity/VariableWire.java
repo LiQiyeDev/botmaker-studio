@@ -78,6 +78,17 @@ public final class VariableWire {
     }
 
     /**
+     * True when a declared {@link Bounds} means anything for this type — the two number types, which are the
+     * ones {@link #normalizeItem} clamps.
+     *
+     * <p>It lives here, beside the clamp, so the dialog that offers a range and the code that enforces one
+     * cannot come to disagree about which types have one.
+     */
+    public static boolean isBounded(BotType type) {
+        return type == BotType.WHOLE_NUMBER || type == BotType.DECIMAL_NUMBER;
+    }
+
+    /**
      * The choices a type brings with it, for the ones whose option list is not the editor's to write: the
      * four SDK enums answer their own constants. Empty for everything else, including {@link BotType#CHOICE},
      * whose choices come from the variable.
