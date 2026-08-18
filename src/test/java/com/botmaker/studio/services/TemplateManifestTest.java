@@ -62,6 +62,34 @@ class TemplateManifestTest {
     }
 
     @Test
+    void aTagComesOffTheNamedTemplatesAndOffNothingElse() {
+        TemplateManifest manifest = TemplateManifest.empty()
+                .declaring("Mining")
+                .withTags("a", List.of("Mining", "Shared"))
+                .withTags("b", List.of("Mining"))
+                .withTags("c", List.of("Mining"))
+                .untagged(List.of("a", "b"), "MINING");   // spelling is not the question a removal answers
+
+        assertEquals(List.of("Shared"), List.copyOf(manifest.tagsOf("a")));
+        assertTrue(manifest.tagsOf("b").isEmpty());
+        assertEquals(List.of("Mining"), List.copyOf(manifest.tagsOf("c")), "c was not named");
+    }
+
+    @Test
+    void emptyingATagDoesNotDeleteIt() {
+        // Removing the last assignment is not the same gesture as deleting the group — the tag manager owns
+        // that. An emptied tag stays on the rail, ready to be filled again.
+        TemplateManifest manifest = TemplateManifest.empty()
+                .declaring("Mining")
+                .withTags("a", List.of("Mining"))
+                .untagged(List.of("a"), "Mining");
+
+        assertTrue(manifest.customTags().contains("Mining"));
+        assertTrue(manifest.byTag(List.of("a"), TagCatalog.of(null, manifest.customTags()))
+                .get("Mining").isEmpty());
+    }
+
+    @Test
     void renameAndDeleteKeepTheManifestInStepWithTheFiles() {
         TemplateManifest manifest = TemplateManifest.empty().withTags("old", List.of("Mining"));
 

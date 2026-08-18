@@ -255,6 +255,24 @@ public record TemplateManifest(Map<String, SortedSet<String>> tagsByTemplate, So
         return new TemplateManifest(next, customTags);
     }
 
+    /**
+     * This manifest with {@code tag} taken off every name in {@code templateNames} — the inverse of
+     * {@link #tagged}. It does not <em>undeclare</em> the tag: removing the last template from a tag leaves
+     * the tag, empty, because a tag exists because it was declared and emptying a group is not deleting it.
+     */
+    public TemplateManifest untagged(Collection<String> templateNames, String tag) {
+        String clean = sanitizeTag(tag);
+        if (clean.isBlank()) return this;
+        Map<String, SortedSet<String>> next = new LinkedHashMap<>(tagsByTemplate);
+        for (String name : templateNames) {
+            SortedSet<String> tags = newTagSet();
+            tags.addAll(tagsOf(name));
+            if (!tags.remove(clean)) continue;
+            next.put(name, tags);
+        }
+        return new TemplateManifest(next, customTags);
+    }
+
     /** This manifest with {@code from}'s tags carried over to {@code to} — kept in step with a file rename. */
     public TemplateManifest renamed(String from, String to) {
         SortedSet<String> tags = tagsByTemplate.get(from);

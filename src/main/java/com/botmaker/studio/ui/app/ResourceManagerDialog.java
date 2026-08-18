@@ -10,6 +10,7 @@ import com.botmaker.studio.sharing.TemplateArchive;
 import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
 import com.botmaker.studio.ui.render.components.TagPicklist;
 import com.botmaker.studio.ui.render.components.TemplateGallery;
+import com.botmaker.studio.ui.render.components.TemplateGalleryDialog;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -19,8 +20,13 @@ import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
+import javafx.scene.control.Tooltip;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.scene.control.MenuButton;
+import javafx.scene.control.MenuItem;
+import javafx.scene.control.SeparatorMenuItem;
+import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
@@ -35,6 +41,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.TreeSet;
 
 /**
@@ -42,6 +49,13 @@ import java.util.TreeSet;
  * rename, delete, tag, import/export, and capture a new one by cropping the screen
  * ({@link ScreenCaptureService}). Publishes {@link ResourcesChangedEvent} after any change so open template
  * pickers can refresh.
+ *
+ * <p>Tagging is offered three ways, because the three questions are different. The chips under the preview
+ * re-tag the <em>one</em> template being looked at, where the answer is visible. "Add templates…" works from
+ * the tag inwards — the only way to fill a tag that is currently empty, which the grid cannot offer because
+ * an empty tag draws nothing to select. "Remove from tag" is the bulk inverse, over the grid's selection.
+ * The old "Tags…" button remains the fourth: it <em>replaces</em> a template's whole tag set rather than
+ * adding or removing one, which is the wrong operation for all three of the above.
  *
  * <p>The listing itself is {@link TemplateGallery} — the same component a template slot opens as a picker, so
  * "which templates exist and how are they filed" has one rendering rather than a tree here and tag submenus
@@ -57,6 +71,11 @@ public class ResourceManagerDialog {
 
     private TemplateGallery gallery;
     private final ImageView preview = new ImageView();
+    private final FlowPane previewTags = new FlowPane(6, 6);
+    private final MenuButton addTagButton = new MenuButton("+ Tag");
+    private final Label previewTagsHint = new Label("Select a single template to tag it here.");
+    private final Button addToTagButton = new Button("Add templates…");
+    private final Button removeFromTagButton = new Button("Remove from tag");
     private final Label statusLabel = new Label();
     private Stage stage;
 
@@ -76,15 +95,20 @@ public class ResourceManagerDialog {
         // Multi-select so a tag can be applied to a whole group in one go — the bulk case is why tagging
         // lives here rather than only on the capture dialogs.
         gallery = new TemplateGallery(config, true);
-        gallery.setOnSelectionChanged(() -> showPreview(selectedFile()));
+        gallery.setOnSelectionChanged(() -> {
+            showPreview(selectedFile());
+            refreshTagRow();
+        });
+        gallery.setOnTagChanged(this::refreshTagActions);
 
         preview.setPreserveRatio(true);
-        VBox previewBox = new VBox(6, new Label("Preview"), preview);
+        VBox previewBox = new VBox(6, new Label("Preview"), preview, tagRow());
         previewBox.setPadding(new Insets(0, 0, 0, 12));
         previewBox.setMinWidth(380);
         // Let the preview grow with the window rather than a fixed 220px box.
         preview.fitWidthProperty().bind(previewBox.widthProperty().subtract(12));
-        preview.fitHeightProperty().bind(previewBox.heightProperty().subtract(28));
+        preview.fitHeightProperty().bind(previewBox.heightProperty().subtract(96));
+        VBox.setVgrow(preview, Priority.ALWAYS);
 
         HBox content = new HBox(8, gallery, previewBox);
         HBox.setHgrow(gallery, Priority.ALWAYS);
@@ -94,6 +118,8 @@ public class ResourceManagerDialog {
         captureBtn.setOnAction(e -> captureNew());
         Button tagBtn = new Button("Tags...");
         tagBtn.setOnAction(e -> editTags(selectedFiles()));
+        addToTagButton.setOnAction(e -> addTemplatesToCurrentTag());
+        removeFromTagButton.setOnAction(e -> removeCurrentTagFromSelection());
         Button manageTagsBtn = new Button("Manage tags...");
         manageTagsBtn.setOnAction(e -> manageTags());
         Button renameBtn = new Button("Rename");
@@ -109,13 +135,16 @@ public class ResourceManagerDialog {
 
         HBox spacer = new HBox();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox buttons = new HBox(8, captureBtn, tagBtn, manageTagsBtn, renameBtn, deleteBtn, exportBtn, importBtn, spacer, close);
+        HBox buttons = new HBox(8, captureBtn, tagBtn, addToTagButton, removeFromTagButton, manageTagsBtn,
+                renameBtn, deleteBtn, exportBtn, importBtn, spacer, close);
         buttons.setAlignment(Pos.CENTER_LEFT);
 
         VBox root = new VBox(12, content, statusLabel, buttons);
         root.setPadding(new Insets(16));
 
         reload();
+        refreshTagRow();
+        refreshTagActions();
         stage.setScene(ThemedWindows.scene(root, 820, 560));
         stage.show();
     }
@@ -123,6 +152,8 @@ public class ResourceManagerDialog {
     /** Re-reads the library after a change here (or in the tag manager) so the grid and the rail counts agree. */
     private void reload() {
         gallery.reload();
+        refreshTagRow();
+        refreshTagActions();
     }
 
     /** The one selected template, or null when nothing — or more than one thing — is selected. */
@@ -161,6 +192,132 @@ public class ResourceManagerDialog {
                 statusLabel.setText("Failed to save: " + e.getMessage());
             }
         }));
+    }
+
+    // -------------------------------------------------------------------------
+    // Tagging where you are looking
+    // -------------------------------------------------------------------------
+
+    /** The row under the preview: the selected template's tags as removable chips, plus one to add. */
+    private VBox tagRow() {
+        previewTagsHint.getStyleClass().add("template-gallery-empty");
+        previewTagsHint.setWrapText(true);
+        VBox box = new VBox(6, new Label("Tags"), previewTags, previewTagsHint);
+        box.setPadding(new Insets(6, 0, 0, 0));
+        return box;
+    }
+
+    /**
+     * Redraws the chips for the one selected template. With nothing — or more than one thing — selected the
+     * chips give way to a hint rather than showing the tags of an arbitrary member of the selection: a chip's
+     * ✕ has to mean "off this template", and with two selected it would be ambiguous. Bulk work is the two
+     * per-tag buttons.
+     */
+    private void refreshTagRow() {
+        Path file = selectedFile();
+        previewTags.getChildren().clear();
+        boolean single = file != null;
+        previewTags.setVisible(single);
+        previewTags.setManaged(single);
+        previewTagsHint.setVisible(!single);
+        previewTagsHint.setManaged(!single);
+        if (!single) return;
+
+        String name = ImageTemplateLibrary.baseName(file);
+        List<String> tags = ImageTemplateLibrary.tagCatalog(config)
+                .declaredOnly(ImageTemplateLibrary.manifest(config).tagsOf(name));
+        for (String tag : tags) previewTags.getChildren().add(tagChip(name, tag));
+        previewTags.getChildren().add(addTagMenu(name, tags));
+    }
+
+    /** One tag on the previewed template, with the ✕ that takes it off — one click, no dialog. */
+    private HBox tagChip(String templateName, String tag) {
+        Label label = new Label(tag);
+        Button remove = new Button("✕");
+        remove.getStyleClass().add("tag-chip-remove");
+        remove.setTooltip(new Tooltip("Take \"" + tag + "\" off " + templateName));
+        remove.setOnAction(e -> {
+            ImageTemplateLibrary.removeTag(config, List.of(templateName), tag);
+            published();
+            reload();
+        });
+        HBox chip = new HBox(4, label, remove);
+        chip.getStyleClass().add("tag-chip");
+        chip.setAlignment(Pos.CENTER_LEFT);
+        return chip;
+    }
+
+    /** The chips' "+": the declared tags this template does not already carry, plus a way to declare one. */
+    private MenuButton addTagMenu(String templateName, List<String> already) {
+        addTagButton.getItems().clear();
+        Set<String> carried = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        carried.addAll(already);
+        for (String tag : ImageTemplateLibrary.tagCatalog(config).names()) {
+            if (carried.contains(tag)) continue;
+            MenuItem item = new MenuItem(tag);
+            item.setOnAction(e -> {
+                ImageTemplateLibrary.addTag(config, List.of(templateName), tag);
+                published();
+                reload();
+            });
+            addTagButton.getItems().add(item);
+        }
+        if (!addTagButton.getItems().isEmpty()) addTagButton.getItems().add(new SeparatorMenuItem());
+        MenuItem create = new MenuItem("New tag…");
+        create.setOnAction(e -> TagPicklist.promptNewTag(stage, config).ifPresent(tag -> {
+            ImageTemplateLibrary.declareTag(config, tag);
+            ImageTemplateLibrary.addTag(config, List.of(templateName), tag);
+            published();
+            reload();
+        }));
+        addTagButton.getItems().add(create);
+        return addTagButton;
+    }
+
+    /** Names the two per-tag buttons after the tag the rail is on, and disables them where they make no sense. */
+    private void refreshTagActions() {
+        String tag = gallery.selectedRealTag();
+        boolean real = tag != null;
+        addToTagButton.setText(real ? "Add templates to \"" + tag + "\"…" : "Add templates…");
+        removeFromTagButton.setText(real ? "Remove from \"" + tag + "\"" : "Remove from tag");
+        addToTagButton.setDisable(!real);
+        removeFromTagButton.setDisable(!real || selectedFiles().isEmpty());
+    }
+
+    /**
+     * Files templates chosen from the whole library under the tag the rail is on. This is the only way to
+     * fill an <em>empty</em> tag: the grid of an empty tag has nothing in it to select, so every other
+     * tagging path here starts from a template that is already somewhere else.
+     */
+    private void addTemplatesToCurrentTag() {
+        String tag = gallery.selectedRealTag();
+        if (tag == null) return;
+        TemplateManifest manifest = ImageTemplateLibrary.manifest(config);
+        TemplateGalleryDialog.Options options = TemplateGalleryDialog.Options
+                .pickOne("Add templates to \"" + tag + "\"").multi()
+                // Offer only what is not already filed here — re-adding is a no-op the user would have to
+                // check for themselves.
+                .withFilter(file -> !manifest.tagsOf(ImageTemplateLibrary.baseName(file)).contains(tag));
+        TemplateGalleryDialog.open(stage, config, options, files -> {
+            ImageTemplateLibrary.addTag(config, files.stream().map(ImageTemplateLibrary::baseName).toList(), tag);
+            published();
+            reload();
+            statusLabel.setText("Added " + files.size() + " template(s) to \"" + tag + "\".");
+        });
+    }
+
+    /** Takes the rail's tag off every selected template. The tag survives, even when it ends up empty. */
+    private void removeCurrentTagFromSelection() {
+        String tag = gallery.selectedRealTag();
+        List<Path> files = selectedFiles();
+        if (tag == null || files.isEmpty()) {
+            statusLabel.setText("Select the templates to take out of this tag.");
+            return;
+        }
+        ImageTemplateLibrary.removeTag(config, files.stream().map(ImageTemplateLibrary::baseName).toList(), tag);
+        published();
+        reload();
+        statusLabel.setText("Removed \"" + tag + "\" from " + files.size() + " template(s).");
     }
 
     /**

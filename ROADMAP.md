@@ -6,6 +6,15 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-18 — Tagging where you are looking (`ui/app/ResourceManagerDialog`, `services/TemplateManifest`,
+  `ui/render/components/TemplateGallery`).** Phase 5. Three gaps closed in the Resource Manager: the selected
+  template's tags are now removable chips under the preview with a "+ Tag" menu beside them; "Add templates
+  to <tag>…" fills the tag from a multi-select gallery — the only way to fill a tag that is empty, since an
+  empty tag draws nothing to select; and "Remove from <tag>" takes it off the whole grid selection.
+  `TemplateManifest.untagged` is the bulk inverse of `tagged`, and `ImageTemplateLibrary.addTag`/`removeTag`
+  add and remove one tag without disturbing the others (`applyTags` replaces the whole set, which is the
+  wrong operation for all three). Emptying a tag never undeclares it.
+
 - **2026-08-18 — Overloads are allowed, and a signature is edited in one place
   (`palette/FunctionDraft`, `parser/helpers/MethodSignatures`, `blocks/func/MethodDeclarationBlock`).** Phase 4.
   The Add Function dialog compared names, so `click(Point)` was refused because `click(int, int)` existed; it

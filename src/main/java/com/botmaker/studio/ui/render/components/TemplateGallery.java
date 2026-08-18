@@ -65,6 +65,7 @@ public final class TemplateGallery extends HBox {
 
     private Predicate<Path> filter = file -> true;
     private Runnable onSelectionChanged;
+    private Runnable onTagChanged;
     private Consumer<Path> onActivate;
 
     public TemplateGallery(ProjectConfig config, boolean multiSelect) {
@@ -119,6 +120,11 @@ public final class TemplateGallery extends HBox {
         this.onSelectionChanged = onSelectionChanged;
     }
 
+    /** Called whenever the rail moves to another tag, so a dialog can retitle its per-tag actions. */
+    public void setOnTagChanged(Runnable onTagChanged) {
+        this.onTagChanged = onTagChanged;
+    }
+
     /** Called on a double-click — "pick this one and be done". */
     public void setOnActivate(Consumer<Path> onActivate) {
         this.onActivate = onActivate;
@@ -154,9 +160,20 @@ public final class TemplateGallery extends HBox {
         if (onSelectionChanged != null) onSelectionChanged.run();
     }
 
-    private String selectedTag() {
+    /**
+     * The rail row currently shown — a declared tag, or {@link TemplateManifest#ALL} / {@code UNTAGGED}. The
+     * two computed rows are named the same way as real ones on purpose; {@link #selectedRealTag()} is what
+     * asks the question a per-tag action needs answered.
+     */
+    public String selectedTag() {
         TemplateGalleryModel.Row row = rail.getSelectionModel().getSelectedItem();
         return row instanceof TemplateGalleryModel.TagRow tag ? tag.tag() : TemplateManifest.ALL;
+    }
+
+    /** The selected tag when it is one templates can be filed under, else null ("All" and "Untagged" are not). */
+    public String selectedRealTag() {
+        String tag = selectedTag();
+        return TemplateManifest.isSyntheticTag(tag) ? null : tag;
     }
 
     private void refreshGrid() {
@@ -178,6 +195,7 @@ public final class TemplateGallery extends HBox {
         selected.retainAll(tiles.keySet());
         tiles.forEach((file, node) -> node.pseudoClassStateChanged(SELECTED, selected.contains(file)));
         if (onSelectionChanged != null) onSelectionChanged.run();
+        if (onTagChanged != null) onTagChanged.run();
 
         empty.setText(visible.isEmpty() ? emptyMessage(files.isEmpty()) : "");
         empty.setManaged(visible.isEmpty());

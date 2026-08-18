@@ -244,6 +244,23 @@ public final class ImageTemplateLibrary {
         saveManifest(config, updated);
     }
 
+    /**
+     * Adds one declared {@code tag} to every named template and saves once — "add these to this tag", the
+     * operation a tag view wants, as opposed to {@link #applyTags} which <em>replaces</em> a template's whole
+     * tag set. An undeclared tag is refused rather than declared as a side effect: declaring is
+     * {@link #declareTag}'s job, and a typo should not become a group.
+     */
+    public static void addTag(ProjectConfig config, Collection<String> baseNames, String tag) {
+        if (baseNames.isEmpty() || !tagCatalog(config).isDeclared(tag)) return;
+        saveManifest(config, manifest(config).tagged(baseNames, tag));
+    }
+
+    /** Takes {@code tag} off every named template and saves once. The tag itself survives, empty. */
+    public static void removeTag(ProjectConfig config, Collection<String> baseNames, String tag) {
+        if (baseNames.isEmpty()) return;
+        saveManifest(config, manifest(config).untagged(baseNames, tag));
+    }
+
     /** Declares {@code tag} as a custom tag and saves; returns the catalog it now belongs to. */
     public static TagCatalog declareTag(ProjectConfig config, String tag) {
         saveManifest(config, manifest(config).declaring(tag));
