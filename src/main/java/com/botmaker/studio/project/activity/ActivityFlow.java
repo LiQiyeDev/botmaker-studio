@@ -127,7 +127,7 @@ public record ActivityFlow(List<FlowNode> nodes, List<FlowEdge> edges, String st
     /**
      * The entry point resolved against what is actually placed: {@link #start()} when it names a placed
      * activity, else the first placed one. The fallback is what lets a flow drawn before start nodes existed
-     * — and a flow whose start activity was archived or renamed — still generate something that runs.
+     * — and a flow whose start activity was deleted or renamed — still generate something that runs.
      */
     public String resolvedStart(List<String> allActivityNames) {
         List<String> placed = placedActivities(allActivityNames);

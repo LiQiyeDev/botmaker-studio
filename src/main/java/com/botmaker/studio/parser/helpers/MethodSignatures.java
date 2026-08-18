@@ -71,4 +71,36 @@ public final class MethodSignatures {
         }
         return Optional.of(new FunctionDraft(method.getName().getIdentifier(), returnType, parameters));
     }
+
+    /**
+     * The part of {@code method}'s signature the dialog cannot represent, phrased for the user — or empty when
+     * {@link #draftOf} would succeed.
+     *
+     * <p>It exists so the Edit button never has to be a dead grey square. "Why can't I edit this one?" is a
+     * question with a specific answer — a type, by name — and a disabled control is the one place that answer
+     * cannot be read. Naming it on click is the whole difference between a lock and a bug report.
+     */
+    public static Optional<String> unrepresentable(MethodDeclaration method) {
+        if (method.getReturnType2() != null
+                && BotType.Choice.fromSourceName(method.getReturnType2().toString()).isEmpty()) {
+            return Optional.of("it gives back " + method.getReturnType2()
+                    + ", which is not one of the types the editor offers");
+        }
+        for (Object parameter : method.parameters()) {
+            SingleVariableDeclaration declaration = (SingleVariableDeclaration) parameter;
+            String name = declaration.getName().getIdentifier();
+            if (declaration.isVarargs()) {
+                return Optional.of("the input \"" + name + "\" takes any number of values, which the editor "
+                        + "cannot describe");
+            }
+            if (declaration.getExtraDimensions() > 0 || declaration.getType().toString().endsWith("[]")) {
+                return Optional.of("the input \"" + name + "\" is an array, which the editor cannot describe");
+            }
+            if (BotType.Choice.fromSourceName(declaration.getType().toString()).isEmpty()) {
+                return Optional.of("the input \"" + name + "\" is a " + declaration.getType()
+                        + ", which is not one of the types the editor offers");
+            }
+        }
+        return Optional.empty();
+    }
 }

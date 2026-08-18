@@ -162,86 +162,6 @@ public class ActivityServiceTest {
         assertFalse(reg.contains("new Idle()"), reg);
     }
 
-    @Test
-    void anArchivedActivityStopsBeingGeneratedAtAll(@TempDir Path dir) {
-        ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
-        ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
-
-        ActivityDefinition retired = ActivityDefinition.create("Idle", "")
-                .withEnabled(true).withArchived(true);
-        ActivitiesConfig cfg = ActivitiesConfig.of(
-                List.of(ActivityDefinition.create("Resources", ""), retired), List.of());
-
-        assertEquals(List.of("Resources"),
-                cfg.orderedActivities().stream().map(ActivityDefinition::name).toList());
-        assertFalse(service.generateRegistrySource(cfg).contains("new Idle()"));
-
-        // ...and neither its enable flag nor its params are generated any more. They were settings for
-        // something that cannot run, offered by the expression menu to code that must not call it. The stub
-        // that referred to them is moved out of the source tree in the same save — see the lifecycle test.
-        List<String> fields = cfg.allVariables().stream().map(ActivityVariable::name).toList();
-        assertEquals(List.of("Resources"), fields);
-        assertFalse(service.generateSource(cfg).contains("Idle"), "no field for an archived activity");
-    }
-
-    @Test
-    void archivingMovesTheUsersFileAsideAndRestoringBringsItBackUnchanged(@TempDir Path dir) throws Exception {
-        ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
-        ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
-        Path live = config.activitiesPackageDir().resolve("Idle.java");
-        Path aside = config.archivedActivitiesDir().resolve("Idle.java");
-
-        ActivityDefinition idle = ActivityDefinition.create("Idle", "");
-        service.update(ActivitiesConfig.of(List.of(idle), List.of())).join();
-        assertTrue(java.nio.file.Files.exists(live), "a live activity gets its stub");
-
-        // The bit worth protecting: the body is the user's, and it has to survive the round trip verbatim.
-        String written = java.nio.file.Files.readString(live)
-                .replace("// TODO: how to do Idle", "System.out.println(\"mine\");");
-        java.nio.file.Files.writeString(live, written);
-
-        service.update(ActivitiesConfig.of(List.of(idle.withArchived(true)), List.of())).join();
-        assertFalse(java.nio.file.Files.exists(live), "archiving takes the stub out of the source tree");
-        assertTrue(java.nio.file.Files.exists(aside), "and puts it aside rather than deleting it");
-
-        service.update(ActivitiesConfig.of(List.of(idle), List.of())).join();
-        assertFalse(java.nio.file.Files.exists(aside));
-        assertEquals(written, java.nio.file.Files.readString(live),
-                "restoring returns the activity as it was written, not as a fresh stub");
-    }
-
-    /**
-     * The reported defect: the stub came back on the next save, while the flow still called the activity
-     * archived. Archiving is not one event, it is a state — every save after it has to leave the file in the
-     * attic, and nothing may ask for it back.
-     */
-    @Test
-    void anArchivedStubStaysInTheAtticAcrossEveryLaterSave(@TempDir Path dir) throws Exception {
-        ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
-        ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
-        Path live = config.activitiesPackageDir().resolve("Idle.java");
-        Path aside = config.archivedActivitiesDir().resolve("Idle.java");
-
-        ActivityDefinition idle = ActivityDefinition.create("Idle", "");
-        service.update(ActivitiesConfig.of(List.of(idle), List.of())).join();
-        ActivitiesConfig archived = ActivitiesConfig.of(List.of(idle.withArchived(true)), List.of());
-        service.update(archived).join();
-
-        // Three more saves — a variable edit, a flow edit, a no-op — none of which mention the activity.
-        service.update(archived.withVariables(List.of(variable("speed", BotType.WHOLE_NUMBER)))).join();
-        service.update(service.current().withFlow(new ActivityFlow(List.of(), List.of()))).join();
-        service.update(service.current()).join();
-
-        assertFalse(java.nio.file.Files.exists(live), "the stub must not come back on a later save");
-        assertTrue(java.nio.file.Files.exists(aside));
-        assertTrue(service.current().archivedActivities().stream()
-                .anyMatch(a -> a.name().equals("Idle")), "and the config still calls it archived");
-
-        // Nor may the repair pass offer to write it: that is the other way it used to reappear.
-        assertTrue(ProjectRepair.findMissing(config, ProjectTemplate.GAME_BOT, service.current()).stream()
-                .noneMatch(m -> m.fileName().equals("Idle.java")));
-    }
-
     /**
      * Every save is a {@code with…} on the current config, so no dialog can drop the half of the project it
      * does not edit. This is the defect that produced an {@code activities.json} with no variables in it: a
@@ -276,26 +196,47 @@ public class ActivityServiceTest {
         assertFalse(read.goHomeByDefault());
     }
 
+    /**
+     * The removal counterpart of {@code ensureStubs}. A dropped activity stops generating its
+     * {@code Activities.<Name>} field, so a stub left behind reads a field that no longer exists — a project
+     * that does not compile, in a file the user never opened.
+     */
     @Test
-    void archivedStateSurvivesTheJsonRoundTripAndOlderFilesLoadUnarchived(@TempDir Path dir) throws Exception {
-        ActivitiesConfig cfg = ActivitiesConfig.of(List.of(
-                ActivityDefinition.create("Resources", ""),
-                new ActivityDefinition("Idle", false, "", true, List.of(), true, true)), List.of());
-        cfg.write(dir);
+    void deletingAnActivityTakesItsStubWithIt(@TempDir Path dir) throws Exception {
+        ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
+        ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
+        Path idleStub = config.activitiesPackageDir().resolve("Idle.java");
+        Path helper = config.activitiesPackageDir().resolve("MiningHelper.java");
 
-        ActivitiesConfig read = ActivitiesConfig.read(dir);
-        assertEquals(List.of("Resources"), read.liveActivities().stream()
-                .map(ActivityDefinition::name).toList());
-        assertEquals(List.of("Idle"), read.archivedActivities().stream()
-                .map(ActivityDefinition::name).toList());
+        service.update(ActivitiesConfig.of(List.of(
+                ActivityDefinition.create("Idle", ""), ActivityDefinition.create("Resources", "")),
+                List.of())).join();
+        assertTrue(java.nio.file.Files.exists(idleStub));
+        java.nio.file.Files.writeString(helper, "// a class the user parked in the activities package");
 
-        // An activities.json written before the field existed must load with everything live.
+        service.update(ActivitiesConfig.of(
+                List.of(ActivityDefinition.create("Resources", "")), List.of())).join();
+
+        assertFalse(java.nio.file.Files.exists(idleStub), "the deleted activity's stub goes with it");
+        assertTrue(java.nio.file.Files.exists(
+                config.activitiesPackageDir().resolve("Resources.java")), "and nothing else does");
+        assertTrue(java.nio.file.Files.exists(helper),
+                "a file that was never an activity is not this method's business");
+    }
+
+    /** An {@code activities.json} written when archiving existed loads with every activity live. */
+    @Test
+    void anArchivedFlagInAnOlderFileIsIgnored(@TempDir Path dir) throws Exception {
+        java.nio.file.Files.createDirectories(dir);
         java.nio.file.Files.writeString(dir.resolve(ActivitiesConfig.FILE_NAME), """
-                { "activities": [ { "name": "Resources", "enabled": true, "description": "", "params": [] } ] }
+                { "activities": [
+                    { "name": "Resources", "enabled": true, "description": "", "archived": false },
+                    { "name": "Idle", "enabled": false, "description": "", "archived": true } ] }
                 """);
+
         ActivitiesConfig legacy = ActivitiesConfig.read(dir);
-        assertEquals(1, legacy.liveActivities().size());
-        assertTrue(legacy.archivedActivities().isEmpty());
+        assertEquals(List.of("Resources", "Idle"),
+                legacy.activities().stream().map(ActivityDefinition::name).toList());
     }
 
     @Test
@@ -351,94 +292,18 @@ public class ActivityServiceTest {
     }
 
     @Test
-    void archivingTheLastActivityLeavesNothingImportingAnEmptyPackage(@TempDir Path dir) {
-        ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
-        ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
-
-        // Every activity archived: their stubs have been moved out of com.mybot.activities, so the package has
-        // no source in it and an import-on-demand of it does not compile. The import used to be keyed on
-        // activities() — which counts the archived ones — and archiving the last activity broke the build.
-        ActivitiesConfig cfg = ActivitiesConfig.of(
-                List.of(ActivityDefinition.create("Idle", "").withArchived(true)), List.of());
-
-        assertFalse(service.generateRegistrySource(cfg).contains("import com.mybot.activities.*;"));
-        assertFalse(service.generateDriverSource(cfg).contains("import com.mybot.activities.*;"));
-
-        // One live activity is enough to make the package real again.
-        ActivitiesConfig mixed = ActivitiesConfig.of(List.of(
-                ActivityDefinition.create("Idle", "").withArchived(true),
-                ActivityDefinition.create("Resources", "")), List.of());
-        assertTrue(service.generateRegistrySource(mixed).contains("import com.mybot.activities.*;"));
-    }
-
-    @Test
     void theActivitiesClassIsWrittenEvenWhenItHoldsNothing(@TempDir Path dir) throws Exception {
         ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
         ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
 
-        // Archiving the only activity leaves no fields to generate. The class used to be deleted at that
-        // point, which compile-errors anything still saying `import com.mybot.Activities;`.
-        service.update(ActivitiesConfig.of(
-                List.of(ActivityDefinition.create("Idle", "").withArchived(true)), List.of())).join();
+        // A project with no activities and no variables generates no fields at all. The class used to be
+        // deleted at that point, which compile-errors anything still saying `import com.mybot.Activities;`.
+        service.update(ActivitiesConfig.empty()).join();
 
         assertTrue(java.nio.file.Files.exists(config.activitiesSourceFile()),
                 "an empty Activities class costs nothing and cannot break a build");
         assertTrue(java.nio.file.Files.readString(config.activitiesSourceFile())
                 .contains("public final class Activities"));
-    }
-
-    @Test
-    void aStubThatEndedUpInBothPlacesReconcilesToTheSideItIsLeaving(@TempDir Path dir) throws Exception {
-        ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
-        ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
-        Path live = config.activitiesPackageDir().resolve("Idle.java");
-        Path aside = config.archivedActivitiesDir().resolve("Idle.java");
-
-        // The state the old skip-if-the-destination-exists guard used to freeze: the same activity on both
-        // sides, every later archive and restore silently doing nothing.
-        java.nio.file.Files.createDirectories(live.getParent());
-        java.nio.file.Files.createDirectories(aside.getParent());
-        java.nio.file.Files.writeString(live, "// what the user last edited");
-        java.nio.file.Files.writeString(aside, "// a stale copy from an earlier attempt");
-
-        ActivityDefinition idle = ActivityDefinition.create("Idle", "");
-        service.update(ActivitiesConfig.of(List.of(idle.withArchived(true)), List.of())).join();
-
-        assertFalse(java.nio.file.Files.exists(live), "the side it is leaving is always emptied");
-        assertEquals("// what the user last edited", java.nio.file.Files.readString(aside),
-                "the file being moved wins — it is the one the user last edited");
-
-        // ...and the pair is no longer stuck: restoring moves it straight back.
-        service.update(ActivitiesConfig.of(List.of(idle), List.of())).join();
-        assertFalse(java.nio.file.Files.exists(aside));
-        assertEquals("// what the user last edited", java.nio.file.Files.readString(live));
-    }
-
-    @Test
-    void archivingIsRefusedWhileAnotherActivityReadsItsEnableFlag(@TempDir Path dir) throws Exception {
-        ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
-        ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
-
-        ActivityDefinition idle = ActivityDefinition.create("Idle", "").withEnabled(true);
-        Path activities = config.activitiesPackageDir();
-        java.nio.file.Files.createDirectories(activities);
-
-        // Its own stub reads its own flag — that file is moved out of the tree, so it is never a blocker.
-        java.nio.file.Files.writeString(activities.resolve("Idle.java"),
-                "class Idle { boolean on = Activities.Idle; }");
-        assertEquals(List.of(), service.archiveBlockers(idle));
-
-        // A sibling reading it is: archiving would leave that file referring to a field that stops being
-        // generated, and the user would meet it as a compile error in a file they never touched. A variable
-        // merely tagged "Idle" is not in this set — it is project-wide, and outlives the activity.
-        java.nio.file.Files.writeString(activities.resolve("Resources.java"),
-                "class Resources { boolean p = Activities.Idle; }");
-        assertEquals(List.of("Resources.java"), service.archiveBlockers(idle));
-
-        // A field whose name merely starts with one of ours is not a reference to it.
-        java.nio.file.Files.writeString(activities.resolve("Resources.java"),
-                "class Resources { int p = Activities.IdleOther; }");
-        assertEquals(List.of(), service.archiveBlockers(idle));
     }
 
     @Test

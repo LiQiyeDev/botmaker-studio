@@ -302,7 +302,17 @@ public class ProjectState {
     // READER / EDITOR MODE
     // =========================================================================
 
-    /** True when this project is open for reading only — every edit is refused (see {@link com.botmaker.studio.project.LockResolver}). */
+    /**
+     * True when this project is open for reading only — every edit is refused (see
+     * {@link com.botmaker.studio.project.LockResolver}).
+     *
+     * <p>A fact about <em>this project</em>, decided once on open by {@code ProjectMode.isReader}: somebody
+     * else's installed bot. It is not a view the author can switch into and out of — the toolbar used to
+     * offer exactly that, a "Reader mode" that stripped the editor's controls in place, and it answered "what
+     * does a user see?" with a third rendering no user ever sees. The honest answer is the Runner window, so
+     * the button now opens that (View ▸ Preview as user). Only {@code UIManager.switchToEditorMode} clears
+     * this, and only by changing what the project <em>is</em>.
+     */
     private boolean readerMode;
 
     public boolean isReaderMode() { return readerMode; }

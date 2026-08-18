@@ -24,6 +24,7 @@ import javafx.scene.control.Button;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Control;
 import javafx.scene.control.Label;
+import javafx.scene.control.Tooltip;
 import javafx.scene.input.ClipboardContent;
 import javafx.scene.input.DataFormat;
 import javafx.scene.input.Dragboard;
@@ -176,7 +177,7 @@ public class BlockDragAndDropManager {
      *
      * <p>An unresolved binding reports {@link ResolvedType#UNKNOWN}'s name rather than nothing. It used to
      * report nothing, and since the editor parses without bindings for most of a session, that meant the
-     * format was almost never on the dragboard — and {@link #carriesExpression} requires it, so dragging an
+     * format was almost never on the dragboard — and the slot requires it, so dragging an
      * {@code ImageClicker.click(…)} into an {@code if} condition was refused every time. Unknown is what
      * {@link TypeExpectation#fits} already accepts everywhere else; saying it out loud is the fix.
      */
@@ -555,6 +556,7 @@ public class BlockDragAndDropManager {
         });
     }
 
+
     /**
      * The empty {@code ⟨expression⟩} placeholder — a real drop target, named by the statement around it rather
      * than by an expression it does not have.
@@ -576,31 +578,9 @@ public class BlockDragAndDropManager {
         target.setMinHeight(25);
         if (owner == null) return;
 
-        target.setOnDragEntered(event -> {
-            if (carriesExpression(event.getDragboard()))
-                applyDragOver(target, event.getDragboard(), acceptsExpression(event.getDragboard(), ResolvedType.UNKNOWN));
-            event.consume();
-        });
-
-        target.setOnDragExited(event -> {
-            clearDragOver(target);
-            event.consume();
-        });
-
-        target.setOnDragOver(event -> {
-            // UNKNOWN, not the declared type: an empty slot's own type is whatever the statement around it
-            // declares, and the only rule that matters here — a void call is not a value — needs no slot type.
-            if (acceptsExpression(event.getDragboard(), ResolvedType.UNKNOWN))
-                event.acceptTransferModes(TransferMode.ANY);
-            event.consume();
-        });
-
-        target.setOnDragDropped(event -> {
-            clearDragOver(target);
-            boolean success = publishEmptySlotDrop(event.getDragboard(), owner);
-            event.setDropCompleted(success);
-            event.consume();
-        });
+        // UNKNOWN, not a declared type: an empty slot's own type is whatever the statement around it declares,
+        // and the only rule that matters here — a void call is not a value — needs no slot type.
+        installSlotFilters(target, ResolvedType.UNKNOWN, db -> publishEmptySlotDrop(db, owner));
     }
 
     private boolean publishEmptySlotDrop(Dragboard db, CodeBlock owner) {
@@ -624,55 +604,126 @@ public class BlockDragAndDropManager {
      *   <li>an existing statement that carries an {@link #EXPRESSION_TYPE_FORMAT}, i.e. one already parsed as an
      *       expression statement — dropping it <em>moves</em> its expression into the slot.</li>
      * </ul>
-     * Anything else (an {@code if}, a loop, a declaration) is refused during drag-over, so the cursor says no
-     * before the mouse is released. The previous version accepted every palette drop and then published
-     * nothing, which read as "this slot is broken" — it was, for all of them.
+     * Anything else (an {@code if}, a loop, a declaration) is refused during drag-over — but visibly, with a
+     * red outline and a tooltip naming the reason, rather than by the cursor alone.
      *
      * @param slotType what the slot expects; unresolved slots pass {@link ResolvedType#UNKNOWN} and accept
      *                 anything, matching how {@link com.botmaker.studio.types.TypeExpectation} filters menus
      */
     public void addExpressionDropHandlers(Region target, CodeBlock slot, ResolvedType slotType) {
         target.getStyleClass().add("expression-drop-target");
+        installSlotFilters(target, slotType, db -> publishExpressionDrop(db, slot, slotType));
+    }
 
-        target.setOnDragEntered(event -> {
-            if (carriesExpression(event.getDragboard()))
-                applyDragOver(target, event.getDragboard(), acceptsExpression(event.getDragboard(), slotType));
+    /**
+     * Wires one expression slot's drag feedback and drop.
+     *
+     * <p><b>Filters, not handlers</b>, and that is the whole point. A slot is rarely a bare {@code Region}: it
+     * is usually the picker {@code PickerRegistry} built for its type — a {@code ComboBox}, a {@code Button},
+     * a {@code TextField}. Those controls install their own {@code DragEvent} handling (a text field accepts
+     * dropped text), which runs on the control itself and consumes the event, so a handler registered through
+     * {@code setOnDragOver} could be pre-empted and the slot answered a block drag with nothing at all — no
+     * outline, no cursor, no reason. A filter runs in the capture phase, before any descendant's or skin's
+     * handler, so the slot decides first.
+     *
+     * <p>Only a drag actually carrying a block is intercepted; anything else (dragging text into a text field)
+     * passes through untouched.
+     */
+    private void installSlotFilters(Region target, ResolvedType slotType, java.util.function.Predicate<Dragboard> drop) {
+        target.addEventFilter(javafx.scene.input.DragEvent.DRAG_OVER, event -> {
+            Dragboard db = event.getDragboard();
+            if (!carriesBlock(db)) return;
+            String refusal = refusalReason(db, slotType);
+            if (refusal == null) event.acceptTransferModes(TransferMode.ANY);
+            paintSlot(target, db, refusal);
             event.consume();
         });
 
-        target.setOnDragExited(event -> {
+        target.addEventFilter(javafx.scene.input.DragEvent.DRAG_EXITED, event -> {
             clearDragOver(target);
-            event.consume();
+            uninstallTip(target);
         });
 
-        target.setOnDragOver(event -> {
-            if (acceptsExpression(event.getDragboard(), slotType))
-                event.acceptTransferModes(TransferMode.ANY);
-            event.consume();
-        });
-
-        target.setOnDragDropped(event -> {
+        target.addEventFilter(javafx.scene.input.DragEvent.DRAG_DROPPED, event -> {
+            Dragboard db = event.getDragboard();
+            if (!carriesBlock(db)) return;
             clearDragOver(target);
-            boolean success = publishExpressionDrop(event.getDragboard(), slot, slotType);
-            event.setDropCompleted(success);
+            uninstallTip(target);
+            event.setDropCompleted(drop.test(db));
             event.consume();
         });
     }
 
-    /** Whether the dragboard holds something that could conceivably fill an expression slot. */
-    private static boolean carriesExpression(Dragboard db) {
-        return (db.hasContent(ADDABLE_BLOCK_FORMAT) && blockTypeFrom(db) instanceof BlockType.LibraryCall)
-                || (db.hasContent(EXISTING_BLOCK_FORMAT) && db.hasContent(EXPRESSION_TYPE_FORMAT));
+    /**
+     * The one tooltip the refusal reason is shown through. Shared rather than per-slot: only one slot is under
+     * the pointer at a time, and a tooltip per expression in the editor would be thousands of them.
+     *
+     * <p>Built on first use, never in the constructor: a {@code Tooltip} needs the JavaFX toolkit running, and
+     * this class is constructed by the headless parser fixture the block tests are built on.
+     */
+    private Tooltip refusalTip;
+
+    private Tooltip refusalTip() {
+        if (refusalTip == null) refusalTip = new Tooltip();
+        return refusalTip;
     }
 
-    /** {@link #carriesExpression}, plus the slot's own type check. */
-    private static boolean acceptsExpression(Dragboard db, ResolvedType slotType) {
-        if (!carriesExpression(db)) return false;
+    /** Takes the shared tooltip off {@code target}, doing nothing if it was never needed. */
+    private void uninstallTip(Region target) {
+        if (refusalTip != null) Tooltip.uninstall(target, refusalTip);
+    }
+
+    /** Outlines the slot green (it fits) or red (it doesn't, with {@code refusal} said out loud). */
+    private void paintSlot(Region target, Dragboard db, String refusal) {
+        applyDragOver(target, db, refusal == null);
+        if (refusal == null) {
+            uninstallTip(target);
+            return;
+        }
+        refusalTip().setText(refusal);
+        Tooltip.install(target, refusalTip());
+    }
+
+    /** Whether the drag is a block drag at all — the gate on intercepting the event from the slot's own control. */
+    private static boolean carriesBlock(Dragboard db) {
+        return db.hasContent(ADDABLE_BLOCK_FORMAT) || db.hasContent(EXISTING_BLOCK_FORMAT);
+    }
+
+    /**
+     * Why this slot will not take what is being dragged, or null when it will.
+     *
+     * <p>Every refusal has a sentence. The previous version answered a boolean and painted nothing when the
+     * dragboard fell short of {@code carriesExpression}, which is precisely the case a user hits by dragging a
+     * loop or an {@code if} onto a slot — so the editor's answer to its most common mistake was silence.
+     */
+    private static String refusalReason(Dragboard db, ResolvedType slotType) {
+        if (db.hasContent(ADDABLE_BLOCK_FORMAT) && !(blockTypeFrom(db) instanceof BlockType.LibraryCall))
+            return "Only a value can go in a slot — this block is a whole statement.";
+        if (db.hasContent(EXISTING_BLOCK_FORMAT) && !db.hasContent(EXPRESSION_TYPE_FORMAT))
+            return "This line is a statement, not a value — there is nothing to put in the slot.";
         Object typeName = db.getContent(EXPRESSION_TYPE_FORMAT);
         // A palette call carries no type: nothing has resolved its return type yet, and doing so here would
         // mean running the analyzer on every drag-over. Unknown is accepted, as everywhere else.
-        if (typeName == null) return true;
-        return TypeExpectation.fits(slotType, ResolvedType.named((String) typeName));
+        if (typeName == null) return null;
+        ResolvedType actual = ResolvedType.named((String) typeName);
+        if (TypeExpectation.fits(slotType, actual)) return null;
+        if (actual.isVoid()) return "This line produces nothing, so it cannot fill a slot.";
+        return "This slot needs " + expectationText(slotType) + ", and that line gives " + actual.simpleName() + ".";
+    }
+
+    private static String expectationText(ResolvedType slotType) {
+        return switch (TypeExpectation.of(slotType)) {
+            case BOOLEAN -> "a yes/no";
+            case NUMERIC -> "a number";
+            case STRING -> "text";
+            case VOID -> "nothing";
+            case ANY -> "a " + slotType.simpleName();
+        };
+    }
+
+    /** {@link #refusalReason} as the boolean the drop path asks for. */
+    private static boolean acceptsExpression(Dragboard db, ResolvedType slotType) {
+        return carriesBlock(db) && refusalReason(db, slotType) == null;
     }
 
     private boolean publishExpressionDrop(Dragboard db, CodeBlock slot, ResolvedType slotType) {

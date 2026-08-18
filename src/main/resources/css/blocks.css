@@ -399,7 +399,7 @@
     -fx-background-color: -bm-flow-grid;
 }
 
-/* One activity, as a card. :off is "won't run" (the tick is clear), :picked is "selected". */
+/* One activity, as a card. :off is "won't run" (the switch is off), :picked is "selected". */
 .flow-card {
     -fx-background-color: -bm-flow-card;
     -fx-background-radius: 6;
@@ -408,8 +408,18 @@
     -fx-border-radius: 6;
 }
 
+/*
+ * "Won't run", and it has to say so in every theme. The fill alone did not: -bm-flow-card-off is a 10% step
+ * off the card colour, which is a visible dip on a light canvas and nothing at all on a dark one, so a
+ * disabled activity looked exactly like an enabled one in Dark and Black. The two cues added here are
+ * theme-independent by construction — a dashed border and a dimmed card are the same signal at any lightness
+ * — and the card also carries a literal "off" badge (see FlowCanvas.NodeCard), because a user should not have
+ * to know the convention to read the state.
+ */
 .flow-card:off {
     -fx-background-color: -bm-flow-card-off;
+    -fx-border-style: dashed;
+    -fx-opacity: 0.68;
 }
 
 .flow-card:picked {
@@ -419,6 +429,28 @@
 
 .flow-card-title {
     -fx-font-weight: bold;
+}
+
+ /* The two card toggles, told apart by shape as well as caption: a tick for "run this", a small pressed
+ * button for the go-home pre-step. */
+.flow-toggle-run {
+    -fx-font-size: 10px;
+}
+
+.flow-toggle-home {
+    -fx-font-size: 10px;
+    -fx-padding: 1 5 1 5;
+    -fx-background-radius: 4;
+}
+
+/* "off", in words. See .flow-card:off for why a colour cue alone was not enough. */
+.flow-off-badge {
+    -fx-font-size: 10px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -bm-text-on-color;
+    -fx-background-color: -bm-muted;
+    -fx-background-radius: 3;
+    -fx-padding: 0 4 0 4;
 }
 
 .flow-start-badge {
@@ -2146,6 +2178,10 @@
 
     /* Window chrome + severities: lighter than the surface, where the light theme's are darker than it. */
     -bm-divider: #4a4a4a;
+
+    /* A disabled activity card. Lighter than the card, not darker: the light theme's -10% step reads as
+       "recessed" on a pale canvas and is invisible on a dark one, where there is no room left below. */
+    -bm-flow-card-off: derive(-fx-control-inner-background, 22%);
     -bm-band: #353535;
 
     /* Popup chrome — a step above -fx-base so a menu reads as floating over the window. White scores 11.03
@@ -2197,6 +2233,10 @@
     -bm-cat-vision: #00bcd4;
     -bm-cat-game: #009688;
     -bm-cat-utility: #b0bec5;
+
+    /* A disabled activity card — as .dark-theme, and for the same reason: on a near-black surface there is
+       no darker step left, so "off" has to read as lighter. */
+    -bm-flow-card-off: derive(-fx-control-inner-background, 26%);
 
     /* Comment card — as .dark-theme, one step deeper (16% lightness). */
     -bm-cat-comment: #ffc107;

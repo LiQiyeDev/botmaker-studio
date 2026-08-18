@@ -65,7 +65,7 @@ public final class ActivityDraft {
     /** The immutable definition this draft currently describes. */
     public ActivityDefinition toDefinition() {
         return new ActivityDefinition(name.get(), enabled.get(), description.get(),
-                false, List.copyOf(outcomes), goHome.get(), popupCheck.get());
+                List.copyOf(outcomes), goHome.get(), popupCheck.get());
     }
 
     /**

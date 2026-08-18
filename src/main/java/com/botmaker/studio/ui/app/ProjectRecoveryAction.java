@@ -124,7 +124,7 @@ final class ProjectRecoveryAction {
 
         // Each activity stub's isEnabled() is generated against that activity's own flag, so the canonical
         // source is per-file — only ActivityService can say what it should be.
-        for (ActivityDefinition activity : activityService.current().liveActivities()) {
+        for (ActivityDefinition activity : activityService.current().activities()) {
             byPath.put(config.activitiesPackageDir().resolve(activity.name() + ".java"),
                     activityService.generateStubSource(activity));
         }

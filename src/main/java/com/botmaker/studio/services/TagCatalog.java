@@ -27,9 +27,6 @@ import java.util.TreeSet;
  * keep. It cannot be renamed or deleted here; rename the activity. A {@link Kind#CUSTOM} tag is the user's
  * own, declared in {@link TemplateManifest#customTags()} and edited in one place.
  *
- * <p>Archived activities keep their tag. Archiving is reversible and the templates are still the ones that
- * activity uses, so hiding the tag would strand them under nothing; only deleting the activity removes it.
- *
  * <p>Assignments to tags this catalog doesn't declare are inert rather than erroneous — see
  * {@link TemplateManifest#byTag(Collection, TagCatalog)} for what that buys.
  */

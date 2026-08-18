@@ -95,7 +95,7 @@ Rename, preview, re-tag, delete, import and export all happen here, and they go 
 
 Rather than one long script, a bot is a set of named activities — "Mining", "HandleFullInventory", "Login" — each returning an outcome, and the flow editor wires those outcomes to whatever runs next. "How a bot runs" above is what that looks like at run time; it is worth reading before you draw a graph, because activities do not run top to bottom, once each.
 
-Studio generates and maintains one source file per activity plus the registry that knows them. Archiving an activity removes it from the graph and from the generated sources; un-archiving brings it back, which is what makes archiving safe to do.
+Studio generates and maintains one source file per activity plus the registry that knows them. To stop an activity running, turn its switch off — it stays on the graph and keeps its code. Delete activity removes it and its source for good.
 
 *In Studio:* Project ▸ Activity Flow… (or 🔀 Flow on the toolbar)
 

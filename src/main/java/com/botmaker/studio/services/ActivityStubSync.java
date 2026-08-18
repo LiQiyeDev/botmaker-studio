@@ -63,14 +63,10 @@ final class ActivityStubSync {
      * Reconciles every existing stub with its definition. Missing files are skipped (that is
      * {@code ensureStubs}' job) and a file that already matches is not rewritten, so this is a no-op on the
      * common save.
-     *
-     * <p>Archived activities are not synced: their file has been moved out of the source tree
-     * ({@code ActivityService.moveArchivedStubs}) and is no longer compiled, so there is nothing to keep in
-     * step. It is reconciled on the way back in, by the {@code update} that restores it.
      */
     static void sync(ProjectConfig config, ActivitiesConfig cfg) throws IOException {
         Path dir = config.activitiesPackageDir();
-        for (ActivityDefinition a : cfg.liveActivities()) {
+        for (ActivityDefinition a : cfg.activities()) {
             Path stub = dir.resolve(a.name() + ".java");
             if (!Files.exists(stub)) continue;
             String current = Files.readString(stub);

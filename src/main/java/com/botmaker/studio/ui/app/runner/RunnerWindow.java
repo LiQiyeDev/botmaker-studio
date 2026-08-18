@@ -277,7 +277,7 @@ public final class RunnerWindow implements ProjectWindow {
 
     /** The activity checkboxes: the bot's own list of things it can do, each one on or off. */
     private Node activitiesSection() {
-        List<ActivityDefinition> live = activityService.current().liveActivities();
+        List<ActivityDefinition> live = activityService.current().activities();
         VBox rows = new VBox(6);
         if (live.isEmpty()) {
             rows.getChildren().add(hint("This bot has no activities — Run just starts it."));
@@ -413,10 +413,10 @@ public final class RunnerWindow implements ProjectWindow {
     }
 
     /**
-     * The project's activities with this window's answers folded in: each live activity's enable flag from its
-     * checkbox, and each public parameter's value from its widget. Everything else — archived activities, the
-     * parameters the author kept to themselves, the flow, the presets — is carried through untouched, because
-     * a user's window must not be able to delete what it cannot see.
+     * The project's activities with this window's answers folded in: each activity's enable flag from its
+     * checkbox, and each public parameter's value from its widget. Everything else — the parameters the author
+     * kept to themselves, the flow, the presets — is carried through untouched, because a user's window must
+     * not be able to delete what it cannot see.
      */
     private ActivitiesConfig edited() {
         ActivitiesConfig base = activityService.current();
@@ -430,8 +430,8 @@ public final class RunnerWindow implements ProjectWindow {
             activities.add(box == null ? a : a.withEnabled(box.isSelected()));
         }
 
-        // A variable nobody was offered is carried through as it was, for the same reason an archived
-        // activity is: a user's window must not be able to change what it cannot see.
+        // A variable nobody was offered is carried through as it was: a user's window must not be able to
+        // change what it cannot see.
         List<ActivityVariable> variables = new ArrayList<>();
         for (ActivityVariable v : base.variables()) {
             List<String> value = typed.get(v.name());

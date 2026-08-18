@@ -15,12 +15,11 @@ import com.botmaker.studio.project.activity.VariableWire;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.concurrent.CompletableFuture;
-import java.util.stream.Stream;
 
 /**
  * Orchestrates the project's <em>activities</em> — the game tasks a bot performs — and the project-wide
@@ -83,8 +82,8 @@ public final class ActivityService {
      * completes exceptionally if writing fails.
      */
     public CompletableFuture<Void> update(ActivitiesConfig newConfig) {
-        // Read on the caller's thread, before the async body: moveArchivedStubs needs to know which side of
-        // the archive line each activity was on, and state is not for background callers.
+        // Read on the caller's thread, before the async body: deleteRemovedStubs needs to know which
+        // activities this save drops, and state is not for background callers.
         ActivitiesConfig previous = current();
         return CompletableFuture.runAsync(() -> {
             try {
@@ -92,8 +91,8 @@ public final class ActivityService {
                 writeActivitiesClass(newConfig);
                 writeRegistryClass(newConfig);
                 writeDriverClass(newConfig);
-                moveArchivedStubs(previous, newConfig);
                 ensureStubs(newConfig);
+                deleteRemovedStubs(previous, newConfig);
                 ActivityStubSync.sync(config, newConfig);
             } catch (IOException e) {
                 throw new RuntimeException("Failed to save activities: " + e.getMessage(), e);
@@ -125,7 +124,7 @@ public final class ActivityService {
      * Writes the generated {@code Activities.java}.
      *
      * <p>Written even when it would hold no fields at all. It used to be <em>deleted</em> in that case, which
-     * is fine for a project that has never had an activity and wrong for one that has just archived its last:
+     * is fine for a project that has never had an activity and wrong for one that has just deleted its last:
      * anything still saying {@code import com.<pkg>.Activities;} — a scaffold file, a hand-written helper —
      * stops compiling the moment the class evaporates. An empty class costs nothing and cannot break a build.
      */
@@ -150,117 +149,38 @@ public final class ActivityService {
     }
 
     /**
-     * Moves each activity's stub to whichever side of the archive line its definition is now on: an archived
-     * activity's {@code activities/<Name>.java} goes to {@link ProjectConfig#archivedActivitiesDir()}, and a
-     * restored one comes back.
+     * Deletes the stub of every activity this save removed.
      *
-     * <p>This is what makes archiving safe rather than merely quiet. An archived activity generates no
-     * {@code Activities.<Name>} field any more, so its stub's {@code isEnabled()} would not compile — the very
-     * breakage that once ruled removal out. Moving the file keeps the project green <em>and</em> keeps the
-     * user's {@code run()} body, so restoring returns the activity exactly as it was written rather than as a
-     * fresh stub. Runs before {@link #ensureStubs}, so a restore is a move back and not a blank rewrite.
+     * <p>The counterpart of {@link #ensureStubs}, and not optional: a removed activity stops generating its
+     * {@code Activities.<Name>} field, so its {@code <Name>.java} — which reads that field in
+     * {@code isEnabled()} — no longer compiles. Leaving the file behind turns "I removed an activity" into a
+     * broken build in a file the user never opened.
      *
-     * <p><b>The move always empties the side it came from.</b> This guarded on {@code Files.exists(to)} and
-     * skipped, which sounds cautious and is the opposite: the source was then never removed, so the file
-     * existed on <em>both</em> sides at once, and every later archive or restore hit the same guard and did
-     * nothing — the state froze and no error was ever raised. The side a file is moving <em>from</em> is by
-     * definition the one the user last edited on, so it wins and overwrites whatever stale copy is waiting at
-     * the destination.
+     * <p>Keyed on the <em>difference</em> between the two configs, never on "every file in {@code activities/}
+     * that isn't an activity": a helper class the user parked in that package is not this method's business,
+     * and a sweep would eat it on the next unrelated save.
      */
-    private void moveArchivedStubs(ActivitiesConfig previous, ActivitiesConfig cfg) throws IOException {
-        Path live = config.activitiesPackageDir();
-        Path attic = config.archivedActivitiesDir();
-        for (ActivityDefinition a : cfg.activities()) {
-            Path from = (a.archived() ? live : attic).resolve(a.name() + ".java");
-            Path to = (a.archived() ? attic : live).resolve(a.name() + ".java");
-            if (!Files.exists(from)) {
-                // A restore whose archived source has gone missing: ensureStubs is about to write a blank one,
-                // which is the right recovery but a silent loss of a run() body if it goes unsaid. Only for an
-                // activity that really was archived — a brand-new one has no archived source by definition.
-                if (!a.archived() && !Files.exists(to) && wasArchived(previous, a.name())) {
-                    System.err.println("Activities: no archived source for '" + a.name() + "' at " + from
-                            + "; restoring it as an empty stub.");
-                }
-                continue;
-            }
-            Files.createDirectories(to.getParent());
-            Files.move(from, to, StandardCopyOption.REPLACE_EXISTING);
+    private void deleteRemovedStubs(ActivitiesConfig previous, ActivitiesConfig cfg) throws IOException {
+        Set<String> kept = cfg.activities().stream().map(ActivityDefinition::name).collect(Collectors.toSet());
+        for (ActivityDefinition gone : previous.activities()) {
+            if (kept.contains(gone.name())) continue;
+            Files.deleteIfExists(config.activitiesPackageDir().resolve(gone.name() + ".java"));
         }
     }
 
-    /** Whether {@code name} was on the archived side of {@code previous} — i.e. this save is a restore. */
-    private static boolean wasArchived(ActivitiesConfig previous, String name) {
-        return previous.archivedActivities().stream().anyMatch(a -> a.name().equals(name));
-    }
-
     /**
-     * Creates a subclass stub for each live activity if it does not already exist (never overwrites user
-     * edits). Archived activities are skipped — {@link #moveArchivedStubs} has just taken their file away, and
-     * writing it straight back is the one thing that would undo the archive.
+     * Creates a subclass stub for each activity if it does not already exist (never overwrites user edits).
      */
     private void ensureStubs(ActivitiesConfig cfg) throws IOException {
-        if (cfg.liveActivities().isEmpty()) return;
+        if (cfg.activities().isEmpty()) return;
         Path dir = config.activitiesPackageDir();
         Files.createDirectories(dir);
-        for (ActivityDefinition a : cfg.liveActivities()) {
+        for (ActivityDefinition a : cfg.activities()) {
             Path stub = dir.resolve(a.name() + ".java");
             if (!Files.exists(stub)) {
                 Files.writeString(stub, generateStubSource(a));
             }
         }
-    }
-
-    /**
-     * The source files, other than {@code activity}'s own stub, that read a generated {@code Activities} field
-     * archiving {@code activity} would take away — an empty list when archiving it is safe.
-     *
-     * <p>Archiving drops the activity's enable flag and every {@code <Name>_<param>} from
-     * {@link ActivitiesConfig#allVariables()}, so those fields stop being generated. Its own stub is moved out
-     * of the source tree and is fine; a <em>sibling</em> activity that read one of them is left referring to
-     * something that no longer exists, and the first the user hears of it is a compile error in a file they
-     * didn't touch. Better to say so before the archive than after.
-     *
-     * <p>Deliberately a textual scan, not a resolved one: the reference is always the literal
-     * {@code Activities.<field>} (the class is generated, the field names are ours), and this has to answer for
-     * files that may not currently parse. A commented-out mention is a false positive — a warning that costs a
-     * moment beats an archive that costs a build.
-     */
-    public List<String> archiveBlockers(ActivityDefinition activity) {
-        // The only field archiving takes away is the enable flag. Variables are project-wide, so one merely
-        // *tagged* with this activity outlives it and its use sites keep compiling.
-        String holder = "Activities";
-        List<String> fields = new ArrayList<>();
-        fields.add(activity.enabledVariable().name());
-
-        Path ownStub = config.activitiesPackageDir().resolve(activity.name() + ".java");
-        List<String> blockers = new ArrayList<>();
-        try (Stream<Path> sources = Files.walk(config.sourceRoot())) {
-            for (Path file : sources.filter(f -> f.toString().endsWith(".java")).toList()) {
-                if (file.equals(ownStub)) continue;
-                String text = Files.readString(file);
-                for (String field : fields) {
-                    if (mentions(text, holder, field)) {
-                        blockers.add(file.getFileName().toString());
-                        break;
-                    }
-                }
-            }
-        } catch (IOException e) {
-            // Can't read the tree: don't invent a blocker out of an I/O failure, let the archive proceed.
-            System.err.println("Activities: could not scan for references to '" + activity.name()
-                    + "': " + e.getMessage());
-        }
-        return blockers;
-    }
-
-    /** True when {@code text} contains {@code <holder>.<field>} as a whole identifier, not as a prefix. */
-    private static boolean mentions(String text, String holder, String field) {
-        String needle = holder + "." + field;
-        for (int at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + 1)) {
-            int after = at + needle.length();
-            if (after >= text.length() || !Character.isJavaIdentifierPart(text.charAt(after))) return true;
-        }
-        return false;
     }
 
     /**
@@ -375,8 +295,8 @@ public final class ActivityService {
      * {@code List<Activity<?>>} erases. {@code ALL} is still generated because constructing an activity is
      * what registers it by name for {@code Activity.disable("Mining")}.
      *
-     * <p>Orphans (placed but unreachable) and archived activities are left out: they don't run. They still get
-     * a stub and their {@code Activities.<field>} flags, so the project keeps compiling.
+     * <p>Orphans (placed but unreachable) are left out: they don't run. They still get a stub and their
+     * {@code Activities.<field>} flags, so the project keeps compiling.
      */
     String generateRegistrySource(ActivitiesConfig cfg) {
         List<ActivityDefinition> reachable = cfg.orderedActivities();
@@ -418,14 +338,11 @@ public final class ActivityService {
      * The {@code import com.<pkg>.activities.*;} line for a generated file, or nothing when that package has
      * no source in it.
      *
-     * <p>Keyed on {@link ActivitiesConfig#liveActivities()}, never on {@code activities()}: an archived
-     * activity's file has been moved out of the source tree, so a project whose activities are <em>all</em>
-     * archived has an empty {@code activities} package — and an import-on-demand of a package with nothing in
-     * it does not compile. Counting archived definitions here is what made archiving the last activity break
-     * the build.
+     * <p>An import-on-demand of a package with nothing in it does not compile, so a project with no activities
+     * at all gets no import line rather than a broken one.
      */
     private String activitiesImportFor(ActivitiesConfig cfg) {
-        return cfg.liveActivities().isEmpty()
+        return cfg.activities().isEmpty()
                 ? "" : "import com." + config.packageName() + ".activities.*;\n";
     }
 

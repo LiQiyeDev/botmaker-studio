@@ -261,6 +261,8 @@ public class UIManager implements ProjectWindow {
     public Scene createScene() {
         menuBarManager.setOnSelectProject(v -> { if (onSelectProject != null) onSelectProject.accept(null); });
         menuBarManager.setOnPreviewAsUser(() -> { if (onPreviewAsUser != null) onPreviewAsUser.run(); });
+        // The toolbar's 👁 is the same action, not a lookalike — see ToolbarManager for what it replaced.
+        toolbarManager.setOnPreviewAsUser(() -> { if (onPreviewAsUser != null) onPreviewAsUser.run(); });
 
         // --- 1. Top Bar Construction (edit controls left, project actions centered, run controls right) ---
         // A BorderPane, not a FlowPane. Only the *center* group wraps; left and right are pinned to their

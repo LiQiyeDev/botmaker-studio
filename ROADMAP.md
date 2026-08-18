@@ -6,6 +6,57 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-18 — The editor answers: a slot that says why it refused, an Edit button that always opens,
+  no more archived activities (`ui/dnd/BlockDragAndDropManager`, `blocks/func/MethodDeclarationBlock`,
+  `parser/helpers/MethodSignatures`, `project/activity/ActivityDefinition`, `services/ActivityService`,
+  `ui/app/ActivityFlowDialog`, `ui/app/flow/FlowCanvas`, `ui/app/ToolbarManager`).** Follow-up phase 2, from
+  hands-on testing.
+
+  **Expression slots.** Dragging an `ImageClicker.click(…)` onto an empty `Print:` or an `if (true)` did
+  nothing and said nothing — no outline, no cursor, no reason. The type rule was never the problem (every
+  `click` overload returns `boolean`, and `TypeExpectation.fits` accepts it against both an unresolved slot and
+  a boolean one); the *delivery* was. A slot is rarely a bare `Region` — it is usually the picker
+  `PickerRegistry` built for its type, a `ComboBox`, a `Button`, a `TextField` — and those controls install
+  their own `DragEvent` handling, which runs on the control and consumes the event before a handler registered
+  through `setOnDragOver` is reached. The slot now registers **event filters**, which run in the capture phase
+  ahead of any descendant or skin handler, so the slot decides first; a drag carrying no block at all still
+  passes straight through. And every refusal now has a sentence: the slot outlines red and a tooltip says which
+  of "this block is a whole statement", "this line produces nothing" or "this slot needs a yes/no" applies,
+  where the old code painted only when the dragboard already qualified — i.e. said nothing in exactly the case
+  the user was hitting.
+
+  **✎ on a user function.** It greyed itself out whenever the signature named a type the Add Function dialog
+  cannot offer, which puts the explanation where nobody can reach it: a disabled control has no click, and the
+  tooltip on it reads as a broken button rather than an unusual function. It always opens now — on the dialog
+  when the signature can be described, and otherwise on a sentence from the new
+  `MethodSignatures.unrepresentable` naming the exact input or return type at fault.
+
+  **Archiving an activity is gone**, along with `ActivityDefinition.archived`, `withArchived`,
+  `ActivitiesConfig.liveActivities`/`archivedActivities`, `ActivityService.archiveBlockers`, the stub-shuffling
+  `moveArchivedStubs`, and the dialog's Archive button and restore list. It promised a reversible retirement it
+  could not deliver: the definition, the enable-flag field, the registry entry, the driver case, the flow edges
+  and the hand-written stub all had to leave and come back as one, and any one of them out of step is a project
+  that does not compile. What replaces it is what was always there — turn the activity's switch **off** to stop
+  it running while keeping everything — plus an honest **Delete activity**, which confirms, names the file it
+  will remove, and is matched by a new `ActivityService.deleteRemovedStubs` so a removed activity's
+  `<Name>.java` goes with its generated field instead of being left reading one that no longer exists. That
+  deletion is keyed on the difference between two configs, never a sweep of the package: a helper class parked
+  under `activities/` is nobody's to delete. An older project's parked stubs are moved back into the source
+  tree by a new open-time migration, and an `archived: true` still in `activities.json` is simply ignored.
+
+  **The flow canvas reads in the dark.** A disabled card was a 10% fill step off the enabled one — a visible
+  dip on a pale canvas and nothing at all on a dark one, so Dark and Black drew "won't run" identically to
+  "will". `:off` now also dashes its border and dims the card (both theme-independent by construction), the
+  Dark and Black themes override `-bm-flow-card-off` upward rather than down, and the card carries a literal
+  **off** badge so the state can be read without knowing the convention. The two toggles that sat side by side
+  as bare check boxes — one captionless, one captioned `⌂` — are now different *shapes*: a captioned "On" tick
+  for the state the card is about, a pressed/unpressed button for the go-home pre-step.
+
+  **The toolbar's 👁 opens the Runner**, the same action as View ▸ Preview as user. It used to toggle a
+  "Reader mode" that stripped the editor's controls in place — a third rendering of the project, answering
+  "what does a user see?" with something no user ever sees. `ProjectState.readerMode` stays, but only as what
+  it always really was: a fact about somebody else's installed bot, set once on open.
+
 - **2026-08-18 — Parameters: an edit that used to vanish, categories you can make, and a colour type
   (`ui/app/params/ParametersDialog`, `ui/app/params/ParamValueWidgets`, `services/VariableRailModel`,
   `palette/BotType`, `project/activity/VariableWire`).** Follow-up phase 1, from hands-on testing. Changing a

@@ -72,8 +72,7 @@ public class ToolbarManager {
     private Runnable onParameters;
 
     /** Turns the reader-mode preview on and off, and what it is when the bar is built. */
-    private Consumer<Boolean> onToggleReaderMode;
-    private boolean readerModeInitial;
+    private Runnable onPreviewAsUser;
     /** Persists the debug-output toggle to the project; wired by {@link UIManager}. */
     private Consumer<Boolean> onToggleDebugOutput;
     /** The debug-output toggle's initial (persisted) state — read by {@link UIManager} before building the bar. */
@@ -216,9 +215,9 @@ public class ToolbarManager {
      *
      * @param initial whether the project is in reader mode already (an installed bot opens that way)
      */
-    public void setOnToggleReaderMode(boolean initial, Consumer<Boolean> onToggle) {
-        this.readerModeInitial = initial;
-        this.onToggleReaderMode = onToggle;
+    /** @see MenuBarManager#setOnPreviewAsUser */
+    public void setOnPreviewAsUser(Runnable onPreview) {
+        this.onPreviewAsUser = onPreview;
     }
 
     /** Sets the callback invoked when the toolbar's Record button is clicked (overlay + recording). */
@@ -321,16 +320,16 @@ public class ToolbarManager {
             if (onToggleDebugOutput != null) onToggleDebugOutput.accept(on);
         });
 
-        ToggleButton readerModeButton = new ToggleButton(readerModeText(readerModeInitial));
-        readerModeButton.getStyleClass().add("toolbar-btn");
-        readerModeButton.setSelected(readerModeInitial);
-        readerModeButton.setTooltip(new Tooltip(
-                "Reader mode: see the bot the way someone who only runs it does — full colour, no controls. "
-                        + "This button is the way back."));
-        readerModeButton.setOnAction(e -> {
-            boolean on = readerModeButton.isSelected();
-            readerModeButton.setText(readerModeText(on));
-            if (onToggleReaderMode != null) onToggleReaderMode.accept(on);
+        // The same action as View ▸ Preview as user, not a second thing that sounds like it. This used to be
+        // a "Reader mode" toggle that hid the editor's controls in place — a third rendering of the project
+        // that answered "what does a user see?" with something no user ever sees. The Runner is the answer.
+        Button previewAsUserButton = new Button("👁 Preview");
+        previewAsUserButton.getStyleClass().add("toolbar-btn");
+        previewAsUserButton.setTooltip(new Tooltip(
+                "Open this bot the way someone who only runs it sees it — the Runner window, with the "
+                        + "switches and values you chose to expose. Its header brings you back."));
+        previewAsUserButton.setOnAction(e -> {
+            if (onPreviewAsUser != null) onPreviewAsUser.run();
         });
 
         Button inputConfigButton = new Button("🖱 Input");
@@ -399,7 +398,7 @@ public class ToolbarManager {
                 // reads. Both are Project-menu actions with no button until now.
                 activityFlowButton, parametersButton,
                 remotePilotButton,
-                debugOutputButton, readerModeButton, inputConfigButton, captureTemplatesButton,
+                debugOutputButton, previewAsUserButton, inputConfigButton, captureTemplatesButton,
                 overlayEditorButton, recordButton,
                 resourcesButton, resolutionLabel);
         group.setAlignment(Pos.CENTER);
@@ -423,11 +422,6 @@ public class ToolbarManager {
      */
     private static String debugOutputText(boolean on) {
         return on ? "🐞 Debug ●" : "🐞 Debug ○";
-    }
-
-    /** The reader-mode toggle's label — same length in both states, for the reason above. */
-    private static String readerModeText(boolean on) {
-        return on ? "👁 Reader ●" : "👁 Reader ○";
     }
 
     /** "Std W×H · 🖵 W×H": the project standard resolution (if set) and the primary screen resolution. */

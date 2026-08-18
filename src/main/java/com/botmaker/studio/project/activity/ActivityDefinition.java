@@ -21,13 +21,12 @@ import java.util.List;
  * one variable rather than a copy each. What is left on this record is what genuinely <em>is</em> about this
  * activity rather than about a value it reads.
  *
- * <p>{@link #archived()} retires an activity without destroying anything: it leaves the canvas, the generated
- * registry <em>and</em> the generated {@code Activities} fields, so nothing about it is compiled or run any
- * more. The definition survives here — that is what makes it restorable — and the hand-written
- * {@code activities/<Name>.java} survives too, moved to {@code ProjectConfig.archivedActivitiesDir()} where it
- * is out of the compiler's way. The two move together on purpose: the stub refers to
- * {@code Activities.<Name>}, so a stub left in the source tree without its field is exactly the broken build
- * that once made removal impossible.
+ * <p>There is no <em>archived</em> state. It existed to retire an activity without destroying anything — the
+ * definition stayed here while {@code activities/<Name>.java} was moved out of the source tree — and it never
+ * held together: the stub, the enable-flag field, the registry entry and the flow edges had to leave and come
+ * back as one, and any one of them out of step is a project that does not compile. Retiring an activity is
+ * {@link #enabled() disabling} it (it stays on the canvas, generates as before, and does not run) or deleting
+ * it outright.
  *
  * <p>{@link #outcomes()} are the activity's <em>results</em> — what it can report having happened
  * ({@code BAG_FULL}, {@code NO_ORE}) — which the flow canvas maps to a next node each. They are generated as
@@ -49,14 +48,12 @@ import java.util.List;
  * @param name        activity name / generated class name (a valid Java identifier)
  * @param enabled     the default value of the enable flag
  * @param description optional human-readable note (may be empty)
- * @param archived    retired: its file is kept aside and restorable, but nothing is generated for it and it
- *                    neither appears on the canvas nor runs
  * @param outcomes    the named results this activity can report, excluding the implicit NEXT
  * @param goHome      run {@code GoHome.run()} before this activity; null (absent) ⇒ true
  * @param popupCheck  let the popup guard dismiss popups during this activity; null (absent) ⇒ true
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record ActivityDefinition(String name, boolean enabled, String description, boolean archived,
+public record ActivityDefinition(String name, boolean enabled, String description,
                                  List<String> outcomes, Boolean goHome, Boolean popupCheck) {
 
     public ActivityDefinition {
@@ -68,7 +65,7 @@ public record ActivityDefinition(String name, boolean enabled, String descriptio
 
     /** A fresh activity with the given name/description, disabled. */
     public static ActivityDefinition create(String name, String description) {
-        return new ActivityDefinition(name, false, description, false, List.of(), Boolean.TRUE, Boolean.TRUE);
+        return new ActivityDefinition(name, false, description, List.of(), Boolean.TRUE, Boolean.TRUE);
     }
 
     /**
@@ -99,26 +96,22 @@ public record ActivityDefinition(String name, boolean enabled, String descriptio
     }
 
     public ActivityDefinition withEnabled(boolean newEnabled) {
-        return new ActivityDefinition(name, newEnabled, description, archived, outcomes, goHome, popupCheck);
+        return new ActivityDefinition(name, newEnabled, description, outcomes, goHome, popupCheck);
     }
 
     public ActivityDefinition withDescription(String newDescription) {
-        return new ActivityDefinition(name, enabled, newDescription, archived, outcomes, goHome, popupCheck);
-    }
-
-    public ActivityDefinition withArchived(boolean newArchived) {
-        return new ActivityDefinition(name, enabled, description, newArchived, outcomes, goHome, popupCheck);
+        return new ActivityDefinition(name, enabled, newDescription, outcomes, goHome, popupCheck);
     }
 
     public ActivityDefinition withOutcomes(List<String> newOutcomes) {
-        return new ActivityDefinition(name, enabled, description, archived, newOutcomes, goHome, popupCheck);
+        return new ActivityDefinition(name, enabled, description, newOutcomes, goHome, popupCheck);
     }
 
     public ActivityDefinition withGoHome(boolean newGoHome) {
-        return new ActivityDefinition(name, enabled, description, archived, outcomes, newGoHome, popupCheck);
+        return new ActivityDefinition(name, enabled, description, outcomes, newGoHome, popupCheck);
     }
 
     public ActivityDefinition withPopupCheck(boolean newPopupCheck) {
-        return new ActivityDefinition(name, enabled, description, archived, outcomes, goHome, newPopupCheck);
+        return new ActivityDefinition(name, enabled, description, outcomes, goHome, newPopupCheck);
     }
 }

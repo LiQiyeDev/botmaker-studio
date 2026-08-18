@@ -20,6 +20,8 @@ import javafx.geometry.Point2D;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.Scene;
+import javafx.scene.control.Alert;
+import javafx.scene.control.ButtonType;
 import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
@@ -68,7 +70,6 @@ public class ActivityFlowDialog {
      * the editor never deletes {@code activities/<Name>.java}, and that surviving file still refers to the
      * activity's generated {@code Activities} fields — which only exist while the definition does.
      */
-    private final List<ActivityDefinition> archived = new ArrayList<>();
 
     private final Label statusLabel = new Label();
 
@@ -137,14 +138,14 @@ public class ActivityFlowDialog {
         ActivitiesConfig current = activityService.current();
         ActivityFlow flow = current.flow();
         boolean anyPlaced = false;
-        for (ActivityDefinition a : current.liveActivities()) {
+        for (ActivityDefinition a : current.activities()) {
             Optional<FlowNode> placed = flow.node(a.name());
             anyPlaced |= placed.isPresent();
             Point2D at = placed.map(n -> new Point2D(n.x(), n.y())).orElseGet(canvas::nextFreeSpot);
             canvas.add(ActivityDraft.of(a, at.getX(), at.getY()));
         }
         // Only when nothing at all was placed: one saved position is enough to mean someone laid this out.
-        arrangeOnOpen = !anyPlaced && !current.liveActivities().isEmpty();
+        arrangeOnOpen = !anyPlaced && !current.activities().isEmpty();
         canvas.edges().setAll(flow.edges());
         canvas.setStart(flow.start());
         maxSteps = flow.maxSteps();
@@ -152,7 +153,6 @@ public class ActivityFlowDialog {
         goHomeByDefault = current.goHomeByDefault();
         canvas.select(null);
         presets.addAll(current.presets());
-        archived.addAll(current.archivedActivities());
         canvas.refresh();
     }
 
@@ -279,7 +279,6 @@ public class ActivityFlowDialog {
         if (draft == null) {
             sidePanel.getChildren().addAll(heading("Variables"), buildParametersLink());
             sidePanel.getChildren().addAll(new Separator(), buildFlowLimitsSection());
-            sidePanel.getChildren().addAll(new Separator(), buildArchivedSection());
             return;
         }
 
@@ -315,17 +314,16 @@ public class ActivityFlowDialog {
         GridPane.setHgrow(name, Priority.ALWAYS);
         GridPane.setHgrow(description, Priority.ALWAYS);
 
-        Button archive = new Button("Archive activity");
-        archive.setTooltip(new javafx.scene.control.Tooltip(
-                "Takes it off the canvas so it stops running, and stops generating its code. Your work is put "
-                        + "aside, not deleted — restore it any time from the panel shown when no card is "
-                        + "selected, and it comes back exactly as you left it."));
-        archive.setOnAction(e -> archive(draft));
+        Button delete = new Button("Delete activity");
+        delete.setTooltip(new javafx.scene.control.Tooltip(
+                "Removes it from the flow and deletes its generated code and its " + draft.name()
+                        + ".java on save. This cannot be undone."));
+        delete.setOnAction(e -> deleteActivity(draft));
 
         sidePanel.getChildren().addAll(heading("Activity"), head, new Separator(),
                 heading("Outcomes"), buildOutcomeEditor(draft), new Separator(),
                 heading("Variables"), buildParametersLink(),
-                new Separator(), archive);
+                new Separator(), delete);
     }
 
     /**
@@ -421,33 +419,31 @@ public class ActivityFlowDialog {
     }
 
     /**
-     * Retires {@code draft}: off the canvas and out of the run order, but its definition is remembered and
-     * written back on save.
+     * Removes {@code draft} from the flow for good — the card, its wires, its generated code and, on save, its
+     * hand-written {@code <Name>.java}.
      *
-     * <p>Archiving is now a full retirement, not a mute. On save the activity stops generating everything —
-     * its {@code Activities.<Name>} field, its registry entry, its driver case — and its hand-written
-     * {@code activities/<Name>.java} is moved to {@code .botmaker/archived-activities} rather than left in the
-     * source tree referring to fields that no longer exist. (That mismatch is what once made removal break the
-     * build, and why this button used to leave everything generated.) Restoring moves the file back untouched,
-     * so what returns is the activity as it was written.
+     * <p>This replaced "Archive activity", which promised a reversible retirement and could not deliver one:
+     * the definition, the enable-flag field, the registry entry, the driver case, the flow edges and the stub
+     * file all had to leave and come back together, and any one of them out of step is a project that does not
+     * compile. A user who wants to stop an activity running without losing it turns its <em>enable flag</em>
+     * off — that is what the flag is for, it survives everything, and it needs no second mechanism.
      *
-     * <p>There is still deliberately no "delete": nothing here destroys the user's {@code run()} body.
-     *
-     * <p>Refused when another file reads one of the {@code Activities} fields this activity owns. Those fields
-     * stop being generated the moment it is archived, so going ahead would compile-error a file the user never
-     * touched — naming the files here is the difference between a decision and a surprise.
+     * <p>So this one is honest about being destructive, and asks first, naming the file it will delete.
      */
-    private void archive(ActivityDraft draft) {
-        List<String> blockers = activityService.archiveBlockers(draft.toDefinition());
-        if (!blockers.isEmpty()) {
-            error("Can't archive '" + draft.name() + "' — its settings are still used by "
-                    + String.join(", ", blockers) + ". Remove those references first.");
-            return;
-        }
-        archived.add(draft.toDefinition().withArchived(true));
+    private void deleteActivity(ActivityDraft draft) {
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
+                "Its wires, its generated code and the file you wrote its steps in (" + draft.name()
+                        + ".java) are all removed when you save. This cannot be undone.\n\n"
+                        + "To stop it running without losing it, turn its switch off instead.",
+                ButtonType.CANCEL, ButtonType.OK);
+        confirm.initOwner(stage);
+        confirm.setTitle("Delete activity");
+        confirm.setHeaderText("Delete \u201c" + draft.name() + "\u201d?");
+        if (confirm.showAndWait().orElse(ButtonType.CANCEL) != ButtonType.OK) return;
+
         canvas.remove(draft); // also drops any wires into or out of it
         refreshPresetCombo();
-        error("Archived '" + draft.name() + "'. Your work is kept aside — restore it from the side panel.");
+        error("");
     }
 
     /**
@@ -541,44 +537,6 @@ public class ActivityFlowDialog {
             error("The step limit must be a whole number above zero.");
             field.setText(String.valueOf(maxSteps));
         }
-    }
-
-    /** The restore list: archived activities, each with a button to put it back on the canvas. */
-    private Node buildArchivedSection() {
-        VBox box = new VBox(6);
-        box.getChildren().add(heading("Archived (" + archived.size() + ")"));
-        if (archived.isEmpty()) {
-            Label none = new Label("Nothing archived. Archiving retires an activity and puts its file aside, "
-                    + "ready to come back unchanged.");
-            none.setWrapText(true);
-            none.getStyleClass().add("dialog-hint-text");
-            box.getChildren().add(none);
-            return box;
-        }
-        for (ActivityDefinition a : List.copyOf(archived)) {
-            Label name = new Label(a.name());
-            HBox spacer = new HBox();
-            HBox.setHgrow(spacer, Priority.ALWAYS);
-            Button restore = new Button("Restore");
-            restore.setOnAction(e -> restore(a));
-            HBox row = new HBox(6, name, spacer, restore);
-            row.setAlignment(Pos.CENTER_LEFT);
-            box.getChildren().add(row);
-        }
-        return box;
-    }
-
-    /** Puts an archived activity back on the canvas, unwired (the user re-wires where it belongs). */
-    private void restore(ActivityDefinition a) {
-        if (canvas.drafts().stream().anyMatch(d -> d.name().equals(a.name()))) {
-            error("An activity called '" + a.name() + "' is already on the canvas.");
-            return;
-        }
-        archived.remove(a);
-        Point2D at = canvas.nextFreeSpot();
-        canvas.add(ActivityDraft.of(a, at.getX(), at.getY()));
-        refreshPresetCombo();
-        error("");
     }
 
     private void renameDraft(ActivityDraft draft, String candidate, TextField field) {
@@ -685,10 +643,6 @@ public class ActivityFlowDialog {
             activities.add(d.toDefinition());
             nodes.add(new FlowNode(d.name(), d.x(), d.y()));
         }
-        // Archived activities are persisted too — their definition is the whole of what restoring them
-        // restores. They generate nothing (no field, no registry entry, no driver case) and get no flow node:
-        // their source is moved out of the tree instead, which is what keeps the project compiling.
-        activities.addAll(archived);
         // Built from what is current, so the variables this dialog never shows survive the save untouched.
         ActivitiesConfig cfg = activityService.current()
                 .withActivities(activities)

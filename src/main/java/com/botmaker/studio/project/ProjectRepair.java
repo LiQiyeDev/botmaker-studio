@@ -147,10 +147,10 @@ public final class ProjectRepair {
                 missing.add(new Missing(json, null, "activity settings"));
             }
 
-            // Activities.java exists as soon as the project has any activity at all — even one that is
-            // archived and so contributes no field, because ActivityService now writes the class empty rather
-            // than deleting it (something may still be importing it). Only a project that has never had an
-            // activity or a global is entitled not to have the file.
+            // Activities.java exists as soon as the project has any activity at all, because ActivityService
+            // writes the class even when it would be empty rather than deleting it (something may still be
+            // importing it). Only a project that has never had an activity or a global is entitled not to
+            // have the file.
             if ((hasActivities || !activities.allVariables().isEmpty())
                     && !Files.exists(config.activitiesSourceFile())) {
                 missing.add(new Missing(config.activitiesSourceFile(), null, "generated activity code"));
@@ -162,16 +162,10 @@ public final class ProjectRepair {
                 missing.add(new Missing(config.flowDriverSourceFile(), null, "generated activity code"));
             }
 
-            // Per-activity subclass stubs (the same set ActivityService.ensureStubs would create). Archived
-            // activities are excluded for the same reason it excludes them: their file is deliberately not in
-            // the source tree, so "missing" is its correct state and recovering it would un-archive them.
-            //
-            // A *live* activity whose source is still sitting in the attic is excluded too, and for a sharper
-            // reason: it isn't missing, it's mid-restore. Writing a fresh stub here would leave the same
-            // activity in two places at once — the exact both-places state this pass exists to avoid.
-            for (ActivityDefinition a : activities.liveActivities()) {
+            // Per-activity subclass stubs (the same set ActivityService.ensureStubs would create).
+            for (ActivityDefinition a : activities.activities()) {
                 Path stub = config.activitiesPackageDir().resolve(a.name() + ".java");
-                if (!Files.exists(stub) && !Files.exists(config.archivedActivitiesDir().resolve(a.name() + ".java"))) {
+                if (!Files.exists(stub)) {
                     missing.add(new Missing(stub, null, "activity stub"));
                 }
             }

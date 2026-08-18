@@ -211,8 +211,8 @@ public class FileExplorerManager {
     // The tree has no context menu at all any more. It carried one entry, "Delete File", and removing a file
     // is no longer something the explorer offers: every file here is either BotMaker's (deleting it breaks the
     // build) or an activity's (deleting it leaves the generated registry pointing at a class that is gone).
-    // Retiring an activity goes through Archive in the Activity Flow dialog, which knows to take its generated
-    // code with it and can put both back — a raw delete could do neither.
+    // Removing an activity goes through Delete activity in the Activity Flow dialog, which knows to take its
+    // generated code with it — a raw delete of the file could not.
 
     // ------------------------------------------------------------------
     // tree construction

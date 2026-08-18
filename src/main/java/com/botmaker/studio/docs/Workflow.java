@@ -95,8 +95,8 @@ public final class Workflow {
                         + "is what that looks like at run time; it is worth reading before you draw a graph, "
                         + "because activities do not run top to bottom, once each.",
                         "Studio generates and maintains one source file per activity plus the registry that "
-                        + "knows them. Archiving an activity removes it from the graph and from the generated "
-                        + "sources; un-archiving brings it back, which is what makes archiving safe to do."),
+                        + "knows them. To stop an activity running, turn its switch off — it stays on the "
+                        + "graph and keeps its code. Delete activity removes it and its source for good."),
 
                 WorkflowStep.of("Give the bot its variables",
                         "The numbers, texts, durations and switches your logic reads — one list for the whole "

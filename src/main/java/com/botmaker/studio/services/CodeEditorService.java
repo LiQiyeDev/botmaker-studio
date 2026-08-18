@@ -499,8 +499,8 @@ public class CodeEditorService {
     // There is no deleteFile here any more, and that is deliberate rather than an omission. Its only caller was
     // the file explorer's context menu, and a file in a bot project is never just a file: an activity's stub is
     // half of a pair with generated code that names it, and everything else is scaffolding the build needs.
-    // Removing an activity is ActivityService's job (archive — it moves the stub aside and stops generating the
-    // rest), and nothing else here should go.
+    // Removing an activity is ActivityService's job (it deletes the stub and stops generating the rest, both
+    // in one save), and nothing else here should go.
 
     private void refreshUI(String javaCode, boolean markNewIdentifiersAsUnedited) {
         state.setCurrentCode(javaCode);

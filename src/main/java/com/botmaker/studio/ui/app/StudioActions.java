@@ -106,7 +106,6 @@ final class StudioActions {
         toolbar.setOnActivityFlow(this::openActivityFlow);
         menuBar.setOnParameters(this::openParameters);
         toolbar.setOnParameters(this::openParameters);
-        toolbar.setOnToggleReaderMode(codeEditorService.getState().isReaderMode(), this::setReaderMode);
         menuBar.setOnRecoverProjectFiles(recoverProjectFiles);
         menuBar.setOnManageResources(this::openResourceManager);
         toolbar.setOnAccessResources(this::openResourceManager);
@@ -189,21 +188,6 @@ final class StudioActions {
     /** The one editor for every value the bot reads. */
     private void openParameters() {
         new ParametersDialog(primaryStage, config, activityService).show();
-    }
-
-    /**
-     * Turns the reader-mode preview on and off. It re-renders the open file rather than reloading the project:
-     * what changes is only whether each block draws its controls, and that is decided while converting the AST
-     * ({@code LockResolver.suppressesInteraction}).
-     *
-     * <p>Deliberately <em>not</em> what the reader banner's "Improve this bot" does. That drops the installed
-     * bot's opt-in marker and commits a restore point — a one-way change to what the project <em>is</em>. This
-     * is a way of looking at it, and nothing on disk moves.
-     */
-    private void setReaderMode(boolean on) {
-        codeEditorService.getState().setReaderMode(on);
-        ProjectFile active = codeEditorService.getState().getActiveFile();
-        if (active != null) codeEditorService.switchToFile(active.getPath());
     }
 
     private void openProjectSettings() {

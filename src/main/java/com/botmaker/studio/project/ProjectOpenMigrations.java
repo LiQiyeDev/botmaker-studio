@@ -5,6 +5,7 @@ import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
@@ -35,6 +36,40 @@ public final class ProjectOpenMigrations {
         // including one whose templates were all captured before the class existed. Regenerating on open
         // (not just on capture) is also what repairs a hand-deleted or hand-edited copy.
         ImageTemplateLibrary.regenerateTemplatesClass(config);
+        // Archiving an activity is gone. A project that used it has stubs parked outside the source tree with
+        // no way left to bring them back, so bring them back here.
+        restoreArchivedActivityStubs(config);
+    }
+
+    /**
+     * Moves anything left in {@code .botmaker/archived-activities} back into the project's {@code activities}
+     * package, then removes the directory.
+     *
+     * <p>Archiving used to move an activity's hand-written {@code <Name>.java} there while its definition
+     * stayed in {@code activities.json} carrying {@code archived: true}. That flag is no longer read, so on
+     * the next open the activity is simply live again — and its stub has to be live with it, or the project
+     * has an activity whose class does not exist. A stub already present in the package wins — it is the one
+     * the compiler has been seeing — and the parked copy is then left where it is rather than overwriting it;
+     * the directory survives, holding only what could not be placed, so nothing the user wrote is destroyed.
+     */
+    private static void restoreArchivedActivityStubs(ProjectConfig config) {
+        Path attic = config.archivedActivitiesDir();
+        if (!Files.isDirectory(attic)) return;
+        try {
+            Path live = config.activitiesPackageDir();
+            Files.createDirectories(live);
+            try (var entries = Files.list(attic)) {
+                for (Path parked : entries.filter(p -> p.toString().endsWith(".java")).toList()) {
+                    Path target = live.resolve(parked.getFileName().toString());
+                    if (!Files.exists(target)) Files.move(parked, target);
+                }
+            }
+            try (var leftovers = Files.list(attic)) {
+                if (leftovers.findAny().isEmpty()) Files.delete(attic);
+            }
+        } catch (IOException ex) {
+            System.err.println("Could not restore this project's archived activities: " + ex.getMessage());
+        }
     }
 
     /** One migration: rewrite {@code Main.java} on disk, then tell the editor its cached copy is stale. */

@@ -310,30 +310,42 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
      * moment where the file did not compile and the call sites were broken. Deciding the whole signature
      * first and writing it once is what makes the change compilation-safe.
      *
-     * <p>The button is <em>disabled</em>, not hidden, when the signature names a type the dialog cannot
-     * offer ({@code String[] args}): the answer to "why can't I edit this one?" should be on the button, not
-     * absent from the header.
+     * <p>The button is <em>never</em> disabled. It used to grey itself out whenever the signature named a type
+     * the dialog cannot offer ({@code String[] args}), which put the explanation in the one place a user
+     * cannot get at: a disabled control has no click, and the tooltip on it reads as "this button is broken"
+     * rather than "this function is unusual". It now always opens — on the dialog when the signature can be
+     * described, and on a sentence naming the exact part that cannot when it can't.
      */
     private Button editSignatureButton(CodeEditorService context) {
         MethodDeclaration method = (MethodDeclaration) this.astNode;
         Button edit = new Button("✎");
         edit.getStyleClass().add("header-edit-button");
-
-        Optional<FunctionDraft> current = MethodSignatures.draftOf(method);
-        if (current.isEmpty()) {
-            edit.setDisable(true);
-            edit.setTooltip(new Tooltip("This signature uses a type the editor can't offer, so it has to be "
-                    + "changed in the Java file."));
-            return edit;
-        }
-
         edit.setTooltip(new Tooltip("Edit this function's name, inputs and result"));
+
         edit.setOnAction(e -> {
             Window owner = edit.getScene() == null ? null : edit.getScene().getWindow();
+            Optional<FunctionDraft> current = MethodSignatures.draftOf(method);
+            if (current.isEmpty()) {
+                explainUneditableSignature(owner, method);
+                return;
+            }
             new AddFunctionDialog(owner, otherSignatures(method), current.get()).showAndWait()
                     .ifPresent(draft -> context.getCodeEditor().applyFunctionSignature(method, draft));
         });
         return edit;
+    }
+
+    /** Says which part of the signature the dialog cannot describe, and where to change it instead. */
+    private static void explainUneditableSignature(Window owner, MethodDeclaration method) {
+        String because = MethodSignatures.unrepresentable(method)
+                .orElse("it uses something the editor cannot describe");
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.initOwner(owner);
+        alert.setTitle("This function is edited in the Java file");
+        alert.setHeaderText(method.getName().getIdentifier() + " can't be edited here");
+        alert.setContentText("The editor can't rewrite this signature because " + because
+                + ".\n\nOpen the Java file to change it. Its body is still yours to edit here.");
+        alert.showAndWait();
     }
 
     /** Every signature the enclosing class declares except this method's own — which cannot clash with itself. */

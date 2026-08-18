@@ -284,13 +284,13 @@ class ParameterModelTest {
 
     /** An archived activity contributes no enable flag: a switch for something that cannot run. */
     @Test
-    void onlyLiveActivitiesContributeAnEnableFlag() {
+    void everyActivityContributesAnEnableFlagAheadOfTheVariables() {
         ActivitiesConfig config = ActivitiesConfig.of(
                 List.of(ActivityDefinition.create("Mining", ""),
-                        ActivityDefinition.create("Smelting", "").withArchived(true)),
+                        ActivityDefinition.create("Smelting", "")),
                 List.of(variable("speed", BotType.WHOLE_NUMBER)));
 
-        assertEquals(List.of("Mining", "speed"),
+        assertEquals(List.of("Mining", "Smelting", "speed"),
                 config.allVariables().stream().map(ActivityVariable::name).toList());
     }
 }

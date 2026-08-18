@@ -18,6 +18,7 @@ import javafx.scene.Node;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.control.CheckBox;
+import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
 import javafx.scene.control.MenuItem;
@@ -913,6 +914,7 @@ public final class FlowCanvas extends StackPane {
         private final ActivityDraft draft;
         private final Label orphanNote = new Label("not wired — won't run");
         private final Label startBadge = new Label("▶ start");
+        private final Label offBadge = new Label("off");
         private final VBox body = new VBox(2);
         private final VBox ports = new VBox(4);
         private final Map<String, Circle> outPorts = new LinkedHashMap<>();
@@ -935,11 +937,17 @@ public final class FlowCanvas extends StackPane {
             title.textProperty().bind(draft.nameProperty());
             title.getStyleClass().add("flow-card-title");
 
-            CheckBox enabled = new CheckBox();
+            // Two toggles that mean unrelated things, so two *different* controls. They used to be adjacent
+            // bare CheckBoxes — one captionless, one captioned "⌂" — which read as a pair of related ticks and
+            // gave no way to tell at a glance which was which. A captioned tick ("On") for the state the whole
+            // card is about, and a pressed/unpressed button for the pre-step.
+            CheckBox enabled = new CheckBox("On");
+            enabled.getStyleClass().add("flow-toggle-run");
             enabled.selectedProperty().bindBidirectional(draft.enabledProperty());
             enabled.setTooltip(new Tooltip("Run this activity (the flow still passes through it when off)"));
 
-            CheckBox goHome = new CheckBox("⌂");
+            ToggleButton goHome = new ToggleButton("⌂");
+            goHome.getStyleClass().add("flow-toggle-home");
             goHome.selectedProperty().bindBidirectional(draft.goHomeProperty());
             goHome.setTooltip(new Tooltip("Go back to the home screen before running this activity"));
 
@@ -947,7 +955,13 @@ public final class FlowCanvas extends StackPane {
             startBadge.setManaged(false);
             startBadge.setVisible(false);
 
-            HBox header = new HBox(8, title, enabled, goHome, startBadge);
+            // Said in words, not only in colour: the dimmed-and-dashed card is the ambient cue, this is the
+            // one a user can read without knowing the convention — and the one that survives any theme.
+            offBadge.getStyleClass().add("flow-off-badge");
+            offBadge.setManaged(false);
+            offBadge.setVisible(false);
+
+            HBox header = new HBox(8, title, enabled, goHome, offBadge, startBadge);
             header.setAlignment(Pos.CENTER_LEFT);
 
             orphanNote.getStyleClass().add("flow-orphan-note");
@@ -1116,6 +1130,8 @@ public final class FlowCanvas extends StackPane {
         void restyle() {
             body.pseudoClassStateChanged(PICKED, selectedNow);
             body.pseudoClassStateChanged(OFF, !draft.enabled());
+            offBadge.setManaged(!draft.enabled());
+            offBadge.setVisible(!draft.enabled());
         }
     }
 

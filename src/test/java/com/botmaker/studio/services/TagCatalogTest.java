@@ -32,17 +32,6 @@ class TagCatalogTest {
         assertTrue(catalog.isManaged("mining"), "spelling is not what identifies a tag");
     }
 
-    @Test
-    void anArchivedActivityKeepsItsTag() {
-        // Archiving is reversible and the templates are still that activity's. Dropping the tag would strand
-        // them under nothing the moment someone archived an activity to come back to next week.
-        ActivitiesConfig config = ActivitiesConfig.of(
-                List.of(ActivityDefinition.create("Mining", ""),
-                        ActivityDefinition.create("Smelting", "").withArchived(true)),
-                List.of());
-
-        assertEquals(List.of("Mining", "Smelting"), TagCatalog.of(config, List.of()).names());
-    }
 
     @Test
     void customTagsFollowTheActivityOnesAndAreTheUsersToChange() {

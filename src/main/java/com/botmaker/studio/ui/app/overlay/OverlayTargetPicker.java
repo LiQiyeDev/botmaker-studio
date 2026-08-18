@@ -113,9 +113,9 @@ final class OverlayTargetPicker {
         return !targetNames().isEmpty();
     }
 
-    /** The non-archived activities, in flow order — the ones that have a stub file and actually run. */
+    /** The project's activities, in flow order — each has a stub file and can run. */
     private List<String> activityNames() {
-        return activities.current().liveActivities().stream().map(ActivityDefinition::name).toList();
+        return activities.current().activities().stream().map(ActivityDefinition::name).toList();
     }
 
     /**

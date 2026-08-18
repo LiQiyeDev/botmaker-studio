@@ -102,13 +102,12 @@ public record ProjectConfig(
     }
 
     /**
-     * {@code .botmaker/archived-activities} — where an archived activity's source waits to be restored.
+     * {@code .botmaker/archived-activities} — the attic the retired "archive activity" feature parked a
+     * retired activity's source in, outside {@code src} so it would not be compiled.
      *
-     * <p>Outside {@code src}, so nothing here is compiled: an archived activity's stub refers to
-     * {@code Activities.<Name>} fields that are no longer generated, and leaving it in the source tree is
-     * exactly what used to break the build. It is kept rather than deleted because archiving is advertised as
-     * reversible — the file is the user's {@code run()} body, and regenerating a blank stub would be a
-     * deletion wearing an undo's clothes.
+     * <p><b>Legacy.</b> Nothing writes here any more. The one reader left is
+     * {@link ProjectOpenMigrations}, which empties it back into the source tree when an older project is
+     * opened; see {@link com.botmaker.studio.project.activity.ActivityDefinition} for why archiving is gone.
      */
     public Path archivedActivitiesDir() {
         return projectPath.resolve(".botmaker").resolve("archived-activities");

@@ -40,11 +40,9 @@ import java.util.Set;
  * every value at once: {@code new ActivitiesConfig(updated, globals)} compiled, ran, and silently wrote a
  * project half away. A wither cannot omit a field it was not asked about.
  *
- * <p>An activity is retired by {@link ActivityDefinition#archived() archiving} it, never by deleting it: its
- * definition stays here in full, but it drops out of {@link #orderedActivities()} <em>and</em> out of
- * {@link #allVariables()}, so it stops generating code entirely. Its hand-written
- * {@code activities/<Name>.java} is moved aside rather than compiled against fields that no longer exist
- * (see {@code ProjectConfig.archivedActivitiesDir}); restoring puts both back.
+ * <p>Every activity listed here is a live one. There used to be an <em>archived</em> third state that dropped
+ * an activity out of generation while keeping its definition; see {@link ActivityDefinition} for why it is
+ * gone. An activity the user is done with is either disabled or deleted.
  *
  * @param activities      the activity definitions
  * @param variables       every configured value the bot reads, project-wide
@@ -125,20 +123,20 @@ public record ActivitiesConfig(List<ActivityDefinition> activities, List<Activit
 
     /**
      * The activities a run can actually reach: everything reachable from the {@link #flow()}'s start node when
-     * one is wired, else the plain definition order. Excluded are orphans (placed but unreachable) and
-     * {@link ActivityDefinition#archived() archived} activities — neither runs. This is what the generated
-     * {@code ActivityRegistry} instantiates and the generated {@code FlowDriver} can route to.
+     * one is wired, else the plain definition order. Orphans — placed but unreachable — are excluded. This is
+     * what the generated {@code ActivityRegistry} instantiates and the generated {@code FlowDriver} can route
+     * to.
      *
      * <p>The order is breadth-first from the start and is presentational only — with branching there is no
      * single run order any more; the driver picks the next node from the outcome each activity reports.
      *
-     * <p>The two exclusions differ in what they cost. An orphan is still a <em>live</em> activity: it keeps its
+     * <p>An orphan is excluded from the run order but is still an activity in every other sense: it keeps its
      * {@code Activities.<field>} flag ({@link #allVariables()} spans orphans) and its stub, because wiring it
-     * up is one drag away. An archived one is gone from generation altogether — see the class javadoc.
+     * up is one drag away.
      */
     @JsonIgnore
     public List<ActivityDefinition> orderedActivities() {
-        List<ActivityDefinition> live = liveActivities();
+        List<ActivityDefinition> live = activities;
         if (flow.isEmpty()) return live;
         Map<String, ActivityDefinition> byName = new LinkedHashMap<>();
         for (ActivityDefinition a : live) byName.put(a.name(), a);
@@ -150,32 +148,17 @@ public record ActivitiesConfig(List<ActivityDefinition> activities, List<Activit
         return ordered;
     }
 
-    /** The activities that have not been archived — what the canvas shows and the registry runs. */
-    @JsonIgnore
-    public List<ActivityDefinition> liveActivities() {
-        return activities.stream().filter(a -> !a.archived()).toList();
-    }
-
-    /** The archived activities, for the editor's restore list. */
-    @JsonIgnore
-    public List<ActivityDefinition> archivedActivities() {
-        return activities.stream().filter(ActivityDefinition::archived).toList();
-    }
-
     // ---- variables --------------------------------------------------------------------------------------
 
     /**
-     * Every referenceable {@code Activities.<field>}, in generation order: each live activity's enable flag,
-     * then the project's variables. Names here are exactly the generated field names, and what the expression
-     * menu inserts.
-     *
-     * <p>Archived activities contribute nothing: their flag would be a switch for something that cannot run,
-     * offered by the expression menu to code that must not call it.
+     * Every referenceable {@code Activities.<field>}, in generation order: each activity's enable flag, then
+     * the project's variables. Names here are exactly the generated field names, and what the expression menu
+     * inserts.
      */
     @JsonIgnore
     public List<ActivityVariable> allVariables() {
         List<ActivityVariable> all = new ArrayList<>();
-        for (ActivityDefinition a : liveActivities()) all.add(a.enabledVariable());
+        for (ActivityDefinition a : activities) all.add(a.enabledVariable());
         all.addAll(variables);
         return all;
     }
