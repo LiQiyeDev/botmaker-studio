@@ -6,6 +6,32 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-18 — Import that recognises what it already has, an export that leaves the placeholder behind, and a
+  window that keeps its size (`sharing/TemplateArchive`, `ui/app/ResourceManagerDialog`,
+  `services/ImageTemplateLibrary`, `project/ProjectCreator`, `BotMakerStudio`).** Follow-up phase 4, from
+  hands-on testing.
+
+  **Import.** A `.bmtemplates` entry whose name is taken is now compared with what is already there (SHA-256):
+  the same picture is *skipped*, a different one keeps the existing `_2…_99` rename. Exporting a library and
+  importing it back — a normal thing to do — used to leave a second copy of every template, `default_template_2`
+  first among them. The import also regenerates `Templates.java`, which it never did, so a freshly imported
+  template could not be named by a block until the next unrelated add or rename. `ImportResult` carries the four
+  outcomes (imported / renamed / unchanged / skipped) and the manager shows one summary dialog when there is
+  more to say than a count.
+
+  **Export.** A whole-library export drops `default_template.png` while it still holds the generated
+  placeholder — every project makes its own. The placeholder pattern moved from `ProjectCreator` into
+  `ImageTemplateLibrary.defaultTemplateImage()`, and `isUnmodifiedDefaultTemplate` compares by pixel, not by
+  file bytes: two encodings of one picture are different files.
+
+  **The main window no longer drifts.** Geometry was tracked on every `x/y/width/height` change (clearing the
+  maximized flag each time) and flushed on *focus loss* — so every dialog that took focus wrote back whatever
+  the WM had transiently reported. Now the write is debounced and both the write and the tracking are skipped
+  unless the stage is focused and un-maximized, a maximized session reopens through `setMaximized(true)` rather
+  than by filling the screen with explicit bounds, and every scene swap (selector → loading → editor → Runner)
+  goes through `setScenePreservingGeometry`; the loading scene is no longer built at a fixed 620×600, which is
+  what imposed that size on an already-sized stage for the duration of an open.
+
 - **2026-08-18 — Templates: a rename that carries its use sites, a delete that offers a transfer, multi-tagging,
   batch selection and the real capture overlay (`services/TemplateReferences` (new), `ui/app/ResourceManagerDialog`,
   `ui/render/components/TemplateGallery`, `ui/app/capture/OverlayTemplateCapture`, `services/ImageTemplateLibrary`,

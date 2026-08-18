@@ -708,16 +708,9 @@ public class ProjectCreator {
         Files.createDirectories(imagesRoot);
         Path target = imagesRoot.resolve(ImageTemplateLibrary.DEFAULT_TEMPLATE_FILE);
         if (Files.exists(target)) return;
-        int size = 32;
-        java.awt.image.BufferedImage img =
-                new java.awt.image.BufferedImage(size, size, java.awt.image.BufferedImage.TYPE_INT_ARGB);
-        for (int y = 0; y < size; y++) {
-            for (int x = 0; x < size; x++) {
-                boolean on = ((x / 8) + (y / 8)) % 2 == 0;
-                img.setRGB(x, y, on ? 0xFF1ABC9C : 0xFFECF0F1);
-            }
-        }
-        javax.imageio.ImageIO.write(img, "png", target.toFile());
+        // The pattern itself lives in the library, so "is this still the placeholder?" (asked by export) has
+        // one answer rather than a second copy of the checker to drift from.
+        javax.imageio.ImageIO.write(ImageTemplateLibrary.defaultTemplateImage(), "png", target.toFile());
     }
 
     public boolean projectExists(String projectName) {

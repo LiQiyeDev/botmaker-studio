@@ -65,6 +65,47 @@ public final class ImageTemplateLibrary {
         return file != null && file.getFileName().toString().equalsIgnoreCase(DEFAULT_TEMPLATE_FILE);
     }
 
+    /** The placeholder every new project's default template starts as: a 32px teal/white checker. */
+    public static BufferedImage defaultTemplateImage() {
+        int size = 32;
+        BufferedImage img = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+        for (int y = 0; y < size; y++) {
+            for (int x = 0; x < size; x++) {
+                img.setRGB(x, y, ((x / 8) + (y / 8)) % 2 == 0 ? 0xFF1ABC9C : 0xFFECF0F1);
+            }
+        }
+        return img;
+    }
+
+    /**
+     * True when {@code file} is the default template and still holds the generated placeholder — nobody has
+     * pointed it at anything real yet.
+     *
+     * <p>Compared pixel by pixel rather than by file bytes: the PNG is re-encoded by whichever ImageIO wrote
+     * it, so two encodings of the same picture differ as files while being the same template. Export uses
+     * this to leave an untouched placeholder out of an archive, so importing that archive back doesn't add a
+     * {@code default_template_2} nobody asked for.
+     */
+    public static boolean isUnmodifiedDefaultTemplate(Path file) {
+        if (!isDefaultTemplate(file)) return false;
+        try {
+            BufferedImage actual = ImageIO.read(file.toFile());
+            BufferedImage pristine = defaultTemplateImage();
+            if (actual == null
+                    || actual.getWidth() != pristine.getWidth() || actual.getHeight() != pristine.getHeight()) {
+                return false;
+            }
+            for (int y = 0; y < pristine.getHeight(); y++) {
+                for (int x = 0; x < pristine.getWidth(); x++) {
+                    if (actual.getRGB(x, y) != pristine.getRGB(x, y)) return false;
+                }
+            }
+            return true;
+        } catch (IOException e) {
+            return false;   // unreadable: treat as the user's own, and export it rather than drop it
+        }
+    }
+
     /**
      * Normalizes a user-entered template name to the allowed character set: trims surrounding whitespace,
      * replaces every character outside {@code [A-Za-z0-9_]} with {@code _}, and lowercases the result. The

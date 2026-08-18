@@ -620,9 +620,18 @@ public class ResourceManagerDialog {
     // Import / export
     // -------------------------------------------------------------------------
 
-    /** Exports the selection (or the whole library when nothing is selected) as a {@code .bmtemplates} file. */
+    /**
+     * Exports the selection (or the whole library when nothing is selected) as a {@code .bmtemplates} file.
+     *
+     * <p>A whole-library export leaves out an untouched {@code default_template} — every project generates its
+     * own, so shipping the placeholder only gives the destination a second copy of what it already has.
+     * Selecting it explicitly still exports it, and one the user has replaced is a real template like any other.
+     */
     private void export(List<Path> selection) {
-        List<Path> files = selection.isEmpty() ? ImageTemplateLibrary.list(config) : selection;
+        List<Path> files = selection.isEmpty()
+                ? ImageTemplateLibrary.list(config).stream()
+                        .filter(f -> !ImageTemplateLibrary.isUnmodifiedDefaultTemplate(f)).toList()
+                : selection;
         if (files.isEmpty()) {
             statusLabel.setText("There are no templates to export.");
             return;
@@ -653,10 +662,32 @@ public class ResourceManagerDialog {
             TemplateArchive.ImportResult result = TemplateArchive.importInto(config, source.toPath());
             if (result.count() > 0) eventBus.publish(new ResourcesChangedEvent());
             reload();
+            gallery.setSelection(result.imported().stream()
+                    .map(name -> config.imagesRoot().resolve(name + ".png")).toList());
             statusLabel.setText(result.summary());
+            reportImport(result);
         } catch (IOException e) {
             statusLabel.setText("Failed to import: " + e.getMessage());
         }
+    }
+
+    /**
+     * Says what the import did, once, when there is anything to say beyond the count — a renamed template is
+     * a decision the user has to know about (two templates now hold pictures they thought were one), and the
+     * status line is the wrong place for a list.
+     */
+    private void reportImport(TemplateArchive.ImportResult result) {
+        String details = result.details();
+        if (details.isEmpty()) return;
+        Alert alert = ThemedWindows.alert(Alert.AlertType.INFORMATION);
+        alert.initOwner(stage);
+        alert.setTitle("Import finished");
+        alert.setHeaderText(result.count() == 0
+                ? "Nothing new to import."
+                : "Imported " + result.count() + (result.count() == 1 ? " template." : " templates."));
+        alert.setContentText(details);
+        alert.getDialogPane().setMinWidth(520);
+        alert.showAndWait();
     }
 
     // -------------------------------------------------------------------------

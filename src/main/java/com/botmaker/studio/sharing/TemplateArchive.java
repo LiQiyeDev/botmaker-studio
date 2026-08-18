@@ -8,7 +8,10 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -37,6 +40,11 @@ import java.util.zip.ZipOutputStream;
  * reported. Templates are referenced from generated source by path, so silently replacing one would change
  * what an existing bot matches against — the safe failure is a duplicate the user can delete, not a
  * substitution they never see.
+ *
+ * <p><b>Unless the two are the same picture</b>, in which case the import is skipped entirely. Renaming
+ * around a name collision is the right answer when the pixels differ and wrong when they don't: exporting a
+ * library and importing it back into the same project is a normal thing to do, and without this every
+ * round-trip left a full second copy of every template behind.
  */
 public final class TemplateArchive {
 
@@ -47,21 +55,49 @@ public final class TemplateArchive {
 
     private static final String IMAGES_PREFIX = "images/";
 
-    /** What an import did, for the status line — one line per outcome the user would want to hear about. */
-    public record ImportResult(List<String> imported, Map<String, String> renamed, List<String> skipped) {
+    /**
+     * What an import did.
+     *
+     * <p>Four outcomes, because they need four different reactions from the user: {@code imported} arrived
+     * under its own name, {@code renamed} arrived beside a different template of the same name (and is the
+     * one thing here worth looking at afterwards), {@code unchanged} was already in the project pixel for
+     * pixel, and {@code skipped} could not be given a usable name at all.
+     */
+    public record ImportResult(List<String> imported, Map<String, String> renamed,
+                               List<String> unchanged, List<String> skipped) {
 
         public int count() {
             return imported.size();
         }
 
+        /** The one-line version, for the status bar. */
         public String summary() {
             StringBuilder sb = new StringBuilder("Imported " + imported.size() + " template(s)");
-            if (!renamed.isEmpty()) {
-                sb.append("; renamed to avoid collisions: ");
-                renamed.forEach((from, to) -> sb.append(from).append("→").append(to).append(" "));
-            }
+            if (!renamed.isEmpty()) sb.append("; ").append(renamed.size()).append(" renamed");
+            if (!unchanged.isEmpty()) sb.append("; ").append(unchanged.size()).append(" already here");
             if (!skipped.isEmpty()) sb.append("; skipped ").append(skipped.size()).append(" unreadable entry(ies)");
-            return sb.toString().trim();
+            return sb.toString();
+        }
+
+        /** The paragraph version, for the dialog shown once the import is done. Empty when nothing happened. */
+        public String details() {
+            StringBuilder sb = new StringBuilder();
+            if (!renamed.isEmpty()) {
+                sb.append("A template of the same name was already here, holding a different picture, so these "
+                        + "came in beside it:\n");
+                renamed.forEach((from, to) -> sb.append("    ").append(from).append("  →  ").append(to).append('\n'));
+            }
+            if (!unchanged.isEmpty()) {
+                if (!sb.isEmpty()) sb.append('\n');
+                sb.append("Already in this project, pixel for pixel — nothing to add:\n    ")
+                        .append(String.join(", ", unchanged)).append('\n');
+            }
+            if (!skipped.isEmpty()) {
+                if (!sb.isEmpty()) sb.append('\n');
+                sb.append("Could not be named, and were left out:\n    ")
+                        .append(String.join(", ", skipped)).append('\n');
+            }
+            return sb.toString().stripTrailing();
         }
     }
 
@@ -120,6 +156,7 @@ public final class TemplateArchive {
         Files.createDirectories(imagesRoot);
         List<String> imported = new ArrayList<>();
         Map<String, String> renamed = new LinkedHashMap<>();
+        List<String> unchanged = new ArrayList<>();
         List<String> skipped = new ArrayList<>();
         TemplateManifest merged = ImageTemplateLibrary.manifest(config);
 
@@ -127,7 +164,19 @@ public final class TemplateArchive {
             String fileName = entry.getKey();
             if (!fileName.toLowerCase().endsWith(".png")) continue; // sidecars are pulled in with their PNG
             String source = fileName.substring(0, fileName.length() - ".png".length());
-            String target = freeName(config, source);
+            String sanitized = ImageTemplateLibrary.sanitizeName(source);
+            if (sanitized.isBlank() || ImageTemplateLibrary.isReservedName(sanitized)) {
+                skipped.add(source);
+                continue;
+            }
+            // Same name, same picture: the project already has this template. Its tags are left as the
+            // project has them — an import is not the place to re-file what is already filed.
+            if (ImageTemplateLibrary.exists(config, sanitized)
+                    && sameContent(imagesRoot.resolve(sanitized + ".png"), entry.getValue())) {
+                unchanged.add(sanitized);
+                continue;
+            }
+            String target = freeName(config, sanitized);
             if (target == null) {
                 skipped.add(source);
                 continue;
@@ -138,21 +187,33 @@ public final class TemplateArchive {
 
             merged = merged.withTags(target, incoming.tagsOf(source));
             imported.add(target);
-            if (!target.equals(source)) renamed.put(source, target);
+            if (!target.equals(sanitized)) renamed.put(sanitized, target);
         }
 
         ImageTemplateLibrary.saveManifest(config, merged);
-        return new ImportResult(imported, renamed, skipped);
+        // Every imported name needs its constant, or the templates that just arrived are the only ones a
+        // block cannot name. Nothing else regenerates the class until the next add/rename/delete.
+        if (!imported.isEmpty()) ImageTemplateLibrary.regenerateTemplatesClass(config);
+        return new ImportResult(imported, renamed, unchanged, skipped);
+    }
+
+    /** True when {@code file} exists and holds exactly {@code incoming} — compared by SHA-256, not by size. */
+    private static boolean sameContent(Path file, byte[] incoming) {
+        try {
+            if (!Files.isRegularFile(file)) return false;
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return Arrays.equals(digest.digest(Files.readAllBytes(file)), digest.digest(incoming));
+        } catch (IOException | NoSuchAlgorithmException e) {
+            return false;   // can't tell ⇒ import it under a free name, which is the recoverable outcome
+        }
     }
 
     /**
-     * {@code base} if free, else {@code base_2}, {@code base_3}… The bound exists because the alternative to
-     * giving up is an unbounded loop on a pathological project; 99 collisions on one name is a user problem,
-     * not a case to keep spinning on.
+     * {@code sanitized} if free, else {@code sanitized_2}, {@code sanitized_3}… The bound exists because the
+     * alternative to giving up is an unbounded loop on a pathological project; 99 collisions on one name is a
+     * user problem, not a case to keep spinning on.
      */
-    private static String freeName(ProjectConfig config, String base) {
-        String sanitized = ImageTemplateLibrary.sanitizeName(base);
-        if (sanitized.isBlank() || ImageTemplateLibrary.isReservedName(sanitized)) return null;
+    private static String freeName(ProjectConfig config, String sanitized) {
         if (!ImageTemplateLibrary.exists(config, sanitized)) return sanitized;
         for (int i = 2; i <= 99; i++) {
             String candidate = sanitized + "_" + i;

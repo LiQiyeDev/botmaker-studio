@@ -37,8 +37,14 @@ class TemplateArchiveTest {
 
     /** Saves a real (tiny) PNG through the library, so the sidecar is written the way Studio writes it. */
     private static void saveTemplate(ProjectConfig config, String name) throws IOException {
-        ImageTemplateLibrary.saveTemplate(config, new BufferedImage(4, 4, BufferedImage.TYPE_INT_RGB),
-                name, 1920, 1080, "Game");
+        saveTemplate(config, name, 0xFF000000);
+    }
+
+    /** The same, in a given colour — so two projects can hold templates that share a name but not a picture. */
+    private static void saveTemplate(ProjectConfig config, String name, int rgb) throws IOException {
+        BufferedImage img = new BufferedImage(4, 4, BufferedImage.TYPE_INT_RGB);
+        for (int y = 0; y < 4; y++) for (int x = 0; x < 4; x++) img.setRGB(x, y, rgb);
+        ImageTemplateLibrary.saveTemplate(config, img, name, 1920, 1080, "Game");
     }
 
     /**
@@ -74,12 +80,12 @@ class TemplateArchiveTest {
     @Test
     void anImportNeverOverwritesAnExistingTemplate(@TempDir Path root) throws IOException {
         ProjectConfig source = project(root, "Source");
-        saveTemplate(source, "accept");
+        saveTemplate(source, "accept", 0xFF00FF00);
         Path archive = root.resolve("out" + TemplateArchive.EXTENSION);
         TemplateArchive.export(source, ImageTemplateLibrary.list(source), archive);
 
         ProjectConfig dest = project(root, "Dest");
-        saveTemplate(dest, "accept");
+        saveTemplate(dest, "accept", 0xFFFF0000);   // same name, a different picture
         long before = Files.size(dest.imagesRoot().resolve("accept.png"));
 
         TemplateArchive.ImportResult result = TemplateArchive.importInto(dest, archive);
@@ -89,6 +95,42 @@ class TemplateArchiveTest {
         assertEquals(List.of("accept_2"), result.imported());
         assertEquals("accept_2", result.renamed().get("accept"));
         assertTrue(Files.isRegularFile(dest.imagesRoot().resolve("accept_2.png")));
+    }
+
+    /**
+     * The round trip that used to double the library: export everything, import it back into the project it
+     * came from. Same name and same bytes is the same template, so there is nothing to add and nothing to
+     * rename — the {@code _2} copies this produced were pure noise.
+     */
+    @Test
+    void aTemplateThatIsAlreadyHereIsNotImportedAgain(@TempDir Path root) throws IOException {
+        ProjectConfig config = project(root, "Same");
+        saveTemplate(config, "accept", 0xFF00FF00);
+        Path archive = root.resolve("out" + TemplateArchive.EXTENSION);
+        TemplateArchive.export(config, ImageTemplateLibrary.list(config), archive);
+
+        TemplateArchive.ImportResult result = TemplateArchive.importInto(config, archive);
+
+        assertEquals(List.of(), result.imported());
+        assertEquals(List.of("accept"), result.unchanged());
+        assertTrue(result.renamed().isEmpty());
+        assertFalse(Files.exists(config.imagesRoot().resolve("accept_2.png")));
+        assertEquals(1, ImageTemplateLibrary.list(config).size());
+    }
+
+    /** An import that adds a template must also add its constant, or no block can name what just arrived. */
+    @Test
+    void anImportRegeneratesTheTemplatesClass(@TempDir Path root) throws IOException {
+        ProjectConfig source = project(root, "Source");
+        saveTemplate(source, "gold_ore");
+        Path archive = root.resolve("out" + TemplateArchive.EXTENSION);
+        TemplateArchive.export(source, ImageTemplateLibrary.list(source), archive);
+
+        ProjectConfig dest = project(root, "Dest");
+        TemplateArchive.importInto(dest, archive);
+
+        assertTrue(Files.readString(dest.templatesSourceFile()).contains("GOLD_ORE"),
+                "a template with no constant can only be referenced by a raw path literal");
     }
 
     @Test
