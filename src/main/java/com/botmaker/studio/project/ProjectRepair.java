@@ -142,10 +142,6 @@ public final class ProjectRepair {
             // very file at open, so if it was already gone the in-memory config is empty and there is nothing
             // left to restore it from. Recovery can't invent values it never saw.
             //
-            // For a java-model project it is expected from creation and checked unconditionally: it is where
-            // the model itself is recorded, so losing it doesn't reset the values (those are in Settings.java)
-            // — it makes the project read as a legacy one at the next open, which is worse, because nothing
-            // about the settings on screen would look wrong.
             Path json = config.resourcesRoot().resolve(ActivitiesConfig.FILE_NAME);
             if (!activities.allVariables().isEmpty() && !Files.exists(json)) {
                 missing.add(new Missing(json, null, "activity settings"));

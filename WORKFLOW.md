@@ -99,17 +99,17 @@ Studio generates and maintains one source file per activity plus the registry th
 
 *In Studio:* Project ▸ Activity Flow… (or 🔀 Flow on the toolbar)
 
-## 7. Give the bot its settings
+## 7. Give the bot its variables
 
 > The numbers, texts, durations and switches your logic reads — one list for the whole project, organised by tag.
 
-A setting belongs to the project, not to an activity: the delay two activities both wait for is one setting they both read, rather than a copy each. Tags are what keep that readable — the same tags templates use, so "Mining" means the same thing in both lists and renaming an activity renames its tag in both.
+A variable belongs to the project, not to an activity: the delay two activities both wait for is one variable they both read, rather than a copy each. A tag says where it is filed and nothing more — a variable tagged "Mining" is still readable from anywhere. They are the same tags templates use, so "Mining" means the same thing in both lists and renaming an activity renames its tag in both.
 
-Studio writes them into a generated Settings.java as ordinary Java constants, so your blocks read Settings.RETRIES and the compiler checks the type. Nothing is loaded from a file while the bot runs, which is why a wrong value is something Studio tells you about while you are editing rather than something the bot silently replaces with a default at three in the morning.
+The values live in activities.json, and the generated Activities.java reads them at startup — so your blocks say Activities.RETRIES and the compiler checks the type, while the value itself stays something you can see and edit without recompiling.
 
-Mark a setting shared to offer it to whoever runs the bot: shared settings appear in the Runner under their tag's heading, and the rest stay yours.
+Mark a variable shared to offer it to whoever runs the bot: shared variables appear in the Runner under their tag's heading, and the rest stay yours.
 
-*In Studio:* Project ▸ Settings… (named Parameters… in a project made before 2026-08)
+*In Studio:* Project ▸ Parameters… (or 🎚 Parameters on the toolbar)
 
 ## 8. Author the logic with blocks
 

@@ -32,7 +32,6 @@ public class MenuBarManager {
     private Runnable onActivityFlow;
     private Runnable onParameters;
     /** Kept so the entry can be renamed once the project's settings model is known. */
-    private MenuItem parametersItem;
     private Runnable onRecoverProjectFiles;
     private Runnable onManageResources;
     private Runnable onProjectSettings;
@@ -208,7 +207,6 @@ public class MenuBarManager {
         // Where a parameter is defined, retyped and exposed. Separate from the flow editor on purpose: that
         // one is about where the bot goes next, this one about what it is configured with.
         MenuItem parametersItem = new MenuItem("Parameters...");
-        this.parametersItem = parametersItem;
         parametersItem.setOnAction(e -> {
             if (onParameters != null) onParameters.run();
         });
@@ -594,14 +592,6 @@ public class MenuBarManager {
     /** Sets the callback for when "Activity Flow..." is clicked. */
     public void setOnActivityFlow(Runnable callback) {
         this.onActivityFlow = callback;
-    }
-
-    /**
-     * Renames that entry — it opens the project-wide Settings dialog for a java-model project and the
-     * per-activity Parameters one for a legacy project, and the menu should say which.
-     */
-    public void setParametersLabel(String text) {
-        if (parametersItem != null && text != null && !text.isBlank()) parametersItem.setText(text);
     }
 
     /** Sets the callback for when "Parameters..." is clicked. */

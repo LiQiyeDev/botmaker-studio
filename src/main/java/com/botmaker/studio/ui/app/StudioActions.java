@@ -264,7 +264,7 @@ final class StudioActions {
                 .on(StudioAction.CAPTURE_TEMPLATES, this::openOverlayTemplateCapture)
                 .on(StudioAction.RESOURCES, this::openResourceManager)
                 .on(StudioAction.ACTIVITY_FLOW, this::openActivityFlow)
-                .on(StudioAction.SETTINGS, this::openParameters)
+                .on(StudioAction.PARAMETERS, this::openParameters)
                 .on(StudioAction.OVERLAY_EDITOR, () -> openOverlayEditor(false))
                 .on(StudioAction.REMOTE_PILOT, remotePilot::open)
                 .on(StudioAction.PUBLISH, this::openPublishDialog)

@@ -6,6 +6,16 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-18 — The guide says what the software does again (`docs/Workflow`, `docs/StudioAction`,
+  `WORKFLOW.md`, `blocks/misc/InitializerBlock`).** Phase 7, the last of the plan. The workflow's seventh step
+  described a `Settings.java` full of Java constants that no longer exists: it is "Give the bot its variables"
+  now, stored in `activities.json` and read at startup by the generated `Activities.java`, with the note that a
+  tag files a variable rather than scoping it. `StudioAction.SETTINGS` became `PARAMETERS` and stopped naming
+  two menu entries for two project models — there is one. `MenuBarManager.setParametersLabel`, which existed to
+  rename that entry per model, had no callers left and is gone. `InitializerBlock`'s javadoc explains the static
+  block from the loader it actually is. Backlog item A9 ("move settings into Java" for an existing project) is
+  removed: there is no second model to migrate to.
+
 - **2026-08-18 — What the editor shows, what a slot takes, and two buttons that were missing
   (`project/FileRole`, `project/GeneratedMembers`, `types/TypeExpectation`, `parser/CodeEditor`,
   `ui/render/components/pickers/VariablePicker`, `ui/app/ToolbarManager`).** Phase 6. The entry point named
@@ -3224,18 +3234,6 @@ whenever work lands here (see CLAUDE.md → Roadmap).
   `ExpressionCatalog`/`ExpressionMenuFactory` against a boolean slot rather than a second expression language.
 
 ## Refactoring backlog (Studio)
-
-- [ ] **A9 — "Move settings into Java" for an existing project.** The exit from carrying two models. A
-  pre-2026-08 project keeps `settingsModel=json` indefinitely, so every generator, every load and three
-  dialogs exist twice; nothing retires the legacy half until existing projects can cross over. A one-shot
-  action would read `ActivitiesConfig.allVariables()`, map each `<Activity>_<param>` to a `Setting` tagged
-  with that activity, write `Settings.java` + the annotation, flip the discriminator, and delete
-  `Activities.java` — the mapping is mechanical, since `ActivityType` and `SettingType` agree on every type
-  that exists in both. What makes it a backlog item rather than a small change is the bot's own source: every
-  `Activities.Mining_delay` in hand-written code has to become `Settings.MINING_DELAY` in the same commit, and
-  that is a rename across the project's AST (`SourceParser` can do it; nothing currently asks it to). Offer it
-  as an explicit action with a preview of the renames, never as a silent upgrade on open — a project that
-  fails halfway through would not compile.
 
 - [ ] **A5 — Refresh CLAUDE.md.** It still references the removed `BlockFactory` / `BlockParser` and the old
   `AddableBlock`; document `BlockType` / `BlockCatalog` and the event-driven drag-and-drop.
