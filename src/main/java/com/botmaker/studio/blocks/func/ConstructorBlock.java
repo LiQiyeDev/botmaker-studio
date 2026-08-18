@@ -59,8 +59,10 @@ public class ConstructorBlock extends MethodDeclarationBlock {
 
         List<?> params = md.parameters();
         for (int i = 0; i < params.size(); i++) {
-            // We use the parent method (which we updated in Phase 2) to render interactive pills
-            paramRowBuilder.addNode(super.createParamNode((SingleVariableDeclaration) params.get(i), i, context));
+            // The parent renders the pill; a constructor keeps its editable chips, since it has no Add
+            // Function dialog to send a signature change to.
+            paramRowBuilder.addNode(super.createParamNode(
+                    (SingleVariableDeclaration) params.get(i), i, context, canEditSignature()));
         }
 
         if (canEditSignature()) {

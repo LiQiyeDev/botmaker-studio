@@ -18,9 +18,19 @@ import java.util.Set;
  * file they did not think they had broken. A name is refused <em>before</em> the edit here instead.
  *
  * <p>The three refusals are what Java itself would refuse, said earlier and in the second person: a name has
- * to be an identifier, it cannot be a keyword, and it cannot be one this class already uses. That last one
- * takes the class's <em>own</em> method names — read from the AST, not from what is rendered — so the
- * generated members an activity no longer draws ({@code run}, {@code isEnabled}) still count as taken.
+ * to be an identifier, it cannot be a keyword, and the <em>signature</em> cannot be one this class already
+ * declares. That last one takes the class's <em>own</em> methods — read from the AST, not from what is
+ * rendered — so the generated members an activity no longer draws ({@code run}, {@code isEnabled}) still
+ * count as taken.
+ *
+ * <h2>Why a signature and not a name</h2>
+ *
+ * <p>The check used to be on the name alone, which refused {@code click(Point)} because {@code click(int, int)}
+ * existed — an overload, which Java is perfectly happy with and which the user had every reason to want. What
+ * Java actually refuses is two methods with the same name <em>and</em> the same erased parameter types, so that
+ * is what {@link #signatureKey()} spells and what is compared. Erased, because {@code List<Point>} and
+ * {@code List<Rect>} are the same signature to the compiler however different they read; and by simple name,
+ * because {@code java.time.Duration} here and {@code Duration} in a hand-written file are one type.
  */
 public record FunctionDraft(String name, BotType.Choice returnType, List<Parameter> parameters) {
 
@@ -49,19 +59,9 @@ public record FunctionDraft(String name, BotType.Choice returnType, List<Paramet
             "super", "switch", "synchronized", "this", "throw", "throws", "transient", "try", "void",
             "volatile", "while", "true", "false", "null");
 
-    /**
-     * Why {@code name} cannot be this function's name, or empty when it can.
-     *
-     * @param taken the names already used in the target class — every method it declares, generated ones
-     *              included
-     */
-    public static Optional<String> nameProblem(String name, Set<String> taken) {
-        Optional<String> identifier = identifierProblem(name, "function");
-        if (identifier.isPresent()) return identifier;
-        if (taken != null && taken.contains(name.trim())) {
-            return Optional.of("This class already has a function called \"" + name.trim() + "\".");
-        }
-        return Optional.empty();
+    /** Why {@code name} cannot be a function name at all, or empty when it can. Says nothing about clashes. */
+    public static Optional<String> nameProblem(String name) {
+        return identifierProblem(name, "function");
     }
 
     /** Why {@code name} cannot be a parameter name, or empty when it can. {@code others} are its siblings. */
@@ -108,9 +108,15 @@ public record FunctionDraft(String name, BotType.Choice returnType, List<Paramet
         return Optional.empty();
     }
 
-    /** Everything wrong with this draft, in the order the dialog's rows appear. Empty when it can be written. */
-    public Optional<String> problem(Set<String> takenNames) {
-        Optional<String> nameProblem = nameProblem(name, takenNames);
+    /**
+     * Everything wrong with this draft, in the order the dialog's rows appear. Empty when it can be written.
+     *
+     * @param takenSignatures the {@link #signatureKey() signature keys} the target class already declares —
+     *                        every method, generated ones included. When re-editing an existing method, its
+     *                        own key must not be in here, or it would collide with itself.
+     */
+    public Optional<String> problem(Set<String> takenSignatures) {
+        Optional<String> nameProblem = nameProblem(name);
         if (nameProblem.isPresent()) return nameProblem;
 
         List<String> seen = new ArrayList<>();
@@ -119,7 +125,46 @@ public record FunctionDraft(String name, BotType.Choice returnType, List<Paramet
             if (problem.isPresent()) return problem;
             seen.add(p.name().trim());
         }
+
+        if (takenSignatures != null && takenSignatures.contains(signatureKey())) {
+            return Optional.of(parameters.isEmpty()
+                    ? "This class already has a function called \"" + name.trim() + "\" that takes nothing."
+                    : "This class already has a function called \"" + name.trim()
+                            + "\" that takes exactly these types.");
+        }
         return Optional.empty();
+    }
+
+    /**
+     * What Java compares two methods by: the name and the erased parameter types, as
+     * {@code click(int,int)}. Two functions of this class may not share one; anything else about them —
+     * the return type, the parameter <em>names</em>, the type arguments — may differ freely.
+     */
+    public String signatureKey() {
+        return signatureKey(name, parameters.stream().map(p -> p.type().sourceName()).toList());
+    }
+
+    /**
+     * The same key built from source-level type names, for the side that reads a method out of the AST rather
+     * than out of a dialog. Both sides go through {@link #erase} so {@code java.time.Duration} and
+     * {@code Duration}, {@code List<Point>} and {@code List}, are one type on both.
+     */
+    public static String signatureKey(String name, List<String> parameterTypeNames) {
+        return (name == null ? "" : name.trim()) + "("
+                + String.join(",", parameterTypeNames.stream().map(FunctionDraft::erase).toList()) + ")";
+    }
+
+    /** A type name reduced to what the compiler compares: no type arguments, no package. */
+    public static String erase(String typeName) {
+        String erased = typeName == null ? "" : typeName.trim();
+        int angle = erased.indexOf('<');
+        if (angle >= 0) {
+            int close = erased.lastIndexOf('>');
+            // Keep a trailing [] — an array of a generic is still an array. "List<Point>[]" -> "List[]".
+            erased = erased.substring(0, angle) + (close >= 0 ? erased.substring(close + 1) : "");
+        }
+        int dot = erased.lastIndexOf('.');
+        return dot >= 0 ? erased.substring(dot + 1) : erased;
     }
 
     /** The signature as it will read in source — for the dialog's preview line. */

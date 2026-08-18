@@ -324,5 +324,39 @@ public enum BotType {
         public boolean isVoid() {
             return !list && type == NOTHING;
         }
+
+        /**
+         * The choice a source-level type name denotes — the inverse of {@link #sourceName()}, empty when the
+         * name is not one of the curated types.
+         *
+         * <p>For the one caller that reads a signature back out of a file instead of out of a dialog: the
+         * Edit button on a method header, which has to pre-fill the Add Function dialog from what is written.
+         * Matching is on the <em>simple</em> name, so {@code Duration} and {@code java.time.Duration} both
+         * land on {@link BotType#DURATION} — a method someone typed by hand and one this editor generated
+         * name the same type differently, and only one of the two spellings is in the catalogue.
+         *
+         * <p>Empty is a real answer and not a failure: a parameter of a type outside the catalogue
+         * ({@code String[] args}) cannot be rendered in the dialog, and the caller is expected to say so
+         * rather than to guess a replacement.
+         */
+        public static Optional<Choice> fromSourceName(String sourceName) {
+            String name = sourceName == null ? "" : sourceName.trim();
+            if (name.startsWith("List<") && name.endsWith(">")) {
+                String element = simple(name.substring(5, name.length() - 1));
+                return java.util.Arrays.stream(values())
+                        .filter(t -> element.equals(t.boxedName))
+                        .findFirst().map(t -> new Choice(t, true));
+            }
+            String simple = simple(name);
+            return java.util.Arrays.stream(values())
+                    .filter(t -> simple.equals(simple(t.typeName)))
+                    .findFirst().map(Choice::of);
+        }
+
+        private static String simple(String typeName) {
+            String trimmed = typeName.trim();
+            int dot = trimmed.lastIndexOf('.');
+            return dot >= 0 ? trimmed.substring(dot + 1) : trimmed;
+        }
     }
 }

@@ -1609,6 +1609,24 @@
 }
 
 /*
+ * The pencil beside it: the one control that changes a method's signature, now that the name field and the
+ * per-parameter chips are read-only. Same transparent shape as the delete button so the pair reads as one
+ * cluster, in the header's own text colour rather than a warning colour — editing is the ordinary action here.
+ */
+.header-edit-button {
+    -fx-background-color: transparent;
+    -fx-text-fill: -bm-text-on-color;
+    -fx-font-size: 14px;
+    -fx-padding: 0 6 0 0;
+    -fx-cursor: hand;
+}
+
+.header-edit-button:disabled {
+    -fx-opacity: 0.4;
+    -fx-cursor: default;
+}
+
+/*
  * The three inset controls in a header. Their wash is neutral grey rather than the translucent white/black it
  * used to be: rgba(127,127,127,·) lightens a dark fill and darkens a light one, so one value reads as "inset"
  * on every category. A translucent *white* wash is invisible on the yellow Variables fill, and a translucent

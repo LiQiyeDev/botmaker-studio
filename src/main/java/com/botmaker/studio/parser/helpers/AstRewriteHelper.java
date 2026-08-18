@@ -169,6 +169,40 @@ public class AstRewriteHelper {
         };
     }
 
+    /**
+     * Renames a method parameter <em>inside an in-flight rewrite</em>: the declaration, plus every reference
+     * to it in the method's own body. Unlike the other renamers here it neither creates the {@link ASTRewrite}
+     * nor applies it, because it is one step of a whole-signature rewrite that has to land as a single edit.
+     *
+     * <p>Matched by identifier rather than by binding, for the reason {@link #renameLambdaParameter} gives:
+     * in the editor a sibling file is routinely uncompiled and bindings are routinely absent, and a rename
+     * that silently dropped the body references would break code the user did not touch.
+     */
+    public static void renameWithinMethod(ASTRewrite rewriter, MethodDeclaration method,
+                                          SimpleName declName, String newName) {
+        String oldName = declName.getIdentifier();
+        rewriter.set(declName, SimpleName.IDENTIFIER_PROPERTY, newName, null);
+        if (method.getBody() == null) return;
+
+        method.getBody().accept(new ASTVisitor() {
+            @Override
+            public boolean visit(LambdaExpression nested) {
+                // A nested lambda re-declaring the same name shadows the parameter — leave its subtree alone.
+                return nested.parameters().stream()
+                        .map(AstRewriteHelper::lambdaParamIdentifier)
+                        .noneMatch(oldName::equals);
+            }
+
+            @Override
+            public boolean visit(SimpleName node) {
+                if (node.getIdentifier().equals(oldName) && isVariableReference(node)) {
+                    rewriter.set(node, SimpleName.IDENTIFIER_PROPERTY, newName, null);
+                }
+                return true;
+            }
+        });
+    }
+
     /** False for the names that can never denote a variable: {@code foo()}, {@code x.foo}, {@code a.b}. */
     private static boolean isVariableReference(SimpleName node) {
         StructuralPropertyDescriptor location = node.getLocationInParent();

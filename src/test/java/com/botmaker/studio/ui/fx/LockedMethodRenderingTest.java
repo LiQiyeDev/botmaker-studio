@@ -28,6 +28,11 @@ import static org.junit.jupiter.api.Assertions.*;
  * live name {@link TextField}, a clickable return type and a delete button — the signature that
  * {@code Bot.supervise} depends on could be renamed or deleted straight from the header. Styling is not
  * enforcement; the controls themselves have to go.
+ *
+ * <p>An <em>editable</em> method no longer renders those controls either: its signature is changed through the
+ * header's one Edit button, which opens the Add Function dialog and writes the whole change at once. So the
+ * unlocked case asserts the button is there and the fields are not — a live name field in this header would
+ * now be a bug on both sides of the lock.
  */
 class LockedMethodRenderingTest extends FxHeadlessTest {
 
@@ -89,12 +94,17 @@ class LockedMethodRenderingTest extends FxHeadlessTest {
     }
 
     @Test
-    void anEditableMethodOffersItsNameForEditing() {
+    void anEditableMethodOffersOneEditButtonAndNoLiveFields() {
         MethodDeclarationBlock block = new MethodDeclarationBlock("id", parseRun(), null);
         Node ui = render(block);
 
-        assertFalse(descendants(ui, TextField.class).isEmpty(),
-                "an ordinary method's name and parameters stay editable");
+        assertTrue(descendants(ui, TextField.class).isEmpty(),
+                "the name and parameter fields moved into the dialog — a partial rename is not reachable");
+        List<javafx.scene.control.Button> edit = descendants(ui, javafx.scene.control.Button.class).stream()
+                .filter(b -> b.getStyleClass().contains("header-edit-button"))
+                .toList();
+        assertEquals(1, edit.size(), "an ordinary method offers exactly one way to change its signature");
+        assertFalse(edit.getFirst().isDisabled(), "run(int) is a signature the dialog can render");
     }
 
     @Test
@@ -108,6 +118,9 @@ class LockedMethodRenderingTest extends FxHeadlessTest {
         assertTrue(descendants(ui, javafx.scene.control.Button.class).stream()
                         .noneMatch(b -> "×".equals(b.getText())),
                 "a locked method must not offer a delete button");
+        assertTrue(descendants(ui, javafx.scene.control.Button.class).stream()
+                        .noneMatch(b -> b.getStyleClass().contains("header-edit-button")),
+                "nor a way into the dialog that would rewrite the signature it locks");
     }
 
     @Test

@@ -6,6 +6,16 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-18 — Overloads are allowed, and a signature is edited in one place
+  (`palette/FunctionDraft`, `parser/helpers/MethodSignatures`, `blocks/func/MethodDeclarationBlock`).** Phase 4.
+  The Add Function dialog compared names, so `click(Point)` was refused because `click(int, int)` existed; it
+  now compares the whole erased signature, which is what Java itself refuses. The method header's live name
+  field, return-type chip and per-parameter chips are read-only labels behind one **✎ Edit** button that
+  re-opens the dialog on what is written — each of those controls used to rewrite the file on its own, so a
+  signature change passed through intermediate states that did not compile. `CodeEditor.applyFunctionSignature`
+  lands the whole change as a single edit, matching parameters by position (so retyping keeps the body) and
+  renaming a parameter's uses in the body (which the name field never did).
+
 - **2026-08-18 — The flow canvas is themed, its wires are clickable, and it stops listing variables
   (`ui/app/flow/FlowCanvas`, `ui/app/ActivityFlowDialog`, `services/CodeEditorService`).** Phase 3. The card
   body, wires, ports, grid, marquee and minimap moved from `setStyle` hex literals to style classes over new

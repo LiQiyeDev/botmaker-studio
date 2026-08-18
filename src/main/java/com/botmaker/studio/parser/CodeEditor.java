@@ -699,6 +699,16 @@ public class CodeEditor {
                 (cu, code) -> MethodHandler.addFunctionToClass(ctx(cu), code, typeDecl, draft, index));
     }
 
+    /**
+     * Applies a whole edited signature — name, return type, parameters — as one edit. See
+     * {@link MethodHandler#applyFunctionSignature}: the point is that the five separate header controls it
+     * replaces each re-wrote the file on their own, so a half-applied signature was reachable from the UI.
+     */
+    public void applyFunctionSignature(MethodDeclaration method, FunctionDraft draft) {
+        edit(method, EditKind.SIGNATURE, false,
+                (cu, code) -> MethodHandler.applyFunctionSignature(ctx(cu), code, method, draft));
+    }
+
     public void deleteMethod(MethodDeclaration method) {
         edit(method, EditKind.SIGNATURE, false, (cu, code) -> MethodHandler.deleteMethodFromClass(cu, code, method));
     }

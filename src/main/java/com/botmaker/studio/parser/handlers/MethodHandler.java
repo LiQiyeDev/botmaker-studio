@@ -145,6 +145,92 @@ public class MethodHandler {
         return ctx.applyTo(originalCode);
     }
 
+    /**
+     * Rewrites {@code method}'s whole signature to {@code draft} in one pass: the name, the return type and
+     * the parameter list, plus every reference in the body to a parameter that was renamed.
+     *
+     * <p><b>One pass, on purpose.</b> The header used to offer five separate controls — a name field, a
+     * return-type chip, a type chip and a name field per parameter, a "+" and a "×" — each of which called
+     * its own {@code CodeEditor} method, and each of those re-writes the file and re-parses it. Between two
+     * of them the signature is a state the user never asked for: {@code click(int)} on the way to
+     * {@code click(Point, int)} exists on disk, does not compile, and its call sites are broken by it. There
+     * is no way to reach that state from here, which is what the maintainer meant by wanting the change to
+     * be "compilation safe".
+     *
+     * <p>Parameters are matched to the draft <em>by position</em>: the first old parameter becomes the first
+     * new one whatever its name or type, so retyping keeps the body's references intact, and only a genuine
+     * surplus is removed. Renaming rewrites the references inside this method's own body, which the
+     * per-parameter field it replaces never did.
+     */
+    public static String applyFunctionSignature(EditContext ctx, String originalCode, MethodDeclaration method,
+                                                FunctionDraft draft) {
+        AST ast = ctx.ast();
+        ASTRewrite rewriter = ctx.rewriter();
+
+        String newName = draft.name().trim();
+        if (!method.getName().getIdentifier().equals(newName)) {
+            rewriter.set(method.getName(), SimpleName.IDENTIFIER_PROPERTY, newName, null);
+        }
+
+        applyReturnType(ctx, method, draft.returnType());
+        applyParameters(ctx, method, draft.parameters());
+
+        return ctx.applyTo(originalCode);
+    }
+
+    /** The return type and the trailing {@code return} that has to agree with it. */
+    private static void applyReturnType(EditContext ctx, MethodDeclaration method, BotType.Choice returnType) {
+        Type oldNode = method.getReturnType2();
+        if (oldNode != null && oldNode.toString().equals(returnType.sourceName())) return;
+
+        ResolvedType oldResolved = oldNode != null
+                ? ProjectAnalyzer.resolveType(oldNode) : ResolvedType.VOID;
+        ResolvedType newResolved = returnType.isVoid()
+                ? ResolvedType.VOID : ResolvedType.named(returnType.sourceName());
+
+        Type newNode = typeNodeFor(ctx, returnType);
+        if (oldNode == null) {
+            ctx.rewriter().set(method, MethodDeclaration.RETURN_TYPE2_PROPERTY, newNode, null);
+        } else {
+            ctx.rewriter().replace(oldNode, newNode, null);
+        }
+        updateTrailingReturn(ctx.ast(), ctx.rewriter(), method, oldResolved, newResolved);
+    }
+
+    /** The parameter list, matched to the draft by position. */
+    private static void applyParameters(EditContext ctx, MethodDeclaration method,
+                                        List<FunctionDraft.Parameter> wanted) {
+        AST ast = ctx.ast();
+        ASTRewrite rewriter = ctx.rewriter();
+        ListRewrite listRewrite = rewriter.getListRewrite(method, MethodDeclaration.PARAMETERS_PROPERTY);
+        List<?> current = method.parameters();
+
+        for (int i = 0; i < Math.min(current.size(), wanted.size()); i++) {
+            SingleVariableDeclaration param = (SingleVariableDeclaration) current.get(i);
+            FunctionDraft.Parameter target = wanted.get(i);
+
+            if (!param.getType().toString().equals(target.type().sourceName())) {
+                rewriter.replace(param.getType(), typeNodeFor(ctx, target.type()), null);
+            }
+            String newName = target.name().trim();
+            if (!param.getName().getIdentifier().equals(newName)) {
+                AstRewriteHelper.renameWithinMethod(rewriter, method, param.getName(), newName);
+            }
+        }
+
+        for (int i = current.size() - 1; i >= wanted.size(); i--) {
+            listRewrite.remove((ASTNode) current.get(i), null);
+        }
+
+        for (int i = current.size(); i < wanted.size(); i++) {
+            FunctionDraft.Parameter target = wanted.get(i);
+            SingleVariableDeclaration added = ast.newSingleVariableDeclaration();
+            added.setType(typeNodeFor(ctx, target.type()));
+            added.setName(ast.newSimpleName(target.name().trim()));
+            listRewrite.insertLast(added, null);
+        }
+    }
+
     /** A type node for a curated choice, importing what it names — {@code Point}, or {@code List<Point>}. */
     private static Type typeNodeFor(EditContext ctx, BotType.Choice choice) {
         AST ast = ctx.ast();

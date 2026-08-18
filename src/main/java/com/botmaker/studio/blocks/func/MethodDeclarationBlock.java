@@ -1,29 +1,31 @@
 package com.botmaker.studio.blocks.func;
 
 import com.botmaker.studio.palette.BlockCategory;
+import com.botmaker.studio.palette.FunctionDraft;
+import com.botmaker.studio.parser.helpers.MethodSignatures;
+import com.botmaker.studio.ui.app.AddFunctionDialog;
+import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.ui.render.menu.ExpressionMenu;
-import com.botmaker.studio.util.DefaultNames;
 
 import com.botmaker.studio.core.AbstractStatementBlock;
 import com.botmaker.studio.core.BlockWithChildren;
 import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.CodeBlock;
-import com.botmaker.studio.parser.helpers.FileTypeDetector;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
 import com.botmaker.studio.ui.render.layout.BlockLayout;
 import com.botmaker.studio.ui.render.components.BlockUIComponents;
-import com.botmaker.studio.types.ResolvedType;
-import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import javafx.css.PseudoClass;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.*;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
+import javafx.stage.Window;
 import org.eclipse.jdt.core.dom.AbstractTypeDeclaration;
 import org.eclipse.jdt.core.dom.MethodDeclaration;
 import org.eclipse.jdt.core.dom.SingleVariableDeclaration;
+import org.eclipse.jdt.core.dom.TypeDeclaration;
 
 import java.util.*;
 
@@ -170,42 +172,16 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
         Label funcLabel = new Label("Function");
         funcLabel.getStyleClass().add("header-keyword-label");
 
-        Node nameNode;
-        if (canEditSignature()) {
-            TextField nameField = new TextField(methodName);
-            nameField.getStyleClass().add("method-name-field");
-            nameField.setPrefWidth(Math.max(80, methodName.length() * 8 + 20));
-
-            nameField.focusedProperty().addListener((obs, oldVal, newVal) -> {
-                if (!newVal) {
-                    String newName = nameField.getText().trim();
-                    if (!newName.isEmpty() && !newName.equals(methodName) && !FileTypeDetector.MAIN_METHOD.equals(newName)) {
-                        context.getCodeEditor().renameMethod((MethodDeclaration) this.astNode, newName);
-                    } else {
-                        nameField.setText(methodName);
-                    }
-                }
-            });
-            nameNode = nameField;
-        } else {
-            Label nameLabel = new Label(methodName);
-            nameLabel.getStyleClass().add("header-name-label");
-            nameNode = nameLabel;
-        }
+        // The name is shown, never typed into: the whole signature is edited in one place. See editSignature.
+        Label nameLabel = new Label(methodName);
+        nameLabel.getStyleClass().add("header-name-label");
+        Node nameNode = nameLabel;
 
         Label returnsLabel = new Label("returns");
         returnsLabel.getStyleClass().add("method-returns-label");
 
-        MethodDeclaration mdRet = (MethodDeclaration) this.astNode;
         Label returnTypeLabel = new Label(returnType);
         returnTypeLabel.getStyleClass().add("return-type-label");
-        if (canEditSignature()) {
-            ExpressionMenu.installTypeSelector(returnTypeLabel, "Click to change return type",
-                    () -> mdRet.getReturnType2() != null
-                            ? ProjectAnalyzer.resolveType(mdRet.getReturnType2()) : ResolvedType.VOID,
-                    context, null, true,
-                    newType -> context.getCodeEditor().setMethodReturnType(mdRet, newType));
-        }
 
         var topRowBuilder = BlockLayout.sentence()
                 .addNode(collapseBtn)
@@ -226,6 +202,8 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
                 .addNode(returnsLabel).addNode(returnTypeLabel);
 
         if (canEditSignature()) {
+            topRowBuilder.addNode(editSignatureButton(context));
+
             Button deleteBtn = new Button("×");
             deleteBtn.getStyleClass().add("header-delete-button");
             deleteBtn.setOnAction(e -> context.getCodeEditor().deleteMethod((MethodDeclaration) this.astNode));
@@ -247,19 +225,8 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
         for (int i = 0; i < params.size(); i++) {
             SingleVariableDeclaration param = (SingleVariableDeclaration) params.get(i);
             if (shouldDisplayParameter(param)) {
-                paramRowBuilder.addNode(createParamNode(param, i, context));
+                paramRowBuilder.addNode(createParamNode(param, i, context, false));
             }
-        }
-
-        if (canEditSignature()) {
-            Button addParamBtn = new Button("+");
-            addParamBtn.getStyleClass().add("add-param-button");
-            addParamBtn.setOnAction(e -> ExpressionMenu.showTypeMenu(addParamBtn, null, context, null,
-                    false, false,
-                    type -> context.getCodeEditor().addParameterToMethod((MethodDeclaration) this.astNode,
-                            type, DefaultNames.forType(type.simpleName()))));
-
-            paramRowBuilder.addNode(addParamBtn);
         }
 
         HBox paramRow = paramRowBuilder.build();
@@ -274,7 +241,13 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
         return container;
     }
 
-    Node createParamNode(SingleVariableDeclaration param, int index, CodeEditorService context) {
+    /**
+     * One parameter, as a pill. {@code editable} is false for a method — its parameters are changed through
+     * the header's Edit button, in one edit with the rest of the signature — and {@link ConstructorBlock}'s
+     * own answer for a constructor, which has no such dialog to send them to.
+     */
+    Node createParamNode(SingleVariableDeclaration param, int index, CodeEditorService context,
+                         boolean editable) {
         HBox box = new HBox(4);
         box.setAlignment(Pos.CENTER_LEFT);
         box.getStyleClass().add("param-pill");
@@ -282,7 +255,7 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
         Label typeLabel = new Label(param.getType().toString());
         typeLabel.getStyleClass().add("param-type-label");
 
-        if (canEditSignature()) {
+        if (editable) {
             ExpressionMenu.installTypeSelector(typeLabel, "Click to change type",
                     () -> ProjectAnalyzer.resolveType(param.getType()), context, null,
                     newType -> context.getCodeEditor().changeMethodParameterType((MethodDeclaration) this.astNode, index, newType));
@@ -290,7 +263,7 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
 
         String currentName = param.getName().getIdentifier();
         Node nameNode;
-        if (canEditSignature()) {
+        if (editable) {
             TextField nameField = new TextField(currentName);
             nameField.getStyleClass().add("param-name-field");
             nameField.setPrefWidth(Math.max(30, currentName.length() * 7));
@@ -314,7 +287,7 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
 
         box.getChildren().addAll(typeLabel, nameNode);
 
-        if (canEditSignature()) {
+        if (editable) {
             Button deleteBtn = new Button("×");
             deleteBtn.getStyleClass().add("param-delete-button");
 
@@ -325,5 +298,49 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
         }
 
         return box;
+    }
+
+    /**
+     * The one control that changes this method's signature: it opens {@link AddFunctionDialog} on what is
+     * written, and applies whatever comes back as a single edit.
+     *
+     * <p>It replaces a live name field, a return-type chip and a chip pair per parameter. Each of those
+     * rewrote the file the moment it was touched, so getting from {@code click(int)} to
+     * {@code click(Point, int)} meant passing through signatures nobody asked for — every one of them a
+     * moment where the file did not compile and the call sites were broken. Deciding the whole signature
+     * first and writing it once is what makes the change compilation-safe.
+     *
+     * <p>The button is <em>disabled</em>, not hidden, when the signature names a type the dialog cannot
+     * offer ({@code String[] args}): the answer to "why can't I edit this one?" should be on the button, not
+     * absent from the header.
+     */
+    private Button editSignatureButton(CodeEditorService context) {
+        MethodDeclaration method = (MethodDeclaration) this.astNode;
+        Button edit = new Button("✎");
+        edit.getStyleClass().add("header-edit-button");
+
+        Optional<FunctionDraft> current = MethodSignatures.draftOf(method);
+        if (current.isEmpty()) {
+            edit.setDisable(true);
+            edit.setTooltip(new Tooltip("This signature uses a type the editor can't offer, so it has to be "
+                    + "changed in the Java file."));
+            return edit;
+        }
+
+        edit.setTooltip(new Tooltip("Edit this function's name, inputs and result"));
+        edit.setOnAction(e -> {
+            Window owner = edit.getScene() == null ? null : edit.getScene().getWindow();
+            new AddFunctionDialog(owner, otherSignatures(method), current.get()).showAndWait()
+                    .ifPresent(draft -> context.getCodeEditor().applyFunctionSignature(method, draft));
+        });
+        return edit;
+    }
+
+    /** Every signature the enclosing class declares except this method's own — which cannot clash with itself. */
+    private static Set<String> otherSignatures(MethodDeclaration method) {
+        if (!(method.getParent() instanceof TypeDeclaration typeDecl)) return Set.of();
+        Set<String> taken = new LinkedHashSet<>(MethodSignatures.declaredIn(typeDecl));
+        taken.remove(MethodSignatures.keyOf(method));
+        return taken;
     }
 }

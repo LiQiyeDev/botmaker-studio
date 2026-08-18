@@ -22,22 +22,34 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Describes a function before it is written: name, what it gives back, and what it takes.
+ * Describes a function before it is written — or a function that exists, before it is changed: name, what it
+ * gives back, and what it takes.
  *
  * <p>What "+ Add Function" did before was write {@code public static void newMethod()} into the class and
  * leave the user to rename it in place — which meant the second one collided with the first, a {@code void}
  * function could not be made to return anything without hand-editing the signature, and a parameter could not
  * be added at all from the block editor. All three are things the button implied it was doing.
  *
- * <p>The dialog refuses rather than fixes: an illegal or taken name disables the confirm button and says why,
- * instead of silently uniquifying to {@code newMethod2}. The rules are {@link FunctionDraft}'s, and are pure —
- * this class only renders them. The live signature line under the fields is the same {@link
- * FunctionDraft#signature()} the rules see, so what is shown and what is checked cannot disagree.
+ * <p>The dialog refuses rather than fixes: an illegal name, or one whose whole signature the class already
+ * declares, disables the confirm button and says why, instead of silently uniquifying to {@code newMethod2}.
+ * The rules are {@link FunctionDraft}'s, and are pure — this class only renders them. The live signature line
+ * under the fields is the same {@link FunctionDraft#signature()} the rules see, so what is shown and what is
+ * checked cannot disagree.
+ *
+ * <h2>Edit mode</h2>
+ *
+ * <p>The same dialog, opened on a method that exists, is how its signature is changed — the header used to
+ * carry a live name field, a return-type chip and a chip pair per parameter, each of which rewrote the file
+ * on its own, so the file passed through signatures nobody asked for on the way to the one they wanted.
+ * Editing here means the whole signature is decided before anything is written, and written once.
  */
 public final class AddFunctionDialog {
 
     private final Window owner;
-    private final Set<String> takenNames;
+    private final Set<String> takenSignatures;
+
+    /** The signature being changed, or null when a new function is being described. */
+    private final FunctionDraft editing;
 
     private final TextField nameField = new TextField();
     private final BotTypePicker returnPicker = new BotTypePicker(BotTypePicker.Purpose.RETURN_TYPE);
@@ -45,17 +57,29 @@ public final class AddFunctionDialog {
     private final List<ParameterRow> rows = new ArrayList<>();
     private final Label signatureLabel = new Label();
     private final Label problemLabel = new Label();
-    private final Button confirmButton = new Button("Add Function");
+    private final Button confirmButton = new Button();
 
     private FunctionDraft result;
 
     /**
-     * @param takenNames every method name the target class already declares — read from the AST, so the
-     *                   generated members an activity no longer draws still count
+     * @param takenSignatures every signature the target class already declares — {@link
+     *                        FunctionDraft#signatureKey() keys}, read from the AST, so the generated members
+     *                        an activity no longer draws still count
      */
-    public AddFunctionDialog(Window owner, Set<String> takenNames) {
+    public AddFunctionDialog(Window owner, Set<String> takenSignatures) {
+        this(owner, takenSignatures, null);
+    }
+
+    /**
+     * @param editing         the signature this dialog is changing, pre-filled into the fields; null to
+     *                        describe a new function
+     * @param takenSignatures as above — and it must <em>not</em> contain {@code editing}'s own key, or the
+     *                        signature would be refused for colliding with itself
+     */
+    public AddFunctionDialog(Window owner, Set<String> takenSignatures, FunctionDraft editing) {
         this.owner = owner;
-        this.takenNames = takenNames == null ? Set.of() : Set.copyOf(takenNames);
+        this.takenSignatures = takenSignatures == null ? Set.of() : Set.copyOf(takenSignatures);
+        this.editing = editing;
     }
 
     /** Shows the dialog and blocks; empty when the user cancelled. */
@@ -63,7 +87,8 @@ public final class AddFunctionDialog {
         Stage stage = new Stage();
         stage.initOwner(owner);
         stage.initModality(Modality.APPLICATION_MODAL);
-        stage.setTitle("Add Function");
+        stage.setTitle(editing == null ? "Add Function" : "Edit Function");
+        confirmButton.setText(editing == null ? "Add Function" : "Save Signature");
 
         VBox root = new VBox(14);
         root.setPadding(new Insets(18));
@@ -72,6 +97,7 @@ public final class AddFunctionDialog {
         nameField.setPromptText("what the function does — clickLoginButton");
         nameField.textProperty().addListener((obs, old, now) -> revalidate());
         returnPicker.choiceProperty().addListener((obs, old, now) -> revalidate());
+        if (editing != null) prefill(editing);
         revalidate();
 
         stage.setScene(ThemedWindows.scene(root, 520, 420));
@@ -79,6 +105,22 @@ public final class AddFunctionDialog {
         nameField.requestFocus();
         stage.showAndWait();
         return Optional.ofNullable(result);
+    }
+
+    /**
+     * Fills the fields from an existing signature. The parameter rows are built by the same {@link
+     * #addParameter()} the "+" uses, then overwritten — so an edited row and a fresh one are the same widget,
+     * with the same type-follows-name behaviour, rather than two shapes that can drift apart.
+     */
+    private void prefill(FunctionDraft draft) {
+        nameField.setText(draft.name());
+        returnPicker.setChoice(draft.returnType());
+        for (FunctionDraft.Parameter parameter : draft.parameters()) {
+            addParameter();
+            ParameterRow row = rows.getLast();
+            row.picker.setChoice(parameter.type());
+            row.nameField.setText(parameter.name());
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -157,7 +199,7 @@ public final class AddFunctionDialog {
         confirmButton.setDefaultButton(true);
         confirmButton.setOnAction(e -> {
             FunctionDraft draft = draft();
-            if (draft.problem(takenNames).isPresent()) return;
+            if (draft.problem(takenSignatures).isPresent()) return;
             result = draft;
             stage.close();
         });
@@ -184,7 +226,7 @@ public final class AddFunctionDialog {
         FunctionDraft draft = draft();
         signatureLabel.setText(draft.signature());
 
-        Optional<String> problem = draft.problem(takenNames);
+        Optional<String> problem = draft.problem(takenSignatures);
         // A dialog opened on an empty name is not "wrong" yet — it is unfinished. Saying so before the user
         // has typed anything is nagging, so the confirm button carries that state and the message stays quiet.
         boolean untouched = nameField.getText().isBlank();
