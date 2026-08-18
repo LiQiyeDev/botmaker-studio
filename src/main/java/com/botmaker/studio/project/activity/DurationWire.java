@@ -1,7 +1,7 @@
-package com.botmaker.studio.project.settings;
+package com.botmaker.studio.project.activity;
 
 /**
- * The text form of a {@link SettingType#DURATION} — {@code 90s}, {@code 5m}, {@code 1h30m}, {@code 250ms}.
+ * The text form of a {@link com.botmaker.studio.palette.BotType#DURATION} — {@code 90s}, {@code 5m}, {@code 1h30m}, {@code 250ms}.
  *
  * <p>Durations are stored as text rather than as a number of milliseconds because the unit is the part a
  * reader needs: {@code 90000} in a settings file says nothing, and the editor that wrote it had "a minute and

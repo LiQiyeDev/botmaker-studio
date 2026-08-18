@@ -33,7 +33,7 @@ class ActivityStubWriteThroughTest {
     }
 
     private static ActivitiesConfig configOf(ActivityDefinition... activities) {
-        return new ActivitiesConfig(List.of(activities), List.of());
+        return ActivitiesConfig.of(List.of(activities), List.of());
     }
 
     /** Runs {@code update} and waits, so a failure surfaces here rather than as a silently lost future. */

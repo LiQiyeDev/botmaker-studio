@@ -89,19 +89,18 @@ class FlowDriverGenerationTest {
      * the run. Idle is placed but unreachable. That is every shape the driver has to emit, in one flow.
      */
     private static ActivitiesConfig branchingFlow() {
-        return new ActivitiesConfig(
+        return ActivitiesConfig.of(
                 List.of(activity("Mining", "BAG_FULL", "NO_ORE"),
                         activity("Smelt"),
                         activity("Travel"),
                         activity("Idle")),
-                List.of(),
-                new ActivityFlow(
+                List.of())
+                .withFlow(new ActivityFlow(
                         List.of(at("Mining"), at("Smelt"), at("Travel"), at("Idle")),
                         List.of(new FlowEdge("Mining", "Smelt", "BAG_FULL"),
                                 new FlowEdge("Mining", "Travel", "NO_ORE"),
                                 new FlowEdge("Travel", "Mining", "")),
-                        "Mining", 250),
-                List.of());
+                        "Mining", 250));
     }
 
     private static ActivityService serviceFor(Path root) {
@@ -140,10 +139,10 @@ class FlowDriverGenerationTest {
     @Test
     void goingHomeIsPerActivityAndOnlyWhenTheActivityWillRun(@TempDir Path root) {
         ActivitiesConfig cfg = branchingFlow();
-        ActivitiesConfig mixed = new ActivitiesConfig(
+        ActivitiesConfig mixed = ActivitiesConfig.of(
                 List.of(cfg.activities().getFirst().withGoHome(false), cfg.activities().get(1),
                         cfg.activities().get(2), cfg.activities().get(3)),
-                List.of(), cfg.flow(), List.of());
+                List.of()).withFlow(cfg.flow());
 
         String source = serviceFor(root).generateDriverSource(mixed);
 
@@ -173,10 +172,10 @@ class FlowDriverGenerationTest {
     @Test
     void thePopupFlagIsWrittenForEveryActivityIncludingTheOnesThatKeepIt(@TempDir Path root) {
         ActivitiesConfig cfg = branchingFlow();
-        ActivitiesConfig mixed = new ActivitiesConfig(
+        ActivitiesConfig mixed = ActivitiesConfig.of(
                 List.of(cfg.activities().getFirst().withPopupCheck(false), cfg.activities().get(1),
                         cfg.activities().get(2), cfg.activities().get(3)),
-                List.of(), cfg.flow(), List.of());
+                List.of()).withFlow(cfg.flow());
 
         String source = serviceFor(root).generateDriverSource(mixed);
 

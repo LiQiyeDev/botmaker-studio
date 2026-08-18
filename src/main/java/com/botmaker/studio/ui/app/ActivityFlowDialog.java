@@ -7,11 +7,9 @@ import com.botmaker.studio.project.activity.FlowEdge;
 import com.botmaker.studio.project.activity.ActivityPreset;
 import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.project.activity.FlowNode;
-import com.botmaker.studio.project.settings.Setting;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.ImageTemplateLibrary;
-import com.botmaker.studio.services.SettingsRailModel;
-import com.botmaker.studio.ui.app.settings.SettingValueWidgets;
+import com.botmaker.studio.services.VariableRailModel;
 import com.botmaker.studio.ui.app.flow.ActivityDraft;
 import com.botmaker.studio.ui.app.flow.FlowCanvas;
 import com.botmaker.studio.ui.app.flow.FlowNames;
@@ -67,7 +65,6 @@ public class ActivityFlowDialog {
 
     private final FlowCanvas canvas = new FlowCanvas();
     private final List<ActivityPreset> presets = new ArrayList<>();
-    private final List<ActivityVariable> globals = new ArrayList<>();
     /**
      * Retired activities, kept so they are written back on save. They are deliberately <em>not</em> dropped:
      * the editor never deletes {@code activities/<Name>.java}, and that surviving file still refers to the
@@ -156,7 +153,6 @@ public class ActivityFlowDialog {
         stepDelayMs = flow.stepDelayMs();
         goHomeByDefault = current.goHomeByDefault();
         canvas.select(null);
-        globals.addAll(current.globals());
         presets.addAll(current.presets());
         archived.addAll(current.archivedActivities());
         canvas.refresh();
@@ -283,10 +279,9 @@ public class ActivityFlowDialog {
         sidePanel.getChildren().clear();
 
         if (draft == null) {
-            sidePanel.getChildren().addAll(heading(isJavaModel() ? "Settings" : "Global variables"),
-                    new Label("Config not tied to any one activity. Select a card to edit that activity."));
-            sidePanel.getChildren().add(isJavaModel()
-                    ? buildSettingSummary("") : buildVariableSummary(globals, null));
+            sidePanel.getChildren().addAll(heading("Variables"),
+                    new Label("Filed under no tag. Select a card to see that activity's."));
+            sidePanel.getChildren().add(buildVariableSummary(""));
             sidePanel.getChildren().addAll(new Separator(), buildFlowLimitsSection());
             sidePanel.getChildren().addAll(new Separator(), buildArchivedSection());
             return;
@@ -333,8 +328,7 @@ public class ActivityFlowDialog {
 
         sidePanel.getChildren().addAll(heading("Activity"), head, new Separator(),
                 heading("Outcomes"), buildOutcomeEditor(draft), new Separator(),
-                heading(isJavaModel() ? "Settings" : "Config params"),
-                isJavaModel() ? buildSettingSummary(draft.name()) : buildVariableSummary(draft.params(), draft),
+                heading("Variables"), buildVariableSummary(draft.name()),
                 new Separator(), archive);
     }
 
@@ -609,31 +603,20 @@ public class ActivityFlowDialog {
     }
 
     /**
-     * What this scope's parameters currently are, read-only — name, type and value, one row each.
+     * What is filed under {@code tag}, read-only — label, value, and whether the bot's user is offered it.
      *
      * <p>Deliberately not an editor any more. This dialog used to be both the graph editor and the settings
-     * editor, which put a cramped column of text fields beside the canvas and made the project's globals
-     * reachable only by deselecting every card. Parameters are defined in <b>Project ▸ Parameters…</b> now;
-     * what stays here is the answer to "what does this activity take?", which you want while wiring.
-     */
-    /** True for a project whose values live in the generated {@code Settings} class rather than in JSON. */
-    private boolean isJavaModel() {
-        return activityService.current().settingsModel().isJava();
-    }
-
-    /**
-     * The same read-only summary for a project-wide {@link Setting}: what is filed under {@code tag}, or —
-     * for a blank tag — what is filed under nothing.
+     * editor, which put a cramped column of text fields beside the canvas and made the project's own values
+     * reachable only by deselecting every card.
      *
-     * <p>A setting is not owned by the activity whose tag it carries; it is merely <em>listed</em> under it.
-     * That is why this shows what an activity is configured with while saying nothing about editing it: the
-     * one editor is <b>Project ▸ Settings…</b>, which sees the whole list at once, which is the only place a
-     * knob two activities share can sensibly be changed.
+     * <p>And a variable is <em>not owned</em> by the activity whose tag it carries; it is merely listed under
+     * it. That is the second reason this only reports: the one editor is <b>Project &rarr; Parameters…</b>,
+     * which sees the whole list at once — the only place a knob two activities share can sensibly be changed.
      */
-    private Node buildSettingSummary(String tag) {
+    private Node buildVariableSummary(String tag) {
         VBox box = new VBox(6);
-        List<Setting> shown = SettingsRailModel.in(activityService.current().settings(),
-                tag == null || tag.isBlank() ? Setting.GENERAL : tag,
+        List<ActivityVariable> shown = VariableRailModel.in(activityService.current().variables(),
+                tag == null || tag.isBlank() ? ActivityVariable.GENERAL : tag,
                 ImageTemplateLibrary.tagCatalog(activityService.projectConfig()));
         if (shown.isEmpty()) {
             Label none = new Label("Nothing filed here yet.");
@@ -644,52 +627,14 @@ public class ActivityFlowDialog {
             grid.setHgap(8);
             grid.setVgap(4);
             int row = 0;
-            for (Setting s : shown) {
-                Label name = new Label(s.displayLabel());
-                Label value = new Label(SettingValueWidgets.display(s));
-                value.setStyle("-fx-text-fill: gray;");
-                grid.add(name, 0, row);
-                grid.add(value, 1, row);
-                if (s.isShared()) {
-                    Label badge = new Label("public");
-                    badge.setStyle("-fx-font-size: 10px; -fx-text-fill: gray;");
-                    badge.setTooltip(new javafx.scene.control.Tooltip(
-                            "Offered to whoever runs the bot, not just to you."));
-                    grid.add(badge, 2, row);
-                }
-                row++;
-            }
-            box.getChildren().add(grid);
-        }
-        Label where = new Label("Add, retype or expose settings in Project ▸ Settings…");
-        where.setWrapText(true);
-        where.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
-        box.getChildren().add(where);
-        return box;
-    }
-
-    private Node buildVariableSummary(List<ActivityVariable> variables, ActivityDraft owner) {
-        VBox box = new VBox(6);
-        if (variables.isEmpty()) {
-            Label none = new Label(owner == null ? "No globals yet." : "No params yet.");
-            none.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
-            box.getChildren().add(none);
-        } else {
-            GridPane grid = new GridPane();
-            grid.setHgap(8);
-            grid.setVgap(4);
-            int row = 0;
-            for (ActivityVariable v : variables) {
-                Label name = new Label(v.name());
-                if (v.description() != null && !v.description().isBlank()) {
-                    name.setTooltip(new javafx.scene.control.Tooltip(v.description()));
-                }
-                Label value = new Label(ParamValueWidgets.display(v.value()));
+            for (ActivityVariable v : shown) {
+                Label name = new Label(v.displayLabel());
+                Label value = new Label(ParamValueWidgets.display(v));
                 value.setStyle("-fx-text-fill: gray;");
                 grid.add(name, 0, row);
                 grid.add(value, 1, row);
                 if (v.isPublic()) {
-                    Label badge = new Label("public");
+                    Label badge = new Label("shared");
                     badge.setStyle("-fx-font-size: 10px; -fx-text-fill: gray;");
                     badge.setTooltip(new javafx.scene.control.Tooltip(
                             "Offered to whoever runs the bot, not just to you."));
@@ -699,7 +644,7 @@ public class ActivityFlowDialog {
             }
             box.getChildren().add(grid);
         }
-        Label where = new Label("Add, retype or expose parameters in Project ▸ Parameters…");
+        Label where = new Label("Add, retype or share variables in Project ▸ Parameters…");
         where.setWrapText(true);
         where.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
         box.getChildren().add(where);
@@ -770,9 +715,13 @@ public class ActivityFlowDialog {
         // restores. They generate nothing (no field, no registry entry, no driver case) and get no flow node:
         // their source is moved out of the tree instead, which is what keeps the project compiling.
         activities.addAll(archived);
-        ActivitiesConfig cfg = new ActivitiesConfig(activities, new ArrayList<>(globals),
-                new ActivityFlow(nodes, new ArrayList<>(canvas.edges()), canvas.start(), maxSteps, stepDelayMs),
-                new ArrayList<>(presets), goHomeByDefault);
+        // Built from what is current, so the variables this dialog never shows survive the save untouched.
+        ActivitiesConfig cfg = activityService.current()
+                .withActivities(activities)
+                .withFlow(new ActivityFlow(nodes, new ArrayList<>(canvas.edges()), canvas.start(),
+                        maxSteps, stepDelayMs))
+                .withPresets(new ArrayList<>(presets))
+                .withGoHomeByDefault(goHomeByDefault);
 
         String problem = validate(cfg);
         if (problem != null) { error(problem); return; }
@@ -803,11 +752,6 @@ public class ActivityFlowDialog {
             // case-insensitive filesystem, so this is a broken project either way — just say so here.)
             if (!registryFields.add(a.name().toUpperCase())) {
                 return "'" + a.name() + "' clashes with another activity whose name differs only in case.";
-            }
-            Set<String> paramNames = new HashSet<>();
-            for (ActivityVariable p : a.params()) {
-                if (!FlowNames.isValidIdentifier(p.name())) return "Invalid param name in " + a.name() + ": '" + p.name() + "'.";
-                if (!paramNames.add(p.name())) return "Duplicate param '" + p.name() + "' in " + a.name() + ".";
             }
             // Outcomes become constants of the activity's generated Outcome enum. Checked against the declared
             // list, not allOutcomes(): that one de-duplicates defensively, so validating it would report a

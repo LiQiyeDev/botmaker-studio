@@ -1,12 +1,8 @@
 package com.botmaker.studio.project.activity;
 
-import com.botmaker.studio.project.settings.RawSetting;
-import com.botmaker.studio.project.settings.Setting;
-import com.botmaker.studio.project.settings.SettingsModel;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 
@@ -15,30 +11,34 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * The activities configuration for a project, persisted as {@code activities.json} under the project's
- * {@code src/main/resources}. Two-tier:
+ * {@code src/main/resources} — and the whole of it, values included. The file is on the runtime classpath
+ * because the generated {@code Activities} class reads it at startup.
+ *
+ * <p>Two halves that answer different questions:
  * <ul>
- *   <li>{@link #activities()} — the {@link ActivityDefinition}s (each with an enable flag + its own params)</li>
- *   <li>{@link #globals()} — free-standing global config variables not tied to any activity</li>
+ *   <li>{@link #activities()} — the {@link ActivityDefinition}s: what the bot can do, in what order
+ *       ({@link #flow()}), and which of them are on ({@link #presets()})</li>
+ *   <li>{@link #variables()} — every configured value the bot reads, one flat project-wide list. A variable
+ *       is filed under a {@link ActivityVariable#tag() tag} for the reader's benefit; the tag is never a
+ *       scope, so a value tagged after one activity is readable from all of them.</li>
  * </ul>
  *
- * <p><b>Whether a running bot reads this file depends on {@link #settingsModel()}.</b> A
- * {@link SettingsModel#JSON} project — every project made before 2026-08 — keeps its values here, and the
- * file is on the runtime classpath because the generated {@code Activities} class parses it at startup. A
- * {@link SettingsModel#JAVA} project keeps them in a generated {@code Settings.java} instead, so this file
- * holds only what the Studio canvas needs (definitions, flow, presets, archived state) and nothing reads it
- * at run time. It still lives under {@code resources} for both: moving it would break every legacy project
- * for no gain.
+ * <p>{@link #allVariables()} is what the code generator and the expression menu consume: each live activity's
+ * enable flag, then the variables, with the field name on the generated class being exactly the variable's
+ * own name. One flat namespace means {@link #nameClash} has one question to answer.
  *
- * <p>{@link #allVariables()} flattens everything into the referenceable {@code Activities.<field>} leaves
- * (enable flags, {@code <Activity>_<param>} params, then globals) — the single list the legacy code generator
- * and the expression menu consume; the java model's counterpart is {@link #allSettings()}. Old flat
- * {@code activities.json} files (a bare list of {@link ActivityVariable} under {@code "activities"}) still
- * load: their variables come back as {@link #globals()}.
+ * <p><b>One public constructor.</b> Every copy goes through a {@code with…} method, because the four
+ * convenience constructors this record used to carry were how a save came to drop the flow, the presets and
+ * every value at once: {@code new ActivitiesConfig(updated, globals)} compiled, ran, and silently wrote a
+ * project half away. A wither cannot omit a field it was not asked about.
  *
  * <p>An activity is retired by {@link ActivityDefinition#archived() archiving} it, never by deleting it: its
  * definition stays here in full, but it drops out of {@link #orderedActivities()} <em>and</em> out of
@@ -46,30 +46,17 @@ import java.util.Map;
  * {@code activities/<Name>.java} is moved aside rather than compiled against fields that no longer exist
  * (see {@code ProjectConfig.archivedActivitiesDir}); restoring puts both back.
  *
- * <p>{@link #flow()} is the optional visual chain (node placements + wires) built on the Activity Flow
- * canvas; when present it defines the <em>run order</em> ({@link #orderedActivities()}). {@link #presets()}
- * are named on/off selections the user can apply. Both are back-compatible additions — an
- * {@code activities.json} without them loads with an {@link ActivityFlow#empty() empty flow} and no presets.
- *
- * @param activities      the activity definitions (each an enable flag + its params)
- * @param globals         free-standing global config variables not tied to any activity
+ * @param activities      the activity definitions
+ * @param variables       every configured value the bot reads, project-wide
  * @param flow            the visual flow (node placements + wires); empty means "no chosen chain, use list order"
  * @param presets         named on/off selections of activities (user-saved; built-ins are offered on top)
  * @param goHomeByDefault whether a newly added activity starts with {@link ActivityDefinition#goHome()} ticked;
  *                        boxed for the same reason as that field — absent must mean {@code true}, not
  *                        {@code false}
- * @param settingsModel   where this project keeps the values its bot reads; absent ⇒ {@link SettingsModel#JSON}
- * @param settings        the project-wide settings, for a {@link SettingsModel#JAVA} project — <b>not
- *                        persisted here</b>: their store is the generated {@code Settings.java}, and this
- *                        field is the in-memory carrier between reading that file and writing it back
- * @param unknownSettings the settings in that file this build could not read, carried so saving puts them
- *                        back; also not persisted here, and for the same reason
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record ActivitiesConfig(List<ActivityDefinition> activities, List<ActivityVariable> globals,
-                               ActivityFlow flow, List<ActivityPreset> presets, Boolean goHomeByDefault,
-                               SettingsModel settingsModel, @JsonIgnore List<Setting> settings,
-                               @JsonIgnore List<RawSetting> unknownSettings) {
+public record ActivitiesConfig(List<ActivityDefinition> activities, List<ActivityVariable> variables,
+                               ActivityFlow flow, List<ActivityPreset> presets, Boolean goHomeByDefault) {
 
     public static final String FILE_NAME = "activities.json";
 
@@ -79,47 +66,62 @@ public record ActivitiesConfig(List<ActivityDefinition> activities, List<Activit
 
     public ActivitiesConfig {
         activities = activities == null ? List.of() : List.copyOf(activities);
-        globals = globals == null ? List.of() : List.copyOf(globals);
+        variables = variables == null ? List.of() : List.copyOf(variables);
         flow = flow == null ? ActivityFlow.empty() : flow;
         presets = presets == null ? List.of() : List.copyOf(presets);
         if (goHomeByDefault == null) goHomeByDefault = Boolean.TRUE;
-        if (settingsModel == null) settingsModel = SettingsModel.JSON;
-        settings = settings == null ? List.of() : List.copyOf(settings);
-        unknownSettings = unknownSettings == null ? List.of() : List.copyOf(unknownSettings);
-    }
-
-    /** Convenience for the common case: no settings this build failed to read. */
-    public ActivitiesConfig(List<ActivityDefinition> activities, List<ActivityVariable> globals,
-                            ActivityFlow flow, List<ActivityPreset> presets, Boolean goHomeByDefault,
-                            SettingsModel settingsModel, List<Setting> settings) {
-        this(activities, globals, flow, presets, goHomeByDefault, settingsModel, settings, List.of());
-    }
-
-    /** Convenience for callers that don't touch the settings model; every pre-2026-08 file loads this way. */
-    public ActivitiesConfig(List<ActivityDefinition> activities, List<ActivityVariable> globals,
-                            ActivityFlow flow, List<ActivityPreset> presets, Boolean goHomeByDefault) {
-        this(activities, globals, flow, presets, goHomeByDefault, SettingsModel.JSON, List.of());
-    }
-
-    /** Convenience for callers that don't touch the go-home default; a pre-goHome file loads this way. */
-    public ActivitiesConfig(List<ActivityDefinition> activities, List<ActivityVariable> globals,
-                            ActivityFlow flow, List<ActivityPreset> presets) {
-        this(activities, globals, flow, presets, Boolean.TRUE);
-    }
-
-    /** Convenience for callers that don't touch the flow/presets (they default to empty). */
-    public ActivitiesConfig(List<ActivityDefinition> activities, List<ActivityVariable> globals) {
-        this(activities, globals, ActivityFlow.empty(), List.of());
     }
 
     public static ActivitiesConfig empty() {
-        return new ActivitiesConfig(List.of(), List.of());
+        return of(List.of(), List.of());
     }
 
-    /** True when there are no activities and no globals (nothing to generate). */
-    public boolean isEmpty() {
-        return activities.isEmpty() && globals.isEmpty();
+    /**
+     * A fresh config over {@code activities} and {@code variables}, with no flow and no presets.
+     *
+     * <p>For <em>building</em> one — a new project, a test. Never for editing an existing one: that is what
+     * the {@code with…} methods are for, and the difference is the whole reason the old convenience
+     * constructors are gone. A static factory says "this is a new config" at the call site; a two-argument
+     * constructor said nothing, and was read as "the config, with these two things changed".
+     */
+    public static ActivitiesConfig of(List<ActivityDefinition> activities, List<ActivityVariable> variables) {
+        return new ActivitiesConfig(activities, variables, ActivityFlow.empty(), List.of(), Boolean.TRUE);
     }
+
+    /** True when there are no activities and no variables (nothing to generate). */
+    @JsonIgnore
+    public boolean isEmpty() {
+        return activities.isEmpty() && variables.isEmpty();
+    }
+
+    // ---- copies -----------------------------------------------------------------------------------------
+
+    public ActivitiesConfig withActivities(List<ActivityDefinition> newActivities) {
+        return new ActivitiesConfig(newActivities, variables, flow, presets, goHomeByDefault);
+    }
+
+    public ActivitiesConfig withVariables(List<ActivityVariable> newVariables) {
+        return new ActivitiesConfig(activities, newVariables, flow, presets, goHomeByDefault);
+    }
+
+    public ActivitiesConfig withFlow(ActivityFlow newFlow) {
+        return new ActivitiesConfig(activities, variables, newFlow, presets, goHomeByDefault);
+    }
+
+    public ActivitiesConfig withPresets(List<ActivityPreset> newPresets) {
+        return new ActivitiesConfig(activities, variables, flow, newPresets, goHomeByDefault);
+    }
+
+    public ActivitiesConfig withGoHomeByDefault(boolean newDefault) {
+        return new ActivitiesConfig(activities, variables, flow, presets, newDefault);
+    }
+
+    /** A copy with each activity's enable flag set from {@code preset} (in it → on, else off). */
+    public ActivitiesConfig applyPreset(ActivityPreset preset) {
+        return withActivities(activities.stream().map(a -> a.withEnabled(preset.enables(a.name()))).toList());
+    }
+
+    // ---- activities -------------------------------------------------------------------------------------
 
     /**
      * The activities a run can actually reach: everything reachable from the {@link #flow()}'s start node when
@@ -131,9 +133,10 @@ public record ActivitiesConfig(List<ActivityDefinition> activities, List<Activit
      * single run order any more; the driver picks the next node from the outcome each activity reports.
      *
      * <p>The two exclusions differ in what they cost. An orphan is still a <em>live</em> activity: it keeps its
-     * {@code Activities.<field>} flags ({@link #allVariables()} spans orphans) and its stub, because wiring it
+     * {@code Activities.<field>} flag ({@link #allVariables()} spans orphans) and its stub, because wiring it
      * up is one drag away. An archived one is gone from generation altogether — see the class javadoc.
      */
+    @JsonIgnore
     public List<ActivityDefinition> orderedActivities() {
         List<ActivityDefinition> live = liveActivities();
         if (flow.isEmpty()) return live;
@@ -148,168 +151,79 @@ public record ActivitiesConfig(List<ActivityDefinition> activities, List<Activit
     }
 
     /** The activities that have not been archived — what the canvas shows and the registry runs. */
+    @JsonIgnore
     public List<ActivityDefinition> liveActivities() {
         return activities.stream().filter(a -> !a.archived()).toList();
     }
 
     /** The archived activities, for the editor's restore list. */
+    @JsonIgnore
     public List<ActivityDefinition> archivedActivities() {
         return activities.stream().filter(ActivityDefinition::archived).toList();
     }
 
-    /** A copy with each activity's enable flag set from {@code preset} (in it → on, else off). */
-    public ActivitiesConfig applyPreset(ActivityPreset preset) {
-        List<ActivityDefinition> updated = activities.stream()
-                .map(a -> a.withEnabled(preset.enables(a.name())))
-                .toList();
-        return new ActivitiesConfig(updated, globals, flow, presets, goHomeByDefault, settingsModel, settings,
-                unknownSettings);
-    }
-
-    public ActivitiesConfig withFlow(ActivityFlow newFlow) {
-        return new ActivitiesConfig(activities, globals, newFlow, presets, goHomeByDefault, settingsModel, settings,
-                unknownSettings);
-    }
-
-    public ActivitiesConfig withPresets(List<ActivityPreset> newPresets) {
-        return new ActivitiesConfig(activities, globals, flow, newPresets, goHomeByDefault, settingsModel, settings,
-                unknownSettings);
-    }
-
-    /** A copy holding {@code newSettings} — the whole set, since the generated file is rewritten whole. */
-    public ActivitiesConfig withSettings(List<Setting> newSettings) {
-        return new ActivitiesConfig(activities, globals, flow, presets, goHomeByDefault, settingsModel, newSettings,
-                unknownSettings);
-    }
-
-    /** A copy holding {@code newUnknown} — what a newer Studio wrote and this one only carries. */
-    public ActivitiesConfig withUnknownSettings(List<RawSetting> newUnknown) {
-        return new ActivitiesConfig(activities, globals, flow, presets, goHomeByDefault, settingsModel, settings,
-                newUnknown);
-    }
-
-    /** A copy on {@code newModel}. Only {@code ProjectCreator} sets this; nothing migrates a project in place. */
-    public ActivitiesConfig withSettingsModel(SettingsModel newModel) {
-        return new ActivitiesConfig(activities, globals, flow, presets, goHomeByDefault, newModel, settings,
-                unknownSettings);
-    }
+    // ---- variables --------------------------------------------------------------------------------------
 
     /**
-     * Every field the generated {@code Settings} class holds: each live activity's enable flag, then the
-     * project's own settings.
+     * Every referenceable {@code Activities.<field>}, in generation order: each live activity's enable flag,
+     * then the project's variables. Names here are exactly the generated field names, and what the expression
+     * menu inserts.
      *
-     * <p>The enable flags are <b>derived here, not stored</b>. Whether an activity runs is canvas state — the
-     * flow dialog toggles it, a preset flips a dozen at once, archiving takes one away — so
-     * {@link ActivityDefinition#enabled()} in {@code activities.json} stays its one home, and the
-     * {@code ENABLE} field in the generated class is output regenerated from it on every save. That is why
-     * {@link #settings()} never contains one: two stores for one flag is two answers to "is Mining on?".
-     *
-     * <p>Archived activities contribute nothing, for the same reason they contribute no
-     * {@link #allVariables() variables}: a flag for something that cannot run is a flag that does nothing, and
-     * the whole point of archiving is that the generated field goes away.
+     * <p>Archived activities contribute nothing: their flag would be a switch for something that cannot run,
+     * offered by the expression menu to code that must not call it.
      */
-    public List<Setting> allSettings() {
-        List<Setting> all = new ArrayList<>();
-        for (ActivityDefinition a : liveActivities()) {
-            all.add(Setting.enableFlag(a.name(), a.enabled()));
-        }
-        all.addAll(settings);
+    @JsonIgnore
+    public List<ActivityVariable> allVariables() {
+        List<ActivityVariable> all = new ArrayList<>();
+        for (ActivityDefinition a : liveActivities()) all.add(a.enabledVariable());
+        all.addAll(variables);
         return all;
     }
 
-    /** The settings the person running the bot is offered, grouped under their tag headings. */
-    public Map<String, List<Setting>> sharedSettings() {
-        Map<String, List<Setting>> byTag = new LinkedHashMap<>();
-        for (Setting s : allSettings()) {
-            if (s.isShared()) byTag.computeIfAbsent(s.tagOrGeneral(), t -> new ArrayList<>()).add(s);
+    /**
+     * The variables the person running the bot is offered, grouped under their tag headings and in
+     * declaration order within each — so the Runner shows "Mining" and "General" rather than a flat list.
+     */
+    @JsonIgnore
+    public Map<String, List<ActivityVariable>> sharedVariables() {
+        Map<String, List<ActivityVariable>> byTag = new LinkedHashMap<>();
+        for (ActivityVariable v : variables) {
+            if (v.isPublic()) byTag.computeIfAbsent(v.tagOrGeneral(), t -> new ArrayList<>()).add(v);
         }
         return byTag;
     }
 
     /**
-     * Every referenceable {@code Activities.<field>} value, in generation order: each live activity's enable
-     * flag then its params ({@code <Activity>_<param>}), followed by the globals. Names here are exactly the
-     * generated field names (and what the expression menu inserts).
+     * Whether {@code name} is already taken, ignoring {@code except} (the variable being renamed, or null).
      *
-     * <p>Archived activities contribute nothing: their fields would be settings for something that cannot run,
-     * offered by the expression menu to code that must not call it.
+     * <p>One namespace, one check. Activity names and variable names both become fields on the same generated
+     * class, so an activity called {@code Mining} and a variable called {@code Mining} are the same field
+     * declared twice — a project that saves and then will not compile. Case-insensitive, because the
+     * generated stub files are named after activities and a case-insensitive filesystem cannot tell
+     * {@code Mining.java} from {@code mining.java}.
      */
-    public List<ActivityVariable> allVariables() {
-        List<ActivityVariable> all = new ArrayList<>();
-        for (ActivityDefinition a : liveActivities()) {
-            all.add(a.enabledVariable());
-            for (ActivityVariable p : a.params()) {
-                all.add(new ActivityVariable(a.paramFieldName(p), p.type(), p.value(), p.description()));
-            }
-        }
-        all.addAll(globals);
-        return all;
+    public boolean nameClash(String name, String except) {
+        if (name == null || name.isBlank()) return false;
+        String candidate = name.trim().toLowerCase(Locale.ROOT);
+        if (except != null && candidate.equals(except.trim().toLowerCase(Locale.ROOT))) return false;
+        Set<String> taken = new LinkedHashSet<>();
+        for (ActivityDefinition a : activities) taken.add(a.name().toLowerCase(Locale.ROOT));
+        for (ActivityVariable v : variables) taken.add(v.name().toLowerCase(Locale.ROOT));
+        return taken.contains(candidate);
     }
 
-    /**
-     * One parameter the editor chose to expose, tagged with the activity it belongs to ({@code null} for a
-     * global). The pair is what the Runner window needs and what a bare {@link ActivityVariable} cannot say:
-     * two activities may each have a {@code delay}, and the person running the bot has to be told which is
-     * which.
-     */
-    public record ExposedParam(String activity, ActivityVariable variable) {
+    // ---- persistence ------------------------------------------------------------------------------------
 
-        public boolean isGlobal() { return activity == null; }
-
-        /** The heading this parameter is listed under: its activity, or "General" for a global. */
-        public String scopeLabel() { return isGlobal() ? "General" : activity; }
-    }
-
-    /**
-     * The parameters marked {@link ParamVisibility#PUBLIC} — everything the bot's user is offered, and nothing
-     * else. Globals lead, then each live activity's own in definition order: a global applies to the whole bot,
-     * so it belongs above the per-activity detail rather than after it (the reverse of
-     * {@link #allVariables()}, which is ordered for the code generator, not for a reader).
-     *
-     * <p>Archived activities contribute nothing, for the same reason they contribute no fields: a setting for
-     * something that cannot run is a setting that does nothing.
-     */
-    public List<ExposedParam> publicParams() {
-        List<ExposedParam> exposed = new ArrayList<>();
-        for (ActivityVariable g : globals) {
-            if (g.isPublic()) exposed.add(new ExposedParam(null, g));
-        }
-        for (ActivityDefinition a : liveActivities()) {
-            for (ActivityVariable p : a.params()) {
-                if (p.isPublic()) exposed.add(new ExposedParam(a.name(), p));
-            }
-        }
-        return exposed;
-    }
-
-    /**
-     * Reads {@code activities.json} from {@code resourcesDir}; returns {@link #empty()} if absent/invalid.
-     * Transparently migrates the legacy flat shape (a list of {@link ActivityVariable} under
-     * {@code "activities"}) by loading those variables as {@link #globals()}.
-     */
+    /** Reads {@code activities.json} from {@code resourcesDir}; returns {@link #empty()} if absent/invalid. */
     public static ActivitiesConfig read(Path resourcesDir) {
         Path file = resourcesDir.resolve(FILE_NAME);
         if (!Files.exists(file)) return empty();
         try {
-            JsonNode root = MAPPER.readTree(file.toFile());
-            if (isLegacyFlat(root)) {
-                List<ActivityVariable> legacy = new ArrayList<>();
-                for (JsonNode n : root.path("activities")) {
-                    legacy.add(MAPPER.treeToValue(n, ActivityVariable.class));
-                }
-                return new ActivitiesConfig(List.of(), legacy);
-            }
-            return MAPPER.treeToValue(root, ActivitiesConfig.class);
+            return MAPPER.readValue(file.toFile(), ActivitiesConfig.class);
         } catch (Exception e) {
             System.err.println("Failed to read " + FILE_NAME + " in " + resourcesDir + ": " + e.getMessage());
             return empty();
         }
-    }
-
-    /** Legacy shape: {@code activities} entries carry a {@code "type"} (an ActivityVariable), not {@code "params"}. */
-    private static boolean isLegacyFlat(JsonNode root) {
-        JsonNode acts = root.path("activities");
-        return acts.isArray() && !acts.isEmpty() && acts.get(0).has("type") && !acts.get(0).has("params");
     }
 
     /** Writes (overwrites) {@code activities.json} into {@code resourcesDir}, creating it if needed. */

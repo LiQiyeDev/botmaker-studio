@@ -1,7 +1,5 @@
 package com.botmaker.studio.project;
 
-import com.botmaker.studio.services.SettingsClassWriter;
-
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Locale;
@@ -86,18 +84,6 @@ public record ProjectConfig(
     /** The generated {@code Templates.java} sidecar — one String constant per image template. */
     public Path templatesSourceFile() {
         return sourceRoot.resolve("com").resolve(packageName).resolve(TemplateConstants.CLASS_NAME + ".java");
-    }
-
-    /** The generated {@code Settings.java} sidecar — every setting of the bot, with its value inlined. */
-    public Path settingsSourceFile() {
-        return sourceRoot.resolve("com").resolve(packageName)
-                .resolve(SettingsClassWriter.SETTINGS_CLASS + ".java");
-    }
-
-    /** The generated {@code Setting.java} sidecar — the annotation {@code Settings}' fields carry. */
-    public Path settingAnnotationSourceFile() {
-        return sourceRoot.resolve("com").resolve(packageName)
-                .resolve(SettingsClassWriter.ANNOTATION_CLASS + ".java");
     }
 
     /** The generated {@code ActivityRegistry.java} sidecar (sibling of the main class). */

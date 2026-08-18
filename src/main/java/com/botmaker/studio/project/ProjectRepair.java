@@ -146,9 +146,8 @@ public final class ProjectRepair {
             // the model itself is recorded, so losing it doesn't reset the values (those are in Settings.java)
             // — it makes the project read as a legacy one at the next open, which is worse, because nothing
             // about the settings on screen would look wrong.
-            boolean java = activities.settingsModel().isJava();
             Path json = config.resourcesRoot().resolve(ActivitiesConfig.FILE_NAME);
-            if ((java || !activities.allVariables().isEmpty()) && !Files.exists(json)) {
+            if (!activities.allVariables().isEmpty() && !Files.exists(json)) {
                 missing.add(new Missing(json, null, "activity settings"));
             }
 
@@ -156,19 +155,9 @@ public final class ProjectRepair {
             // archived and so contributes no field, because ActivityService now writes the class empty rather
             // than deleting it (something may still be importing it). Only a project that has never had an
             // activity or a global is entitled not to have the file.
-            //
-            // A java-model project never has one: its values live in Settings.java, and nothing generates
-            // Activities.java for it. Reporting it missing would offer a repair that writes a file the project
-            // is not supposed to own, every time this ran.
-            if (!java && (hasActivities || !activities.allVariables().isEmpty())
+            if ((hasActivities || !activities.allVariables().isEmpty())
                     && !Files.exists(config.activitiesSourceFile())) {
                 missing.add(new Missing(config.activitiesSourceFile(), null, "generated activity code"));
-            }
-            if (java && !Files.exists(config.settingsSourceFile())) {
-                missing.add(new Missing(config.settingsSourceFile(), null, "generated settings"));
-            }
-            if (java && !Files.exists(config.settingAnnotationSourceFile())) {
-                missing.add(new Missing(config.settingAnnotationSourceFile(), null, "generated settings"));
             }
             if (hasActivities && !Files.exists(config.activityRegistrySourceFile())) {
                 missing.add(new Missing(config.activityRegistrySourceFile(), null, "generated activity code"));

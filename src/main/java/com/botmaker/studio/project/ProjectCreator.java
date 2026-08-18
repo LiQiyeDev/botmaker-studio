@@ -3,7 +3,6 @@ package com.botmaker.studio.project;
 import com.botmaker.shared.config.ProjectProperties;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.launch.SupportedTargets;
-import com.botmaker.studio.project.settings.SettingsModel;
 import com.botmaker.studio.project.vcs.ProjectVcs;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.ImageTemplateLibrary;
@@ -84,7 +83,7 @@ public class ProjectCreator {
             ImageTemplateLibrary.regenerateTemplatesClass(cfg);
 
             System.out.println("3. Generating settings...");
-            seedSettingsModel(cfg, template);
+            seedActivitiesFile(cfg, template);
 
             // 5. Seed settings.json (the chosen template + the standard capture resolution) and mirror the
             //    resolution into botmaker-project.properties, so the editor snaps captures to it and the
@@ -126,11 +125,9 @@ public class ProjectCreator {
      * <p>Any other template writes nothing at all: an empty project has no activities and no settings, and an
      * {@code activities.json} it never asked for is a file it would carry forever.
      */
-    static void seedSettingsModel(ProjectConfig cfg, ProjectTemplate template) throws IOException {
+    static void seedActivitiesFile(ProjectConfig cfg, ProjectTemplate template) throws IOException {
         if (template != ProjectTemplate.GAME_BOT) return;
-        ActivitiesConfig activities = ActivitiesConfig.empty().withSettingsModel(SettingsModel.JAVA);
-        activities.write(cfg.resourcesRoot());
-        ActivityService.writeSettingsClasses(cfg, activities);
+        ActivitiesConfig.empty().write(cfg.resourcesRoot());
     }
 
     /**

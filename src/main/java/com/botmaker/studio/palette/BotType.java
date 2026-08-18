@@ -60,8 +60,31 @@ public enum BotType {
     DECIMAL_NUMBER(Group.BASICS, "Decimal number", PrimitiveKind.DOUBLE, JdkType.DOUBLE, "decimal",
             new DoubleLit("0.0")),
     CHARACTER(Group.BASICS, "Character", PrimitiveKind.CHAR, JdkType.CHARACTER, "letter", new CharLit('a')),
+    /**
+     * One of a list of choices the editor writes down. A {@code String} at runtime and nothing more — the
+     * option list lives on the variable that has this type, so a bot compares it with {@code equals} and
+     * nothing about the choices leaks into the generated code.
+     *
+     * <p>The one type that is {@link #storable()} without being {@link #declarable()}: "pick one of these"
+     * is a question about a configured value, and a method parameter has nobody to ask.
+     */
+    CHOICE(Group.BASICS, "Choice", JdkType.STRING, "choice", null),
     /** {@code void} — offered as a return type only. See {@link #declarable()}. */
     NOTHING(Group.BASICS, "Nothing", PrimitiveKind.VOID, null, null, null),
+
+    // --- Date & time: the three java.time values a bot schedules itself with. ----------------------------
+
+    /**
+     * Written fully qualified, here and in the generated {@code Activities} class, for the same reason the
+     * generated class has a fixed import block: a type that needs no import cannot be forgotten from one.
+     */
+    DATE(Group.WHEN, "Date", "java.time.LocalDate", "date",
+            new StaticCall("java.time.LocalDate", "now", List.of())),
+    TIME_OF_DAY(Group.WHEN, "Time of day", "java.time.LocalTime", "time",
+            new StaticCall("java.time.LocalTime", "of", List.of(new IntLit("0"), new IntLit("0")))),
+    /** How long — {@code 90s}, {@code 5m}, {@code 1h30m} in the editor; a {@code Duration} in the bot. */
+    DURATION(Group.WHEN, "How long", "java.time.Duration", "howLong",
+            new StaticCall("java.time.Duration", "ofSeconds", List.of(new IntLit("0")))),
 
     // --- Vision ------------------------------------------------------------------------------------------
 
@@ -110,6 +133,7 @@ public enum BotType {
     /** How the list is grouped in a menu or a dropdown. Declaration order is display order. */
     public enum Group {
         BASICS("Basics"),
+        WHEN("Date & time"),
         VISION("Vision"),
         GEOMETRY("Geometry"),
         INPUT("Input"),
@@ -144,6 +168,15 @@ public enum BotType {
     /** A {@code java.lang} type written by its simple name — {@code String}. */
     BotType(Group group, String label, JdkType type, String varName, Initializer init) {
         this(group, label, type.simpleName(), type.simpleName(), false, null, varName, init);
+    }
+
+    /**
+     * A JDK type written fully qualified — {@code java.time.Duration}. Verbose at the use site and worth it:
+     * every file that can hold one of these is generated with a fixed import block, and the qualified form is
+     * the only one that cannot be left out of it.
+     */
+    BotType(Group group, String label, String qualifiedName, String varName, Initializer init) {
+        this(group, label, qualifiedName, qualifiedName, false, null, varName, init);
     }
 
     /** A primitive, plus the box it takes inside a {@code List<…>}. A null box means "no list form". */
@@ -209,6 +242,33 @@ public enum BotType {
     /** Whether {@code List<this>} is expressible — false for {@code void}, true for everything else. */
     public boolean listable() {
         return boxedName != null;
+    }
+
+    /**
+     * Whether a <em>project variable</em> can hold this type — whether it has a value somebody can write down
+     * in the Parameters dialog and store in {@code activities.json}.
+     *
+     * <p>A switch with no {@code default} on purpose: a type added to this enum must be classified here or
+     * the build stops, which is the whole reason the two lists are one enum. What is excluded is what has no
+     * value to write: {@code void}, and the vision types that are <em>results</em> — a {@code MatchResult}
+     * is something the bot found a moment ago, not something anyone configures. A group of templates is
+     * excluded too, because {@code List of Image template} already says it and says it better.
+     */
+    public boolean storable() {
+        return switch (this) {
+            case TEXT, YES_NO, WHOLE_NUMBER, DECIMAL_NUMBER, CHARACTER, CHOICE,
+                 DATE, TIME_OF_DAY, DURATION,
+                 IMAGE_TEMPLATE, PRECISION,
+                 POINT, RECT, SIZE, DIRECTION,
+                 KEY, MOUSE_BUTTON -> true;
+            case NOTHING, IMAGE_TEMPLATE_GROUP, MATCH_RESULT, MATCHES, COLOR_MATCH, TEXT_MATCH,
+                 CAPTURE_SOURCE -> false;
+        };
+    }
+
+    /** Every type a project variable can hold, in declaration order. */
+    public static List<BotType> storableTypes() {
+        return java.util.Arrays.stream(values()).filter(BotType::storable).toList();
     }
 
     /** The types offered in {@code group}, in declaration order. */

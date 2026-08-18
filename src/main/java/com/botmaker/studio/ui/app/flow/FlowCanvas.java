@@ -859,20 +859,13 @@ public final class FlowCanvas extends StackPane {
             HBox header = new HBox(8, title, enabled, goHome, startBadge);
             header.setAlignment(Pos.CENTER_LEFT);
 
-            Label params = new Label();
-            params.setStyle("-fx-font-size: 10px; -fx-text-fill: #666;");
-            params.setWrapText(true);
-            draft.params().addListener((javafx.collections.ListChangeListener<Object>) c ->
-                    params.setText(ParamValueWidgets.summarize(draft.params(), 2)));
-            params.setText(ParamValueWidgets.summarize(draft.params(), 2));
-
             orphanNote.setStyle("-fx-font-size: 10px; -fx-text-fill: #b06000;");
             orphanNote.setManaged(false);
             orphanNote.setVisible(false);
 
             body.setPrefWidth(CARD_WIDTH);
             body.setMinWidth(CARD_WIDTH);
-            body.getChildren().addAll(header, params, orphanNote);
+            body.getChildren().addAll(header, orphanNote);
             body.setPadding(new Insets(8, 10, 8, 10));
 
             ports.setAlignment(Pos.CENTER_LEFT);

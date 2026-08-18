@@ -1,28 +1,25 @@
 package com.botmaker.studio.project.activity;
 
+import com.botmaker.studio.palette.BotType;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.databind.node.BooleanNode;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * One <em>activity</em> a bot can do — a game task like "Resources" or "Alchemy". Two-tier: the activity
- * carries its own <em>enable flag</em> ({@link #enabled()} — the "whether to do it") plus its own
- * {@link #params() config params} (the {@link ActivityVariable}s that tune "how to do it"). BotMaker
- * Studio generates one {@code Activity} subclass file + one registry entry per activity.
+ * One <em>activity</em> a bot can do — a game task like "Resources" or "Alchemy". It carries its own
+ * <em>enable flag</em> ({@link #enabled()} — the "whether to do it"), its outcomes, and the two guards that
+ * frame a run. BotMaker Studio generates one {@code Activity} subclass file + one registry entry per activity.
  *
  * <p>{@link #name()} must be a valid Java identifier: it becomes the generated subclass name
  * ({@code activities/<Name>.java}) <em>and</em> the enable-flag field on the generated {@code Activities}
- * class ({@code Activities.<Name>}). Each param {@code p} becomes {@code Activities.<Name>_<p>}.
+ * class ({@code Activities.<Name>}).
  *
- * <p><b>{@link #params()} is the legacy half.</b> A project made from 2026-08 on
- * ({@link com.botmaker.studio.project.settings.SettingsModel#JAVA}) keeps every value in one project-wide
- * list instead — a knob two activities both need is one setting they both read, rather than a copy each —
- * and files it under a tag named after this activity, so it still reads as belonging here. Such a project
- * leaves this list empty and its fields live on {@code Settings} ({@code Settings.<Name>} for the enable
- * flag). The rest of this record — the flag, the outcomes, go-home, the popup check — is per-activity in
- * both models, because it genuinely is about this activity rather than about a value it reads.
+ * <p><b>An activity owns no values.</b> The knobs that tune "how to do it" are
+ * {@link ActivitiesConfig#variables() project variables}, filed under a tag named after this activity so
+ * they still read as belonging here — but readable from anywhere, so a delay two activities both wait for is
+ * one variable rather than a copy each. What is left on this record is what genuinely <em>is</em> about this
+ * activity rather than about a value it reads.
  *
  * <p>{@link #archived()} retires an activity without destroying anything: it leaves the canvas, the generated
  * registry <em>and</em> the generated {@code Activities} fields, so nothing about it is compiled or run any
@@ -52,7 +49,6 @@ import java.util.List;
  * @param name        activity name / generated class name (a valid Java identifier)
  * @param enabled     the default value of the enable flag
  * @param description optional human-readable note (may be empty)
- * @param params      the activity's config variables ("how to do it")
  * @param archived    retired: its file is kept aside and restorable, but nothing is generated for it and it
  *                    neither appears on the canvas nor runs
  * @param outcomes    the named results this activity can report, excluding the implicit NEXT
@@ -60,53 +56,32 @@ import java.util.List;
  * @param popupCheck  let the popup guard dismiss popups during this activity; null (absent) ⇒ true
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record ActivityDefinition(String name, boolean enabled, String description, List<ActivityVariable> params,
-                                 boolean archived, List<String> outcomes, Boolean goHome, Boolean popupCheck) {
+public record ActivityDefinition(String name, boolean enabled, String description, boolean archived,
+                                 List<String> outcomes, Boolean goHome, Boolean popupCheck) {
 
     public ActivityDefinition {
         if (description == null) description = "";
-        params = params == null ? List.of() : List.copyOf(params);
         outcomes = outcomes == null ? List.of() : List.copyOf(outcomes);
         if (goHome == null) goHome = Boolean.TRUE;
         if (popupCheck == null) popupCheck = Boolean.TRUE;
     }
 
-    /** Convenience for an activity the popup guard runs during; a pre-popupCheck file loads this way. */
-    public ActivityDefinition(String name, boolean enabled, String description, List<ActivityVariable> params,
-                              boolean archived, List<String> outcomes, Boolean goHome) {
-        this(name, enabled, description, params, archived, outcomes, goHome, Boolean.TRUE);
-    }
-
-    /** Convenience for an activity that goes home first; a pre-goHome file loads this way. */
-    public ActivityDefinition(String name, boolean enabled, String description, List<ActivityVariable> params,
-                              boolean archived, List<String> outcomes) {
-        this(name, enabled, description, params, archived, outcomes, Boolean.TRUE);
-    }
-
-    /** Convenience for an activity with only the implicit outcome; a pre-outcomes file loads this way. */
-    public ActivityDefinition(String name, boolean enabled, String description, List<ActivityVariable> params,
-                              boolean archived) {
-        this(name, enabled, description, params, archived, List.of());
-    }
-
-    /** Convenience for the common live activity; an {@code activities.json} without the field loads this way. */
-    public ActivityDefinition(String name, boolean enabled, String description, List<ActivityVariable> params) {
-        this(name, enabled, description, params, false, List.of());
-    }
-
-    /** A fresh activity with the given name/description, disabled, no params. */
+    /** A fresh activity with the given name/description, disabled. */
     public static ActivityDefinition create(String name, String description) {
-        return new ActivityDefinition(name, false, description, List.of());
+        return new ActivityDefinition(name, false, description, false, List.of(), Boolean.TRUE, Boolean.TRUE);
     }
 
-    /** The synthetic {@link ActivityVariable} for this activity's enable flag ({@code Activities.<Name>}). */
+    /**
+     * The synthetic {@link ActivityVariable} for this activity's enable flag ({@code Activities.<Name>}).
+     *
+     * <p>Tagged with the activity's own name, so it is listed with that activity's variables, and
+     * {@link ParamVisibility#EDITOR_ONLY} because the Runner already offers every activity its own switch —
+     * a second one under a tag heading would be the same flag twice.
+     */
     public ActivityVariable enabledVariable() {
-        return new ActivityVariable(name, ActivityType.BOOL, BooleanNode.valueOf(enabled), description);
-    }
-
-    /** The generated field name for one of this activity's params: {@code <Name>_<param>}. */
-    public String paramFieldName(ActivityVariable param) {
-        return name + "_" + param.name();
+        return new ActivityVariable(name, BotType.Choice.of(BotType.YES_NO),
+                List.of(Boolean.toString(enabled)), description, name, ParamVisibility.EDITOR_ONLY,
+                List.of(), Bounds.NONE);
     }
 
     /**
@@ -124,30 +99,26 @@ public record ActivityDefinition(String name, boolean enabled, String descriptio
     }
 
     public ActivityDefinition withEnabled(boolean newEnabled) {
-        return new ActivityDefinition(name, newEnabled, description, params, archived, outcomes, goHome, popupCheck);
+        return new ActivityDefinition(name, newEnabled, description, archived, outcomes, goHome, popupCheck);
     }
 
     public ActivityDefinition withDescription(String newDescription) {
-        return new ActivityDefinition(name, enabled, newDescription, params, archived, outcomes, goHome, popupCheck);
-    }
-
-    public ActivityDefinition withParams(List<ActivityVariable> newParams) {
-        return new ActivityDefinition(name, enabled, description, newParams, archived, outcomes, goHome, popupCheck);
+        return new ActivityDefinition(name, enabled, newDescription, archived, outcomes, goHome, popupCheck);
     }
 
     public ActivityDefinition withArchived(boolean newArchived) {
-        return new ActivityDefinition(name, enabled, description, params, newArchived, outcomes, goHome, popupCheck);
+        return new ActivityDefinition(name, enabled, description, newArchived, outcomes, goHome, popupCheck);
     }
 
     public ActivityDefinition withOutcomes(List<String> newOutcomes) {
-        return new ActivityDefinition(name, enabled, description, params, archived, newOutcomes, goHome, popupCheck);
+        return new ActivityDefinition(name, enabled, description, archived, newOutcomes, goHome, popupCheck);
     }
 
     public ActivityDefinition withGoHome(boolean newGoHome) {
-        return new ActivityDefinition(name, enabled, description, params, archived, outcomes, newGoHome, popupCheck);
+        return new ActivityDefinition(name, enabled, description, archived, outcomes, newGoHome, popupCheck);
     }
 
     public ActivityDefinition withPopupCheck(boolean newPopupCheck) {
-        return new ActivityDefinition(name, enabled, description, params, archived, outcomes, goHome, newPopupCheck);
+        return new ActivityDefinition(name, enabled, description, archived, outcomes, goHome, newPopupCheck);
     }
 }

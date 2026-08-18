@@ -334,8 +334,10 @@ public class FileExplorerManager {
             }
 
             List<ActivityDefinition> updated = new ArrayList<>(current.activities());
-            updated.add(new ActivityDefinition(className, true, "", List.of()));
-            activityService.update(new ActivitiesConfig(updated, current.globals()))
+            updated.add(ActivityDefinition.create(className, "").withEnabled(true));
+            // withActivities, never a fresh ActivitiesConfig: rebuilding one from two fields is how this
+            // path used to drop the flow, the presets and every variable on the way to adding an activity.
+            activityService.update(current.withActivities(updated))
                     .thenRun(() -> Platform.runLater(() -> {
                         refreshTree();
                         Path stub = config.activitiesPackageDir().resolve(className + ".java");

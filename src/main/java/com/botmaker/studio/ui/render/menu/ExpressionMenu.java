@@ -7,9 +7,7 @@ import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.parser.ExpressionChoice;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.project.activity.ActivityVariable;
-import com.botmaker.studio.project.settings.Setting;
 import com.botmaker.studio.services.CodeEditorService;
-import com.botmaker.studio.services.SettingsClassWriter;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.ui.app.capture.CaptureSourcePicker;
@@ -472,49 +470,27 @@ public final class ExpressionMenu {
     }
 
     /**
-     * The project's configured values whose type is assignment-compatible with the slot: "Settings" for a
-     * java-model project ({@code Settings.<field>}), "Activities" for a legacy one
-     * ({@code Activities.<field>}).
+     * The project's configured values whose type is assignment-compatible with the slot, inserted as
+     * {@code Activities.<field>} and grouped under the tag each is filed under.
      *
-     * <p>The model is read once, here, and picks a whole submenu — the two are siblings, not a branch inside
-     * one, because they differ in every part: the class the field is read from, the name the user is looking
-     * for, and where those values are stored.
+     * <p>The label is the variable's {@link ActivityVariable#displayLabel()} — what the editor called it —
+     * with the field name beside it, because the field name is what lands in the code and a menu that shows
+     * only the prose leaves the reader guessing at what they just inserted.
      */
-    private static Menu activitiesSubmenu(ResolvedType expectedType, CodeEditorService context, Consumer<Object> onSelect) {
-        if (context.getState().getActivities().settingsModel().isJava()) {
-            return settingsSubmenu(expectedType, context, onSelect);
-        }
+    private static Menu activitiesSubmenu(ResolvedType expectedType, CodeEditorService context,
+                                          Consumer<Object> onSelect) {
         Menu menu = MenuIcons.decorate(new Menu("Activities"), MenuIcons.ACTIVITIES);
-        List<ActivityVariable> activities = context.getProjectAnalyzer().getActivityVariables(expectedType);
-        if (activities.isEmpty()) {
-            menu.getItems().add(MenuBuilders.disabledItem("(No activities)"));
-        } else {
-            for (ActivityVariable a : activities) {
-                MenuItem item = new MenuItem(a.name() + " (" + a.type().displayName() + ")");
-                item.setOnAction(e -> onSelect.accept(new ExpressionChoice.Field("Activities", a.name())));
-                menu.getItems().add(item);
-            }
-        }
-        return menu;
-    }
-
-    /**
-     * "Settings": the project's settings, labelled the way the dialog labels them and grouped under their tag.
-     *
-     * <p>The label is {@link Setting#displayLabel()} — what the editor called it — with the field name beside
-     * it, because the field name is what lands in the code and a menu that shows only the prose leaves the
-     * reader guessing at what they just inserted.
-     */
-    private static Menu settingsSubmenu(ResolvedType expectedType, CodeEditorService context,
-                                        Consumer<Object> onSelect) {
-        Menu menu = MenuIcons.decorate(new Menu("Settings"), MenuIcons.ACTIVITIES);
-        List<Setting> settings = context.getProjectAnalyzer().getSettings(expectedType);
-        if (settings.isEmpty()) {
-            menu.getItems().add(MenuBuilders.disabledItem("(No settings)"));
+        List<ActivityVariable> variables = context.getProjectAnalyzer().getActivityVariables(expectedType);
+        if (variables.isEmpty()) {
+            menu.getItems().add(MenuBuilders.disabledItem("(Nothing of this type)"));
             return menu;
         }
-        Map<String, List<Setting>> byTag = new LinkedHashMap<>();
-        for (Setting s : settings) byTag.computeIfAbsent(s.tagOrGeneral(), t -> new ArrayList<>()).add(s);
+        Map<String, List<ActivityVariable>> byTag = new LinkedHashMap<>();
+        for (ActivityVariable v : variables) {
+            byTag.computeIfAbsent(v.tagOrGeneral(), t -> new ArrayList<>()).add(v);
+        }
+        // Only group when there is more than one bucket: a lone "General" submenu is a click that reveals
+        // exactly what was already there.
         boolean grouped = byTag.size() > 1;
         byTag.forEach((tag, group) -> {
             List<MenuItem> into = menu.getItems();
@@ -523,12 +499,11 @@ public final class ExpressionMenu {
                 menu.getItems().add(sub);
                 into = sub.getItems();
             }
-            for (Setting s : group) {
-                MenuItem item = new MenuItem(s.name().equals(s.displayLabel())
-                        ? s.name() + " (" + s.type().displayName() + ")"
-                        : s.displayLabel() + " — " + s.name());
-                item.setOnAction(e -> onSelect.accept(
-                        new ExpressionChoice.Field(SettingsClassWriter.SETTINGS_CLASS, s.name())));
+            for (ActivityVariable v : group) {
+                MenuItem item = new MenuItem(v.name().equals(v.displayLabel())
+                        ? v.name() + " (" + v.type().label() + ")"
+                        : v.displayLabel() + " — " + v.name());
+                item.setOnAction(e -> onSelect.accept(new ExpressionChoice.Field("Activities", v.name())));
                 into.add(item);
             }
         });

@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class TagCatalogTest {
 
     private static ActivitiesConfig activities(String... names) {
-        return new ActivitiesConfig(
+        return ActivitiesConfig.of(
                 List.of(names).stream().map(n -> ActivityDefinition.create(n, "")).toList(), List.of());
     }
 
@@ -36,7 +36,7 @@ class TagCatalogTest {
     void anArchivedActivityKeepsItsTag() {
         // Archiving is reversible and the templates are still that activity's. Dropping the tag would strand
         // them under nothing the moment someone archived an activity to come back to next week.
-        ActivitiesConfig config = new ActivitiesConfig(
+        ActivitiesConfig config = ActivitiesConfig.of(
                 List.of(ActivityDefinition.create("Mining", ""),
                         ActivityDefinition.create("Smelting", "").withArchived(true)),
                 List.of());

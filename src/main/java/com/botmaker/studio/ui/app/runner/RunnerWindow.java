@@ -11,7 +11,6 @@ import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityDefinition;
 import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.project.capture.CaptureTarget;
-import com.botmaker.studio.project.settings.Setting;
 import com.botmaker.studio.project.capture.CaptureTargetNames;
 import com.botmaker.studio.project.vcs.ProjectVcs;
 import com.botmaker.studio.services.ActivityService;
@@ -20,7 +19,6 @@ import com.botmaker.studio.ui.app.LaunchTargetDialog;
 import com.botmaker.studio.ui.app.ManageCaptureTargetsDialog;
 import com.botmaker.studio.ui.app.ProjectWindow;
 import com.botmaker.studio.ui.app.params.ParamValueWidgets;
-import com.botmaker.studio.ui.app.settings.SettingValueWidgets;
 import com.botmaker.studio.ui.render.theme.BlockTheme;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
@@ -102,13 +100,8 @@ public final class RunnerWindow implements ProjectWindow {
 
     /** One checkbox per live activity, keyed by name — the "which of these do I want" list. */
     private final Map<String, CheckBox> enableBoxes = new LinkedHashMap<>();
-    /** Every public parameter's widget, tagged with the activity it belongs to (null for a global). */
-    private final List<ScopedEditor> paramEditors = new ArrayList<>();
-    /** The java-model counterpart: every shared setting's widget. A setting's name is project-wide, so no scope. */
-    private final List<SettingValueWidgets.ValueEditor> settingEditors = new ArrayList<>();
-
-    /** A value widget plus the activity that owns it, so the edit can be written back to the right place. */
-    private record ScopedEditor(String activity, ParamValueWidgets.ValueEditor editor) {}
+    /** Every shared variable's widget. A variable's name is project-wide, so there is no scope to record. */
+    private final List<ParamValueWidgets.ValueEditor> valueEditors = new ArrayList<>();
 
     public RunnerWindow(StudioContext ctx, Stage stage, Origin origin, Runnable onShowEditor) {
         this.stage = stage;
@@ -305,21 +298,16 @@ public final class RunnerWindow implements ProjectWindow {
     }
 
     /**
-     * The settings the bot's author marked public. Everything else stays where it belongs — with the author —
-     * which is why an empty section here says so rather than quietly rendering nothing: "no settings" is a
-     * fact about this bot, not a sign the window failed to load.
+     * The variables the bot's author chose to share, under their tag headings. The grouping is the whole
+     * reason a variable carries a tag — the bot's user reads "Mining" and "General", not one flat list in
+     * which two activities' delays are told apart only by a prefix in their name.
+     *
+     * <p>Everything else stays where it belongs — with the author — which is why an empty section says so
+     * rather than quietly rendering nothing: "no settings" is a fact about this bot, not a sign the window
+     * failed to load.
      */
     private Node settingsSection() {
-        return activityService.current().settingsModel().isJava() ? sharedSettingsSection() : publicParamsSection();
-    }
-
-    /**
-     * The java-model half: the project's shared settings under their tag headings. The grouping is the whole
-     * reason a setting carries a tag — the bot's user reads "Mining" and "General", not one flat list in which
-     * two activities' delays are told apart only by a prefix in their name.
-     */
-    private Node sharedSettingsSection() {
-        Map<String, List<Setting>> byTag = activityService.current().sharedSettings();
+        Map<String, List<ActivityVariable>> byTag = activityService.current().sharedVariables();
         VBox rows = new VBox(10);
         if (byTag.isEmpty()) {
             rows.getChildren().add(hint("This bot has no settings for you to change."));
@@ -328,51 +316,15 @@ public final class RunnerWindow implements ProjectWindow {
             Label heading = new Label(tag);
             heading.getStyleClass().add("dialog-subheading");
             rows.getChildren().add(heading);
-            for (Setting s : group) rows.getChildren().add(settingRow(s));
+            for (ActivityVariable v : group) rows.getChildren().add(paramRow(v));
         });
         return section("Settings", null, rows);
     }
 
-    private Node settingRow(Setting setting) {
-        Node widget = SettingValueWidgets.buildFixedWidth(setting, config, settingEditors);
+    private Node paramRow(ActivityVariable v) {
+        Node widget = ParamValueWidgets.buildFixedWidth(v, config, valueEditors);
 
-        Label name = new Label(setting.displayLabel());
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox row = new HBox(10, name, spacer, widget);
-        row.setAlignment(Pos.CENTER_LEFT);
-        row.getStyleClass().add("runner-row");
-        return row;
-    }
-
-    private Node publicParamsSection() {
-        List<ActivitiesConfig.ExposedParam> exposed = activityService.current().publicParams();
-        VBox rows = new VBox(10);
-        if (exposed.isEmpty()) {
-            rows.getChildren().add(hint("This bot has no settings for you to change."));
-        }
-        String currentScope = null;
-        for (ActivitiesConfig.ExposedParam p : exposed) {
-            if (!p.scopeLabel().equals(currentScope)) {
-                currentScope = p.scopeLabel();
-                Label scope = new Label(currentScope);
-                scope.getStyleClass().add("dialog-subheading");
-                rows.getChildren().add(scope);
-            }
-            rows.getChildren().add(paramRow(p));
-        }
-        return section("Settings", null, rows);
-    }
-
-    private Node paramRow(ActivitiesConfig.ExposedParam p) {
-        ActivityVariable v = p.variable();
-        List<ParamValueWidgets.ValueEditor> sink = new ArrayList<>();
-        Node widget = ParamValueWidgets.build(v, sink);
-        for (ParamValueWidgets.ValueEditor editor : sink) {
-            paramEditors.add(new ScopedEditor(p.activity(), editor));
-        }
-
-        Label name = new Label(v.name());
+        Label name = new Label(v.displayLabel());
         VBox text = new VBox(1, name);
         if (!v.description().isBlank()) text.getChildren().add(hint(v.description()));
 
@@ -469,48 +421,24 @@ public final class RunnerWindow implements ProjectWindow {
     private ActivitiesConfig edited() {
         ActivitiesConfig base = activityService.current();
 
-        Map<String, ActivityVariable> values = new LinkedHashMap<>();
-        for (ScopedEditor scoped : paramEditors) {
-            ActivityVariable read = scoped.editor().readVariable();
-            values.put(key(scoped.activity(), read.name()), read);
-        }
+        Map<String, List<String>> typed = new LinkedHashMap<>();
+        for (ParamValueWidgets.ValueEditor editor : valueEditors) typed.put(editor.name(), editor.read().get());
 
         List<ActivityDefinition> activities = new ArrayList<>();
         for (ActivityDefinition a : base.activities()) {
             CheckBox box = enableBoxes.get(a.name());
-            ActivityDefinition updated = box == null ? a : a.withEnabled(box.isSelected());
-            List<ActivityVariable> params = new ArrayList<>();
-            for (ActivityVariable p : updated.params()) {
-                params.add(values.getOrDefault(key(a.name(), p.name()), p));
-            }
-            activities.add(updated.withParams(params));
+            activities.add(box == null ? a : a.withEnabled(box.isSelected()));
         }
 
-        List<ActivityVariable> globals = new ArrayList<>();
-        for (ActivityVariable g : base.globals()) {
-            globals.add(values.getOrDefault(key(null, g.name()), g));
+        // A variable nobody was offered is carried through as it was, for the same reason an archived
+        // activity is: a user's window must not be able to change what it cannot see.
+        List<ActivityVariable> variables = new ArrayList<>();
+        for (ActivityVariable v : base.variables()) {
+            List<String> value = typed.get(v.name());
+            variables.add(value == null ? v : v.withValue(value));
         }
 
-        return new ActivitiesConfig(activities, globals, base.flow(), base.presets(), base.goHomeByDefault(),
-                base.settingsModel(), editedSettings(base), base.unknownSettings());
-    }
-
-    /**
-     * The project's settings with this window's answers folded in — the java-model counterpart of the
-     * parameter fold above. A setting nobody was offered is carried through as it was, for the same reason an
-     * archived activity is: a user's window must not be able to change what it cannot see.
-     */
-    private List<Setting> editedSettings(ActivitiesConfig base) {
-        if (settingEditors.isEmpty()) return base.settings();
-        Map<String, List<String>> typed = new LinkedHashMap<>();
-        for (SettingValueWidgets.ValueEditor editor : settingEditors) typed.put(editor.name(), editor.read().get());
-
-        List<Setting> updated = new ArrayList<>();
-        for (Setting s : base.settings()) {
-            List<String> value = typed.get(s.name());
-            updated.add(value == null ? s : s.withValues(value));
-        }
-        return updated;
+        return base.withActivities(activities).withVariables(variables);
     }
 
     /** Scope-qualified, because two activities may each have a parameter of the same name. */

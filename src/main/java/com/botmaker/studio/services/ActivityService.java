@@ -9,40 +9,37 @@ import com.botmaker.studio.project.activity.ActivityDefinition;
 import com.botmaker.studio.project.activity.ActivityFlow;
 import com.botmaker.studio.project.activity.FlowEdge;
 import com.botmaker.studio.project.activity.ActivityPreset;
-import com.botmaker.studio.project.activity.ActivityType;
 import com.botmaker.studio.project.activity.ActivityVariable;
-import com.botmaker.studio.project.settings.SettingsModel;
+import com.botmaker.studio.project.activity.VariableWire;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 
 /**
- * Orchestrates the project's <em>activities</em> — a two-tier model of game tasks. Each
- * {@link ActivityDefinition} owns an enable flag and its own config {@link ActivityVariable params};
- * free-standing {@link ActivitiesConfig#globals() globals} may also exist. Persistence + generation:
+ * Orchestrates the project's <em>activities</em> — the game tasks a bot performs — and the project-wide
+ * {@link ActivityVariable variables} they read. Persistence + generation:
  * <ul>
- *   <li>{@code src/main/resources/activities.json} — the schema + values (read at runtime)</li>
- *   <li>generated {@code Activities.java} — {@code public static final} typed fields (enable flags,
- *       {@code <Activity>_<param>} params, globals) loaded from that JSON</li>
+ *   <li>{@code src/main/resources/activities.json} — the whole model, values included, read at runtime</li>
+ *   <li>generated {@code Activities.java} — {@code public static final} typed fields (each live activity's
+ *       enable flag, then every variable) loaded from that JSON at startup</li>
  *   <li>generated {@code ActivityRegistry.java} — {@code List<Activity> ALL} of the per-activity subclass
  *       instances the macro loop iterates (replaces a hand-maintained if-chain)</li>
+ *   <li>generated {@code FlowDriver.java} — the walk over the drawn flow</li>
  *   <li>editable {@code activities/<Name>.java} — one {@code Activity} subclass stub per activity, created
  *       once and never overwritten (the user's "how to do it" lives here)</li>
  * </ul>
  *
- * <p><b>Two models, selected once.</b> Everything above describes a {@link SettingsModel#JSON} project — every
- * project created before 2026-08. A {@link SettingsModel#JAVA} project instead generates {@code Settings.java}
- * (values inlined as Java literals) and {@code Setting.java} (the annotation Studio reads them back from), and
- * reads no JSON at run time at all; {@code activities.json} survives holding only the canvas model. The
- * discriminator is {@link ActivitiesConfig#settingsModel()} and it is consulted at three edges — writing
- * ({@link #update}), naming the class a stub reads its flag from ({@link #generateStubSource}), and loading —
- * never inside a generator. {@link #generateSource} is the legacy generator, kept whole and untouched.
+ * <p>One model, one store. Studio briefly generated a {@code Settings.java} holding every value as a compiled
+ * Java literal instead; it is gone, along with the discriminator that chose between the two. What that
+ * experiment bought — project-wide variables organised by tag, and a type list as wide as the one methods
+ * use — was kept, and lives in {@link ActivitiesConfig#variables()} and {@link VariableWire}.
  *
  * All I/O lives here at the service edge. {@link #update} runs off the calling thread and publishes
  * {@link ActivitiesChangedEvent} once state is refreshed.
@@ -72,31 +69,11 @@ public final class ActivityService {
         return c != null ? c : ActivitiesConfig.empty();
     }
 
-    /**
-     * Loads activities from disk into project state (called once at project open).
-     *
-     * <p>Two files for a {@link SettingsModel#JAVA} project, one each for the halves they own:
-     * {@code activities.json} for the canvas model, and the generated {@code Settings.java} for the values. A
-     * legacy project reads the one file, exactly as it always has.
-     */
+    /** Loads activities from disk into project state (called once at project open). */
     public ActivitiesConfig load() {
         ActivitiesConfig loaded = ActivitiesConfig.read(config.resourcesRoot());
-        if (loaded.settingsModel().isJava()) loaded = withSettingsFromDisk(loaded);
         state.setActivities(loaded);
         return loaded;
-    }
-
-    /**
-     * {@code cfg} with the settings read back out of the generated {@code Settings.java}.
-     *
-     * <p>A warning is printed rather than swallowed, because for this model that file <em>is</em> the store: an
-     * empty read is indistinguishable from "every value was deleted", and the next save would make it so. The
-     * settings still load as empty — there is nothing else they could be — but the reason is on the record.
-     */
-    private ActivitiesConfig withSettingsFromDisk(ActivitiesConfig cfg) {
-        SettingsReader.Result result = SettingsReader.read(config.settingsSourceFile());
-        for (String warning : result.warnings()) System.err.println("Settings: " + warning);
-        return cfg.withSettings(result.settings()).withUnknownSettings(result.unknown());
     }
 
     /**
@@ -112,8 +89,7 @@ public final class ActivityService {
         return CompletableFuture.runAsync(() -> {
             try {
                 newConfig.write(config.resourcesRoot());
-                if (newConfig.settingsModel().isJava()) writeSettingsClasses(config, newConfig);
-                else writeActivitiesClass(newConfig);
+                writeActivitiesClass(newConfig);
                 writeRegistryClass(newConfig);
                 writeDriverClass(newConfig);
                 moveArchivedStubs(previous, newConfig);
@@ -157,28 +133,6 @@ public final class ActivityService {
         Path file = config.activitiesSourceFile();
         Files.createDirectories(file.getParent());
         Files.writeString(file, generateSource(cfg));
-    }
-
-    /**
-     * Writes the generated {@code Settings.java} and its {@code Setting.java} annotation — the whole store for
-     * a {@link SettingsModel#JAVA} project.
-     *
-     * <p>Both are written every time, the annotation included: its content never changes, so rewriting it
-     * costs one file write and means a project that has lost it (a bad merge, a stray delete) is repaired by
-     * the next save rather than left with a {@code Settings.java} that no longer compiles.
-     *
-     * <p>Static, and public, because two callers write these files without a service to hand:
-     * {@code ProjectCreator} generates them for a brand-new project (which has no {@code ActivityService}
-     * yet), and project repair regenerates them. One writer, so a project created yesterday and one repaired
-     * today hold the same file.
-     */
-    public static void writeSettingsClasses(ProjectConfig config, ActivitiesConfig cfg) throws IOException {
-        Path settings = config.settingsSourceFile();
-        Files.createDirectories(settings.getParent());
-        Files.writeString(settings, SettingsClassWriter.settingsSource(config.packageName(), cfg.allSettings(),
-                cfg.unknownSettings()));
-        Files.writeString(config.settingAnnotationSourceFile(),
-                SettingsClassWriter.annotationSource(config.packageName()));
     }
 
     /** Writes the generated {@code ActivityRegistry.java} (empty {@code ALL} when there are no activities). */
@@ -272,14 +226,11 @@ public final class ActivityService {
      * moment beats an archive that costs a build.
      */
     public List<String> archiveBlockers(ActivityDefinition activity) {
-        // In the java model the only field archiving takes away is the enable flag: settings are project-wide,
-        // so one merely *tagged* with this activity outlives it and its use sites keep compiling.
-        String holder = settingsHolder();
+        // The only field archiving takes away is the enable flag. Variables are project-wide, so one merely
+        // *tagged* with this activity outlives it and its use sites keep compiling.
+        String holder = "Activities";
         List<String> fields = new ArrayList<>();
         fields.add(activity.enabledVariable().name());
-        if (!current().settingsModel().isJava()) {
-            for (ActivityVariable p : activity.params()) fields.add(activity.paramFieldName(p));
-        }
 
         Path ownStub = config.activitiesPackageDir().resolve(activity.name() + ".java");
         List<String> blockers = new ArrayList<>();
@@ -302,15 +253,6 @@ public final class ActivityService {
         return blockers;
     }
 
-    /**
-     * The generated class a bot reads its values from — {@code Settings} for a
-     * {@link SettingsModel#JAVA} project, {@code Activities} for a legacy one. The one place the two names
-     * are chosen between, so nothing downstream branches on the model itself.
-     */
-    private String settingsHolder() {
-        return current().settingsModel().isJava() ? SettingsClassWriter.SETTINGS_CLASS : "Activities";
-    }
-
     /** True when {@code text} contains {@code <holder>.<field>} as a whole identifier, not as a prefix. */
     private static boolean mentions(String text, String holder, String field) {
         String needle = holder + "." + field;
@@ -321,60 +263,80 @@ public final class ActivityService {
         return false;
     }
 
-    /** Builds the source of the generated {@code Activities} class. */
+    /**
+     * Builds the source of the generated {@code Activities} class: one {@code public static final} field per
+     * {@link ActivitiesConfig#allVariables() referenceable value}, read from {@code activities.json} at
+     * startup.
+     *
+     * <p><b>Blank final, assigned in the static block — never an inline initializer.</b>
+     * {@code public static final boolean MINING = true;} would make the field a JLS §4.12.4 <em>constant
+     * variable</em>, which javac folds into every use site: {@code while (Activities.MINING) { … }} with a
+     * constant-{@code false} flag becomes an <b>{@code unreachable statement} compile error</b>, so a bot
+     * would stop compiling because its user unticked a box. Loading at runtime is what keeps that from
+     * happening, and it is the reason this class reads a file at all rather than being generated with the
+     * values baked in.
+     *
+     * <p>Only the helpers a project actually uses are emitted, de-duplicated on their text — {@code Key} and
+     * {@code Direction} both want {@code constant(…)}, and a class cannot declare it twice.
+     */
     String generateSource(ActivitiesConfig cfg) {
         StringBuilder fields = new StringBuilder();
         StringBuilder inits = new StringBuilder();
-        boolean needsTime = false;
-        boolean needsDate = false;
-        boolean needsChoices = false;
-        for (ActivityVariable a : cfg.allVariables()) {
-            String nodeExpr = "node(v, \"" + a.name() + "\")";
-            if (a.description() != null && !a.description().isBlank()) {
-                fields.append("    /** ").append(a.description().replace("*/", "*\\/")).append(" */\n");
+        // Insertion-ordered so the generated file is stable: a set that reordered on rehash would produce a
+        // different file from the same project, and every save would show up as a diff.
+        LinkedHashSet<String> helpers = new LinkedHashSet<>();
+        for (ActivityVariable v : cfg.allVariables()) {
+            if (!v.description().isBlank()) {
+                fields.append("    /** ").append(v.description().replace("*/", "*\\/")).append(" */\n");
             }
-            fields.append("    public static final ").append(a.type().javaType())
-                    .append(' ').append(a.name()).append(";\n");
-            inits.append("        ").append(a.name()).append(" = ")
-                    .append(a.type().loadExpression(nodeExpr)).append(";\n");
-            needsTime |= a.type() == ActivityType.TIME;
-            needsDate |= a.type() == ActivityType.DATE;
-            needsChoices |= a.type() == ActivityType.MULTI_CHOICE;
+            fields.append("    public static final ").append(VariableWire.javaType(v.type()))
+                    .append(' ').append(v.name()).append(";\n");
+            inits.append("        ").append(v.name()).append(" = ")
+                    .append(VariableWire.loadExpression(v.type(), v.name())).append(";\n");
+            VariableWire.Helper helper = VariableWire.helper(v.type().type());
+            helpers.addAll(helper.shared());
+            helpers.add(helper.source());
         }
         return String.format("""
                 package com.%s;
 
                 import com.fasterxml.jackson.databind.JsonNode;
                 import com.fasterxml.jackson.databind.ObjectMapper;
-                import com.fasterxml.jackson.databind.node.MissingNode;
 
                 import java.io.InputStream;
+                import java.util.ArrayList;
                 import java.util.HashMap;
+                import java.util.List;
                 import java.util.Map;
 
                 /**
-                 * Global activities for this bot. GENERATED by BotMaker Studio — do not edit by hand;
-                 * manage via Project &rarr; Activity Flow. Values are loaded at startup from
-                 * {@code /activities.json} on the classpath. Missing file / missing key / wrong-type or
-                 * unparseable values all fall back to each type's default — a bot never fails to start
-                 * because of its activities file.
+                 * Every configured value this bot reads. GENERATED by BotMaker Studio — do not edit by hand;
+                 * manage via Project &rarr; Parameters. Values are loaded at startup from
+                 * {@code /activities.json} on the classpath. A missing file, a missing key, and a value that
+                 * will not parse all fall back to the type's default — a bot never fails to start because of
+                 * its own configuration file.
                  */
                 public final class Activities {
+
+                    private static final Map<String, List<String>> VALUES = load();
+
                 %s
                     static {
-                        Map<String, JsonNode> v = new HashMap<>();
+                %s    }
+
+                    private static Map<String, List<String>> load() {
+                        Map<String, List<String>> values = new HashMap<>();
                         try (InputStream in = Activities.class.getResourceAsStream("/%s")) {
                             if (in != null) {
                                 JsonNode root = new ObjectMapper().readTree(in);
                                 for (JsonNode a : root.path("activities")) {
-                                    String an = a.path("name").asText();
-                                    v.put(an, a.path("enabled"));
-                                    for (JsonNode p : a.path("params")) {
-                                        v.put(an + "_" + p.path("name").asText(), p.path("value"));
-                                    }
+                                    values.put(a.path("name").asText(),
+                                            List.of(a.path("enabled").asText("false")));
                                 }
-                                for (JsonNode g : root.path("globals")) {
-                                    v.put(g.path("name").asText(), g.path("value"));
+                                for (JsonNode v : root.path("variables")) {
+                                    List<String> items = new ArrayList<>();
+                                    for (JsonNode item : v.path("value")) items.add(item.asText(""));
+                                    values.put(v.path("name").asText(), items);
                                 }
                             }
                         } catch (Exception e) {
@@ -382,18 +344,26 @@ public final class ActivityService {
                             System.err.println("Activities: could not load /%s (" + e.getMessage()
                                     + "); using defaults.");
                         }
-                %s    }
-
-                    private static JsonNode node(Map<String, JsonNode> v, String name) {
-                        return v.getOrDefault(name, MissingNode.getInstance());
+                        return values;
                     }
-                %s%s%s
+
+                    private static String one(String name) {
+                        List<String> stored = VALUES.getOrDefault(name, List.of());
+                        return stored.isEmpty() ? "" : stored.get(0);
+                    }
+
+                    private static <T> List<T> many(String name, java.util.function.Function<String, T> of) {
+                        List<T> out = new ArrayList<>();
+                        for (String item : VALUES.getOrDefault(name, List.of())) out.add(of.apply(item));
+                        return List.copyOf(out);
+                    }
+
+                %s
                     private Activities() {}
                 }
-                """, config.packageName(), fields.toString().stripTrailing(),
-                ActivitiesConfig.FILE_NAME, ActivitiesConfig.FILE_NAME, inits,
-                needsTime ? TIME_HELPER : "", needsDate ? DATE_HELPER : "",
-                needsChoices ? CHOICES_HELPER : "");
+                """, config.packageName(), fields.toString().stripTrailing(), inits,
+                ActivitiesConfig.FILE_NAME, ActivitiesConfig.FILE_NAME,
+                String.join("\n", helpers).stripTrailing());
     }
 
     /**
@@ -609,13 +579,11 @@ public final class ActivityService {
     // Public because recovery needs it too: an activity's isEnabled() is generated against that activity's own
     // flag, so this is the only thing that can say what the stub *should* look like when repairing a mangled one.
     public String generateStubSource(ActivityDefinition a) {
-        String holder = settingsHolder();
-        // Where the rest of this activity's configuration is to be found — the sentence differs because the
-        // models differ: a java-model project has no per-activity params to point at, it has a tag.
-        String elsewhere = current().settingsModel().isJava()
-                ? "the bot's other settings are on {@code Settings}, the ones for this activity tagged "
-                        + "&quot;%1$s&quot;".formatted(a.name())
-                : "any config params are {@code Activities.%1$s_<param>}".formatted(a.name());
+        String holder = "Activities";
+        // Where the rest of this activity's configuration is to be found. Not "its params": it has none —
+        // a variable is the project's and merely tagged with this activity, which is what the sentence says.
+        String elsewhere = ("the bot's variables are on {@code Activities}, the ones for this activity "
+                + "tagged &quot;%1$s&quot;").formatted(a.name());
         return String.format("""
                 package com.%1$s.activities;
 
@@ -651,45 +619,6 @@ public final class ActivityService {
                 """, config.packageName(), a.name(), String.join(", ", a.allOutcomes()), holder, elsewhere);
     }
 
-    /** Generated helper: parse a {@code LocalTime}, defaulting on a missing/invalid/wrong-type node. */
-    private static final String TIME_HELPER = """
 
-            private static java.time.LocalTime parseTime(JsonNode n) {
-                    try {
-                        return java.time.LocalTime.parse(n.asText("00:00"));
-                    } catch (Exception e) {
-                        return java.time.LocalTime.MIDNIGHT;
-                    }
-                }
-        """;
 
-    /** Generated helper: parse a {@code LocalDate}, defaulting on a missing/invalid/wrong-type node. */
-    private static final String DATE_HELPER = """
-
-            private static java.time.LocalDate parseDate(JsonNode n) {
-                    try {
-                        return java.time.LocalDate.parse(n.asText("2000-01-01"));
-                    } catch (Exception e) {
-                        return java.time.LocalDate.of(2000, 1, 1);
-                    }
-                }
-        """;
-
-    /**
-     * Generated helper: read a multiple-choice value as a list of strings.
-     *
-     * <p>Total, like the two above: a missing key, a {@code null}, or a node of the wrong shape (a bare string
-     * where an array belongs — what an activities file hand-edited by its user tends to contain) all read as
-     * "nothing selected". The bot starts either way.
-     */
-    private static final String CHOICES_HELPER = """
-
-            private static java.util.List<String> parseChoices(JsonNode n) {
-                    java.util.List<String> chosen = new java.util.ArrayList<>();
-                    if (n != null && n.isArray()) {
-                        for (JsonNode each : n) chosen.add(each.asText(""));
-                    }
-                    return java.util.List.copyOf(chosen);
-                }
-        """;
 }

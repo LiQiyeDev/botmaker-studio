@@ -6,6 +6,8 @@ import io.github.classgraph.ClassInfo;
 import io.github.classgraph.FieldInfo;
 import io.github.classgraph.MethodInfo;
 import com.botmaker.studio.project.ProjectFile;
+import com.botmaker.studio.project.activity.ActivityVariable;
+import com.botmaker.studio.project.activity.VariableWire;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.types.JdkType;
 import com.botmaker.studio.types.PrimitiveKind;
@@ -610,26 +612,14 @@ public class ProjectAnalyzer {
     }
 
     /**
-     * The project's activities (global config variables) whose type is assignment-compatible with
-     * {@code requiredType}. Sourced from project state (not the AST), so they're available regardless of
-     * scope. Used to populate the "Activities" expression submenu, which inserts {@code Activities.<name>}.
+     * The project's variables whose type is assignment-compatible with {@code requiredType}, each live
+     * activity's enable flag included. Sourced from project state (not the AST), so they're available
+     * regardless of scope. Used to populate the "Activities" expression submenu, which inserts
+     * {@code Activities.<name>}.
      */
-    public List<com.botmaker.studio.project.activity.ActivityVariable> getActivityVariables(ResolvedType requiredType) {
+    public List<ActivityVariable> getActivityVariables(ResolvedType requiredType) {
         return state.getActivities().allVariables().stream()
-                .filter(a -> isCompatible(a.type().resolvedType(), requiredType))
-                .toList();
-    }
-
-    /**
-     * The project's settings whose type is assignment-compatible with {@code requiredType} — the java-model
-     * counterpart of {@link #getActivityVariables}, inserting {@code Settings.<name>}.
-     *
-     * <p>{@code allSettings()} rather than {@code settings()}, so an activity's enable flag is offered here
-     * exactly as it is on the legacy path: {@code if (Settings.MINING)} is the first thing anyone writes.
-     */
-    public List<com.botmaker.studio.project.settings.Setting> getSettings(ResolvedType requiredType) {
-        return state.getActivities().allSettings().stream()
-                .filter(s -> isCompatible(s.type().resolvedType(), requiredType))
+                .filter(a -> isCompatible(VariableWire.resolvedType(a.type()), requiredType))
                 .toList();
     }
 

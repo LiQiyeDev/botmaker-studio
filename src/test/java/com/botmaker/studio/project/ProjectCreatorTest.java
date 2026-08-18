@@ -46,23 +46,19 @@ class ProjectCreatorTest {
      * behave like a legacy one for the rest of its life.
      */
     @Test
-    void aNewGameBotKeepsItsSettingsInJava(@TempDir Path root) throws IOException {
+    void aNewGameBotGetsAnActivitiesFile(@TempDir Path root) throws IOException {
         ProjectConfig config = ProjectConfig.forProject("MyBot", root);
-        ProjectCreator.seedSettingsModel(config, ProjectTemplate.GAME_BOT);
+        ProjectCreator.seedActivitiesFile(config, ProjectTemplate.GAME_BOT);
 
-        assertTrue(ActivitiesConfig.read(config.resourcesRoot()).settingsModel().isJava());
-        assertTrue(Files.exists(config.settingsSourceFile()), "Settings.java is written empty at creation");
-        assertTrue(Files.exists(config.settingAnnotationSourceFile()));
-        assertTrue(Files.readString(config.settingsSourceFile()).contains("public final class Settings"),
-                "an empty settings class still has to compile: something may already import it");
+        assertTrue(Files.exists(config.resourcesRoot().resolve(ActivitiesConfig.FILE_NAME)));
+        assertTrue(ActivitiesConfig.read(config.resourcesRoot()).isEmpty());
     }
 
     @Test
-    void anEmptyProjectHasNoSettingsOfEitherKind(@TempDir Path root) throws IOException {
+    void anEmptyProjectGetsNoActivitiesFile(@TempDir Path root) throws IOException {
         ProjectConfig config = ProjectConfig.forProject("Plain", root);
-        ProjectCreator.seedSettingsModel(config, ProjectTemplate.EMPTY);
+        ProjectCreator.seedActivitiesFile(config, ProjectTemplate.EMPTY);
 
-        assertFalse(Files.exists(config.settingsSourceFile()));
         assertFalse(Files.exists(config.resourcesRoot().resolve(ActivitiesConfig.FILE_NAME)));
     }
 

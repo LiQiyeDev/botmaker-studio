@@ -1,4 +1,4 @@
-package com.botmaker.studio.project.settings;
+package com.botmaker.studio.project.activity;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;

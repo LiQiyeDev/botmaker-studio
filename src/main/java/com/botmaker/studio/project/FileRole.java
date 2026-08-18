@@ -97,8 +97,8 @@ public enum FileRole {
 
     /**
      * True when {@code file} is one BotMaker <em>re</em>writes whole every time its source changes —
-     * {@code ActivityRegistry} and {@code FlowDriver} from the Activity Flow, {@code Activities} or
-     * {@code Settings}/{@code Setting} from the project's settings, {@code Templates} from the image library.
+     * {@code ActivityRegistry} and {@code FlowDriver} from the Activity Flow, {@code Activities} from the
+     * project's variables, {@code Templates} from the image library.
      * Each is a rendering of something the user already has on screen — a drawing, a dialog, a gallery — and
      * nothing in one can be changed except by changing what it renders.
      *
@@ -122,9 +122,7 @@ public enum FileRole {
         return sameFile(abs, config.activitiesSourceFile())
                 || sameFile(abs, config.activityRegistrySourceFile())
                 || sameFile(abs, config.flowDriverSourceFile())
-                || sameFile(abs, config.templatesSourceFile())
-                || sameFile(abs, config.settingsSourceFile())
-                || sameFile(abs, config.settingAnnotationSourceFile());
+                || sameFile(abs, config.templatesSourceFile());
     }
 
     private static boolean sameFile(Path abs, Path other) {

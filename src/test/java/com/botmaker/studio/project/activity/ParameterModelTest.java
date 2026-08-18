@@ -1,6 +1,6 @@
 package com.botmaker.studio.project.activity;
 
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.botmaker.studio.palette.BotType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -13,20 +13,22 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The two things a parameter gained in this phase: who it is <em>for</em>, and — for the choice types — what
- * it may be set to. Both are model rules, so they are tested without a scene.
+ * What a project variable is, as a model: who it is <em>for</em>, where it is filed, and — for the choice
+ * types — what it may be set to. All model rules, so all tested without a scene.
  */
 class ParameterModelTest {
 
-    private static final JsonNodeFactory JSON = JsonNodeFactory.instance;
+    private static ActivityVariable variable(String name, BotType type) {
+        return ActivityVariable.create(name, BotType.Choice.of(type));
+    }
 
     @Test
-    void aParameterNobodyHasThoughtAboutIsNotOfferedToTheUser() {
-        // The default has to be the private one: exposing a setting is a decision, and a project written
-        // before this field existed must not start publishing its internals on the next load.
-        assertEquals(ParamVisibility.EDITOR_ONLY,
-                ActivityVariable.create("retryDelay", ActivityType.INT).visibility());
-        assertFalse(ActivityVariable.create("retryDelay", ActivityType.INT).isPublic());
+    void aVariableNobodyHasThoughtAboutIsStillOfferedToTheUser() {
+        // The default flipped with the tagged-variable model: a variable exists because someone wanted to
+        // configure something, so the useful default is the one the person running the bot can see. Hiding
+        // one is now the decision that has to be taken.
+        assertEquals(ParamVisibility.PUBLIC, variable("retryDelay", BotType.WHOLE_NUMBER).visibility());
+        assertTrue(variable("retryDelay", BotType.WHOLE_NUMBER).isPublic());
     }
 
     @Test
@@ -40,98 +42,183 @@ class ParameterModelTest {
     }
 
     @Test
-    void visibilityAndOptionsSurviveTheRoundTripThroughActivitiesJson(@TempDir Path dir) throws Exception {
-        ActivityVariable mode = new ActivityVariable("mode", ActivityType.CHOICE, JSON.textNode("safe"),
-                "how careful to be", ParamVisibility.PUBLIC, List.of("fast", "safe"));
-        new ActivitiesConfig(List.of(ActivityDefinition.create("Mining", "").withParams(List.of(mode))),
-                List.of()).write(dir);
-
-        ActivityVariable read = ActivitiesConfig.read(dir).activities().getFirst().params().getFirst();
-
-        assertEquals(ParamVisibility.PUBLIC, read.visibility());
-        assertEquals(List.of("fast", "safe"), read.options());
-        assertEquals("safe", read.value().asText(""));
+    void aVariableIsFiledUnderGeneralUntilItIsTagged() {
+        // The tag is a display grouping and never a scope, so "no tag" has to be a real bucket rather than
+        // an absence: a variable with no tag is still readable from every activity.
+        assertEquals(ActivityVariable.GENERAL, variable("speed", BotType.WHOLE_NUMBER).tagOrGeneral());
+        assertEquals("", variable("speed", BotType.WHOLE_NUMBER).tag());
+        assertEquals("Mining", variable("speed", BotType.WHOLE_NUMBER).withTag("Mining").tagOrGeneral());
     }
 
     @Test
-    void anOlderFileWithNeitherFieldStillLoads(@TempDir Path dir) throws Exception {
+    void everythingASavedVariableCarriesSurvivesTheRoundTrip(@TempDir Path dir) throws Exception {
+        ActivityVariable mode = ActivityVariable.create("mode", BotType.Choice.of(BotType.CHOICE))
+                .withDescription("how careful to be")
+                .withOptions(List.of("fast", "safe"))
+                .withValue("safe")
+                .withTag("Mining");
+        ActivitiesConfig.of(List.of(ActivityDefinition.create("Mining", "")), List.of(mode)).write(dir);
+
+        ActivityVariable read = ActivitiesConfig.read(dir).variables().getFirst();
+
+        assertEquals(ParamVisibility.PUBLIC, read.visibility());
+        assertEquals(List.of("fast", "safe"), read.options());
+        assertEquals("safe", read.singleValue());
+        assertEquals("Mining", read.tag());
+        assertEquals("how careful to be", read.description());
+        assertEquals(BotType.Choice.of(BotType.CHOICE), read.type());
+    }
+
+    /** A value is a list of strings on the wire, whatever the type — one entry, or one per item. */
+    @Test
+    void aValueIsStoredAsStringsAndReadBackThatWay(@TempDir Path dir) throws Exception {
         Files.writeString(dir.resolve(ActivitiesConfig.FILE_NAME), """
-                { "globals": [ { "name": "count", "type": "INT", "value": 7 } ] }
+                { "variables": [
+                    { "name": "count", "type": { "type": "WHOLE_NUMBER", "list": false }, "value": ["7"] },
+                    { "name": "skills", "type": { "type": "TEXT", "list": true }, "value": ["mine", "cook"] }
+                ] }
                 """);
 
-        ActivityVariable read = ActivitiesConfig.read(dir).globals().getFirst();
+        List<ActivityVariable> read = ActivitiesConfig.read(dir).variables();
 
-        assertEquals(ParamVisibility.EDITOR_ONLY, read.visibility());
+        assertEquals("7", read.getFirst().singleValue());
+        assertEquals(List.of(), read.getFirst().options());
+        assertEquals(List.of("mine", "cook"), read.get(1).value());
+    }
+
+    /** A file that says nothing about a variable's shape still loads: every field has a total default. */
+    @Test
+    void aFileMissingEveryOptionalFieldStillLoads(@TempDir Path dir) throws Exception {
+        Files.writeString(dir.resolve(ActivitiesConfig.FILE_NAME), """
+                { "variables": [ { "name": "count" } ] }
+                """);
+
+        ActivityVariable read = ActivitiesConfig.read(dir).variables().getFirst();
+
+        assertEquals(BotType.Choice.of(BotType.TEXT), read.type(), "text holds anything, so it is the default");
+        assertEquals(List.of(""), read.value());
+        assertEquals("", read.tag());
         assertEquals(List.of(), read.options());
-        assertEquals(7, read.value().asInt(0));
     }
 
     @Test
     void deletingAChoiceUnsetsItWhereverItWasChosen() {
-        // Otherwise the bot goes on running with a setting that no longer appears anywhere in the UI that set
+        // Otherwise the bot goes on running with a value that no longer appears anywhere in the UI that set
         // it — invisible, and therefore undebuggable.
-        ActivityVariable single = new ActivityVariable("mode", ActivityType.CHOICE, JSON.textNode("reckless"),
-                "", ParamVisibility.PUBLIC, List.of("fast", "safe", "reckless"));
+        ActivityVariable single = ActivityVariable.create("mode", BotType.Choice.of(BotType.CHOICE))
+                .withOptions(List.of("fast", "safe", "reckless")).withValue("reckless");
 
-        assertEquals("fast", single.withOptions(List.of("fast", "safe")).value().asText(""),
+        assertEquals("fast", single.withOptions(List.of("fast", "safe")).singleValue(),
                 "the deleted choice falls back to the first one still offered");
 
-        ActivityVariable many = new ActivityVariable("skills", ActivityType.MULTI_CHOICE,
-                JSON.arrayNode().add("mine").add("fish"), "", ParamVisibility.EDITOR_ONLY,
-                List.of("mine", "fish", "cook"));
+        ActivityVariable many = ActivityVariable.create("skills", new BotType.Choice(BotType.CHOICE, true))
+                .withOptions(List.of("mine", "fish", "cook")).withValue(List.of("mine", "fish"));
 
-        assertEquals(1, many.withOptions(List.of("mine", "cook")).value().size());
-        assertEquals("mine", many.withOptions(List.of("mine", "cook")).value().get(0).asText(""));
+        assertEquals(List.of("mine"), many.withOptions(List.of("mine", "cook")).value());
+    }
+
+    @Test
+    void aChosenListIsWrittenInTheDeclarationOrderAndNotThePickingOrder() {
+        // Two people who ticked the same boxes must produce the same file, or a diff shows a change nobody
+        // made.
+        ActivityVariable skills = ActivityVariable.create("skills", new BotType.Choice(BotType.CHOICE, true))
+                .withOptions(List.of("mine", "fish", "cook"));
+
+        assertEquals(List.of("mine", "cook"), skills.withValue(List.of("cook", "mine")).value());
     }
 
     @Test
     void retypingResetsTheValueAndDropsOptionsThatNoLongerApply() {
-        ActivityVariable mode = new ActivityVariable("mode", ActivityType.CHOICE, JSON.textNode("safe"),
-                "how careful", ParamVisibility.PUBLIC, List.of("fast", "safe"));
+        ActivityVariable mode = ActivityVariable.create("mode", BotType.Choice.of(BotType.CHOICE))
+                .withDescription("how careful").withOptions(List.of("fast", "safe")).withValue("safe");
 
-        ActivityVariable asNumber = mode.withType(ActivityType.INT);
-        assertEquals(0, asNumber.value().asInt(-1), "a choice is not a number; don't pretend it carries over");
+        ActivityVariable asNumber = mode.withType(BotType.Choice.of(BotType.WHOLE_NUMBER));
+        assertEquals("0", asNumber.singleValue(), "a choice is not a number; don't pretend it carries over");
         assertEquals(List.of(), asNumber.options());
         assertEquals(ParamVisibility.PUBLIC, asNumber.visibility(), "who it is for doesn't change with the type");
         assertEquals("how careful", asNumber.description());
 
-        assertEquals(List.of("fast", "safe"), mode.withType(ActivityType.MULTI_CHOICE).options(),
-                "the choices survive a move between the two types that have any");
+        assertEquals(List.of("fast", "safe"),
+                mode.withType(new BotType.Choice(BotType.CHOICE, true)).options(),
+                "the choices survive a move onto the list axis");
+    }
+
+    /** The types whose choices are their own: the editor never writes an SDK enum's constants down. */
+    @Test
+    void anEnumTypeBringsItsOwnChoicesAndSnapsToOne() {
+        ActivityVariable key = variable("hotkey", BotType.KEY);
+
+        assertFalse(VariableWire.hasOptions(BotType.KEY), "there is nothing for the editor to edit");
+        assertFalse(VariableWire.fixedOptions(BotType.KEY).isEmpty());
+        assertTrue(VariableWire.fixedOptions(BotType.KEY).contains(key.singleValue()));
+        assertTrue(VariableWire.fixedOptions(BotType.KEY).contains(key.withValue("NOT_A_KEY").singleValue()),
+                "a value the enum does not have falls back to one it does");
     }
 
     @Test
-    void theRunnerIsOfferedThePublicParametersAndNothingElse() {
-        ActivityVariable speed = new ActivityVariable("speed", ActivityType.INT, JSON.numberNode(3), "",
-                ParamVisibility.PUBLIC, List.of());
-        ActivityVariable retryDelay = ActivityVariable.create("retryDelay", ActivityType.INT);
-        ActivityVariable ore = new ActivityVariable("ore", ActivityType.TEXT, JSON.textNode("iron"), "",
-                ParamVisibility.PUBLIC, List.of());
-
-        ActivitiesConfig config = new ActivitiesConfig(
-                List.of(ActivityDefinition.create("Mining", "").withParams(List.of(ore, retryDelay)),
-                        ActivityDefinition.create("Smelting", "").withParams(List.of(ore)).withArchived(true)),
-                List.of(speed, retryDelay));
-
-        List<ActivitiesConfig.ExposedParam> exposed = config.publicParams();
-
-        assertEquals(2, exposed.size(), "the editor-only ones stay with the editor");
-        // Globals lead: a whole-bot setting reads above the per-activity detail.
-        assertEquals("speed", exposed.getFirst().variable().name());
-        assertTrue(exposed.getFirst().isGlobal());
-        assertEquals("General", exposed.getFirst().scopeLabel());
-        assertEquals("ore", exposed.get(1).variable().name());
-        assertEquals("Mining", exposed.get(1).scopeLabel(),
-                "an archived activity's public param is not offered — it cannot run");
-    }
-
-    @Test
-    void onlyTheChoiceTypesCarryOptions() {
-        for (ActivityType type : ActivityType.values()) {
-            boolean expected = type == ActivityType.CHOICE || type == ActivityType.MULTI_CHOICE;
-            assertEquals(expected, type.hasOptions(), type + " should " + (expected ? "" : "not ") + "have options");
+    void onlyTheChoiceTypeCarriesEditableOptions() {
+        for (BotType type : BotType.storableTypes()) {
+            assertEquals(type == BotType.CHOICE, VariableWire.hasOptions(type),
+                    type + " should " + (type == BotType.CHOICE ? "" : "not ") + "have editable options");
         }
-        // Pruning is the identity for every other type: it is called on any option edit, and must not touch
-        // the value of a param that has no options to prune against.
-        assertTrue(ActivityType.INT.pruneValue(JSON.numberNode(42), List.of()).asInt(0) == 42);
+    }
+
+    /** Normalising is a fixed point for every storable type, or the editor and the file disagree forever. */
+    @Test
+    void normalisingTwiceChangesNothing() {
+        for (BotType type : BotType.storableTypes()) {
+            for (boolean list : new boolean[]{false, true}) {
+                BotType.Choice choice = new BotType.Choice(type, list);
+                List<String> options = type == BotType.CHOICE ? List.of("fast", "safe") : List.of();
+                List<String> once = VariableWire.normalize(VariableWire.defaultWire(choice), choice, options,
+                        Bounds.NONE);
+                assertEquals(once, VariableWire.normalize(once, choice, options, Bounds.NONE), choice.toString());
+            }
+        }
+    }
+
+    @Test
+    void aVariableAndAnActivityCannotShareAName() {
+        // Both become a field on the same generated class, so the clash is a project that saves and then
+        // will not compile.
+        ActivitiesConfig config = ActivitiesConfig.of(
+                List.of(ActivityDefinition.create("Mining", "")),
+                List.of(variable("speed", BotType.WHOLE_NUMBER)));
+
+        assertTrue(config.nameClash("Mining", null));
+        assertTrue(config.nameClash("mining", null), "the stub files are named after activities");
+        assertTrue(config.nameClash("speed", null));
+        assertFalse(config.nameClash("speed", "speed"), "renaming a variable to itself is not a clash");
+        assertFalse(config.nameClash("depth", null));
+    }
+
+    @Test
+    void theRunnerIsOfferedThePublicVariablesGroupedByTag() {
+        ActivityVariable speed = variable("speed", BotType.WHOLE_NUMBER);
+        ActivityVariable retryDelay = variable("retryDelay", BotType.WHOLE_NUMBER)
+                .withVisibility(ParamVisibility.EDITOR_ONLY);
+        ActivityVariable ore = variable("ore", BotType.TEXT).withTag("Mining");
+
+        ActivitiesConfig config = ActivitiesConfig.of(
+                List.of(ActivityDefinition.create("Mining", "")), List.of(speed, retryDelay, ore));
+
+        var shared = config.sharedVariables();
+
+        assertEquals(List.of("General", "Mining"), List.copyOf(shared.keySet()));
+        assertEquals(List.of("speed"), shared.get("General").stream().map(ActivityVariable::name).toList(),
+                "the editor-only one stays with the editor");
+        assertEquals(List.of("ore"), shared.get("Mining").stream().map(ActivityVariable::name).toList());
+    }
+
+    /** An archived activity contributes no enable flag: a switch for something that cannot run. */
+    @Test
+    void onlyLiveActivitiesContributeAnEnableFlag() {
+        ActivitiesConfig config = ActivitiesConfig.of(
+                List.of(ActivityDefinition.create("Mining", ""),
+                        ActivityDefinition.create("Smelting", "").withArchived(true)),
+                List.of(variable("speed", BotType.WHOLE_NUMBER)));
+
+        assertEquals(List.of("Mining", "speed"),
+                config.allVariables().stream().map(ActivityVariable::name).toList());
     }
 }

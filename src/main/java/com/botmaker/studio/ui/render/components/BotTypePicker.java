@@ -23,17 +23,28 @@ public final class BotTypePicker extends MenuButton {
     private final ObjectProperty<BotType.Choice> choice = new SimpleObjectProperty<>();
 
     /**
-     * @param allowVoid whether {@link BotType#NOTHING} is offered — true for a return type, false for a
-     *                  parameter or a variable, which cannot be {@code void}
+     * What the type is being picked <em>for</em>, which is the only thing that differs between the three
+     * places this picker is used. A named purpose rather than a flag because there are three answers and the
+     * flag could only carry two — and it is the reason a variable's list and a parameter's list can be
+     * different without being two pickers.
      */
-    public BotTypePicker(boolean allowVoid) {
+    public enum Purpose {
+        /** A method's return type: everything, {@code void} included. */
+        RETURN_TYPE,
+        /** A method parameter: everything a variable can be declared of, so no {@code void}. */
+        PARAMETER,
+        /** A project variable: the types with a value somebody can write down. See {@link BotType#storable()}. */
+        VARIABLE
+    }
+
+    public BotTypePicker(Purpose purpose) {
         getStyleClass().add("bot-type-picker");
         setMaxWidth(Double.MAX_VALUE);
 
         for (BotType.Group group : BotType.Group.values()) {
             List<MenuItem> items = BotType.in(group).stream()
-                    .filter(t -> allowVoid || t.declarable())
-                    .map(t -> singleItem(t))
+                    .filter(t -> offers(purpose, t))
+                    .map(this::singleItem)
                     .toList();
             if (!items.isEmpty()) {
                 Menu menu = new Menu(group.label());
@@ -41,10 +52,18 @@ public final class BotTypePicker extends MenuButton {
                 getItems().add(menu);
             }
         }
-        getItems().add(listMenu());
+        getItems().add(listMenu(purpose));
 
         choice.addListener((obs, old, now) -> setText(now == null ? "Choose a type…" : now.label()));
-        choice.set(BotType.Choice.of(allowVoid ? BotType.NOTHING : BotType.TEXT));
+        choice.set(BotType.Choice.of(purpose == Purpose.RETURN_TYPE ? BotType.NOTHING : BotType.TEXT));
+    }
+
+    private static boolean offers(Purpose purpose, BotType type) {
+        return switch (purpose) {
+            case RETURN_TYPE -> true;
+            case PARAMETER -> type.declarable();
+            case VARIABLE -> type.storable();
+        };
     }
 
     private MenuItem singleItem(BotType type) {
@@ -54,12 +73,12 @@ public final class BotTypePicker extends MenuButton {
     }
 
     /** {@code List of ▸ <group> ▸ <type>} — the same tree again, one level down. */
-    private Menu listMenu() {
+    private Menu listMenu(Purpose purpose) {
         Menu listOf = new Menu("List of");
         for (BotType.Group group : BotType.Group.values()) {
             Menu groupMenu = new Menu(group.label());
             for (BotType type : BotType.in(group)) {
-                if (!type.listable()) continue;
+                if (!type.listable() || !offers(purpose, type)) continue;
                 MenuItem item = new MenuItem(type.label());
                 item.setOnAction(e -> choice.set(new BotType.Choice(type, true)));
                 groupMenu.getItems().add(item);

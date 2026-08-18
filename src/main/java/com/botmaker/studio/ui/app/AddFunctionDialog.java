@@ -40,7 +40,7 @@ public final class AddFunctionDialog {
     private final Set<String> takenNames;
 
     private final TextField nameField = new TextField();
-    private final BotTypePicker returnPicker = new BotTypePicker(true);
+    private final BotTypePicker returnPicker = new BotTypePicker(BotTypePicker.Purpose.RETURN_TYPE);
     private final VBox parameterRows = new VBox(6);
     private final List<ParameterRow> rows = new ArrayList<>();
     private final Label signatureLabel = new Label();
@@ -196,7 +196,7 @@ public final class AddFunctionDialog {
     /** One parameter's controls, plus its place in the order. */
     private final class ParameterRow {
         private final TextField nameField = new TextField();
-        private final BotTypePicker picker = new BotTypePicker(false);
+        private final BotTypePicker picker = new BotTypePicker(BotTypePicker.Purpose.PARAMETER);
         private final Button up = new Button("▲");
         private final Button down = new Button("▼");
         private final Button remove = new Button("✕");

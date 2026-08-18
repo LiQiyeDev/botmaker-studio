@@ -114,14 +114,12 @@ class FileRoleTest {
     }
 
     /**
-     * The generated settings pair and {@code Templates.java}: rewritten whole on every change, so an edit made
-     * in the editor is lost at the next save. {@code Templates.java} in particular was classed EDITABLE for a
-     * long time — the generator wrote it, and nothing here knew.
+     * {@code Templates.java}: rewritten whole on every capture, so an edit made in the editor is lost at the
+     * next save. It was classed EDITABLE for a long time — the generator wrote it, and nothing here knew.
      */
     @Test
-    void theGeneratedSettingsAndTemplateFilesAreGeneratedAndDerived() {
-        for (Path file : List.of(CONFIG.settingsSourceFile(), CONFIG.settingAnnotationSourceFile(),
-                CONFIG.templatesSourceFile())) {
+    void theGeneratedTemplateFileIsGeneratedAndDerived() {
+        for (Path file : List.of(CONFIG.templatesSourceFile())) {
             assertEquals(FileRole.GENERATED, FileRole.of(CONFIG, ProjectTemplate.GAME_BOT, file), file.toString());
             assertTrue(FileRole.isDerived(CONFIG, ProjectTemplate.GAME_BOT, file), file.toString());
             assertEquals(FileRole.EDITABLE, FileRole.of(CONFIG, ProjectTemplate.EMPTY, file), file.toString());
@@ -135,8 +133,7 @@ class FileRoleTest {
     @Test
     void everyDerivedFileIsAlsoGenerated() {
         for (Path file : List.of(CONFIG.activitiesSourceFile(), CONFIG.activityRegistrySourceFile(),
-                CONFIG.flowDriverSourceFile(), CONFIG.templatesSourceFile(), CONFIG.settingsSourceFile(),
-                CONFIG.settingAnnotationSourceFile())) {
+                CONFIG.flowDriverSourceFile(), CONFIG.templatesSourceFile())) {
             assertEquals(FileRole.GENERATED, FileRole.of(CONFIG, ProjectTemplate.GAME_BOT, file), file.toString());
         }
     }

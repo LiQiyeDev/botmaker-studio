@@ -58,13 +58,13 @@ public final class ActivityDraft {
 
     /** A draft of an existing activity, placed at {@code (x, y)}. */
     public static ActivityDraft of(ActivityDefinition def, double x, double y) {
-        return new ActivityDraft(def.name(), def.description(), def.enabled(), def.params(), def.outcomes(),
+        return new ActivityDraft(def.name(), def.description(), def.enabled(), List.of(), def.outcomes(),
                 def.goHome(), def.popupCheck(), x, y);
     }
 
     /** The immutable definition this draft currently describes. */
     public ActivityDefinition toDefinition() {
-        return new ActivityDefinition(name.get(), enabled.get(), description.get(), List.copyOf(params),
+        return new ActivityDefinition(name.get(), enabled.get(), description.get(),
                 false, List.copyOf(outcomes), goHome.get(), popupCheck.get());
     }
 

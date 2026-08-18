@@ -24,7 +24,6 @@ import com.botmaker.studio.ui.app.capture.OverlayTemplateCapture;
 import com.botmaker.studio.ui.app.overlay.ProgramShapeOverlay;
 import com.botmaker.studio.ui.app.params.ParametersDialog;
 import com.botmaker.studio.ui.app.pilot.RemotePilotUi;
-import com.botmaker.studio.ui.app.settings.SettingsDialog;
 import javafx.stage.Stage;
 
 import java.io.IOException;
@@ -105,10 +104,6 @@ final class StudioActions {
         menuBar.setOnActivityFlow(this::openActivityFlow);
         toolbar.setOnActivityFlow(this::openActivityFlow);
         menuBar.setOnParameters(this::openParameters);
-        // The entry is named after what it opens, and that differs by project — "parameters" belong to an
-        // activity, "settings" to the project, and calling both the same thing is the naming drift to avoid.
-        menuBar.setParametersLabel(activityService.current().settingsModel().isJava()
-                ? "Settings..." : "Parameters...");
         menuBar.setOnRecoverProjectFiles(recoverProjectFiles);
         menuBar.setOnManageResources(this::openResourceManager);
         toolbar.setOnAccessResources(this::openResourceManager);
@@ -188,17 +183,9 @@ final class StudioActions {
         new ActivityFlowDialog(primaryStage, activityService).show();
     }
 
-    /**
-     * The settings editor — which of the two depends on where this project keeps its values. A java-model
-     * project gets the project-wide {@link SettingsDialog}; a legacy one keeps {@link ParametersDialog} and
-     * its per-activity ownership, unchanged. Selected here, once, rather than branched inside either.
-     */
+    /** The one editor for every value the bot reads. */
     private void openParameters() {
-        if (activityService.current().settingsModel().isJava()) {
-            new SettingsDialog(primaryStage, config, activityService).show();
-        } else {
-            new ParametersDialog(primaryStage, activityService).show();
-        }
+        new ParametersDialog(primaryStage, config, activityService).show();
     }
 
     private void openProjectSettings() {

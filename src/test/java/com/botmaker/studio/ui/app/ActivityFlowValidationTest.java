@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ActivityFlowValidationTest {
 
     private static ActivitiesConfig of(ActivityDefinition... activities) {
-        return new ActivitiesConfig(List.of(activities), List.of());
+        return ActivitiesConfig.of(List.of(activities), List.of());
     }
 
     private static ActivityDefinition activity(String name, String... outcomes) {
