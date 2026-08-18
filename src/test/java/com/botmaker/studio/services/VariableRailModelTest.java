@@ -38,11 +38,12 @@ class VariableRailModelTest {
     }
 
     @Test
-    void theRailIsAllThenGeneralThenEachDeclaredGroup() {
+    void theRailIsAllThenCategoriesThenEachDeclaredGroup() {
         List<VariableRailModel.Row> rows = VariableRailModel.rows(variables(), catalog());
 
-        assertEquals(List.of("All variables (5)", "General (1)", "#Activities", "Mining (2)", "Fishing (1)",
-                        "#Custom", "Timing (1)"),
+        assertEquals(List.of("All variables (5)", "#Categories", "General (1)",
+                        "#Activity categories", "Mining (2)", "Fishing (1)",
+                        "#Custom categories", "Timing (1)"),
                 rows.stream().map(VariableRailModelTest::render).toList());
     }
 
@@ -51,7 +52,7 @@ class VariableRailModelTest {
     void allAndGeneralAreOfferedByAnEmptyProject() {
         List<VariableRailModel.Row> rows = VariableRailModel.rows(List.of(), TagCatalog.empty());
 
-        assertEquals(List.of("All variables (0)", "General (0)"),
+        assertEquals(List.of("All variables (0)", "#Categories", "General (0)"),
                 rows.stream().map(VariableRailModelTest::render).toList());
     }
 

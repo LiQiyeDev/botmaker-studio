@@ -6,6 +6,27 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-18 — Parameters: an edit that used to vanish, categories you can make, and a colour type
+  (`ui/app/params/ParametersDialog`, `ui/app/params/ParamValueWidgets`, `services/VariableRailModel`,
+  `palette/BotType`, `project/activity/VariableWire`).** Follow-up phase 1, from hands-on testing. Changing a
+  variable's type after touching its value did nothing at all: every card edit went through
+  `replace(v, updated)`, which flushed the value widgets first — replacing every record in the list — and then
+  looked the old record up by equality, found nothing, and returned. Edits are now `edit(name, change)`: found
+  by the one stable handle a widget can hold across a rebuild, and applied as a function so the flush it is
+  queued behind is not undone by a record built from a stale copy. The editors are discarded after that flush,
+  so a retype lands on the new type's default instead of being re-flushed from the widget it replaced.
+  "Filed under" is **Category** and "Offer to whoever runs the bot" is **Show to user**. The rail gained a
+  *Categories* heading over General (which reads "General (no category)", since beside "All variables" it read
+  as a second everything-bucket), **+ New category…** — the dialog had no way to declare one, so filing under a
+  group that did not exist yet meant a trip to the Resource Manager — and **Move variables to "X"…**, the bulk
+  form of the drag the rail already took one at a time. A single `Choice` renders as radio buttons rather than
+  a dropdown (the SDK enums keep their combo: a hundred key names is a list, not a form); `List of Choice`
+  already ticked boxes. New `BotType.COLOR` — `java.awt.Color`, the JDK one the block editor's colour picker
+  already commits — stored as `#RRGGBB` and edited with a `ColorPicker`. A fresh image variable is seeded with
+  the default template instead of an empty chip, and `BotType.IMAGE_TEMPLATE`'s block seed names
+  `Templates.DEFAULT_TEMPLATE` rather than a raw path. `ParamVisibility`'s javadoc stopped claiming
+  EDITOR_ONLY is the default for a new variable — PUBLIC has been, since the tagged-variable model.
+
 - **2026-08-18 — The guide says what the software does again (`docs/Workflow`, `docs/StudioAction`,
   `WORKFLOW.md`, `blocks/misc/InitializerBlock`).** Phase 7, the last of the plan. The workflow's seventh step
   described a `Settings.java` full of Java constants that no longer exists: it is "Give the bot its variables"

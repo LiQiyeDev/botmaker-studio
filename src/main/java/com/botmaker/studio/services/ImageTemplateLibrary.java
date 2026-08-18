@@ -56,6 +56,10 @@ public final class ImageTemplateLibrary {
      */
     public static final String DEFAULT_TEMPLATE_PATH = "src/main/resources/images/" + DEFAULT_TEMPLATE_FILE;
 
+    /** The default template's base name — what a value that names a template by name is seeded with. */
+    public static final String DEFAULT_TEMPLATE_NAME =
+            DEFAULT_TEMPLATE_FILE.substring(0, DEFAULT_TEMPLATE_FILE.lastIndexOf('.'));
+
     /** True when {@code file} is the project's built-in default template (protected from rename/delete). */
     public static boolean isDefaultTemplate(Path file) {
         return file != null && file.getFileName().toString().equalsIgnoreCase(DEFAULT_TEMPLATE_FILE);

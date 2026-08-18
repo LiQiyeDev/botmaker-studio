@@ -3,6 +3,7 @@ package com.botmaker.studio.project.activity;
 import com.botmaker.studio.palette.BotType;
 import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.project.TemplateConstants;
+import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.types.JdkType;
 import com.botmaker.studio.types.ResolvedType;
 
@@ -124,7 +125,11 @@ public final class VariableWire {
             case WHOLE_NUMBER -> "0";
             case DECIMAL_NUMBER -> "0.0";
             case CHARACTER -> "a";
-            case TEXT, CHOICE, IMAGE_TEMPLATE -> "";
+            case TEXT, CHOICE -> "";
+            // A fresh image variable points at the template every project ships, for the same reason a fresh
+            // `new ImageTemplate(...)` block does: an empty chip is a value the bot cannot run on.
+            case IMAGE_TEMPLATE -> ImageTemplateLibrary.DEFAULT_TEMPLATE_NAME;
+            case COLOR -> "#FFFFFF";
             case DATE -> "2000-01-01";
             case TIME_OF_DAY -> "00:00";
             case DURATION -> "0s";
@@ -172,6 +177,7 @@ public final class VariableWire {
             case CHARACTER -> trim(wire).isEmpty() ? "a" : trim(wire).substring(0, 1);
             case TEXT -> wire == null ? "" : wire;
             case IMAGE_TEMPLATE -> trim(wire);
+            case COLOR -> hex(wire);
             case DATE -> parseDate(wire).toString();
             case TIME_OF_DAY -> parseTime(wire).toString();
             case DURATION -> DurationWire.format(DurationWire.parse(wire, 0L));
@@ -221,6 +227,7 @@ public final class VariableWire {
             case TIME_OF_DAY -> new Helper("time", TIME_HELPER, List.of());
             case DURATION -> new Helper("duration", DURATION_HELPER, List.of());
             case IMAGE_TEMPLATE -> new Helper("template", TEMPLATE_HELPER, List.of());
+            case COLOR -> new Helper("color", COLOR_HELPER, List.of());
             case KEY -> enumHelper("key", SdkType.KEY);
             case MOUSE_BUTTON -> enumHelper("mouseButton", SdkType.MOUSE_BUTTON);
             case DIRECTION -> enumHelper("direction", SdkType.DIRECTION);
@@ -267,6 +274,16 @@ public final class VariableWire {
     }
 
     // ---- helper sources -------------------------------------------------------------------------------
+
+    private static final String COLOR_HELPER = """
+                private static java.awt.Color color(String s) {
+                    try {
+                        return java.awt.Color.decode(s.trim());
+                    } catch (RuntimeException e) {
+                        return java.awt.Color.WHITE;
+                    }
+                }
+            """;
 
     private static final String TEXT_HELPER = """
                 private static String text(String s) {
@@ -411,6 +428,21 @@ public final class VariableWire {
 
     private static String boxed(BotType type) {
         return type.sdkType().map(SdkType::qualifiedName).orElse(type.boxedName());
+    }
+
+    /**
+     * A colour as {@code #RRGGBB}, upper case. Anything unreadable is white — the same fallback the generated
+     * parser uses, so the editor and the bot agree about what a broken value means.
+     */
+    private static String hex(String wire) {
+        String raw = trim(wire);
+        if (raw.startsWith("#")) raw = raw.substring(1);
+        if (raw.length() == 8) raw = raw.substring(0, 6);   // an alpha-bearing form; the wire keeps RGB only
+        if (raw.length() != 6) return "#FFFFFF";
+        for (int i = 0; i < 6; i++) {
+            if (Character.digit(raw.charAt(i), 16) < 0) return "#FFFFFF";
+        }
+        return "#" + raw.toUpperCase(Locale.ROOT);
     }
 
     private static String firstConstant(BotType type) {

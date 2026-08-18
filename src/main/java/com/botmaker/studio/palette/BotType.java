@@ -8,6 +8,7 @@ import com.botmaker.studio.palette.Initializer.IntLit;
 import com.botmaker.studio.palette.Initializer.NewInstance;
 import com.botmaker.studio.palette.Initializer.StaticCall;
 import com.botmaker.studio.palette.Initializer.StrLit;
+import com.botmaker.studio.project.TemplateConstants;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.types.JdkType;
 import com.botmaker.studio.types.PrimitiveKind;
@@ -38,8 +39,10 @@ import java.util.Optional;
  * launch dialog; and the observation plumbing ({@code Surface}, {@code ClickEvent}, {@code MatchEvent},
  * {@code BotObserver}), {@code Session} and {@code Time} are facades or callbacks, not values to hold.
  *
- * <p>There is no {@code Color} in this list because there is no {@code Color} in the SDK: the colour-bearing
- * types are {@link #COLOR_MATCH} and {@link #TEXT_MATCH}. And there is no {@code float} — one decimal type is
+ * <p>{@link #COLOR} is the JDK's {@code java.awt.Color}, not an SDK type: it is what the block editor's colour
+ * picker already commits ({@code ColorArgPicker}), so a variable holding one is the same value a block holds.
+ * The SDK's colour-bearing types — {@link #COLOR_MATCH} and {@link #TEXT_MATCH} — are vision <em>results</em>
+ * and remain unstorable. And there is no {@code float} — one decimal type is
  * enough, and it is {@code double}, which is what every SDK method that takes one uses.
  *
  * <h2>Every entry compiles on the spot</h2>
@@ -69,6 +72,14 @@ public enum BotType {
      * is a question about a configured value, and a method parameter has nobody to ask.
      */
     CHOICE(Group.BASICS, "Choice", JdkType.STRING, "choice", null),
+    /**
+     * A colour, as {@code java.awt.Color} — the JDK type, written fully qualified so it needs no import, and
+     * the very type the block editor's colour picker reads and writes. White by default, matching the seed
+     * {@code InitializerFactory} gives a colour-typed argument slot.
+     */
+    COLOR(Group.BASICS, "Color", "java.awt.Color", "color",
+            new NewInstance("java.awt.Color",
+                    List.of(new IntLit("255"), new IntLit("255"), new IntLit("255")))),
     /** {@code void} — offered as a return type only. See {@link #declarable()}. */
     NOTHING(Group.BASICS, "Nothing", PrimitiveKind.VOID, null, null, null),
 
@@ -88,10 +99,15 @@ public enum BotType {
 
     // --- Vision ------------------------------------------------------------------------------------------
 
-    /** Seeded with the template every project ships, so a fresh declaration points at a file that exists. */
+    /**
+     * Seeded with the template every project ships, so a fresh declaration points at a file that exists — and
+     * named by its {@code Templates} constant rather than by a raw path, so renaming that template rewrites
+     * the reference instead of leaving a string literal pointing at a file that has moved.
+     */
     IMAGE_TEMPLATE(Group.VISION, SdkType.IMAGE_TEMPLATE, "template",
             new NewInstance(SdkType.IMAGE_TEMPLATE.simpleName(),
-                    List.of(new StrLit(ImageTemplateLibrary.DEFAULT_TEMPLATE_PATH)))),
+                    List.of(new EnumConst(TemplateConstants.CLASS_NAME,
+                            TemplateConstants.constantForPath(ImageTemplateLibrary.DEFAULT_TEMPLATE_PATH))))),
     /** An empty group is legal and means "nothing to look for" — the SDK is explicit about it. */
     IMAGE_TEMPLATE_GROUP(Group.VISION, SdkType.IMAGE_TEMPLATE_GROUP, "group",
             new StaticCall(SdkType.IMAGE_TEMPLATE_GROUP.simpleName(), "of", List.of())),
@@ -256,7 +272,7 @@ public enum BotType {
      */
     public boolean storable() {
         return switch (this) {
-            case TEXT, YES_NO, WHOLE_NUMBER, DECIMAL_NUMBER, CHARACTER, CHOICE,
+            case TEXT, YES_NO, WHOLE_NUMBER, DECIMAL_NUMBER, CHARACTER, CHOICE, COLOR,
                  DATE, TIME_OF_DAY, DURATION,
                  IMAGE_TEMPLATE, PRECISION,
                  POINT, RECT, SIZE, DIRECTION,

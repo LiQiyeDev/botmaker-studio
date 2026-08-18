@@ -14,14 +14,18 @@ import com.botmaker.studio.ui.app.ActivityFlowDialog;
 import com.botmaker.studio.ui.app.flow.FlowNames;
 import com.botmaker.studio.ui.app.params.ParamValueWidgets.ValueEditor;
 import com.botmaker.studio.ui.render.components.BotTypePicker;
+import com.botmaker.studio.ui.render.components.TagPicklist;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
+import javafx.scene.control.ButtonBar;
+import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
+import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
@@ -46,6 +50,7 @@ import javafx.stage.Window;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.UnaryOperator;
 
 /**
  * The one place a bot's variables are defined: what each is called, what it holds, who it is for, and what it
@@ -83,6 +88,8 @@ public final class ParametersDialog {
     private static final PseudoClass RAIL_DROP = PseudoClass.getPseudoClass("rail-drop");
 
     private final ListView<VariableRailModel.Row> rail = new ListView<>();
+    private final Button newCategory = new Button("+ New category\u2026");
+    private final Button moveHere = new Button("Move variables here\u2026");
     private final VBox paramColumn = new VBox(10);
     private final Label statusLabel = new Label();
     private final ProgressIndicator progress = new ProgressIndicator();
@@ -174,7 +181,11 @@ public final class ParametersDialog {
                         getStyleClass().add("rail-heading");
                     }
                     case VariableRailModel.TagRow tag -> {
-                        setText(tag.tag() + "  (" + tag.count() + ")");
+                        // "General" beside "All variables" reads as a second everything-bucket; saying what
+                        // it holds is cheaper than a heading alone at telling the two apart.
+                        String label = ActivityVariable.GENERAL.equals(tag.tag())
+                                ? tag.tag() + " (no category)" : tag.tag();
+                        setText(label + "  (" + tag.count() + ")");
                         setDisable(false);
                     }
                 }
@@ -185,9 +196,98 @@ public final class ParametersDialog {
                 flushValues();
                 selectedTag = tag.tag();
                 rebuildParams();
+                refreshRailActions();
             }
         });
-        return rail;
+
+        newCategory.setMaxWidth(Double.MAX_VALUE);
+        newCategory.setTooltip(new Tooltip("Declare a category. It is the same vocabulary the template "
+                + "gallery uses, so it appears there too."));
+        newCategory.setOnAction(e -> createCategory());
+
+        moveHere.setMaxWidth(Double.MAX_VALUE);
+        moveHere.setTooltip(new Tooltip("File several variables under this category at once, instead of "
+                + "dragging them one at a time."));
+        moveHere.setOnAction(e -> moveIntoSelected());
+
+        VBox column = new VBox(6, rail, newCategory, moveHere);
+        VBox.setVgrow(rail, Priority.ALWAYS);
+        return column;
+    }
+
+    /** Both rail buttons say what they act on, so neither is offered where it would mean nothing. */
+    private void refreshRailActions() {
+        boolean real = !VariableRailModel.ALL.equals(selectedTag);
+        moveHere.setText(real ? "Move variables to \u201c" + selectedTag + "\u201d\u2026" : "Move variables here\u2026");
+        moveHere.setDisable(!real);
+    }
+
+    /**
+     * Declares a new custom category and selects it — the affordance this dialog had none of, which meant
+     * filing a variable under a group that did not exist yet was a trip to the Resource Manager and back.
+     * The prompt is {@link TagPicklist#promptNewTag} so "what may a tag be called" keeps one answer.
+     */
+    private void createCategory() {
+        TagPicklist.promptNewTag(stage, config).ifPresent(tag -> {
+            catalog = ImageTemplateLibrary.declareTag(config, tag);
+            selectedTag = tag;
+            rebuildRail();
+        });
+    }
+
+    /**
+     * Files a batch of variables under the selected category. The rail already takes one at a time by drag;
+     * this is the same edit for the case the drag is tedious in — a category being populated for the first
+     * time, where every variable in the project is somewhere else.
+     */
+    private void moveIntoSelected() {
+        if (VariableRailModel.ALL.equals(selectedTag)) return;
+        flushAndDiscard();
+        String home = ActivityVariable.GENERAL.equals(selectedTag) ? "" : selectedTag;
+        List<ActivityVariable> inside = VariableRailModel.in(variables, selectedTag, catalog);
+        List<ActivityVariable> outside = variables.stream().filter(v -> !inside.contains(v)).toList();
+        if (outside.isEmpty()) {
+            error("Every variable is already filed under \u201c" + selectedTag + "\u201d.");
+            return;
+        }
+        List<String> chosen = pickVariables(outside);
+        if (chosen.isEmpty()) return;
+        for (String name : chosen) {
+            int at = indexOf(name);
+            if (at >= 0) variables.set(at, variables.get(at).withTag(home));
+        }
+        error("");
+        rebuildRail();
+    }
+
+    /** A tick box per variable, in one modal. Returns the names ticked, or an empty list if cancelled. */
+    private List<String> pickVariables(List<ActivityVariable> offered) {
+        List<CheckBox> boxes = new ArrayList<>();
+        VBox column = new VBox(4);
+        for (ActivityVariable v : offered) {
+            CheckBox box = new CheckBox(v.name() + "   \u00b7   " + v.tagOrGeneral());
+            box.setUserData(v.name());
+            boxes.add(box);
+            column.getChildren().add(box);
+        }
+        ScrollPane scroll = new ScrollPane(column);
+        scroll.setFitToWidth(true);
+        scroll.setPrefHeight(320);
+
+        Dialog<ButtonType> dialog = new Dialog<>();
+        ThemedWindows.apply(dialog);
+        dialog.initOwner(stage);
+        dialog.setTitle("Move variables");
+        dialog.setHeaderText(null);
+        ButtonType move = new ButtonType("Move", ButtonBar.ButtonData.OK_DONE);
+        dialog.getDialogPane().getButtonTypes().addAll(move, ButtonType.CANCEL);
+        Label hint = new Label("Tick the variables to file under \u201c" + selectedTag + "\u201d.");
+        VBox box = new VBox(8, hint, scroll);
+        box.setPadding(new Insets(10));
+        dialog.getDialogPane().setContent(box);
+
+        if (dialog.showAndWait().orElse(ButtonType.CANCEL) != move) return List.of();
+        return boxes.stream().filter(CheckBox::isSelected).map(b -> (String) b.getUserData()).toList();
     }
 
     /** Redraws the rail (the counts move on every add, delete and re-tag) and keeps the selection. */
@@ -201,6 +301,7 @@ public final class ParametersDialog {
         rail.getSelectionModel().select(keep);
         if (keep instanceof VariableRailModel.TagRow tag) selectedTag = tag.tag();
         rebuildParams();
+        refreshRailActions();
     }
 
     /**
@@ -210,7 +311,7 @@ public final class ParametersDialog {
     private boolean fileUnder(String name, String tag) {
         ActivityVariable found = variables.stream().filter(v -> v.name().equals(name)).findFirst().orElse(null);
         if (found == null) return false;
-        replace(found, found.withTag(ActivityVariable.GENERAL.equals(tag) ? "" : tag));
+        edit(found.name(), current -> current.withTag(ActivityVariable.GENERAL.equals(tag) ? "" : tag));
         return true;
     }
 
@@ -237,10 +338,11 @@ public final class ParametersDialog {
         valueEditors.clear();
         paramColumn.getChildren().clear();
 
-        Label title = new Label(selectedTag);
+        Label title = new Label(ActivityVariable.GENERAL.equals(selectedTag)
+                ? selectedTag + " (no category)" : selectedTag);
         title.setStyle("-fx-font-weight: bold; -fx-font-size: 14px;");
         Label explain = new Label("Every variable belongs to the whole bot and is read from your code as "
-                + "Activities.<name>. A tag only says where it is listed — never who may read it.");
+                + "Activities.<name>. A category only says where it is listed — never who may read it.");
         explain.setWrapText(true);
         explain.getStyleClass().add("dialog-hint-text");
         paramColumn.getChildren().addAll(title, explain);
@@ -275,14 +377,14 @@ public final class ParametersDialog {
         type.setChoice(v.type());
         type.setPrefWidth(180);
         type.choiceProperty().addListener((o, was, is) -> {
-            if (is != null && !is.equals(v.type())) replace(v, v.withType(is));
+            if (is != null && !is.equals(v.type())) edit(v.name(), current -> current.withType(is));
         });
 
-        CheckBox shared = new CheckBox("Offer to whoever runs the bot");
+        CheckBox shared = new CheckBox("Show to user");
         shared.setSelected(v.isPublic());
         shared.setTooltip(new Tooltip("Ticked, this appears in the Runner window under its tag's heading. "
                 + "Unticked, it is yours alone and never leaves this dialog."));
-        shared.setOnAction(e -> replaceQuietly(v, v.withVisibility(
+        shared.setOnAction(e -> editQuietly(v.name(), current -> current.withVisibility(
                 shared.isSelected() ? ParamVisibility.PUBLIC : ParamVisibility.EDITOR_ONLY)));
 
         Button drop = new Button("✕");
@@ -290,8 +392,9 @@ public final class ParametersDialog {
         drop.setTooltip(new Tooltip("Remove this variable. Any code reading it stops compiling, so check "
                 + "first — nothing here scans your source."));
         drop.setOnAction(e -> {
-            flushValues();
-            variables.remove(v);
+            flushAndDiscard();
+            int at = indexOf(v.name());
+            if (at >= 0) variables.remove(at);
             rebuildRail();
         });
 
@@ -316,7 +419,7 @@ public final class ParametersDialog {
         grid.add(head, 0, 0, 2, 1);
 
         int row = 1;
-        grid.add(new Label("Filed under"), 0, row);
+        grid.add(new Label("Category"), 0, row);
         grid.add(buildTagPicker(v), 1, row);
         row++;
 
@@ -340,7 +443,8 @@ public final class ParametersDialog {
 
         TextField description = new TextField(v.description());
         description.setPromptText("what this is for (shown as a tooltip, and to the user when shared)");
-        description.textProperty().addListener((o, was, is) -> replaceQuietly(v, v.withDescription(is)));
+        description.textProperty().addListener((o, was, is) ->
+                editQuietly(v.name(), current -> current.withDescription(is)));
         grid.add(new Label("Note"), 0, row);
         grid.add(description, 1, row);
         GridPane.setHgrow(description, Priority.ALWAYS);
@@ -360,7 +464,7 @@ public final class ParametersDialog {
         picker.setValue(catalog.isDeclared(v.tag()) ? v.tag() : ActivityVariable.GENERAL);
         picker.setOnAction(e -> {
             String chosen = picker.getValue();
-            replace(v, v.withTag(ActivityVariable.GENERAL.equals(chosen) ? "" : chosen));
+            edit(v.name(), current -> current.withTag(ActivityVariable.GENERAL.equals(chosen) ? "" : chosen));
         });
         return picker;
     }
@@ -452,7 +556,7 @@ public final class ParametersDialog {
         TextField step = boundField(v.bounds().step(), "step");
         Runnable commit = () -> {
             Bounds declared = new Bounds(min.getText(), max.getText(), step.getText());
-            if (!declared.equals(v.bounds())) replace(v, v.withBounds(declared));
+            if (!declared.equals(v.bounds())) edit(v.name(), current -> current.withBounds(declared));
         };
         for (TextField field : List.of(min, max, step)) {
             field.focusedProperty().addListener((o, was, is) -> {
@@ -495,7 +599,7 @@ public final class ParametersDialog {
                 error("'" + candidate + "' is already the name of a variable or an activity.");
                 return;
             }
-            flushValues();
+            flushAndDiscard();
             String tag = VariableRailModel.ALL.equals(selectedTag)
                     || ActivityVariable.GENERAL.equals(selectedTag) ? "" : selectedTag;
             variables.add(ActivityVariable.create(candidate, type.choice()).withTag(tag));
@@ -541,30 +645,61 @@ public final class ParametersDialog {
             return;
         }
         error("");
-        replace(v, v.withName(candidate));
+        edit(v.name(), current -> current.withName(candidate));
     }
 
     private void replaceOptions(ActivityVariable v, List<String> options) {
         error("");
-        replace(v, v.withOptions(options));
+        edit(v.name(), current -> current.withOptions(options));
     }
 
-    /** Swaps a variable for an edited copy and redraws — for the edits that change what the card shows. */
-    private void replace(ActivityVariable v, ActivityVariable updated) {
-        flushValues();
-        int at = variables.indexOf(v);
+    /**
+     * Applies {@code change} to the variable called {@code name} and redraws — for the edits that change what
+     * the card shows.
+     *
+     * <p><b>By name, and the change is a function, not a finished record.</b> Both halves matter and both were
+     * wrong. Flushing the on-screen widgets first replaces every record in the list with a
+     * {@link ActivityVariable#withValue value-updated} copy, so the record a control captured when its card was
+     * built is no longer <em>in</em> the list: looking it up by equality found nothing and the edit was dropped
+     * on the floor — which is what made changing a variable's type do nothing at all once its value had been
+     * touched. And a pre-built {@code v.withX(…)} would have carried the stale value back in with it, undoing
+     * the flush it was queued behind.
+     *
+     * <p>The editors are discarded after the flush so the rebuild that follows does not flush them a second
+     * time onto the record they no longer describe — a retype must land on the new type's default, not on
+     * whatever text the old widget still held.
+     */
+    private void edit(String name, UnaryOperator<ActivityVariable> change) {
+        flushAndDiscard();
+        int at = indexOf(name);
         if (at < 0) return;
-        variables.set(at, updated);
+        variables.set(at, change.apply(variables.get(at)));
         rebuildRail();
     }
 
     /**
-     * Swaps a variable for an edited copy without redrawing — for the fields that fire on every keystroke or
-     * a click, and would otherwise rebuild the column out from under the cursor.
+     * {@link #edit} without the redraw — for the fields that fire on every keystroke or a click, and would
+     * otherwise rebuild the column out from under the cursor. It does not flush, so it must not be used for
+     * anything the value widgets are also writing.
      */
-    private void replaceQuietly(ActivityVariable v, ActivityVariable updated) {
-        int at = variables.indexOf(v);
-        if (at >= 0) variables.set(at, updated);
+    private void editQuietly(String name, UnaryOperator<ActivityVariable> change) {
+        int at = indexOf(name);
+        if (at >= 0) variables.set(at, change.apply(variables.get(at)));
+    }
+
+    /** Where the variable called {@code name} currently sits, or -1. Names are unique, which is what makes
+     * them the stable handle a widget can hold across a rebuild. */
+    private int indexOf(String name) {
+        for (int i = 0; i < variables.size(); i++) {
+            if (variables.get(i).name().equals(name)) return i;
+        }
+        return -1;
+    }
+
+    /** Writes the on-screen widgets back, then forgets them — see {@link #edit}. */
+    private void flushAndDiscard() {
+        flushValues();
+        valueEditors.clear();
     }
 
     /** Writes the on-screen value widgets back into the variables they were built from. */

@@ -12,16 +12,19 @@ import com.fasterxml.jackson.annotation.JsonValue;
  * {@code Activities}, so the difference cannot be read off the field — it has to be declared, and this is
  * where it is declared.
  *
- * <p>The default is {@link #EDITOR_ONLY} on purpose, and the constructor below is what enforces it: exposing
- * a parameter is a decision, so a param that nobody has thought about is not offered to a user, and a project
- * written before this field existed does not suddenly publish all of its internals.
+ * <p><b>Two different defaults, and both are deliberate.</b> A <em>new</em> variable is {@link #PUBLIC} —
+ * {@link ActivityVariable}'s compact constructor fills an absent value with it, because a variable exists to
+ * be configured and the tick box that says so is ticked. An <em>unrecognised</em> id, from a newer Studio,
+ * reads as {@link #EDITOR_ONLY} ({@link #fromId}): "I don't know what this says" must not publish something
+ * to the bot's user. The doc here used to claim the first case was EDITOR_ONLY too, which it has not been
+ * since the tagged-variable model landed.
  */
 public enum ParamVisibility {
 
     /** Offered to the bot's user in the Runner window. The editor is saying "this is yours to set". */
     PUBLIC("public", "Anyone running the bot"),
 
-    /** Hidden from the user; only the editor sees it. The default for a new parameter. */
+    /** Hidden from the user; only the editor sees it. Also how an unrecognised id reads — see above. */
     EDITOR_ONLY("editor", "Only me, while building");
 
     private final String id;

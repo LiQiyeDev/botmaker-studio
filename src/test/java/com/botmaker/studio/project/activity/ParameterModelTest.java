@@ -22,6 +22,43 @@ class ParameterModelTest {
         return ActivityVariable.create(name, BotType.Choice.of(type));
     }
 
+    /**
+     * A colour is a storable type in its own right — {@code java.awt.Color}, the JDK one the block editor's
+     * colour picker already writes — and its wire form is {@code #RRGGBB}, upper case, alpha dropped.
+     */
+    @Test
+    void aColourIsStoredAsUpperCaseHexAndFallsBackToWhite() {
+        assertTrue(BotType.COLOR.storable());
+        assertEquals(List.of("#FFFFFF"), variable("accent", BotType.COLOR).value());
+        assertEquals(List.of("#1A2B3C"),
+                variable("accent", BotType.COLOR).withValue("#1a2b3c").value());
+        assertEquals(List.of("#1A2B3C"),
+                variable("accent", BotType.COLOR).withValue("1a2b3c").value(), "the hash is optional");
+        assertEquals(List.of("#FFFFFF"),
+                variable("accent", BotType.COLOR).withValue("mauve").value(), "unreadable reads as white");
+    }
+
+    /** A fresh image variable names the template every project ships, not an empty chip nothing can run on. */
+    @Test
+    void aFreshImageVariablePointsAtTheDefaultTemplate() {
+        assertEquals(List.of(com.botmaker.studio.services.ImageTemplateLibrary.DEFAULT_TEMPLATE_NAME),
+                variable("target", BotType.IMAGE_TEMPLATE).value());
+    }
+
+    /**
+     * Retyping resets the value to the new type's default rather than reinterpreting the old one — the rule
+     * the Parameters dialog leans on when it throws the value widget away and builds the new type's.
+     */
+    @Test
+    void retypingResetsTheValueEvenWhenItHadBeenEdited() {
+        ActivityVariable edited = variable("gap", BotType.TEXT).withValue("hello");
+
+        ActivityVariable retyped = edited.withType(BotType.Choice.of(BotType.COLOR));
+
+        assertEquals(BotType.COLOR, retyped.type().type());
+        assertEquals(List.of("#FFFFFF"), retyped.value());
+    }
+
     @Test
     void aVariableNobodyHasThoughtAboutIsStillOfferedToTheUser() {
         // The default flipped with the tagged-variable model: a variable exists because someone wanted to

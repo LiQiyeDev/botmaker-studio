@@ -11,17 +11,22 @@ import com.botmaker.studio.ui.render.components.TemplateGalleryDialog;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
+import javafx.scene.control.ColorPicker;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Control;
 import javafx.scene.control.DatePicker;
 import javafx.scene.control.Label;
+import javafx.scene.control.RadioButton;
 import javafx.scene.control.Spinner;
 import javafx.scene.control.SpinnerValueFactory;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
+import javafx.scene.control.Toggle;
+import javafx.scene.control.ToggleGroup;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
+import javafx.scene.paint.Color;
 import javafx.stage.Window;
 
 import java.nio.file.Path;
@@ -109,7 +114,15 @@ public final class ParamValueWidgets {
                 widget = picker;
                 reader = () -> List.of(picker.getValue() == null ? "" : picker.getValue().toString());
             }
-            case CHOICE, KEY, MOUSE_BUTTON, DIRECTION, PRECISION -> {
+            case CHOICE -> {
+                // Radio buttons, not a dropdown: the choices are the editor's own and there are a handful of
+                // them, so showing all of them costs one line each and saves a click to find out what they
+                // are. The SDK enums below keep their combo — a hundred key names is a list, not a form.
+                RadioRow row = new RadioRow(options, variable.singleValue());
+                widget = row;
+                reader = row::wire;
+            }
+            case KEY, MOUSE_BUTTON, DIRECTION, PRECISION -> {
                 ComboBox<String> box = new ComboBox<>();
                 box.getItems().setAll(options);
                 // Only ever select a declared choice: a value the editor has since removed shows as blank,
@@ -117,6 +130,11 @@ public final class ParamValueWidgets {
                 box.setValue(box.getItems().contains(variable.singleValue()) ? variable.singleValue() : null);
                 widget = box;
                 reader = () -> List.of(box.getValue() == null ? "" : box.getValue());
+            }
+            case COLOR -> {
+                ColorPicker picker = new ColorPicker(parseColor(variable.singleValue()));
+                widget = picker;
+                reader = () -> List.of(hex(picker.getValue()));
             }
             case IMAGE_TEMPLATE -> {
                 TemplateChip chip = new TemplateChip(variable.singleValue(), config);
@@ -201,6 +219,35 @@ public final class ParamValueWidgets {
         sink.add(new ValueEditor(variable.name(), () -> area.getText() == null ? List.of()
                 : area.getText().lines().map(String::trim).filter(line -> !line.isEmpty()).toList()));
         return area;
+    }
+
+    /**
+     * One radio button per declared choice, at most one of them on.
+     *
+     * <p>Nothing selected is a legal state and the honest one: a stored value the editor has since removed
+     * from the list shows as no selection rather than as the first choice, which would be this widget
+     * choosing a setting on the user's behalf.
+     */
+    private static final class RadioRow extends VBox {
+
+        private final ToggleGroup group = new ToggleGroup();
+
+        RadioRow(List<String> options, String current) {
+            super(2);
+            for (String option : options) {
+                RadioButton button = new RadioButton(option);
+                button.setToggleGroup(group);
+                button.setUserData(option);
+                button.setSelected(option.equals(current));
+                getChildren().add(button);
+            }
+            if (options.isEmpty()) getChildren().add(hint("No choices declared yet."));
+        }
+
+        List<String> wire() {
+            Toggle chosen = group.getSelectedToggle();
+            return List.of(chosen == null ? "" : (String) chosen.getUserData());
+        }
     }
 
     // --- the widgets with more than one control in them ---------------------------------------------------
@@ -445,6 +492,22 @@ public final class ParamValueWidgets {
         } catch (NumberFormatException e) {
             return fallback;
         }
+    }
+
+    /** {@code #RRGGBB} as an FX colour; anything unreadable is white, which is what the wire form says too. */
+    private static Color parseColor(String wire) {
+        try {
+            return Color.web(wire == null || wire.isBlank() ? "#FFFFFF" : wire.trim());
+        } catch (RuntimeException e) {
+            return Color.WHITE;
+        }
+    }
+
+    /** An FX colour back as the wire form — {@code #RRGGBB}, alpha dropped, which is all java.awt.Color.decode reads. */
+    private static String hex(Color color) {
+        Color safe = color == null ? Color.WHITE : color;
+        return "#%02X%02X%02X".formatted(
+                Math.round(safe.getRed() * 255), Math.round(safe.getGreen() * 255), Math.round(safe.getBlue() * 255));
     }
 
     private static LocalDate parseDate(String wire) {

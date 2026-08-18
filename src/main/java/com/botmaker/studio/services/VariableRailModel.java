@@ -37,8 +37,8 @@ public final class VariableRailModel {
     public record TagRow(String tag, int count) implements Row {}
 
     /**
-     * The rail for {@code variables} over {@code catalog}: All, General, then each group of declared tags. Both
-     * computed rows are always present — All because it is the way to see everything, General because it is
+     * The rail for {@code variables} over {@code catalog}: All, then a <i>Categories</i> heading over General
+     * and each group of declared tags. Both computed rows are always present — All because it is the way to see everything, General because it is
      * where a new variable lands before anyone files it, and a bucket you cannot select is a bucket you cannot
      * put anything in.
      */
@@ -48,9 +48,12 @@ public final class VariableRailModel {
 
         List<Row> rows = new ArrayList<>();
         rows.add(new TagRow(ALL, all.size()));
+        // "General" on its own, directly under All, read as a second everything-bucket. A heading over it says
+        // what it is — one category among the others — before the count does.
+        rows.add(new Heading("Categories"));
         rows.add(new TagRow(ActivityVariable.GENERAL, in(all, ActivityVariable.GENERAL, safe).size()));
-        addGroup(rows, "Activities", safe.namesOf(TagCatalog.Kind.ACTIVITY), all, safe);
-        addGroup(rows, "Custom", safe.namesOf(TagCatalog.Kind.CUSTOM), all, safe);
+        addGroup(rows, "Activity categories", safe.namesOf(TagCatalog.Kind.ACTIVITY), all, safe);
+        addGroup(rows, "Custom categories", safe.namesOf(TagCatalog.Kind.CUSTOM), all, safe);
         return List.copyOf(rows);
     }
 
