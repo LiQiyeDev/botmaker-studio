@@ -62,16 +62,40 @@ class BotTypeTest {
 
     @Test
     void aListOfAPrimitiveIsWrittenWithTheBox() {
-        assertEquals("List<Integer>", new BotType.Choice(BotType.WHOLE_NUMBER, true).sourceName());
+        assertEquals("List<Integer>", BotType.Choice.listOf(BotType.WHOLE_NUMBER).sourceName());
         assertEquals("int", BotType.Choice.of(BotType.WHOLE_NUMBER).sourceName());
-        assertEquals("List<Point>", new BotType.Choice(BotType.POINT, true).sourceName());
-        assertEquals("List of Point", new BotType.Choice(BotType.POINT, true).label());
+        assertEquals("List<Point>", BotType.Choice.listOf(BotType.POINT).sourceName());
+        assertEquals("List of Point", BotType.Choice.listOf(BotType.POINT).label());
     }
 
     @Test
     void thereIsNoListOfNothing() {
-        assertThrows(IllegalArgumentException.class, () -> new BotType.Choice(BotType.NOTHING, true));
+        assertThrows(IllegalArgumentException.class, () -> BotType.Choice.listOf(BotType.NOTHING));
         assertTrue(BotType.Choice.of(BotType.NOTHING).isVoid());
+    }
+
+    /**
+     * The two set-shapes are not the same question. {@code List<T>} is a type a signature can name, so it
+     * needs only a box; "one of a declared set" is a restriction on a value somebody configures, so it needs
+     * a type somebody can configure. Conflating them refused {@code List<MatchResult>} as a return type.
+     */
+    @Test
+    void aListOfAResultIsATypeButAChoiceOfOneIsNotASentence() {
+        assertEquals("List<MatchResult>", BotType.Choice.listOf(BotType.MATCH_RESULT).sourceName());
+        assertThrows(IllegalArgumentException.class,
+                () -> new BotType.Choice(BotType.MATCH_RESULT, BotType.Shape.ONE_OF));
+    }
+
+    /** ONE_OF is a restriction the editor keeps to itself: the bot sees the bare type. */
+    @Test
+    void restrictingWhichValuesAreOfferedChangesNothingInTheSource() {
+        BotType.Choice free = BotType.Choice.of(BotType.WHOLE_NUMBER);
+        BotType.Choice restricted = new BotType.Choice(BotType.WHOLE_NUMBER, BotType.Shape.ONE_OF);
+
+        assertEquals(free.sourceName(), restricted.sourceName());
+        assertFalse(free.hasOptions());
+        assertTrue(restricted.hasOptions());
+        assertEquals("One of Whole number", restricted.label());
     }
 
     @Test

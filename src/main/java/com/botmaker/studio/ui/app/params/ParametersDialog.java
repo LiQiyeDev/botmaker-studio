@@ -423,8 +423,12 @@ public final class ParametersDialog {
         grid.add(buildTagPicker(v), 1, row);
         row++;
 
-        if (VariableWire.hasOptions(v.type().type())) {
-            grid.add(new Label("Choices"), 0, row);
+        if (VariableWire.hasOptions(v.type())) {
+            Label heading = new Label("Choices");
+            heading.setTooltip(new Tooltip(v.type().isList()
+                    ? "The set this variable's values are picked from. The user ticks any number of them."
+                    : "The set this variable's value is picked from. The user picks exactly one."));
+            grid.add(heading, 0, row);
             grid.add(buildOptionsEditor(v), 1, row);
             row++;
         }

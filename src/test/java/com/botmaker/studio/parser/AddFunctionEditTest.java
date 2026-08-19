@@ -87,7 +87,7 @@ class AddFunctionEditTest {
     @Test
     void aListReturnTypeIsParameterisedAndSeededWithAnEmptyList() {
         editor.addFunctionToClass(subject(),
-                new FunctionDraft("allMatches", new BotType.Choice(BotType.MATCH_RESULT, true), List.of()), 1);
+                new FunctionDraft("allMatches", BotType.Choice.listOf(BotType.MATCH_RESULT), List.of()), 1);
 
         assertTrue(lastCode.contains("List<MatchResult> allMatches()"), lastCode);
         assertTrue(lastCode.contains("import java.util.List;"), lastCode);

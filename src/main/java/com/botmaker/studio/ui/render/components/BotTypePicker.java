@@ -6,21 +6,30 @@ import javafx.beans.property.SimpleObjectProperty;
 import javafx.scene.control.Menu;
 import javafx.scene.control.MenuButton;
 import javafx.scene.control.MenuItem;
+import javafx.scene.control.RadioMenuItem;
+import javafx.scene.control.SeparatorMenuItem;
+import javafx.scene.control.Toggle;
+import javafx.scene.control.ToggleGroup;
 
 import java.util.List;
 
 /**
- * Picks one of the curated {@link BotType}s, optionally wrapped in a list.
+ * Picks one of the curated {@link BotType}s, in one of the {@link BotType.Shape}s.
  *
  * <p>A {@link MenuButton} rather than a {@code ComboBox} because the list is grouped and a combo box has no
  * grouping: its items are one flat run, and the two ways round that are a cell factory that fakes
  * unselectable header rows or twenty entries with no shape at all. A menu's submenus are what grouping
- * actually is — and they give the {@code List of ▸} axis somewhere to live that costs nothing when unused,
- * which the flat form would have to spend twenty more entries on.
+ * actually is — and they give the shape axis somewhere to live that costs nothing when unused.
+ *
+ * <p><b>Two questions, two controls.</b> The shape used to be a second copy of the entire type tree under
+ * {@code List of ▸}, so the third shape would have been a third copy of it. Here the tree is built once and a
+ * {@code Shape ▸} radio group sits above it: picking a type keeps the shape, picking a shape keeps the type,
+ * and a shape the chosen type cannot take is greyed rather than absent.
  */
 public final class BotTypePicker extends MenuButton {
 
     private final ObjectProperty<BotType.Choice> choice = new SimpleObjectProperty<>();
+    private final ToggleGroup shapeGroup = new ToggleGroup();
 
     /**
      * What the type is being picked <em>for</em>, which is the only thing that differs between the three
@@ -41,10 +50,12 @@ public final class BotTypePicker extends MenuButton {
         getStyleClass().add("bot-type-picker");
         setMaxWidth(Double.MAX_VALUE);
 
+        getItems().add(shapeMenu(purpose));
+        getItems().add(new SeparatorMenuItem());
         for (BotType.Group group : BotType.Group.values()) {
             List<MenuItem> items = BotType.in(group).stream()
                     .filter(t -> offers(purpose, t))
-                    .map(this::singleItem)
+                    .map(this::typeItem)
                     .toList();
             if (!items.isEmpty()) {
                 Menu menu = new Menu(group.label());
@@ -52,9 +63,11 @@ public final class BotTypePicker extends MenuButton {
                 getItems().add(menu);
             }
         }
-        getItems().add(listMenu(purpose));
 
-        choice.addListener((obs, old, now) -> setText(now == null ? "Choose a type…" : now.label()));
+        choice.addListener((obs, old, now) -> {
+            setText(now == null ? "Choose a type…" : now.label());
+            refreshShapeMenu(now);
+        });
         choice.set(BotType.Choice.of(purpose == Purpose.RETURN_TYPE ? BotType.NOTHING : BotType.TEXT));
     }
 
@@ -66,26 +79,68 @@ public final class BotTypePicker extends MenuButton {
         };
     }
 
-    private MenuItem singleItem(BotType type) {
-        MenuItem item = new MenuItem(type.label());
-        item.setOnAction(e -> choice.set(BotType.Choice.of(type)));
-        return item;
+    /**
+     * Which shapes this purpose can express. {@link BotType.Shape#ONE_OF} is a project-variable idea and
+     * nothing else — fixing the set a value may come from is a question about something somebody configures,
+     * and a method parameter has nobody to ask, so a signature's axis has only {@code T} and {@code List<T>}.
+     */
+    private static List<BotType.Shape> shapes(Purpose purpose) {
+        return purpose == Purpose.VARIABLE
+                ? List.of(BotType.Shape.values())
+                : List.of(BotType.Shape.ONE, BotType.Shape.ANY_OF);
     }
 
-    /** {@code List of ▸ <group> ▸ <type>} — the same tree again, one level down. */
-    private Menu listMenu(Purpose purpose) {
-        Menu listOf = new Menu("List of");
-        for (BotType.Group group : BotType.Group.values()) {
-            Menu groupMenu = new Menu(group.label());
-            for (BotType type : BotType.in(group)) {
-                if (!type.listable() || !offers(purpose, type)) continue;
-                MenuItem item = new MenuItem(type.label());
-                item.setOnAction(e -> choice.set(new BotType.Choice(type, true)));
-                groupMenu.getItems().add(item);
-            }
-            if (!groupMenu.getItems().isEmpty()) listOf.getItems().add(groupMenu);
+    /**
+     * The shape axis as a menu of its own, above the type tree.
+     *
+     * <p>It used to be a second copy of the whole tree under {@code List of ▸}, which is why a third shape
+     * would have been a third copy. Shape and type are independent questions, so they are two controls: the
+     * tree is built once and either half can be changed without restating the other.
+     */
+    private Menu shapeMenu(Purpose purpose) {
+        Menu menu = new Menu("Shape");
+        for (BotType.Shape shape : shapes(purpose)) {
+            RadioMenuItem item = new RadioMenuItem(shape.label());
+            item.setToggleGroup(shapeGroup);
+            item.setUserData(shape);
+            item.setOnAction(e -> {
+                BotType.Choice now = choice.get();
+                if (now != null) choice.set(new BotType.Choice(now.type(), shape));
+            });
+            menu.getItems().add(item);
         }
-        return listOf;
+        return menu;
+    }
+
+    /** Whether {@code type} can take {@code shape} — the same rule {@code BotType.Choice} enforces. */
+    private static boolean keeps(BotType type, BotType.Shape shape) {
+        return switch (shape) {
+            case ONE -> true;
+            case ONE_OF -> type.shapeable();
+            case ANY_OF -> type.listable();
+        };
+    }
+
+    /** Ticks the shape in force, and greys the ones this type cannot take. */
+    private void refreshShapeMenu(BotType.Choice now) {
+        for (Toggle toggle : shapeGroup.getToggles()) {
+            RadioMenuItem item = (RadioMenuItem) toggle;
+            BotType.Shape shape = (BotType.Shape) item.getUserData();
+            boolean legal = now != null && keeps(now.type(), shape);
+            item.setDisable(!legal);
+            item.setSelected(now != null && now.shape() == shape);
+        }
+    }
+
+    /** Picking a type keeps the shape in force, when that type can take it. */
+    private MenuItem typeItem(BotType type) {
+        MenuItem item = new MenuItem(type.label());
+        item.setOnAction(e -> {
+            BotType.Choice now = choice.get();
+            BotType.Shape wanted = now == null ? BotType.Shape.ONE : now.shape();
+            choice.set(new BotType.Choice(type, keeps(type, wanted) ? wanted : BotType.Shape.ONE));
+        });
+        return item;
     }
 
     public ObjectProperty<BotType.Choice> choiceProperty() {

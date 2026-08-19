@@ -136,9 +136,9 @@ class ActivityGenerationTest {
     @Test
     void aListVariableReadsBackAsItsItems(@TempDir Path root) throws Exception {
         ActivitiesConfig cfg = ActivitiesConfig.of(List.of(), List.of(
-                ActivityVariable.create("skills", new BotType.Choice(BotType.TEXT, true))
+                ActivityVariable.create("skills", BotType.Choice.listOf(BotType.TEXT))
                         .withValue(List.of("mine", "cook")),
-                ActivityVariable.create("counts", new BotType.Choice(BotType.WHOLE_NUMBER, true))
+                ActivityVariable.create("counts", BotType.Choice.listOf(BotType.WHOLE_NUMBER))
                         .withValue(List.of("1", "2", "3"))));
         Class<?> activities = compileAndLoad(root, source(root, cfg), json(cfg));
 
@@ -150,7 +150,7 @@ class ActivityGenerationTest {
     @Test
     void aChoiceIsAPlainStringInTheGeneratedCode(@TempDir Path root) throws Exception {
         ActivitiesConfig cfg = ActivitiesConfig.of(List.of(), List.of(
-                ActivityVariable.create("mode", BotType.Choice.of(BotType.CHOICE))
+                ActivityVariable.create("mode", new BotType.Choice(BotType.TEXT, BotType.Shape.ONE_OF))
                         .withOptions(List.of("fast", "safe")).withValue("safe")));
         String generated = source(root, cfg);
 

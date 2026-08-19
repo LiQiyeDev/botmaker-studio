@@ -6,6 +6,32 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-19 — One value, one of a set, any of a set: a shape axis instead of a `Choice` pseudo-type
+  (`palette/BotType`, `project/activity/VariableWire`, `project/activity/ActivityVariable`,
+  `ui/render/components/BotTypePicker`, `ui/app/params/ParamValueWidgets`).** Round-2 phase 1, from hands-on
+  testing.
+
+  **The model.** A parameter's type was a `BotType` plus a `boolean list`, with `CHOICE` — a `String` wearing a
+  type's clothes — beside it. That could not say "one of these three whole numbers" at all, and `List of X`
+  ignored its own element type in every editor. A variable is now a **type × `Shape`**: `ONE`, `ONE_OF`,
+  `ANY_OF`. `CHOICE` is deleted; it was always `TEXT` with `ONE_OF`. Options are a property of the *shape*, so
+  any storable type can carry a declared set, and a choice of choices is unrepresentable rather than merely
+  discouraged. The two set-shapes are deliberately not symmetric: `ANY_OF` is `List<T>` in source and needs
+  only a box (`List<MatchResult>` is a fine return type), while `ONE_OF` restricts a *stored* value and so
+  needs a type somebody can store.
+
+  **Migration is at the reader, not in an open-time pass.** `BotType.Choice` has a `@JsonCreator` taking both
+  spellings — `{"type":"CHOICE","list":false}` and `{"type":"TEXT","shape":"ONE_OF"}` — so every reader gets it
+  and a project written by the previous Studio opens with no step anyone can forget to run. An unknown type
+  name from a newer Studio reads as `TEXT` rather than throwing.
+
+  **Two fixes that fell out of the same switches.** Declared options are now normalised through the type before
+  anything is compared against them, so a set of whole numbers, colours or templates works at all (`"10 "` and
+  `"10"` were two different choices, and the radio button was labelled with one while the value matched
+  neither). And `Precision` — a record, not an enum — was asked for enum constants: it answered none, which is
+  why its dropdown was empty, and the generated `constant(Precision.class, …)` did not compile in any bot that
+  stored one. It has a wire form of its own (`deltaE,minArea,minCount`) and its own generated parser.
+
 - **2026-08-18 — Import that recognises what it already has, an export that leaves the placeholder behind, and a
   window that keeps its size (`sharing/TemplateArchive`, `ui/app/ResourceManagerDialog`,
   `services/ImageTemplateLibrary`, `project/ProjectCreator`, `BotMakerStudio`).** Follow-up phase 4, from

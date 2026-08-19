@@ -235,7 +235,7 @@ public class MethodHandler {
     private static Type typeNodeFor(EditContext ctx, BotType.Choice choice) {
         AST ast = ctx.ast();
         choice.type().sdkType().ifPresent(ctx::addImport);
-        if (!choice.list()) {
+        if (!choice.isList()) {
             return ProjectAnalyzer.createTypeNode(ast, choice.type().typeName());
         }
         ctx.addImport(LIST_FQN);
@@ -247,7 +247,7 @@ public class MethodHandler {
 
     /** {@code List.of()} for a list, and the type's own catalogue default otherwise. */
     private static Expression defaultValueFor(EditContext ctx, BotType.Choice choice) {
-        if (choice.list()) {
+        if (choice.isList()) {
             ctx.addImport(LIST_FQN);
             MethodInvocation of = ctx.ast().newMethodInvocation();
             of.setExpression(ctx.ast().newSimpleName("List"));

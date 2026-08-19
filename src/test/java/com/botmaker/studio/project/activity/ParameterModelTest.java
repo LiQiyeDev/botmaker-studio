@@ -89,7 +89,7 @@ class ParameterModelTest {
 
     @Test
     void everythingASavedVariableCarriesSurvivesTheRoundTrip(@TempDir Path dir) throws Exception {
-        ActivityVariable mode = ActivityVariable.create("mode", BotType.Choice.of(BotType.CHOICE))
+        ActivityVariable mode = ActivityVariable.create("mode", new BotType.Choice(BotType.TEXT, BotType.Shape.ONE_OF))
                 .withDescription("how careful to be")
                 .withOptions(List.of("fast", "safe"))
                 .withValue("safe")
@@ -103,7 +103,7 @@ class ParameterModelTest {
         assertEquals("safe", read.singleValue());
         assertEquals("Mining", read.tag());
         assertEquals("how careful to be", read.description());
-        assertEquals(BotType.Choice.of(BotType.CHOICE), read.type());
+        assertEquals(new BotType.Choice(BotType.TEXT, BotType.Shape.ONE_OF), read.type());
     }
 
     /** A value is a list of strings on the wire, whatever the type — one entry, or one per item. */
@@ -142,13 +142,13 @@ class ParameterModelTest {
     void deletingAChoiceUnsetsItWhereverItWasChosen() {
         // Otherwise the bot goes on running with a value that no longer appears anywhere in the UI that set
         // it — invisible, and therefore undebuggable.
-        ActivityVariable single = ActivityVariable.create("mode", BotType.Choice.of(BotType.CHOICE))
+        ActivityVariable single = ActivityVariable.create("mode", new BotType.Choice(BotType.TEXT, BotType.Shape.ONE_OF))
                 .withOptions(List.of("fast", "safe", "reckless")).withValue("reckless");
 
         assertEquals("fast", single.withOptions(List.of("fast", "safe")).singleValue(),
                 "the deleted choice falls back to the first one still offered");
 
-        ActivityVariable many = ActivityVariable.create("skills", new BotType.Choice(BotType.CHOICE, true))
+        ActivityVariable many = ActivityVariable.create("skills", BotType.Choice.listOf(BotType.TEXT))
                 .withOptions(List.of("mine", "fish", "cook")).withValue(List.of("mine", "fish"));
 
         assertEquals(List.of("mine"), many.withOptions(List.of("mine", "cook")).value());
@@ -158,7 +158,7 @@ class ParameterModelTest {
     void aChosenListIsWrittenInTheDeclarationOrderAndNotThePickingOrder() {
         // Two people who ticked the same boxes must produce the same file, or a diff shows a change nobody
         // made.
-        ActivityVariable skills = ActivityVariable.create("skills", new BotType.Choice(BotType.CHOICE, true))
+        ActivityVariable skills = ActivityVariable.create("skills", BotType.Choice.listOf(BotType.TEXT))
                 .withOptions(List.of("mine", "fish", "cook"));
 
         assertEquals(List.of("mine", "cook"), skills.withValue(List.of("cook", "mine")).value());
@@ -166,7 +166,7 @@ class ParameterModelTest {
 
     @Test
     void retypingResetsTheValueAndDropsOptionsThatNoLongerApply() {
-        ActivityVariable mode = ActivityVariable.create("mode", BotType.Choice.of(BotType.CHOICE))
+        ActivityVariable mode = ActivityVariable.create("mode", new BotType.Choice(BotType.TEXT, BotType.Shape.ONE_OF))
                 .withDescription("how careful").withOptions(List.of("fast", "safe")).withValue("safe");
 
         ActivityVariable asNumber = mode.withType(BotType.Choice.of(BotType.WHOLE_NUMBER));
@@ -176,7 +176,7 @@ class ParameterModelTest {
         assertEquals("how careful", asNumber.description());
 
         assertEquals(List.of("fast", "safe"),
-                mode.withType(new BotType.Choice(BotType.CHOICE, true)).options(),
+                mode.withType(BotType.Choice.listOf(BotType.TEXT)).options(),
                 "the choices survive a move onto the list axis");
     }
 
@@ -185,18 +185,26 @@ class ParameterModelTest {
     void anEnumTypeBringsItsOwnChoicesAndSnapsToOne() {
         ActivityVariable key = variable("hotkey", BotType.KEY);
 
-        assertFalse(VariableWire.hasOptions(BotType.KEY), "there is nothing for the editor to edit");
+        assertFalse(VariableWire.hasOptions(BotType.Choice.of(BotType.KEY)),
+                "one value of an enum type: there is nothing for the editor to write down");
         assertFalse(VariableWire.fixedOptions(BotType.KEY).isEmpty());
         assertTrue(VariableWire.fixedOptions(BotType.KEY).contains(key.singleValue()));
         assertTrue(VariableWire.fixedOptions(BotType.KEY).contains(key.withValue("NOT_A_KEY").singleValue()),
                 "a value the enum does not have falls back to one it does");
     }
 
+    /**
+     * Having a set of choices is a property of the <em>shape</em>, not of the type. That is the whole point of
+     * the axis: it used to be true of one pseudo-type and false of the other twenty, which is exactly why
+     * "one of these three whole numbers" could not be said.
+     */
     @Test
-    void onlyTheChoiceTypeCarriesEditableOptions() {
+    void everyShapeableTypeCarriesOptionsInEveryShapeButOne() {
         for (BotType type : BotType.storableTypes()) {
-            assertEquals(type == BotType.CHOICE, VariableWire.hasOptions(type),
-                    type + " should " + (type == BotType.CHOICE ? "" : "not ") + "have editable options");
+            assertTrue(type.shapeable(), type + " is storable, so it can be a set of choices");
+            assertFalse(VariableWire.hasOptions(BotType.Choice.of(type)), type + " as one free value");
+            assertTrue(VariableWire.hasOptions(new BotType.Choice(type, BotType.Shape.ONE_OF)), type + " one of");
+            assertTrue(VariableWire.hasOptions(BotType.Choice.listOf(type)), type + " any of");
         }
     }
 
@@ -204,14 +212,49 @@ class ParameterModelTest {
     @Test
     void normalisingTwiceChangesNothing() {
         for (BotType type : BotType.storableTypes()) {
-            for (boolean list : new boolean[]{false, true}) {
-                BotType.Choice choice = new BotType.Choice(type, list);
-                List<String> options = type == BotType.CHOICE ? List.of("fast", "safe") : List.of();
+            for (BotType.Shape shape : BotType.Shape.values()) {
+                BotType.Choice choice = new BotType.Choice(type, shape);
+                // A declared set has to be values of the type, or normalising them is what changes on the
+                // second pass. Two of the type's own defaults is the one set every type can supply.
+                List<String> options = shape.hasOptions()
+                        ? VariableWire.normalizeOptions(VariableWire.defaultWire(choice), choice, Bounds.NONE)
+                        : List.of();
                 List<String> once = VariableWire.normalize(VariableWire.defaultWire(choice), choice, options,
                         Bounds.NONE);
                 assertEquals(once, VariableWire.normalize(once, choice, options, Bounds.NONE), choice.toString());
             }
         }
+    }
+
+    /**
+     * A project written before the shape axis existed opens without a migration step anyone can forget: the
+     * type reader takes both spellings, and {@code CHOICE} — a constant this editor no longer has — is what
+     * "text, one of a declared set" always meant.
+     */
+    @Test
+    void aProjectFromBeforeTheShapeAxisStillOpens(@TempDir Path dir) throws Exception {
+        Files.writeString(dir.resolve(ActivitiesConfig.FILE_NAME), """
+                { "variables": [
+                    { "name": "mode", "type": { "type": "CHOICE", "list": false },
+                      "options": ["fast", "safe"], "value": ["safe"] },
+                    { "name": "skills", "type": { "type": "CHOICE", "list": true },
+                      "options": ["mine", "cook"], "value": ["mine"] },
+                    { "name": "count", "type": { "type": "WHOLE_NUMBER", "list": false }, "value": ["7"] },
+                    { "name": "spots", "type": { "type": "POINT", "list": true }, "value": ["1,2"] }
+                ] }
+                """);
+
+        List<ActivityVariable> read = ActivitiesConfig.read(dir).variables();
+
+        assertEquals(new BotType.Choice(BotType.TEXT, BotType.Shape.ONE_OF), read.get(0).type());
+        assertEquals(List.of("fast", "safe"), read.get(0).options());
+        assertEquals("safe", read.get(0).singleValue());
+
+        assertEquals(BotType.Choice.listOf(BotType.TEXT), read.get(1).type());
+        assertEquals(List.of("mine"), read.get(1).value());
+
+        assertEquals(BotType.Choice.of(BotType.WHOLE_NUMBER), read.get(2).type());
+        assertEquals(BotType.Choice.listOf(BotType.POINT), read.get(3).type());
     }
 
     @Test

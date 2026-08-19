@@ -112,7 +112,7 @@ class FunctionDraftTest {
 
     @Test
     void theSignaturePreviewIsWhatWillBeWritten() {
-        FunctionDraft draft = new FunctionDraft("findAll", new BotType.Choice(BotType.MATCH_RESULT, true), List.of(
+        FunctionDraft draft = new FunctionDraft("findAll", BotType.Choice.listOf(BotType.MATCH_RESULT), List.of(
                 new FunctionDraft.Parameter("target", BotType.Choice.of(BotType.IMAGE_TEMPLATE)),
                 new FunctionDraft.Parameter("tries", BotType.Choice.of(BotType.WHOLE_NUMBER))));
 

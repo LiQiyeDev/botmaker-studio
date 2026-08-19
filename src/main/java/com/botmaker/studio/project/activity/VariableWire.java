@@ -55,27 +55,33 @@ public final class VariableWire {
     /** The Java type of the generated field — {@code int}, {@code java.time.Duration}, {@code List<Integer>}. */
     public static String javaType(BotType.Choice type) {
         BotType base = type.type();
-        return type.list() ? "java.util.List<" + boxed(base) + ">" : qualified(base);
+        return type.isList() ? "java.util.List<" + boxed(base) + ">" : qualified(base);
     }
 
     /** The resolved type, so the expression menu can filter variables against an expected slot type. */
     public static ResolvedType resolvedType(BotType.Choice type) {
-        if (type.list()) return ResolvedType.named("java.util.List");
+        if (type.isList()) return ResolvedType.named("java.util.List");
         return switch (type.type()) {
             case YES_NO -> ResolvedType.BOOLEAN;
             case WHOLE_NUMBER -> ResolvedType.INT;
             case DECIMAL_NUMBER -> ResolvedType.DOUBLE;
             case CHARACTER -> ResolvedType.named("char");
-            case TEXT, CHOICE -> ResolvedType.of(JdkType.STRING);
+            case TEXT -> ResolvedType.of(JdkType.STRING);
             case DATE, TIME_OF_DAY, DURATION -> ResolvedType.named(qualified(type.type()));
             default -> type.type().sdkType().map(ResolvedType::of)
                     .orElseGet(() -> ResolvedType.named(qualified(type.type())));
         };
     }
 
-    /** True when the editor writes the choices down — {@link BotType#CHOICE} and nothing else. */
-    public static boolean hasOptions(BotType type) {
-        return type == BotType.CHOICE;
+    /**
+     * True when the editor writes the choices down — any shape but {@link BotType.Shape#ONE}.
+     *
+     * <p>It used to be a property of the type ({@code CHOICE} and nothing else), which is exactly what made
+     * "one of these three whole numbers" inexpressible. It is a property of the <em>shape</em>: what the set
+     * holds is the type's business, that there is a set at all is the shape's.
+     */
+    public static boolean hasOptions(BotType.Choice type) {
+        return type.hasOptions();
     }
 
     /**
@@ -91,15 +97,16 @@ public final class VariableWire {
 
     /**
      * The choices a type brings with it, for the ones whose option list is not the editor's to write: the
-     * four SDK enums answer their own constants. Empty for everything else, including {@link BotType#CHOICE},
-     * whose choices come from the variable.
+     * SDK enums answer their own constants. Empty for everything else, whose choices come from the variable.
+     *
+     * <p>Note {@code PRECISION} is <em>not</em> one of them: it is a record, not an enum, so asking it for
+     * constants answered the empty list and the dialog rendered an empty dropdown. It has its own picker.
      */
     public static List<String> fixedOptions(BotType type) {
         return switch (type) {
             case KEY -> SdkType.KEY.enumConstantNames();
             case MOUSE_BUTTON -> SdkType.MOUSE_BUTTON.enumConstantNames();
             case DIRECTION -> SdkType.DIRECTION.enumConstantNames();
-            case PRECISION -> SdkType.PRECISION.enumConstantNames();
             default -> List.of();
         };
     }
@@ -115,7 +122,7 @@ public final class VariableWire {
 
     /** The wire value a freshly created variable of this type starts with; empty for a list. */
     public static List<String> defaultWire(BotType.Choice type) {
-        if (type.list()) return List.of();
+        if (type.isList()) return List.of();
         return List.of(defaultItem(type.type()));
     }
 
@@ -125,7 +132,7 @@ public final class VariableWire {
             case WHOLE_NUMBER -> "0";
             case DECIMAL_NUMBER -> "0.0";
             case CHARACTER -> "a";
-            case TEXT, CHOICE -> "";
+            case TEXT -> "";
             // A fresh image variable points at the template every project ships, for the same reason a fresh
             // `new ImageTemplate(...)` block does: an empty chip is a value the bot cannot run on.
             case IMAGE_TEMPLATE -> ImageTemplateLibrary.DEFAULT_TEMPLATE_NAME;
@@ -136,7 +143,10 @@ public final class VariableWire {
             case POINT -> "0,0";
             case SIZE -> "0,0";
             case RECT -> "0,0,0,0";
-            case KEY, MOUSE_BUTTON, DIRECTION, PRECISION -> firstConstant(type);
+            // Precision is a record, not an enum: its wire form is its three components, and its default is
+            // the one the SDK's short overloads use.
+            case PRECISION -> "12.0,4,0";
+            case KEY, MOUSE_BUTTON, DIRECTION -> firstConstant(type);
             default -> "";
         };
     }
@@ -151,22 +161,51 @@ public final class VariableWire {
     public static List<String> normalize(List<String> wire, BotType.Choice type, List<String> options,
                                          Bounds bounds) {
         List<String> safe = wire == null ? List.of() : wire.stream().filter(Objects::nonNull).toList();
-        List<String> choices = effectiveOptions(type.type(), options);
+        List<String> choices = normalizeOptions(options, type, bounds);
         Bounds range = bounds == null ? Bounds.NONE : bounds;
 
-        if (!type.list()) {
-            return List.of(normalizeItem(safe.isEmpty() ? null : safe.getFirst(), type.type(), choices, range));
+        if (!type.isList()) {
+            return List.of(constrain(
+                    normalizeItem(safe.isEmpty() ? null : safe.getFirst(), type.type(), range), choices));
         }
         // An option-bearing list follows the declaration order, not the file's: two projects that picked the
         // same choices in a different order must write the same line, or a diff shows a change nobody made.
         if (!choices.isEmpty()) {
-            LinkedHashSet<String> chosen = new LinkedHashSet<>(safe);
+            LinkedHashSet<String> chosen = safe.stream()
+                    .map(item -> normalizeItem(item, type.type(), range))
+                    .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
             return choices.stream().filter(chosen::contains).toList();
         }
-        return safe.stream().map(item -> normalizeItem(item, type.type(), choices, range)).toList();
+        return safe.stream().map(item -> normalizeItem(item, type.type(), range)).toList();
     }
 
-    private static String normalizeItem(String wire, BotType type, List<String> options, Bounds bounds) {
+    /**
+     * The declared choices as this type actually stores them: each normalised, duplicates dropped, order kept.
+     * Empty when the shape declares no set.
+     *
+     * <p>Every choice is itself a value of the base type, so it has to go through the same normaliser the
+     * value does — otherwise {@code "10 "} and {@code "10"} are two different choices, the radio button is
+     * labelled with one and the stored value matches neither. Normalising the set is what lets it hold whole
+     * numbers, colours or templates rather than only the free text the old {@code CHOICE} type held.
+     */
+    public static List<String> normalizeOptions(List<String> options, BotType.Choice type, Bounds bounds) {
+        if (!type.hasOptions() || options == null) return List.of();
+        // The author's own list, never {@link #effectiveOptions}: an enum's constants are what its editor
+        // offers to pick from, not a set to be copied onto every variable of that type and stored.
+        return options.stream()
+                .filter(Objects::nonNull)
+                .map(option -> normalizeItem(option, type.type(), bounds == null ? Bounds.NONE : bounds))
+                .distinct()
+                .toList();
+    }
+
+    /** {@code value} if it is still on offer, else the first thing that is. Unconstrained when nothing is. */
+    private static String constrain(String value, List<String> choices) {
+        if (choices.isEmpty()) return value;
+        return choices.contains(value) ? value : choices.getFirst();
+    }
+
+    private static String normalizeItem(String wire, BotType type, Bounds bounds) {
         return switch (type) {
             case YES_NO -> Boolean.parseBoolean(trim(wire)) ? "true" : "false";
             case WHOLE_NUMBER -> {
@@ -183,12 +222,8 @@ public final class VariableWire {
             case DURATION -> DurationWire.format(DurationWire.parse(wire, 0L));
             case POINT, SIZE -> numbers(wire, 2);
             case RECT -> numbers(wire, 4);
-            case CHOICE -> {
-                String chosen = trim(wire);
-                if (options.isEmpty()) yield "";
-                yield options.contains(chosen) ? chosen : options.getFirst();
-            }
-            case KEY, MOUSE_BUTTON, DIRECTION, PRECISION -> constantOrFirst(type, wire);
+            case PRECISION -> precision(wire);
+            case KEY, MOUSE_BUTTON, DIRECTION -> constantOrFirst(type, wire);
             default -> trim(wire);
         };
     }
@@ -205,7 +240,7 @@ public final class VariableWire {
     public static String loadExpression(BotType.Choice type, String name) {
         String key = '"' + name + '"';
         Helper helper = helper(type.type());
-        if (!type.list()) return helper.name() + "(one(" + key + "))";
+        if (!type.isList()) return helper.name() + "(one(" + key + "))";
         return "many(" + key + ", Activities::" + helper.name() + ")";
     }
 
@@ -218,7 +253,7 @@ public final class VariableWire {
      */
     public static Helper helper(BotType type) {
         return switch (type) {
-            case TEXT, CHOICE -> new Helper("text", TEXT_HELPER, List.of());
+            case TEXT -> new Helper("text", TEXT_HELPER, List.of());
             case YES_NO -> new Helper("flag", FLAG_HELPER, List.of());
             case WHOLE_NUMBER -> new Helper("whole", WHOLE_HELPER, List.of());
             case DECIMAL_NUMBER -> new Helper("decimal", DECIMAL_HELPER, List.of());
@@ -231,7 +266,9 @@ public final class VariableWire {
             case KEY -> enumHelper("key", SdkType.KEY);
             case MOUSE_BUTTON -> enumHelper("mouseButton", SdkType.MOUSE_BUTTON);
             case DIRECTION -> enumHelper("direction", SdkType.DIRECTION);
-            case PRECISION -> enumHelper("precision", SdkType.PRECISION);
+            // Not enumHelper: Precision is a record, so `constant(Precision.class, …)` — whose bound is
+            // `E extends Enum<E>` — did not compile in any bot that stored one.
+            case PRECISION -> new Helper("precision", PRECISION_HELPER, List.of(INTS_HELPER));
             case POINT -> geometryHelper("point", SdkType.POINT, 2);
             case RECT -> geometryHelper("area", SdkType.RECT, 4);
             case SIZE -> geometryHelper("size", SdkType.SIZE, 2);
@@ -395,6 +432,24 @@ public final class VariableWire {
             """.formatted(SdkType.IMAGE_TEMPLATE.qualifiedName(), SdkType.IMAGE_TEMPLATE.qualifiedName(),
                     TemplateConstants.IMAGES_PREFIX);
 
+    /**
+     * {@code deltaE,minArea,minCount}. The record's constructor throws on a ΔE below zero or an area below
+     * one, so the clamps are what keep the bot's promise never to fail to start on its own configuration.
+     */
+    private static final String PRECISION_HELPER = """
+                private static %s precision(String s) {
+                    String[] parts = s.trim().split(",");
+                    double deltaE = 12.0;
+                    try {
+                        if (parts.length > 0) deltaE = Double.parseDouble(parts[0].trim());
+                    } catch (RuntimeException e) {
+                        deltaE = 12.0;
+                    }
+                    int[] n = ints(s, 3);
+                    return new %s(Math.max(0.0, deltaE), Math.max(1, n[1]), Math.max(0, n[2]));
+                }
+            """.formatted(SdkType.PRECISION.qualifiedName(), SdkType.PRECISION.qualifiedName());
+
     private static final String ENUM_HELPER = """
                 private static <E extends Enum<E>> E constant(Class<E> type, String s, E fallback) {
                     try {
@@ -460,6 +515,18 @@ public final class VariableWire {
         if (constants.isEmpty()) return "";
         String trimmed = trim(wire).toUpperCase(Locale.ROOT);
         return constants.contains(trimmed) ? trimmed : constants.getFirst();
+    }
+
+    /**
+     * A precision as {@code deltaE,minArea,minCount}, clamped to what the record's own constructor accepts —
+     * it throws on a negative ΔE or an area below one, and a stored value must never be able to do that.
+     */
+    private static String precision(String wire) {
+        String[] parts = trim(wire).split(",");
+        double deltaE = Math.max(0.0, parts.length > 0 ? parseDouble(parts[0], 12.0) : 12.0);
+        long minArea = Math.max(1L, parts.length > 1 ? parseLong(parts[1], 4L) : 4L);
+        long minCount = Math.max(0L, parts.length > 2 ? parseLong(parts[2], 0L) : 0L);
+        return deltaE + "," + minArea + "," + minCount;
     }
 
     /** {@code count} comma-separated whole numbers, missing or unreadable ones read as zero. */

@@ -21,16 +21,18 @@ import java.util.List;
  * a duration reads as in the file.
  *
  * <p>{@link #type()} is a {@link BotType.Choice} — the same curated vocabulary the Add Function dialog offers
- * for a parameter or a return type, restricted to what {@link BotType#storable()} allows. There is one list
- * of types in this editor, so a variable can hold anything a method can take.
+ * for a parameter or a return type, restricted to what {@link BotType#storable()} allows, crossed with a
+ * {@link BotType.Shape}. There is one list of types in this editor, so a variable can hold anything a method
+ * can take; the shape says whether it holds one of them, one out of a set the author wrote down, or several.
  *
  * @param name        the generated field name on {@code Activities}; a valid Java identifier
- * @param type        what kind of value this is, and whether it is a list of them
+ * @param type        what kind of value this is, and in what {@link BotType.Shape shape} — one value, one of
+ *                    a declared set, or any number of them
  * @param value       the wire form of the current value
  * @param description an optional human-readable note explaining what it is for (may be empty)
  * @param tag         the group it is filed under, or blank for {@link #GENERAL}
  * @param visibility  whether the bot's user is offered this at all; absent ⇒ {@link ParamVisibility#PUBLIC}
- * @param options     the declared choices, for {@link VariableWire#hasOptions an option-bearing} type
+ * @param options     the declared set of values, for a shape that {@link BotType.Choice#hasOptions has one}
  * @param bounds      the declared range, for a bounded number
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -48,8 +50,10 @@ public record ActivityVariable(String name, BotType.Choice type, List<String> va
         // otherwise. The old default was the reverse, which meant every new knob was invisible in the Runner
         // until somebody remembered a dropdown existed.
         if (visibility == null) visibility = ParamVisibility.PUBLIC;
-        options = options == null ? List.of() : List.copyOf(options);
         if (bounds == null) bounds = Bounds.NONE;
+        // The declared set is normalised before the value is measured against it, so the choice a radio button
+        // is labelled with and the choice the value holds are the same string.
+        options = VariableWire.normalizeOptions(options, type, bounds);
         value = VariableWire.normalize(value, type, options, bounds);
     }
 
@@ -126,7 +130,11 @@ public record ActivityVariable(String name, BotType.Choice type, List<String> va
      * is also what makes the value <em>widget</em> safe to rebuild wholesale, which is what the dialog does.
      */
     public ActivityVariable withType(BotType.Choice newType) {
-        List<String> keptOptions = VariableWire.hasOptions(newType.type()) ? options : List.of();
+        // Options survive a change of shape (one of ↔ any of, over the same values), because that is a
+        // question about how many may be picked and not about what may be picked. They do not survive a
+        // change of the base type, whose values they no longer are.
+        List<String> keptOptions =
+                newType.hasOptions() && newType.type() == type.type() ? options : List.of();
         return new ActivityVariable(name, newType, VariableWire.defaultWire(newType), description, tag,
                 visibility, keptOptions, Bounds.NONE);
     }

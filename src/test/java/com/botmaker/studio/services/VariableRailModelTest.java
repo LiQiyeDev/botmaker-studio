@@ -31,7 +31,7 @@ class VariableRailModelTest {
     private static List<ActivityVariable> variables() {
         return List.of(
                 variable("RETRIES", BotType.WHOLE_NUMBER, "Mining"),
-                variable("ORE", BotType.CHOICE, "Mining"),
+                variable("ORE", BotType.TEXT, "Mining"),
                 variable("BAIT", BotType.TEXT, "Fishing"),
                 variable("DEBUG", BotType.YES_NO, ""),
                 variable("GAP", BotType.DURATION, "Timing"));

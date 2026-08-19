@@ -72,14 +72,26 @@ public final class ParamValueWidgets {
         Node widget;
         Supplier<List<String>> reader;
         List<String> options = VariableWire.effectiveOptions(variable.type().type(), variable.options());
+        // What a set-shaped variable offers is the author's own list and never the type's own constants: an
+        // enum with no declared subset would otherwise put every one of its hundred names on screen as a
+        // radio button, which is a list pretending to be a form.
+        List<String> declared = variable.type().hasOptions() ? variable.options() : List.of();
 
-        // A list of anything is entered as a list, whatever its element type: tick boxes when the choices are
-        // declared, a line per item when they are not. Only the single case gets a per-type widget — twenty
-        // list widgets would be twenty ways to lose an item.
-        if (variable.type().list()) {
-            Node column = options.isEmpty() ? freeList(variable, sink) : checkList(variable, options, sink);
+        // The shape decides the widget before the type does, because the shape is the question being asked.
+        // "Any of…" is tick boxes over the declared set; "one of…" is radio buttons over it. Only "one value"
+        // reaches the per-type editors below.
+        if (variable.type().isList()) {
+            Node column = declared.isEmpty() ? freeList(variable, sink) : checkList(variable, declared, sink);
             column.setId("param-value-" + variable.name());
             return column;
+        }
+        if (!declared.isEmpty()) {
+            // Radio buttons, not a dropdown: the choices are the editor's own and there are a handful of
+            // them, so showing all of them costs one line each and saves a click to find out what they are.
+            RadioRow row = new RadioRow(declared, variable.singleValue());
+            row.setId("param-value-" + variable.name());
+            sink.add(new ValueEditor(variable.name(), row::wire));
+            return row;
         }
 
         switch (variable.type().type()) {
@@ -114,15 +126,9 @@ public final class ParamValueWidgets {
                 widget = picker;
                 reader = () -> List.of(picker.getValue() == null ? "" : picker.getValue().toString());
             }
-            case CHOICE -> {
-                // Radio buttons, not a dropdown: the choices are the editor's own and there are a handful of
-                // them, so showing all of them costs one line each and saves a click to find out what they
-                // are. The SDK enums below keep their combo — a hundred key names is a list, not a form.
-                RadioRow row = new RadioRow(options, variable.singleValue());
-                widget = row;
-                reader = row::wire;
-            }
-            case KEY, MOUSE_BUTTON, DIRECTION, PRECISION -> {
+            // The SDK enums keep their combo — a hundred key names is a list, not a form. Precision is not
+            // among them: it is a record, so it has no constants to fill one with (see VariableWire).
+            case KEY, MOUSE_BUTTON, DIRECTION -> {
                 ComboBox<String> box = new ComboBox<>();
                 box.getItems().setAll(options);
                 // Only ever select a declared choice: a value the editor has since removed shows as blank,
@@ -185,7 +191,7 @@ public final class ParamValueWidgets {
 
     /** One value as a person would read it — a list as its joined members, not as an empty cell. */
     public static String display(ActivityVariable variable) {
-        if (variable.type().list()) return String.join(", ", variable.value());
+        if (variable.type().isList()) return String.join(", ", variable.value());
         return variable.singleValue();
     }
 

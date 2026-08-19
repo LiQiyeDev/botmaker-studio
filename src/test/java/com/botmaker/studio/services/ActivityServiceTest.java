@@ -35,13 +35,13 @@ public class ActivityServiceTest {
         assertEquals("int", VariableWire.javaType(BotType.Choice.of(BotType.WHOLE_NUMBER)));
         assertEquals("java.time.LocalTime", VariableWire.javaType(BotType.Choice.of(BotType.TIME_OF_DAY)));
         assertEquals("java.util.List<Integer>",
-                VariableWire.javaType(new BotType.Choice(BotType.WHOLE_NUMBER, true)),
+                VariableWire.javaType(BotType.Choice.listOf(BotType.WHOLE_NUMBER)),
                 "a list of a primitive is a list of its box");
 
         assertEquals("whole(one(\"n\"))", VariableWire.loadExpression(BotType.Choice.of(BotType.WHOLE_NUMBER), "n"));
         assertEquals("flag(one(\"n\"))", VariableWire.loadExpression(BotType.Choice.of(BotType.YES_NO), "n"));
         assertEquals("many(\"n\", Activities::whole)",
-                VariableWire.loadExpression(new BotType.Choice(BotType.WHOLE_NUMBER, true), "n"));
+                VariableWire.loadExpression(BotType.Choice.listOf(BotType.WHOLE_NUMBER), "n"));
 
         assertTrue(VariableWire.resolvedType(BotType.Choice.of(BotType.WHOLE_NUMBER)).isNumeric());
         assertTrue(VariableWire.resolvedType(BotType.Choice.of(BotType.YES_NO)).isBoolean());

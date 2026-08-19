@@ -64,15 +64,6 @@ public enum BotType {
             new DoubleLit("0.0")),
     CHARACTER(Group.BASICS, "Character", PrimitiveKind.CHAR, JdkType.CHARACTER, "letter", new CharLit('a')),
     /**
-     * One of a list of choices the editor writes down. A {@code String} at runtime and nothing more — the
-     * option list lives on the variable that has this type, so a bot compares it with {@code equals} and
-     * nothing about the choices leaks into the generated code.
-     *
-     * <p>The one type that is {@link #storable()} without being {@link #declarable()}: "pick one of these"
-     * is a question about a configured value, and a method parameter has nobody to ask.
-     */
-    CHOICE(Group.BASICS, "Choice", JdkType.STRING, "choice", null),
-    /**
      * A colour, as {@code java.awt.Color} — the JDK type, written fully qualified so it needs no import, and
      * the very type the block editor's colour picker reads and writes. White by default, matching the seed
      * {@code InitializerFactory} gives a colour-typed argument slot.
@@ -261,6 +252,19 @@ public enum BotType {
     }
 
     /**
+     * Whether the author can write down a <em>set</em> of values of this type — whether {@link Shape#ONE_OF}
+     * and {@link Shape#ANY_OF} mean anything for it.
+     *
+     * <p>Derived rather than switched, deliberately: an option is a wire string
+     * ({@link com.botmaker.studio.project.activity.VariableWire}), so a type that can be stored can be listed
+     * as a choice, and a type that can go inside {@code List<…>} can be chosen several times. Two conditions
+     * that already exist beat a third list to keep in step with them.
+     */
+    public boolean shapeable() {
+        return storable() && listable();
+    }
+
+    /**
      * Whether a <em>project variable</em> can hold this type — whether it has a value somebody can write down
      * in the Parameters dialog and store in {@code activities.json}.
      *
@@ -272,7 +276,7 @@ public enum BotType {
      */
     public boolean storable() {
         return switch (this) {
-            case TEXT, YES_NO, WHOLE_NUMBER, DECIMAL_NUMBER, CHARACTER, CHOICE, COLOR,
+            case TEXT, YES_NO, WHOLE_NUMBER, DECIMAL_NUMBER, CHARACTER, COLOR,
                  DATE, TIME_OF_DAY, DURATION,
                  IMAGE_TEMPLATE, PRECISION,
                  POINT, RECT, SIZE, DIRECTION,
@@ -298,47 +302,146 @@ public enum BotType {
     }
 
     /**
-     * A type as chosen in a dialog: one of the curated types, optionally wrapped in a list.
+     * How many values of a type there are, and whether the author fixes the set they come from.
      *
-     * <p>The list axis is a flag rather than twenty more constants because it composes with all of them and
-     * carries no information of its own — {@code List<Point>} needs nothing from the catalogue that
+     * <p>This is the axis that used to be a {@code boolean list} beside a {@code CHOICE} pseudo-type — a
+     * modelling that could not say "one of these three whole numbers" at all, and whose {@code List of …}
+     * ignored its own element type in every editor. Three shapes crossed with the type catalogue say
+     * everything the two of them said and the cases they could not reach, and a choice of choices is
+     * unrepresentable rather than merely discouraged.
+     *
+     * <p>{@link #ONE_OF} is a <em>project variable</em> idea and nothing else: fixing the set a value may come
+     * from is a question about something somebody configures, and a method parameter has nobody to ask. In a
+     * signature the axis has only two positions, {@code T} and {@code List<T>} — which is why
+     * {@link #sourceName()} treats {@code ONE} and {@code ONE_OF} identically.
+     */
+    public enum Shape {
+        /** One value, free within its type. */
+        ONE("One value", ""),
+        /** One value, out of a set the author writes down. Radio buttons in the Parameters dialog. */
+        ONE_OF("One of…", "One of "),
+        /** Several values out of that set — {@code List<T>} in source. Tick boxes. */
+        ANY_OF("List of…", "List of ");
+
+        private final String label;
+        private final String prefix;
+
+        Shape(String label, String prefix) {
+            this.label = label;
+            this.prefix = prefix;
+        }
+
+        /** What the shape control calls this. */
+        public String label() {
+            return label;
+        }
+
+        /** Whether the author writes the set of values down — true for everything but {@link #ONE}. */
+        public boolean hasOptions() {
+            return this != ONE;
+        }
+    }
+
+    /**
+     * A type as chosen in a dialog: one of the curated types, in one of the three {@link Shape}s.
+     *
+     * <p>The shape is an axis rather than three times as many constants because it composes with all of them
+     * and carries no information of its own — {@code List<Point>} needs nothing from the catalogue that
      * {@code Point} did not already supply, beyond the box a primitive takes inside the angle brackets.
      */
-    public record Choice(BotType type, boolean list) {
+    public record Choice(BotType type, Shape shape) {
 
         public Choice {
             if (type == null) throw new IllegalArgumentException("a type choice needs a type");
-            if (list && !type.listable()) {
+            if (shape == null) shape = Shape.ONE;
+            // ANY_OF is `List<T>` in source and only needs a box. ONE_OF is not a type at all — it is a
+            // restriction on a stored value — so it needs a type somebody can store a set of. That asymmetry
+            // is why `List<MatchResult>` is a fine return type while "one of a set of match results" is not a
+            // sentence.
+            if (shape == Shape.ANY_OF && !type.listable()) {
                 throw new IllegalArgumentException("there is no list of " + type.typeName());
+            }
+            if (shape == Shape.ONE_OF && !type.shapeable()) {
+                throw new IllegalArgumentException(type.typeName() + " cannot carry a set of choices");
             }
         }
 
-        /** The single (non-list) form of {@code type}. */
+        /** One value of {@code type} — {@link Shape#ONE}. */
         public static Choice of(BotType type) {
-            return new Choice(type, false);
+            return new Choice(type, Shape.ONE);
         }
 
-        /** The name as written in source — {@code Point}, or {@code List<Point>}. */
+        /** {@code List<type>} — {@link Shape#ANY_OF}, the form a signature writes. */
+        public static Choice listOf(BotType type) {
+            return new Choice(type, Shape.ANY_OF);
+        }
+
+        /** True when this is written {@code List<…>}: several values, not one. */
+        public boolean isList() {
+            return shape == Shape.ANY_OF;
+        }
+
+        /** True when the author writes down the set of values this may take. */
+        public boolean hasOptions() {
+            return shape.hasOptions();
+        }
+
+        /**
+         * The name as written in source — {@code Point}, or {@code List<Point>}.
+         *
+         * <p>{@link Shape#ONE_OF} spells the same as {@link Shape#ONE} on purpose: restricting which values
+         * are offered is the editor's business, and nothing about the option set reaches the generated code.
+         */
         public String sourceName() {
-            return list ? "List<" + type.boxedName + ">" : type.typeName;
+            return isList() ? "List<" + type.boxedName + ">" : type.typeName;
         }
 
-        /** What the user is shown — "Point", or "List of Point". */
+        /** What the user is shown — "Point", "One of Point", or "List of Point". */
         public String label() {
-            return list ? "List of " + type.label() : type.label();
+            return shape.prefix + type.label();
         }
 
         public String suggestedName() {
-            return list ? type.suggestedName() + "s" : type.suggestedName();
+            return isList() ? type.suggestedName() + "s" : type.suggestedName();
         }
 
-        /** The element type inside the angle brackets; meaningful only when {@link #list()}. */
+        /** The element type inside the angle brackets; meaningful only when {@link #isList()}. */
         public String elementName() {
             return type.boxedName();
         }
 
         public boolean isVoid() {
-            return !list && type == NOTHING;
+            return shape == Shape.ONE && type == NOTHING;
+        }
+
+        /**
+         * Reads the persisted form, including the one this replaced.
+         *
+         * <p>A variable's type is the one part of {@code activities.json} whose <em>vocabulary</em> changed:
+         * files written before the shape axis say {@code {"type":"CHOICE","list":false}}, and {@code CHOICE}
+         * is no longer a constant this enum has. Migrating here rather than in an open-time pass means every
+         * reader gets it — the project loader, a hand-copied file, a test fixture — and that a project written
+         * by the previous Studio opens without a step anyone can forget to run.
+         */
+        @com.fasterxml.jackson.annotation.JsonCreator
+        static Choice fromJson(@com.fasterxml.jackson.annotation.JsonProperty("type") String type,
+                               @com.fasterxml.jackson.annotation.JsonProperty("shape") Shape shape,
+                               @com.fasterxml.jackson.annotation.JsonProperty("list") Boolean list) {
+            boolean wasChoice = "CHOICE".equals(type);
+            BotType base = wasChoice ? TEXT : parse(type);
+            Shape resolved = shape != null ? shape
+                    : Boolean.TRUE.equals(list) ? Shape.ANY_OF
+                    : wasChoice ? Shape.ONE_OF
+                    : Shape.ONE;
+            if (resolved != Shape.ONE && !base.shapeable()) resolved = Shape.ONE;
+            return new Choice(base, resolved);
+        }
+
+        private static BotType parse(String name) {
+            for (BotType candidate : values()) {
+                if (candidate.name().equals(name)) return candidate;
+            }
+            return TEXT;   // a type a newer Studio invented: text holds anything, and nothing is lost
         }
 
         /**
@@ -361,7 +464,7 @@ public enum BotType {
                 String element = simple(name.substring(5, name.length() - 1));
                 return java.util.Arrays.stream(values())
                         .filter(t -> element.equals(t.boxedName))
-                        .findFirst().map(t -> new Choice(t, true));
+                        .findFirst().map(Choice::listOf);
             }
             String simple = simple(name);
             return java.util.Arrays.stream(values())
