@@ -6,6 +6,15 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-19 — Drops that read, and a lock that reads the signature (`css/blocks.css`,
+  `core/render/GutterDecorator`, `palette/BlockType`, `ui/dnd/BlockDragAndDropManager`, `project/MethodLock`,
+  `project/GeneratedMembers`, `blocks/func/MethodDeclarationBlock`).** A refused drop is now an outline rather
+  than a red slab painted over the code being aimed at; expression blocks no longer reserve the statement
+  gutter, so a slot's outline is the slot's own size. `BlockType.producesValue()` replaces the drag layer's
+  `instanceof LibraryCall` test, which refused every other block that is in fact a call. `MethodLock` matches
+  the no-argument `run()`/`isEnabled()`, so a user's `run(int)` overload is theirs. The ✎ moved beside the
+  method name and got a real hit target.
+
 - **2026-08-19 — Declare menus that insert, names that don't collide, and a Variables screen
   (`parser/factories/StatementFactory`, `parser/CodeEditor`, `parser/helpers/AstRewriteHelper`,
   `ui/render/menu/ExpressionMenu`, `blocks/var/VariableDeclarationBlock`, `core/AbstractCodeBlock`,

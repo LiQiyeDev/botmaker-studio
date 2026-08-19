@@ -697,7 +697,7 @@ public class BlockDragAndDropManager {
      * loop or an {@code if} onto a slot — so the editor's answer to its most common mistake was silence.
      */
     private static String refusalReason(Dragboard db, ResolvedType slotType) {
-        if (db.hasContent(ADDABLE_BLOCK_FORMAT) && !(blockTypeFrom(db) instanceof BlockType.LibraryCall))
+        if (db.hasContent(ADDABLE_BLOCK_FORMAT) && !producesValue(blockTypeFrom(db)))
             return "Only a value can go in a slot — this block is a whole statement.";
         if (db.hasContent(EXISTING_BLOCK_FORMAT) && !db.hasContent(EXPRESSION_TYPE_FORMAT))
             return "This line is a statement, not a value — there is nothing to put in the slot.";
@@ -721,6 +721,11 @@ public class BlockDragAndDropManager {
         };
     }
 
+    /** Null-tolerant {@link BlockType#producesValue()} — an unknown palette id resolves to null and fills nothing. */
+    private static boolean producesValue(BlockType type) {
+        return type != null && type.producesValue();
+    }
+
     /** {@link #refusalReason} as the boolean the drop path asks for. */
     private static boolean acceptsExpression(Dragboard db, ResolvedType slotType) {
         return carriesBlock(db) && refusalReason(db, slotType) == null;
@@ -731,7 +736,7 @@ public class BlockDragAndDropManager {
         ExpressionDropInfo info;
         if (db.hasContent(ADDABLE_BLOCK_FORMAT)) {
             BlockType type = blockTypeFrom(db);
-            if (!(type instanceof BlockType.LibraryCall)) return false;
+            if (!producesValue(type)) return false;
             info = ExpressionDropInfo.fromPalette(slot.getId(), type);
         } else {
             info = ExpressionDropInfo.fromExistingBlock(slot.getId(), (String) db.getContent(EXISTING_BLOCK_FORMAT));

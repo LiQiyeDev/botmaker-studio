@@ -27,12 +27,29 @@ public sealed interface BlockType
     /** Can be dropped onto a class header (becomes a method/enum member). */
     default boolean isClassMember() { return false; }
 
+    /**
+     * Whether this block's statement form is a bare expression plus a semicolon — i.e. whether dropping it into
+     * an expression slot has anything to put there.
+     *
+     * <p>A capability rather than an {@code instanceof BlockType.LibraryCall} test at the drop site, which is
+     * what the drag layer asked before: that named one variant and so refused every other block that is in fact
+     * a call, and it left the question answered in the drag layer where a new variant could not be reminded to
+     * answer it. The write path ({@code CodeEditor.fillSlotFromPalette}) makes the same judgement structurally —
+     * it builds the statement and keeps it only if it is an {@code ExpressionStatement} — so this must agree
+     * with that or the drag says yes and the edit quietly does nothing.
+     */
+    default boolean producesValue() { return false; }
+
     /** One-off statements whose AST shape is bespoke; built by {@code StatementFactory} keyed on {@link Kind}. */
     record ControlFlow(String id, String displayName, BlockCategory category, Kind kind) implements BlockType {
         public enum Kind {
             PRINT, IF, WHILE, FOR, DO_WHILE, SWITCH, MATCHES_SWITCH,
             BREAK, CONTINUE, RETURN, WAIT, ASSIGNMENT, FUNCTION_CALL, COMMENT, ARRAY
         }
+
+        // A call to one of the user's own functions is a value like any other call. ASSIGNMENT is deliberately
+        // not: `x = 3` is an expression in Java, but nobody drags one into a print meaning to.
+        @Override public boolean producesValue() { return kind == Kind.FUNCTION_CALL; }
     }
 
     /** A variable declaration: {@code <typeName> <varName> = <init>}. */
@@ -68,6 +85,9 @@ public sealed interface BlockType
             this.method = method;
             this.args = List.copyOf(args);
         }
+
+        /** An SDK facade call — the original and still the commonest thing to drag into a slot. */
+        @Override public boolean producesValue() { return true; }
     }
 
     /**

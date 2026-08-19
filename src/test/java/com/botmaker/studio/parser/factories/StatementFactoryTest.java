@@ -19,6 +19,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -271,5 +272,35 @@ class StatementFactoryTest {
         assertNotNull(second);
         assertTrue(second.toString().contains("number2"),
                 "the second drop must not redeclare `number`: " + second);
+    }
+
+    /**
+     * {@link BlockType#producesValue()} is what an expression slot asks during a drag, and the write path
+     * ({@code CodeEditor.fillSlotFromPalette}) answers the same question structurally — it builds the statement
+     * and keeps it only if it is an {@code ExpressionStatement}. If the two disagree the slot accepts a block
+     * with a green outline and then does nothing, which is the failure mode the drag layer had before: it
+     * asked {@code instanceof BlockType.LibraryCall} and so refused every other block that is in fact a call.
+     */
+    @Test
+    void aBlockThatSaysItProducesAValueBuildsAnExpressionStatement() {
+        assertAll(BlockCatalog.all().stream()
+                .filter(BlockType::producesValue)
+                .map(type -> (org.junit.jupiter.api.function.Executable) () ->
+                        assertTrue(build(type) instanceof org.eclipse.jdt.core.dom.ExpressionStatement,
+                                type.id() + " claims to be a value but builds " + build(type)))
+                .toList());
+    }
+
+    @Test
+    void aWholeStatementDoesNotClaimToBeAValue() {
+        assertAll(
+                () -> assertTrue(controlFlow(Kind.FUNCTION_CALL).producesValue(), "a call is a value"),
+                () -> assertFalse(controlFlow(Kind.IF).producesValue()),
+                () -> assertFalse(controlFlow(Kind.WHILE).producesValue()),
+                () -> assertFalse(controlFlow(Kind.BREAK).producesValue()),
+                () -> assertFalse(controlFlow(Kind.ASSIGNMENT).producesValue(),
+                        "an assignment is an expression in Java, but nobody drags one into a print meaning to"),
+                () -> assertFalse(BlockCatalog.declareBlockFor(BotType.WHOLE_NUMBER).producesValue(),
+                        "a declaration is a line, not a value"));
     }
 }

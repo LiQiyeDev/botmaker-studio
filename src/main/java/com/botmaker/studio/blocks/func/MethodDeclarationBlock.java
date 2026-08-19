@@ -188,6 +188,13 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
                 .addNode(funcLabel)
                 .addNode(nameNode);
 
+        // The pencil goes *beside the name it edits*, not at the far end of the header past a spacer. What it
+        // opens is the signature dialog — name, inputs, result — so out on the right, after the return type and
+        // next to the × that deletes the whole function, it read as a second delete-ish control belonging to
+        // nothing in particular. Its size is blocks.css's business; it used to be whatever a 14px glyph with no
+        // padding happened to be, which is a hit target of about ten pixels.
+        if (canEditSignature()) topRowBuilder.addNode(editSignatureButton(context));
+
         // The badge goes *beside the method name*, not after a spacer out in the middle of the header where it
         // floated next to the louder return-type chip. "Your code goes here" is the answer to the first
         // question a scaffolded file raises, so it belongs where the eye already is.
@@ -202,8 +209,6 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
                 .addNode(returnsLabel).addNode(returnTypeLabel);
 
         if (canEditSignature()) {
-            topRowBuilder.addNode(editSignatureButton(context));
-
             Button deleteBtn = new Button("×");
             deleteBtn.getStyleClass().add("header-delete-button");
             deleteBtn.setOnAction(e -> context.getCodeEditor().deleteMethod((MethodDeclaration) this.astNode));

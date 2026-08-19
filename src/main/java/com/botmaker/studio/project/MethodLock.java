@@ -105,24 +105,35 @@ public enum MethodLock {
         // Only the game-bot scaffold has a supervise contract to protect.
         if (template != ProjectTemplate.GAME_BOT) return NONE;
 
-        String methodName = method.getName().getIdentifier();
-
         if (isActivityStub(config, file)) {
-            if ("isEnabled".equals(methodName)) return FULL;
+            if (isNoArg(method, "isEnabled")) return FULL;
             // @Override public Outcome run() — renaming it, giving it a parameter or changing its return type
             // de-wires the override. The return type is BotMaker's too: the flow routes on what it reports.
-            if ("run".equals(methodName)) return SIGNATURE;
+            if (isNoArg(method, "run")) return SIGNATURE;
             return NONE;
         }
         if (isSuperviseHook(config, file)) {
             // GoHome is an Activity subclass, so it is shaped exactly like an activity stub: its run() is an
             // @Override the user fills in (BotMaker owns the signature — Activity.run's contract and the outcome
             // it routes on), and its isEnabled() is generated wiring the user shouldn't hand-edit.
-            if ("run".equals(methodName)) return SIGNATURE;
-            if ("isEnabled".equals(methodName)) return FULL;
+            if (isNoArg(method, "run")) return SIGNATURE;
+            if (isNoArg(method, "isEnabled")) return FULL;
             return NONE;
         }
         return NONE;
+    }
+
+    /**
+     * True when {@code method} is <em>the</em> {@code name()} BotMaker binds — the no-argument one.
+     *
+     * <p>The name alone is not the method. Java lets the user write a {@code run(int rounds)} helper beside the
+     * generated {@code run()}, and matching on {@code "run"} locked that overload too: their own function came
+     * out grey, with a message explaining that BotMaker calls it. It doesn't — it calls the one that overrides
+     * {@code Activity.run}, and an override is a full signature, not a name. Parameter count is enough to tell
+     * them apart here because the locked forms take none; nothing generated is overloaded.
+     */
+    private static boolean isNoArg(MethodDeclaration method, String name) {
+        return name.equals(method.getName().getIdentifier()) && method.parameters().isEmpty();
     }
 
     /**
@@ -175,6 +186,6 @@ public enum MethodLock {
                                             MethodDeclaration method) {
         if (config == null || file == null || method == null || method.getName() == null) return false;
         if (template != ProjectTemplate.GAME_BOT) return false;
-        return isActivityStub(config, file) && "run".equals(method.getName().getIdentifier());
+        return isActivityStub(config, file) && isNoArg(method, "run");
     }
 }

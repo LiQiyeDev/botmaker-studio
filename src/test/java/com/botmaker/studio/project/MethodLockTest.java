@@ -169,6 +169,50 @@ class MethodLockTest {
                 MethodLock.of(CONFIG, ProjectTemplate.GAME_BOT, userSubpackage, methodNamed(GO_HOME, "run")));
     }
 
+    private static final String OVERLOADED_ACTIVITY = """
+            package com.mybot.activities;
+            public class Mining extends Activity {
+                @Override public boolean isEnabled() { return Activities.Mining; }
+                @Override public void run() { run(3); }
+                public void run(int rounds) {}
+                public boolean isEnabled(String profile) { return true; }
+            }
+            """;
+
+    /** The method of {@code source} named {@code name} taking {@code arity} parameters. */
+    private static MethodDeclaration overload(String source, String name, int arity) {
+        ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
+        parser.setSource(source.toCharArray());
+        CompilationUnit cu = (CompilationUnit) parser.createAST(null);
+        TypeDeclaration type = (TypeDeclaration) cu.types().getFirst();
+        for (MethodDeclaration m : type.getMethods()) {
+            if (m.getName().getIdentifier().equals(name) && m.parameters().size() == arity) return m;
+        }
+        throw new AssertionError("no method " + name + "/" + arity);
+    }
+
+    /**
+     * The reported bug: a {@code run(int rounds)} helper the user wrote beside the generated {@code run()} came
+     * out grey, with a message saying BotMaker calls it. BotMaker calls the override, and an override is a
+     * signature — so the name alone can't be the test. Both locked names are checked, since both were.
+     */
+    @Test
+    void anOverloadTheUserWroteIsTheirs() {
+        Path stub = CONFIG.activitiesPackageDir().resolve("Mining.java");
+        assertEquals(MethodLock.SIGNATURE,
+                MethodLock.of(CONFIG, ProjectTemplate.GAME_BOT, stub, overload(OVERLOADED_ACTIVITY, "run", 0)),
+                "the no-arg run() is still the override BotMaker calls");
+        assertEquals(MethodLock.NONE,
+                MethodLock.of(CONFIG, ProjectTemplate.GAME_BOT, stub, overload(OVERLOADED_ACTIVITY, "run", 1)),
+                "run(int) overrides nothing — it is the user's function");
+        assertEquals(MethodLock.NONE,
+                MethodLock.of(CONFIG, ProjectTemplate.GAME_BOT, stub,
+                        overload(OVERLOADED_ACTIVITY, "isEnabled", 1)));
+        assertFalse(MethodLock.isUsersEntryPoint(CONFIG, ProjectTemplate.GAME_BOT, stub,
+                overload(OVERLOADED_ACTIVITY, "run", 1)),
+                "the \"your code goes here\" badge names one method, not a name");
+    }
+
     @Test
     void theNamesOnlyMatterInTheScaffoldFiles() {
         // A user class of their own that happens to have a run()/isEnabled() is not scaffolding.

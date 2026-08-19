@@ -25,6 +25,11 @@ public final class GutterDecorator implements BlockDecorator {
     @Override
     public void decorate(Node node, AbstractCodeBlock block, CodeEditorService context) {
         if (!(node instanceof Region region)) return;
+        // Expressions are not lines, so they get neither. A breakpoint stops on a statement — there is nothing
+        // to stop on inside `count + 1` — and the 12px strip reserved for its circle was padding every inline
+        // pill in the editor, which is what made an expression slot's drag outline reach well to the left of
+        // the expression it belongs to. The outline now hugs the slot because the slot is now its own size.
+        if (block instanceof com.botmaker.studio.core.ExpressionBlock) return;
 
         double gutter = BlockTheme.current().spacing().gutter();
         Insets existing = region.getPadding();

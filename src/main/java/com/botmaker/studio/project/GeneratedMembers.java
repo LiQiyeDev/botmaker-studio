@@ -138,7 +138,10 @@ public final class GeneratedMembers {
                                            ASTNode body) {
         if (!appliesTo(config, template, file) || !(body instanceof Block block)) return null;
         if (!(block.getParent() instanceof MethodDeclaration method)) return null;
-        if (method.getName() == null || !"run".equals(method.getName().getIdentifier())) return null;
+        // The no-argument run(), not every method spelled "run" — a user's run(int) overload has no pinned
+        // return, the same reason MethodLock stopped locking it (see MethodLock.isNoArg).
+        if (method.getName() == null || !"run".equals(method.getName().getIdentifier())
+                || !method.parameters().isEmpty()) return null;
         if (!isActivity(config, file, method)) return null;
 
         List<?> statements = block.statements();

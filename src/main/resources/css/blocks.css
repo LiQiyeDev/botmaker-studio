@@ -1289,16 +1289,22 @@
 }
 
 /*
- * A slot that will refuse this block — a break/continue over a body with no enclosing loop or switch. The drop
- * is already rejected (the handler doesn't accept the transfer mode, so the cursor shows "no drop"); this red bar
- * says *which* slot said no, which the cursor alone can't. Same geometry as the two accepting states so the
- * layout doesn't shift as the pointer crosses between legal and illegal slots.
+ * A target that will refuse this block — a break/continue over a body with no enclosing loop or switch. The drop
+ * is already rejected (the handler doesn't accept the transfer mode, so the cursor shows "no drop"); this says
+ * *which* target said no, which the cursor alone can't.
+ *
+ * An OUTLINE, not a fill. The two accepting states above fill their node because the node they are painted on
+ * is a separator — a 12px gap that becomes an insertion bar, with nothing underneath to hide. Refusal is
+ * painted on far more than separators (an empty body, a whole statement row, any slot without the
+ * .expression-drop-target class), and filling those meant the answer to "no" was a wide red slab over the very
+ * code the user was aiming at. The border is drawn inside the node's own bounds, so nothing reflows.
  */
 *:drag-over-illegal {
-    -fx-background-color: #dc3545;
-    -fx-background-insets: 5 0 5 0;
-    -fx-background-radius: 2;
-    -fx-opacity: 0.55;
+    -fx-background-color: transparent;
+    -fx-border-color: #dc3545;
+    -fx-border-width: 2;
+    -fx-border-radius: 3;
+    -fx-border-insets: 1;
 }
 
 /*
@@ -1687,11 +1693,22 @@
  * cluster, in the header's own text colour rather than a warning colour — editing is the ordinary action here.
  */
 .header-edit-button {
-    -fx-background-color: transparent;
+    -fx-background-color: rgba(127, 127, 127, 0.28);
+    -fx-background-radius: 4;
     -fx-text-fill: -bm-text-on-color;
-    -fx-font-size: 14px;
-    -fx-padding: 0 6 0 0;
+    -fx-font-size: 13px;
+    -fx-padding: 2 7 2 7;
+    -fx-min-height: 22;
     -fx-cursor: hand;
+}
+
+/*
+ * A real hit target, sized here rather than left to inherit. Beside the method name it is the header's one
+ * ordinary action, so it gets the same neutral-grey inset wash the name field and the parameter pills use —
+ * rgba grey lightens a dark category fill and darkens a light one, so one value reads on all of them.
+ */
+.header-edit-button:hover {
+    -fx-background-color: rgba(127, 127, 127, 0.45);
 }
 
 .header-edit-button:disabled {
