@@ -17,7 +17,6 @@ import com.botmaker.shared.launch.LaunchKind;
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.studio.ui.render.components.EmulatorPickerDialog;
 import com.botmaker.studio.ui.render.components.GameLibraryPickerDialog;
-import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
@@ -31,7 +30,6 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
-import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 
@@ -112,11 +110,10 @@ public final class LaunchTargetDialog {
      * to look again.
      */
     public void show(Runnable onClosed) {
-        stage = new Stage();
-        if (owner != null) stage.initOwner(owner);
+        StudioWindow window = StudioWindow.modal("launch-target", "Launch Target", owner)
+                .size(440, 560).minSize(380, 400);
+        stage = window.stage();
         if (onClosed != null) stage.setOnHidden(e -> onClosed.run());
-        stage.initModality(Modality.APPLICATION_MODAL);
-        stage.setTitle("Launch Target");
 
         currentSpec = ProjectCreator.readLaunchTarget(resourcesDir);
         supported = ProjectCreator.readSupportedTargets(resourcesDir);
@@ -210,8 +207,7 @@ public final class LaunchTargetDialog {
 
         VBox root = new VBox(12, scroller, bar);
         root.setPadding(new Insets(16));
-        stage.setScene(ThemedWindows.scene(root, 440, 560));
-        stage.show();
+        window.show(root);
     }
 
     /**

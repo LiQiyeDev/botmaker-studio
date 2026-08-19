@@ -11,7 +11,9 @@ import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static com.botmaker.studio.BotMakerStudio.PROJECTS_ROOT;
 
@@ -39,6 +41,13 @@ public class ProjectPreferences {
     private List<String> recentLaunchTargets = new ArrayList<>();
     private Integer captureScreenIndex;
     private WindowState windowState;
+    /**
+     * Where each secondary window was left, keyed by the stable id its {@code ui/app/StudioWindow} was built
+     * with. Separate from {@link #windowState} because they answer different questions: that one is "where is
+     * BotMaker", this one is "how big did I make the flow canvas last time". Unknown keys are simply absent,
+     * so a dialog that has never been opened falls back to the size its caller asked for.
+     */
+    private Map<String, WindowState> dialogWindows = new LinkedHashMap<>();
     /** Remote-Pilot pairing token (global to Studio) → stable across restarts so paired phones don't rescan. */
     private String pilotToken;
     /** Last Remote-Pilot local bind port (global to Studio) → reused when free so the tailnet-direct URL is
@@ -64,6 +73,10 @@ public class ProjectPreferences {
     public void setCaptureScreenIndex(Integer index) { this.captureScreenIndex = index; }
     public WindowState getWindowState() { return windowState; }
     public void setWindowState(WindowState windowState) { this.windowState = windowState; }
+    public Map<String, WindowState> getDialogWindows() { return dialogWindows; }
+    public void setDialogWindows(Map<String, WindowState> states) {
+        this.dialogWindows = states == null ? new LinkedHashMap<>() : new LinkedHashMap<>(states);
+    }
     public String getPilotToken() { return pilotToken; }
     public void setPilotToken(String token) { this.pilotToken = token; }
     public int getPilotPort() { return pilotPort; }
@@ -209,6 +222,20 @@ public class ProjectPreferences {
     public static void saveWindowState(WindowState state) {
         ProjectPreferences prefs = load();
         prefs.setWindowState(state);
+        prefs.save();
+    }
+
+    /** Where the secondary window {@code key} was last left, or {@code null} if it has never been sized. */
+    public static WindowState loadDialogState(String key) {
+        // Not isUsable(): that floor (400×300) is the main window's, and several dialogs are smaller than it
+        // by design. What a dialog needs is only that the numbers aren't a collapsed or unwritten window.
+        WindowState state = load().getDialogWindows().get(key);
+        return state != null && state.getWidth() >= 200 && state.getHeight() >= 150 ? state : null;
+    }
+
+    public static void saveDialogState(String key, WindowState state) {
+        ProjectPreferences prefs = load();
+        prefs.getDialogWindows().put(key, state);
         prefs.save();
     }
 

@@ -4,11 +4,9 @@ import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.sharing.BotPublisher;
 import com.botmaker.studio.sharing.GitHubAuth;
 import com.botmaker.studio.sharing.GitHubClient;
-import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.geometry.Insets;
 import javafx.scene.Scene;
 import javafx.scene.layout.VBox;
-import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 
@@ -31,16 +29,14 @@ public class VcsDialog {
     }
 
     public void show() {
-        Stage stage = new Stage();
-        stage.initOwner(owner);
-        stage.initModality(Modality.APPLICATION_MODAL);
-        stage.setTitle("Version Control — " + panel.projectName());
+        StudioWindow window = StudioWindow.modal(
+                        "vcs", "Version Control — " + panel.projectName(), owner)
+                .size(720, 520).minSize(560, 400);
 
         VBox root = new VBox(panel.getView());
         root.setPadding(new Insets(4));
         VBox.setVgrow(panel.getView(), javafx.scene.layout.Priority.ALWAYS);
-        stage.setScene(ThemedWindows.scene(root, 720, 520));
-        stage.show();
+        window.show(root);
         panel.refresh();
     }
 }

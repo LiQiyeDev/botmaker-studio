@@ -456,9 +456,15 @@ public class BotMakerStudio extends Application {
      * Puts {@code scene} on the shell's stage without letting it resize the window.
      *
      * <p>The shell swaps its whole scene several times in a normal session — project selector, loading
-     * screen, editor, Runner — and a {@link Scene} built with a size (the loading screen's 620×600) resizes
-     * the stage it is set on. That is the other half of "the window changes size when I open something": the
-     * geometry is restored around the swap so the window the user sized stays the size they made it.
+     * screen, editor, Runner — and a {@link Scene} built with a size resizes the stage it is set on. That is
+     * the other half of "the window changes size when I open something": the geometry is restored around the
+     * swap so the window the user sized stays the size they made it. All four of those scenes are now built
+     * unsized, so this is the belt to that pair of braces rather than the only thing holding the window still.
+     *
+     * <p><b>Maximized is handled, not skipped.</b> It used to return early on a maximized stage — nothing to
+     * restore, since the window manager owns the geometry — which was true of the *window* and false of the
+     * *scene*: a sized scene kept its own size inside the maximized frame and the rest showed as a black
+     * border. The re-assert below is what closes that, and it costs nothing when the scene already fills.
      */
     private void setScenePreservingGeometry(Stage stage, Scene scene) {
         boolean wasMaximized = stage.isMaximized();
@@ -467,7 +473,14 @@ public class BotMakerStudio extends Application {
         double w = stage.getWidth();
         double h = stage.getHeight();
         stage.setScene(scene);
-        if (wasMaximized || Double.isNaN(w) || Double.isNaN(h) || w <= 0 || h <= 0) return;
+        if (wasMaximized) {
+            // setScene on a maximized stage can leave the flag on while the scene sits at its own size; asking
+            // for it again re-runs the maximize, which is what makes the root fill the frame.
+            if (!stage.isMaximized()) stage.setMaximized(true);
+            requestSceneLayout(stage);
+            return;
+        }
+        if (Double.isNaN(w) || Double.isNaN(h) || w <= 0 || h <= 0) return;
         if (stage.getWidth() != w) stage.setWidth(w);
         if (stage.getHeight() != h) stage.setHeight(h);
         if (stage.getX() != x) stage.setX(x);

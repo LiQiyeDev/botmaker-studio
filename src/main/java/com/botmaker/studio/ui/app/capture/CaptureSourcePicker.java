@@ -16,7 +16,7 @@ import com.botmaker.studio.project.capture.CaptureTarget.DesktopTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.EmulatorTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.ScreenTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.WindowTarget;
-import com.botmaker.studio.ui.render.theme.ThemedWindows;
+import com.botmaker.studio.ui.app.StudioWindow;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -34,7 +34,6 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
-import javafx.stage.Modality;
 import javafx.stage.Screen;
 import javafx.stage.Stage;
 import javafx.stage.Window;
@@ -94,10 +93,9 @@ public final class CaptureSourcePicker {
 
     /** Shows the picker modally and returns the chosen source, or empty if cancelled. */
     public Optional<Selection> showAndWait() {
-        stage = new Stage();
-        if (owner != null) stage.initOwner(owner);
-        stage.initModality(Modality.APPLICATION_MODAL);
-        stage.setTitle("Choose capture source");
+        StudioWindow window = StudioWindow.modal("capture-source", "Choose capture source", owner)
+                .size(760, 560).minSize(560, 420);
+        stage = window.stage();
 
         FlowPane windows = category();
         FlowPane monitors = category();
@@ -158,9 +156,8 @@ public final class CaptureSourcePicker {
         loadDesktop(desktop);
         loadEmulators(emulators);
 
-        stage.setScene(ThemedWindows.scene(rootBox, 760, 560));
         stage.setOnHidden(e -> stopThumbs());
-        stage.showAndWait();
+        window.showAndWait(rootBox);
         return Optional.ofNullable(selected);
     }
 

@@ -12,7 +12,6 @@ import com.botmaker.studio.project.launch.QuickLaunch;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
-import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -24,7 +23,6 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
-import javafx.stage.Modality;
 import javafx.stage.Stage;
 
 import java.util.function.Consumer;
@@ -82,10 +80,9 @@ public final class ProjectSetupDialog {
     }
 
     public void show() {
-        stage = new Stage();
-        if (owner != null) stage.initOwner(owner);
-        stage.initModality(Modality.APPLICATION_MODAL);
-        stage.setTitle("Project Setup");
+        StudioWindow window = StudioWindow.modal("project-setup", "Project Setup", owner)
+                .size(520, 440).minSize(440, 360);
+        stage = window.stage();
 
         Label heading = new Label("Set your project up to run");
         heading.setStyle("-fx-font-weight: bold; -fx-font-size: 15px;");
@@ -127,8 +124,7 @@ public final class ProjectSetupDialog {
         });
 
         refresh();
-        stage.setScene(ThemedWindows.scene(root, 520, 440));
-        stage.show();
+        window.show(root);
     }
 
     /** Re-reads every step's status from the project and rebuilds the checklist rows. */

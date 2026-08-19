@@ -30,6 +30,7 @@ import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.*;
+import javafx.scene.shape.Rectangle;
 import javafx.stage.Stage;
 
 import java.io.IOException;
@@ -56,8 +57,6 @@ public class UIManager implements ProjectWindow {
     private static final double EXEC_WIDTH_SHARE = 0.42;
     /** Floor under that share, so a very narrow window wraps the cluster rather than stacking it one per row. */
     private static final double EXEC_MIN_WRAP_PX = 170;
-    /** Floor under the centre group's wrap length, for the same reason as {@link #EXEC_MIN_WRAP_PX}. */
-    private static final double CAPTURE_MIN_WRAP_PX = 200;
 
     private final EventBus eventBus;
     private final CodeEditorService codeEditorService;
@@ -272,7 +271,7 @@ public class UIManager implements ProjectWindow {
         HBox editControls = toolbarManager.createEditGroup();
         editControls.setAlignment(Pos.CENTER_LEFT);
 
-        FlowPane executionControls = toolbarManager.createExecutionGroup();
+        OverflowBar executionControls = toolbarManager.createExecutionGroup();
         this.identityCluster = new IdentityCluster(primaryStage, actions.gitHubAuth(), actions.gitHubClient(),
                 () -> selectBottomTab(BottomTab.VCS));
         HBox rightContainer = new HBox(10, executionControls, identityCluster.node());
@@ -281,7 +280,7 @@ public class UIManager implements ProjectWindow {
         // Breathing room against the window edge, mirroring the padding createEditGroup() applies on its side.
         rightContainer.setPadding(new Insets(0, 10, 0, 0));
 
-        FlowPane captureControls = toolbarManager.createCaptureGroup();
+        OverflowBar captureControls = toolbarManager.createCaptureGroup();
 
         BorderPane topBar = new BorderPane();
         topBar.setLeft(editControls);
@@ -304,27 +303,26 @@ public class UIManager implements ProjectWindow {
         // makes the bar refuse the shrink; mainSplit (min 0, Vgrow.ALWAYS) absorbs it instead, as it should.
         topBar.setMinWidth(0);
         // Why the run cluster needs telling how wide it may be: BorderPane lays its right child out at that
-        // child's *preferred* width, and a FlowPane's preferred width is "whatever fits on one row" unless it is
-        // given a wrap length. Left alone it would therefore behave exactly like the HBox it replaced — pinned to
-        // one line, with the centre group absorbing every pixel the window loses. Tying the wrap length to a share
-        // of the bar means it stays one row while there is room for one (the share exceeds the cluster's natural
-        // width on any normal window) and starts wrapping only once the bar is genuinely tight — which is the
-        // point at which the centre group would otherwise have been wrapping alone.
-        executionControls.prefWrapLengthProperty().bind(Bindings.createDoubleBinding(
+        // child's *preferred* width, and a wrapping group's preferred width is "whatever fits on one row".
+        // Left alone it would therefore behave exactly like the HBox it replaced — pinned to one line, with
+        // the centre group absorbing every pixel the window loses. Tying it to a share of the bar means it
+        // stays one row while there is room for one (the share exceeds the cluster's natural width on any
+        // normal window) and starts wrapping only once the bar is genuinely tight — which is the point at
+        // which the centre group would otherwise have been wrapping alone.
+        executionControls.prefWidthProperty().bind(Bindings.createDoubleBinding(
                 () -> Math.max(EXEC_MIN_WRAP_PX, topBar.getWidth() * EXEC_WIDTH_SHARE), topBar.widthProperty()));
-        // The centre group needs the same treatment, and for a sharper reason: it is the one whose *height*
-        // the bar is sized from. A FlowPane asked for its preferred height without a width answers against
-        // its wrap length (400px by default), not against the width BorderPane will really hand it — and the
-        // min-height clamp above resolves through exactly that width-less query. The bar therefore reserved
-        // the height of a 400px-wide capture group while laying out a much wider, shorter one, or a much
-        // narrower, taller one, and the rows that didn't fit painted upward over the menu bar. Binding the
-        // wrap length to the width actually left between the two edge clusters makes the two agree.
-        captureControls.prefWrapLengthProperty().bind(Bindings.createDoubleBinding(
-                () -> Math.max(CAPTURE_MIN_WRAP_PX,
-                        topBar.getWidth() - editControls.getWidth() - rightContainer.getWidth()),
-                topBar.widthProperty(), editControls.widthProperty(), rightContainer.widthProperty()));
+        // The centre group gets whatever the two edges leave, which BorderPane hands it without being asked.
+        // It needs no width binding of its own: an OverflowBar answers a width-less height query against the
+        // width it is currently laid out at, and — unlike the FlowPane it replaced — the answer is bounded by
+        // its row cap, so the height this bar reserves can no longer be the height of four rows of buttons.
         topBar.setPrefHeight(Region.USE_COMPUTED_SIZE);
         topBar.setMinHeight(Region.USE_PREF_SIZE);
+        // And the belt to that brace: a Region does not clip, so any future disagreement about the bar's
+        // height paints over the menu bar rather than being cut off at it. This is the cut.
+        Rectangle topBarClip = new Rectangle();
+        topBarClip.widthProperty().bind(topBar.widthProperty());
+        topBarClip.heightProperty().bind(topBar.heightProperty());
+        topBar.setClip(topBarClip);
 
         VBox toolbarColumn = new VBox(topBar);
         toolbarColumn.setMinWidth(0);
@@ -420,7 +418,11 @@ public class UIManager implements ProjectWindow {
         // routing through shutdown()) — release the same things dispose() does, idempotently.
         primaryStage.setOnHidden(e -> dispose());
 
-        Scene scene = new Scene(root, 1000, 700);
+        // Unsized, like the loading screen and the Runner. A Scene built with a width and height carries that
+        // size onto the Stage it is set on — and when the Stage is maximized the window manager refuses the
+        // resize while the Scene keeps its 1000×700 anyway, so the editor laid itself out at 1000×700 inside a
+        // full-screen window and the rest was the black nothing behind it. That was the black border.
+        Scene scene = new Scene(root);
         this.scene = scene;
 
         // Block "state" styling (highlight / error / breakpoint / read-only) via pseudo-classes.

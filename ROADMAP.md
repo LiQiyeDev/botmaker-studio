@@ -6,6 +6,20 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-19 — A window shell that holds still (`ui/app/StudioWindow`, `ui/app/OverflowBar`,
+  `ui/app/ToolbarPacking`, `ui/app/UIManager`, `ui/app/runner/RunnerWindow`, `BotMakerStudio`).** The black
+  border after editor → user view → editor was a sized `Scene` on a maximized `Stage`: the window manager
+  refuses the resize, the scene keeps its 1000×700 anyway, and the rest is the nothing behind it. All four
+  shell scenes are built unsized and `setScenePreservingGeometry` now handles the maximized case instead of
+  returning early from it. New `StudioWindow` is the one way a secondary window is opened — owner, modality,
+  theme, minimum size, remembered geometry (per-key, in `ProjectPreferences.dialogWindows`) and a guard that
+  puts the owner's geometry back if it drifted while the dialog was up; ten dialogs migrated, and
+  `ProjectSelectionScreen` is a `ProjectWindow` like the other two. The toolbar's `FlowPane`s became
+  `OverflowBar`: at most two rows, the rest in a `»` menu built from the buttons themselves, and the bar is
+  clipped so a future disagreement about its height cannot paint over the menu bar again. The two
+  state-tracking buttons are capped rather than pinned, and Step/Continue carry `.toolbar-btn` like their five
+  neighbours. `ToolbarPacking` is pure and unit-tested.
+
 - **2026-08-19 — A flow that saves itself and can be taken back (`ui/app/flow/FlowHistory`,
   `ui/app/flow/FlowSnapshot`, `ui/app/flow/FlowCanvas`, `ui/app/ActivityFlowDialog`).** New `FlowHistory` —
   whole-canvas snapshots rather than per-mutation inverses, since deleting a card drops its wires and

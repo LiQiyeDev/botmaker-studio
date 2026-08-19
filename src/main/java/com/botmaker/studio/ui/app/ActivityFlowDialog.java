@@ -36,7 +36,6 @@ import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
-import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 
@@ -121,10 +120,9 @@ public class ActivityFlowDialog {
     }
 
     public void show() {
-        stage = new Stage();
-        stage.initOwner(owner);
-        stage.initModality(Modality.APPLICATION_MODAL);
-        stage.setTitle("Activity Flow");
+        StudioWindow window = StudioWindow.modal("activity-flow", "Activity Flow", owner)
+                .size(1040, 680).minSize(760, 480);
+        stage = window.stage();
 
         loadCurrent();
 
@@ -146,7 +144,6 @@ public class ActivityFlowDialog {
         showInSidePanel(null);
         refreshOrderLabel();
 
-        stage.setScene(ThemedWindows.scene(root, 1040, 680));
         // The window's own ✕ is the same door as the Close button, and it must not be the one that loses the
         // last edit: both go through closeRequested, which flushes anything outstanding first.
         stage.setOnCloseRequest(e -> {
@@ -155,7 +152,7 @@ public class ActivityFlowDialog {
                 closeRequested();
             }
         });
-        stage.show();
+        window.show(root);
         // Cards have real bounds only after the first layout pass; re-draw so the wires land on the ports —
         // and auto-arrange there too, since it stacks cards by their real heights and would otherwise lay the
         // first-ever open out against the fallback height.

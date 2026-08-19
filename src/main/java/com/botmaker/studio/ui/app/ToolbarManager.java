@@ -10,8 +10,8 @@ import com.botmaker.studio.project.launch.QuickLaunch;
 import com.botmaker.shared.launch.LaunchKind;
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.studio.services.ProjectSettingsService;
+import javafx.geometry.HPos;
 import javafx.geometry.Insets;
-import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
@@ -20,7 +20,6 @@ import javafx.scene.control.ToggleButton;
 import javafx.scene.control.Tooltip;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
-import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Region;
 
@@ -33,13 +32,20 @@ public class ToolbarManager {
     /** Edge length of the launch target's cover thumbnail on its toolbar button. */
     private static final int LAUNCH_ICON_PX = 20;
     /**
-     * Fixed width for the two buttons whose label tracks project state (capture target, launch target).
+     * Ceiling for the two buttons whose label tracks project state (capture target, launch target).
      * Sized for {@link #CAPTURE_LABEL_MAX} characters plus the icon and padding. These are the buttons that
      * change text <em>after</em> the bar is laid out — on a target switch, and again when
      * {@link #resolveLaunchArtwork} 's background scan lands with the real game title — so leaving them to
      * size themselves makes the toolbar re-wrap at moments the user reads as "the window moved on its own".
      */
     private static final int TARGET_BTN_WIDTH = 200;
+
+    /**
+     * How many rows either toolbar group may wrap onto before the rest goes into its {@code »} menu. Two,
+     * because the bar sits between the menu bar and the canvas: a third row is already more toolbar than most
+     * windows have room for above the code.
+     */
+    private static final int TOOLBAR_MAX_ROWS = 2;
 
     private final EventBus eventBus;
     private final ProjectSettingsService settings;
@@ -231,17 +237,17 @@ public class ToolbarManager {
     }
 
     /**
-     * Creates the center group: every project-level action as its own visible button. It is a {@link FlowPane}
-     * so a narrow window <em>wraps</em> the buttons onto further rows instead of clipping them — which is why
-     * there is no longer a "⋯ More" overflow menu hiding Capture Templates / Overlay Editor / Resources. An
-     * overflow menu trades one problem (too wide) for a worse one (an action you can't see is an action you
-     * don't know exists), and it hid those three even at full width, where there was room for them.
+     * Creates the center group: every project-level action as its own visible button, wrapping onto a second
+     * row when the window narrows and into a {@code »} menu after that ({@link OverflowBar}).
      *
-     * <p>{@code minWidth = 0} matters: without it the group's preferred width becomes a floor on the stage's
-     * width, so a button whose label grows ("🐞 Debug: off" → "on", a longer capture target) would push the
-     * window wider on click.
+     * <p>There used to be a "⋯ More" menu here that hid Capture Templates / Overlay Editor / Resources
+     * <em>at every width</em>, and dropping it for a wrapping pane was right: an action you can't see is an
+     * action you don't know exists, and there was room for those three. What the pane then did was wrap
+     * without limit, so at narrow widths the bar grew rows until it painted over the menu bar. The cap is the
+     * middle position — nothing is hidden while there is room for it, and the overflow appears only at a width
+     * where the alternative was a toolbar taller than the canvas.
      */
-    public FlowPane createCaptureGroup() {
+    public OverflowBar createCaptureGroup() {
         Button projectSetupButton = new Button("🧭 Setup");
         projectSetupButton.getStyleClass().add("toolbar-btn");
         projectSetupButton.setTooltip(new Tooltip(
@@ -388,7 +394,9 @@ public class ToolbarManager {
         resolutionLabel.setMinHeight(Region.USE_PREF_SIZE);
         resolutionLabel.setTooltip(new Tooltip("Project standard resolution · primary screen resolution"));
 
-        FlowPane group = new FlowPane(Orientation.HORIZONTAL, 5, 5,
+        // The order is also the order things drop into the » menu: what is furthest right goes first, so the
+        // readout and the least-reached-for tools are what a narrow window costs you, not Project Setup.
+        return new OverflowBar(5, 5, TOOLBAR_MAX_ROWS, HPos.CENTER,
                 // Launch before Capture: you pick what the bot opens, then where it looks — and a game's
                 // window can only be picked as a capture target once the game is actually up.
                 // Settings sits next to Setup: the checklist is the guided path, this is the same project's
@@ -401,15 +409,17 @@ public class ToolbarManager {
                 debugOutputButton, previewAsUserButton, inputConfigButton, captureTemplatesButton,
                 overlayEditorButton, recordButton,
                 resourcesButton, resolutionLabel);
-        group.setAlignment(Pos.CENTER);
-        group.setMinWidth(0);
-        return group;
     }
 
-    /** Locks a button to {@link #TARGET_BTN_WIDTH}, ellipsizing a label too long to fit rather than growing. */
+    /**
+     * Caps a button at {@link #TARGET_BTN_WIDTH}, ellipsizing a label too long to fit rather than growing.
+     *
+     * <p>It used to pin min = pref = max, which stopped the bar re-wrapping when a label changed but made
+     * these two buttons a 200px floor each inside a pane that was supposed to be able to shrink. A ceiling is
+     * what the problem actually asked for: a long game title still can't widen the toolbar, and a short one no
+     * longer holds 200px it isn't using.
+     */
     private static void pinWidth(Button button) {
-        button.setMinWidth(TARGET_BTN_WIDTH);
-        button.setPrefWidth(TARGET_BTN_WIDTH);
         button.setMaxWidth(TARGET_BTN_WIDTH);
         button.setTextOverrun(OverrunStyle.ELLIPSIS);
     }
@@ -527,17 +537,16 @@ public class ToolbarManager {
      * Creates the right-side group: Compile, Run, Debug, Follow, Stop, Step, Continue — the whole "make this bot
      * go" sequence in the order you'd use it.
      *
-     * <p>A {@link FlowPane}, like {@link #createCaptureGroup()}, and for the same reason turned inside out: as an
-     * {@code HBox} this cluster held one line at any width, so a narrow window took the space out of the
+     * <p>An {@link OverflowBar}, like {@link #createCaptureGroup()}, and for the same reason turned inside out:
+     * as an {@code HBox} this cluster held one line at any width, so a narrow window took the space out of the
      * <em>centre</em> group instead, which then wrapped onto three or four rows and pushed the bar's height up.
-     * Wrapping here lets the two groups share the shortfall a row at a time. {@code minWidth = 0} for the same
-     * reason the capture group sets it: the group's preferred width must not become a floor on the stage's.
+     * Wrapping here lets the two groups share the shortfall a row at a time.
      *
-     * <p>What makes the wrap actually happen is {@code prefWrapLength}, bound to a share of the toolbar width in
+     * <p>What makes the wrap actually happen is the preferred width bound to a share of the toolbar in
      * {@code UIManager.createScene()} — a {@code BorderPane} hands its right child that child's <em>preferred</em>
-     * width, so a FlowPane left to compute its own would report one row's worth and never be squeezed.
+     * width, so a group left to compute its own would report one row's worth and never be squeezed.
      */
-    public FlowPane createExecutionGroup() {
+    public OverflowBar createExecutionGroup() {
         Button compileButton = new Button("⚙ Compile");
         compileButton.getStyleClass().add("toolbar-btn");
         compileButton.setOnAction(e -> eventBus.publish(new CoreApplicationEvents.CompilationRequestedEvent()));
@@ -563,19 +572,20 @@ public class ToolbarManager {
             else if (currentAppState == AppState.DEBUGGING) eventBus.publish(new CoreApplicationEvents.DebugStopRequestedEvent());
         });
 
+        // These two carry .toolbar-btn like the other five. Without it they fell back to Modena's own button,
+        // which in a dark theme is a shape with no fill — the "Compile/Follow group renders as a bare line".
         stepOverButton = new Button("⤵ Step");
+        stepOverButton.getStyleClass().add("toolbar-btn");
         stepOverButton.setDisable(true);
         stepOverButton.setOnAction(e -> eventBus.publish(new CoreApplicationEvents.DebugStepOverRequestedEvent()));
 
         continueButton = new Button("⏩ Cont");
+        continueButton.getStyleClass().add("toolbar-btn");
         continueButton.setDisable(true);
         continueButton.setOnAction(e -> eventBus.publish(new CoreApplicationEvents.DebugContinueRequestedEvent()));
 
-        FlowPane group = new FlowPane(Orientation.HORIZONTAL, 5, 5,
+        return new OverflowBar(5, 5, TOOLBAR_MAX_ROWS, HPos.RIGHT,
                 compileButton, runButton, debugButton, followButton, unifiedStopButton, stepOverButton, continueButton);
-        group.setAlignment(Pos.CENTER_RIGHT);
-        group.setMinWidth(0);
-        return group;
     }
 
     private void setAppState(AppState state) {

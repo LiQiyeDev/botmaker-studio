@@ -29,9 +29,14 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Project selection screen shown on startup with project creation capability
+ * Project selection screen shown on startup with project creation capability.
+ *
+ * <p>A {@link ProjectWindow} like the other two, though it shows no project: it is the third scene the shell's
+ * one stage holds, and the reason it is under the contract is that it had grown a {@code createScene()} of
+ * exactly the same shape without any of the same guarantees — nothing released what it acquired, and its scene
+ * carried a size onto a window the user had already sized.
  */
-public class ProjectSelectionScreen {
+public class ProjectSelectionScreen implements ProjectWindow {
 
     private final ProjectManager projectManager;
     private final ProjectCreator projectCreator;
@@ -107,6 +112,16 @@ public class ProjectSelectionScreen {
         this.onProjectSelected = onProjectSelected;
     }
 
+    /**
+     * Nothing to release. Both HTTP clients here are the JDK's, whose executor is daemon-threaded and
+     * collected with the client, and the screen registers no listener outside its own scene — but the method
+     * is the contract's, and a future field that <em>does</em> need releasing now has the place to be released
+     * in rather than a reason to opt out of the interface.
+     */
+    @Override
+    public void dispose() {}
+
+    @Override
     public Scene createScene() {
         BorderPane root = new BorderPane();
         root.setPadding(new Insets(20));
@@ -193,7 +208,11 @@ public class ProjectSelectionScreen {
 
         rebuildRows();
 
-        return ThemedWindows.scene(root, 620, 600);
+        // Unsized: this is one of four scenes swapped onto the *same* shell stage (selector → loading →
+        // editor → Runner), and a scene that carries a size imposes it on a window the user has already
+        // sized — or, when the window is maximized and refuses, keeps that size for itself and lays the
+        // screen out in a 620×600 corner of it.
+        return ThemedWindows.scene(root);
     }
 
     /** Renders a row: a bold group header (non-selectable) or the project card. */

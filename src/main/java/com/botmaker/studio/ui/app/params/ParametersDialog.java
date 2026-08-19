@@ -11,6 +11,7 @@ import com.botmaker.studio.services.TagCatalog;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.VariableRailModel;
 import com.botmaker.studio.ui.app.ActivityFlowDialog;
+import com.botmaker.studio.ui.app.StudioWindow;
 import com.botmaker.studio.ui.app.flow.FlowNames;
 import com.botmaker.studio.ui.app.params.ParamValueWidgets.ValueEditor;
 import com.botmaker.studio.ui.render.components.BotTypePicker;
@@ -44,7 +45,6 @@ import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
-import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 
@@ -116,19 +116,17 @@ public final class ParametersDialog {
         // The very catalog the template gallery reads, so a tag means the same thing in both places.
         catalog = ImageTemplateLibrary.tagCatalog(config);
 
-        stage = new Stage();
-        stage.initOwner(owner);
-        stage.initModality(Modality.APPLICATION_MODAL);
-        stage.setTitle("Parameters");
+        StudioWindow window = StudioWindow.modal("parameters", "Parameters", owner)
+                .size(900, 640).minSize(700, 460);
+        stage = window.stage();
 
         BorderPane root = new BorderPane();
         root.setLeft(buildRail());
         root.setCenter(buildParamPane());
         root.setBottom(buildBottomBar());
 
-        stage.setScene(ThemedWindows.scene(root, 900, 640));
         rebuildRail();
-        stage.show();
+        window.show(root);
     }
 
     // --- left: the tag rail ------------------------------------------------------------------------------

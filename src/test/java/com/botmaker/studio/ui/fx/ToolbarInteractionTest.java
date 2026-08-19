@@ -3,10 +3,10 @@ package com.botmaker.studio.ui.fx;
 import com.botmaker.studio.events.ApplicationEvent;
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
+import com.botmaker.studio.ui.app.OverflowBar;
 import com.botmaker.studio.ui.app.ToolbarManager;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
-import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
@@ -42,7 +42,7 @@ class ToolbarInteractionTest extends FxHeadlessTest {
         // No project settings needed for these edit/execution-group assertions (only the capture group reads them).
         ToolbarManager toolbar = new ToolbarManager(bus, null);
         HBox edit = toolbar.createEditGroup();
-        FlowPane exec = toolbar.createExecutionGroup();
+        OverflowBar exec = toolbar.createExecutionGroup();
 
         runButton = (Button) exec.lookup(".btn-run");
         stopButton = (Button) exec.lookup(".btn-stop");

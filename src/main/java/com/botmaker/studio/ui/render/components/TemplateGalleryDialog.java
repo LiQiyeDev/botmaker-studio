@@ -1,14 +1,13 @@
 package com.botmaker.studio.ui.render.components;
 
 import com.botmaker.studio.project.ProjectConfig;
-import com.botmaker.studio.ui.render.theme.ThemedWindows;
+import com.botmaker.studio.ui.app.StudioWindow;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
-import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 
@@ -73,10 +72,9 @@ public final class TemplateGalleryDialog {
 
     /** Opens the gallery; {@code onChosen} gets the picked templates, and is not called if nothing is picked. */
     public static void open(Window owner, ProjectConfig config, Options options, Consumer<List<Path>> onChosen) {
-        Stage stage = new Stage();
-        stage.initOwner(owner);
-        stage.initModality(Modality.APPLICATION_MODAL);
-        stage.setTitle(options.title());
+        StudioWindow window = StudioWindow.modal("template-gallery", options.title(), owner)
+                .size(760, 560).minSize(560, 420);
+        Stage stage = window.stage();
 
         TemplateGallery gallery = new TemplateGallery(config, options.multiSelect());
         if (options.filter() != null) gallery.setFilter(options.filter());
@@ -126,7 +124,6 @@ public final class TemplateGalleryDialog {
         VBox root = new VBox(12, gallery, buttons);
         VBox.setVgrow(gallery, Priority.ALWAYS);
         root.setPadding(new Insets(16));
-        stage.setScene(ThemedWindows.scene(root, 760, 560));
-        stage.show();
+        window.show(root);
     }
 }

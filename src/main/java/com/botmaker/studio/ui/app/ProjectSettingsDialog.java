@@ -5,7 +5,6 @@ import com.botmaker.studio.project.StudioProjectSettings;
 import com.botmaker.studio.project.StudioProjectSettings.Resolution;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
-import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import com.botmaker.studio.util.MethodSignature;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
@@ -28,7 +27,6 @@ import javafx.util.StringConverter;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
-import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 
@@ -85,10 +83,9 @@ public class ProjectSettingsDialog {
     }
 
     public void show() {
-        stage = new Stage();
-        stage.initOwner(owner);
-        stage.initModality(Modality.APPLICATION_MODAL);
-        stage.setTitle("Project Settings");
+        StudioWindow window = StudioWindow.modal("project-settings", "Project Settings", owner)
+                .size(560, 560).minSize(480, 400);
+        stage = window.stage();
 
         StudioProjectSettings s = settingsService.current();
 
@@ -108,8 +105,7 @@ public class ProjectSettingsDialog {
         seedResolution(s.referenceResolution());
         root.getChildren().addAll(resolutionPane, buildFavMethodsPane(), buildFavOverloadsPane(), buildButtonBar());
 
-        stage.setScene(ThemedWindows.scene(root, 560, 560));
-        stage.show();
+        window.show(root);
     }
 
     private TitledPane buildResolutionPane() {

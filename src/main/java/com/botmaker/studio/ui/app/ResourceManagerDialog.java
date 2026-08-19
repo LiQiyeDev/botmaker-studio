@@ -38,7 +38,6 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
-import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 
@@ -114,10 +113,10 @@ public class ResourceManagerDialog {
     }
 
     public void show() {
-        stage = new Stage();
-        stage.initOwner(owner);
-        stage.initModality(Modality.APPLICATION_MODAL);
-        stage.setTitle("Resource Manager — Image Templates");
+        StudioWindow window = StudioWindow.modal(
+                        "resource-manager", "Resource Manager — Image Templates", owner)
+                .size(880, 620).minSize(700, 460);
+        stage = window.stage();
 
         // Multi-select: plain click toggles a tile, so filing or deleting a group is the same gesture as
         // picking one. Every bulk action below reads gallery.selectedFiles().
@@ -167,8 +166,7 @@ public class ResourceManagerDialog {
         root.setPadding(new Insets(16));
 
         reload();
-        stage.setScene(ThemedWindows.scene(root, 880, 620));
-        stage.show();
+        window.show(root);
     }
 
     /** Re-reads the library after a change here (or in the tag manager) so the grid and the rail counts agree. */

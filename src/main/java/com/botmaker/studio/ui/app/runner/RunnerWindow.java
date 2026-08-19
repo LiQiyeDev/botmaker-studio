@@ -143,7 +143,10 @@ public final class RunnerWindow implements ProjectWindow {
 
         subscribe();
 
-        Scene scene = new Scene(shell, 900, 700);
+        // Unsized on purpose — see UIManager.createScene(): this scene lands on the shell's stage, which
+        // already has the geometry the user chose, and a sized one would fight it (or, maximized, lose to it
+        // and leave the window bordered in black).
+        Scene scene = new Scene(shell);
         ThemedWindows.addStylesheet(scene);
         return scene;
     }

@@ -3,7 +3,6 @@ package com.botmaker.studio.ui.app;
 import com.botmaker.shared.capture.linux.input.LinuxInputBackendId;
 import com.botmaker.studio.project.BotSettings;
 import com.botmaker.studio.project.ProjectConfig;
-import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
@@ -18,7 +17,6 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
-import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 import javafx.util.StringConverter;
@@ -65,10 +63,9 @@ public final class BotSettingsDialog {
     }
 
     public void show() {
-        stage = new Stage();
-        if (owner != null) stage.initOwner(owner);
-        stage.initModality(Modality.APPLICATION_MODAL);
-        stage.setTitle("Input & Clicks");
+        StudioWindow window = StudioWindow.modal("bot-settings", "Input & Clicks", owner)
+                .size(620, 720).minSize(520, 420);
+        stage = window.stage();
 
         seed(BotSettings.read(config.resourcesRoot()));
 
@@ -95,8 +92,7 @@ public final class BotSettingsDialog {
                 buildSessionPane(), new Separator(), buildVisionPane(), new Separator(), bar);
         root.setPadding(new Insets(18));
 
-        stage.setScene(ThemedWindows.scene(root, 620, 720));
-        stage.show();
+        window.show(root);
     }
 
     /**
