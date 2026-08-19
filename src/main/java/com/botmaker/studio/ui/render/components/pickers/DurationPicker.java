@@ -4,7 +4,9 @@ import com.botmaker.studio.core.AbstractCodeBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.parser.helpers.SdkNodes;
+import com.botmaker.studio.project.activity.DurationWire;
 import com.botmaker.studio.services.CodeEditorService;
+import com.botmaker.studio.ui.render.components.DurationFields;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -12,26 +14,25 @@ import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
-import javafx.scene.control.ComboBox;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
-import javafx.scene.control.TextField;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.VBox;
 import javafx.stage.Window;
 import org.eclipse.jdt.core.dom.Expression;
 import org.eclipse.jdt.core.dom.MethodInvocation;
 
-import java.util.Locale;
-
 /**
- * Editor for a {@code java.time.Duration} argument — a value, a unit, and the "random range" toggle that is
- * the reason a wait is typed at all.
+ * Editor for a {@code java.time.Duration} argument — a length, and the "random range" toggle that is the
+ * reason a wait is typed at all.
  *
  * <p>A wait is the one argument in the SDK whose <em>unit</em> is invisible in the number: {@code 2} is two
  * seconds or two milliseconds depending on which method it was typed into, a thousandfold difference that
- * reads identically. So the control shows the unit next to the number rather than leaving it in the method
- * name, and lets the unit be changed without retyping the value.
+ * reads identically. So the length is entered through the shared {@link DurationFields} — one box per unit,
+ * hours to milliseconds — rather than leaving the unit in the method name. That control is shared with the
+ * parameters editor on purpose: the single amount + unit dropdown this used to have could only ever say a
+ * multiple of one unit, so four and a half minutes had to be typed as 270 seconds.
  *
  * <p><b>The range is a different call, not a different value.</b> The SDK used to ship its own
  * {@code Duration} record that could itself be a range; it is gone, and the humanized wait is now
@@ -56,9 +57,10 @@ public final class DurationPicker {
 
     private static final String FQN = "java.time.Duration";
 
-    /** The units {@code java.time.Duration}'s factories offer, in the order the dropdown lists them. */
+    /** The units {@code java.time.Duration}'s factories offer, smallest first. */
     enum Unit {
-        MS("ms", "ofMillis", 1), SECONDS("s", "ofSeconds", 1_000), MINUTES("min", "ofMinutes", 60_000);
+        MS("ms", "ofMillis", 1), SECONDS("s", "ofSeconds", 1_000), MINUTES("min", "ofMinutes", 60_000),
+        HOURS("h", "ofHours", 3_600_000);
 
         private final String label;
         private final String factory;
@@ -93,17 +95,37 @@ public final class DurationPicker {
          */
         String code() {
             long ms = millis();
-            if (unit == Unit.MINUTES && ms % 60_000 == 0) return factory(Unit.MINUTES, ms / 60_000);
-            if (unit != Unit.MS && ms % 1_000 == 0) return factory(Unit.SECONDS, ms / 1_000);
+            // Largest unit that both divides evenly and is no coarser than the one this length was entered
+            // in: 4h30m (typed as hours + minutes) commits ofMinutes(270), while a source that already said
+            // ofSeconds(120) is left saying seconds rather than being rewritten to ofMinutes(2) on open.
+            for (Unit candidate : new Unit[]{Unit.HOURS, Unit.MINUTES, Unit.SECONDS}) {
+                if (unit.millis >= candidate.millis && ms % candidate.millis == 0) {
+                    return factory(candidate, ms / candidate.millis);
+                }
+            }
             return factory(Unit.MS, ms);
+        }
+
+        /** The same length read off a millisecond total, in the coarsest unit that still says it exactly. */
+        static Value ofMillis(long ms) {
+            for (Unit candidate : new Unit[]{Unit.HOURS, Unit.MINUTES, Unit.SECONDS}) {
+                if (ms != 0 && ms % candidate.millis == 0) return new Value(candidate, ms / candidate.millis);
+            }
+            return new Value(Unit.MS, ms);
         }
 
         long millis() {
             return Math.round(amount * unit.millis);
         }
 
+        /**
+         * The canonical spelling of the whole length ({@code 4h30m}), not the number and unit it happens to
+         * be stored in: {@code Duration.ofMinutes(270)} on a block reads as four and a half hours, which is
+         * what it is. The <em>source</em> keeps the unit it was written in — that is {@link #code()}'s job,
+         * and the two are deliberately separate now that a length can span several units.
+         */
         String label() {
-            return number(amount) + " " + unit.label;
+            return DurationWire.format(millis());
         }
 
         private static String factory(Unit unit, long amount) {
@@ -207,13 +229,9 @@ public final class DurationPicker {
         dialog.setTitle("Duration");
         dialog.setHeaderText(null);
 
-        TextField from = new TextField(number(current.from().amount()));
-        from.setPrefColumnCount(6);
-        TextField to = new TextField(number(current.to().amount()));
-        to.setPrefColumnCount(6);
+        DurationFields from = new DurationFields(current.from().millis());
+        DurationFields to = new DurationFields(current.to().millis());
         Label dash = new Label("to");
-        ComboBox<Unit> fromUnit = unitBox(current.from().unit());
-        ComboBox<Unit> toUnit = unitBox(current.to().unit());
         CheckBox range = new CheckBox("Random range");
         range.setSelected(current.range());
         range.setVisible(rangeable);
@@ -224,13 +242,15 @@ public final class DurationPicker {
 
         // Bound rather than merely disabled: the second field is meaningless for a fixed duration, and a
         // greyed-out number still reads as part of the value.
-        for (Node hidden : new Node[]{dash, to, toUnit}) {
-            hidden.visibleProperty().bind(range.selectedProperty());
-            hidden.managedProperty().bind(range.selectedProperty());
-        }
+        // Four fields per end, so the two ends stack rather than sitting side by side in a row eight boxes
+        // wide. Bound rather than merely disabled: the second end is meaningless for a fixed duration, and a
+        // greyed-out number still reads as part of the value.
+        HBox upper = new HBox(6, dash, to);
+        upper.setAlignment(Pos.CENTER_LEFT);
+        upper.visibleProperty().bind(range.selectedProperty());
+        upper.managedProperty().bind(range.selectedProperty());
 
-        HBox row = new HBox(6, from, fromUnit, dash, to, toUnit);
-        row.setAlignment(Pos.CENTER_LEFT);
+        VBox row = new VBox(6, from, upper);
 
         GridPane grid = new GridPane();
         grid.setHgap(8);
@@ -244,9 +264,9 @@ public final class DurationPicker {
         dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
         if (dialog.showAndWait().orElse(ButtonType.CANCEL) != ButtonType.OK) return null;
 
-        Value a = new Value(unitOf(fromUnit, current.from().unit()), value(from.getText(), current.from().amount()));
+        Value a = read(from, current.from());
         if (!range.isSelected()) return Span.fixed(a);
-        Value b = new Value(unitOf(toUnit, current.to().unit()), value(to.getText(), current.to().amount()));
+        Value b = read(to, current.to());
         // Each end keeps the unit it was typed in — 800ms to 2s is a perfectly readable range now that the
         // two ends are separate arguments — but an inverted one is shown back the way round it reads.
         if (b.millis() < a.millis()) {
@@ -257,20 +277,14 @@ public final class DurationPicker {
         return b.millis() > a.millis() ? new Span(a, b, true) : Span.fixed(a);
     }
 
-    private static ComboBox<Unit> unitBox(Unit selected) {
-        ComboBox<Unit> box = new ComboBox<>();
-        box.getItems().addAll(Unit.values());
-        box.setValue(selected);
-        return box;
-    }
-
-    private static Unit unitOf(ComboBox<Unit> box, Unit fallback) {
-        return box.getValue() == null ? fallback : box.getValue();
-    }
-
-    private static double value(String raw, double fallback) {
-        Double parsed = parseNumber(raw);
-        return parsed == null || parsed < 0 ? fallback : parsed;
+    /**
+     * What one end of the dialog now says. An untouched end is handed back <em>as it was read</em> rather
+     * than rebuilt from its millisecond total, so opening the dialog on {@code Duration.ofSeconds(120)} and
+     * pressing OK doesn't quietly rewrite the source to {@code ofMinutes(2)}.
+     */
+    private static Value read(DurationFields fields, Value original) {
+        long millis = fields.totalMillis();
+        return millis == original.millis() ? original : Value.ofMillis(millis);
     }
 
     /** Lenient number parse over a literal's source text ({@code 1_500}, {@code 2L}, {@code 1.5}). */
@@ -282,13 +296,6 @@ public final class DurationPicker {
         } catch (NumberFormatException e) {
             return null;
         }
-    }
-
-    /** {@code 2} for a whole number, {@code 1.5} otherwise — never {@code 2.0} in generated source. */
-    private static String number(double v) {
-        return v == Math.rint(v) && !Double.isInfinite(v)
-                ? Long.toString((long) v)
-                : String.format(Locale.ROOT, "%s", v);
     }
 
     private static Expression expr(ExpressionBlock arg) {

@@ -45,33 +45,12 @@ public class VariableDeclarationBlock extends AbstractStatementBlock {
 
     @Override
     protected Node createUINode(CodeEditorService context) {
+        // Name and type are shown here and changed elsewhere. Both used to be editable in place, and the
+        // inline rename went through `replaceSimpleName` on the declaration alone — every use site kept the
+        // old name, so renaming a variable on its own block is how a file stops compiling. The Variables
+        // screen rewrites the uses with it (`renameLocalVariable`) and is one button away, below.
         Label typeLabel = createTypeLabel(varType.simpleName());
-        // The label always shows the type; only an editable block gets the click-to-change behaviour — and
-        // when it does, it says so. A caret and a pressable surface: the label used to be indistinguishable
-        // from the read-only one, so the one part of a declare block you are most likely to want to change
-        // was the part that looked least like you could.
-        if (!isReadOnly()) {
-            typeLabel.getStyleClass().add("type-label-editable");
-            typeLabel.setGraphic(new Label("▾"));
-            typeLabel.setContentDisplay(javafx.scene.control.ContentDisplay.RIGHT);
-            typeLabel.setCursor(javafx.scene.Cursor.HAND);
-            javafx.scene.control.Tooltip.install(typeLabel,
-                    new javafx.scene.control.Tooltip("Click to change type"));
-            // The bot-type menu rather than the full index: the whitelist first, everything else behind
-            // "Other type…". PASS THE AST NODE TO ENABLE LOCAL TYPE DETECTION.
-            typeLabel.setOnMouseClicked(e -> ExpressionMenu.showBotTypeMenu(typeLabel, varType, context,
-                    this.astNode,
-                    newTypeName -> context.getCodeEditor().replaceVariableType(
-                            (VariableDeclarationStatement) this.astNode, newTypeName)));
-        }
-
-        Node nameField = TextFieldComponents.createVariableName(variableName, !isReadOnly(), newName -> {
-            VariableDeclarationFragment fragment = (VariableDeclarationFragment)
-                    ((VariableDeclarationStatement) this.astNode).fragments().getFirst();
-            if (!newName.equals(variableName) && !newName.isEmpty()) {
-                context.getCodeEditor().replaceSimpleName(fragment.getName(), newName);
-            }
-        });
+        Node nameField = TextFieldComponents.createVariableName(variableName, false, newName -> {});
 
         Node initNode;
         if (initializer != null) {
@@ -117,12 +96,33 @@ public class VariableDeclarationBlock extends AbstractStatementBlock {
                 .addKeyword("=")
                 .addNode(initNode)
                 .addNode(addButton)
+                .addNode(variablesButton(context))
                 .build();
 
         return BlockLayout.header()
                 .withCustomNode(sentence)
                 .withDeleteButton(deleteAction(context))
                 .build();
+    }
+
+    /**
+     * The way to the Variables screen from the block that declares one — a visible control, not a right-click
+     * menu item, because it is now the <em>only</em> place this variable's name and type can be changed. It
+     * opens on this variable's row, so the screen answers the question you were standing in front of.
+     */
+    private Node variablesButton(CodeEditorService context) {
+        if (isReadOnly()) return null;
+        Button open = new Button("✎ Variables…");
+        open.getStyleClass().add("variables-open-button");
+        open.setTooltip(new Tooltip(
+                "Rename or retype \"" + variableName + "\" — renaming here carries every use with it."));
+        open.setOnAction(e -> ActivityVariablesDialog.show(context, windowOf(context), variableName));
+        return open;
+    }
+
+    private javafx.stage.Window windowOf(CodeEditorService context) {
+        Node node = getUINode(context);
+        return node.getScene() == null ? null : node.getScene().getWindow();
     }
 
     private HBox createListDisplay(CodeEditorService context) {
@@ -136,8 +136,7 @@ public class VariableDeclarationBlock extends AbstractStatementBlock {
     @Override
     public java.util.List<javafx.scene.control.MenuItem> blockMenuItems(CodeEditorService context) {
         javafx.scene.control.MenuItem item = new javafx.scene.control.MenuItem("Variables in this activity…");
-        item.setOnAction(e -> ActivityVariablesDialog.show(context, getUINode(context).getScene() == null
-                ? null : getUINode(context).getScene().getWindow()));
+        item.setOnAction(e -> ActivityVariablesDialog.show(context, windowOf(context), variableName));
         return java.util.List.of(item);
     }
 }

@@ -2540,3 +2540,22 @@
     -fx-opacity: 1;
     -fx-text-fill: -bm-danger;
 }
+
+/* Why a rename was refused, under the row it was refused on. */
+.variables-rename-error {
+    -fx-text-fill: -bm-danger;
+    -fx-font-size: 11px;
+    -fx-padding: 0 0 2 10;
+}
+
+/* The declare block's way into that screen — the only place its name and type can now be changed. */
+.variables-open-button {
+    -fx-font-size: 10px;
+    -fx-padding: 1 7 1 7;
+    -fx-background-radius: 4;
+    -fx-opacity: 0.75;
+}
+
+.variables-open-button:hover {
+    -fx-opacity: 1;
+}

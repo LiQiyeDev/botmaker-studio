@@ -7,6 +7,7 @@ import com.botmaker.studio.project.activity.DurationWire;
 import com.botmaker.studio.project.activity.VariableWire;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.ScreenCaptureService;
+import com.botmaker.studio.ui.render.components.DurationFields;
 import com.botmaker.studio.ui.render.components.TemplateGallery;
 import com.botmaker.studio.ui.render.components.TemplateGalleryDialog;
 import javafx.application.Platform;
@@ -115,8 +116,10 @@ public final class ValueEditors {
             case WHOLE_NUMBER -> number(value, ctx.bounds(), true);
             case DECIMAL_NUMBER -> number(value, ctx.bounds(), false);
             case DURATION -> {
-                DurationRow row = new DurationRow(value);
-                yield new Editor(row, row::wire);
+                // The shared four-field control (ui.render.components.DurationFields) — the same one the
+                // block editor's wait picker opens, so a duration means the same thing on both sides.
+                DurationFields fields = new DurationFields(DurationWire.parse(value, 0L));
+                yield new Editor(fields, () -> DurationWire.format(fields.totalMillis()));
             }
             case TIME_OF_DAY -> {
                 TimeRow row = new TimeRow(value);
@@ -287,76 +290,6 @@ public final class ValueEditors {
         if (bounds.min() != null) return "at least " + bounds.min();
         if (bounds.max() != null) return "at most " + bounds.max();
         return "";
-    }
-
-    // --- duration -------------------------------------------------------------------------------------------
-
-    /**
-     * A duration as one field per unit — hours, minutes, seconds, milliseconds — so "4 hours and 30 minutes"
-     * is typed as the two numbers it is.
-     *
-     * <p>The old editor was one amount plus a unit dropdown, which could only ever say a multiple of a single
-     * unit: 4h30m had to be entered as 270 minutes, and anything that did not divide evenly came back as a
-     * raw millisecond count. Four fields cost three more boxes and remove the arithmetic.
-     */
-    private static final class DurationRow extends HBox {
-
-        private final TextField hours = unitField("h");
-        private final TextField minutes = unitField("m");
-        private final TextField seconds = unitField("s");
-        private final TextField millis = unitField("ms");
-        private final Label preview = new Label();
-
-        DurationRow(String wire) {
-            super(6);
-            setAlignment(Pos.CENTER_LEFT);
-            long total = DurationWire.parse(wire, 0L);
-            hours.setText(Long.toString(total / 3_600_000L));
-            minutes.setText(Long.toString(total / 60_000L % 60));
-            seconds.setText(Long.toString(total / 1000L % 60));
-            millis.setText(Long.toString(total % 1000L));
-
-            preview.getStyleClass().add("dialog-hint-text");
-            for (TextField field : List.of(hours, minutes, seconds, millis)) {
-                field.textProperty().addListener((obs, was, now) -> refresh());
-                getChildren().addAll(field, unitLabel(field.getPromptText()));
-            }
-            getChildren().add(preview);
-            refresh();
-        }
-
-        String wire() {
-            return DurationWire.format(total());
-        }
-
-        private long total() {
-            return whole(hours) * 3_600_000L + whole(minutes) * 60_000L + whole(seconds) * 1000L + whole(millis);
-        }
-
-        private void refresh() {
-            preview.setText("= " + DurationWire.format(total()));
-        }
-
-        private static long whole(TextField field) {
-            try {
-                return Math.max(0L, Long.parseLong(text(field)));
-            } catch (NumberFormatException e) {
-                return 0L;
-            }
-        }
-
-        private static TextField unitField(String unit) {
-            TextField field = new TextField("0");
-            field.setPromptText(unit);
-            field.setPrefColumnCount(unit.length() > 1 ? 4 : 3);
-            return field;
-        }
-
-        private static Label unitLabel(String unit) {
-            Label label = new Label(unit);
-            label.getStyleClass().add("dialog-hint-text");
-            return label;
-        }
     }
 
     // --- time of day ----------------------------------------------------------------------------------------

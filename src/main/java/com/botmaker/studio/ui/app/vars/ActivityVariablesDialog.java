@@ -42,15 +42,18 @@ import org.eclipse.jdt.core.dom.Name;
 import org.eclipse.jdt.core.dom.NumberLiteral;
 import org.eclipse.jdt.core.dom.PrefixExpression;
 import org.eclipse.jdt.core.dom.SimpleName;
+import org.eclipse.jdt.core.dom.SingleVariableDeclaration;
 import org.eclipse.jdt.core.dom.StringLiteral;
 import org.eclipse.jdt.core.dom.VariableDeclarationFragment;
 import org.eclipse.jdt.core.dom.VariableDeclarationStatement;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Everything the open activity declares, in one list: a row per local variable, with its name, its type and
@@ -73,13 +76,25 @@ public final class ActivityVariablesDialog {
     private final CodeEditorService context;
     private final VBox rows = new VBox(4);
 
-    private ActivityVariablesDialog(CodeEditorService context) {
+    /** The variable to open on, or null. Cleared once it has been focused, so a rebuild doesn't steal focus. */
+    private String focusOn;
+
+    private ActivityVariablesDialog(CodeEditorService context, String focusOn) {
         this.context = context;
+        this.focusOn = focusOn;
     }
 
     /** Opens the screen over {@code owner} for whatever file the editor currently has open. */
     public static void show(CodeEditorService context, Window owner) {
-        new ActivityVariablesDialog(context).open(owner);
+        show(context, owner, null);
+    }
+
+    /**
+     * The same screen, opened on {@code focusVariable} — the declare block's own button uses this, so the
+     * row you came to edit is the one holding the caret rather than the first of forty.
+     */
+    public static void show(CodeEditorService context, Window owner, String focusVariable) {
+        new ActivityVariablesDialog(context, focusVariable).open(owner);
     }
 
     private void open(Window owner) {
@@ -178,12 +193,25 @@ public final class ActivityVariablesDialog {
     private Node row(Local local) {
         ResolvedType type = com.botmaker.studio.suggestions.ProjectAnalyzer.resolveType(local.statement().getType());
 
+        Label problem = new Label();
+        problem.getStyleClass().add("variables-rename-error");
+        problem.setWrapText(true);
+        problem.setVisible(false);
+        problem.setManaged(false);
+
         TextField name = new TextField(local.name().getIdentifier());
         name.setPrefColumnCount(12);
-        name.setOnAction(e -> rename(local, name.getText()));
+        name.setOnAction(e -> rename(local, name, problem));
         name.focusedProperty().addListener((obs, was, has) -> {
-            if (was && !has) rename(local, name.getText());
+            if (was && !has) rename(local, name, problem);
         });
+        if (focusOn != null && focusOn.equals(local.name().getIdentifier())) {
+            focusOn = null;
+            javafx.application.Platform.runLater(() -> {
+                name.requestFocus();
+                name.selectAll();
+            });
+        }
 
         // A plain Button, not a MenuButton: the type menu is built fresh at click time (it can offer "Other
         // type…" over whatever the project index holds now), and a MenuButton would fight it with a popup of
@@ -200,7 +228,7 @@ public final class ActivityVariablesDialog {
         HBox.setHgrow(spacer, Priority.ALWAYS);
         row.getChildren().addAll(spacer, deleteButton(local));
         row.getStyleClass().add("variables-row");
-        return row;
+        return new VBox(2, row, problem);
     }
 
     /**
@@ -270,10 +298,49 @@ public final class ActivityVariablesDialog {
         alert.showAndWait();
     }
 
-    private void rename(Local local, String newName) {
-        String wanted = newName == null ? "" : newName.trim();
-        if (wanted.isEmpty() || wanted.equals(local.name().getIdentifier())) return;
+    /**
+     * Renames, or says why not — in red under the row, with the field put back to the name that is actually
+     * in the file. Inline rather than in an alert: the answer belongs beside the box that is wrong, and a
+     * modal over a non-modal screen would be the second window in a row asking to be dismissed.
+     */
+    private void rename(Local local, TextField field, Label problem) {
+        String current = local.name().getIdentifier();
+        String wanted = field.getText() == null ? "" : field.getText().trim();
+        String refusal = VariableNames.problem(wanted, current, declaredIn(local.method()));
+        if (refusal != null) {
+            problem.setText(refusal);
+            problem.setVisible(true);
+            problem.setManaged(true);
+            field.setText(current);
+            return;
+        }
+        problem.setVisible(false);
+        problem.setManaged(false);
+        if (wanted.equals(current)) return;
         context.getCodeEditor().renameLocalVariable(local.name(), wanted);
+    }
+
+    /** Every name {@code method} already binds: its parameters and each local it declares, at any depth. */
+    private static Set<String> declaredIn(MethodDeclaration method) {
+        Set<String> names = new HashSet<>();
+        for (Object parameter : method.parameters()) {
+            if (parameter instanceof SingleVariableDeclaration p) names.add(p.getName().getIdentifier());
+        }
+        if (method.getBody() == null) return names;
+        method.getBody().accept(new ASTVisitor() {
+            @Override
+            public boolean visit(VariableDeclarationFragment fragment) {
+                names.add(fragment.getName().getIdentifier());
+                return true;
+            }
+
+            @Override
+            public boolean visit(SingleVariableDeclaration declaration) {
+                names.add(declaration.getName().getIdentifier());
+                return true;
+            }
+        });
+        return names;
     }
 
     // --- Add ---------------------------------------------------------------------------------------------

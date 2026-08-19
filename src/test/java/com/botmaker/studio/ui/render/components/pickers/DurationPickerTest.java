@@ -65,12 +65,25 @@ class DurationPickerTest {
     }
 
     @Test
-    void theUnitTheSourceNamesIsTheUnitReadBack() {
-        // 1500ms and 1.5s are the same wait; showing the second as "1500 ms" would rewrite what the user typed
-        // the moment they touched any other field.
-        assertEquals("1500 ms", DurationPicker.parse(parse("Duration.ofMillis(1500)")).label());
-        assertEquals("2 s", DurationPicker.parse(parse("Duration.ofSeconds(2)")).label());
-        assertEquals("2 min", DurationPicker.parse(parse("Duration.ofMinutes(2)")).label());
+    void theButtonSpellsOutTheWholeLengthWhateverUnitItIsStoredIn() {
+        // The label is the length, not the factory call: a wait written as ofMinutes(270) is four and a half
+        // hours to the person reading the block, and the four-field editor can now enter it as exactly that.
+        assertEquals("1s500ms", DurationPicker.parse(parse("Duration.ofMillis(1500)")).label());
+        assertEquals("2s", DurationPicker.parse(parse("Duration.ofSeconds(2)")).label());
+        assertEquals("2m", DurationPicker.parse(parse("Duration.ofMinutes(2)")).label());
+        assertEquals("4h30m", DurationPicker.parse(parse("Duration.ofMinutes(270)")).label());
+    }
+
+    @Test
+    void aLengthEnteredAcrossSeveralUnitsCommitsInTheCoarsestOneThatSaysItExactly() {
+        // What the single amount + unit dropdown could not express at all: the four fields hand back a
+        // millisecond total, and the factory chosen is the largest that divides it evenly.
+        assertEquals("Duration.ofMinutes(270)", DurationPicker.Value.ofMillis(4 * 3_600_000L + 30 * 60_000L).code());
+        assertEquals("Duration.ofHours(2)", DurationPicker.Value.ofMillis(2 * 3_600_000L).code());
+        assertEquals("Duration.ofSeconds(90)", DurationPicker.Value.ofMillis(90_000L).code());
+        assertEquals("Duration.ofMillis(1500)", DurationPicker.Value.ofMillis(1_500L).code());
+        assertEquals("Duration.ofMillis(0)", DurationPicker.Value.ofMillis(0L).code(),
+                "a zero wait is still a wait somebody typed, not an hour");
     }
 
     @Test

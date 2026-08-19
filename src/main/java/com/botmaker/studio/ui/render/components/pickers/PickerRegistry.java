@@ -78,6 +78,10 @@ public final class PickerRegistry {
             // a (method, argIndex) hook — are gone, and PickerContext no longer carries one.
             SpecialTypePicker.of(ctx -> ctx.isType("LocalTime"),
                     ctx -> TimeArgPicker.localTime(ctx.context(), ctx.arg())),
+            // A calendar day, on the same reasoning and for the same reason it was missing: java.time is not
+            // in the project type index, so without an entry here a date is a raw LocalDate.parse("…") pill.
+            SpecialTypePicker.of(ctx -> ctx.isType("LocalDate"),
+                    ctx -> DateArgPicker.create(ctx.context(), ctx.arg())),
             SpecialTypePicker.of(ctx -> ctx.isType("DayOfWeek"),
                     ctx -> TimeArgPicker.dayOfWeek(ctx.context(), ctx.arg())),
             SpecialTypePicker.of(ctx -> ctx.isType("Month"),
