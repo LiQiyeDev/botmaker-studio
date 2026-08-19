@@ -33,11 +33,13 @@ import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.Separator;
 import javafx.scene.control.TextArea;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
+import javafx.scene.layout.TilePane;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 
@@ -74,6 +76,13 @@ public final class RunnerWindow implements ProjectWindow {
 
     /** Widest the content column grows, so the settings don't stretch across a maximised screen. */
     private static final double CONTENT_MAX_WIDTH = 900;
+
+    /**
+     * How wide one setting card is. Fixed, because it is what makes the gallery reflow on its own: the tile
+     * pane fits as many of them across as the window allows and wraps the rest, so narrow is one column and
+     * wide is three without a single width listener.
+     */
+    private static final double TILE_WIDTH = 260;
 
     private final Stage stage;
     private final Origin origin;
@@ -308,35 +317,70 @@ public final class RunnerWindow implements ProjectWindow {
      */
     private Node settingsSection() {
         Map<String, List<ActivityVariable>> byTag = activityService.current().sharedVariables();
-        VBox rows = new VBox(10);
+        VBox groups = new VBox(18);
         if (byTag.isEmpty()) {
-            rows.getChildren().add(hint("This bot has no settings for you to change."));
+            groups.getChildren().add(hint("This bot has no settings for you to change."));
         }
-        byTag.forEach((tag, group) -> {
-            Label heading = new Label(tag);
-            heading.getStyleClass().add("dialog-subheading");
-            rows.getChildren().add(heading);
-            for (ActivityVariable v : group) rows.getChildren().add(paramRow(v));
-        });
-        return section("Settings", null, rows);
+        byTag.forEach((tag, group) -> groups.getChildren().add(categoryCard(tag, group)));
+        return section("Settings", null, groups);
     }
 
-    private Node paramRow(ActivityVariable v) {
-        Node widget = ParamValueWidgets.buildFixedWidth(v, config, valueEditors);
+    /**
+     * One tag as a titled block of setting cards.
+     *
+     * <p>The headings used to be a bare {@link Label} over a flat column, and at twenty settings the
+     * categories stopped reading as categories — everything was the same weight in one long list, and the
+     * window's width went unused no matter how wide it was pulled. A titled card with a rule under it and a
+     * reflowing grid inside says where a group starts and ends without anybody having to count rows.
+     */
+    private Node categoryCard(String tag, List<ActivityVariable> group) {
+        Label heading = new Label(tag);
+        heading.getStyleClass().add("dialog-subheading");
+        Label count = hint(group.size() == 1 ? "1 setting" : group.size() + " settings");
 
+        HBox title = new HBox(8, heading, count);
+        title.setAlignment(Pos.BASELINE_LEFT);
+
+        TilePane tiles = new TilePane(12, 12);
+        tiles.setPrefColumns(1);
+        // One column when the window is narrow, several when it is wide: the tile is a fixed width and the
+        // pane wraps, so the reflow is the layout's own doing and needs no width listener.
+        tiles.setPrefTileWidth(TILE_WIDTH);
+        tiles.setTileAlignment(Pos.TOP_LEFT);
+        for (ActivityVariable v : group) tiles.getChildren().add(paramCard(v));
+
+        VBox card = new VBox(8, title, new Separator(), tiles);
+        card.getStyleClass().add("runner-category");
+        return card;
+    }
+
+    /**
+     * One setting as a card: what it is called, <b>what kind of value it is</b>, its editor, and the author's
+     * note underneath.
+     *
+     * <p>The type badge is there because a value with no unit or shape stated is a guess — a bare {@code 30}
+     * beside "Delay" could be seconds or milliseconds, and "Region" could be a name or four numbers. The
+     * badge says which, in the same words the author picked the type with.
+     */
+    private Node paramCard(ActivityVariable v) {
         Label name = new Label(v.displayLabel());
-        VBox text = new VBox(1, name);
-        if (!v.description().isBlank()) text.getChildren().add(hint(v.description()));
+        name.getStyleClass().add("runner-setting-name");
+        name.setWrapText(true);
 
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox row = new HBox(10, text, spacer, widget);
-        row.setAlignment(Pos.CENTER_LEFT);
-        row.getStyleClass().add("runner-row");
-        // A text field that sizes itself to its content makes every row a different shape; pin the value
-        // column instead so the settings read as a list.
-        if (widget instanceof Region region) region.setPrefWidth(240);
-        return row;
+        Label badge = new Label(v.type().label());
+        badge.getStyleClass().add("runner-type-badge");
+
+        HBox header = new HBox(6, name, badge);
+        header.setAlignment(Pos.CENTER_LEFT);
+
+        Node widget = ParamValueWidgets.build(v, config, valueEditors);
+        if (widget instanceof Region region) region.setMaxWidth(Double.MAX_VALUE);
+
+        VBox card = new VBox(6, header, widget);
+        if (!v.description().isBlank()) card.getChildren().add(hint(v.description()));
+        card.getStyleClass().add("runner-setting-card");
+        card.setPrefWidth(TILE_WIDTH);
+        return card;
     }
 
     private static Node section(String title, String hintText, Node content) {

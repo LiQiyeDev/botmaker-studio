@@ -565,6 +565,11 @@ public class CodeEditor {
         replaceWithIntCtor(toReplace, SdkType.POINT, x, y);
     }
 
+    /** Replaces {@code toReplace} with {@code new Size(width, height)} — the measure-on-screen arg picker. */
+    public void setSize(Expression toReplace, int width, int height) {
+        replaceWithIntCtor(toReplace, SdkType.SIZE, width, height);
+    }
+
     /** A value to drop into a call argument slot by the multi-argument "Pick all on screen" session. */
     public sealed interface ArgValue {
         record RectVal(int x, int y, int w, int h) implements ArgValue {}

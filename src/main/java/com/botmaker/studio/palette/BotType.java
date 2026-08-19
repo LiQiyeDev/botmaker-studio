@@ -84,8 +84,8 @@ public enum BotType {
             new StaticCall("java.time.LocalDate", "now", List.of())),
     TIME_OF_DAY(Group.WHEN, "Time of day", "java.time.LocalTime", "time",
             new StaticCall("java.time.LocalTime", "of", List.of(new IntLit("0"), new IntLit("0")))),
-    /** How long — {@code 90s}, {@code 5m}, {@code 1h30m} in the editor; a {@code Duration} in the bot. */
-    DURATION(Group.WHEN, "How long", "java.time.Duration", "howLong",
+    /** A length of time — {@code 90s}, {@code 5m}, {@code 1h30m} in the editor; a {@code Duration} in the bot. */
+    DURATION(Group.WHEN, "Duration", "java.time.Duration", "howLong",
             new StaticCall("java.time.Duration", "ofSeconds", List.of(new IntLit("0")))),
 
     // --- Vision ------------------------------------------------------------------------------------------

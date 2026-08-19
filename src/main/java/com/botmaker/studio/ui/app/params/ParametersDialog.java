@@ -547,22 +547,25 @@ public final class ParametersDialog {
     }
 
     /**
-     * The declared range of a number: smallest, largest, and how much a click of the arrows moves it. All
-     * three optional — leaving them blank is what most numbers want, and is the state a variable starts in.
+     * The declared range of a number: smallest and largest, both optional and <b>independent</b>. Leaving
+     * both blank is what most numbers want and is the state a variable starts in; filling in only one is
+     * "at most 10" or "at least 1", which is a sentence people say and which used to be unsayable here.
      *
-     * <p>Declaring one is what turns the value editor into a {@link javafx.scene.control.Spinner}, and what
-     * clamps a stored value that falls outside it, so committing a bound rebuilds the card: the widget the
-     * range describes is not the widget that was there before it.
+     * <p>Declaring either clamps a stored value that falls outside it, so committing a bound rebuilds the
+     * card: the widget the range describes is not the widget that was there before it.
+     *
+     * <p>There is no step field. For a whole number the step is 1 and saying so adds nothing; for a decimal
+     * it was worse than nothing — a declared step of 0.1 puts 0.05 out of the arrows' reach, making the
+     * editor a coarser instrument than the type it edits.
      */
     private Node buildBoundsEditor(ActivityVariable v) {
-        TextField min = boundField(v.bounds().min(), "min");
-        TextField max = boundField(v.bounds().max(), "max");
-        TextField step = boundField(v.bounds().step(), "step");
+        TextField min = boundField(v.bounds().min(), "no minimum");
+        TextField max = boundField(v.bounds().max(), "no maximum");
         Runnable commit = () -> {
-            Bounds declared = new Bounds(min.getText(), max.getText(), step.getText());
+            Bounds declared = new Bounds(min.getText(), max.getText());
             if (!declared.equals(v.bounds())) edit(v.name(), current -> current.withBounds(declared));
         };
-        for (TextField field : List.of(min, max, step)) {
+        for (TextField field : List.of(min, max)) {
             field.focusedProperty().addListener((o, was, is) -> {
                 if (!is) commit.run();
             });
@@ -571,7 +574,7 @@ public final class ParametersDialog {
                 e.consume();
             });
         }
-        HBox row = new HBox(6, min, max, step);
+        HBox row = new HBox(6, min, new Label("to"), max);
         row.setAlignment(Pos.CENTER_LEFT);
         return row;
     }
@@ -579,7 +582,7 @@ public final class ParametersDialog {
     private static TextField boundField(String value, String prompt) {
         TextField field = new TextField(value == null ? "" : value);
         field.setPromptText(prompt);
-        field.setPrefColumnCount(5);
+        field.setPrefColumnCount(7);
         return field;
     }
 

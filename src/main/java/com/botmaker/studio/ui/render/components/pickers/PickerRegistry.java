@@ -15,6 +15,7 @@ import com.botmaker.studio.ui.render.components.LaunchTargetArgPicker;
 import com.botmaker.studio.ui.render.components.PointPicker;
 import com.botmaker.studio.ui.render.components.PrecisionArgPicker;
 import com.botmaker.studio.ui.render.components.RectPicker;
+import com.botmaker.studio.ui.render.components.SizePicker;
 import javafx.scene.Node;
 
 import java.util.List;
@@ -94,6 +95,10 @@ public final class PickerRegistry {
                     ctx -> RectPicker.create(ctx.context(), ctx.arg())),
             SpecialTypePicker.of(ctx -> ctx.isType(SdkType.POINT),
                     ctx -> PointPicker.create(ctx.context(), ctx.arg())),
+            // The third geometry type, and the last one to get a picker: without it a Size argument fell
+            // through to the generic pill and rendered as a bare `new Size(w, h)` to type from nothing.
+            SpecialTypePicker.of(ctx -> ctx.isType(SdkType.SIZE),
+                    ctx -> SizePicker.create(ctx.context(), ctx.arg())),
 
             // Enum fallback (re-resolves name-only SDK types through the project/library index).
             EnumPicker.asSpecialType()

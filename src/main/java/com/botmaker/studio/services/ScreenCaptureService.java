@@ -266,7 +266,23 @@ public final class ScreenCaptureService {
      * coordinates. Does nothing if the user cancels (Esc) or capture is unavailable.
      */
     public void pickPoint(Window owner, Consumer<int[]> onPicked) {
-        grabAsync(owner, shot -> showPointOverlay(owner, shot, onPicked));
+        grabAsync(owner, shot -> showPointOverlay(owner, shot, false,
+                pick -> onPicked.accept(new int[]{pick.x(), pick.y()})));
+    }
+
+    /** What a {@link #pickPoint}-style overlay reports: where the click landed, and the pixel that was under it. */
+    public record ScreenPick(int x, int y, java.awt.Color color) {}
+
+    /**
+     * The same magnified overlay as {@link #pickPoint}, reporting the <em>colour</em> under the cursor rather
+     * than the coordinate — the readout shows the hex, and the lens is what makes a one-pixel target hittable.
+     *
+     * <p>It reads the pixel out of the frozen screenshot rather than off the live screen, so the colour
+     * reported is exactly the one the user was looking at when they clicked, even if the game repainted in
+     * between.
+     */
+    public void pickColor(Window owner, Consumer<ScreenPick> onPicked) {
+        grabAsync(owner, shot -> showPointOverlay(owner, shot, true, onPicked));
     }
 
     /**
@@ -760,10 +776,13 @@ public final class ScreenCaptureService {
     }
 
     /**
-     * Point-pick overlay: a zoomed close-up follows the cursor with a crosshair and a live "x, y" readout;
-     * left-click reports the point as logical desktop coordinates. Esc cancels.
+     * Point-pick overlay: a zoomed close-up follows the cursor with a crosshair and a live readout; left-click
+     * reports the point as logical desktop coordinates, together with the pixel that was under it. Esc cancels.
+     *
+     * <p>{@code showColor} only changes what the readout says — coordinates for a point pick, the hex value
+     * for a colour pick. Both picks want the same lens, and one overlay is what keeps them from drifting.
      */
-    private void showPointOverlay(Window owner, ScreenShot shot, Consumer<int[]> onPicked) {
+    private void showPointOverlay(Window owner, ScreenShot shot, boolean showColor, Consumer<ScreenPick> onPicked) {
         BufferedImage screenshot = shot.image();
         Image fxImage = toFxImage(screenshot);
         ImageView background = new ImageView(fxImage);
@@ -792,8 +811,9 @@ public final class ScreenCaptureService {
         double ox = shot.bounds().getMinX();
         double oy = shot.bounds().getMinY();
 
-        Stage stage = overlayStage(owner, shot.bounds(), shot.fullScreen(),
-                "Move to a spot and click to set the point. Press Esc to cancel.");
+        Stage stage = overlayStage(owner, shot.bounds(), shot.fullScreen(), showColor
+                ? "Move over the colour you want and click to take it. Press Esc to cancel."
+                : "Move to a spot and click to set the point. Press Esc to cancel.");
 
         pane.setOnMouseMoved(e -> {
             double sx = screenshot.getWidth() / pane.getWidth();
@@ -809,7 +829,12 @@ public final class ScreenCaptureService {
             if (ly + lensSize > pane.getHeight()) ly = e.getY() - lensSize - 16;
             lens.relocate(lx, ly);
             lensBorder.relocate(lx, ly);
-            readout.setText((int) Math.round(ox + e.getX()) + ", " + (int) Math.round(oy + e.getY()));
+            if (showColor) {
+                java.awt.Color c = pixelAt(screenshot, pane, e.getX(), e.getY());
+                readout.setText("#%02X%02X%02X".formatted(c.getRed(), c.getGreen(), c.getBlue()));
+            } else {
+                readout.setText((int) Math.round(ox + e.getX()) + ", " + (int) Math.round(oy + e.getY()));
+            }
             readout.relocate(lx, ly + lensSize + 2);
             lens.setVisible(true);
             lensBorder.setVisible(true);
@@ -818,7 +843,8 @@ public final class ScreenCaptureService {
         pane.setOnMouseClicked(e -> {
             if (e.getButton() != javafx.scene.input.MouseButton.PRIMARY) return;
             stage.close();
-            onPicked.accept(new int[]{(int) Math.round(ox + e.getX()), (int) Math.round(oy + e.getY())});
+            onPicked.accept(new ScreenPick((int) Math.round(ox + e.getX()), (int) Math.round(oy + e.getY()),
+                    pixelAt(screenshot, pane, e.getX(), e.getY())));
         });
 
         Scene scene = new Scene(pane);
@@ -832,6 +858,18 @@ public final class ScreenCaptureService {
 
     private static double clamp(double v, double min, double max) {
         return Math.max(min, Math.min(v, max));
+    }
+
+    /**
+     * The pixel of {@code screenshot} under a mouse position given in {@code pane}'s coordinates.
+     *
+     * <p>Read out of the frozen screenshot rather than off the live screen, so what the readout previewed and
+     * what the click commits are the same colour even if the game repainted in between.
+     */
+    private static java.awt.Color pixelAt(BufferedImage screenshot, Pane pane, double mouseX, double mouseY) {
+        int px = (int) clamp(mouseX * screenshot.getWidth() / pane.getWidth(), 0, screenshot.getWidth() - 1);
+        int py = (int) clamp(mouseY * screenshot.getHeight() / pane.getHeight(), 0, screenshot.getHeight() - 1);
+        return new java.awt.Color(screenshot.getRGB(px, py), false);
     }
 
     // =========================================================================

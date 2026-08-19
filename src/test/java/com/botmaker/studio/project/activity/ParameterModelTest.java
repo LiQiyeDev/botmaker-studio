@@ -297,12 +297,31 @@ class ParameterModelTest {
     @Test
     void aDeclaredRangePullsAStoredValueBackIntoIt() {
         ActivityVariable retries = variable("retries", BotType.WHOLE_NUMBER)
-                .withBounds(new Bounds("1", "5", "1"))
+                .withBounds(new Bounds("1", "5"))
                 .withValue("42");
 
         assertEquals(List.of("5"), retries.value());
         assertEquals(List.of("1"), retries.withValue("-3").value());
         assertEquals(List.of("3"), retries.withValue("3").value(), "inside the range, nothing moves");
+    }
+
+    /**
+     * Each end of a range stands on its own: "at most 10" and "at least 1" are sentences a person says, and
+     * both used to be unsayable — the value editor only became a spinner once <em>both</em> ends were filled
+     * in, so a one-sided range silently got the unguided text field.
+     */
+    @Test
+    void eitherEndOfARangeCanBeDeclaredWithoutTheOther() {
+        ActivityVariable atMost = variable("count", BotType.WHOLE_NUMBER).withBounds(new Bounds(null, "10"));
+        assertEquals(List.of("10"), atMost.withValue("99").value());
+        assertEquals(List.of("-500"), atMost.withValue("-500").value(), "no minimum means no floor");
+
+        ActivityVariable atLeast = variable("count", BotType.WHOLE_NUMBER).withBounds(new Bounds("1", null));
+        assertEquals(List.of("1"), atLeast.withValue("0").value());
+        assertEquals(List.of("999999"), atLeast.withValue("999999").value(), "no maximum means no ceiling");
+
+        assertFalse(new Bounds(null, "10").isEmpty(), "one end declared is a declared range");
+        assertTrue(Bounds.NONE.isEmpty());
     }
 
     /**
@@ -317,10 +336,40 @@ class ParameterModelTest {
         }
     }
 
+    /**
+     * The side buttons are real values a bot can ask for, and the editor offers them because the SDK enum has
+     * them — there is no second list of button names in Studio to fall out of step with it.
+     *
+     * <p>They are named by what they do rather than where they sit, which is what makes a bot that says
+     * {@code BACK} keep working on a mouse whose back button is under a different thumb.
+     */
+    @Test
+    void theSideButtonsAreOfferedBecauseTheSdkHasThem() {
+        List<String> buttons = VariableWire.effectiveOptions(BotType.MOUSE_BUTTON, List.of());
+
+        assertTrue(buttons.containsAll(List.of("LEFT", "MIDDLE", "RIGHT", "BACK", "FORWARD")), buttons.toString());
+        assertEquals(List.of("BACK"), variable("button", BotType.MOUSE_BUTTON).withValue("BACK").value());
+    }
+
+    /**
+     * A precision arrives as its three numbers, not as an enum constant. This is the shape the editor renders
+     * fields for, and the reason the old dropdown was empty: {@code Precision} is a record, so asking it for
+     * enum constants got an empty list and the slot rendered as a combo box with nothing in it.
+     */
+    @Test
+    void aPrecisionIsThreeNumbersAndNotAConstant() {
+        assertEquals(List.of(), VariableWire.effectiveOptions(BotType.PRECISION, List.of()));
+
+        ActivityVariable precision = variable("precision", BotType.PRECISION);
+        assertEquals(List.of("12.0,4,0"), precision.value(), "the default is a usable tolerance, not blank");
+        assertEquals(List.of("5.0,16,2"), precision.withValue("5,16,2").value());
+        assertEquals(List.of("0.0,1,0"), precision.withValue("-3,0,-9").value(), "each number has its own floor");
+    }
+
     /** Retyping drops the range with the value: a range for a number means nothing to the date replacing it. */
     @Test
     void retypingForgetsTheRange() {
-        ActivityVariable retries = variable("retries", BotType.WHOLE_NUMBER).withBounds(new Bounds("1", "5", null));
+        ActivityVariable retries = variable("retries", BotType.WHOLE_NUMBER).withBounds(new Bounds("1", "5"));
 
         assertEquals(Bounds.NONE, retries.withType(BotType.Choice.of(BotType.DATE)).bounds());
     }

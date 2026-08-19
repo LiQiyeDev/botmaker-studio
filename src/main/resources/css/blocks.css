@@ -853,6 +853,47 @@
 }
 .runner-section { -fx-padding: 0 0 4 0; }
 
+/* A tag's settings as a titled block: the surround and the rule under the title are what make one category
+   read as one category, which a bare bold label over a flat column never managed at twenty settings. */
+.runner-category {
+    -fx-background-color: -bm-band;
+    -fx-background-radius: 6;
+    -fx-border-color: -bm-divider;
+    -fx-border-radius: 6;
+    -fx-border-width: 1;
+    -fx-padding: 12 14 14 14;
+}
+
+/* One setting: its name and type on top, its editor under them, the author's note last. */
+.runner-setting-card {
+    -fx-background-color: -fx-control-inner-background;
+    -fx-background-radius: 5;
+    -fx-border-color: -bm-divider;
+    -fx-border-radius: 5;
+    -fx-border-width: 1;
+    -fx-padding: 10;
+}
+.runner-setting-name { -fx-font-weight: bold; }
+
+/* What kind of value this is, in the author's own words for the type. Quiet — it is a label, not a control. */
+.runner-type-badge {
+    -fx-background-color: -bm-divider;
+    -fx-background-radius: 3;
+    -fx-padding: 1 6 1 6;
+    -fx-font-size: 10px;
+    -fx-opacity: 0.8;
+}
+
+/* The 3x3 arrow pad a Direction is picked on, and the mouse-button diagram beside it: square keys, so the
+   layout of the control is the meaning of the value. */
+.direction-pad-key {
+    -fx-font-size: 14px;
+    -fx-padding: 0;
+    -fx-min-width: 30;
+    -fx-min-height: 30;
+}
+.mouse-diagram-key { -fx-font-size: 11px; -fx-padding: 3 8 3 8; }
+
 /* The run controls and the log, pinned under the scrolling content. */
 .runner-runbar {
     -fx-background-color: -bm-band;

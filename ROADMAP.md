@@ -6,6 +6,49 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-19 — The real pickers, everywhere a value is set (`ui/app/params/ValueEditors` (new),
+  `ui/app/params/ParamValueWidgets`, `ui/app/params/ParametersDialog`, `ui/app/runner/RunnerWindow`,
+  `ui/render/components/SizePicker` (new), `services/ScreenCaptureService`, `project/activity/Bounds`,
+  `parser/CodeEditor`, `css/blocks.css`).** Round-2 phase 2, from hands-on testing.
+
+  **One editor per type, stated once.** `ui/render/components` already had a picker for most of these types,
+  but every one is built around an `ExpressionBlock`: it reads the value out of a JDT node and commits by
+  rewriting that node, so it is unusable anywhere there is no AST. The Parameters dialog and the Runner had
+  therefore grown a second, weaker set — a comma-joined text field for a rectangle, a dropdown with nothing in
+  it for a precision, a duration that could not say 4h30m. `ValueEditors.editorFor(BotType, wire, Context)`
+  is that second set replaced by a real one, stated at the level all the non-AST callers share: a type plus
+  the text it holds in, a `Node` plus a reader out. Reading stays total — nothing here can refuse a value, so
+  no tightened limit can leave a dialog unable to close.
+
+  **What each type got.** Precision: its three numbers with tolerance presets, instead of the empty dropdown
+  the generic enum branch produced (`Precision` is a *record*, so it has no constants to fill one with).
+  Duration: one field per unit, so "4 hours 30 minutes" is two numbers rather than 270 minutes. Time of day:
+  seconds, and the value spelled out beside it. Image template: its **picture** next to its name — the name is
+  what somebody chose in a hurry for a batch of twenty, the picture is what says it is the right one.
+  Point/Size/Rect: labelled fields plus the screen pick, because nobody knows the coordinates of anything,
+  they know where it is. Direction: a 3×3 arrow pad, the one enum where the layout *is* the meaning. Colour:
+  an eyedropper onto the magnified screen overlay, since game art is shaded and compressed and the red of a
+  health bar is never `#FF0000`. Mouse button: a labelled diagram including the new SDK `BACK`/`FORWARD`.
+
+  **Bounds: two independent ends, and no step.** "At most 10" was unsayable — the editor only became a spinner
+  once *both* ends were filled in, so a one-sided range silently got an unguided text field. Each end now
+  stands alone (the model's clamp always allowed it; only the widget refused). `Bounds.step` is deleted: for a
+  whole number it is 1 and says nothing, and for a decimal it was actively wrong — a step of 0.1 puts 0.05 out
+  of the arrows' reach, making the editor coarser than the type it edits. Old projects that stored one still
+  open, the value ignored.
+
+  **The Runner reads as a gallery.** Each tag is a titled card with a rule under it, holding a reflowing grid
+  of setting cards — name, **type badge**, editor, description. One column narrow, three wide, and the reflow
+  is the tile pane's own doing rather than a width listener. The badge is there because a bare `30` beside
+  "Delay" could be seconds or milliseconds.
+
+  **Two things fixed on the way.** `Size` was the one geometry type with no block-editor picker, so it
+  rendered as a bare `new Size(w, h)` to type from nothing — `SizePicker` measures it by rubber-band selection
+  with the origin thrown away, which is how a person measures something on screen. And `ScreenCaptureService`
+  grew `pickColor`, the point overlay reporting the pixel under the click instead of the coordinate; one
+  overlay serves both, so the lens cannot drift between them. `BotType.DURATION` is now labelled "Duration"
+  rather than "How long".
+
 - **2026-08-19 — One value, one of a set, any of a set: a shape axis instead of a `Choice` pseudo-type
   (`palette/BotType`, `project/activity/VariableWire`, `project/activity/ActivityVariable`,
   `ui/render/components/BotTypePicker`, `ui/app/params/ParamValueWidgets`).** Round-2 phase 1, from hands-on
