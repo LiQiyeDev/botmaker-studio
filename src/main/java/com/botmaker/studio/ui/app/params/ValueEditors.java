@@ -7,6 +7,7 @@ import com.botmaker.studio.project.activity.DurationWire;
 import com.botmaker.studio.project.activity.VariableWire;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.ScreenCaptureService;
+import com.botmaker.studio.ui.render.components.TemplateGallery;
 import com.botmaker.studio.ui.render.components.TemplateGalleryDialog;
 import javafx.application.Platform;
 import javafx.geometry.Pos;
@@ -27,6 +28,8 @@ import javafx.scene.control.ToggleGroup;
 import javafx.scene.control.Tooltip;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.scene.layout.Background;
+import javafx.scene.layout.BackgroundFill;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -41,6 +44,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -174,6 +178,65 @@ public final class ValueEditors {
                 yield new Editor(field, () -> text(field));
             }
         };
+    }
+
+    // --- one declared option --------------------------------------------------------------------------------
+
+    /**
+     * How one <em>declared choice</em> of {@code type} should be drawn beside its radio button or tick box, or
+     * {@code null} when the wire text is already the whole value and the control's own label says it.
+     *
+     * <p>The set of types this answers for is the set where the stored string is a <em>reference</em> rather
+     * than the value: a template name is not a picture, {@code #3A7F2B} is not a colour, {@code 4h30m} is four
+     * numbers a person has to decode. Offering the author a gallery to pick a choice from (see
+     * {@code ParametersDialog.buildOptionsEditor}) and then listing what they picked as raw text would put the
+     * decoding back on the person the choices exist for.
+     */
+    static Node optionGraphic(BotType type, String wire, Context ctx) {
+        String value = wire == null ? "" : wire.trim();
+        if (value.isEmpty()) return null;
+        return switch (type) {
+            case IMAGE_TEMPLATE -> {
+                Path file = templateFile(ctx.project(), value);
+                // A name that no longer resolves keeps the plain label: "this template was deleted" is the
+                // honest reading, and it is the same one TemplateChip gives.
+                yield file == null ? null : TemplateGallery.plainTile(file, 48);
+            }
+            case COLOR -> {
+                Region swatch = new Region();
+                swatch.setPrefSize(14, 14);
+                swatch.setMinSize(14, 14);
+                swatch.setBackground(new Background(new BackgroundFill(parseColor(value), null, null)));
+                swatch.getStyleClass().add("option-color-swatch");
+                yield swatch;
+            }
+            case DURATION -> {
+                Label spelled = new Label(DurationWire.format(DurationWire.parse(value, 0L)));
+                spelled.getStyleClass().add("dialog-hint-text");
+                yield spelled;
+            }
+            case DIRECTION -> {
+                String arrow = DirectionPad.CELLS.stream()
+                        .filter(cell -> cell.name().equals(value))
+                        .map(DirectionPad.Cell::arrow)
+                        .findFirst().orElse(null);
+                yield arrow == null ? null : new Label(arrow);
+            }
+            default -> null;
+        };
+    }
+
+    /** The file behind a template name, or null when the project has no such template any more. */
+    private static Path templateFile(ProjectConfig project, String name) {
+        if (project == null || name.isBlank()) return null;
+        try {
+            String path = ImageTemplateLibrary.pathForName(project, name);
+            if (path == null || path.isBlank()) return null;
+            Path file = Path.of(path);
+            return Files.isRegularFile(file) ? file : null;
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     // --- numbers --------------------------------------------------------------------------------------------
@@ -497,12 +560,22 @@ public final class ValueEditors {
     private static final class DirectionPad extends VBox {
 
         /** Where each constant sits on the pad, by column and row. Names are the SDK's. */
-        private record Cell(String name, String arrow, int column, int row) {}
+        record Cell(String name, String arrow, int column, int row) {}
 
-        private static final List<Cell> CELLS = List.of(
+        /**
+         * Both spellings a direction has been given, at the same squares.
+         *
+         * <p>The SDK's {@code Direction} is the compass — {@code NORTH}, {@code SOUTH}, {@code EAST},
+         * {@code WEST} — and this table had only the screen spelling, so <em>every</em> constant missed the pad
+         * and came out in the row of named buttons underneath meant for the odd one out. A pad that positions
+         * none of its values is a dropdown with extra steps, which is what shipped.
+         */
+        static final List<Cell> CELLS = List.of(
                 new Cell("UP_LEFT", "↖", 0, 0), new Cell("UP", "↑", 1, 0), new Cell("UP_RIGHT", "↗", 2, 0),
                 new Cell("LEFT", "←", 0, 1), new Cell("RIGHT", "→", 2, 1),
-                new Cell("DOWN_LEFT", "↙", 0, 2), new Cell("DOWN", "↓", 1, 2), new Cell("DOWN_RIGHT", "↘", 2, 2));
+                new Cell("DOWN_LEFT", "↙", 0, 2), new Cell("DOWN", "↓", 1, 2), new Cell("DOWN_RIGHT", "↘", 2, 2),
+                new Cell("NORTH", "↑", 1, 0), new Cell("SOUTH", "↓", 1, 2),
+                new Cell("WEST", "←", 0, 1), new Cell("EAST", "→", 2, 1));
 
         private final ToggleGroup group = new ToggleGroup();
 
@@ -514,8 +587,12 @@ public final class ValueEditors {
             GridPane pad = new GridPane();
             pad.setHgap(2);
             pad.setVgap(2);
+            // One button per square. The two spellings share squares, and an SDK that ever had both would
+            // otherwise stack two buttons on one cell — the second painting over the first.
+            Set<String> taken = new java.util.HashSet<>();
             for (Cell cell : CELLS) {
                 if (!known.contains(cell.name())) continue;
+                if (!taken.add(cell.column() + "," + cell.row())) continue;
                 pad.add(button(cell.name(), cell.arrow(), current), cell.column(), cell.row());
             }
             getChildren().add(pad);

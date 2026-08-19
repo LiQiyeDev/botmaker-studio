@@ -199,14 +199,19 @@ class ParameterModelTest {
      * Having a set of choices is a property of the <em>shape</em>, not of the type. That is the whole point of
      * the axis: it used to be true of one pseudo-type and false of the other twenty, which is exactly why
      * "one of these three whole numbers" could not be said.
+     *
+     * <p>The exception is a type that already <em>is</em> a set ({@link BotType#isClosedSet()}): its editor
+     * shows every value it has, so it takes {@code ONE} and {@code ANY_OF} and no {@code ONE_OF}.
      */
     @Test
     void everyShapeableTypeCarriesOptionsInEveryShapeButOne() {
         for (BotType type : BotType.storableTypes()) {
-            assertTrue(type.shapeable(), type + " is storable, so it can be a set of choices");
+            assertEquals(!type.isClosedSet(), type.shapeable(),
+                    type + " offers One of… iff it is not already a set of its own");
             assertFalse(VariableWire.hasOptions(BotType.Choice.of(type)), type + " as one free value");
-            assertTrue(VariableWire.hasOptions(new BotType.Choice(type, BotType.Shape.ONE_OF)), type + " one of");
             assertTrue(VariableWire.hasOptions(BotType.Choice.listOf(type)), type + " any of");
+            if (!type.shapeable()) continue;
+            assertTrue(VariableWire.hasOptions(new BotType.Choice(type, BotType.Shape.ONE_OF)), type + " one of");
         }
     }
 
@@ -215,6 +220,7 @@ class ParameterModelTest {
     void normalisingTwiceChangesNothing() {
         for (BotType type : BotType.storableTypes()) {
             for (BotType.Shape shape : BotType.Shape.values()) {
+                if (shape == BotType.Shape.ONE_OF && !type.shapeable()) continue;
                 BotType.Choice choice = new BotType.Choice(type, shape);
                 // A declared set has to be values of the type, or normalising them is what changes on the
                 // second pass. Two of the type's own defaults is the one set every type can supply.

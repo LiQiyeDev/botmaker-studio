@@ -252,16 +252,40 @@ public enum BotType {
     }
 
     /**
-     * Whether the author can write down a <em>set</em> of values of this type — whether {@link Shape#ONE_OF}
-     * and {@link Shape#ANY_OF} mean anything for it.
+     * Whether this type's values <em>are</em> a set, one the editor already shows in full.
      *
-     * <p>Derived rather than switched, deliberately: an option is a wire string
+     * <p>Yes/No is two states of one tick box; a direction is eight arrows on a pad; a mouse button is a
+     * labelled diagram; a key is the SDK's own list. In every one of them the control the user meets already
+     * offers every value the type has, which is what makes {@link Shape#ONE_OF} over them nonsense — "one of
+     * yes and no" is a boolean, said twice and worse. It is exactly the set
+     * {@link com.botmaker.studio.project.activity.VariableWire#fixedOptions} answers, plus {@link #YES_NO},
+     * whose two values are the two states of one box rather than a list.
+     *
+     * <p>{@link Shape#ANY_OF} stays available: "any of UP, DOWN" is a genuine list of a closed-set type, and
+     * its tick boxes come from the type's own constants rather than from anything the author writes down.
+     */
+    public boolean isClosedSet() {
+        return switch (this) {
+            case YES_NO, DIRECTION, KEY, MOUSE_BUTTON -> true;
+            case TEXT, WHOLE_NUMBER, DECIMAL_NUMBER, CHARACTER, COLOR, DATE, TIME_OF_DAY, DURATION,
+                 IMAGE_TEMPLATE, PRECISION, POINT, RECT, SIZE,
+                 NOTHING, IMAGE_TEMPLATE_GROUP, MATCH_RESULT, MATCHES, COLOR_MATCH, TEXT_MATCH,
+                 CAPTURE_SOURCE -> false;
+        };
+    }
+
+    /**
+     * Whether the author can write down a <em>set</em> of values of this type — whether {@link Shape#ONE_OF}
+     * means anything for it.
+     *
+     * <p>Mostly derived rather than switched: an option is a wire string
      * ({@link com.botmaker.studio.project.activity.VariableWire}), so a type that can be stored can be listed
-     * as a choice, and a type that can go inside {@code List<…>} can be chosen several times. Two conditions
-     * that already exist beat a third list to keep in step with them.
+     * as a choice, and a type that can go inside {@code List<…>} can be chosen several times. The one thing
+     * that has to be said out loud is {@link #isClosedSet()} — a type whose values the editor already shows in
+     * full has nothing left for an author-written subset to add.
      */
     public boolean shapeable() {
-        return storable() && listable();
+        return storable() && listable() && !isClosedSet();
     }
 
     /**
@@ -433,7 +457,11 @@ public enum BotType {
                     : Boolean.TRUE.equals(list) ? Shape.ANY_OF
                     : wasChoice ? Shape.ONE_OF
                     : Shape.ONE;
-            if (resolved != Shape.ONE && !base.shapeable()) resolved = Shape.ONE;
+            // Per shape, not "anything but ONE": the two have different conditions, and conflating them turned
+            // `List of Direction` — perfectly expressible — into a single direction the day ONE_OF stopped
+            // being offered for a closed set. A stored `One of Yes/No` becomes `Yes/No`, keeping its value.
+            if (resolved == Shape.ONE_OF && !base.shapeable()) resolved = Shape.ONE;
+            if (resolved == Shape.ANY_OF && !base.listable()) resolved = Shape.ONE;
             return new Choice(base, resolved);
         }
 

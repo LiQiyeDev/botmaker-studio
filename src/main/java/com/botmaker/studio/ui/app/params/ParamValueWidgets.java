@@ -4,14 +4,17 @@ import com.botmaker.studio.palette.BotType;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.project.activity.VariableWire;
+import javafx.geometry.Pos;
 import javafx.scene.Node;
+import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.RadioButton;
 import javafx.scene.control.TextArea;
-import javafx.scene.control.TextField;
 import javafx.scene.control.Toggle;
 import javafx.scene.control.ToggleGroup;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 
 import java.util.ArrayList;
@@ -52,36 +55,41 @@ public final class ParamValueWidgets {
      *               ({@link BotType#IMAGE_TEMPLATE})
      */
     public static Node build(ActivityVariable variable, ProjectConfig config, List<ValueEditor> sink) {
-        // What a set-shaped variable offers is the author's own list and never the type's own constants: an
-        // enum with no declared subset would otherwise put every one of its hundred names on screen as a
-        // radio button, which is a list pretending to be a form.
-        List<String> declared = variable.type().hasOptions() ? variable.options() : List.of();
+        BotType base = variable.type().type();
+        ValueEditors.Context ctx = new ValueEditors.Context(config, variable.bounds());
 
-        // The shape decides the widget before the type does, because the shape is the question being asked.
-        // "Any of…" is tick boxes over the declared set; "one of…" is radio buttons over it. Only "one value"
-        // reaches the per-type editors below.
-        if (variable.type().isList()) {
-            Node column = declared.isEmpty() ? freeList(variable, sink) : checkList(variable, declared, sink);
-            column.setId("param-value-" + variable.name());
-            return column;
-        }
-        if (!declared.isEmpty()) {
+        // The set a set-shaped variable offers: the author's declared choices, or — for a type whose values
+        // are already a closed set — the type's own constants. It used to be the author's list alone, so
+        // "any of Direction" with nothing written down offered nothing to tick and fell through to a textarea
+        // asking for raw names, one per line.
+        List<String> declared = variable.type().hasOptions()
+                ? VariableWire.effectiveOptions(base, variable.options())
+                : List.of();
+
+        // The shape decides the widget before the type does, because the shape is the question being asked —
+        // and it decides it *unconditionally*. Dispatching on "are there any options yet" instead is what made
+        // a freshly created "one of…" variable render as the plain single-value editor: the shape was set, the
+        // choices were not yet, and the control silently answered a different question than the one asked.
+        Node widget = switch (variable.type().shape()) {
+            case ANY_OF -> declared.isEmpty() ? openList(variable, base, ctx, sink)
+                    : checkList(variable, declared, base, ctx, sink);
             // Radio buttons, not a dropdown: the choices are the editor's own and there are a handful of
             // them, so showing all of them costs one line each and saves a click to find out what they are.
-            RadioRow row = new RadioRow(declared, variable.singleValue());
-            row.setId("param-value-" + variable.name());
-            sink.add(new ValueEditor(variable.name(), row::wire));
-            return row;
-        }
+            case ONE_OF -> radioRow(variable, declared, base, ctx, sink);
+            // One value of one type, which is exactly what ValueEditors answers — the same editors the
+            // activity Variables screen and the block editor get, so a duration is entered the same way
+            // wherever it is met.
+            case ONE -> single(variable, base, ctx, sink);
+        };
+        widget.setId("param-value-" + variable.name());
+        return widget;
+    }
 
-        // Everything else is one value of one type, which is exactly what ValueEditors answers — the same
-        // editors the activity Variables screen and the block editor get, so a duration is entered the same
-        // way wherever it is met.
-        ValueEditors.Editor editor = ValueEditors.editorFor(variable.type().type(), variable.singleValue(),
-                new ValueEditors.Context(config, variable.bounds()));
+    private static Node single(ActivityVariable variable, BotType base, ValueEditors.Context ctx,
+                               List<ValueEditor> sink) {
+        ValueEditors.Editor editor = ValueEditors.editorFor(base, variable.singleValue(), ctx);
         Node widget = editor.node();
         ValueEditors.stretch(widget);
-        widget.setId("param-value-" + variable.name());
         sink.add(new ValueEditor(variable.name(), () -> List.of(editor.read().get())));
         return widget;
     }
@@ -100,35 +108,22 @@ public final class ParamValueWidgets {
     }
 
     /** Declared choices, ticked. */
-    private static Node checkList(ActivityVariable variable, List<String> options, List<ValueEditor> sink) {
+    private static Node checkList(ActivityVariable variable, List<String> options, BotType base,
+                                  ValueEditors.Context ctx, List<ValueEditor> sink) {
         List<CheckBox> boxes = new ArrayList<>();
         VBox column = new VBox(2);
         for (String option : options) {
             CheckBox box = new CheckBox(option);
+            box.setUserData(option);
+            box.setGraphic(ValueEditors.optionGraphic(base, option, ctx));
             box.setSelected(variable.value().contains(option));
             boxes.add(box);
             column.getChildren().add(box);
         }
         if (boxes.isEmpty()) column.getChildren().add(hint("No choices declared yet."));
-        sink.add(new ValueEditor(variable.name(),
-                () -> boxes.stream().filter(CheckBox::isSelected).map(CheckBox::getText).toList()));
+        sink.add(new ValueEditor(variable.name(), () -> boxes.stream()
+                .filter(CheckBox::isSelected).map(box -> (String) box.getUserData()).toList()));
         return column;
-    }
-
-    /**
-     * A list with no declared choices: one item per line.
-     *
-     * <p>A line rather than a comma, because a comma is a character an item is allowed to contain and a
-     * newline is not one anybody types into a value by accident. Blank lines are dropped on read, so trailing
-     * whitespace does not become an empty item.
-     */
-    private static Node freeList(ActivityVariable variable, List<ValueEditor> sink) {
-        TextArea area = new TextArea(String.join("\n", variable.value()));
-        area.setPrefRowCount(Math.max(3, Math.min(8, variable.value().size() + 1)));
-        area.setPromptText("One per line");
-        sink.add(new ValueEditor(variable.name(), () -> area.getText() == null ? List.of()
-                : area.getText().lines().map(String::trim).filter(line -> !line.isEmpty()).toList()));
-        return area;
     }
 
     /**
@@ -138,26 +133,86 @@ public final class ParamValueWidgets {
      * from the list shows as no selection rather than as the first choice, which would be this widget
      * choosing a setting on the user's behalf.
      */
-    private static final class RadioRow extends VBox {
-
-        private final ToggleGroup group = new ToggleGroup();
-
-        RadioRow(List<String> options, String current) {
-            super(2);
-            for (String option : options) {
-                RadioButton button = new RadioButton(option);
-                button.setToggleGroup(group);
-                button.setUserData(option);
-                button.setSelected(option.equals(current));
-                getChildren().add(button);
-            }
-            if (options.isEmpty()) getChildren().add(hint("No choices declared yet."));
+    private static Node radioRow(ActivityVariable variable, List<String> options, BotType base,
+                                 ValueEditors.Context ctx, List<ValueEditor> sink) {
+        ToggleGroup group = new ToggleGroup();
+        VBox column = new VBox(2);
+        String current = variable.singleValue();
+        for (String option : options) {
+            RadioButton button = new RadioButton(option);
+            button.setToggleGroup(group);
+            button.setUserData(option);
+            button.setGraphic(ValueEditors.optionGraphic(base, option, ctx));
+            button.setSelected(option.equals(current));
+            column.getChildren().add(button);
         }
-
-        List<String> wire() {
+        if (options.isEmpty()) column.getChildren().add(hint("No choices declared yet."));
+        sink.add(new ValueEditor(variable.name(), () -> {
             Toggle chosen = group.getSelectedToggle();
             return List.of(chosen == null ? "" : (String) chosen.getUserData());
+        }));
+        return column;
+    }
+
+    /**
+     * A list the author fixed no set for: the user writes the members themselves.
+     *
+     * <p>Text is one item per line — a newline is not a character anybody types into a value by accident,
+     * where a comma is, and twenty strings are faster typed than clicked. Every other type gets a growable
+     * column of that type's own editor instead: a list of durations typed as text is four numbers per line to
+     * decode, and a list of templates typed as text is names remembered rather than pictures chosen.
+     */
+    private static Node openList(ActivityVariable variable, BotType base, ValueEditors.Context ctx,
+                                 List<ValueEditor> sink) {
+        if (base == BotType.TEXT) {
+            TextArea area = new TextArea(String.join("\n", variable.value()));
+            area.setPrefRowCount(Math.max(3, Math.min(8, variable.value().size() + 1)));
+            area.setPromptText("One per line");
+            sink.add(new ValueEditor(variable.name(), () -> area.getText() == null ? List.of()
+                    : area.getText().lines().map(String::trim).filter(line -> !line.isEmpty()).toList()));
+            return area;
         }
+
+        List<ValueEditors.Editor> editors = new ArrayList<>();
+        VBox column = new VBox(4);
+        Button add = new Button("Add");
+        Runnable[] rebuild = new Runnable[1];
+
+        // The rows are rebuilt from the editors' own current text rather than from the variable: this widget
+        // outlives several adds and removes before anything is flushed back, so the variable it was built from
+        // is stale from the first click.
+        rebuild[0] = () -> {
+            column.getChildren().clear();
+            for (int i = 0; i < editors.size(); i++) {
+                ValueEditors.Editor editor = editors.get(i);
+                int at = i;
+                Button remove = new Button("✕");
+                remove.getStyleClass().add("row-icon-button");
+                remove.setOnAction(e -> {
+                    editors.remove(at);
+                    rebuild[0].run();
+                });
+                HBox row = new HBox(6, editor.node(), remove);
+                row.setAlignment(Pos.CENTER_LEFT);
+                HBox.setHgrow(editor.node(), Priority.ALWAYS);
+                column.getChildren().add(row);
+            }
+            if (editors.isEmpty()) column.getChildren().add(hint("Nothing in this list yet."));
+            column.getChildren().add(add);
+        };
+
+        for (String item : variable.value()) editors.add(ValueEditors.editorFor(base, item, ctx));
+        add.setOnAction(e -> {
+            editors.add(ValueEditors.editorFor(base, null, ctx));
+            rebuild[0].run();
+        });
+        rebuild[0].run();
+
+        sink.add(new ValueEditor(variable.name(), () -> editors.stream()
+                .map(editor -> editor.read().get())
+                .filter(value -> value != null && !value.isBlank())
+                .toList()));
+        return column;
     }
 
     // --- small helpers ------------------------------------------------------------------------------------

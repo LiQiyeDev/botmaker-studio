@@ -1,5 +1,6 @@
 package com.botmaker.studio.ui.app.params;
 
+import com.botmaker.studio.palette.BotType;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityVariable;
@@ -423,7 +424,10 @@ public final class ParametersDialog {
         grid.add(buildTagPicker(v), 1, row);
         row++;
 
-        if (VariableWire.hasOptions(v.type())) {
+        // A closed-set type brings its own choices (every direction, every mouse button), so there is nothing
+        // here for the author to write down — offering an "add a choice" row over them would invite a second,
+        // hand-typed copy of a list the SDK already owns.
+        if (VariableWire.hasOptions(v.type()) && VariableWire.fixedOptions(v.type().type()).isEmpty()) {
             Label heading = new Label("Choices");
             heading.setTooltip(new Tooltip(v.type().isList()
                     ? "The set this variable's values are picked from. The user ticks any number of them."
@@ -479,11 +483,61 @@ public final class ParametersDialog {
      * survive as a stored value nobody can see any more.
      */
     private Node buildOptionsEditor(ActivityVariable v) {
+        BotType base = v.type().type();
+        ValueEditors.Context ctx = new ValueEditors.Context(config, v.bounds());
         VBox box = new VBox(4);
         List<String> options = v.options();
+
         for (int i = 0; i < options.size(); i++) {
-            String option = options.get(i);
-            int at = i;
+            box.getChildren().add(optionRow(v, base, ctx, options, i));
+        }
+
+        // The add row is the base type's own editor, not a text field. A choice is a value of the variable's
+        // type, so writing one down should be the same gesture as setting one: a template comes out of the
+        // gallery with its picture, a colour off the screen, a duration as hours and minutes. Typed as text it
+        // was a name recalled from memory — and a misremembered one is a choice that silently matches nothing.
+        ValueEditors.Editor fresh = ValueEditors.editorFor(base, null, ctx);
+        HBox.setHgrow(fresh.node(), Priority.ALWAYS);
+        Button add = new Button("Add");
+        Runnable addOption = () -> {
+            String typed = fresh.read().get();
+            typed = typed == null ? "" : typed.trim();
+            if (typed.isEmpty()) return;
+            if (options.contains(typed)) {
+                error("'" + typed + "' is already a choice here.");
+                return;
+            }
+            List<String> updated = new ArrayList<>(options);
+            updated.add(typed);
+            replaceOptions(v, updated);
+        };
+        add.setOnAction(e -> addOption.run());
+        if (fresh.node() instanceof TextField field) {
+            field.setPromptText("new choice");
+            field.setOnAction(e -> {
+                addOption.run();
+                e.consume();
+            });
+        }
+        HBox addRow = new HBox(6, fresh.node(), add);
+        addRow.setAlignment(Pos.CENTER_LEFT);
+        box.getChildren().add(addRow);
+        return box;
+    }
+
+    /**
+     * One declared choice.
+     *
+     * <p>Text stays editable in place — a typo in a label is fixed by fixing it. Every other type is shown the
+     * way it is shown everywhere else (a thumbnail, a swatch, a spelled-out length) and changed by removing it
+     * and adding the right one: an in-place editor for those would need a commit gesture per row, and a
+     * three-item choice list is not where that ceremony earns its keep.
+     */
+    private Node optionRow(ActivityVariable v, BotType base, ValueEditors.Context ctx,
+                           List<String> options, int at) {
+        String option = options.get(at);
+        Node shown;
+        if (base == BotType.TEXT) {
             TextField field = new TextField(option);
             HBox.setHgrow(field, Priority.ALWAYS);
             Runnable commit = () -> {
@@ -508,42 +562,23 @@ public final class ParametersDialog {
                 commit.run();
                 e.consume();
             });
-            Button remove = new Button("✕");
-            remove.getStyleClass().add("row-icon-button");
-            remove.setOnAction(e -> {
-                List<String> updated = new ArrayList<>(options);
-                updated.remove(at);
-                replaceOptions(v, updated);
-            });
-            HBox row = new HBox(6, field, remove);
-            row.setAlignment(Pos.CENTER_LEFT);
-            box.getChildren().add(row);
+            shown = field;
+        } else {
+            Label label = new Label(option, ValueEditors.optionGraphic(base, option, ctx));
+            HBox.setHgrow(label, Priority.ALWAYS);
+            shown = label;
         }
 
-        TextField fresh = new TextField();
-        fresh.setPromptText("new choice");
-        HBox.setHgrow(fresh, Priority.ALWAYS);
-        Button add = new Button("Add");
-        Runnable addOption = () -> {
-            String typed = fresh.getText() == null ? "" : fresh.getText().trim();
-            if (typed.isEmpty()) return;
-            if (options.contains(typed)) {
-                error("'" + typed + "' is already a choice here.");
-                return;
-            }
+        Button remove = new Button("✕");
+        remove.getStyleClass().add("row-icon-button");
+        remove.setOnAction(e -> {
             List<String> updated = new ArrayList<>(options);
-            updated.add(typed);
+            updated.remove(at);
             replaceOptions(v, updated);
-        };
-        add.setOnAction(e -> addOption.run());
-        fresh.setOnAction(e -> {
-            addOption.run();
-            e.consume();
         });
-        HBox addRow = new HBox(6, fresh, add);
-        addRow.setAlignment(Pos.CENTER_LEFT);
-        box.getChildren().add(addRow);
-        return box;
+        HBox row = new HBox(6, shown, remove);
+        row.setAlignment(Pos.CENTER_LEFT);
+        return row;
     }
 
     /**
