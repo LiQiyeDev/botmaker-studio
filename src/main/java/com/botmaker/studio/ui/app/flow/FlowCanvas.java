@@ -26,11 +26,10 @@ import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Tooltip;
 import javafx.scene.input.MouseButton;
 import javafx.scene.input.MouseEvent;
-import javafx.scene.input.KeyCode;
-import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Background;
 import javafx.scene.layout.Pane;
+import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
@@ -82,7 +81,7 @@ public final class FlowCanvas extends StackPane {
     private static final double MAX_ZOOM = 2.0;
     private static final double ARROW_LENGTH = 11;
 
-    /** "Won't run" on a card and on its minimap dot; "selected" on a card and on a wire. Both styled in CSS. */
+    /** "Won't run" on a card and on its minimap dot; "selected" on a card. Both styled in CSS. */
     private static final PseudoClass OFF = PseudoClass.getPseudoClass("off");
     private static final PseudoClass PICKED = PseudoClass.getPseudoClass("picked");
 
@@ -136,8 +135,18 @@ public final class FlowCanvas extends StackPane {
     /** Repaints the grid on a theme switch; a field so it can be unsubscribed when the canvas leaves its scene. */
     private final Consumer<BlockTheme.ThemeType> onThemeChanged = t -> paintGrid();
 
-    /** The wire the next Delete removes, or null. A wire is selected first and deleted second — see {@link #selectEdge}. */
-    private FlowEdge selectedEdge;
+    /**
+     * Undo/redo for this canvas, over whole-canvas snapshots. Every mutation below goes through it, which is
+     * what makes autosave and click-to-delete safe to have: nothing is lost, because everything can be taken
+     * back. See {@link FlowHistory} for why snapshots rather than per-mutation inverses.
+     */
+    private final FlowHistory<FlowSnapshot> history = new FlowHistory<>(this::capture, this::restore);
+
+    /** True while the history is putting a snapshot back: the mutations it performs must not record themselves. */
+    private boolean restoring;
+
+    /** Fired after any recorded mutation, undo or redo — the dialog saves on it. */
+    private Runnable onFlowMutated = () -> {};
 
     private CubicCurve pendingWire;
     private ActivityDraft pendingFrom;
@@ -188,12 +197,7 @@ public final class FlowCanvas extends StackPane {
             paintGrid();
         });
 
-        // A wire is removed by selecting it and pressing Delete. The filter sits here rather than on the
-        // ScrollPane because the ScrollPane is what takes focus on a click, and a filter runs on the way down.
-        addEventFilter(KeyEvent.KEY_PRESSED, e -> {
-            if (e.getCode() != KeyCode.DELETE && e.getCode() != KeyCode.BACK_SPACE) return;
-            if (deleteSelectedEdge()) e.consume();
-        });
+        history.setOnChanged(() -> onFlowMutated.run());
 
         content.setOnMousePressed(this::beginCanvasGesture);
         content.setOnMouseDragged(this::continueCanvasGesture);
@@ -253,6 +257,71 @@ public final class FlowCanvas extends StackPane {
 
     public void setOnChainChanged(Runnable onChainChanged) { this.onChainChanged = onChainChanged; }
 
+    /** Undo/redo for the flow: the dialog drives its arrows and, on every step, saves. */
+    public FlowHistory<FlowSnapshot> history() { return history; }
+
+    /** Called after every recorded mutation, undo and redo. */
+    public void setOnFlowMutated(Runnable onFlowMutated) { this.onFlowMutated = onFlowMutated; }
+
+    /**
+     * Runs {@code change} as a single undoable step. For a caller outside the canvas that changes several
+     * things at once — applying a preset flips a dozen switches, and taking that back should be one ↶, not
+     * twelve.
+     */
+    public void mutate(String label, Runnable change) { history.mutate(label, change); }
+
+    /**
+     * Drops the undo history and reports the change anyway — for an edit no snapshot describes.
+     *
+     * <p>A rename and an outcome edit both rewrite the names every stored snapshot's wires are expressed in,
+     * so undoing across one would restore wires between activities that no longer answer to those names.
+     * Forgetting is the honest answer: the arrows go grey, which says plainly that this edit is not one you
+     * can take back, rather than offering an undo that quietly loses wiring.
+     */
+    private void invalidateHistory() {
+        history.clear();
+        onFlowMutated.run();   // clear() is silent by design, but the edit that caused it still has to save
+    }
+
+    /** Everything undo restores, right now. */
+    private FlowSnapshot capture() {
+        List<FlowSnapshot.CardState> states = new ArrayList<>(drafts.size());
+        for (ActivityDraft d : drafts) {
+            states.add(new FlowSnapshot.CardState(d, d.x(), d.y(), d.enabled()));
+        }
+        return new FlowSnapshot(states, edges, start);
+    }
+
+    /**
+     * Puts a snapshot back. Cards the snapshot doesn't have are detached, ones it has that aren't here are
+     * re-attached — so an undone delete brings back the same {@link ActivityDraft} object, still bound to
+     * whatever was editing it.
+     */
+    private void restore(FlowSnapshot snapshot) {
+        restoring = true;
+        try {
+            List<ActivityDraft> wanted = snapshot.drafts();
+            for (ActivityDraft d : new ArrayList<>(drafts)) {
+                if (!wanted.contains(d)) detach(d);
+            }
+            for (FlowSnapshot.CardState state : snapshot.cards()) {
+                if (!drafts.contains(state.draft())) attach(state.draft());
+                NodeCard card = cards.get(state.draft().name());
+                if (card != null) placeAt(card, state.x(), state.y());
+                state.draft().enabledProperty().set(state.enabled());
+            }
+            drafts.setAll(wanted);   // the canvas order is the order activities are written back in
+            edges.setAll(snapshot.edges());
+            start = snapshot.start();
+            selection.removeIf(d -> !wanted.contains(d));
+            syncSelection();
+            onMessage.accept("");
+            refresh();
+        } finally {
+            restoring = false;
+        }
+    }
+
     /** Where a double-click on empty canvas goes — the dialog opens its "new activity" prompt there. */
     public void setOnCanvasDoubleClick(Consumer<Point2D> onCanvasDoubleClick) {
         this.onCanvasDoubleClick = onCanvasDoubleClick;
@@ -260,24 +329,38 @@ public final class FlowCanvas extends StackPane {
 
     /** Adds a card for {@code draft} at its stored position and selects it. */
     public void add(ActivityDraft draft) {
-        drafts.add(draft);
-        NodeCard card = new NodeCard(draft);
-        cards.put(draft.name(), card);
-        content.getChildren().add(card);
-        select(draft);
-        refresh();
+        history.mutate("add " + draft.name(), () -> {
+            attach(draft);
+            select(draft);
+            refresh();
+        });
     }
 
     /** Removes the activity and every wire touching it. */
     public void remove(ActivityDraft draft) {
+        history.mutate("delete " + draft.name(), () -> {
+            detach(draft);
+            edges.removeIf(e -> e.from().equals(draft.name()) || e.to().equals(draft.name()));
+            if (draft.name().equals(start)) start = "";
+            refresh();
+        });
+    }
+
+    /** Puts a card on the canvas. The topology around it — wires, start — is the caller's business. */
+    private void attach(ActivityDraft draft) {
+        drafts.add(draft);
+        NodeCard card = new NodeCard(draft);
+        cards.put(draft.name(), card);
+        content.getChildren().add(card);
+    }
+
+    /** Takes a card off the canvas, leaving the draft object itself intact so an undo can bring it back. */
+    private void detach(ActivityDraft draft) {
         drafts.remove(draft);
         NodeCard card = cards.remove(draft.name());
         if (card != null) content.getChildren().remove(card);
-        edges.removeIf(e -> e.from().equals(draft.name()) || e.to().equals(draft.name()));
-        if (draft.name().equals(start)) start = "";
         selection.remove(draft);
         if (selected.get() == draft) select(null);
-        refresh();
     }
 
     /** Selects exactly {@code draft} (or nothing, when null). */
@@ -347,9 +430,31 @@ public final class FlowCanvas extends StackPane {
         return start;
     }
 
+    /**
+     * Sets the starting activity as loaded from disk — and moves it if what was saved is switched off, which
+     * an older project can be: the start was stored without any regard for the enable flag until now.
+     */
     public void setStart(String newStart) {
         this.start = newStart == null ? "" : newStart;
+        String runnable = firstEnabledOtherThan(null);
+        if (isOff(resolvedStart()) && !runnable.isEmpty()) start = runnable;
         refresh();
+    }
+
+    /** True when {@code activity} is placed and switched off — a card the run cannot begin at. */
+    private boolean isOff(String activity) {
+        for (ActivityDraft d : drafts) {
+            if (d.name().equals(activity)) return !d.enabled();
+        }
+        return false;
+    }
+
+    /** The first switched-on activity that isn't {@code excluded}, or blank when there is none. */
+    private String firstEnabledOtherThan(ActivityDraft excluded) {
+        for (ActivityDraft d : drafts) {
+            if (d != excluded && d.enabled()) return d.name();
+        }
+        return "";
     }
 
     private List<String> placedNames() {
@@ -435,6 +540,10 @@ public final class FlowCanvas extends StackPane {
      * </ul>
      */
     public void autoArrange() {
+        history.mutate("auto-arrange", this::arrangeNow);
+    }
+
+    private void arrangeNow() {
         // Nothing wired yet: there are no layers to compute, so lay every card out as a uniform grid. Doing this
         // rather than the layer walk (which would place only the start card and leave the rest where they were)
         // is what makes a repeated click idempotent — otherwise centreOnCanvas translates the un-placed cards by
@@ -625,7 +734,6 @@ public final class FlowCanvas extends StackPane {
                 return;
             }
             select(null);
-            selectEdge(null);
             bandOrigin = new Point2D(e.getX(), e.getY());
             rubberBand.setX(bandOrigin.getX());
             rubberBand.setY(bandOrigin.getY());
@@ -747,9 +855,11 @@ public final class FlowCanvas extends StackPane {
             onMessage.accept(rejection);
             return;
         }
-        edges.add(new FlowEdge(from.name(), to, outcome));
-        onMessage.accept("");
-        refresh();
+        history.mutate("wire " + from.name() + " to " + to, () -> {
+            edges.add(new FlowEdge(from.name(), to, outcome));
+            onMessage.accept("");
+            refresh();
+        });
     }
 
     private void redrawWires() {
@@ -802,13 +912,14 @@ public final class FlowCanvas extends StackPane {
 
         Group wire = new Group(hit, curve, head);
         wire.getStyleClass().add("flow-wire-group");
-        wire.pseudoClassStateChanged(PICKED, edge.equals(selectedEdge));
         Tooltip.install(wire, new Tooltip(edge.from() + " — " + edge.outcomeOrNext() + " → " + edge.to()
-                + "  (click to select, then Delete to remove)"));
-        // Select, don't delete. A single click used to remove the wire outright, so brushing one while
-        // reaching for a card silently unwired the flow, with nothing to undo it.
+                + "  (click to remove it)"));
+        // One click, gone. This was a two-step select-then-Delete for a while, because a click used to remove
+        // the wire outright and brushing one while reaching for a card silently unwired the flow with nothing
+        // to undo it. There is an undo now, so the reason for the second step is gone, and what is left is a
+        // gesture that made removing a mis-drawn wire feel like an incantation.
         wire.setOnMouseClicked(e -> {
-            selectEdge(edge);
+            removeEdge(edge);
             e.consume();
         });
         wire.setOnContextMenuRequested(e -> {
@@ -820,28 +931,13 @@ public final class FlowCanvas extends StackPane {
         return wire;
     }
 
-    /** Marks {@code edge} as the one Delete will remove — or nothing, when it is null. */
-    private void selectEdge(FlowEdge edge) {
-        if (edge == null && selectedEdge == null) return;
-        selectedEdge = edge;
-        onMessage.accept(edge == null ? ""
-                : "Wire selected: " + edge.from() + " — " + edge.outcomeOrNext() + " → " + edge.to()
-                        + ". Press Delete to remove it.");
-        redrawWires();
-    }
-
-    /** Removes the selected wire, if there is one. Returns whether anything happened, for the key filter. */
-    private boolean deleteSelectedEdge() {
-        if (selectedEdge == null) return false;
-        removeEdge(selectedEdge);
-        return true;
-    }
-
     private void removeEdge(FlowEdge edge) {
-        edges.remove(edge);
-        selectedEdge = null;
-        onMessage.accept("");
-        refresh();
+        history.mutate("remove the wire from " + edge.from(), () -> {
+            edges.remove(edge);
+            onMessage.accept("Wire removed: " + edge.from() + " — " + edge.outcomeOrNext() + " → " + edge.to()
+                    + ". ↶ puts it back.");
+            refresh();
+        });
     }
 
     /** A filled triangle at {@code (tipX, tipY)}, pointing away from {@code (fromX, fromY)}. */
@@ -915,12 +1011,15 @@ public final class FlowCanvas extends StackPane {
         private final Label orphanNote = new Label("not wired — won't run");
         private final Label startBadge = new Label("▶ start");
         private final Label offBadge = new Label("off");
+        /** The badge row — see the header comment in the constructor for why it isn't part of the header. */
+        private final HBox badges = new HBox(6, offBadge, startBadge);
         private final VBox body = new VBox(2);
         private final VBox ports = new VBox(4);
         private final Map<String, Circle> outPorts = new LinkedHashMap<>();
 
         private boolean selectedNow;
         private Point2D dragAnchor;
+        private FlowSnapshot dragBefore;
         private Map<ActivityDraft, Point2D> dragStartPositions = Map.of();
 
         NodeCard(ActivityDraft draft) {
@@ -933,9 +1032,18 @@ public final class FlowCanvas extends StackPane {
             // re-draw the wires once the real bounds arrive (and again whenever the card resizes).
             layoutBoundsProperty().addListener((o, was, is) -> redrawWires());
 
+            // The card is a fixed 180px wide and the title is the only part of the header with no natural
+            // size, so it is the part that gets squeezed — and it was squeezed to nothing the moment a badge
+            // appeared beside it, which is to say the start card, alone among all of them, didn't say which
+            // activity it was. Growing and ellipsizing makes it the part that *keeps* the room instead.
             Label title = new Label();
             title.textProperty().bind(draft.nameProperty());
             title.getStyleClass().add("flow-card-title");
+            title.setMaxWidth(Double.MAX_VALUE);
+            title.setTextOverrun(javafx.scene.control.OverrunStyle.ELLIPSIS);
+            title.tooltipProperty().bind(javafx.beans.binding.Bindings.createObjectBinding(
+                    () -> new Tooltip(draft.name()), draft.nameProperty()));
+            HBox.setHgrow(title, Priority.ALWAYS);
 
             // Two toggles that mean unrelated things, so two *different* controls. They used to be adjacent
             // bare CheckBoxes — one captionless, one captioned "⌂" — which read as a pair of related ticks and
@@ -961,8 +1069,16 @@ public final class FlowCanvas extends StackPane {
             offBadge.setManaged(false);
             offBadge.setVisible(false);
 
-            HBox header = new HBox(8, title, enabled, goHome, offBadge, startBadge);
+            HBox header = new HBox(8, title, enabled, goHome);
             header.setAlignment(Pos.CENTER_LEFT);
+
+            // The badges get a row of their own rather than a place in the header. They come and go, and a
+            // control that appears and disappears in the middle of a fixed-width row takes its space from
+            // whatever is next to it — here, the name. On their own line they cost a few pixels of height,
+            // which the card has, instead of the width, which it hasn't.
+            badges.setAlignment(Pos.CENTER_LEFT);
+            badges.setManaged(false);
+            badges.setVisible(false);
 
             orphanNote.getStyleClass().add("flow-orphan-note");
             orphanNote.setManaged(false);
@@ -971,7 +1087,7 @@ public final class FlowCanvas extends StackPane {
             body.getStyleClass().add("flow-card");
             body.setPrefWidth(CARD_WIDTH);
             body.setMinWidth(CARD_WIDTH);
-            body.getChildren().addAll(header, orphanNote);
+            body.getChildren().addAll(header, badges, orphanNote);
             body.setPadding(new Insets(8, 10, 8, 10));
 
             ports.setAlignment(Pos.CENTER_LEFT);
@@ -982,6 +1098,7 @@ public final class FlowCanvas extends StackPane {
                 rebuildPorts();
                 dropWiresForRemovedOutcomes();
                 refresh();
+                if (!restoring) invalidateHistory();
             });
 
             // The input port is decoration only — a wire's endpoint is computed from the card's geometry
@@ -992,11 +1109,20 @@ public final class FlowCanvas extends StackPane {
             draft.enabledProperty().addListener((o, was, is) -> {
                 restyle();
                 drawMinimap();
+                if (restoring) return;
+                // The tick is bound straight to the property, so by the time this runs the change has already
+                // happened — the "before" is this state with the flag put back, which is exactly what
+                // withEnabled builds. Whatever the start move below does then lands in the same undo step.
+                FlowSnapshot before = capture().withEnabled(draft, was);
+                if (!is) startAwayFrom(draft);
+                refresh();
+                history.commit((is ? "switch on " : "switch off ") + draft.name(), before);
             });
             draft.nameProperty().addListener((o, was, is) -> renamed(was, is));
 
             body.setOnMousePressed(this::beginDrag);
             body.setOnMouseDragged(this::continueDrag);
+            body.setOnMouseReleased(this::endDrag);
             body.setOnContextMenuRequested(e -> cardMenu().show(body, e.getScreenX(), e.getScreenY()));
         }
 
@@ -1058,12 +1184,17 @@ public final class FlowCanvas extends StackPane {
             }
             edges.setAll(rewired);
             refresh();
+            if (!restoring) invalidateHistory();
         }
 
         private void beginDrag(MouseEvent e) {
             if (e.getButton() != MouseButton.PRIMARY) return;   // let a right-drag bubble up and pan
             // Dragging an unselected card selects it first, so a drag never moves something you can't see.
             if (!selection.contains(draft)) select(draft);
+            // A drag is one undo step, so the snapshot is taken here and committed on release — a per-frame
+            // step for every pixel of the drag would be unusable, and the intermediate positions are not
+            // states anybody wants back.
+            dragBefore = history.mark();
             dragAnchor = new Point2D(e.getSceneX(), e.getSceneY());
             Map<ActivityDraft, Point2D> starts = new HashMap<>();
             for (ActivityDraft d : selection) starts.put(d, new Point2D(d.x(), d.y()));
@@ -1082,6 +1213,16 @@ public final class FlowCanvas extends StackPane {
             }
             redrawWires();
             drawMinimap();
+            e.consume();
+        }
+
+        /** Ends a drag and records it — as one step, and only when the card actually ended up somewhere else. */
+        private void endDrag(MouseEvent e) {
+            if (dragAnchor == null) return;
+            dragAnchor = null;
+            FlowSnapshot before = dragBefore;
+            dragBefore = null;
+            if (before != null) history.commit(dragStartPositions.size() > 1 ? "move the cards" : "move " + draft.name(), before);
             e.consume();
         }
 
@@ -1120,6 +1261,14 @@ public final class FlowCanvas extends StackPane {
         void setStart(boolean isStart) {
             startBadge.setManaged(isStart);
             startBadge.setVisible(isStart);
+            showBadgeRow();
+        }
+
+        /** The badge row exists only while it has something in it; an empty one would cost a blank line. */
+        private void showBadgeRow() {
+            boolean any = startBadge.isVisible() || offBadge.isVisible();
+            badges.setManaged(any);
+            badges.setVisible(any);
         }
 
         /**
@@ -1132,13 +1281,50 @@ public final class FlowCanvas extends StackPane {
             body.pseudoClassStateChanged(OFF, !draft.enabled());
             offBadge.setManaged(!draft.enabled());
             offBadge.setVisible(!draft.enabled());
+            showBadgeRow();
         }
     }
 
+    /**
+     * Makes {@code activity} the card the run begins at — <em>switching it on</em> if it wasn't.
+     *
+     * <p>A run that begins at a switched-off activity begins by doing nothing, which is not a state anybody
+     * asks for on purpose: choosing "start here" says you want this to run. So the two go together, as one
+     * undoable step. The other half of the same invariant is in the card's enable listener — switching the
+     * start activity off moves the start rather than leaving it pointing at a card that won't run.
+     */
     private void setStartTo(String activity) {
-        start = activity;
-        onMessage.accept("The flow now starts at '" + activity + "'.");
-        refresh();
+        history.mutate("start at " + activity, () -> {
+            start = activity;
+            ActivityDraft draft = draftNamed(activity);
+            boolean wasOff = draft != null && !draft.enabled();
+            if (wasOff) draft.enabledProperty().set(true);
+            onMessage.accept("The flow now starts at '" + activity + "'"
+                    + (wasOff ? ", and it has been switched on." : "."));
+            refresh();
+        });
+    }
+
+    /**
+     * Moves the start off {@code draft} when it has just been switched off, since a run cannot begin at an
+     * activity that doesn't run. It goes to the first other switched-on card; when there is none, the start is
+     * cleared and the canvas says so — every card off is a flow that does nothing, and silence there reads as
+     * a bug in the bot rather than as the switch the user just flipped.
+     */
+    private void startAwayFrom(ActivityDraft draft) {
+        if (!draft.name().equals(resolvedStart())) return;
+        String next = firstEnabledOtherThan(draft);
+        start = next;
+        onMessage.accept(next.isEmpty()
+                ? "Every activity is switched off, so nothing will run."
+                : "'" + draft.name() + "' is off, so the flow now starts at '" + next + "'.");
+    }
+
+    private ActivityDraft draftNamed(String activity) {
+        for (ActivityDraft d : drafts) {
+            if (d.name().equals(activity)) return d;
+        }
+        return null;
     }
 
     private static Circle port(String styleClass) {

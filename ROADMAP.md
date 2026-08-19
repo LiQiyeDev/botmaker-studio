@@ -6,6 +6,16 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-19 — A flow that saves itself and can be taken back (`ui/app/flow/FlowHistory`,
+  `ui/app/flow/FlowSnapshot`, `ui/app/flow/FlowCanvas`, `ui/app/ActivityFlowDialog`).** New `FlowHistory` —
+  whole-canvas snapshots rather than per-mutation inverses, since deleting a card drops its wires and
+  switching off the start moves the start, and an inverse that forgets one of those loses wiring. Every
+  mutation (move, wire, unwire, switch, set-start, add, delete, auto-arrange, apply preset) is one undoable
+  step behind `↶ ↷` in the top bar. The Save button is gone: edits are written 400 ms after the last one, and
+  Close flushes before it closes. A click on a wire removes it outright again, now that there is an undo. The
+  start card shows its name (the title grows and ellipsizes; the badges moved to a row of their own), and the
+  start can no longer be a switched-off activity — "start here" switches it on, switching the start off moves
+  the start.
 - **2026-08-19 — Drops that read, and a lock that reads the signature (`css/blocks.css`,
   `core/render/GutterDecorator`, `palette/BlockType`, `ui/dnd/BlockDragAndDropManager`, `project/MethodLock`,
   `project/GeneratedMembers`, `blocks/func/MethodDeclarationBlock`).** A refused drop is now an outline rather

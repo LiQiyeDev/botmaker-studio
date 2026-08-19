@@ -94,6 +94,25 @@ public class ActivityFlowDialog {
     private final VBox sidePanel = new VBox(10);
     private final ComboBox<ActivityPreset> presetCombo = new ComboBox<>();
 
+    /**
+     * Autosave, coalesced. Every edit on the canvas asks to be written, and writing means regenerating
+     * {@code Activities.java} and the registry — which is far too much work to do per pixel of a card drag.
+     * So an edit restarts this timer instead, and the save happens once the user stops.
+     */
+    private final javafx.animation.PauseTransition autosaveDelay =
+            new javafx.animation.PauseTransition(javafx.util.Duration.millis(400));
+
+    /** What autosave has to say for itself: "Saving…", "Saved", or "Not saved" when the write was refused. */
+    private final Label savedLabel = new Label();
+
+    /** There are edits not yet written. */
+    private boolean dirty;
+    /** A write is in flight; the next one waits for it rather than racing it. */
+    private boolean saving;
+    /** Close was pressed with edits outstanding — close as soon as they are safely on disk. */
+    private boolean closeWhenSaved;
+
+    private Button closeButton;
     private Stage stage;
 
     public ActivityFlowDialog(Window owner, ActivityService activityService) {
@@ -118,11 +137,24 @@ public class ActivityFlowDialog {
         canvas.setOnMessage(this::error);
         canvas.setOnChainChanged(this::refreshOrderLabel);
         canvas.setOnCanvasDoubleClick(this::createActivityAt);
+        // Wired *after* loadCurrent, so seeding the canvas doesn't read as a dozen edits by the user; and the
+        // history is cleared for the same reason — the flow as it was loaded is the state undo bottoms out at.
+        canvas.setOnFlowMutated(this::markDirty);
+        canvas.history().clear();
+        autosaveDelay.setOnFinished(e -> flush());
         canvas.selectedProperty().addListener((o, was, is) -> showInSidePanel(is));
         showInSidePanel(null);
         refreshOrderLabel();
 
         stage.setScene(ThemedWindows.scene(root, 1040, 680));
+        // The window's own ✕ is the same door as the Close button, and it must not be the one that loses the
+        // last edit: both go through closeRequested, which flushes anything outstanding first.
+        stage.setOnCloseRequest(e -> {
+            if (dirty || saving || closeWhenSaved) {
+                e.consume();
+                closeRequested();
+            }
+        });
         stage.show();
         // Cards have real bounds only after the first layout pass; re-draw so the wires land on the ports —
         // and auto-arrange there too, since it stacks cards by their real heights and would otherwise lay the
@@ -171,7 +203,11 @@ public class ActivityFlowDialog {
         applyPreset.setOnAction(e -> {
             ActivityPreset preset = presetCombo.getValue();
             if (preset == null) { error("Pick a preset first."); return; }
-            for (ActivityDraft d : canvas.drafts()) d.enabledProperty().set(preset.enables(d.name()));
+            // One step, not one per activity: a preset flips every switch at once, and taking that back should
+            // be a single ↶ rather than a dozen.
+            canvas.mutate("apply preset " + preset.name(), () -> {
+                for (ActivityDraft d : canvas.drafts()) d.enabledProperty().set(preset.enables(d.name()));
+            });
             error("");
         });
 
@@ -198,11 +234,45 @@ public class ActivityFlowDialog {
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
         HBox bar = new HBox(8, new Label("Presets:"), presetCombo, applyPreset, savePreset,
+                new Separator(javafx.geometry.Orientation.VERTICAL), undoButton(), redoButton(),
                 new Separator(javafx.geometry.Orientation.VERTICAL), recenter, arrange,
                 spacer, addActivity);
         bar.setAlignment(Pos.CENTER_LEFT);
         bar.setPadding(new Insets(10));
         return bar;
+    }
+
+    /**
+     * The two arrows that make autosave bearable. With no Save button there is no "close without saving" to
+     * retreat to, so every mutation has to be reversible in the editor itself; these are that. They are
+     * flow-local by design — the code editor has its own undo, and one stack spanning both would let ↶ in a
+     * dialog take back a block edit behind it.
+     *
+     * <p>Disabled when there is nothing to take back, and captioned with what that would be, so ↶ is never a
+     * guess. The arrows go grey after a rename for a reason {@code FlowCanvas.invalidateHistory} explains.
+     */
+    private Button undoButton() {
+        Button undo = new Button("↶");
+        undo.disableProperty().bind(canvas.history().canUndoProperty().not());
+        undo.tooltipProperty().bind(javafx.beans.binding.Bindings.createObjectBinding(
+                () -> new javafx.scene.control.Tooltip(labelled("Undo", canvas.history().undoLabelProperty().get())),
+                canvas.history().undoLabelProperty()));
+        undo.setOnAction(e -> canvas.history().undo());
+        return undo;
+    }
+
+    private Button redoButton() {
+        Button redo = new Button("↷");
+        redo.disableProperty().bind(canvas.history().canRedoProperty().not());
+        redo.tooltipProperty().bind(javafx.beans.binding.Bindings.createObjectBinding(
+                () -> new javafx.scene.control.Tooltip(labelled("Redo", canvas.history().redoLabelProperty().get())),
+                canvas.history().redoLabelProperty()));
+        redo.setOnAction(e -> canvas.history().redo());
+        return redo;
+    }
+
+    private static String labelled(String verb, String step) {
+        return step == null || step.isBlank() ? verb + " — nothing to " + verb.toLowerCase() : verb + " " + step;
     }
 
     /**
@@ -247,6 +317,7 @@ public class ActivityFlowDialog {
         refreshPresetCombo();
         presetCombo.getSelectionModel().select(presets.size() - 1);
         error("");
+        markDirty();
     }
 
     /** The built-in presets plus the user's saved ones — built-ins are derived from what's on the canvas. */
@@ -289,16 +360,24 @@ public class ActivityFlowDialog {
             renameDraft(draft, candidate, name);
         });
         TextField description = new TextField(draft.description());
-        description.textProperty().addListener((o, was, is) -> draft.descriptionProperty().set(is));
+        description.textProperty().addListener((o, was, is) -> {
+            draft.descriptionProperty().set(is);
+            markDirty();
+        });
 
         CheckBox goHome = new CheckBox("Go home first");
         goHome.selectedProperty().bindBidirectional(draft.goHomeProperty());
+        // The canvas records what it owns — position, wiring, the enable switch. These three live on the draft
+        // and nowhere else, so they ask for the save themselves. They are not undoable, which is the honest
+        // answer for a text field and a tick you can simply set back.
+        goHome.selectedProperty().addListener((o, was, is) -> markDirty());
         goHome.setTooltip(new javafx.scene.control.Tooltip(
                 "Call GoHome.run() immediately before this activity, so it starts from a known screen. Same "
                         + "tick as the ⌂ on the card."));
 
         CheckBox popupCheck = new CheckBox("Check for popups");
         popupCheck.selectedProperty().bindBidirectional(draft.popupCheckProperty());
+        popupCheck.selectedProperty().addListener((o, was, is) -> markDirty());
         popupCheck.setTooltip(new javafx.scene.control.Tooltip(
                 "Let Popups.run() dismiss popups before each vision step of this activity. Turn it off for an "
                         + "activity that works through a popup itself — otherwise the guard closes it "
@@ -506,7 +585,10 @@ public class ActivityFlowDialog {
         goHome.setTooltip(new javafx.scene.control.Tooltip(
                 "Whether a newly added activity starts with its ⌂ tick on. Each activity can still be changed "
                         + "individually on its card."));
-        goHome.selectedProperty().addListener((o, was, is) -> goHomeByDefault = is);
+        goHome.selectedProperty().addListener((o, was, is) -> {
+            goHomeByDefault = is;
+            markDirty();
+        });
 
         box.getChildren().addAll(explain, row, delayExplain, delayRow, goHome);
         return box;
@@ -520,6 +602,7 @@ public class ActivityFlowDialog {
             if (parsed < 0) throw new NumberFormatException();
             stepDelayMs = parsed;
             error("");
+            markDirty();
         } catch (NumberFormatException bad) {
             error("The pause must be a whole number of milliseconds, 0 or more.");
             field.setText(String.valueOf(stepDelayMs));
@@ -532,6 +615,7 @@ public class ActivityFlowDialog {
             if (parsed <= 0) throw new NumberFormatException();
             maxSteps = parsed;
             error("");
+            markDirty();
         } catch (NumberFormatException bad) {
             // A zero or negative budget generates a driver that stops before running anything at all.
             error("The step limit must be a whole number above zero.");
@@ -582,23 +666,25 @@ public class ActivityFlowDialog {
         return new VBox(6, what, open);
     }
 
-    // --- bottom bar: run-order preview + save ---
+    // --- bottom bar: run-order preview + what autosave is doing ---
 
     private Node buildBottomBar() {
         progress.setVisible(false);
         progress.setPrefSize(20, 20);
         orderLabel.getStyleClass().add("dialog-hint-text");
         statusLabel.getStyleClass().add("dialog-error-text");
+        savedLabel.getStyleClass().add("dialog-hint-text");
 
-        Button close = new Button("Close");
-        close.setOnAction(e -> stage.close());
-        Button save = new Button("Save");
-        save.setDefaultButton(true);
-        save.setOnAction(e -> save(save, close));
+        // No Save button. Everything on this canvas is a gesture — drag a card, draw a wire, flip a switch —
+        // and a gesture that needs confirming afterwards is a gesture you can lose by closing the window. So
+        // the flow saves itself, ↶ is what takes a change back, and Close only ever closes.
+        closeButton = new Button("Close");
+        closeButton.setDefaultButton(true);
+        closeButton.setOnAction(e -> closeRequested());
 
         HBox spacer = new HBox();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox buttons = new HBox(10, progress, statusLabel, spacer, close, save);
+        HBox buttons = new HBox(10, progress, savedLabel, statusLabel, spacer, closeButton);
         buttons.setAlignment(Pos.CENTER_LEFT);
 
         VBox bar = new VBox(6, orderLabel, buttons);
@@ -634,9 +720,15 @@ public class ActivityFlowDialog {
         orderLabel.setText(summary.toString());
     }
 
-    private void save(Button save, Button close) {
-        error("");
+    /** Notes that something changed and asks for a save — coalesced, so a drag writes once, not per frame. */
+    private void markDirty() {
+        dirty = true;
+        savedLabel.setText("Saving…");
+        autosaveDelay.playFromStart();
+    }
 
+    /** The flow as it currently stands, ready to be written. */
+    private ActivitiesConfig currentConfig() {
         List<ActivityDefinition> activities = new ArrayList<>();
         List<FlowNode> nodes = new ArrayList<>();
         for (ActivityDraft d : canvas.drafts()) {
@@ -644,22 +736,71 @@ public class ActivityFlowDialog {
             nodes.add(new FlowNode(d.name(), d.x(), d.y()));
         }
         // Built from what is current, so the variables this dialog never shows survive the save untouched.
-        ActivitiesConfig cfg = activityService.current()
+        return activityService.current()
                 .withActivities(activities)
                 .withFlow(new ActivityFlow(nodes, new ArrayList<>(canvas.edges()), canvas.start(),
                         maxSteps, stepDelayMs))
                 .withPresets(new ArrayList<>(presets))
                 .withGoHomeByDefault(goHomeByDefault);
+    }
 
+    /**
+     * Writes the flow, if there is anything to write and nothing already in flight.
+     *
+     * <p>Serialised rather than parallel on purpose: {@link ActivityService#update} rewrites
+     * {@code activities.json} and regenerates two source files, and two of those overlapping is a project in
+     * an order nobody chose. A change that arrives mid-write simply leaves {@link #dirty} set, and the write
+     * that lands starts the next one.
+     */
+    private void flush() {
+        if (!dirty || saving) return;
+        ActivitiesConfig cfg = currentConfig();
         String problem = validate(cfg);
-        if (problem != null) { error(problem); return; }
-
-        setBusy(save, close, true);
+        if (problem != null) {
+            // Refused, not failed — a duplicate name or a bad identifier. Stay dirty so the fix saves it, and
+            // let go of any pending close: closing now would leave the edit only in the window.
+            error(problem);
+            savedLabel.setText("Not saved");
+            releaseClose();
+            return;
+        }
+        error("");
+        dirty = false;
+        saving = true;
+        progress.setVisible(true);
+        savedLabel.setText("Saving…");
         activityService.update(cfg).whenComplete((ok, err) -> Platform.runLater(() -> {
-            setBusy(save, close, false);
-            if (err != null) error(rootMessage(err));
-            else stage.close();
+            saving = false;
+            progress.setVisible(false);
+            if (err != null) {
+                dirty = true;   // the next edit, or Close, tries again
+                error(rootMessage(err));
+                savedLabel.setText("Not saved");
+                releaseClose();
+                return;
+            }
+            savedLabel.setText("Saved");
+            if (dirty) flush();
+            else if (closeWhenSaved) stage.close();
         }));
+    }
+
+    /** Close was pressed: write anything outstanding first, then close — never the other way round. */
+    private void closeRequested() {
+        autosaveDelay.stop();
+        if (!dirty && !saving) {
+            stage.close();
+            return;
+        }
+        closeWhenSaved = true;
+        closeButton.setDisable(true);
+        flush();
+    }
+
+    /** Gives the Close button back after a save that didn't land, so the window is never sealed shut. */
+    private void releaseClose() {
+        closeWhenSaved = false;
+        closeButton.setDisable(false);
     }
 
     /**
@@ -705,12 +846,6 @@ public class ActivityFlowDialog {
                     + "'. Rename an activity, param or global.";
         }
         return null;
-    }
-
-    private void setBusy(Button save, Button close, boolean busy) {
-        progress.setVisible(busy);
-        save.setDisable(busy);
-        close.setDisable(busy);
     }
 
     private static Label heading(String text) {
