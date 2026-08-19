@@ -245,6 +245,121 @@ public final class VariableWire {
     }
 
     /**
+     * The Java source of a single wire value, written out as a literal instead of as a call to a parser.
+     *
+     * <p>{@link #loadExpression} is the <em>bot's</em> answer to "what does this wire text mean": the value is
+     * not known until the bot runs, so the generated code says {@code duration(one("wait"))} and the helper
+     * reads the string at startup. The Variables screen asks the same question at <em>edit</em> time, about a
+     * value it already has, and has to write it into the user's own source — where a call to a private helper
+     * of a generated class would be nonsense. So the same wire grammar is emitted a second way, as the literal
+     * the helper would have produced.
+     *
+     * <p>The two must agree, which is why every case below is written against the helper it mirrors:
+     * {@code 1h30m} through {@link DurationWire}, a colour through {@code Color.decode}'s {@code #RRGGBB}, a
+     * template through the same {@code images/…png} path {@code TEMPLATE_HELPER} builds.
+     *
+     * @return the literal and the one import it needs (null when it needs none), or {@code null} for a type
+     *         with no written form — the non-{@linkplain BotType#storable() storable} ones.
+     */
+    public static Literal literalSource(BotType type, String wire) {
+        String text = wire == null ? "" : wire.trim();
+        return switch (type) {
+            case TEXT -> new Literal(quote(text), null);
+            case YES_NO -> new Literal(Boolean.parseBoolean(text) ? "true" : "false", null);
+            case WHOLE_NUMBER -> new Literal(Long.toString((long) doubleOr(text, 0)), null);
+            case DECIMAL_NUMBER -> new Literal(Double.toString(doubleOr(text, 0)), null);
+            case CHARACTER -> new Literal("'" + escapeChar(text.isEmpty() ? 'a' : text.charAt(0)) + "'", null);
+            case COLOR -> new Literal("Color.decode(" + quote(text.isEmpty() ? "#FFFFFF" : text) + ")",
+                    "java.awt.Color");
+            case DATE -> new Literal("LocalDate.parse(" + quote(dateOrToday(text)) + ")", "java.time.LocalDate");
+            case TIME_OF_DAY -> new Literal("LocalTime.parse(" + quote(timeOrMidnight(text)) + ")",
+                    "java.time.LocalTime");
+            // Milliseconds, not the "1h30m" text: the wire grammar is Studio's, and nothing in the bot's own
+            // source should have to know it.
+            case DURATION -> new Literal("Duration.ofMillis(" + DurationWire.parse(text, 0) + "L)",
+                    "java.time.Duration");
+            case IMAGE_TEMPLATE -> new Literal("new %s(%s)".formatted(SdkType.IMAGE_TEMPLATE.simpleName(),
+                    quote(TemplateConstants.IMAGES_PREFIX + text + ".png")),
+                    SdkType.IMAGE_TEMPLATE.qualifiedName());
+            case KEY -> enumLiteral(SdkType.KEY, text);
+            case MOUSE_BUTTON -> enumLiteral(SdkType.MOUSE_BUTTON, text);
+            case DIRECTION -> enumLiteral(SdkType.DIRECTION, text);
+            case PRECISION -> precisionLiteral(text);
+            case POINT -> intsLiteral(SdkType.POINT, text, 2);
+            case SIZE -> intsLiteral(SdkType.SIZE, text, 2);
+            case RECT -> intsLiteral(SdkType.RECT, text, 4);
+            default -> null;
+        };
+    }
+
+    /** One literal and the import it needs — what {@code CodeEditor.replaceWithRawExpression} takes. */
+    public record Literal(String source, String importFqn) {}
+
+    private static Literal enumLiteral(SdkType type, String wire) {
+        String constant = wire.isEmpty() ? firstConstantOf(type) : wire.toUpperCase(Locale.ROOT);
+        return new Literal(type.simpleName() + "." + constant, type.qualifiedName());
+    }
+
+    private static Literal precisionLiteral(String wire) {
+        String[] parts = wire.split(",");
+        double deltaE = Math.max(0.0, parts.length > 0 ? doubleOr(parts[0], 12.0) : 12.0);
+        int minArea = Math.max(1, parts.length > 1 ? (int) doubleOr(parts[1], 4) : 4);
+        int minCount = Math.max(0, parts.length > 2 ? (int) doubleOr(parts[2], 0) : 0);
+        return new Literal("new %s(%s, %d, %d)".formatted(SdkType.PRECISION.simpleName(), deltaE, minArea, minCount),
+                SdkType.PRECISION.qualifiedName());
+    }
+
+    private static Literal intsLiteral(SdkType type, String wire, int count) {
+        String[] parts = wire.split(",");
+        StringBuilder args = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            if (i > 0) args.append(", ");
+            args.append((int) doubleOr(i < parts.length ? parts[i] : "", 0));
+        }
+        return new Literal("new " + type.simpleName() + "(" + args + ")", type.qualifiedName());
+    }
+
+    private static double doubleOr(String text, double fallback) {
+        try {
+            return Double.parseDouble(text.trim());
+        } catch (RuntimeException e) {
+            return fallback;
+        }
+    }
+
+    private static String dateOrToday(String text) {
+        try {
+            return LocalDate.parse(text).toString();
+        } catch (RuntimeException e) {
+            return LocalDate.now().toString();
+        }
+    }
+
+    private static String timeOrMidnight(String text) {
+        try {
+            return LocalTime.parse(text).toString();
+        } catch (RuntimeException e) {
+            return LocalTime.MIDNIGHT.toString();
+        }
+    }
+
+    private static String quote(String text) {
+        return '"' + text.replace("\\", "\\\\").replace("\"", "\\\"")
+                .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t") + '"';
+    }
+
+    private static String escapeChar(char c) {
+        return switch (c) {
+            case '\'' -> "\\'";
+            case '\\' -> "\\\\";
+            case '\n' -> "\\n";
+            case '\r' -> "\\r";
+            case '\t' -> "\\t";
+            default -> String.valueOf(c);
+        };
+    }
+
+    /**
      * The runtime parser {@code type}'s values are read with: its method name, and the source of the method
      * (empty when it shares one already emitted for another type).
      *

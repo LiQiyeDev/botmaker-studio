@@ -19,6 +19,12 @@ public final class InteractionDecorator implements BlockDecorator {
 
         ContextMenu menu = new ContextMenu();
 
+        var blockItems = block.blockMenuItems(context);
+        if (!blockItems.isEmpty()) {
+            menu.getItems().addAll(blockItems);
+            menu.getItems().add(new javafx.scene.control.SeparatorMenuItem());
+        }
+
         MenuItem copy = new MenuItem("Copy (Ctrl+C)");
         copy.setOnAction(ev -> {
             context.getState().setHighlightedBlock(block);

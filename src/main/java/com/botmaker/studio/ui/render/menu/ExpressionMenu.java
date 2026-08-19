@@ -1,5 +1,6 @@
 package com.botmaker.studio.ui.render.menu;
 
+import com.botmaker.studio.palette.BotType;
 import com.botmaker.studio.palette.ExpressionCatalog;
 import com.botmaker.studio.palette.ExpressionCategory;
 import com.botmaker.studio.palette.ExpressionType;
@@ -79,6 +80,41 @@ public final class ExpressionMenu {
         label.setCursor(javafx.scene.Cursor.HAND);
         javafx.scene.control.Tooltip.install(label, new javafx.scene.control.Tooltip(tooltip));
         label.setOnMouseClicked(e -> showTypeMenu(label, currentType.get(), context, contextNode, true, allowVoid, onTypeSelected));
+    }
+
+    /**
+     * The type menu a <em>declare</em> block gets: the {@link BotType} whitelist first, grouped exactly as
+     * {@link com.botmaker.studio.ui.render.components.BotTypePicker} with
+     * {@link com.botmaker.studio.ui.render.components.BotTypePicker.Purpose#VARIABLE} groups it, with the full
+     * searchable list left behind an "Other type…" item.
+     *
+     * <p>{@link #showTypeMenu} offers every type the project index can name — {@code Steam}, {@code Heroic},
+     * {@code MatchEvent}, the lot — which is right when you are retyping something that already exists and
+     * wrong as the first thing a beginner meets. {@link BotType#storable()} is the set of types with a value
+     * somebody can actually write down, and that set is what belongs at the top.
+     */
+    public static void showBotTypeMenu(Node anchor, ResolvedType currentType, CodeEditorService context,
+                                       ASTNode contextNode, Consumer<ResolvedType> onTypeSelected) {
+        ContextMenu menu = new ContextMenu();
+        for (BotType.Group group : BotType.Group.values()) {
+            List<MenuItem> items = BotType.in(group).stream()
+                    .filter(BotType::storable)
+                    .map(type -> {
+                        MenuItem item = new MenuItem(type.label());
+                        item.setOnAction(e -> onTypeSelected.accept(ResolvedType.named(type.typeName())));
+                        return item;
+                    })
+                    .collect(Collectors.toList());
+            if (items.isEmpty()) continue;
+            Menu sub = new Menu(group.label());
+            sub.getItems().addAll(items);
+            menu.getItems().add(sub);
+        }
+        menu.getItems().add(new SeparatorMenuItem());
+        MenuItem other = new MenuItem("Other type…");
+        other.setOnAction(e -> showTypeSelectorMenu(anchor, currentType, context, contextNode, onTypeSelected));
+        menu.getItems().add(other);
+        menu.show(anchor, javafx.geometry.Side.BOTTOM, 0, 0);
     }
 
     /** Back-compat entry: the type-change selector for params/vars/fields (array dims on, no {@code void}). */
@@ -479,7 +515,10 @@ public final class ExpressionMenu {
      */
     private static Menu activitiesSubmenu(ResolvedType expectedType, CodeEditorService context,
                                           Consumer<Object> onSelect) {
-        Menu menu = MenuIcons.decorate(new Menu("Activities"), MenuIcons.ACTIVITIES);
+        // "Parameters", not "Activities": the class the fields live in is called Activities, but what this
+        // menu offers is the project's parameters, and naming it after the generated class asked the reader
+        // to know that. The neighbouring "Activity name" menu is a different thing and keeps its name.
+        Menu menu = MenuIcons.decorate(new Menu("Parameters"), MenuIcons.ACTIVITIES);
         List<ActivityVariable> variables = context.getProjectAnalyzer().getActivityVariables(expectedType);
         if (variables.isEmpty()) {
             menu.getItems().add(MenuBuilders.disabledItem("(Nothing of this type)"));

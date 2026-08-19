@@ -8,8 +8,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -384,5 +386,56 @@ class ParameterModelTest {
 
         assertEquals(List.of("Mining", "Smelting", "speed"),
                 config.allVariables().stream().map(ActivityVariable::name).toList());
+    }
+
+    /**
+     * The Variables screen writes a wire value into the user's own source, so {@link VariableWire#literalSource}
+     * has to produce the literal the generated helper would have parsed. The pairs below are the ones that can
+     * silently disagree: a duration whose wire grammar is Studio's alone, a colour whose helper is
+     * {@code Color.decode}, geometry whose helper is a comma split.
+     */
+    @Test
+    void aWireValueIsWrittenOutAsTheLiteralTheHelperWouldHaveParsed() {
+        assertAll(
+                () -> assertEquals("\"hello\"", VariableWire.literalSource(BotType.TEXT, "hello").source()),
+                () -> assertEquals("true", VariableWire.literalSource(BotType.YES_NO, "true").source()),
+                () -> assertEquals("7", VariableWire.literalSource(BotType.WHOLE_NUMBER, "7").source()),
+                () -> assertEquals("Duration.ofMillis(5400000L)",
+                        VariableWire.literalSource(BotType.DURATION, "1h30m").source()),
+                () -> assertEquals("Color.decode(\"#FF0000\")",
+                        VariableWire.literalSource(BotType.COLOR, "#FF0000").source()),
+                () -> assertEquals("new Point(3, 4)",
+                        VariableWire.literalSource(BotType.POINT, "3,4").source()),
+                () -> assertEquals("new Rect(1, 2, 3, 4)",
+                        VariableWire.literalSource(BotType.RECT, "1,2,3,4").source()),
+                () -> assertEquals("MouseButton.BACK",
+                        VariableWire.literalSource(BotType.MOUSE_BUTTON, "BACK").source()));
+    }
+
+    /**
+     * The same clamps the generated {@code precision} helper applies, applied here — otherwise a value the bot
+     * would have survived becomes source that throws in the user's own file, since {@code Precision}'s
+     * constructor rejects a ΔE below zero and an area below one.
+     */
+    @Test
+    void anImpossiblePrecisionIsClampedOnTheWayIntoSourceToo() {
+        assertEquals("new Precision(0.0, 1, 0)",
+                VariableWire.literalSource(BotType.PRECISION, "-3,0,-9").source());
+    }
+
+    /** Each literal carries the one import that makes it resolve; a plain literal carries none. */
+    @Test
+    void eachLiteralNamesTheImportItNeeds() {
+        assertAll(
+                () -> assertNull(VariableWire.literalSource(BotType.TEXT, "x").importFqn()),
+                () -> assertEquals("java.awt.Color", VariableWire.literalSource(BotType.COLOR, "#FFF").importFqn()),
+                () -> assertEquals("java.time.Duration", VariableWire.literalSource(BotType.DURATION, "2s").importFqn()),
+                () -> assertTrue(VariableWire.literalSource(BotType.POINT, "0,0").importFqn().endsWith(".Point")));
+    }
+
+    /** A type with no written-down form has no literal either, rather than a wrong one. */
+    @Test
+    void aTypeThatIsNotStorableHasNoLiteral() {
+        assertNull(VariableWire.literalSource(BotType.CAPTURE_SOURCE, "anything"));
     }
 }

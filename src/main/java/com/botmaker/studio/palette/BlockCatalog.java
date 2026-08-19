@@ -125,7 +125,7 @@ public final class BlockCatalog {
     // template (shipped by ProjectCreator) rather than a missing "image.png".
     private static final List<BlockType> BOT_VARIABLES = BotType.declarableTypes().stream()
             .filter(t -> t.group() != BotType.Group.BASICS)
-            .map(BlockCatalog::declareBlock)
+            .<BlockType>map(BlockCatalog::declareBlock)
             .toList();
 
     public static final BlockType DECLARE_POINT = declared(BotType.POINT);
@@ -206,8 +206,17 @@ public final class BlockCatalog {
         return new ControlFlow(id, displayName, category, kind);
     }
 
+    /**
+     * The declare-a-variable block for one curated type — the very entry the palette lists, so anything that
+     * wants to insert a declaration builds the same statement a drop would. The Variables screen's Add is the
+     * second caller, which is why this is no longer private.
+     */
+    public static VarDecl declareBlockFor(BotType type) {
+        return declareBlock(type);
+    }
+
     /** The declare-a-variable block for one curated type. */
-    private static BlockType declareBlock(BotType type) {
+    private static VarDecl declareBlock(BotType type) {
         return new VarDecl("DECLARE_" + type.name(), type.label(), BOT_VARIABLE,
                 type.typeName(), type.isPrimitive(), type.suggestedName(),
                 type.defaultValue().orElseThrow(

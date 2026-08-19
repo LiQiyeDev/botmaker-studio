@@ -10,6 +10,9 @@ import org.eclipse.text.edits.MalformedTreeException;
 import org.eclipse.text.edits.RangeMarker;
 import org.eclipse.text.edits.TextEdit;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Common utilities for AST rewriting operations.
  */
@@ -201,6 +204,53 @@ public class AstRewriteHelper {
                 return true;
             }
         });
+    }
+
+    /**
+     * Renames a local variable declaration <em>and every reference to it in the same method</em>.
+     *
+     * <p>The same problem {@link #renameForEachVariable} solves, for an ordinary declaration: the Variables
+     * screen renames a variable that is, by definition, likely to be used somewhere, and
+     * {@link #renameSimpleName} on its own leaves those uses pointing at a name that no longer exists.
+     * Reuses {@link #renameWithinMethod}, which already handles shadowing by a nested lambda and skips the
+     * names that can't denote a variable.
+     */
+    public static String renameLocalVariable(CompilationUnit cu, String originalCode,
+                                             SimpleName declName, String newName) {
+        MethodDeclaration method = enclosingMethod(declName);
+        if (method == null) return renameSimpleName(cu, originalCode, declName, newName);
+        ASTRewrite rewriter = ASTRewrite.create(cu.getAST());
+        renameWithinMethod(rewriter, method, declName, newName);
+        return applyRewrite(rewriter, originalCode);
+    }
+
+    /**
+     * Every {@link SimpleName} in {@code method}'s body that reads or writes the variable {@code name} —
+     * the declaration itself excluded. What "is this variable used?" means to the Variables screen, which
+     * refuses a delete that would leave those uses dangling and says how many there are.
+     */
+    public static List<SimpleName> referencesWithin(MethodDeclaration method, SimpleName declName) {
+        List<SimpleName> found = new ArrayList<>();
+        if (method == null || method.getBody() == null) return found;
+        String name = declName.getIdentifier();
+        method.getBody().accept(new ASTVisitor() {
+            @Override
+            public boolean visit(SimpleName node) {
+                if (node != declName && node.getIdentifier().equals(name) && isVariableReference(node)) {
+                    found.add(node);
+                }
+                return true;
+            }
+        });
+        return found;
+    }
+
+    /** The {@link MethodDeclaration} {@code node} sits in, or null when it sits outside one. */
+    public static MethodDeclaration enclosingMethod(ASTNode node) {
+        for (ASTNode n = node; n != null; n = n.getParent()) {
+            if (n instanceof MethodDeclaration method) return method;
+        }
+        return null;
     }
 
     /** False for the names that can never denote a variable: {@code foo()}, {@code x.foo}, {@code a.b}. */

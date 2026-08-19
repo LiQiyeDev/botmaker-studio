@@ -100,17 +100,58 @@ public class StatementFactory {
      * {@code base}, or {@code base2}, {@code base3}… if that name is already taken at the drop site. The declare
      * blocks carry a fixed variable name, so dropping the same one twice used to declare the name twice — a
      * duplicate-variable error from nothing but repeating a palette action.
+     *
+     * <p>The names come from <b>two</b> sources, and the syntactic one is why this was still producing
+     * collisions. {@link ProjectAnalyzer#getVisibleVariables} walks JDT <em>bindings</em>, and a compilation
+     * unit parsed without a resolved classpath — the ordinary case while a project is still being edited —
+     * has none, so that list came back empty and every drop kept its base name. Reading the enclosing method's
+     * declaration nodes needs no bindings and cannot come back empty when a name really is there. The analyzer
+     * is kept as the second source: it also sees fields and captured names, which the syntactic walk does not.
      */
     private static String uniqueName(ProjectAnalyzer analyzer, ASTNode context, String base) {
-        if (analyzer == null || context == null) return base;
-        java.util.Set<String> taken = analyzer.getVisibleVariables(context, ResolvedType.UNKNOWN).stream()
-                .map(ProjectAnalyzer.VariableOption::name)
-                .collect(java.util.stream.Collectors.toSet());
+        java.util.Set<String> taken = new java.util.HashSet<>(declaredNamesAround(context));
+        if (analyzer != null && context != null) {
+            analyzer.getVisibleVariables(context, ResolvedType.UNKNOWN).stream()
+                    .map(ProjectAnalyzer.VariableOption::name)
+                    .forEach(taken::add);
+        }
         if (!taken.contains(base)) return base;
         for (int i = 2; ; i++) {
             String candidate = base + i;
             if (!taken.contains(candidate)) return candidate;
         }
+    }
+
+    /**
+     * Every variable name declared inside the method (or initializer, or lambda body) enclosing {@code context}
+     * — locals, {@code for} indices, catch parameters and the method's own parameters alike. Purely syntactic:
+     * it reads the names off the declaration nodes, so it works on an unresolved AST.
+     *
+     * <p>Scoping is deliberately ignored. A name declared in a sibling block cannot actually clash with one
+     * declared here, but reusing it would still read as the same variable to someone looking at the method, and
+     * "one more than you needed" is the cheap side of this trade.
+     */
+    private static java.util.Set<String> declaredNamesAround(ASTNode context) {
+        if (context == null) return java.util.Set.of();
+        ASTNode scope = context;
+        while (scope.getParent() != null && !(scope instanceof MethodDeclaration)) {
+            scope = scope.getParent();
+        }
+        java.util.Set<String> names = new java.util.HashSet<>();
+        scope.accept(new ASTVisitor() {
+            @Override
+            public boolean visit(VariableDeclarationFragment node) {
+                names.add(node.getName().getIdentifier());
+                return true;
+            }
+
+            @Override
+            public boolean visit(SingleVariableDeclaration node) {
+                names.add(node.getName().getIdentifier());
+                return true;
+            }
+        });
+        return names;
     }
 
     // --- Data-driven builders ---
@@ -224,24 +265,42 @@ public class StatementFactory {
             case Initializer.NullLit ignored -> ast.newNullLiteral();
             case Initializer.NewInstance n -> {
                 ClassInstanceCreation creation = ast.newClassInstanceCreation();
-                creation.setType(ast.newSimpleType(ast.newSimpleName(n.typeName())));
-                ctx.addImportForSimpleName(n.typeName());
+                creation.setType(ast.newSimpleType(seedTypeName(ctx, n.typeName())));
                 for (Initializer arg : n.args()) creation.arguments().add(buildExpression(ctx, arg));
                 yield creation;
             }
-            case Initializer.EnumConst e -> {
-                ctx.addImportForSimpleName(e.typeName());
-                yield ast.newQualifiedName(ast.newSimpleName(e.typeName()), ast.newSimpleName(e.constant()));
-            }
+            case Initializer.EnumConst e -> ast.newQualifiedName(seedTypeName(ctx, e.typeName()),
+                    ast.newSimpleName(e.constant()));
             case Initializer.StaticCall c -> {
-                ctx.addImportForSimpleName(c.typeName());
                 MethodInvocation mi = ast.newMethodInvocation();
-                mi.setExpression(ast.newSimpleName(c.typeName()));
+                mi.setExpression(seedTypeName(ctx, c.typeName()));
                 mi.setName(ast.newSimpleName(c.methodName()));
                 for (Initializer arg : c.args()) mi.arguments().add(buildExpression(ctx, arg));
                 yield mi;
             }
         };
+    }
+
+    /**
+     * The name node for a seed's type, plus the import that makes it resolve.
+     *
+     * <p>A seed names its type in one of two ways. Most name it simply — {@code Point}, {@code Direction} —
+     * because it is an SDK type the project index can resolve. The JDK ones have to name it fully
+     * ({@code java.time.LocalDate}, {@code java.awt.Color}) because nothing would resolve {@code LocalDate}
+     * on its own. Both used to go to {@code ast.newSimpleName}, which rejects a dotted string outright: that
+     * is why dropping a Date, a Time of day or a Duration inserted nothing at all, and why the Colour seed
+     * would have done the same had it not been filtered out of the menu.
+     *
+     * <p>A simple name still gets its import; a qualified one is emitted as written and needs none — which
+     * matches the declared type those seeds sit under ({@code java.time.LocalDate date = …}) and the reason
+     * {@link com.botmaker.studio.palette.BotType#DATE} spells it out in the first place.
+     */
+    private static Name seedTypeName(EditContext ctx, String typeName) {
+        if (typeName.indexOf('.') < 0) {
+            ctx.addImportForSimpleName(typeName);
+            return ctx.ast().newSimpleName(typeName);
+        }
+        return ctx.ast().newName(typeName);
     }
 
     /**

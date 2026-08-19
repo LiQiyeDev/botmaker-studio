@@ -83,6 +83,17 @@ public abstract class AbstractCodeBlock implements CodeBlock {
         return null;
     }
 
+    /**
+     * Extra right-click entries this kind of block offers, above the copy/paste/breakpoint items every block
+     * has. Empty by default; {@code InteractionDecorator} adds a separator after them when there are any.
+     *
+     * <p>The hook exists so a block-specific action lives on the block that knows about it, rather than in a
+     * growing {@code instanceof} ladder inside the decorator.
+     */
+    public List<javafx.scene.control.MenuItem> blockMenuItems(CodeEditorService context) {
+        return List.of();
+    }
+
     @Override
     public Node getUINode(CodeEditorService context) {
         if (uiNode == null) {

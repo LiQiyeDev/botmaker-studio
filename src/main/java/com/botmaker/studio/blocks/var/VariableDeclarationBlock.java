@@ -13,6 +13,7 @@ import com.botmaker.studio.ui.render.components.TextFieldComponents;
 import com.botmaker.studio.ui.render.components.pickers.PickerContext;
 import com.botmaker.studio.ui.render.components.pickers.PickerRegistry;
 import com.botmaker.studio.types.ResolvedType;
+import com.botmaker.studio.ui.app.vars.ActivityVariablesDialog;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import javafx.scene.Node;
 import javafx.scene.control.*;
@@ -45,12 +46,23 @@ public class VariableDeclarationBlock extends AbstractStatementBlock {
     @Override
     protected Node createUINode(CodeEditorService context) {
         Label typeLabel = createTypeLabel(varType.simpleName());
-        // The label always shows the type; only an editable block gets the click-to-change behaviour.
+        // The label always shows the type; only an editable block gets the click-to-change behaviour — and
+        // when it does, it says so. A caret and a pressable surface: the label used to be indistinguishable
+        // from the read-only one, so the one part of a declare block you are most likely to want to change
+        // was the part that looked least like you could.
         if (!isReadOnly()) {
-            // PASS THE AST NODE TO ENABLE LOCAL TYPE DETECTION
-            ExpressionMenu.installTypeSelector(typeLabel, "Click to change type", () -> varType,
-                    context, this.astNode,
-                    newTypeName -> context.getCodeEditor().replaceVariableType((VariableDeclarationStatement) this.astNode, newTypeName));
+            typeLabel.getStyleClass().add("type-label-editable");
+            typeLabel.setGraphic(new Label("▾"));
+            typeLabel.setContentDisplay(javafx.scene.control.ContentDisplay.RIGHT);
+            typeLabel.setCursor(javafx.scene.Cursor.HAND);
+            javafx.scene.control.Tooltip.install(typeLabel,
+                    new javafx.scene.control.Tooltip("Click to change type"));
+            // The bot-type menu rather than the full index: the whitelist first, everything else behind
+            // "Other type…". PASS THE AST NODE TO ENABLE LOCAL TYPE DETECTION.
+            typeLabel.setOnMouseClicked(e -> ExpressionMenu.showBotTypeMenu(typeLabel, varType, context,
+                    this.astNode,
+                    newTypeName -> context.getCodeEditor().replaceVariableType(
+                            (VariableDeclarationStatement) this.astNode, newTypeName)));
         }
 
         Node nameField = TextFieldComponents.createVariableName(variableName, !isReadOnly(), newName -> {
@@ -115,5 +127,17 @@ public class VariableDeclarationBlock extends AbstractStatementBlock {
 
     private HBox createListDisplay(CodeEditorService context) {
         return LayoutComponents.createInlineListDisplay(initializer.getUINode(context), "{", "}", false);
+    }
+
+    /**
+     * "Variables in this activity…" — the list view of what this method declares. Offered from a declare
+     * block because that is where you are standing when the question "what else is declared here?" comes up.
+     */
+    @Override
+    public java.util.List<javafx.scene.control.MenuItem> blockMenuItems(CodeEditorService context) {
+        javafx.scene.control.MenuItem item = new javafx.scene.control.MenuItem("Variables in this activity…");
+        item.setOnAction(e -> ActivityVariablesDialog.show(context, getUINode(context).getScene() == null
+                ? null : getUINode(context).getScene().getWindow()));
+        return java.util.List.of(item);
     }
 }

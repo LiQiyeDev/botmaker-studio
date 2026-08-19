@@ -5,11 +5,14 @@ import com.botmaker.studio.palette.BlockCatalog;
 import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.palette.BlockType.ControlFlow.Kind;
+import com.botmaker.studio.palette.BotType;
 import com.botmaker.studio.parser.EditContext;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import org.eclipse.jdt.core.dom.CompilationUnit;
+import org.eclipse.jdt.core.dom.MethodDeclaration;
 import org.eclipse.jdt.core.dom.Statement;
+import org.eclipse.jdt.core.dom.TypeDeclaration;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -218,5 +221,55 @@ class StatementFactoryTest {
         assertTrue(legacy.contains("Thread.sleep(1000)"), legacy);
         assertTrue(legacy.contains("printStackTrace"),
                 "the branch SP8 exists to remove — reachable only from a Kind no palette entry uses: " + legacy);
+    }
+
+    /**
+     * Date, Time of day and Duration used to insert <b>nothing at all</b>. Their seed names the JDK type
+     * fully ({@code java.time.LocalDate}) and the factory passed that dotted string to
+     * {@code ast.newSimpleName}, which rejects it — so the drop threw and the palette entry looked broken.
+     * The Colour seed had the same defect latent, masked only because it is filtered out of the menu.
+     */
+    @Test
+    void theDateTimeAndDurationBlocksInsertSomething() {
+        assertAll(
+                () -> assertTrue(text(BlockCatalog.declareBlockFor(BotType.DATE))
+                        .contains("java.time.LocalDate.now()"), "Date"),
+                () -> assertTrue(text(BlockCatalog.declareBlockFor(BotType.TIME_OF_DAY))
+                        .contains("java.time.LocalTime.of(0,0)"), "Time of day"),
+                () -> assertTrue(text(BlockCatalog.declareBlockFor(BotType.DURATION))
+                        .contains("java.time.Duration.ofSeconds(0)"), "Duration"),
+                () -> assertTrue(text(BlockCatalog.declareBlockFor(BotType.COLOR))
+                        .contains("new java.awt.Color(255,255,255)"), "Colour"));
+    }
+
+    /**
+     * The collision fix. Dropping the same declare block twice used to declare the same name twice, because
+     * {@code uniqueName} asked {@code getVisibleVariables} — a binding walk that comes back empty whenever the
+     * classpath is unresolved, which in the editor is most of the time. Here the drop site is a real method
+     * that already declares {@code number}, and the analyzer is deliberately null.
+     */
+    @Test
+    void asecondDropOfTheSameDeclareBlockGetsItsOwnName() {
+        String host = """
+                package com.mybot;
+                public class Subject {
+                    public void run() {
+                        int number = 0;
+                    }
+                }
+                """;
+        CompilationUnit cu = ProjectAnalyzer.createCompilationUnit(
+                TestSupport.runtimeClassPath(), host, TestSupport.SOURCE_ROOT);
+        assertNotNull(cu);
+        MethodDeclaration run = (MethodDeclaration) ((TypeDeclaration) cu.types().getFirst())
+                .bodyDeclarations().getFirst();
+
+        Statement second = StatementFactory.createStatement(
+                EditContext.of(cu, null, new ProjectState()),
+                BlockCatalog.declareBlockFor(BotType.WHOLE_NUMBER), run.getBody());
+
+        assertNotNull(second);
+        assertTrue(second.toString().contains("number2"),
+                "the second drop must not redeclare `number`: " + second);
     }
 }

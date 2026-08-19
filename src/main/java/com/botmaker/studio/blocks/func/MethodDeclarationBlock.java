@@ -355,4 +355,19 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
         taken.remove(MethodSignatures.keyOf(method));
         return taken;
     }
+
+    /**
+     * "Variables in this activity…" from the method header — the plan's other entry point, and the one that
+     * reads as "what does this activity declare?" rather than "what else is near this block?".
+     */
+    @Override
+    public java.util.List<javafx.scene.control.MenuItem> blockMenuItems(CodeEditorService context) {
+        javafx.scene.control.MenuItem item = new javafx.scene.control.MenuItem("Variables in this activity\u2026");
+        item.setOnAction(e -> {
+            javafx.scene.Scene scene = getUINode(context).getScene();
+            com.botmaker.studio.ui.app.vars.ActivityVariablesDialog.show(
+                    context, scene == null ? null : scene.getWindow());
+        });
+        return java.util.List.of(item);
+    }
 }

@@ -10,6 +10,7 @@ import com.botmaker.studio.palette.ExpressionType;
 import com.botmaker.studio.palette.FunctionDraft;
 import com.botmaker.studio.palette.MatchesCheck;
 import com.botmaker.studio.palette.SdkType;
+import com.botmaker.studio.parser.factories.StatementFactory;
 import com.botmaker.studio.parser.handlers.EnumManipulationHandler;
 import com.botmaker.studio.parser.handlers.InstantiationHandler;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
@@ -963,6 +964,35 @@ public class CodeEditor {
 
     public void replaceSimpleName(SimpleName toReplace, String newName) {
         edit(toReplace, EditKind.BODY, false, (cu, code) -> AstRewriteHelper.renameSimpleName(cu, code, toReplace, newName));
+    }
+
+    /**
+     * Renames a local variable declaration together with every reference to it in the same method — the
+     * Variables screen's rename. {@link #replaceSimpleName} renames the declaration alone, which is right for
+     * the name chip on a declare block a user has only just dropped and wrong for a variable already used.
+     */
+    public void renameLocalVariable(SimpleName declName, String newName) {
+        edit(declName, EditKind.BODY, false,
+                (cu, code) -> AstRewriteHelper.renameLocalVariable(cu, code, declName, newName));
+    }
+
+    /**
+     * Inserts a declare-a-variable statement as the first statement of {@code method}'s body — the Variables
+     * screen's Add. It goes to the top rather than to the cursor because the screen has no cursor: it is a
+     * list of what this activity declares, and a new entry belongs where the list starts.
+     */
+    public void addLocalVariable(MethodDeclaration method, BlockType.VarDecl decl) {
+        edit(method, EditKind.BODY, true, (cu, code) -> insertLocalVariable(ctx(cu), code, method, decl));
+    }
+
+    private static String insertLocalVariable(EditContext ctx, String originalCode, MethodDeclaration method,
+                                              BlockType.VarDecl decl) {
+        Block body = method.getBody();
+        if (body == null) return null;
+        Statement statement = StatementFactory.createStatement(ctx, decl, body);
+        if (statement == null) return null;
+        ctx.rewriter().getListRewrite(body, Block.STATEMENTS_PROPERTY).insertFirst(statement, null);
+        return ctx.applyTo(originalCode);
     }
 
     /**

@@ -2458,3 +2458,54 @@
     -bm-severity-info-text: #00ffff;
     -bm-severity-ok-text: #00ff00;
 }
+
+/* The declared type on a variable block. It had no rule at all, which is how the one part of a declare
+   block you most often want to change ended up looking exactly like a word. The editable variant gets a
+   pressable surface and a caret; the read-only one stays a plain word, which is the truth about it. */
+.type-label {
+    -fx-font-weight: bold;
+    -fx-padding: 1 4 1 4;
+}
+
+.type-label-editable {
+    -fx-background-color: -fx-control-inner-background;
+    -fx-background-radius: 4;
+    -fx-border-color: -bm-divider;
+    -fx-border-radius: 4;
+    -fx-padding: 1 5 1 6;
+    -fx-graphic-text-gap: 4;
+}
+
+.type-label-editable:hover {
+    -fx-background-color: -bm-band;
+}
+
+.type-label-editable > .label {
+    -fx-font-size: 9px;
+    -fx-opacity: 0.7;
+}
+
+/* The Variables screen (ui/app/vars/ActivityVariablesDialog): one row per declared local. */
+.variables-row {
+    -fx-background-color: -fx-control-inner-background;
+    -fx-background-radius: 5;
+    -fx-border-color: -bm-divider;
+    -fx-border-radius: 5;
+    -fx-padding: 6 8 6 8;
+}
+
+.variables-type {
+    -fx-font-weight: bold;
+    -fx-padding: 2 8 2 8;
+}
+
+.variables-delete {
+    -fx-padding: 2 7 2 7;
+    -fx-background-radius: 4;
+    -fx-opacity: 0.7;
+}
+
+.variables-delete:hover {
+    -fx-opacity: 1;
+    -fx-text-fill: -bm-danger;
+}

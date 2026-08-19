@@ -6,6 +6,15 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-19 — Declare menus that insert, names that don't collide, and a Variables screen
+  (`parser/factories/StatementFactory`, `parser/CodeEditor`, `parser/helpers/AstRewriteHelper`,
+  `ui/render/menu/ExpressionMenu`, `blocks/var/VariableDeclarationBlock`, `core/AbstractCodeBlock`,
+  `project/activity/VariableWire`, `palette/BlockCatalog`, `ui/app/vars/ActivityVariablesDialog` (new)).**
+  Round-2 phase 3. Date / Time of day / Duration inserted nothing because their fully-qualified seeds reached
+  `ast.newSimpleName`; `uniqueName` is now syntactic, so a second drop of a declare block gets its own name
+  even with no bindings; the declare block's type field looks clickable and offers the `BotType` whitelist
+  first; the expression menu's project-parameters submenu says Parameters, not Activities.
+
 - **2026-08-19 — The real pickers, everywhere a value is set (`ui/app/params/ValueEditors` (new),
   `ui/app/params/ParamValueWidgets`, `ui/app/params/ParametersDialog`, `ui/app/runner/RunnerWindow`,
   `ui/render/components/SizePicker` (new), `services/ScreenCaptureService`, `project/activity/Bounds`,
