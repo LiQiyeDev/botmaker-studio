@@ -6,6 +6,21 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-19 — Templates you can see, and names that refuse inline (`services/ImageTemplateLibrary`,
+  `ui/app/ResourceManagerDialog`, `ui/render/components/TagPicklist`, `ui/render/components/TemplateGallery`,
+  `sharing/TemplateArchive`, `ui/app/params/ParametersDialog`).** The library learned what its pictures *are*:
+  `pictureHash` (pixels, not file bytes — a PNG re-encoded is the same picture), `duplicatePictures` as a
+  library-wide index, and `sameContent`, which the archive now calls instead of keeping its own SHA-256. A
+  template whose picture another one also holds says so under the preview, and the end-of-import summary shows
+  thumbnails of what arrived — the gallery's own tile, extracted as `TemplateGallery.plainTile` — with "same
+  picture as X" under the ones that duplicate something. Replace image… is refused on the default template,
+  like rename and delete. The "+ Tag" popover stays open while boxes are ticked (the chip rebuild used to take
+  the open menu off the scene with it). `missingTemplates` finds templates whose file was deleted outside
+  Studio, and the manager asks about them on open: forget them, or point the blocks that name them elsewhere
+  first. `promptNewTag` refuses inline in red as you type instead of stacking a second window on the first, so
+  a category that already exists no longer costs a retype. The parameters screen's add bar is pinned above the
+  buttons rather than at the end of the scrolling column.
+
 - **2026-08-19 — A window shell that holds still (`ui/app/StudioWindow`, `ui/app/OverflowBar`,
   `ui/app/ToolbarPacking`, `ui/app/UIManager`, `ui/app/runner/RunnerWindow`, `BotMakerStudio`).** The black
   border after editor → user view → editor was a sized `Scene` on a maximized `Stage`: the window manager

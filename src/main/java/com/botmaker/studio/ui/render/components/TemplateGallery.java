@@ -253,26 +253,38 @@ public final class TemplateGallery extends HBox {
         return "Nothing is filed under \"" + selectedTag() + "\" yet.";
     }
 
-    /** One template: its picture at the size you would judge it by, its name, and the tags it carries. */
-    private Node tile(Path file, List<String> tags) {
+    /**
+     * A template as a picture with its name under it, at {@code size} pixels — the tile without the behaviour.
+     *
+     * <p>Public and static because "what does a template look like in a list" is asked outside the grid too:
+     * the resource manager's end-of-import summary shows what arrived, and it should look like the gallery it
+     * arrived into rather than be a second, worse rendering of the same thing.
+     */
+    public static VBox plainTile(Path file, double size) {
         VBox box = new VBox(4);
         box.getStyleClass().add("template-tile");
         box.setAlignment(Pos.TOP_CENTER);
-        box.setPrefWidth(120);
+        box.setPrefWidth(size + 24);
 
         // A fixed-height holder rather than the ImageView itself: thumbnails preserve their ratio, so a wide
         // and a tall one differ in height, and rows of tiles would step up and down across the grid.
         StackPane picture = new StackPane();
-        picture.setMinHeight(96);
-        picture.setPrefHeight(96);
-        ImageView thumb = ImageTemplatePicker.thumbnail(file, 96);
+        picture.setMinHeight(size);
+        picture.setPrefHeight(size);
+        ImageView thumb = ImageTemplatePicker.thumbnail(file, size);
         if (thumb != null) picture.getChildren().add(thumb);
         box.getChildren().add(picture);
 
         Label name = new Label(ImageTemplateLibrary.baseName(file));
         name.getStyleClass().add("template-tile-name");
-        name.setMaxWidth(112);
+        name.setMaxWidth(size + 16);
         box.getChildren().add(name);
+        return box;
+    }
+
+    /** One template: its picture at the size you would judge it by, its name, and the tags it carries. */
+    private Node tile(Path file, List<String> tags) {
+        VBox box = plainTile(file, 96);
 
         if (!tags.isEmpty()) {
             FlowPane chips = new FlowPane(3, 3);

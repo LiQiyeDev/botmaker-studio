@@ -95,11 +95,19 @@ public class ResourceManagerDialog {
     private final MenuButton replaceButton = new MenuButton("Replace image…");
     private final VBox singleBox = new VBox(8);
     private final Label previewHint = new Label("Select a single template to rename, tag or replace it.");
+    private final Label duplicateNote = new Label();
     private final Button addToTagButton = new Button("Add templates…");
     private final Button removeFromTagButton = new Button("Remove from tag");
     private final Button deleteButton = new Button("Delete");
     private final Label statusLabel = new Label();
     private Stage stage;
+
+    /**
+     * Which templates share their picture with which others, as of the last {@link #reload()}. Held for the
+     * length of a reload rather than recomputed per selection because it is a decode of every PNG in the
+     * project, and the preview asks it on every click.
+     */
+    private Map<String, List<String>> duplicates = Map.of();
 
     public ResourceManagerDialog(Window owner, ProjectConfig config, EventBus eventBus,
                                  ScreenCaptureService capture, ProjectSettingsService settings,
@@ -167,10 +175,12 @@ public class ResourceManagerDialog {
 
         reload();
         window.show(root);
+        reportMissing();
     }
 
     /** Re-reads the library after a change here (or in the tag manager) so the grid and the rail counts agree. */
     private void reload() {
+        duplicates = ImageTemplateLibrary.duplicatePictures(config);
         gallery.reload();
         refreshSingleBox();
         refreshTagActions();
@@ -227,8 +237,18 @@ public class ResourceManagerDialog {
 
         previewHint.getStyleClass().add("template-gallery-empty");
         previewHint.setWrapText(true);
+        duplicateNote.getStyleClass().add("template-gallery-empty");
+        duplicateNote.setWrapText(true);
 
-        singleBox.getChildren().setAll(nameRow, nameMessage, new Label("Tags"), previewTags, replaceButton);
+        // The chips are rebuilt from the manifest on every reload, and rebuilding them takes the "+ Tag" menu
+        // off the scene — which closes it. Ticking a second tag was therefore impossible without reopening
+        // the menu. The rebuild is deferred while it is open (see refreshSingleBox) and run once it shuts.
+        addTagButton.showingProperty().addListener((o, was, showing) -> {
+            if (!showing) refreshSingleBox();
+        });
+
+        singleBox.getChildren().setAll(nameRow, nameMessage, new Label("Tags"), previewTags,
+                replaceButton, duplicateNote);
         VBox box = new VBox(6, singleBox, previewHint);
         box.setPadding(new Insets(6, 0, 0, 0));
         return box;
@@ -242,8 +262,8 @@ public class ResourceManagerDialog {
         singleBox.setManaged(single);
         previewHint.setVisible(!single);
         previewHint.setManaged(!single);
-        previewTags.getChildren().clear();
         if (!single) {
+            previewTags.getChildren().clear();
             List<Path> selection = selectedFiles();
             previewHint.setText(selection.isEmpty()
                     ? "Select a single template to rename, tag or replace it."
@@ -255,13 +275,30 @@ public class ResourceManagerDialog {
         nameField.setText(name);
         boolean isDefault = ImageTemplateLibrary.isDefaultTemplate(file);
         nameField.setDisable(isDefault);
-        replaceButton.setDisable(false);
+        // Guarded like rename and delete, and for the same reason: every project generates its own default
+        // template and the vision blocks a fresh project drops all point at it, so swapping its picture
+        // changes what those blocks match against without naming any of them.
+        replaceButton.setDisable(isDefault);
         refreshNameState();
+        refreshDuplicateNote(name);
 
+        // Leave the chips — and with them the open "+ Tag" menu — exactly where they are while the user is
+        // still ticking boxes in it. The listener in singlePane() runs this again once the menu closes.
+        if (addTagButton.isShowing()) return;
+        previewTags.getChildren().clear();
         List<String> tags = ImageTemplateLibrary.tagCatalog(config)
                 .declaredOnly(ImageTemplateLibrary.manifest(config).tagsOf(name));
         for (String tag : tags) previewTags.getChildren().add(tagChip(name, tag));
         previewTags.getChildren().add(tagMenu(name, tags));
+    }
+
+    /** Says, under the preview, when another template holds this same picture. */
+    private void refreshDuplicateNote(String name) {
+        List<String> others = duplicates.getOrDefault(name, List.of());
+        duplicateNote.setText(others.isEmpty() ? ""
+                : "Duplicate picture — also stored as " + String.join(", ", others) + ".");
+        duplicateNote.setManaged(!others.isEmpty());
+        duplicateNote.setVisible(!others.isEmpty());
     }
 
     /**
@@ -278,7 +315,8 @@ public class ResourceManagerDialog {
         boolean unchanged = wanted.equals(current);
         renameButton.setDisable(problem != null || unchanged || nameField.isDisabled());
         if (ImageTemplateLibrary.isDefaultTemplate(file)) {
-            nameMessage.setText("The default template can't be renamed.");
+            nameMessage.setText("The default template can't be renamed, and its picture can't be swapped — "
+                    + "capture your own and point your blocks at that.");
         } else if (problem != null) {
             nameMessage.setText(problem);
         } else if (unchanged) {
@@ -670,22 +708,136 @@ public class ResourceManagerDialog {
     }
 
     /**
-     * Says what the import did, once, when there is anything to say beyond the count — a renamed template is
-     * a decision the user has to know about (two templates now hold pictures they thought were one), and the
-     * status line is the wrong place for a list.
+     * Says what the import did, once — <b>as pictures</b>. An archive is a set of images, and a list of names
+     * is the one form in which you cannot tell whether the right ones arrived; the same tile the gallery draws
+     * answers that at a glance. The prose underneath carries what a picture can't say: what was renamed
+     * around a collision, what was already here, and what could not be named at all.
      */
     private void reportImport(TemplateArchive.ImportResult result) {
         String details = result.details();
-        if (details.isEmpty()) return;
+        List<String> duplicated = result.imported().stream()
+                .filter(name -> !duplicates.getOrDefault(name, List.of()).isEmpty()).toList();
+        if (details.isEmpty() && result.imported().isEmpty()) return;
+
+        FlowPane arrived = new FlowPane(10, 10);
+        arrived.setPrefWrapLength(520);
+        for (String name : result.imported()) {
+            Path file = config.imagesRoot().resolve(name + ".png");
+            VBox tile = TemplateGallery.plainTile(file, 84);
+            List<String> others = duplicates.getOrDefault(name, List.of());
+            if (!others.isEmpty()) {
+                Label same = new Label("same picture as " + String.join(", ", others));
+                same.getStyleClass().add("template-gallery-empty");
+                same.setWrapText(true);
+                same.setMaxWidth(100);
+                tile.getChildren().add(same);
+            }
+            arrived.getChildren().add(tile);
+        }
+
+        VBox content = new VBox(10);
+        if (!arrived.getChildren().isEmpty()) content.getChildren().add(arrived);
+        if (!duplicated.isEmpty()) {
+            content.getChildren().add(hint(duplicated.size() == 1
+                    ? "One of these is a picture this project already had under another name. It was still "
+                            + "imported — two names for one picture is a choice, not a mistake."
+                    : duplicated.size() + " of these are pictures this project already had under other names. "
+                            + "They were still imported — two names for one picture is a choice, not a mistake."));
+        }
+        if (!details.isEmpty()) content.getChildren().add(hint(details));
+
         Alert alert = ThemedWindows.alert(Alert.AlertType.INFORMATION);
         alert.initOwner(stage);
         alert.setTitle("Import finished");
         alert.setHeaderText(result.count() == 0
                 ? "Nothing new to import."
                 : "Imported " + result.count() + (result.count() == 1 ? " template." : " templates."));
-        alert.setContentText(details);
-        alert.getDialogPane().setMinWidth(520);
+        alert.getDialogPane().setContent(content);
+        alert.getDialogPane().setMinWidth(560);
         alert.showAndWait();
+    }
+
+    private static Label hint(String text) {
+        Label label = new Label(text);
+        label.setWrapText(true);
+        label.setMaxWidth(520);
+        return label;
+    }
+
+    // -------------------------------------------------------------------------
+    // Templates deleted behind Studio's back
+    // -------------------------------------------------------------------------
+
+    /**
+     * Asks about templates the manifest still files but whose file is gone — deleted in a file manager, or
+     * lost to a git checkout. Studio used to say nothing: the tags stayed, the generated constant vanished on
+     * the next regeneration, and the first anyone heard of it was a block failing to find its picture at run
+     * time.
+     *
+     * <p>Two answers are offered, because there are two situations. Nothing in the source names it: forget it,
+     * which drops the manifest entry. Something does: point those blocks at a template that still exists,
+     * through the same transfer the delete path uses — that is the repair, and it is the same one either way.
+     */
+    private void reportMissing() {
+        List<String> missing = ImageTemplateLibrary.missingTemplates(config);
+        if (missing.isEmpty()) return;
+
+        Map<String, TemplateReferences.Scan> used = new LinkedHashMap<>();
+        for (String name : missing) {
+            TemplateReferences.Scan scan = TemplateReferences.find(config, state(), name);
+            if (!scan.isEmpty()) used.put(name, scan);
+        }
+
+        StringBuilder body = new StringBuilder(missing.size() == 1
+                ? "\"" + missing.getFirst() + "\" is still filed under its tags, but its file is not in the "
+                        + "project any more."
+                : missing.size() + " templates are still filed under their tags, but their files are not in "
+                        + "the project any more:\n    " + String.join(", ", missing));
+        if (!used.isEmpty()) {
+            body.append("\n\nYour blocks still name ").append(used.size() == 1 ? "one of them" : "some of them")
+                    .append(":\n");
+            used.values().forEach(scan -> body.append("    ").append(scan.baseName()).append(" — ")
+                    .append(scan.describe()).append('\n'));
+        }
+
+        ButtonType forget = new ButtonType("Forget them", ButtonType.OK.getButtonData());
+        ButtonType repoint = new ButtonType("Point those blocks at another template…", ButtonType.OK.getButtonData());
+        Alert alert = new Alert(Alert.AlertType.WARNING, body.toString().stripTrailing());
+        ThemedWindows.apply(alert);
+        alert.initOwner(stage);
+        alert.setTitle("Missing template files");
+        alert.setHeaderText(missing.size() == 1 ? "A template's file is gone" : "Some template files are gone");
+        alert.getDialogPane().setMinWidth(560);
+        alert.getButtonTypes().setAll(used.isEmpty()
+                ? List.of(forget, ButtonType.CANCEL)
+                : List.of(repoint, forget, ButtonType.CANCEL));
+        ButtonType chosen = alert.showAndWait().orElse(ButtonType.CANCEL);
+        if (chosen == forget) {
+            forgetMissing(missing);
+        } else if (chosen == repoint) {
+            TemplateGalleryDialog.open(stage, config, TemplateGalleryDialog.Options.pickOne("Point those blocks at…"),
+                    picked -> {
+                        if (picked.isEmpty()) return;
+                        String replacement = ImageTemplateLibrary.baseName(picked.getFirst());
+                        for (String name : used.keySet()) {
+                            TemplateReferences.retarget(config, state(), name, replacement);
+                        }
+                        refreshEditor();
+                        forgetMissing(missing);
+                    });
+        }
+    }
+
+    /** Drops the manifest entries of templates that no longer have a file, and regenerates the constants. */
+    private void forgetMissing(List<String> missing) {
+        TemplateManifest manifest = ImageTemplateLibrary.manifest(config);
+        for (String name : missing) manifest = manifest.without(name);
+        ImageTemplateLibrary.saveManifest(config, manifest);
+        ImageTemplateLibrary.regenerateTemplatesClass(config);
+        published();
+        reload();
+        statusLabel.setText("Forgot " + missing.size() + (missing.size() == 1 ? " template" : " templates")
+                + " whose file was gone.");
     }
 
     // -------------------------------------------------------------------------

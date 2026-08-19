@@ -7,7 +7,7 @@ import com.botmaker.studio.services.TemplateManifest;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
-import javafx.scene.control.Alert;
+import javafx.scene.Node;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
@@ -141,57 +141,66 @@ public final class TagPicklist extends MenuButton {
     }
 
     /**
-     * Asks for a new custom tag name, re-prompting until it is usable or the user cancels. Shared with the
-     * tag manager so "what may a tag be called" has one answer: non-blank, not one of the computed buckets,
-     * and not already declared — including by an activity, whose tag is the activity's to name.
+     * Asks for a new custom tag name. Shared with the tag manager and the parameters screen so "what may a tag
+     * be called" has one answer: non-blank, not one of the computed buckets, and not already declared —
+     * including by an activity, whose tag is the activity's to name.
+     *
+     * <p><b>It says why inline, as you type.</b> The refusal used to be a second window on top of this one,
+     * arriving after Create and taking the typed name away with it — so learning that a category already
+     * existed cost two dialogs and a retype. Now the reason sits in red under the field and Create is simply
+     * not available until the name is usable, which is the same rule the template rename field follows.
      *
      * <p>Returns the sanitized name; the caller declares it.
      */
     public static Optional<String> promptNewTag(Window owner, ProjectConfig config) {
         TagCatalog catalog = ImageTemplateLibrary.tagCatalog(config);
-        while (true) {
-            Dialog<String> dialog = new Dialog<>();
-            ThemedWindows.apply(dialog);
-            if (owner != null) dialog.initOwner(owner);
-            dialog.setTitle("New tag");
-            dialog.setHeaderText(null);
-            ButtonType ok = new ButtonType("Create", ButtonBar.ButtonData.OK_DONE);
-            dialog.getDialogPane().getButtonTypes().addAll(ok, ButtonType.CANCEL);
+        Dialog<String> dialog = new Dialog<>();
+        ThemedWindows.apply(dialog);
+        if (owner != null) dialog.initOwner(owner);
+        dialog.setTitle("New tag");
+        dialog.setHeaderText(null);
+        ButtonType ok = new ButtonType("Create", ButtonBar.ButtonData.OK_DONE);
+        dialog.getDialogPane().getButtonTypes().addAll(ok, ButtonType.CANCEL);
 
-            TextField field = new TextField();
-            field.setPromptText("e.g. Shared buttons");
-            VBox box = new VBox(8, new Label("Name this tag. It will be offered everywhere templates "
-                    + "are tagged, whether or not anything carries it yet."), field);
-            box.setPadding(new Insets(10));
-            dialog.getDialogPane().setContent(box);
-            Platform.runLater(field::requestFocus);
-            dialog.setResultConverter(bt -> bt == ok ? field.getText() : null);
+        TextField field = new TextField();
+        field.setPromptText("e.g. Shared buttons");
+        Label problem = new Label();
+        problem.getStyleClass().add("dialog-error-text");
+        problem.setWrapText(true);
+        VBox box = new VBox(8, new Label("Name this tag. It will be offered everywhere templates "
+                + "are tagged, whether or not anything carries it yet."), field, problem);
+        box.setPadding(new Insets(10));
+        dialog.getDialogPane().setContent(box);
 
-            Optional<String> raw = dialog.showAndWait();
-            if (raw.isEmpty()) return Optional.empty();
-            String tag = TemplateManifest.sanitizeTag(raw.get());
-            if (tag.isBlank()) {
-                warn(owner, "Please enter a name for the tag.");
-                continue;
-            }
-            if (TemplateManifest.isSyntheticTag(tag)) {
-                warn(owner, "\"" + tag + "\" is a built-in group. Choose a different name.");
-                continue;
-            }
-            TagCatalog.Tag existing = catalog.find(tag);
-            if (existing != null) {
-                warn(owner, existing.isManaged()
-                        ? "\"" + existing.name() + "\" is the tag of the activity of that name — it already exists."
-                        : "There is already a tag called \"" + existing.name() + "\".");
-                continue;
-            }
-            return Optional.of(tag);
-        }
+        Node create = dialog.getDialogPane().lookupButton(ok);
+        Runnable validate = () -> {
+            String reason = tagProblem(catalog, TemplateManifest.sanitizeTag(field.getText()));
+            // Blank is a refusal too, but not a complaint: an empty field is where everyone starts.
+            String typed = field.getText() == null ? "" : field.getText().trim();
+            problem.setText(typed.isEmpty() ? "" : reason == null ? "" : reason);
+            create.setDisable(reason != null);
+        };
+        field.textProperty().addListener((o, was, is) -> validate.run());
+        validate.run();
+        Platform.runLater(field::requestFocus);
+        dialog.setResultConverter(bt -> bt == ok ? field.getText() : null);
+
+        Optional<String> raw = dialog.showAndWait();
+        if (raw.isEmpty()) return Optional.empty();
+        String tag = TemplateManifest.sanitizeTag(raw.get());
+        return tagProblem(catalog, tag) == null ? Optional.of(tag) : Optional.empty();
     }
 
-    private static void warn(Window owner, String message) {
-        Alert alert = ThemedWindows.alert(Alert.AlertType.WARNING, message);
-        if (owner != null) alert.initOwner(owner);
-        alert.showAndWait();
+    /** Why {@code tag} can't be declared, phrased for the user, or null when it can. */
+    private static String tagProblem(TagCatalog catalog, String tag) {
+        if (tag == null || tag.isBlank()) return "Please enter a name for the tag.";
+        if (TemplateManifest.isSyntheticTag(tag)) {
+            return "\"" + tag + "\" is a built-in group. Choose a different name.";
+        }
+        TagCatalog.Tag existing = catalog.find(tag);
+        if (existing == null) return null;
+        return existing.isManaged()
+                ? "\"" + existing.name() + "\" is the tag of the activity of that name — it already exists."
+                : "There is already a tag called \"" + existing.name() + "\".";
     }
 }

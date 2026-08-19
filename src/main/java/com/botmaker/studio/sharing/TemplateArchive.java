@@ -8,10 +8,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -172,7 +169,7 @@ public final class TemplateArchive {
             // Same name, same picture: the project already has this template. Its tags are left as the
             // project has them — an import is not the place to re-file what is already filed.
             if (ImageTemplateLibrary.exists(config, sanitized)
-                    && sameContent(imagesRoot.resolve(sanitized + ".png"), entry.getValue())) {
+                    && ImageTemplateLibrary.sameContent(imagesRoot.resolve(sanitized + ".png"), entry.getValue())) {
                 unchanged.add(sanitized);
                 continue;
             }
@@ -195,17 +192,6 @@ public final class TemplateArchive {
         // block cannot name. Nothing else regenerates the class until the next add/rename/delete.
         if (!imported.isEmpty()) ImageTemplateLibrary.regenerateTemplatesClass(config);
         return new ImportResult(imported, renamed, unchanged, skipped);
-    }
-
-    /** True when {@code file} exists and holds exactly {@code incoming} — compared by SHA-256, not by size. */
-    private static boolean sameContent(Path file, byte[] incoming) {
-        try {
-            if (!Files.isRegularFile(file)) return false;
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return Arrays.equals(digest.digest(Files.readAllBytes(file)), digest.digest(incoming));
-        } catch (IOException | NoSuchAlgorithmException e) {
-            return false;   // can't tell ⇒ import it under a free name, which is the recoverable outcome
-        }
     }
 
     /**

@@ -8,13 +8,19 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -353,6 +359,101 @@ public final class ImageTemplateLibrary {
         Files.deleteIfExists(sidecarFor(file));
         saveManifest(config, manifest(config).without(baseName(file)));
         regenerateTemplatesClass(config);
+    }
+
+    // ── The same picture twice ──────────────────────────────────────────────────────────────────────────
+    //
+    // Importing a picture the library already holds under another name is allowed — the same button in two
+    // menus is genuinely two templates to the person authoring the bot. What is not allowed is it happening
+    // silently, so the library can answer "who else holds this picture" and the resource manager says so.
+
+    /**
+     * A stable fingerprint of what a template <em>looks like</em>: its size followed by its pixels, hashed.
+     *
+     * <p>Pixels rather than file bytes, for the reason {@link #isUnmodifiedDefaultTemplate} spells out — a PNG
+     * is re-encoded by whichever ImageIO wrote it, so two writes of one picture differ as files while being the
+     * same template, and a duplicate index built on file bytes would miss exactly the round-trip that produces
+     * duplicates. Returns {@code null} for anything that will not decode, which every caller reads as "no
+     * opinion" rather than as a group of its own.
+     */
+    public static String pictureHash(BufferedImage img) {
+        if (img == null) return null;
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            int w = img.getWidth();
+            int h = img.getHeight();
+            ByteBuffer row = ByteBuffer.allocate(Integer.BYTES * Math.max(1, w));
+            digest.update(ByteBuffer.allocate(8).putInt(w).putInt(h).array());
+            for (int y = 0; y < h; y++) {
+                row.clear();
+                for (int x = 0; x < w; x++) row.putInt(img.getRGB(x, y));
+                digest.update(row.array(), 0, row.position());
+            }
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (NoSuchAlgorithmException e) {
+            return null;
+        }
+    }
+
+    /** {@link #pictureHash(BufferedImage)} of a template file, or null when it isn't there or won't decode. */
+    public static String pictureHash(Path file) {
+        try {
+            return file != null && Files.isRegularFile(file) ? pictureHash(ImageIO.read(file.toFile())) : null;
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    /**
+     * True when {@code file} holds the same picture as the PNG bytes {@code incoming}. Used by the archive to
+     * skip re-importing what is already here; it lives beside the index so both answers come from one rule.
+     */
+    public static boolean sameContent(Path file, byte[] incoming) {
+        try {
+            String mine = pictureHash(file);
+            String theirs = incoming == null ? null
+                    : pictureHash(ImageIO.read(new ByteArrayInputStream(incoming)));
+            return mine != null && mine.equals(theirs);
+        } catch (IOException e) {
+            return false;   // can't tell ⇒ treat as different, which is the recoverable outcome
+        }
+    }
+
+    /**
+     * Every template that shares its picture with another one, as {@code base name → the other names}, sorted.
+     * Templates whose picture nothing else has are absent, so an empty map means "no duplicates anywhere".
+     *
+     * <p>Built by decoding the library, which is why it is computed when the resource manager opens and not
+     * held: a project has tens of small PNGs, and a cache here would be one more thing every capture, import,
+     * rename and replace would have to invalidate (see the note on the manifest above).
+     */
+    public static Map<String, List<String>> duplicatePictures(ProjectConfig config) {
+        Map<String, List<String>> byHash = new LinkedHashMap<>();
+        for (Path file : list(config)) {
+            String hash = pictureHash(file);
+            if (hash != null) byHash.computeIfAbsent(hash, h -> new ArrayList<>()).add(baseName(file));
+        }
+        Map<String, List<String>> duplicates = new LinkedHashMap<>();
+        for (List<String> names : byHash.values()) {
+            if (names.size() < 2) continue;
+            for (String name : names) {
+                duplicates.put(name, names.stream().filter(other -> !other.equals(name)).sorted().toList());
+            }
+        }
+        return duplicates;
+    }
+
+    /**
+     * Templates the manifest still files under a tag but whose PNG is no longer on disk — someone deleted the
+     * file outside Studio. {@link #list} simply stops returning them, which is why nothing noticed: the tags
+     * survive, the generated constant goes away on the next regeneration, and any block naming the template
+     * fails at run time with a missing file. The resource manager asks about these when it opens.
+     */
+    public static List<String> missingTemplates(ProjectConfig config) {
+        return manifest(config).tagsByTemplate().keySet().stream()
+                .filter(name -> !exists(config, name))
+                .sorted()
+                .toList();
     }
 
     /**

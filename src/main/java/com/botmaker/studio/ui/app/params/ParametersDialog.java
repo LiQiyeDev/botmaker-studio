@@ -32,7 +32,6 @@ import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.ProgressIndicator;
 import javafx.scene.control.ScrollPane;
-import javafx.scene.control.Separator;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
 import javafx.css.PseudoClass;
@@ -123,7 +122,11 @@ public final class ParametersDialog {
         BorderPane root = new BorderPane();
         root.setLeft(buildRail());
         root.setCenter(buildParamPane());
-        root.setBottom(buildBottomBar());
+        // The add bar is pinned above the buttons rather than sitting at the end of the scrolling column,
+        // which is where it was and where a project with twenty parameters hid it: adding one meant scrolling
+        // past every parameter you already had, and in the category you were looking at it was the first thing
+        // you wanted. It reads the selected category when it fires, so one bar serves every category.
+        root.setBottom(new VBox(buildAddRow(), buildBottomBar()));
 
         rebuildRail();
         window.show(root);
@@ -347,12 +350,11 @@ public final class ParametersDialog {
 
         List<ActivityVariable> shown = VariableRailModel.in(variables, selectedTag, catalog);
         if (shown.isEmpty()) {
-            Label none = new Label("Nothing filed here yet. Add one below.");
+            Label none = new Label("Nothing filed here yet — add one in the bar at the bottom.");
             none.getStyleClass().add("dialog-hint-text");
             paramColumn.getChildren().add(none);
         }
         for (ActivityVariable v : shown) paramColumn.getChildren().add(buildParamCard(v));
-        paramColumn.getChildren().addAll(new Separator(), buildAddRow());
     }
 
     /** One variable: what it is called, what it holds, who it is for, where it is filed, what it is set to. */
@@ -618,8 +620,9 @@ public final class ParametersDialog {
             e.consume();
         });
 
-        HBox row = new HBox(6, name, type, add);
+        HBox row = new HBox(6, new Label("New"), name, type, add);
         row.setAlignment(Pos.CENTER_LEFT);
+        row.setPadding(new Insets(10, 10, 0, 10));
         return row;
     }
 
