@@ -884,6 +884,20 @@
     -fx-opacity: 0.8;
 }
 
+/* The jump list above the settings: one chip per category, sized like a tag rather than like a button, so a
+   row of a dozen reads as an index and not as a dozen things to do. */
+.runner-category-chip {
+    -fx-background-color: -bm-divider;
+    -fx-background-radius: 10;
+    -fx-padding: 2 10 2 10;
+    -fx-font-size: 11px;
+}
+
+.runner-category-chip:hover {
+    -fx-background-color: -bm-accent;
+    -fx-text-fill: -bm-on-accent;
+}
+
 /* The 3x3 arrow pad a Direction is picked on, and the mouse-button diagram beside it: square keys, so the
    layout of the control is the meaning of the value. */
 .direction-pad-key {

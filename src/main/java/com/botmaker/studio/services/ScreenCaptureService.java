@@ -7,7 +7,9 @@ import com.botmaker.shared.emulator.EmulatorInstance;
 import com.botmaker.shared.emulator.EmulatorInstances;
 import com.botmaker.studio.emulator.EmulatorProbe;
 import com.botmaker.studio.services.capture.DesktopGrab;
+import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectPreferences;
+import com.botmaker.studio.project.StudioProjectSettings;
 import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.DesktopTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.EmulatorTarget;
@@ -52,6 +54,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * Editor-time screen capture for cropping image templates. Uses pure-Java {@link Robot} (no SDK/native
@@ -73,17 +76,45 @@ import java.util.function.Consumer;
 public final class ScreenCaptureService {
 
     /**
-     * Per-project settings (the saved capture targets + default), or {@code null} when the caller has no
-     * project context. When a default target is set the pickers use it directly and skip the chooser.
+     * Where the project's default capture target comes from, or {@code null} when the caller has no project
+     * context. When a default is set the pickers use it directly and skip the chooser.
+     *
+     * <p>A supplier rather than the {@link ProjectSettingsService} itself, because the two callers want it
+     * from different places: a picker inside the editor has the live service, while a picker in a dialog that
+     * was handed nothing but a {@link ProjectConfig} — the Parameters dialog, the Runner, the Variables
+     * screen — can still read the same {@code settings.json} off disk. Asking for the target at pick time
+     * rather than at construction is also what lets a target chosen in one window be honoured in another
+     * without anybody re-wiring a service.
      */
-    private final ProjectSettingsService settings;
+    private final Supplier<CaptureTarget> defaultTarget;
 
     public ScreenCaptureService() {
-        this(null);
+        this((Supplier<CaptureTarget>) null);
     }
 
     public ScreenCaptureService(ProjectSettingsService settings) {
-        this.settings = settings;
+        this(settings == null ? null : settings::defaultTarget);
+    }
+
+    private ScreenCaptureService(Supplier<CaptureTarget> defaultTarget) {
+        this.defaultTarget = defaultTarget;
+    }
+
+    /**
+     * A capture service for a caller that has the project's files but not its services — every editor built
+     * from {@link com.botmaker.studio.ui.app.params.ValueEditors}. Without this they constructed the bare
+     * service, whose target is always null, so a screen pick asked which screen every single time even though
+     * the project had a default recorded.
+     */
+    public static ScreenCaptureService forProjectFiles(ProjectConfig config) {
+        if (config == null) return new ScreenCaptureService();
+        return new ScreenCaptureService(
+                () -> StudioProjectSettings.read(config.resourcesRoot()).defaultTarget());
+    }
+
+    /** The project's default capture target, or {@code null} — asked afresh at each pick. */
+    CaptureTarget defaultTarget() {
+        return defaultTarget == null ? null : defaultTarget.get();
     }
 
     /**
@@ -169,7 +200,7 @@ public final class ScreenCaptureService {
      * </ul>
      */
     private Grab grabOffThread(Window owner) {
-        CaptureTarget target = (settings != null) ? settings.defaultTarget() : null;
+        CaptureTarget target = defaultTarget();
 
         if (target instanceof WindowTarget wt) {
             WindowShot ws = captureWindow(wt);
@@ -453,7 +484,7 @@ public final class ScreenCaptureService {
                     java.awt.Rectangle awt = new java.awt.Rectangle(
                             (int) Math.round(b.getMinX()), (int) Math.round(b.getMinY()),
                             (int) Math.round(b.getWidth()), (int) Math.round(b.getHeight()));
-                    CaptureTarget def = (settings != null) ? settings.defaultTarget() : null;
+                    CaptureTarget def = defaultTarget();
                     String label = (def != null)
                             ? com.botmaker.studio.project.capture.CaptureTargetNames.shortLabel(def) : "Screen";
                     result = new TargetShot(shot.image(), awt, label, def instanceof WindowTarget, true);
@@ -484,7 +515,7 @@ public final class ScreenCaptureService {
      * the surface draws it. Aspect ratio is what matters — every crop is mapped back by the width/height ratio.
      */
     private TargetShot emulatorShot() {
-        CaptureTarget target = (settings != null) ? settings.defaultTarget() : null;
+        CaptureTarget target = defaultTarget();
         if (!(target instanceof EmulatorTarget(String instanceName))) {
             return null;
         }
@@ -788,13 +819,18 @@ public final class ScreenCaptureService {
         ImageView background = new ImageView(fxImage);
         Pane pane = new Pane(background);
 
-        final double zoom = 8.0;
-        final double lensSize = 140;
+        // Mutable so the scroll wheel can change it: an array rather than a field, since the overlay is a
+        // local scene that lives only as long as the pick.
+        final double[] zoom = {16.0};
+        final double lensSize = 220;
         ImageView lens = new ImageView(fxImage);
         lens.setManaged(false);
         lens.setFitWidth(lensSize);
         lens.setFitHeight(lensSize);
         lens.setPreserveRatio(false);
+        // The whole point of a loupe is to see *one* pixel. Smoothing blends it into its neighbours, which is
+        // exactly the question being asked — so off, and the pixels read as the squares they are.
+        lens.setSmooth(false);
         lens.setVisible(false);
         Rectangle lensBorder = new Rectangle(lensSize, lensSize);
         lensBorder.setManaged(false);
@@ -802,43 +838,93 @@ public final class ScreenCaptureService {
         lensBorder.setStroke(Color.web("#2f80ed"));
         lensBorder.setStrokeWidth(2);
         lensBorder.setVisible(false);
+        // The one pixel under the cursor, boxed at the lens centre — without it the magnified field is all
+        // equally in focus and "which square am I about to take" is a guess.
+        Rectangle crosshair = new Rectangle();
+        crosshair.setManaged(false);
+        crosshair.setFill(Color.TRANSPARENT);
+        crosshair.setStroke(Color.WHITE);
+        crosshair.setStrokeWidth(1);
+        crosshair.setVisible(false);
+        Rectangle crosshairOutline = new Rectangle();
+        crosshairOutline.setManaged(false);
+        crosshairOutline.setFill(Color.TRANSPARENT);
+        crosshairOutline.setStroke(Color.BLACK);
+        crosshairOutline.setStrokeWidth(1);
+        crosshairOutline.setVisible(false);
         Label readout = new Label();
         readout.setManaged(false);
         readout.setStyle("-fx-background-color: rgba(0,0,0,0.75); -fx-text-fill: white; -fx-padding: 2 6 2 6; -fx-font-family: monospace;");
         readout.setVisible(false);
-        pane.getChildren().addAll(lens, lensBorder, readout);
+        Rectangle swatch = new Rectangle(14, 14);
+        swatch.setStroke(Color.web("#ffffff", 0.6));
+        if (showColor) readout.setGraphic(swatch);
+        pane.getChildren().addAll(lens, lensBorder, crosshairOutline, crosshair, readout);
 
         double ox = shot.bounds().getMinX();
         double oy = shot.bounds().getMinY();
 
         Stage stage = overlayStage(owner, shot.bounds(), shot.fullScreen(), showColor
-                ? "Move over the colour you want and click to take it. Press Esc to cancel."
-                : "Move to a spot and click to set the point. Press Esc to cancel.");
+                ? "Move over the colour you want and click to take it. Scroll to zoom. Press Esc to cancel."
+                : "Move to a spot and click to set the point. Scroll to zoom. Press Esc to cancel.");
 
-        pane.setOnMouseMoved(e -> {
+        // The last cursor position, so a scroll can re-draw the lens where the pointer already is instead of
+        // waiting for the next move.
+        final double[] at = {-1, -1};
+        Runnable place = () -> {
+            if (at[0] < 0) return;
+            double mx = at[0], my = at[1];
             double sx = screenshot.getWidth() / pane.getWidth();
             double sy = screenshot.getHeight() / pane.getHeight();
-            double px = e.getX() * sx, py = e.getY() * sy;
-            double viewW = lensSize / zoom, viewH = lensSize / zoom;
-            double vx = clamp(px - viewW / 2, 0, screenshot.getWidth() - viewW);
-            double vy = clamp(py - viewH / 2, 0, screenshot.getHeight() - viewH);
+            double px = mx * sx, py = my * sy;
+            double viewW = lensSize / zoom[0], viewH = lensSize / zoom[0];
+            double vx = clamp(px - viewW / 2, 0, Math.max(0, screenshot.getWidth() - viewW));
+            double vy = clamp(py - viewH / 2, 0, Math.max(0, screenshot.getHeight() - viewH));
             lens.setViewport(new javafx.geometry.Rectangle2D(vx, vy, viewW, viewH));
             // Place lens near the cursor without covering it.
-            double lx = e.getX() + 16, ly = e.getY() + 16;
-            if (lx + lensSize > pane.getWidth()) lx = e.getX() - lensSize - 16;
-            if (ly + lensSize > pane.getHeight()) ly = e.getY() - lensSize - 16;
+            double lx = mx + 16, ly = my + 16;
+            if (lx + lensSize > pane.getWidth()) lx = mx - lensSize - 16;
+            if (ly + lensSize > pane.getHeight()) ly = my - lensSize - 16;
             lens.relocate(lx, ly);
             lensBorder.relocate(lx, ly);
+
+            // The square the cursor is over, in lens coordinates. Derived from the viewport rather than
+            // assumed to be the centre, which it is not once the lens is clamped against an edge.
+            double cell = zoom[0];
+            double cx = lx + (Math.floor(px) - vx) * cell;
+            double cy = ly + (Math.floor(py) - vy) * cell;
+            crosshair.setWidth(cell);
+            crosshair.setHeight(cell);
+            crosshair.relocate(cx, cy);
+            crosshairOutline.setWidth(cell + 2);
+            crosshairOutline.setHeight(cell + 2);
+            crosshairOutline.relocate(cx - 1, cy - 1);
+
             if (showColor) {
-                java.awt.Color c = pixelAt(screenshot, pane, e.getX(), e.getY());
+                java.awt.Color c = pixelAt(screenshot, pane, mx, my);
                 readout.setText("#%02X%02X%02X".formatted(c.getRed(), c.getGreen(), c.getBlue()));
+                swatch.setFill(Color.rgb(c.getRed(), c.getGreen(), c.getBlue()));
             } else {
-                readout.setText((int) Math.round(ox + e.getX()) + ", " + (int) Math.round(oy + e.getY()));
+                readout.setText((int) Math.round(ox + mx) + ", " + (int) Math.round(oy + my));
             }
             readout.relocate(lx, ly + lensSize + 2);
             lens.setVisible(true);
             lensBorder.setVisible(true);
+            crosshair.setVisible(true);
+            crosshairOutline.setVisible(true);
             readout.setVisible(true);
+        };
+        pane.setOnMouseMoved(e -> {
+            at[0] = e.getX();
+            at[1] = e.getY();
+            place.run();
+        });
+        // Scroll to magnify. 4× still shows context, 64× is one pixel filling a third of the lens — a range
+        // the fixed 8× could not cover, and the reason picking a colour off an anti-aliased edge was a lottery.
+        pane.setOnScroll(e -> {
+            double next = zoom[0] * (e.getDeltaY() > 0 ? 1.5 : 1 / 1.5);
+            zoom[0] = clamp(next, 4, 64);
+            place.run();
         });
         pane.setOnMouseClicked(e -> {
             if (e.getButton() != javafx.scene.input.MouseButton.PRIMARY) return;
@@ -919,7 +1005,7 @@ public final class ScreenCaptureService {
      * for a screen/desktop grab (there is no window to name). Same rule as the capture toolbar's own.
      */
     private String targetTitle() {
-        CaptureTarget target = (settings != null) ? settings.defaultTarget() : null;
+        CaptureTarget target = defaultTarget();
         return (target instanceof WindowTarget wt) ? wt.titleSubstring() : null;
     }
 

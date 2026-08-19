@@ -131,7 +131,7 @@ public final class ValueEditors {
                 yield new Editor(row, row::wire);
             }
             case COLOR -> {
-                ColorRow row = new ColorRow(value);
+                ColorRow row = new ColorRow(value, ctx.project());
                 yield new Editor(row, row::wire);
             }
             case DIRECTION -> {
@@ -155,15 +155,15 @@ public final class ValueEditors {
                 yield new Editor(chip, chip::wire);
             }
             case POINT -> {
-                GeometryRow row = new GeometryRow(value, GeometryRow.Kind.POINT);
+                GeometryRow row = new GeometryRow(value, GeometryRow.Kind.POINT, ctx.project());
                 yield new Editor(row, row::wire);
             }
             case SIZE -> {
-                GeometryRow row = new GeometryRow(value, GeometryRow.Kind.SIZE);
+                GeometryRow row = new GeometryRow(value, GeometryRow.Kind.SIZE, ctx.project());
                 yield new Editor(row, row::wire);
             }
             case RECT -> {
-                GeometryRow row = new GeometryRow(value, GeometryRow.Kind.RECT);
+                GeometryRow row = new GeometryRow(value, GeometryRow.Kind.RECT, ctx.project());
                 yield new Editor(row, row::wire);
             }
             case CHARACTER -> {
@@ -523,7 +523,7 @@ public final class ValueEditors {
 
         private final ColorPicker picker = new ColorPicker();
 
-        ColorRow(String wire) {
+        ColorRow(String wire, ProjectConfig project) {
             super(4);
             setAlignment(Pos.CENTER_LEFT);
             picker.setValue(parseColor(wire));
@@ -533,10 +533,12 @@ public final class ValueEditors {
             Button eyedropper = new Button("⌖");
             eyedropper.getStyleClass().add("color-eyedropper");
             eyedropper.setTooltip(new Tooltip("Pick a colour off the screen, magnified"));
-            eyedropper.setOnAction(e -> new ScreenCaptureService().pickColor(window(this), pick -> {
-                java.awt.Color c = pick.color();
-                Platform.runLater(() -> picker.setValue(Color.rgb(c.getRed(), c.getGreen(), c.getBlue())));
-            }));
+            eyedropper.setOnAction(e -> ScreenCaptureService.forProjectFiles(project)
+                    .pickColor(window(this), pick -> {
+                        java.awt.Color c = pick.color();
+                        Platform.runLater(() ->
+                                picker.setValue(Color.rgb(c.getRed(), c.getGreen(), c.getBlue())));
+                    }));
             getChildren().addAll(picker, eyedropper);
         }
 
@@ -706,9 +708,11 @@ public final class ValueEditors {
         }
 
         private final List<TextField> fields = new ArrayList<>();
+        private final ProjectConfig project;
 
-        GeometryRow(String wire, Kind kind) {
+        GeometryRow(String wire, Kind kind, ProjectConfig project) {
             super(6);
+            this.project = project;
             setAlignment(Pos.BOTTOM_LEFT);
             String[] parts = (wire == null ? "" : wire).split(",");
             for (int i = 0; i < kind.labels.length; i++) {
@@ -732,7 +736,7 @@ public final class ValueEditors {
          * exactly how a person measures something on screen.
          */
         private void pick(Kind kind) {
-            ScreenCaptureService capture = new ScreenCaptureService();
+            ScreenCaptureService capture = ScreenCaptureService.forProjectFiles(project);
             Window owner = window(this);
             if (kind == Kind.POINT) {
                 capture.pickPoint(owner, p -> set(p[0], p[1]));

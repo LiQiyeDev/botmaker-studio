@@ -296,6 +296,27 @@ class ScreenCaptureServiceTest {
      * "Pick all" pass knows how to fill. Pinned because the split moves it: a fourth member added on one side
      * of the seam and not handled on the other is a silently skipped argument.
      */
+    /**
+     * A picker that was handed the project's files — but none of its services — still finds the default
+     * capture target. Every editor in the Parameters dialog, the Runner and the Variables screen is in that
+     * position, and each of them built the bare service, whose target is always null; that is why picking a
+     * point on screen asked which monitor every single time on a project that had answered the question once.
+     */
+    @Test
+    void aPickerWithOnlyTheProjectsFilesStillFindsItsDefaultTarget(@TempDir Path dir) throws IOException {
+        com.botmaker.studio.project.ProjectConfig config =
+                com.botmaker.studio.project.ProjectConfig.forProject("Fixture", dir);
+        Files.createDirectories(config.resourcesRoot());
+        WindowTarget window = new WindowTarget("RuneLite");
+        new com.botmaker.studio.project.StudioProjectSettings(List.of(window), 0, List.of(), java.util.Map.of(),
+                null, null).write(config.resourcesRoot());
+
+        assertEquals(window, ScreenCaptureService.forProjectFiles(config).defaultTarget());
+        assertNull(ScreenCaptureService.forProjectFiles(null).defaultTarget(),
+                "and with no project at all it still has to answer, not throw");
+        assertNull(new ScreenCaptureService().defaultTarget());
+    }
+
     @Test
     void theCaptureSessionKnowsExactlyThreeKindsOfArgumentToPick() {
         List<String> permitted = java.util.Arrays.stream(

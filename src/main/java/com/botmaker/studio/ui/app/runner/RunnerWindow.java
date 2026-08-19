@@ -36,6 +36,7 @@ import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Separator;
 import javafx.scene.control.TextArea;
 import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
@@ -82,7 +83,7 @@ public final class RunnerWindow implements ProjectWindow {
      * pane fits as many of them across as the window allows and wraps the rest, so narrow is one column and
      * wide is three without a single width listener.
      */
-    private static final double TILE_WIDTH = 260;
+    private static final double TILE_WIDTH = 300;
 
     private final Stage stage;
     private final Origin origin;
@@ -111,6 +112,10 @@ public final class RunnerWindow implements ProjectWindow {
     private final Map<String, CheckBox> enableBoxes = new LinkedHashMap<>();
     /** Every shared variable's widget. A variable's name is project-wide, so there is no scope to record. */
     private final List<ParamValueWidgets.ValueEditor> valueEditors = new ArrayList<>();
+
+    /** The body's scroller and one card per category — what the category chips jump between. */
+    private ScrollPane bodyScroll;
+    private final Map<String, Node> categoryCards = new LinkedHashMap<>();
 
     public RunnerWindow(StudioContext ctx, Stage stage, Origin origin, Runnable onShowEditor) {
         this.stage = stage;
@@ -241,7 +246,24 @@ public final class RunnerWindow implements ProjectWindow {
         ScrollPane scroll = new ScrollPane(column);
         scroll.setFitToWidth(true);
         scroll.getStyleClass().add("transparent-scroll");
+        bodyScroll = scroll;
         return scroll;
+    }
+
+    /**
+     * Scrolls the body so {@code target} is at the top of the viewport.
+     *
+     * <p>Measured in the content's own coordinates rather than the section's, because a category card is
+     * nested three deep and its position within its parent says nothing about where it is in the column.
+     */
+    private void scrollTo(Node target) {
+        if (bodyScroll == null) return;
+        Node content = bodyScroll.getContent();
+        double contentHeight = content.getBoundsInLocal().getHeight();
+        double viewHeight = bodyScroll.getViewportBounds().getHeight();
+        if (contentHeight <= viewHeight) return;
+        double y = content.sceneToLocal(target.localToScene(0, 0)).getY();
+        bodyScroll.setVvalue(Math.max(0, Math.min(1, y / (contentHeight - viewHeight))));
     }
 
     /** What the bot opens, and where it looks — in that order, because you cannot capture a window that is closed. */
@@ -325,7 +347,32 @@ public final class RunnerWindow implements ProjectWindow {
             groups.getChildren().add(hint("This bot has no settings for you to change."));
         }
         byTag.forEach((tag, group) -> groups.getChildren().add(categoryCard(tag, group)));
-        return section("Settings", null, groups);
+
+        Node index = categoryIndex(byTag);
+        return section("Settings", null, index == null ? groups : new VBox(12, index, groups));
+    }
+
+    /**
+     * A wrapping row of one chip per category, each jumping to its card.
+     *
+     * <p>A bot with a dozen categories is a page of scrolling, and the thing being looked for is nearly always
+     * known by name before the scrolling starts. The chips are built from the same map the cards are, so the
+     * index cannot offer a category that isn't below it — and it is left out entirely below two categories,
+     * where a jump list is longer than the thing it indexes.
+     */
+    private Node categoryIndex(Map<String, List<ActivityVariable>> byTag) {
+        if (byTag.size() < 3) return null;
+        FlowPane chips = new FlowPane(6, 6);
+        byTag.forEach((tag, group) -> {
+            Button chip = new Button(tag + " (" + group.size() + ")");
+            chip.getStyleClass().add("runner-category-chip");
+            chip.setOnAction(e -> {
+                Node card = categoryCards.get(tag);
+                if (card != null) scrollTo(card);
+            });
+            chips.getChildren().add(chip);
+        });
+        return chips;
     }
 
     /**
@@ -354,6 +401,7 @@ public final class RunnerWindow implements ProjectWindow {
 
         VBox card = new VBox(8, title, new Separator(), tiles);
         card.getStyleClass().add("runner-category");
+        categoryCards.put(tag, card);
         return card;
     }
 
@@ -369,12 +417,20 @@ public final class RunnerWindow implements ProjectWindow {
         Label name = new Label(v.displayLabel());
         name.getStyleClass().add("runner-setting-name");
         name.setWrapText(true);
+        name.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(name, Priority.ALWAYS);
 
         Label badge = new Label(v.type().label());
         badge.getStyleClass().add("runner-type-badge");
+        badge.setWrapText(true);
+        // The badge keeps the width it asks for and the name wraps into what is left. The other way round —
+        // the name growing and the badge shrinking — is what put an ellipsis through "One of Image template"
+        // and, on a long name, through the name as well: a card is 300px wide and a Label in a full row
+        // truncates rather than wrapping unless it is told which of the two gives way.
+        badge.setMinWidth(Region.USE_PREF_SIZE);
 
         HBox header = new HBox(6, name, badge);
-        header.setAlignment(Pos.CENTER_LEFT);
+        header.setAlignment(Pos.TOP_LEFT);
 
         Node widget = ParamValueWidgets.build(v, config, valueEditors);
         if (widget instanceof Region region) region.setMaxWidth(Double.MAX_VALUE);
@@ -383,6 +439,7 @@ public final class RunnerWindow implements ProjectWindow {
         if (!v.description().isBlank()) card.getChildren().add(hint(v.description()));
         card.getStyleClass().add("runner-setting-card");
         card.setPrefWidth(TILE_WIDTH);
+        card.setMinHeight(Region.USE_PREF_SIZE);   // a wrapped name makes the card taller, never shorter
         return card;
     }
 
