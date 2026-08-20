@@ -42,6 +42,7 @@ import org.eclipse.jface.text.Document;
 import org.eclipse.jface.text.IDocument;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -1133,6 +1134,23 @@ public class CodeEditor {
         edit(toDelete, EditKind.BODY, false, (cu, code) -> deleteStatement(cu, code, toDelete));
     }
 
+    /**
+     * Deletes a variable <em>and settles its uses</em>, in one write.
+     *
+     * <p>{@link #deleteStatement} on a declaration removes the line and leaves every {@code attempts} in the
+     * method pointing at a name that no longer exists — a file that does not compile, from one press of a ✕.
+     * What the uses become is {@link UseFix}, asked once and applied to all; a variable with no uses never
+     * reaches here, since {@code deleteStatement} is already the right answer for it.
+     *
+     * <p>One write, not two: the uses and the declaration go in a single {@code ASTRewrite}, so the undo is one
+     * step and the intermediate state — uses rewritten, declaration still there, or worse the reverse — never
+     * exists as a version of the file.
+     */
+    public void deleteVariable(VariableDeclarationStatement decl, UseFix fix) {
+        if (decl == null || fix == null || !canDelete(decl)) return;
+        edit(decl, EditKind.BODY, false, (cu, code) -> deleteVariable(ctx(cu), code, decl, fix));
+    }
+
     public void pasteCode(BodyBlock targetBody, int index, String codeToPaste) {
         if (!canInsertAt(targetBody, index)) return;
         edit(targetBody.getAstNode(), EditKind.BODY, false,
@@ -1389,6 +1407,69 @@ public class CodeEditor {
         }
         rewriter.remove(statement, null);
         return AstRewriteHelper.applyRewrite(rewriter, originalCode);
+    }
+
+    /**
+     * The rewrite behind {@link #deleteVariable}: every use settled, then the declaration removed.
+     *
+     * <p>Only a single-fragment declaration is handled — {@code int a = 1, b = 2;} is not a shape this editor
+     * writes, and removing one name from it is a different edit than removing the statement. Returning null
+     * refuses rather than half-doing it.
+     */
+    private static String deleteVariable(EditContext ctx, String originalCode,
+                                         VariableDeclarationStatement decl, UseFix fix) {
+        if (decl.fragments().size() != 1
+                || !(decl.fragments().getFirst() instanceof VariableDeclarationFragment fragment)) return null;
+        ASTRewrite rewriter = ctx.rewriter();
+        List<SimpleName> uses = AstRewriteHelper.referencesWithin(AstRewriteHelper.enclosingMethod(decl),
+                fragment.getName());
+
+        if (fix instanceof UseFix.Rename rename) {
+            for (SimpleName use : uses) {
+                rewriter.set(use, SimpleName.IDENTIFIER_PROPERTY, rename.variableName(), null);
+            }
+        } else {
+            // A use that *writes* the variable can't take a value in its place — `0 = 5;` is not source — so the
+            // line that wrote it goes with the declaration. Collected first because one such line can hold
+            // several uses (`attempts = attempts + 1;`), and the ones inside it must not also be replaced.
+            Set<Statement> dropped = new LinkedHashSet<>();
+            for (SimpleName use : uses) {
+                Statement written = writeStatementOf(use);
+                if (written != null) dropped.add(written);
+            }
+            for (Statement statement : dropped) rewriter.remove(statement, null);
+            ResolvedType type = ProjectAnalyzer.resolveType(decl.getType());
+            for (SimpleName use : uses) {
+                if (dropped.stream().anyMatch(statement -> isInside(use, statement))) continue;
+                Expression value = InitializerFactory.createDefaultInitializer(ctx, type);
+                if (value == null) return null;
+                rewriter.replace(use, value, null);
+            }
+        }
+
+        rewriter.remove(decl, null);
+        return ctx.applyTo(originalCode);
+    }
+
+    /** The statement {@code use} is the target of — {@code x = 1;}, {@code x += 1;}, {@code x++;} — or null. */
+    private static Statement writeStatementOf(SimpleName use) {
+        ASTNode parent = use.getParent();
+        boolean isTarget = switch (parent) {
+            case Assignment assignment -> assignment.getLeftHandSide() == use;
+            case PostfixExpression postfix -> postfix.getOperand() == use;
+            case PrefixExpression prefix -> prefix.getOperand() == use
+                    && (prefix.getOperator() == PrefixExpression.Operator.INCREMENT
+                    || prefix.getOperator() == PrefixExpression.Operator.DECREMENT);
+            case null, default -> false;
+        };
+        return isTarget && parent.getParent() instanceof ExpressionStatement statement ? statement : null;
+    }
+
+    private static boolean isInside(ASTNode node, ASTNode ancestor) {
+        for (ASTNode n = node; n != null; n = n.getParent()) {
+            if (n == ancestor) return true;
+        }
+        return false;
     }
 
     private static String pasteCodeString(EditContext ctx, String originalCode, BodyBlock targetBody, int index,

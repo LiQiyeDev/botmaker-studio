@@ -14,6 +14,7 @@ import com.botmaker.studio.ui.render.components.TextFieldComponents;
 import com.botmaker.studio.ui.render.components.pickers.PickerContext;
 import com.botmaker.studio.ui.render.components.pickers.PickerRegistry;
 import com.botmaker.studio.types.ResolvedType;
+import com.botmaker.studio.ui.app.vars.DeleteVariableDialog;
 import com.botmaker.studio.ui.app.vars.EditVariableDialog;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import javafx.scene.Node;
@@ -122,6 +123,21 @@ public class VariableDeclarationBlock extends AbstractStatementBlock {
                             .setVariableInitializer((VariableDeclarationStatement) this.astNode, selection);
                 });
         menu.show(anchor, javafx.geometry.Side.BOTTOM, 0, 0);
+    }
+
+    /**
+     * The ✕ asks what becomes of the uses before it removes anything.
+     *
+     * <p>{@code deleteStatement} — what every other block's cross does, and what this one did — removes the line
+     * and leaves each {@code attempts} in the method pointing at a name that no longer exists. A declaration is
+     * the one statement whose deletion can break code somewhere else, so it is the one that needs a question.
+     * {@link DeleteVariableDialog} asks it only when there are uses; an unused variable still goes in one press.
+     */
+    @Override
+    protected Runnable deleteAction(CodeEditorService context) {
+        if (isReadOnly()) return null;
+        return () -> DeleteVariableDialog.confirmAndDelete(context, windowOf(context),
+                (VariableDeclarationStatement) this.astNode);
     }
 
     /**
