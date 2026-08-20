@@ -67,10 +67,24 @@ public class BlockConverter {
                                  BlockDragAndDropManager manager,
                                  boolean isReadOnly,
                                  boolean markNewIdentifiersAsUnedited) {
+        return convert(null, javaCode, nodeToBlockMap, manager, isReadOnly, markNewIdentifiersAsUnedited);
+    }
+
+    /**
+     * The same conversion, over a {@code CompilationUnit} the caller has already parsed.
+     *
+     * <p>{@code CodeEditorService} needs the parsed file in {@code ProjectState} <em>before</em> the blocks are
+     * built — every screen that reacts to a write by re-reading the file depends on it — but it must not pay for
+     * a second parse to get there. Passing {@code null} parses here, exactly as this always did.
+     */
+    public ConvertResult convert(CompilationUnit parsed,
+                                 String javaCode,
+                                 Map<ASTNode, CodeBlock> nodeToBlockMap,
+                                 BlockDragAndDropManager manager,
+                                 boolean isReadOnly,
+                                 boolean markNewIdentifiersAsUnedited) {
         try {
-            String unitName = state.getActiveFile() != null
-                    ? state.getActiveFile().getPath().toAbsolutePath().toString() : null;
-            CompilationUnit ast = createCompilationUnit(state.getResolvedClasspath(), javaCode, state.getSourcePath(), unitName);
+            CompilationUnit ast = parsed != null ? parsed : parse(javaCode);
 
             List<Comment> comments = new ArrayList<>();
             for (Object obj : ast.getCommentList()) {
@@ -92,6 +106,19 @@ public class BlockConverter {
             e.printStackTrace();
             return new ConvertResult(null, null);
         }
+    }
+
+    /**
+     * The file as the editor parses it: bindings resolved against the project's classpath, named after the file
+     * on disk so the resolver can find its siblings.
+     *
+     * <p>Public because the parse and the block build are now two steps that can happen a moment apart — see the
+     * {@code parsed} overload above.
+     */
+    public CompilationUnit parse(String javaCode) {
+        String unitName = state.getActiveFile() != null
+                ? state.getActiveFile().getPath().toAbsolutePath().toString() : null;
+        return createCompilationUnit(state.getResolvedClasspath(), javaCode, state.getSourcePath(), unitName);
     }
 
     private AbstractCodeBlock parseRoot(AbstractTypeDeclaration rootNode, ParseContext ctx) {

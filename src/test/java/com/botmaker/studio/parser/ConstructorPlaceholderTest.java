@@ -80,6 +80,31 @@ class ConstructorPlaceholderTest {
                 InitializerFactory.createDefaultInitializer(ast, ResolvedType.named("Color"), null, null, analyzer).toString());
     }
 
+    /**
+     * The four {@code java.time} values, none of which has a public constructor.
+     *
+     * <p>{@code LocalDate} was the one missing from that list, so it fell through to the rule above and — with
+     * no analyzer able to see the JDK's constructors — came back as {@code new LocalDate()}. That reached a
+     * user's project through "delete this variable, replace its uses with the default" and failed to compile
+     * with "constructor LocalDate cannot be applied to given types". Asserted alongside its three neighbours so
+     * the next JDK value added here is added to all four.
+     */
+    @Test
+    void theJavaTimeValuesAreSeededWithCallsRatherThanConstructors() {
+        AST ast = AST.newAST(AST.getJLSLatest(), false);
+        ProjectAnalyzer analyzer = analyzer();
+
+        assertEquals("java.time.LocalDate.now()", seedOf(ast, "LocalDate", analyzer));
+        assertEquals("java.time.LocalTime.of(12,0)", seedOf(ast, "LocalTime", analyzer));
+        assertEquals("java.time.DayOfWeek.MONDAY", seedOf(ast, "DayOfWeek", analyzer));
+        assertEquals("java.time.Month.JANUARY", seedOf(ast, "Month", analyzer));
+    }
+
+    private static String seedOf(AST ast, String typeName, ProjectAnalyzer analyzer) {
+        return InitializerFactory.createDefaultInitializer(
+                ast, ResolvedType.named(typeName), null, null, analyzer).toString();
+    }
+
     /** The placeholder this factory produces for {@code typeName}, rendered as source. */
     private static String seed(String typeName) {
         AST ast = AST.newAST(AST.getJLSLatest(), false);

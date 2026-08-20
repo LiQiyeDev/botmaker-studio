@@ -286,44 +286,28 @@ public final class EditVariableDialog {
             if (prefilling || now == null) return;
             find().ifPresent(fresh -> context.getCodeEditor()
                     .replaceVariableType(fresh.statement(), ResolvedType.named(now.sourceName())));
-            syncToDeclaredType(picker);
+            // A rewrite CodeEditor refuses publishes no event, so the CodeUpdatedEvent rebuild never ran and
+            // this screen is still claiming a type the file does not have. Ask the file; if it disagrees, put
+            // the whole screen back to what it says — the picker included. Reverted rather than retried:
+            // whatever refused the rewrite will refuse it again.
+            //
+            // On a *successful* write this is a no-op, and deliberately so. rebuild() has already run, from the
+            // event, against a ProjectState that CodeEditorService.adopt() made current before publishing; the
+            // picker this listener belongs to has been replaced by one reading the new type. Before that split
+            // the state was still a runLater behind, which is why this screen used to show the type picked one
+            // click ago.
+            if (!declaredIs(now)) rebuild();
         });
         return picker;
     }
 
-    /**
-     * Puts the value row — and, if it has to, the type picker itself — back in agreement with the file, right
-     * after a retype was asked for.
-     *
-     * <p>The value editor belongs to the <em>type</em>, not to the picker that chose it: a date that has become
-     * a rectangle needs the region editor, not the calendar it is still showing. {@link #rebuild()} does that,
-     * but it runs off {@code CodeUpdatedEvent} — and a rewrite {@code CodeEditor} refuses publishes no event at
-     * all, so the screen was left claiming a type the file does not have, with the old type's editor under it.
-     * Nothing on screen said which of the two was true.
-     *
-     * <p>So the file is asked directly. When it took the change, this shows the new type's editor a frame
-     * before the event would have; when it didn't, the picker is put back to what the file still says, which is
-     * the only honest answer. The picker is reverted rather than the write retried: whatever refused the
-     * rewrite will refuse it again.
-     */
-    private void syncToDeclaredType(BotTypePicker picker) {
-        Optional<Local> fresh = find();
-        if (fresh.isEmpty()) {
-            valueRow.getChildren().clear();
-            return;
-        }
-        Local local = fresh.get();
-        ResolvedType declared = ProjectAnalyzer.resolveType(local.statement().getType());
-        BotType.Choice.fromSourceName(declared.qualifiedName())
-                .filter(choice -> choice.type().declarable())
-                .filter(choice -> !choice.equals(picker.choice()))
-                .ifPresent(choice -> {
-                    prefilling = true;
-                    picker.setChoice(choice);
-                    prefilling = false;
-                });
-        valueRow.getChildren().setAll(valueControls(local, declared));
-        preview.setText(local.statement().toString().trim());
+    /** Whether the file, right now, declares this variable as {@code choice}. */
+    private boolean declaredIs(BotType.Choice choice) {
+        return find()
+                .map(local -> ProjectAnalyzer.resolveType(local.statement().getType()).qualifiedName())
+                .flatMap(BotType.Choice::fromSourceName)
+                .filter(choice::equals)
+                .isPresent();
     }
 
     /** A type shown but not offered: what the file says, with no control to change it. */

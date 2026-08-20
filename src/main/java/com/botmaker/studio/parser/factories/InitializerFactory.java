@@ -150,6 +150,11 @@ public class InitializerFactory {
             // and unlike Precision: these come from the JDK, not the SDK jar the analyzer indexes, so the
             // import the argument-default paths add alongside this seed would not resolve.
             case "LocalTime" -> "java.time.LocalTime.of(12, 0)";
+            // LocalDate's absence from this list is what put `new LocalDate()` into a user's project: it has no
+            // public constructor either, so the generic `new T()` below is uncompilable for it exactly as it is
+            // for the other three. `now()` rather than a fixed date because a default is a starting point, and
+            // any literal date here is a number three people would each read a different meaning into.
+            case "LocalDate" -> "java.time.LocalDate.now()";
             case "DayOfWeek" -> "java.time.DayOfWeek.MONDAY";
             case "Month" -> "java.time.Month.JANUARY";
             default -> null;

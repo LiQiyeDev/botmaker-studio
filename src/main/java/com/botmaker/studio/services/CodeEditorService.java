@@ -33,6 +33,7 @@ import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
 import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.jdt.core.dom.BodyDeclaration;
+import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jdt.core.dom.Expression;
 import org.eclipse.jdt.core.dom.ExpressionStatement;
 import org.eclipse.jdt.core.dom.MethodDeclaration;
@@ -98,8 +99,13 @@ public class CodeEditorService {
     public SdkDocs getSdkDocs() { return sdkDocsService == null ? SdkDocs.EMPTY : sdkDocsService.current(); }
 
     private void setupEventHandlers() {
-        eventBus.subscribe(CoreApplicationEvents.UIRefreshRequestedEvent.class, event ->
-                Platform.runLater(() -> refreshUI(event.code(), false)), false);
+        // Both of the code-refresh subscriptions below adopt the new text into ProjectState *now* and defer only
+        // the block rebuild — see adopt(). The deferral is what keeps a burst of writes from re-rendering the
+        // canvas on the publishing call; it was never meant to hold back what the file says.
+        eventBus.subscribe(CoreApplicationEvents.UIRefreshRequestedEvent.class, event -> {
+            CompilationUnit parsed = adopt(event.code());
+            Platform.runLater(() -> render(parsed, event.code(), false));
+        }, false);
 
         eventBus.subscribe(CoreApplicationEvents.BreakpointToggledEvent.class,
                 this::handleBreakpointToggle, false);
@@ -114,7 +120,8 @@ public class CodeEditorService {
 
         eventBus.subscribe(CoreApplicationEvents.CodeUpdatedEvent.class, event -> {
             handleCodeUpdateForHistory(event);
-            Platform.runLater(() -> refreshUI(event.newCode(), event.markNewIdentifiersAsUnedited()));
+            CompilationUnit parsed = adopt(event.newCode());
+            Platform.runLater(() -> render(parsed, event.newCode(), event.markNewIdentifiersAsUnedited()));
         }, false);
 
         eventBus.subscribe(CoreApplicationEvents.UndoRequestedEvent.class,
@@ -626,8 +633,35 @@ public class CodeEditorService {
     // in one save), and nothing else here should go.
 
     private void refreshUI(String javaCode, boolean markNewIdentifiersAsUnedited) {
-        state.setCurrentCode(javaCode);
+        render(adopt(javaCode), javaCode, markNewIdentifiersAsUnedited);
+    }
 
+    /**
+     * The half of a refresh that every other screen depends on: the new text and its parse, in
+     * {@link ProjectState}, before anybody is told the write happened.
+     *
+     * <p>It used to be the first line of {@link #render}, which ran inside a {@code Platform.runLater} while
+     * {@code CodeUpdatedEvent} was published synchronously. So a listener that reacted to a write by asking the
+     * state what the file now said was answered with the file as it was <em>before</em> that write — the Edit
+     * Variable screen showed the type picked one click ago, and any block resolving its node against the state
+     * resolved it against a tree that no longer existed. Splitting the refresh puts the model in front of the
+     * pixels: this runs on the publishing thread, and only the block rebuild is deferred.
+     *
+     * <p>Returns the parse so {@link #render} does not repeat it. Null when the source could not be parsed at
+     * all, which {@code BlockConverter} then handles exactly as it did before.
+     */
+    private CompilationUnit adopt(String javaCode) {
+        state.setCurrentCode(javaCode);
+        try {
+            CompilationUnit parsed = blockConverter.parse(javaCode);
+            state.setCompilationUnit(parsed);
+            return parsed;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    private void render(CompilationUnit parsed, String javaCode, boolean markNewIdentifiersAsUnedited) {
         // The registry is rebuilt into a fresh map and published once, at the end. Clearing the live one and
         // refilling it in place is what let a background reader walk a half-built registry (bugs.md B10).
         Map<ASTNode, CodeBlock> rebuilt = new HashMap<>();
@@ -643,6 +677,7 @@ public class CodeEditorService {
         LockResolver resolver = LockResolver.forActiveFile(config, state);
 
         BlockConverter.ConvertResult result = blockConverter.convert(
+                parsed,
                 javaCode,
                 rebuilt,
                 dragAndDropManager,
