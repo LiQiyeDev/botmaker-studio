@@ -8,13 +8,11 @@ import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.ui.app.capture.CaptureSourcePicker;
 import com.botmaker.studio.ui.app.capture.TargetThumbnail;
-import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
-import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
@@ -28,7 +26,6 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
-import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 
@@ -100,10 +97,12 @@ public class ManageCaptureTargetsDialog {
      * other way to know when to look again.
      */
     public void show(Runnable onClosed) {
-        stage = new Stage();
-        stage.initOwner(owner);
-        stage.initModality(Modality.APPLICATION_MODAL);
-        stage.setTitle("Capture Targets");
+        // Through StudioWindow rather than a hand-built Stage: this one is opened from the toolbar, so it is
+        // the dialog most likely to be the one that nudged the shell — and the owner-pinning, the remembered
+        // size and the minimum all live there rather than being re-decided per dialog.
+        StudioWindow window = StudioWindow.modal("capture-targets", "Capture Targets", owner)
+                .size(560, 520).minSize(460, 360);
+        stage = window.stage();
 
         StudioProjectSettings current = settingsService.current();
         rows.setAll(current.captureTargets());
@@ -120,12 +119,11 @@ public class ManageCaptureTargetsDialog {
         root.setPadding(new Insets(16));
         root.getChildren().addAll(buildList(), buildAddRow(), buildButtonBar());
 
-        stage.setScene(ThemedWindows.scene(root, 560, 520));
         stage.setOnHidden(e -> {
             thumbExec.shutdownNow();
             if (onClosed != null) onClosed.run();
         });
-        stage.show();
+        window.show(root);
     }
 
     private VBox buildList() {

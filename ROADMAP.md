@@ -6,6 +6,28 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-20 — Choices that know their type, variables you can find, a shell that holds still
+  (`palette/BotType`, `palette/SignatureType`, `ui/app/params/*`, `ui/app/runner/RunnerWindow`,
+  `ui/render/components/pickers/*`, `ui/app/vars/ActivityVariablesDialog`, `parser/helpers/BlockNodes`,
+  `types/SlotFit`, `BotMakerStudio`, `ui/app/StudioWindow`, `ui/app/UIManager`,
+  `ui/render/components/TemplateGallery`).** Five phases against hands-on testing of round 2. A type that is
+  already a closed set (Yes/No, Direction, Mouse button, Key) no longer offers `One of…`, the option set is
+  edited with the base type's own editor (a template choice is picked from the gallery), and the value control
+  follows the shape rather than the option count. The user view's cards wrap instead of truncating and carry
+  category chips that jump to a section; the eyedropper's loupe shows square pixels with a crosshair, a swatch
+  and a scroll-wheel zoom; screen pickers use the project's default capture target instead of asking every
+  time. Variables are renamed only where the use sites are carried — the declare block's inline name/type
+  editing is gone, replaced by a `✎ Variables…` button — and the screen refuses a name that is not a free Java
+  identifier; Duration composes four units and `LocalDate` finally has a picker. In the editor a drop onto a
+  slot lands (`BlockNodes` normalises the statement/expression split two block classes had), the type is
+  re-checked at drop time, and every refusal says why in the status bar through one shared wording
+  (`SlotFit`); a signature whose type the editor cannot describe (`Outcome run(int)`) opens anyway and is
+  written back verbatim (`SignatureType.Kept`). The shell re-asserts the maximize across a scene swap instead
+  of testing a flag that never changed, pins the owner's geometry at open as well as close (the maximize
+  included), has a real minimum size, and lets the run cluster fold into its `»` menu rather than paint over
+  the capture group. A plain click in the template gallery selects one template again; Ctrl adds, Shift
+  extends.
+
 - **2026-08-19 — Templates you can see, and names that refuse inline (`services/ImageTemplateLibrary`,
   `ui/app/ResourceManagerDialog`, `ui/render/components/TagPicklist`, `ui/render/components/TemplateGallery`,
   `sharing/TemplateArchive`, `ui/app/params/ParametersDialog`).** The library learned what its pictures *are*:

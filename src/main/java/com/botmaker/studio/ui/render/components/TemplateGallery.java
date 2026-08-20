@@ -66,6 +66,8 @@ public final class TemplateGallery extends HBox {
     /** The tiles currently on screen, so a selection change repaints without rebuilding the grid. */
     private final Map<Path, Node> tiles = new LinkedHashMap<>();
     private final LinkedHashSet<Path> selected = new LinkedHashSet<>();
+    /** Where a Shift-click measures its range from: the last tile picked without Shift. */
+    private Path anchor;
 
     private Predicate<Path> filter = file -> true;
     private Runnable onSelectionChanged;
@@ -201,7 +203,10 @@ public final class TemplateGallery extends HBox {
     private void refreshSelectionBar() {
         if (!multiSelect) return;
         int n = selected.size();
-        selectionCount.setText(n == 0 ? "Click templates to select them" : n + " selected");
+        // The empty state is where the gesture is taught, now that a plain click no longer accumulates.
+        selectionCount.setText(n == 0
+                ? "Click to select · Ctrl-click to add · Shift-click for a range"
+                : n + " selected");
     }
 
     /**
@@ -306,18 +311,37 @@ public final class TemplateGallery extends HBox {
             if (onActivate != null) onActivate.accept(file);
             return;
         }
+        if (!multiSelect) {
+            anchor = file;
+            setSelection(List.of(file));
+            return;
+        }
+        // The three gestures every file manager has, and in that order of frequency. A plain click *replaces*:
+        // making it toggle instead was meant to advertise multi-select, and what it actually did was make
+        // looking at a second template select both — so the common gesture, "show me that one", was the one that
+        // behaved unlike everywhere else. Ctrl toggles, Shift extends from the anchor, and the selection bar's
+        // "Select all" keeps batch work one gesture away.
         List<Path> next = new ArrayList<>();
-        if (multiSelect) {
-            // Plain click toggles. Batch work here is the common case — filing eight screenshots under a tag,
-            // deleting the six that came from a menu that no longer exists — and requiring Ctrl for it made
-            // the whole feature invisible to anyone who didn't already know it was there. Ctrl and Shift still
-            // work, so muscle memory from every other grid does the same thing it does elsewhere.
+        if (e.isShiftDown() && anchor != null) {
+            next.addAll(rangeBetween(anchor, file));
+        } else if (e.isShortcutDown()) {
             next.addAll(selected);
             if (!next.remove(file)) next.add(file);
+            anchor = file;
         } else {
             next.add(file);
+            anchor = file;
         }
         setSelection(next);
+    }
+
+    /** Every visible tile from {@code from} to {@code to} inclusive, in the order the grid shows them. */
+    private List<Path> rangeBetween(Path from, Path to) {
+        List<Path> visible = new ArrayList<>(tiles.keySet());
+        int a = visible.indexOf(from);
+        int b = visible.indexOf(to);
+        if (a < 0 || b < 0) return List.of(to);
+        return visible.subList(Math.min(a, b), Math.max(a, b) + 1);
     }
 
     /** A rail row: a heading, or a tag with its count and — for an activity tag — where it comes from. */

@@ -3,6 +3,7 @@ package com.botmaker.studio.ui.app;
 import com.botmaker.studio.project.ProjectPreferences;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.animation.PauseTransition;
+import javafx.application.Platform;
 import javafx.beans.value.ChangeListener;
 import javafx.geometry.Rectangle2D;
 import javafx.scene.Parent;
@@ -31,8 +32,10 @@ import javafx.util.Duration;
  * <p><b>The owner does not move.</b> A dialog opening or closing has repeatedly nudged the main window: the
  * shell records its own geometry only while focused and un-maximized ({@code BotMakerStudio.configureWindow}),
  * which stops the drift being *written*, but not the window manager reporting it in the first place. So the
- * owner's geometry is read at show and put back at hide if it changed by itself. It is a small, verifiable
- * guard at the one moment the drift happens, rather than a theory about which of X11, GTK and JavaFX moved it.
+ * owner's geometry is read before the show and put back at both ends — a pulse after the dialog appears and
+ * again when it goes away — the maximize included, since that is the form the drift takes on a maximized shell.
+ * It is a small, verifiable guard at the two moments the drift happens, rather than a theory about which of
+ * X11, GTK and JavaFX moved it.
  *
  * <p>Typical use — note that the stage exists before the content, because content routinely closes it:
  * <pre>{@code
@@ -188,21 +191,41 @@ public final class StudioWindow {
         });
     }
 
-    /** See the class note: the window that opened this one is where it was, afterwards. */
+    /**
+     * See the class note: the window that opened this one is where it was, afterwards.
+     *
+     * <p>Two things this used to miss, and both are what the user actually reported. It restored only on
+     * <b>hide</b> — but the shift is visible the moment the dialog <em>opens</em>, and a shell that jumps at
+     * open and is put back at close has still moved for as long as the dialog is up. And it returned early on
+     * a <b>maximized</b> owner, on the reasoning that the window manager owns that geometry: true, and beside
+     * the point, because what happens there is the maximize being dropped, which no amount of x/y restoring
+     * would have addressed. Asking for the maximize again is the restore for that case.
+     */
     private void pinOwner() {
         if (!(owner instanceof Stage ownerStage)) return;
+        boolean wasMaximized = ownerStage.isMaximized();
         double x = ownerStage.getX();
         double y = ownerStage.getY();
         double w = ownerStage.getWidth();
         double h = ownerStage.getHeight();
-        boolean wasMaximized = ownerStage.isMaximized();
-        if (wasMaximized || Double.isNaN(x) || w <= 0) return;
-        stage.addEventHandler(javafx.stage.WindowEvent.WINDOW_HIDDEN, e -> {
-            if (ownerStage.isMaximized() || !ownerStage.isShowing()) return;
+        if (!wasMaximized && (Double.isNaN(x) || w <= 0)) return;
+
+        Runnable restore = () -> {
+            if (!ownerStage.isShowing()) return;
+            if (wasMaximized) {
+                if (!ownerStage.isMaximized()) ownerStage.setMaximized(true);
+                return;
+            }
+            if (ownerStage.isMaximized()) return;   // the user maximized it themselves; that is not drift
             if (ownerStage.getWidth() != w) ownerStage.setWidth(w);
             if (ownerStage.getHeight() != h) ownerStage.setHeight(h);
             if (ownerStage.getX() != x) ownerStage.setX(x);
             if (ownerStage.getY() != y) ownerStage.setY(y);
-        });
+        };
+
+        // One pulse after the show: the move arrives with the window manager's response to the new window, not
+        // synchronously with show(), so correcting it in the same frame corrects nothing.
+        stage.addEventHandler(javafx.stage.WindowEvent.WINDOW_SHOWN, e -> Platform.runLater(restore));
+        stage.addEventHandler(javafx.stage.WindowEvent.WINDOW_HIDDEN, e -> restore.run());
     }
 }

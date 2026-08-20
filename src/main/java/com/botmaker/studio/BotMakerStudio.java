@@ -22,6 +22,7 @@ import javafx.scene.control.Alert;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressBar;
 import javafx.scene.image.Image;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 
@@ -35,6 +36,11 @@ public class BotMakerStudio extends Application {
     /** Root directory where all user projects live. */
     public static final Path PROJECTS_ROOT =
             Path.of(System.getProperty("user.home"), "BotMakerProjects").toAbsolutePath();
+
+    /** Narrowest the shell may be dragged — see {@code configureWindow}. */
+    private static final double MIN_WINDOW_WIDTH = 900;
+    /** Shortest the shell may be dragged: menu bar, toolbar, a usable canvas and the status line. */
+    private static final double MIN_WINDOW_HEIGHT = 560;
 
     /** The currently open project (null when on project selection screen). */
     private BotProject currentProject;
@@ -416,6 +422,15 @@ public class BotMakerStudio extends Application {
                         vb.getMinX() + vb.getWidth() * 0.05, vb.getMinY() + vb.getHeight() * 0.05,
                         vb.getWidth() * 0.9, vb.getHeight() * 0.9, true);
 
+        // The floor goes on the Stage, not on the scene root: root.setMinWidth(0) (UIManager.createScene) is
+        // what stops a growing toolbar pushing the window outwards and must stay 0, so the root's computed
+        // minimum — which is what JavaFX would otherwise derive the window's from — says nothing. Below this
+        // the editor is not merely untidy: the canvas has no room for a block's own width and the toolbar is
+        // entirely in its overflow menu. Clamped to the screen, since a minimum larger than the display is a
+        // window that cannot be positioned at all.
+        stage.setMinWidth(Math.min(MIN_WINDOW_WIDTH, vb.getWidth()));
+        stage.setMinHeight(Math.min(MIN_WINDOW_HEIGHT, vb.getHeight()));
+
         stage.setX(state.getX());
         stage.setY(state.getY());
         stage.setWidth(state.getWidth());
@@ -465,6 +480,12 @@ public class BotMakerStudio extends Application {
      * restore, since the window manager owns the geometry — which was true of the *window* and false of the
      * *scene*: a sized scene kept its own size inside the maximized frame and the rest showed as a black
      * border. The re-assert below is what closes that, and it costs nothing when the scene already fills.
+     *
+     * <p>And it is a re-assert, not a test. The first fix asked for the maximize again only
+     * {@code if (!stage.isMaximized())} — but the flag survives a scene swap, so that condition was false on
+     * exactly the path that breaks (editor → user view → editor, maximized throughout) and true only where
+     * nothing was wrong. A property that already holds the value fires no invalidation and re-runs no
+     * maximize, so the flag is dropped and set again in the same pulse to force one.
      */
     private void setScenePreservingGeometry(Stage stage, Scene scene) {
         boolean wasMaximized = stage.isMaximized();
@@ -474,9 +495,11 @@ public class BotMakerStudio extends Application {
         double h = stage.getHeight();
         stage.setScene(scene);
         if (wasMaximized) {
-            // setScene on a maximized stage can leave the flag on while the scene sits at its own size; asking
-            // for it again re-runs the maximize, which is what makes the root fill the frame.
-            if (!stage.isMaximized()) stage.setMaximized(true);
+            // setScene on a maximized stage leaves the flag on while the scene sits at its own size; taking the
+            // flag off and putting it back re-runs the maximize, which is what makes the root fill the frame.
+            stage.setMaximized(false);
+            stage.setMaximized(true);
+            fillStage(stage, scene);
             requestSceneLayout(stage);
             return;
         }
@@ -485,6 +508,25 @@ public class BotMakerStudio extends Application {
         if (stage.getHeight() != h) stage.setHeight(h);
         if (stage.getX() != x) stage.setX(x);
         if (stage.getY() != y) stage.setY(y);
+    }
+
+    /**
+     * The belt to the maximize re-assert: one pulse later, a root still laid out smaller than the scene it is
+     * in is resized to fill it.
+     *
+     * <p>This is the black border itself, measured rather than assumed — the gap the user sees is the stage's
+     * background showing where the root stopped. The root's min sizes are 0 ({@code UIManager.createScene}),
+     * so nothing here can push the window outwards; the only thing it can do is take up slack that a scene
+     * swap left behind.
+     */
+    private void fillStage(Stage stage, Scene scene) {
+        Platform.runLater(() -> {
+            if (stage.getScene() != scene || !(scene.getRoot() instanceof Region root)) return;
+            if (root.getWidth() < scene.getWidth() - 1 || root.getHeight() < scene.getHeight() - 1) {
+                root.resize(scene.getWidth(), scene.getHeight());
+                root.requestLayout();
+            }
+        });
     }
 
     private void applyAppIcons(Stage stage) {

@@ -57,6 +57,10 @@ public class UIManager implements ProjectWindow {
     private static final double EXEC_WIDTH_SHARE = 0.42;
     /** Floor under that share, so a very narrow window wraps the cluster rather than stacking it one per row. */
     private static final double EXEC_MIN_WRAP_PX = 170;
+    /** Hard floor: the width of the overflow button alone. Below this the cluster has nothing left to give. */
+    private static final double EXEC_FLOOR_PX = 44;
+    /** Room the centre group is owed before the run cluster starts giving width back — see {@code createScene()}. */
+    private static final double CENTRE_RESERVE_PX = 96;
 
     private final EventBus eventBus;
     private final CodeEditorService codeEditorService;
@@ -309,8 +313,20 @@ public class UIManager implements ProjectWindow {
         // stays one row while there is room for one (the share exceeds the cluster's natural width on any
         // normal window) and starts wrapping only once the bar is genuinely tight — which is the point at
         // which the centre group would otherwise have been wrapping alone.
-        executionControls.prefWidthProperty().bind(Bindings.createDoubleBinding(
-                () -> Math.max(EXEC_MIN_WRAP_PX, topBar.getWidth() * EXEC_WIDTH_SHARE), topBar.widthProperty()));
+        // ...and why the share alone was not enough: a *floor* under a BorderPane's right child is a floor
+        // under the whole bar. BorderPane lays its edge children out at their preferred width and gives the
+        // centre the remainder — it does not shrink an edge child when there is no remainder, and a Region
+        // does not clip, so past the point where left + floor exceeds the bar the run cluster simply painted
+        // over the capture group. The share is therefore capped by what is actually free: the bar less the
+        // edit group, less the identity cluster, less the room the centre is owed. Once that cap bites the
+        // cluster wraps and then folds into its `»` menu, which is the behaviour the overflow bar exists for.
+        Node identityNode = identityCluster.node();
+        executionControls.prefWidthProperty().bind(Bindings.createDoubleBinding(() -> {
+            double share = Math.max(EXEC_MIN_WRAP_PX, topBar.getWidth() * EXEC_WIDTH_SHARE);
+            double free = topBar.getWidth() - editControls.prefWidth(-1) - identityNode.prefWidth(-1)
+                    - rightContainer.getSpacing() - rightContainer.getPadding().getRight() - CENTRE_RESERVE_PX;
+            return Math.max(EXEC_FLOOR_PX, Math.min(share, free));
+        }, topBar.widthProperty(), editControls.widthProperty(), identityNode.layoutBoundsProperty()));
         // The centre group gets whatever the two edges leave, which BorderPane hands it without being asked.
         // It needs no width binding of its own: an OverflowBar answers a width-less height query against the
         // width it is currently laid out at, and — unlike the FlowPane it replaced — the answer is bounded by
