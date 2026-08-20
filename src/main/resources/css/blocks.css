@@ -380,6 +380,12 @@
     -fx-opacity: 0.7;
 }
 
+/* The wire text an editor reads back, in the dev picker gallery — monospaced so a quoted "" is unmistakable. */
+.picker-wire-readout {
+    -fx-font-family: "Consolas", "Menlo", monospace;
+    -fx-font-size: 11px;
+}
+
 /* One parameter in the Parameters dialog: a hairline separating it from the next, no box. */
 .param-card {
     -fx-border-color: transparent transparent -bm-divider transparent;

@@ -22,6 +22,7 @@ import com.botmaker.studio.sharing.GitHubClient;
 import com.botmaker.studio.sharing.GitHubGallery;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.ui.app.capture.OverlayTemplateCapture;
+import com.botmaker.studio.ui.app.dev.PickerGalleryWindow;
 import com.botmaker.studio.ui.app.overlay.ProgramShapeOverlay;
 import com.botmaker.studio.ui.app.params.ParametersDialog;
 import com.botmaker.studio.ui.app.pilot.RemotePilotUi;
@@ -136,6 +137,7 @@ final class StudioActions {
 
         // --- Help ---
         menuBar.setOnGettingStarted(this::openGettingStarted);
+        menuBar.setOnPickerGallery(this::openPickerGallery);
     }
 
     GitHubAuth gitHubAuth() { return gitHubAuth; }
@@ -184,6 +186,14 @@ final class StudioActions {
 
     private void openActivityFlow() {
         new ActivityFlowDialog(primaryStage, activityService).show();
+    }
+
+    /**
+     * Opens the dev-only picker gallery, seeded with this project so the template and colour editors have
+     * something real to resolve. Only reachable from a dev build's Help menu.
+     */
+    private void openPickerGallery() {
+        new PickerGalleryWindow(primaryStage, config).show();
     }
 
     /** The one editor for every value the bot reads. */

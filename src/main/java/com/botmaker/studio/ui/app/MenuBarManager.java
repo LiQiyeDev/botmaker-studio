@@ -1,5 +1,6 @@
 package com.botmaker.studio.ui.app;
 
+import com.botmaker.studio.config.AppVersion;
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.parser.guard.RefusalJournal;
@@ -37,6 +38,8 @@ public class MenuBarManager {
     private Runnable onProjectSettings;
     private Runnable onProjectSetup;
     private Runnable onGettingStarted;
+    /** Help ▸ Picker Gallery — present only in a dev build. See {@link #createHelpMenu()}. */
+    private Runnable onPickerGallery;
     private Runnable onBrowseGallery;
     private Runnable onPublishGallery;
     private Runnable onShowHistory;
@@ -423,6 +426,15 @@ public class MenuBarManager {
                 studioRepoItem, sdkRepoItem, new SeparatorMenuItem(),
                 reportIssueItem, diagnosticsItem, checkUpdatesItem, aboutItem);
 
+        // Every value editor on one screen, with what each reads back. A developer's instrument, not a
+        // feature: gated on the same switch that decides whether ~/.m2 snapshots are offered, so a packaged
+        // build never grows a menu entry for it.
+        if (AppVersion.isDevBuild()) {
+            MenuItem pickerGalleryItem = new MenuItem("Picker Gallery (dev)…");
+            pickerGalleryItem.setOnAction(e -> { if (onPickerGallery != null) onPickerGallery.run(); });
+            helpMenu.getItems().addAll(new SeparatorMenuItem(), pickerGalleryItem);
+        }
+
         return helpMenu;
     }
 
@@ -613,6 +625,14 @@ public class MenuBarManager {
     /** Sets the callback for when "Parameters..." is clicked. */
     public void setOnParameters(Runnable callback) {
         this.onParameters = callback;
+    }
+
+    /**
+     * Sets the callback for Help ▸ Picker Gallery. Harmless in a packaged build, where the item was never
+     * created and nothing can call this back.
+     */
+    public void setOnPickerGallery(Runnable callback) {
+        this.onPickerGallery = callback;
     }
 
     /** Sets the callback for when "Resource Manager..." is clicked. */
