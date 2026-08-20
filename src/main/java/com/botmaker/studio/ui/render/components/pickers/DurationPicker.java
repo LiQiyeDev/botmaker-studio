@@ -1,7 +1,6 @@
 package com.botmaker.studio.ui.render.components.pickers;
 
-import com.botmaker.studio.core.AbstractCodeBlock;
-import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.parser.helpers.SdkNodes;
 import com.botmaker.studio.project.activity.DurationWire;
@@ -144,13 +143,13 @@ public final class DurationPicker {
     /** The default a slot with nothing recognisable in it opens on. */
     private static final Value DEFAULT = new Value(Unit.SECONDS, 1);
 
-    public static Node create(CodeEditorService context, ExpressionBlock arg) {
+    public static Node create(CodeEditorService context, ValueSlot arg) {
         Button button = new Button();
         button.getStyleClass().add("duration-picker");
         button.setText(label(arg));
         button.setOnAction(e -> {
             Window owner = button.getScene() == null ? null : button.getScene().getWindow();
-            Expression slot = expr(arg);
+            Expression slot = arg.node();
             MethodInvocation call = editableWaitCall(slot);
             Span edited = showDialog(owner, currentSpan(slot, call), call != null);
             if (edited == null) return;
@@ -171,10 +170,10 @@ public final class DurationPicker {
     }
 
     /** The current value, or the raw source when the slot holds something else (a variable, a constant). */
-    private static String label(ExpressionBlock arg) {
-        Value value = parse(expr(arg));
+    private static String label(ValueSlot arg) {
+        Value value = parse(arg.node());
         if (value != null) return value.label();
-        String raw = expr(arg).toString();
+        String raw = arg.source();
         return raw.isBlank() ? "Choose duration…" : raw;
     }
 
@@ -298,9 +297,6 @@ public final class DurationPicker {
         }
     }
 
-    private static Expression expr(ExpressionBlock arg) {
-        return (Expression) ((AbstractCodeBlock) arg).getAstNode();
-    }
 
     /** The {@link SpecialTypePicker} entry: any {@code Duration}-typed slot. */
     public static SpecialTypePicker asSpecialType() {

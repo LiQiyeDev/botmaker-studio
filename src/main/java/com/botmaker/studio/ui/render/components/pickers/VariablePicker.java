@@ -1,7 +1,6 @@
 package com.botmaker.studio.ui.render.components.pickers;
 
-import com.botmaker.studio.core.AbstractCodeBlock;
-import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.types.ResolvedType;
@@ -35,9 +34,8 @@ public final class VariablePicker {
     private VariablePicker() {}
 
     /** The field name this slot references, or null when it isn't a variable reference at all. */
-    static String referencedVariable(ExpressionBlock arg) {
-        if (!(arg instanceof AbstractCodeBlock block)) return null;
-        ASTNode node = block.getAstNode();
+    static String referencedVariable(ValueSlot arg) {
+        ASTNode node = arg == null ? null : arg.node();
         if (node instanceof QualifiedName qualified) {
             return HOLDER.equals(qualified.getQualifier().toString()) ? qualified.getName().getIdentifier() : null;
         }
@@ -47,7 +45,7 @@ public final class VariablePicker {
         return null;
     }
 
-    public static Node create(CodeEditorService context, ExpressionBlock arg, ResolvedType slotType) {
+    public static Node create(CodeEditorService context, ValueSlot arg, ResolvedType slotType) {
         String current = referencedVariable(arg);
         ComboBox<String> combo = new ComboBox<>();
         combo.getStyleClass().add("block-selector");
@@ -61,7 +59,7 @@ public final class VariablePicker {
             String picked = combo.getValue();
             if (picked == null || picked.equals(current)) return;
             context.getCodeEditor().replaceWithFieldReference(
-                    (Expression) ((AbstractCodeBlock) arg).getAstNode(), HOLDER, picked);
+                    arg.node(), HOLDER, picked);
         });
         return combo;
     }

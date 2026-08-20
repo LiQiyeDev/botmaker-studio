@@ -1,7 +1,6 @@
 package com.botmaker.studio.ui.render.components;
 
-import com.botmaker.studio.core.AbstractCodeBlock;
-import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.geometry.Insets;
@@ -41,7 +40,7 @@ public final class BotSettingsArgPicker {
 
     private BotSettingsArgPicker() {}
 
-    public static Node create(CodeEditorService context, ExpressionBlock arg, String methodName) {
+    public static Node create(CodeEditorService context, ValueSlot arg, String methodName) {
         return switch (methodName) {
             case "enableRandomClicks", "enableDebugMode" -> booleanEditor(context, arg, methodName);
             default -> numericEditor(context, arg, methodName);
@@ -50,18 +49,18 @@ public final class BotSettingsArgPicker {
 
     // --- boolean setters ---
 
-    private static Node booleanEditor(CodeEditorService context, ExpressionBlock arg, String methodName) {
+    private static Node booleanEditor(CodeEditorService context, ValueSlot arg, String methodName) {
         CheckBox box = new CheckBox(readableName(methodName));
         box.getStyleClass().add("botsettings-picker");
         box.setSelected(currentBoolean(arg));
         box.setOnAction(e -> context.getCodeEditor()
-                .replaceWithRawExpression(exprNode(arg), String.valueOf(box.isSelected())));
+                .replaceWithRawExpression(arg.node(), String.valueOf(box.isSelected())));
         return box;
     }
 
     // --- numeric setters ---
 
-    private static Node numericEditor(CodeEditorService context, ExpressionBlock arg, String methodName) {
+    private static Node numericEditor(CodeEditorService context, ValueSlot arg, String methodName) {
         Button button = new Button();
         button.getStyleClass().add("botsettings-picker");
         button.setText(numericLabel(methodName, arg));
@@ -69,7 +68,7 @@ public final class BotSettingsArgPicker {
         return button;
     }
 
-    private static void openNumericDialog(CodeEditorService context, ExpressionBlock arg, String methodName,
+    private static void openNumericDialog(CodeEditorService context, ValueSlot arg, String methodName,
                                           Button button) {
         boolean unitInterval = methodName.equals("setDefaultConfidence")
                 || methodName.equals("setCompareMargin");
@@ -95,7 +94,7 @@ public final class BotSettingsArgPicker {
             String literal = unitInterval
                     ? formatDouble(((Number) spinner.getValue()).doubleValue())
                     : String.valueOf(((Number) spinner.getValue()).intValue());
-            context.getCodeEditor().replaceWithRawExpression(exprNode(arg), literal);
+            context.getCodeEditor().replaceWithRawExpression(arg.node(), literal);
             button.setText(numericLabel(methodName, arg));
         });
     }
@@ -152,8 +151,8 @@ public final class BotSettingsArgPicker {
         };
     }
 
-    private static String numericLabel(String methodName, ExpressionBlock arg) {
-        Expression e = exprNode(arg);
+    private static String numericLabel(String methodName, ValueSlot arg) {
+        Expression e = arg.node();
         String value = e instanceof NumberLiteral n ? n.getToken() : "…";
         String unit = (methodName.equals("setFoundDelay") || methodName.equals("setNotFoundDelay")) ? " ms" : "";
         return value + unit;
@@ -180,12 +179,12 @@ public final class BotSettingsArgPicker {
 
     // --- current-value readers ---
 
-    private static boolean currentBoolean(ExpressionBlock arg) {
-        return exprNode(arg) instanceof BooleanLiteral b && b.booleanValue();
+    private static boolean currentBoolean(ValueSlot arg) {
+        return arg.node() instanceof BooleanLiteral b && b.booleanValue();
     }
 
-    private static int currentInt(ExpressionBlock arg, int fallback) {
-        if (exprNode(arg) instanceof NumberLiteral n) {
+    private static int currentInt(ValueSlot arg, int fallback) {
+        if (arg.node() instanceof NumberLiteral n) {
             try {
                 return (int) Double.parseDouble(n.getToken());
             } catch (NumberFormatException ignored) {
@@ -195,8 +194,8 @@ public final class BotSettingsArgPicker {
         return fallback;
     }
 
-    private static double currentDouble(ExpressionBlock arg, double fallback) {
-        if (exprNode(arg) instanceof NumberLiteral n) {
+    private static double currentDouble(ValueSlot arg, double fallback) {
+        if (arg.node() instanceof NumberLiteral n) {
             try {
                 return Double.parseDouble(n.getToken());
             } catch (NumberFormatException ignored) {
@@ -204,9 +203,5 @@ public final class BotSettingsArgPicker {
             }
         }
         return fallback;
-    }
-
-    private static Expression exprNode(ExpressionBlock arg) {
-        return (Expression) ((AbstractCodeBlock) arg).getAstNode();
     }
 }

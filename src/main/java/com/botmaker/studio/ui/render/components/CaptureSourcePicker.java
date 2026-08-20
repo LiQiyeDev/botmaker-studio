@@ -1,7 +1,6 @@
 package com.botmaker.studio.ui.render.components;
 
-import com.botmaker.studio.core.AbstractCodeBlock;
-import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.project.capture.CaptureExpr;
 import com.botmaker.studio.services.CodeEditorService;
 import javafx.scene.Node;
@@ -27,14 +26,14 @@ public final class CaptureSourcePicker {
 
     private CaptureSourcePicker() {}
 
-    public static Node create(CodeEditorService context, ExpressionBlock arg) {
+    public static Node create(CodeEditorService context, ValueSlot arg) {
         Button button = new Button(label(arg));
         button.getStyleClass().add("capture-source-picker");
         button.setOnAction(e -> {
             Window owner = button.getScene() != null ? button.getScene().getWindow() : null;
             new com.botmaker.studio.ui.app.capture.CaptureSourcePicker(owner, true).showAndWait()
                     .ifPresent(sel ->
-                        context.getCodeEditor().replaceWithRawExpression(expr(arg), sourceCode(sel)));
+                        context.getCodeEditor().replaceWithRawExpression(arg.node(), sourceCode(sel)));
         });
         return button;
     }
@@ -53,13 +52,10 @@ public final class CaptureSourcePicker {
         };
     }
 
-    private static Expression expr(ExpressionBlock arg) {
-        return (Expression) ((AbstractCodeBlock) arg).getAstNode();
-    }
 
     /** A friendly label for the current inline source expression (see {@link CaptureExpr}), else raw text. */
-    private static String label(ExpressionBlock arg) {
-        String raw = expr(arg).toString().trim();
+    private static String label(ValueSlot arg) {
+        String raw = arg.source().trim();
         if (raw.isBlank()) return "🎯 Choose source…";
         if (raw.contains("Source.current()")) return "🎯 Project Default";
         String suffix = raw.contains(".region(") ? " ▸ region" : "";

@@ -1,7 +1,6 @@
 package com.botmaker.studio.ui.render.components;
 
-import com.botmaker.studio.core.AbstractCodeBlock;
-import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.ui.app.capture.ColorSampler;
 import javafx.geometry.Pos;
@@ -42,7 +41,7 @@ public final class ColorArgPicker {
 
     private ColorArgPicker() {}
 
-    public static Node create(CodeEditorService context, ExpressionBlock arg) {
+    public static Node create(CodeEditorService context, ValueSlot arg) {
         ColorPicker picker = new ColorPicker();
         picker.getStyleClass().add("color-arg-picker");
         Color initial = currentColor(arg);
@@ -71,14 +70,14 @@ public final class ColorArgPicker {
     }
 
     /** The one place either path writes the slot — fully qualified, so the user's file needs no import. */
-    private static void commit(CodeEditorService context, ExpressionBlock arg, int r, int g, int b) {
-        context.getCodeEditor().replaceWithRawExpression(exprNode(arg),
+    private static void commit(CodeEditorService context, ValueSlot arg, int r, int g, int b) {
+        context.getCodeEditor().replaceWithRawExpression(arg.node(),
                 "new java.awt.Color(" + r + ", " + g + ", " + b + ")");
     }
 
     /** The RGB of a {@code new Color(r, g, b)} / {@code new java.awt.Color(r, g, b)} literal, else null. */
-    private static Color currentColor(ExpressionBlock arg) {
-        if (!(exprNode(arg) instanceof ClassInstanceCreation cic)) return null;
+    private static Color currentColor(ValueSlot arg) {
+        if (!(arg.node() instanceof ClassInstanceCreation cic)) return null;
         List<?> args = cic.arguments();
         if (args.size() < 3
                 || !(args.get(0) instanceof NumberLiteral rl)
@@ -95,9 +94,5 @@ public final class ColorArgPicker {
 
     private static int clamp(String token) {
         return Math.max(0, Math.min(255, Integer.parseInt(token.trim())));
-    }
-
-    private static Expression exprNode(ExpressionBlock arg) {
-        return (Expression) ((AbstractCodeBlock) arg).getAstNode();
     }
 }

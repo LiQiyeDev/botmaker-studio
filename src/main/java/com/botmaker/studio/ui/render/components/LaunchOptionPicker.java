@@ -1,7 +1,6 @@
 package com.botmaker.studio.ui.render.components;
 
-import com.botmaker.studio.core.AbstractCodeBlock;
-import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.services.CodeEditorService;
 import javafx.scene.Node;
 import javafx.scene.control.TextField;
@@ -26,7 +25,7 @@ public final class LaunchOptionPicker {
 
     private LaunchOptionPicker() {}
 
-    public static Node create(CodeEditorService context, ExpressionBlock arg) {
+    public static Node create(CodeEditorService context, ValueSlot arg) {
         String current = currentValue(arg);
         TextField field = new TextField(current == null ? "" : current);
         field.getStyleClass().add("launch-option-picker");
@@ -44,7 +43,7 @@ public final class LaunchOptionPicker {
             String newText = field.getText();
             String oldText = currentValue(arg);
             if (!newText.equals(oldText == null ? "" : oldText)) {
-                context.getCodeEditor().replaceLiteralValue(exprLiteral(arg), newText);
+                context.getCodeEditor().replaceLiteralValue(arg.node(), newText);
             }
         };
         field.setOnAction(e -> commit.run());
@@ -54,12 +53,8 @@ public final class LaunchOptionPicker {
     }
 
     /** The current value if the backing expression is a string literal, else null. */
-    private static String currentValue(ExpressionBlock arg) {
-        Expression e = exprLiteral(arg);
+    private static String currentValue(ValueSlot arg) {
+        Expression e = arg.node();
         return e instanceof StringLiteral lit ? lit.getLiteralValue() : null;
-    }
-
-    private static Expression exprLiteral(ExpressionBlock arg) {
-        return (Expression) ((AbstractCodeBlock) arg).getAstNode();
     }
 }

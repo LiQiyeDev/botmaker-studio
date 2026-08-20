@@ -1,7 +1,6 @@
 package com.botmaker.studio.ui.render.components;
 
-import com.botmaker.studio.core.AbstractCodeBlock;
-import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import com.botmaker.studio.util.NativeFileDialog;
@@ -37,7 +36,7 @@ public final class ExecutablePicker {
 
     private ExecutablePicker() {}
 
-    public static Node create(CodeEditorService context, ExpressionBlock arg) {
+    public static Node create(CodeEditorService context, ValueSlot arg) {
         MenuButton button = new MenuButton(label(currentPath(arg)));
         button.getStyleClass().add("executable-picker");
 
@@ -65,7 +64,7 @@ public final class ExecutablePicker {
      * Opens the OS-native file dialog on a background thread (native dialogs block), then applies the
      * result on the FX thread — falling back to the JavaFX {@link FileChooser} when no native tool exists.
      */
-    private static void browse(CodeEditorService context, ExpressionBlock arg, MenuButton button) {
+    private static void browse(CodeEditorService context, ValueSlot arg, MenuButton button) {
         Window owner = button.getScene() != null ? button.getScene().getWindow() : null;
         String initialDir = (lastDirectory != null && lastDirectory.isDirectory())
                 ? lastDirectory.getAbsolutePath() : null;
@@ -89,7 +88,7 @@ public final class ExecutablePicker {
     }
 
     /** Fallback picker when no native "open file" dialog is available. */
-    private static void browseWithJavaFx(CodeEditorService context, ExpressionBlock arg, MenuButton button, Window owner) {
+    private static void browseWithJavaFx(CodeEditorService context, ValueSlot arg, MenuButton button, Window owner) {
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Choose a program to launch");
         if (lastDirectory != null && lastDirectory.isDirectory()) {
@@ -102,8 +101,8 @@ public final class ExecutablePicker {
         }
     }
 
-    private static void apply(CodeEditorService context, ExpressionBlock arg, MenuButton button, String path) {
-        context.getCodeEditor().replaceLiteralValue(exprLiteral(arg), path);
+    private static void apply(CodeEditorService context, ValueSlot arg, MenuButton button, String path) {
+        context.getCodeEditor().replaceLiteralValue(arg.node(), path);
         button.setText(label(path));
     }
 
@@ -113,12 +112,8 @@ public final class ExecutablePicker {
         return slash >= 0 && slash < path.length() - 1 ? path.substring(slash + 1) : path;
     }
 
-    private static String currentPath(ExpressionBlock arg) {
-        Expression e = exprLiteral(arg);
+    private static String currentPath(ValueSlot arg) {
+        Expression e = arg.node();
         return e instanceof StringLiteral lit ? lit.getLiteralValue() : null;
-    }
-
-    private static Expression exprLiteral(ExpressionBlock arg) {
-        return (Expression) ((AbstractCodeBlock) arg).getAstNode();
     }
 }

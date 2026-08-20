@@ -1,7 +1,6 @@
 package com.botmaker.studio.ui.render.components;
 
-import com.botmaker.studio.core.AbstractCodeBlock;
-import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.project.ProjectConfig;
@@ -63,7 +62,7 @@ public final class ImageTemplatePicker {
     }
 
     /** Builds the picker control bound to {@code templateArg} (a {@code new ImageTemplate("…")} expression). */
-    public static Node create(CodeEditorService context, ExpressionBlock templateArg) {
+    public static Node create(CodeEditorService context, ValueSlot templateArg) {
         ProjectConfig config = context.getConfig();
         Button button = new Button();
         button.getStyleClass().add("image-template-picker");
@@ -94,16 +93,16 @@ public final class ImageTemplatePicker {
     }
 
     /** Reads the current template path from {@code new ImageTemplate("path")}, or null. */
-    private static String currentTemplatePath(ExpressionBlock arg) {
-        var n = ((AbstractCodeBlock) arg).getAstNode();
+    private static String currentTemplatePath(ValueSlot arg) {
+        var n = arg.node();
         if (!(n instanceof ClassInstanceCreation cic) || cic.arguments().isEmpty()) return null;
         String path = SdkNodes.templatePathOf(cic.arguments().getFirst()).orElse(null);
         return path == null || path.isBlank() ? null : path;
     }
 
-    private static void applyTemplate(CodeEditorService context, ExpressionBlock arg, String path) {
+    private static void applyTemplate(CodeEditorService context, ValueSlot arg, String path) {
         context.getCodeEditor().setImageTemplate(
-                (Expression) ((AbstractCodeBlock) arg).getAstNode(), path, defaultWindowTitle(context));
+                arg.node(), path, defaultWindowTitle(context));
     }
 
     /**

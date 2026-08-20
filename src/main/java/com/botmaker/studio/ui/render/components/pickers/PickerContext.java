@@ -1,23 +1,24 @@
 package com.botmaker.studio.ui.render.components.pickers;
 
-import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.types.ResolvedType;
 
 /**
  * Everything a {@link SpecialTypePicker} needs to decide whether it applies and to build its editor:
- * the expression being edited ({@code arg}), the expected {@code paramType}, the {@code argIndex} of this
+ * the slot being edited ({@code arg} — a {@link ValueSlot}, so a picker works as well over a variable's
+ * initializer as over a block on the canvas), the expected {@code paramType}, the {@code argIndex} of this
  * argument within the enclosing call, and — for method-specific pickers (e.g. the Steam game picker for
  * {@code Game.launchSteam}) — the enclosing call's {@code className}/{@code methodName}. Use {@link #of}
  * when there is no call context (e.g. a header slot or list element), which leaves the class/method null
  * and the index {@code -1}.
  */
-public record PickerContext(CodeEditorService context, ExpressionBlock arg, ResolvedType paramType,
+public record PickerContext(CodeEditorService context, ValueSlot arg, ResolvedType paramType,
                             String className, String methodName, int argIndex) {
 
     /** A context with no enclosing-call info (class/method null, index -1) — for header slots and list elements. */
-    public static PickerContext of(CodeEditorService context, ExpressionBlock arg, ResolvedType paramType) {
+    public static PickerContext of(CodeEditorService context, ValueSlot arg, ResolvedType paramType) {
         return new PickerContext(context, arg, paramType, null, null, -1);
     }
 

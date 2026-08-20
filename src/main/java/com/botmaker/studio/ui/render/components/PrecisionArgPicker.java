@@ -2,8 +2,7 @@ package com.botmaker.studio.ui.render.components;
 
 import com.botmaker.shared.opencv.ColorMatcher;
 import com.botmaker.shared.opencv.RawColorMatch;
-import com.botmaker.studio.core.AbstractCodeBlock;
-import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.ui.app.capture.ColorSampler;
@@ -131,14 +130,14 @@ public final class PrecisionArgPicker {
         return new Knobs(true, true);
     }
 
-    public static Node create(CodeEditorService context, ExpressionBlock arg, String methodName) {
+    public static Node create(CodeEditorService context, ValueSlot arg, String methodName) {
         Button button = new Button(label(currentValue(arg)));
         button.getStyleClass().add("precision-picker");
         button.setOnAction(e -> openDialog(context, arg, button, methodName));
         return button;
     }
 
-    private static void openDialog(CodeEditorService context, ExpressionBlock arg, Button button,
+    private static void openDialog(CodeEditorService context, ValueSlot arg, Button button,
                                    String methodName) {
         Settings current = currentValue(arg);
         Knobs knobs = knobsFor(methodName);
@@ -179,7 +178,7 @@ public final class PrecisionArgPicker {
             commitEditor(areaSpinner);
             commitEditor(countSpinner);
             Settings chosen = read(slider, areaSpinner, countSpinner, current, knobs);
-            context.getCodeEditor().replaceWithRawExpression(exprNode(arg),
+            context.getCodeEditor().replaceWithRawExpression(arg.node(),
                     literalFor(chosen.deltaE(), chosen.minArea(), chosen.minCount()), FQN);
             button.setText(label(chosen));
         });
@@ -309,7 +308,7 @@ public final class PrecisionArgPicker {
         private Settings pending;
         private Runnable onTargetChanged = () -> {};
 
-        Preview(CodeEditorService context, ExpressionBlock arg, javafx.scene.Node owner) {
+        Preview(CodeEditorService context, ValueSlot arg, javafx.scene.Node owner) {
             this.context = context;
             this.owner = owner;
             this.target = siblingColor(arg);
@@ -454,8 +453,8 @@ public final class PrecisionArgPicker {
      * chain built on either — {@code Precision.TIGHT.minArea(400).minCount(2000)} reopens showing exactly what
      * it says, which is the property that makes the editor safe to open on hand-written code.
      */
-    static Settings currentValue(ExpressionBlock arg) {
-        return settingsOf(exprNode(arg));
+    static Settings currentValue(ValueSlot arg) {
+        return settingsOf(arg.node());
     }
 
     /** The three values {@code e} spells, defaulting to the SDK's own {@code DEFAULT} for anything unreadable. */
@@ -514,8 +513,8 @@ public final class PrecisionArgPicker {
      * thresholds are measured from. Null for a named constant or a variable, where there is nothing to preview
      * against until the user samples one.
      */
-    private static java.awt.Color siblingColor(ExpressionBlock arg) {
-        if (!(exprNode(arg).getParent() instanceof MethodInvocation call)) return null;
+    private static java.awt.Color siblingColor(ValueSlot arg) {
+        if (arg.node() == null || !(arg.node().getParent() instanceof MethodInvocation call)) return null;
         for (Object o : call.arguments()) {
             if (o instanceof ClassInstanceCreation cic && cic.getType().toString().endsWith("Color")) {
                 List<?> args = cic.arguments();
@@ -678,9 +677,5 @@ public final class PrecisionArgPicker {
 
     private static String trim(double v) {
         return BigDecimal.valueOf(v).setScale(1, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();
-    }
-
-    private static Expression exprNode(ExpressionBlock arg) {
-        return (Expression) ((AbstractCodeBlock) arg).getAstNode();
     }
 }

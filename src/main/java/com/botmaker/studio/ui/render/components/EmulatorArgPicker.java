@@ -2,8 +2,7 @@ package com.botmaker.studio.ui.render.components;
 
 import com.botmaker.shared.config.CaptureSourceKind;
 import com.botmaker.shared.emulator.EmulatorInstances;
-import com.botmaker.studio.core.AbstractCodeBlock;
-import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.project.ProjectCreator;
 import com.botmaker.studio.services.CodeEditorService;
 import javafx.scene.Node;
@@ -35,7 +34,7 @@ public final class EmulatorArgPicker {
 
     private EmulatorArgPicker() {}
 
-    public static Node create(CodeEditorService context, ExpressionBlock arg) {
+    public static Node create(CodeEditorService context, ValueSlot arg) {
         Button button = new Button();
         button.getStyleClass().add("emulator-arg-picker");
         button.setText(label(currentValue(arg)));
@@ -45,7 +44,7 @@ public final class EmulatorArgPicker {
             EmulatorPickerDialog.show(owner).ifPresent(sel -> {
                 String name = sel.instance().name();
                 if (name == null || name.isBlank()) return;
-                context.getCodeEditor().replaceLiteralValue(exprLiteral(arg), name);
+                context.getCodeEditor().replaceLiteralValue(arg.node(), name);
                 button.setText(label(name));
                 if (sel.hasApp()) {
                     pointProjectAtApp(context, name, sel.appPackage());
@@ -81,12 +80,8 @@ public final class EmulatorArgPicker {
     }
 
     /** The current value if the backing expression is a string literal, else null. */
-    private static String currentValue(ExpressionBlock arg) {
-        Expression e = exprLiteral(arg);
+    private static String currentValue(ValueSlot arg) {
+        Expression e = arg.node();
         return e instanceof StringLiteral lit ? lit.getLiteralValue() : null;
-    }
-
-    private static Expression exprLiteral(ExpressionBlock arg) {
-        return (Expression) ((AbstractCodeBlock) arg).getAstNode();
     }
 }

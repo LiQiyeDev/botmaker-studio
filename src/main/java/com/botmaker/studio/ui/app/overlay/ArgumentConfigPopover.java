@@ -2,6 +2,7 @@ package com.botmaker.studio.ui.app.overlay;
 
 import com.botmaker.studio.blocks.func.MethodInvocationBlock;
 import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.ui.render.components.pickers.PickerContext;
@@ -175,7 +176,7 @@ final class ArgumentConfigPopover {
         for (int i = 0; i < args.size(); i++) {
             ResolvedType pt = i < paramTypes.size() ? paramTypes.get(i) : ResolvedType.UNKNOWN;
             ExpressionBlock arg = args.get(i);
-            PickerContext ctx = new PickerContext(context, arg, pt, mib.getScope(), mib.getMethodName(), i);
+            PickerContext ctx = new PickerContext(context, ValueSlot.of(arg), pt, mib.getScope(), mib.getMethodName(), i);
             Node editor = PickerRegistry.pickerNodeFor(ctx);
             if (editor == null) editor = genericArgEditor(mib, arg, pt);   // every arg editable, not just drawable ones
             HBox line = new HBox(8, label(paramLabel(mib, i, pt) + ":"), editor);

@@ -1,7 +1,6 @@
 package com.botmaker.studio.ui.render.components.pickers;
 
-import com.botmaker.studio.core.AbstractCodeBlock;
-import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.types.ResolvedType;
 import javafx.scene.Node;
@@ -43,7 +42,7 @@ public final class EnumPicker {
         return resolved.isEnum() ? resolved : null;
     }
 
-    public static Node create(CodeEditorService context, ExpressionBlock arg, ResolvedType enumType) {
+    public static Node create(CodeEditorService context, ValueSlot arg, ResolvedType enumType) {
         ComboBox<String> combo = new ComboBox<>();
         combo.getStyleClass().add("enum-arg-dropdown");
         combo.getItems().addAll(enumType.enumConstants());
@@ -53,14 +52,14 @@ public final class EnumPicker {
             String constant = combo.getValue();
             if (constant == null) return;
             context.getCodeEditor().replaceWithEnumConstant(
-                    (Expression) ((AbstractCodeBlock) arg).getAstNode(), enumType.simpleName(), constant);
+                    arg.node(), enumType.simpleName(), constant);
         });
         return combo;
     }
 
     /** Current constant name from an enum reference like {@code Direction.NORTH} or {@code NORTH}, else null. */
-    private static String currentConstant(ExpressionBlock arg) {
-        String text = ((AbstractCodeBlock) arg).getAstNode().toString();
+    private static String currentConstant(ValueSlot arg) {
+        String text = arg.source();
         int dot = text.lastIndexOf('.');
         String name = dot >= 0 ? text.substring(dot + 1) : text;
         return name.isBlank() ? null : name;

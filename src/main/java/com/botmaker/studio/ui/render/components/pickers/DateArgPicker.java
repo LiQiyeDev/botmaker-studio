@@ -1,7 +1,6 @@
 package com.botmaker.studio.ui.render.components.pickers;
 
-import com.botmaker.studio.core.AbstractCodeBlock;
-import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.geometry.Insets;
@@ -42,16 +41,16 @@ public final class DateArgPicker {
     private static final DateTimeFormatter SHOWN =
             DateTimeFormatter.ofPattern("d MMM yyyy", Locale.getDefault());
 
-    public static Node create(CodeEditorService context, ExpressionBlock arg) {
+    public static Node create(CodeEditorService context, ValueSlot arg) {
         Button button = new Button();
         button.getStyleClass().add("date-picker-button");
         button.setText(label(arg));
         button.setOnAction(e -> {
-            LocalDate current = currentDate(expr(arg));
+            LocalDate current = currentDate(arg.node());
             LocalDate picked = showCalendar(button.getScene() == null ? null : button.getScene().getWindow(),
                     current == null ? LocalDate.now() : current);
             if (picked != null) {
-                context.getCodeEditor().replaceWithRawExpression(expr(arg),
+                context.getCodeEditor().replaceWithRawExpression(arg.node(),
                         "LocalDate.of(%d, %d, %d)".formatted(
                                 picked.getYear(), picked.getMonthValue(), picked.getDayOfMonth()), FQN);
             }
@@ -77,10 +76,10 @@ public final class DateArgPicker {
     }
 
     /** The date shown on the button, or the raw source when the slot holds something else (a variable, now()). */
-    private static String label(ExpressionBlock arg) {
-        LocalDate date = currentDate(expr(arg));
+    private static String label(ValueSlot arg) {
+        LocalDate date = currentDate(arg.node());
         if (date != null) return date.format(SHOWN);
-        String raw = expr(arg).toString();
+        String raw = arg.source();
         return raw.isBlank() ? "Pick a date…" : raw;
     }
 
@@ -119,9 +118,5 @@ public final class DateArgPicker {
         } catch (NumberFormatException e) {
             return null;
         }
-    }
-
-    private static Expression expr(ExpressionBlock arg) {
-        return (Expression) ((AbstractCodeBlock) arg).getAstNode();
     }
 }

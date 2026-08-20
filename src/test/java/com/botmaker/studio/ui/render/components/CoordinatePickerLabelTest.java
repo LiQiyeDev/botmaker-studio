@@ -78,9 +78,10 @@ class CoordinatePickerLabelTest extends FxHeadlessTest {
 
     /** The collapsed picker's text for {@code expression}, through the real picker factory. */
     private static String labelFor(BiFunction<com.botmaker.studio.services.CodeEditorService,
-            ExpressionBlock, Node> picker, String expression) {
+            com.botmaker.studio.core.ValueSlot, Node> picker, String expression) {
         EditorFixture fixture = new EditorFixture(botWithArgument(expression));
-        Node node = picker.apply(fixture.context(), argumentBlock(fixture));
+        Node node = picker.apply(fixture.context(),
+                com.botmaker.studio.core.ValueSlot.of(argumentBlock(fixture)));
 
         assertNotNull(node);
         assertTrue(node instanceof MenuButton, "the picker is a MenuButton: " + node.getClass());

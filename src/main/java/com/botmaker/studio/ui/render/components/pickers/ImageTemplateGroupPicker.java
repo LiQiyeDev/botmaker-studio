@@ -1,7 +1,6 @@
 package com.botmaker.studio.ui.render.components.pickers;
 
-import com.botmaker.studio.core.AbstractCodeBlock;
-import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.parser.helpers.SdkNodes;
@@ -40,8 +39,8 @@ public final class ImageTemplateGroupPicker {
         return type != null && type.is(SdkType.IMAGE_TEMPLATE_GROUP);
     }
 
-    public static Node create(CodeEditorService context, ExpressionBlock arg) {
-        Expression node = (Expression) ((AbstractCodeBlock) arg).getAstNode();
+    public static Node create(CodeEditorService context, ValueSlot arg) {
+        Expression node = arg.node();
         return chipRow(context, currentPaths(node),
                 paths -> context.getCodeEditor().setImageTemplateGroup(node, paths));
     }

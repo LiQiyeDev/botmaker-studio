@@ -1,7 +1,6 @@
 package com.botmaker.studio.ui.render.components.pickers;
 
-import com.botmaker.studio.core.AbstractCodeBlock;
-import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.geometry.Insets;
@@ -53,16 +52,16 @@ public final class TimeArgPicker {
 
     // --- LocalTime ---
 
-    public static Node localTime(CodeEditorService context, ExpressionBlock arg) {
+    public static Node localTime(CodeEditorService context, ValueSlot arg) {
         Button button = new Button();
         button.getStyleClass().add("time-picker");
         button.setText(clockLabel(arg));
         button.setOnAction(e -> {
-            LocalTime current = currentTime(expr(arg));
+            LocalTime current = currentTime(arg.node());
             LocalTime picked = showClock(button.getScene() == null ? null : button.getScene().getWindow(),
                     current == null ? LocalTime.of(12, 0) : current);
             if (picked != null) {
-                context.getCodeEditor().replaceWithRawExpression(expr(arg),
+                context.getCodeEditor().replaceWithRawExpression(arg.node(),
                         "LocalTime.of(" + picked.getHour() + ", " + picked.getMinute() + ")", LOCAL_TIME_FQN);
             }
         });
@@ -101,10 +100,10 @@ public final class TimeArgPicker {
     }
 
     /** {@code 05:30} for a {@code LocalTime.of(…)}; otherwise the raw source (a constant, a variable). */
-    private static String clockLabel(ExpressionBlock arg) {
-        LocalTime time = currentTime(expr(arg));
+    private static String clockLabel(ValueSlot arg) {
+        LocalTime time = currentTime(arg.node());
         if (time != null) return String.format(Locale.ROOT, "%02d:%02d", time.getHour(), time.getMinute());
-        String raw = expr(arg).toString();
+        String raw = arg.source();
         return raw.isBlank() ? "Pick a time…" : raw;
     }
 
@@ -120,12 +119,12 @@ public final class TimeArgPicker {
 
     // --- DayOfWeek and Month ---
 
-    public static Node dayOfWeek(CodeEditorService context, ExpressionBlock arg) {
+    public static Node dayOfWeek(CodeEditorService context, ValueSlot arg) {
         return constants(context, arg, DayOfWeek.values(), "DayOfWeek", DAY_OF_WEEK_FQN, "day-of-week-picker",
                 day -> day.getDisplayName(TextStyle.FULL, Locale.getDefault()));
     }
 
-    public static Node month(CodeEditorService context, ExpressionBlock arg) {
+    public static Node month(CodeEditorService context, ValueSlot arg) {
         return constants(context, arg, Month.values(), "Month", MONTH_FQN, "month-picker",
                 month -> month.getDisplayName(TextStyle.FULL, Locale.getDefault()));
     }
@@ -136,14 +135,14 @@ public final class TimeArgPicker {
      * enum's constants through the project's type index, which covers the SDK jar and the user's own sources
      * but not the JDK — so a {@code java.time} slot would fall through to a text pill.
      */
-    private static <E extends Enum<E>> Node constants(CodeEditorService context, ExpressionBlock arg,
+    private static <E extends Enum<E>> Node constants(CodeEditorService context, ValueSlot arg,
                                                       E[] values, String simpleName, String fqn,
                                                       String styleClass,
                                                       java.util.function.Function<E, String> display) {
         ComboBox<E> combo = new ComboBox<>();
         combo.getStyleClass().add(styleClass);
         combo.getItems().addAll(values);
-        combo.setValue(currentConstant(expr(arg), values));
+        combo.setValue(currentConstant(arg.node(), values));
         combo.getStyleClass().add("block-selector");
         combo.setConverter(new javafx.util.StringConverter<>() {
             @Override public String toString(E constant) {
@@ -157,7 +156,7 @@ public final class TimeArgPicker {
             E picked = combo.getValue();
             if (picked != null) {
                 context.getCodeEditor().replaceWithRawExpression(
-                        expr(arg), simpleName + "." + picked.name(), fqn);
+                        arg.node(), simpleName + "." + picked.name(), fqn);
             }
         });
         return combo;
@@ -192,9 +191,5 @@ public final class TimeArgPicker {
         } catch (NumberFormatException e) {
             return null;
         }
-    }
-
-    private static Expression expr(ExpressionBlock arg) {
-        return (Expression) ((AbstractCodeBlock) arg).getAstNode();
     }
 }

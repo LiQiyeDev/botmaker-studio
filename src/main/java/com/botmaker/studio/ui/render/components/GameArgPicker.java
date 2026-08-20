@@ -1,7 +1,6 @@
 package com.botmaker.studio.ui.render.components;
 
-import com.botmaker.studio.core.AbstractCodeBlock;
-import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.game.GameLibraryProvider;
 import com.botmaker.studio.game.InstalledGame;
 import com.botmaker.studio.services.CodeEditorService;
@@ -39,7 +38,7 @@ public final class GameArgPicker {
      *                        stateless best-effort readers); its {@link GameLibraryProvider#displayName()}
      *                        also drives the button labels.
      */
-    public static Node create(CodeEditorService context, ExpressionBlock arg,
+    public static Node create(CodeEditorService context, ValueSlot arg,
                               Supplier<GameLibraryProvider> providerFactory) {
         GameLibraryProvider labelProvider = providerFactory.get();
         String launcher = labelProvider.displayName();
@@ -55,7 +54,7 @@ public final class GameArgPicker {
             Window owner = button.getScene() != null ? button.getScene().getWindow() : null;
             GameLibraryPickerDialog.show(owner, providerFactory.get()).ifPresent(game -> {
                 if (game.id() == null || game.id().isBlank()) return;
-                context.getCodeEditor().replaceLiteralValue(exprLiteral(arg), game.id());
+                context.getCodeEditor().replaceLiteralValue(arg.node(), game.id());
                 applyGame(button, launcher, game);
             });
         });
@@ -93,12 +92,8 @@ public final class GameArgPicker {
     }
 
     /** The current id if the backing expression is a string literal, else null. */
-    private static String currentId(ExpressionBlock arg) {
-        Expression e = exprLiteral(arg);
+    private static String currentId(ValueSlot arg) {
+        Expression e = arg.node();
         return e instanceof StringLiteral lit ? lit.getLiteralValue() : null;
-    }
-
-    private static Expression exprLiteral(ExpressionBlock arg) {
-        return (Expression) ((AbstractCodeBlock) arg).getAstNode();
     }
 }

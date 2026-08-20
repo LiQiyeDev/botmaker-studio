@@ -1,8 +1,7 @@
 package com.botmaker.studio.ui.render.components;
 
 import com.botmaker.shared.launch.LaunchSpec;
-import com.botmaker.studio.core.AbstractCodeBlock;
-import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.game.EpicLibraryScanner;
 import com.botmaker.studio.game.FaugusLibraryScanner;
 import com.botmaker.studio.game.GameLibraryProvider;
@@ -43,7 +42,7 @@ public final class LaunchTargetArgPicker {
 
     private LaunchTargetArgPicker() {}
 
-    public static Node create(CodeEditorService context, ExpressionBlock arg) {
+    public static Node create(CodeEditorService context, ValueSlot arg) {
         MenuButton button = new MenuButton(label(arg));
         button.getStyleClass().add("launch-target-picker");
 
@@ -66,7 +65,7 @@ public final class LaunchTargetArgPicker {
         return button;
     }
 
-    private static void pickGame(CodeEditorService context, ExpressionBlock arg, MenuButton button,
+    private static void pickGame(CodeEditorService context, ValueSlot arg, MenuButton button,
                                  GameLibraryProvider provider, String kind) {
         Window owner = owner(button);
         GameLibraryPickerDialog.show(owner, provider).ifPresent(game -> {
@@ -75,7 +74,7 @@ public final class LaunchTargetArgPicker {
         });
     }
 
-    private static void pickExecutable(CodeEditorService context, ExpressionBlock arg, MenuButton button) {
+    private static void pickExecutable(CodeEditorService context, ValueSlot arg, MenuButton button) {
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Choose a program to launch");
         File chosen = chooser.showOpenDialog(owner(button));
@@ -84,7 +83,7 @@ public final class LaunchTargetArgPicker {
         }
     }
 
-    private static void pickCliCommand(CodeEditorService context, ExpressionBlock arg, MenuButton button) {
+    private static void pickCliCommand(CodeEditorService context, ValueSlot arg, MenuButton button) {
         javafx.scene.control.TextInputDialog dialog = new javafx.scene.control.TextInputDialog(cliCommandOf(arg));
         dialog.initOwner(owner(button));
         dialog.setTitle("CLI command");
@@ -98,12 +97,12 @@ public final class LaunchTargetArgPicker {
     }
 
     /** The command line inside a current {@code cli:} spec (so re-editing pre-fills it), else empty. */
-    private static String cliCommandOf(ExpressionBlock arg) {
+    private static String cliCommandOf(ValueSlot arg) {
         String spec = currentSpec(arg);
         return spec != null && spec.startsWith("cli:") ? spec.substring("cli:".length()) : "";
     }
 
-    private static void pickEmulatorApp(CodeEditorService context, ExpressionBlock arg, MenuButton button) {
+    private static void pickEmulatorApp(CodeEditorService context, ValueSlot arg, MenuButton button) {
         EmulatorPickerDialog.show(owner(button)).ifPresent(sel -> {
             if (!sel.hasApp()) return; // a LaunchTarget needs the app package, not just the instance
             apply(context, arg, button, "emu-app:" + sel.appPackage() + "@" + sel.instance().name());
@@ -111,8 +110,8 @@ public final class LaunchTargetArgPicker {
     }
 
     /** Commits {@code spec} as {@code LaunchTarget.parse("spec")} and refreshes the button label. */
-    private static void apply(CodeEditorService context, ExpressionBlock arg, MenuButton button, String spec) {
-        context.getCodeEditor().replaceWithRawExpression(exprNode(arg), String.format(PARSE, escape(spec)));
+    private static void apply(CodeEditorService context, ValueSlot arg, MenuButton button, String spec) {
+        context.getCodeEditor().replaceWithRawExpression(arg.node(), String.format(PARSE, escape(spec)));
         button.setText(labelFor(spec));
     }
 
@@ -120,7 +119,7 @@ public final class LaunchTargetArgPicker {
         return button.getScene() != null ? button.getScene().getWindow() : null;
     }
 
-    private static String label(ExpressionBlock arg) {
+    private static String label(ValueSlot arg) {
         String spec = currentSpec(arg);
         return spec == null ? "Choose target…" : labelFor(spec);
     }
@@ -135,8 +134,8 @@ public final class LaunchTargetArgPicker {
     }
 
     /** The spec inside a {@code LaunchTarget.parse("…")} call, else null. */
-    private static String currentSpec(ExpressionBlock arg) {
-        if (exprNode(arg) instanceof MethodInvocation mi
+    private static String currentSpec(ValueSlot arg) {
+        if (arg.node() instanceof MethodInvocation mi
                 && "parse".equals(mi.getName().getIdentifier())) {
             List<?> args = mi.arguments();
             if (!args.isEmpty() && args.get(0) instanceof StringLiteral lit) {
@@ -149,9 +148,5 @@ public final class LaunchTargetArgPicker {
     /** Escapes a spec for embedding in a Java string literal (Windows exe paths carry backslashes). */
     private static String escape(String spec) {
         return spec.replace("\\", "\\\\").replace("\"", "\\\"");
-    }
-
-    private static Expression exprNode(ExpressionBlock arg) {
-        return (Expression) ((AbstractCodeBlock) arg).getAstNode();
     }
 }

@@ -1,7 +1,6 @@
 package com.botmaker.studio.ui.render.components.pickers;
 
-import com.botmaker.studio.core.ExpressionBlock;
-import com.botmaker.studio.blocks.expr.UnknownExpressionBlock;
+import com.botmaker.studio.core.ValueSlot;
 import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.ASTParser;
 import org.eclipse.jdt.core.dom.CompilationUnit;
@@ -23,8 +22,14 @@ import static org.junit.jupiter.api.Assertions.assertNull;
  */
 class VariablePickerMatchTest {
 
-    /** The first argument of the single call in {@code body}, wrapped the way a slot wraps it. */
-    private static ExpressionBlock firstArgument(String body) {
+    /**
+     * The first argument of the single call in {@code body}, as the slot a picker sees.
+     *
+     * <p>It used to have to build an {@code UnknownExpressionBlock} to say this — a whole block, with a UI
+     * node it never rendered, standing in for the one thing the picker actually reads. {@link ValueSlot} is
+     * that one thing, so the fixture is now the expression itself.
+     */
+    private static ValueSlot firstArgument(String body) {
         ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
         parser.setKind(ASTParser.K_COMPILATION_UNIT);
         parser.setSource(("class T { void run() {" + body + "} }").toCharArray());
@@ -34,8 +39,8 @@ class VariablePickerMatchTest {
         List<Statement> statements = run.getBody().statements();
         org.eclipse.jdt.core.dom.MethodInvocation call =
                 (org.eclipse.jdt.core.dom.MethodInvocation) ((ExpressionStatement) statements.getFirst()).getExpression();
-        // Any expression block will do: the picker asks the AST node what it is, not the block.
-        return new UnknownExpressionBlock("arg", (Expression) call.arguments().getFirst());
+        Expression argument = (Expression) call.arguments().getFirst();
+        return () -> argument;
     }
 
     @Test

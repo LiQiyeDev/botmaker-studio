@@ -1,6 +1,7 @@
 package com.botmaker.studio.ui.render.components;
 
 import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.ui.render.components.pickers.PickerContext;
@@ -25,7 +26,7 @@ public final class ArgumentEditors {
 
     /** The specialized editor for {@code paramType}, or {@code null} to use the generic pill. */
     public static Node editorFor(CodeEditorService context, ExpressionBlock arg, ResolvedType paramType) {
-        return editorFor(context, arg, paramType, null, null, -1);
+        return editorFor(context, ValueSlot.of(arg), paramType, null, null, -1);
     }
 
     /**
@@ -36,6 +37,12 @@ public final class ArgumentEditors {
      * be distinguished. Pass {@code null}/{@code null}/{@code -1} when there is no call context.
      */
     public static Node editorFor(CodeEditorService context, ExpressionBlock arg, ResolvedType paramType,
+                                 String className, String methodName, int argIndex) {
+        return editorFor(context, ValueSlot.of(arg), paramType, className, methodName, argIndex);
+    }
+
+    /** The same, over a slot that no block drew — a variable's initializer, a field, a return value. */
+    public static Node editorFor(CodeEditorService context, ValueSlot arg, ResolvedType paramType,
                                  String className, String methodName, int argIndex) {
         return PickerRegistry.pickerNodeFor(new PickerContext(context, arg, paramType, className, methodName, argIndex));
     }

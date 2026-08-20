@@ -1,7 +1,6 @@
 package com.botmaker.studio.ui.render.components;
 
-import com.botmaker.studio.core.AbstractCodeBlock;
-import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.ScreenCaptureService;
 import javafx.application.Platform;
@@ -28,7 +27,7 @@ public final class SizePicker {
 
     private SizePicker() {}
 
-    public static Node create(CodeEditorService context, ExpressionBlock arg) {
+    public static Node create(CodeEditorService context, ValueSlot arg) {
         MenuButton button = new MenuButton();
         button.getStyleClass().add("size-picker");
         button.setText(label(arg));
@@ -39,32 +38,29 @@ public final class SizePicker {
             measure.setOnAction(a -> {
                 Window owner = button.getScene() != null ? button.getScene().getWindow() : null;
                 ScreenCaptureService.forProject(context).selectRegion(owner, r -> Platform.runLater(() ->
-                        context.getCodeEditor().setSize(expr(arg), r[2], r[3])));
+                        context.getCodeEditor().setSize(arg.node(), r[2], r[3])));
             });
             MenuItem edit = new MenuItem("Edit values…");
             edit.setOnAction(a -> NumberFieldsDialog.show("Size", new String[]{"width", "height"},
                     currentValues(arg), button.getScene() == null ? null : button.getScene().getWindow(),
-                    v -> context.getCodeEditor().setSize(expr(arg), v[0], v[1])));
+                    v -> context.getCodeEditor().setSize(arg.node(), v[0], v[1])));
             button.getItems().addAll(measure, new SeparatorMenuItem(), edit);
         });
         return button;
     }
 
-    private static Expression expr(ExpressionBlock arg) {
-        return (Expression) ((AbstractCodeBlock) arg).getAstNode();
-    }
 
     /** {@code w × h} for a {@code new Size(...)}; otherwise the raw expression (e.g. a variable name). */
-    private static String label(ExpressionBlock arg) {
+    private static String label(ValueSlot arg) {
         int[] v = currentValues(arg);
         if (v != null) return v[0] + " × " + v[1];
-        String raw = expr(arg).toString();
+        String raw = arg.source();
         return raw.isBlank() ? "Choose size…" : raw;
     }
 
     /** Reads {@code [w,h]} from {@code new Size(w,h)}, defaulting missing args to 0; null if not a Size ctor. */
-    private static int[] currentValues(ExpressionBlock arg) {
-        if (expr(arg) instanceof ClassInstanceCreation cic) {
+    private static int[] currentValues(ValueSlot arg) {
+        if (arg.node() instanceof ClassInstanceCreation cic) {
             int[] out = new int[2];
             for (int i = 0; i < 2 && i < cic.arguments().size(); i++) {
                 out[i] = NumberFieldsDialog.parseInt(cic.arguments().get(i).toString());

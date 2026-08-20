@@ -4,6 +4,7 @@ import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.ui.render.menu.ExpressionMenu;
 import com.botmaker.studio.blocks.expr.ListBlock;
 import com.botmaker.studio.core.AbstractStatementBlock;
+import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.ui.render.layout.BlockLayout;
@@ -63,7 +64,7 @@ public class VariableDeclarationBlock extends AbstractStatementBlock {
                 // the declared variable type — so `ImageTemplate t = new ImageTemplate(...)`, `Rect r = ...`,
                 // `Point p = ...`, `Direction d = ...` get their thumbnail/region/enum editor instead of a raw
                 // expression node. Falls back to the generic node when no picker matches.
-                Node picker = PickerRegistry.pickerNodeFor(PickerContext.of(context, initializer, varType));
+                Node picker = PickerRegistry.pickerNodeFor(PickerContext.of(context, ValueSlot.of(initializer), varType));
                 initNode = picker != null ? picker : initializer.getUINode(context);
                 // Dropping a call onto the value of a declaration is the same gesture as dropping it into any
                 // other slot. The list/array renderings above stay out of it: they hold several expressions,

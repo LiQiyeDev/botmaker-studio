@@ -1,7 +1,6 @@
 package com.botmaker.studio.ui.render.components;
 
-import com.botmaker.studio.core.AbstractCodeBlock;
-import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.ScreenCaptureService;
 import javafx.application.Platform;
@@ -25,7 +24,7 @@ public final class RectPicker {
 
     private RectPicker() {}
 
-    public static Node create(CodeEditorService context, ExpressionBlock arg) {
+    public static Node create(CodeEditorService context, ValueSlot arg) {
         MenuButton button = new MenuButton();
         button.getStyleClass().add("rect-picker");
         button.setText(label(arg));
@@ -36,12 +35,12 @@ public final class RectPicker {
             select.setOnAction(a -> {
                 Window owner = button.getScene() != null ? button.getScene().getWindow() : null;
                 screenCapture(context).selectRegion(owner, r -> Platform.runLater(() ->
-                        context.getCodeEditor().setRect(expr(arg), r[0], r[1], r[2], r[3])));
+                        context.getCodeEditor().setRect(arg.node(), r[0], r[1], r[2], r[3])));
             });
             MenuItem edit = new MenuItem("Edit values…");
             edit.setOnAction(a -> NumberFieldsDialog.show("Rect", new String[]{"x", "y", "width", "height"},
                     currentValues(arg), button.getScene() == null ? null : button.getScene().getWindow(),
-                    v -> context.getCodeEditor().setRect(expr(arg), v[0], v[1], v[2], v[3])));
+                    v -> context.getCodeEditor().setRect(arg.node(), v[0], v[1], v[2], v[3])));
             button.getItems().addAll(select, new SeparatorMenuItem(), edit);
         });
         return button;
@@ -52,21 +51,18 @@ public final class RectPicker {
         return ScreenCaptureService.forProject(context);
     }
 
-    private static Expression expr(ExpressionBlock arg) {
-        return (Expression) ((AbstractCodeBlock) arg).getAstNode();
-    }
 
     /** {@code x,y w×h} for a {@code new Rect(...)}; otherwise the raw expression (e.g. a variable name). */
-    private static String label(ExpressionBlock arg) {
+    private static String label(ValueSlot arg) {
         int[] v = currentValues(arg);
         if (v != null) return v[0] + ", " + v[1] + "  " + v[2] + "×" + v[3];
-        String raw = expr(arg).toString();
+        String raw = arg.source();
         return raw.isBlank() ? "Choose region…" : raw;
     }
 
     /** Reads {@code [x,y,w,h]} from {@code new Rect(x,y,w,h)}, defaulting missing args to 0; null if not a Rect ctor. */
-    private static int[] currentValues(ExpressionBlock arg) {
-        if (expr(arg) instanceof ClassInstanceCreation cic) {
+    private static int[] currentValues(ValueSlot arg) {
+        if (arg.node() instanceof ClassInstanceCreation cic) {
             int[] out = new int[4];
             for (int i = 0; i < 4 && i < cic.arguments().size(); i++) {
                 out[i] = NumberFieldsDialog.parseInt(cic.arguments().get(i).toString());
