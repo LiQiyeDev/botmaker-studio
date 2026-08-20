@@ -348,6 +348,16 @@
 }
 
 /* A line of generated source shown back to the user — monospaced, so a signature lines up as code. */
+/* A type the signature dialog shows but does not offer — read-only, so it reads as a fact, not a control. */
+.kept-type-chip {
+    -fx-font-family: "Consolas", "Menlo", monospace;
+    -fx-font-size: 12px;
+    -fx-padding: 4 10 4 10;
+    -fx-background-color: -fx-control-inner-background-alt;
+    -fx-background-radius: 4;
+    -fx-opacity: 0.85;
+}
+
 .dialog-code-preview {
     -fx-font-family: "Consolas", "Menlo", monospace;
     -fx-font-size: 13px;

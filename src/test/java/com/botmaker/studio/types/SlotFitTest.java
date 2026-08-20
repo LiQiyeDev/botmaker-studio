@@ -3,7 +3,9 @@ package com.botmaker.studio.types;
 import com.botmaker.studio.palette.SdkType;
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -64,5 +66,23 @@ class SlotFitTest {
         assertTrue(TypeExpectation.fits(template, ResolvedType.named(SdkType.IMAGE_TEMPLATE.simpleName())));
         assertFalse(TypeExpectation.fits(template, ResolvedType.of(JdkType.STRING)));
         assertFalse(TypeExpectation.fits(template, ResolvedType.named("com.example.Other")));
+    }
+
+    /**
+     * The wording, and the fact that there is only one copy of it. The drag-over tooltip and the status line
+     * the drop publishes read from {@link SlotFit#refusal} — a drag can be waved through on a type the file
+     * had not resolved and still be refused on landing, and when that happens the two have to say the same
+     * thing or the second one reads as a different, unexplained failure.
+     */
+    @Test
+    void everyRefusalIsASentenceAndFittingIsSilence() {
+        assertNull(SlotFit.refusal(ResolvedType.BOOLEAN, ResolvedType.BOOLEAN));
+        assertNull(SlotFit.refusal(ResolvedType.UNKNOWN, ResolvedType.of(JdkType.STRING)));
+        assertEquals("This line produces nothing, so it cannot fill a slot.",
+                SlotFit.refusal(ResolvedType.BOOLEAN, ResolvedType.VOID));
+        assertEquals("This slot needs a yes/no, and that line gives int.",
+                SlotFit.refusal(ResolvedType.BOOLEAN, ResolvedType.named("int")));
+        assertEquals("This slot needs a ImageTemplate, and that line gives String.",
+                SlotFit.refusal(ResolvedType.of(SdkType.IMAGE_TEMPLATE), ResolvedType.of(JdkType.STRING)));
     }
 }

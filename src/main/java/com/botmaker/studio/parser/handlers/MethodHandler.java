@@ -7,6 +7,7 @@ import com.botmaker.studio.parser.EditContext;
 import com.botmaker.studio.parser.NodeCreator;
 import com.botmaker.studio.palette.BotType;
 import com.botmaker.studio.palette.FunctionDraft;
+import com.botmaker.studio.palette.SignatureType;
 import com.botmaker.studio.parser.factories.InitializerFactory;
 import com.botmaker.studio.parser.factories.StatementFactory;
 import com.botmaker.studio.parser.helpers.AstRewriteHelper;
@@ -20,6 +21,7 @@ import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 import org.eclipse.jdt.core.dom.rewrite.ListRewrite;
 
 import java.util.List;
+import java.util.Optional;
 
 public class MethodHandler {
 
@@ -179,7 +181,11 @@ public class MethodHandler {
     }
 
     /** The return type and the trailing {@code return} that has to agree with it. */
-    private static void applyReturnType(EditContext ctx, MethodDeclaration method, BotType.Choice returnType) {
+    private static void applyReturnType(EditContext ctx, MethodDeclaration method, SignatureType returnType) {
+        // A type the editor only carries is left exactly as the file wrote it — that is what lets an
+        // activity's `Outcome run(…)` have its name and inputs edited at all. Rewriting it from a description
+        // we do not have is the one thing this must never do.
+        if (returnType.isKept()) return;
         Type oldNode = method.getReturnType2();
         if (oldNode != null && oldNode.toString().equals(returnType.sourceName())) return;
 
@@ -209,7 +215,9 @@ public class MethodHandler {
             SingleVariableDeclaration param = (SingleVariableDeclaration) current.get(i);
             FunctionDraft.Parameter target = wanted.get(i);
 
-            if (!param.getType().toString().equals(target.type().sourceName())) {
+            // A carried type is left as written — see applyReturnType; only the name is this dialog's to change.
+            if (!target.type().isKept()
+                    && !param.getType().toString().equals(target.type().sourceName())) {
                 rewriter.replace(param.getType(), typeNodeFor(ctx, target.type()), null);
             }
             String newName = target.name().trim();
@@ -231,6 +239,13 @@ public class MethodHandler {
         }
     }
 
+    /** A type node for a signature type: a curated choice imports what it names, a carried one is copied. */
+    private static Type typeNodeFor(EditContext ctx, SignatureType type) {
+        Optional<BotType.Choice> described = type.described();
+        if (described.isEmpty()) return ProjectAnalyzer.createTypeNode(ctx.ast(), type.sourceName());
+        return typeNodeFor(ctx, described.get());
+    }
+
     /** A type node for a curated choice, importing what it names — {@code Point}, or {@code List<Point>}. */
     private static Type typeNodeFor(EditContext ctx, BotType.Choice choice) {
         AST ast = ctx.ast();
@@ -243,6 +258,12 @@ public class MethodHandler {
                 ast.newParameterizedType(ast.newSimpleType(ast.newSimpleName("List")));
         listType.typeArguments().add(ast.newSimpleType(ast.newSimpleName(choice.elementName())));
         return listType;
+    }
+
+    /** The seed for a new function's trailing return — {@code null} for a type the editor only carries. */
+    private static Expression defaultValueFor(EditContext ctx, SignatureType type) {
+        Optional<BotType.Choice> described = type.described();
+        return described.isPresent() ? defaultValueFor(ctx, described.get()) : ctx.ast().newNullLiteral();
     }
 
     /** {@code List.of()} for a list, and the type's own catalogue default otherwise. */

@@ -10,11 +10,14 @@ import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.parser.BlockConverter;
 import com.botmaker.studio.parser.CodeEditor;
 import com.botmaker.studio.parser.StatementPlacement;
+import com.botmaker.studio.parser.helpers.BlockNodes;
 import com.botmaker.studio.project.LockResolver;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.state.HistoryManager;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
+import com.botmaker.studio.types.ResolvedType;
+import com.botmaker.studio.types.SlotFit;
 import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.palette.FunctionDraft;
 import com.botmaker.studio.palette.SdkDocs;
@@ -201,24 +204,62 @@ public class CodeEditorService {
      */
     private void handleExpressionDrop(ExpressionDropInfo info) {
         CodeBlock target = findBlockById(info.targetBlockId());
-        if (target == null) return;
+        if (target == null) {
+            refuseDrop("That slot isn't there any more — try the drag again.");
+            return;
+        }
         if (info.emptySlot()) {
             handleEmptySlotDrop(target, info);
             return;
         }
-        if (!(target.getAstNode() instanceof Expression slot)) return;
+        if (!(target.getAstNode() instanceof Expression slot)) {
+            refuseDrop("That is a whole line, not a slot a value can go in.");
+            return;
+        }
 
         if (info.paletteType() != null) {
             codeEditor.fillSlotFromPalette(slot, info.paletteType());
             return;
         }
-        CodeBlock source = findBlockById(info.sourceBlockId());
-        if (source == null || !(source.getAstNode() instanceof ExpressionStatement stmt)) return;
+        ExpressionStatement stmt = droppedStatement(info.sourceBlockId());
+        if (stmt == null) {
+            refuseDrop("Only a line that is a single value can go in a slot.");
+            return;
+        }
         // Dropping a statement into a slot inside itself would delete the statement and leave the slot
         // referring to a node that no longer exists. Nothing upstream can see this — drag-over has ids, not
         // ancestry — so the refusal has to be here.
-        if (encloses(stmt, slot)) return;
+        if (encloses(stmt, slot)) {
+            refuseDrop("That line is where the slot lives — moving it in would delete both.");
+            return;
+        }
+        String refusal = SlotFit.refusal(
+                ProjectAnalyzer.inferExpectedType(slot), projectAnalyzer.valueTypeOf(stmt.getExpression()));
+        if (refusal != null) {
+            refuseDrop(refusal);
+            return;
+        }
         codeEditor.moveExpressionIntoSlot(slot, stmt);
+    }
+
+    /**
+     * The statement a dragged block id names, or null when the id names something that is not a line with one
+     * value on it. {@link BlockNodes#expressionStatementOf} does the normalising: a call line is drawn by two
+     * different block classes holding two different nodes, and asking {@code instanceof ExpressionStatement}
+     * here meant half of them silently fell out of the drop path.
+     */
+    private ExpressionStatement droppedStatement(String sourceBlockId) {
+        CodeBlock source = findBlockById(sourceBlockId);
+        return source == null ? null : BlockNodes.expressionStatementOf(source.getAstNode());
+    }
+
+    /**
+     * Says why a drop did not happen. Every early return on this path used to be a bare {@code return}: the
+     * block sprang back, nothing changed, and nothing was said — the single most reported "the editor is
+     * broken" symptom, because a refusal and a bug look identical when neither speaks.
+     */
+    private void refuseDrop(String reason) {
+        eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(reason));
     }
 
     /**
@@ -228,15 +269,37 @@ public class CodeEditorService {
      * slot, which would consume the statement the slot lives in.
      */
     private void handleEmptySlotDrop(CodeBlock target, ExpressionDropInfo info) {
-        ASTNode owner = target.getAstNode();
-        if (owner == null) return;
+        ASTNode node = target.getAstNode();
+        if (node == null) {
+            refuseDrop("That slot isn't there any more — try the drag again.");
+            return;
+        }
+        // The placement rules are written against the statement around the hole, and a call line's block may
+        // hold the invocation instead — the same normalising the filled-slot path needs.
+        ExpressionStatement asStatement = BlockNodes.expressionStatementOf(node);
+        ASTNode owner = asStatement != null ? asStatement : node;
         if (info.paletteType() != null) {
             codeEditor.fillEmptySlotFromPalette(owner, info.paletteType());
             return;
         }
-        CodeBlock source = findBlockById(info.sourceBlockId());
-        if (source == null || !(source.getAstNode() instanceof ExpressionStatement stmt)) return;
-        if (stmt == owner || encloses(stmt, owner)) return;
+        ExpressionStatement stmt = droppedStatement(info.sourceBlockId());
+        if (stmt == null) {
+            refuseDrop("Only a line that is a single value can go in a slot.");
+            return;
+        }
+        if (stmt == owner || encloses(stmt, owner)) {
+            refuseDrop("That line is where the slot lives — moving it in would delete both.");
+            return;
+        }
+        // An empty slot has no declared type of its own to check against — the statement around it does, and
+        // that is CodeEditor's placement rule to apply. The one answer that holds regardless is that a line
+        // producing nothing is not a value, which UNKNOWN still refuses.
+        String refusal = SlotFit.refusal(
+                ResolvedType.UNKNOWN, projectAnalyzer.valueTypeOf(stmt.getExpression()));
+        if (refusal != null) {
+            refuseDrop(refusal);
+            return;
+        }
         codeEditor.fillEmptySlot(owner, stmt);
     }
 

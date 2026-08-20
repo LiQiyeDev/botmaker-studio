@@ -1,6 +1,7 @@
 package com.botmaker.studio.ui.app;
 
 import com.botmaker.studio.palette.FunctionDraft;
+import com.botmaker.studio.palette.SignatureType;
 import com.botmaker.studio.ui.render.components.BotTypePicker;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.geometry.Insets;
@@ -8,6 +9,7 @@ import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextField;
+import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
@@ -58,6 +60,14 @@ public final class AddFunctionDialog {
     private final Label signatureLabel = new Label();
     private final Label problemLabel = new Label();
     private final Button confirmButton = new Button();
+
+    /**
+     * The return type when the editor cannot describe it — an activity's {@code Outcome}. Non-null here means
+     * the picker is replaced by a chip and this exact text is written back: the dialog exists to edit the
+     * <em>name and the inputs</em> of such a function, which is the part it can describe, rather than refusing
+     * the whole signature over a type nobody asked it to change.
+     */
+    private SignatureType keptReturnType;
 
     private FunctionDraft result;
 
@@ -114,13 +124,23 @@ public final class AddFunctionDialog {
      */
     private void prefill(FunctionDraft draft) {
         nameField.setText(draft.name());
-        returnPicker.setChoice(draft.returnType());
+        draft.returnType().described().ifPresent(returnPicker::setChoice);
         for (FunctionDraft.Parameter parameter : draft.parameters()) {
             addParameter();
             ParameterRow row = rows.getLast();
-            row.picker.setChoice(parameter.type());
+            parameter.type().described().ifPresentOrElse(row.picker::setChoice, () -> row.keep(parameter.type()));
             row.nameField.setText(parameter.name());
         }
+    }
+
+    /** A type shown but not offered: what the file says, greyed, with no control to change it. */
+    private static Label keptChip(SignatureType type) {
+        Label chip = new Label(type.sourceName());
+        chip.getStyleClass().add("kept-type-chip");
+        chip.setTooltip(new Tooltip(type.sourceName()
+                + " isn't one of the types the editor offers, so it is kept exactly as the Java file writes it."
+                + " The name and the inputs are still yours to change here."));
+        return chip;
     }
 
     // -------------------------------------------------------------------------
@@ -133,6 +153,10 @@ public final class AddFunctionDialog {
     }
 
     private HBox returnRow() {
+        if (editing != null && editing.returnType().isKept()) {
+            keptReturnType = editing.returnType();
+            return labelled("Gives back", new HBox(keptChip(keptReturnType)));
+        }
         HBox.setHgrow(returnPicker, Priority.ALWAYS);
         return labelled("Gives back", returnPicker);
     }
@@ -217,9 +241,11 @@ public final class AddFunctionDialog {
 
     private FunctionDraft draft() {
         List<FunctionDraft.Parameter> params = rows.stream()
-                .map(r -> new FunctionDraft.Parameter(r.nameField.getText(), r.picker.choice()))
+                .map(r -> new FunctionDraft.Parameter(r.nameField.getText(), r.type()))
                 .toList();
-        return new FunctionDraft(nameField.getText(), returnPicker.choice(), params);
+        SignatureType returns =
+                keptReturnType != null ? keptReturnType : SignatureType.of(returnPicker.choice());
+        return new FunctionDraft(nameField.getText(), returns, params);
     }
 
     private void revalidate() {
@@ -242,6 +268,8 @@ public final class AddFunctionDialog {
         private final Button up = new Button("▲");
         private final Button down = new Button("▼");
         private final Button remove = new Button("✕");
+        /** Set when this parameter's type is one the editor only carries; the picker is then not shown. */
+        private SignatureType kept;
 
         private ParameterRow() {
             nameField.setPromptText("name");
@@ -265,12 +293,23 @@ public final class AddFunctionDialog {
             });
         }
 
+        /** This row's type: the picked one, or the one being carried through unchanged. */
+        private SignatureType type() {
+            return kept != null ? kept : SignatureType.of(picker.choice());
+        }
+
+        private void keep(SignatureType type) {
+            kept = type;
+            redrawParameters();
+        }
+
         private HBox node() {
             HBox.setHgrow(nameField, Priority.ALWAYS);
-            HBox.setHgrow(picker, Priority.ALWAYS);
             nameField.setPrefWidth(140);
-            picker.setPrefWidth(180);
-            HBox row = new HBox(8, nameField, picker, up, down, remove);
+            Region typeNode = kept != null ? keptChip(kept) : picker;
+            if (kept == null) picker.setPrefWidth(180);
+            HBox.setHgrow(typeNode, Priority.ALWAYS);
+            HBox row = new HBox(8, nameField, typeNode, up, down, remove);
             row.setAlignment(Pos.CENTER_LEFT);
             return row;
         }

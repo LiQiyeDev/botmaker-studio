@@ -32,14 +32,24 @@ import java.util.Set;
  * {@code List<Rect>} are the same signature to the compiler however different they read; and by simple name,
  * because {@code java.time.Duration} here and {@code Duration} in a hand-written file are one type.
  */
-public record FunctionDraft(String name, BotType.Choice returnType, List<Parameter> parameters) {
+public record FunctionDraft(String name, SignatureType returnType, List<Parameter> parameters) {
 
     public FunctionDraft {
         parameters = List.copyOf(parameters);
     }
 
+    /** The common case, written the way every caller that only deals in curated types already writes it. */
+    public FunctionDraft(String name, BotType.Choice returnType, List<Parameter> parameters) {
+        this(name, SignatureType.of(returnType), parameters);
+    }
+
     /** One parameter: {@code <type> <name>}. */
-    public record Parameter(String name, BotType.Choice type) {}
+    public record Parameter(String name, SignatureType type) {
+
+        public Parameter(String name, BotType.Choice type) {
+            this(name, SignatureType.of(type));
+        }
+    }
 
     /** A void function with no parameters — what the dialog opens on. */
     public static FunctionDraft empty() {

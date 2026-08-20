@@ -136,9 +136,9 @@ public class BotProject {
         // 7-. Teach the drag layer what a dragged call gives back. It judges an expression slot during
         // drag-over, where the AST usually has no bindings — without this a void call reads as "unknown",
         // which every slot accepts.
-        dragAndDropManager.setReturnTypeResolver(stmt ->
-                stmt.getExpression() instanceof org.eclipse.jdt.core.dom.MethodInvocation call
-                        ? projectAnalyzer.returnTypeOf(call) : null);
+        // Every expression shape, not just a call: a resolver that answered only MethodInvocation left a
+        // comparison, a literal and a `new` reading as "unknown", which every slot accepts.
+        dragAndDropManager.setReturnTypeResolver(stmt -> projectAnalyzer.valueTypeOf(stmt.getExpression()));
 
         // 7a. Warm the heavy derived caches off the UI thread so the first type/method menu opens without
         // lag (the static-utility scan + per-class ResolvedType build are otherwise paid lazily on the FX

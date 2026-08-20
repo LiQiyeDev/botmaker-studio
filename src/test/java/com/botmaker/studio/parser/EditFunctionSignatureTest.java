@@ -52,6 +52,7 @@ class EditFunctionSignatureTest {
             """;
 
     private ProjectState state;
+    private Path path;
     private CodeEditor editor;
     private String lastCode;
     private int updates;
@@ -59,7 +60,7 @@ class EditFunctionSignatureTest {
     @BeforeEach
     void setUp() {
         state = new ProjectState();
-        Path path = Paths.get("Subject.java").toAbsolutePath();
+        path = Paths.get("Subject.java").toAbsolutePath();
         state.addFile(new ProjectFile(path, SOURCE));
         state.setActiveFile(path);
         state.setSourcePath(Paths.get("src", "main", "java").toAbsolutePath());
@@ -73,6 +74,13 @@ class EditFunctionSignatureTest {
 
         state.setCompilationUnit(com.botmaker.studio.parser.helpers.SourceParser.parse(SOURCE));
         editor = new CodeEditor(null, state, bus, new ProjectAnalyzer(null, state));
+    }
+
+    /** Points the editor at a different source — the file, the current code and the parse, which must agree. */
+    private void reopen(String source) {
+        state.addFile(new ProjectFile(path, source));
+        state.setCurrentCode(source);
+        state.setCompilationUnit(com.botmaker.studio.parser.helpers.SourceParser.parse(source));
     }
 
     private TypeDeclaration subject() {
@@ -159,10 +167,48 @@ class EditFunctionSignatureTest {
     void aSignatureTheDialogCannotRepresentIsNotOfferedForEditing() {
         // main(String[] args): the dialog can only offer the curated BotType list, and silently retyping
         // String[] to String on the way through would be worse than refusing to open.
-        String withMain = SOURCE.replace("public void other() {", "public static void main(String[] args) {");
-        state.setCompilationUnit(com.botmaker.studio.parser.helpers.SourceParser.parse(withMain));
+        reopen(SOURCE.replace("public void other() {", "public static void main(String[] args) {"));
 
         Optional<FunctionDraft> draft = MethodSignatures.draftOf(subject().getMethods()[1]);
         assertTrue(draft.isEmpty(), "a String[] parameter has no BotType to render it with");
+    }
+
+    @Test
+    void aTypeTheEditorCannotDescribeIsKeptRatherThanRefused() {
+        // An activity's `Outcome run(int)`: the editor has no Outcome in its catalogue, and it does not need
+        // one — nobody asked it to change that type. Refusing the whole dialog over it took the name and the
+        // inputs with it, which is what the user actually came to edit.
+        reopen(withOutcomeRun());
+
+        FunctionDraft draft = MethodSignatures.draftOf(subject().getMethods()[1]).orElseThrow();
+        assertTrue(draft.returnType().isKept(), "Outcome is carried, not described");
+        assertEquals("Outcome run(int attempts)", draft.signature());
+    }
+
+    @Test
+    void aKeptTypeIsWrittenBackExactlyAsTheFileHadIt() {
+        reopen(withOutcomeRun());
+        MethodDeclaration run = subject().getMethods()[1];
+
+        // The rename the dialog is open for, with the return type left as the file wrote it.
+        editor.applyFunctionSignature(run, new FunctionDraft("runOnce",
+                MethodSignatures.draftOf(run).orElseThrow().returnType(),
+                List.of(param("tries", BotType.WHOLE_NUMBER))));
+
+        assertTrue(lastCode.contains("public Outcome runOnce(int tries)"), lastCode);
+        assertTrue(lastCode.contains("return Outcome.done();"),
+                "the trailing return belongs to a type the editor never described:\n" + lastCode);
+    }
+
+    /** {@link #SOURCE} with a second method whose return type is outside the editor's catalogue. */
+    private static String withOutcomeRun() {
+        return SOURCE.replace("""
+                    public void other() {
+                    }
+                """, """
+                    public Outcome run(int attempts) {
+                        return Outcome.done();
+                    }
+                """);
     }
 }

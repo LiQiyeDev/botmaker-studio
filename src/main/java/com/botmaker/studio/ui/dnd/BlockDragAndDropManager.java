@@ -5,12 +5,14 @@ import com.botmaker.studio.ui.render.menu.StatementMenu;
 import com.botmaker.studio.palette.BlockCatalog;
 import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.parser.StatementPlacement;
+import com.botmaker.studio.parser.helpers.BlockNodes;
 import com.botmaker.studio.blocks.ClassBlock;
 import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.CodeBlock;
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.types.ResolvedType;
+import com.botmaker.studio.types.SlotFit;
 import com.botmaker.studio.types.TypeExpectation;
 import com.botmaker.studio.ui.render.theme.BlockTheme;
 import com.botmaker.studio.ui.render.theme.StyleBuilder;
@@ -166,7 +168,8 @@ public class BlockDragAndDropManager {
      */
     private String resolvedName(ASTNode node, String bound) {
         if (returnTypeResolver == null || !ResolvedType.UNKNOWN.qualifiedName().equals(bound)) return bound;
-        if (!(node instanceof ExpressionStatement stmt)) return bound;
+        ExpressionStatement stmt = BlockNodes.expressionStatementOf(node);
+        if (stmt == null) return bound;
         ResolvedType resolved = returnTypeResolver.apply(stmt);
         return resolved == null || resolved.isUnknown() ? bound : resolved.qualifiedName();
     }
@@ -180,9 +183,15 @@ public class BlockDragAndDropManager {
      * format was almost never on the dragboard — and the slot requires it, so dragging an
      * {@code ImageClicker.click(…)} into an {@code if} condition was refused every time. Unknown is what
      * {@link TypeExpectation#fits} already accepts everywhere else; saying it out loud is the fix.
+     *
+     * <p>{@link BlockNodes#expressionStatementOf} rather than a bare {@code instanceof}: half the blocks that
+     * draw a call line hold the invocation, not the statement around it, and those answered no here — so the
+     * format never reached the dragboard and every one of those lines was refused as "a statement, not a
+     * value".
      */
     static String expressionTypeName(ASTNode node) {
-        if (!(node instanceof ExpressionStatement stmt)) return null;
+        ExpressionStatement stmt = BlockNodes.expressionStatementOf(node);
+        if (stmt == null) return null;
         ITypeBinding binding = stmt.getExpression().resolveTypeBinding();
         return binding == null ? ResolvedType.UNKNOWN.qualifiedName() : ResolvedType.of(binding).qualifiedName();
     }
@@ -705,20 +714,9 @@ public class BlockDragAndDropManager {
         // A palette call carries no type: nothing has resolved its return type yet, and doing so here would
         // mean running the analyzer on every drag-over. Unknown is accepted, as everywhere else.
         if (typeName == null) return null;
-        ResolvedType actual = ResolvedType.named((String) typeName);
-        if (TypeExpectation.fits(slotType, actual)) return null;
-        if (actual.isVoid()) return "This line produces nothing, so it cannot fill a slot.";
-        return "This slot needs " + expectationText(slotType) + ", and that line gives " + actual.simpleName() + ".";
-    }
-
-    private static String expectationText(ResolvedType slotType) {
-        return switch (TypeExpectation.of(slotType)) {
-            case BOOLEAN -> "a yes/no";
-            case NUMERIC -> "a number";
-            case STRING -> "text";
-            case VOID -> "nothing";
-            case ANY -> "a " + slotType.simpleName();
-        };
+        // The same sentence the drop path publishes when it re-checks the type against the real AST — see
+        // SlotFit, which owns the wording precisely so the two cannot drift.
+        return SlotFit.refusal(slotType, ResolvedType.named((String) typeName));
     }
 
     /** Null-tolerant {@link BlockType#producesValue()} — an unknown palette id resolves to null and fills nothing. */

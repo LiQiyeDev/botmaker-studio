@@ -2,6 +2,7 @@ package com.botmaker.studio.parser.helpers;
 
 import com.botmaker.studio.palette.BotType;
 import com.botmaker.studio.palette.FunctionDraft;
+import com.botmaker.studio.palette.SignatureType;
 import org.eclipse.jdt.core.dom.MethodDeclaration;
 import org.eclipse.jdt.core.dom.SingleVariableDeclaration;
 import org.eclipse.jdt.core.dom.TypeDeclaration;
@@ -47,29 +48,43 @@ public final class MethodSignatures {
     }
 
     /**
-     * This method's signature as a draft the dialog can render, or empty when it names a type outside
-     * {@link BotType}'s catalogue ({@code String[] args}, an SDK class nobody declares a variable of).
+     * This method's signature as a draft the dialog can render, or empty for the two shapes that cannot
+     * round-trip at all — a varargs or an array parameter, whose {@code …} and {@code []} the AST spells
+     * outside the type node.
      *
-     * <p>Empty is the honest answer rather than a guess: the dialog can only offer the curated types, so a
-     * signature it cannot represent is one it must not be allowed to rewrite — silently retyping
-     * {@code String[]} to {@code String} on the way through would be worse than refusing to open.
+     * <p>A type outside {@link BotType}'s catalogue is <em>not</em> one of those. It used to be: an activity's
+     * {@code Outcome run(int attempts)} returned empty here, so the dialog refused to open and the name and
+     * the inputs — the parts it describes perfectly well — could not be edited either, over a return type
+     * nobody had asked it to change. It comes back as {@link SignatureType.Kept}, shown as a fixed chip and
+     * written back verbatim, which is both more useful and strictly safer than retyping it to something the
+     * catalogue does know.
      */
     public static Optional<FunctionDraft> draftOf(MethodDeclaration method) {
-        BotType.Choice returnType = method.getReturnType2() == null
-                ? BotType.Choice.of(BotType.NOTHING)
-                : BotType.Choice.fromSourceName(method.getReturnType2().toString()).orElse(null);
-        if (returnType == null) return Optional.empty();
+        SignatureType returnType = method.getReturnType2() == null
+                ? SignatureType.of(BotType.NOTHING)
+                : signatureTypeOf(method.getReturnType2().toString());
 
         List<FunctionDraft.Parameter> parameters = new ArrayList<>();
         for (Object parameter : method.parameters()) {
             SingleVariableDeclaration declaration = (SingleVariableDeclaration) parameter;
-            // A varargs or array parameter is spelled by its element type in the AST, so ask the flag too.
-            if (declaration.isVarargs() || declaration.getExtraDimensions() > 0) return Optional.empty();
-            BotType.Choice type = BotType.Choice.fromSourceName(declaration.getType().toString()).orElse(null);
-            if (type == null) return Optional.empty();
-            parameters.add(new FunctionDraft.Parameter(declaration.getName().getIdentifier(), type));
+            // Varargs and arrays are the two that genuinely cannot round-trip: the {@code …} and the
+            // {@code []} are spelled outside the type node (and `String args[]` puts them on the name), so
+            // carrying the type text alone would quietly drop them.
+            if (declaration.isVarargs() || declaration.getExtraDimensions() > 0
+                    || declaration.getType().toString().endsWith("[]")) {
+                return Optional.empty();
+            }
+            parameters.add(new FunctionDraft.Parameter(declaration.getName().getIdentifier(),
+                    signatureTypeOf(declaration.getType().toString())));
         }
         return Optional.of(new FunctionDraft(method.getName().getIdentifier(), returnType, parameters));
+    }
+
+    /** The curated choice for {@code sourceName}, or the text itself when the catalogue has no such type. */
+    private static SignatureType signatureTypeOf(String sourceName) {
+        return BotType.Choice.fromSourceName(sourceName)
+                .<SignatureType>map(SignatureType::of)
+                .orElseGet(() -> SignatureType.kept(sourceName));
     }
 
     /**
@@ -79,13 +94,12 @@ public final class MethodSignatures {
      * <p>It exists so the Edit button never has to be a dead grey square. "Why can't I edit this one?" is a
      * question with a specific answer — a type, by name — and a disabled control is the one place that answer
      * cannot be read. Naming it on click is the whole difference between a lock and a bug report.
+     *
+     * <p>It is now down to the two shapes {@link #draftOf} still refuses. A merely uncatalogued type is not
+     * one of them: it is carried through instead, so an explanation about it would be an apology for
+     * something that did not happen.
      */
     public static Optional<String> unrepresentable(MethodDeclaration method) {
-        if (method.getReturnType2() != null
-                && BotType.Choice.fromSourceName(method.getReturnType2().toString()).isEmpty()) {
-            return Optional.of("it gives back " + method.getReturnType2()
-                    + ", which is not one of the types the editor offers");
-        }
         for (Object parameter : method.parameters()) {
             SingleVariableDeclaration declaration = (SingleVariableDeclaration) parameter;
             String name = declaration.getName().getIdentifier();
@@ -95,10 +109,6 @@ public final class MethodSignatures {
             }
             if (declaration.getExtraDimensions() > 0 || declaration.getType().toString().endsWith("[]")) {
                 return Optional.of("the input \"" + name + "\" is an array, which the editor cannot describe");
-            }
-            if (BotType.Choice.fromSourceName(declaration.getType().toString()).isEmpty()) {
-                return Optional.of("the input \"" + name + "\" is a " + declaration.getType()
-                        + ", which is not one of the types the editor offers");
             }
         }
         return Optional.empty();

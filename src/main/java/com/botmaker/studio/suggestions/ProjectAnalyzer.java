@@ -693,6 +693,58 @@ public class ProjectAnalyzer {
      * there is no way to tell which one is being dragged, and guessing refuses legal drops. Unknown is the
      * permissive answer, so the failure stays on the accepting side.
      */
+    /**
+     * What an expression <em>is worth</em> — the type a slot would receive if this expression were moved into
+     * it. {@link #returnTypeOf} answers only a call; this answers every shape a line can be, which is what the
+     * drag layer and the drop path both need: a slot judged only on calls waved through everything else.
+     *
+     * <p>Binding first, then the shapes that can be read off the source alone, then {@link ResolvedType#UNKNOWN}
+     * — never a guess. Unknown is accepted everywhere, so being wrong here refuses a legal drop, which is the
+     * one failure a user cannot work around.
+     */
+    public ResolvedType valueTypeOf(Expression expression) {
+        if (expression == null) return ResolvedType.UNKNOWN;
+        ITypeBinding binding = expression.resolveTypeBinding();
+        if (binding != null) return ResolvedType.of(binding);
+        return switch (expression) {
+            case MethodInvocation call -> returnTypeOf(call);
+            case ClassInstanceCreation creation -> resolveType(creation.getType());
+            case CastExpression cast -> resolveType(cast.getType());
+            case StringLiteral ignored -> ResolvedType.named("java.lang.String");
+            case BooleanLiteral ignored -> ResolvedType.BOOLEAN;
+            case CharacterLiteral ignored -> ResolvedType.named("char");
+            case NumberLiteral literal -> numberLiteralType(literal);
+            case InfixExpression infix -> infixType(infix);
+            case PrefixExpression prefix ->
+                    prefix.getOperator() == PrefixExpression.Operator.NOT
+                            ? ResolvedType.BOOLEAN : valueTypeOf(prefix.getOperand());
+            case ParenthesizedExpression parens -> valueTypeOf(parens.getExpression());
+            // An assignment or a ++ is a value in Java and a line in the editor; the editor is right about
+            // what the user means, so neither is offered as one.
+            default -> ResolvedType.UNKNOWN;
+        };
+    }
+
+    /** {@code 1} is an int, {@code 1.5} a double — the suffix decides the rest. */
+    private static ResolvedType numberLiteralType(NumberLiteral literal) {
+        String token = literal.getToken().toLowerCase(java.util.Locale.ROOT);
+        if (token.endsWith("l")) return ResolvedType.named("long");
+        if (token.endsWith("f")) return ResolvedType.named("float");
+        if (token.endsWith("d") || token.contains(".") || token.contains("e")) return ResolvedType.named("double");
+        return ResolvedType.named("int");
+    }
+
+    /** A comparison or a logical operator is a yes/no; arithmetic is left to the binding, if there ever is one. */
+    private static ResolvedType infixType(InfixExpression infix) {
+        InfixExpression.Operator op = infix.getOperator();
+        boolean predicate = op == InfixExpression.Operator.EQUALS || op == InfixExpression.Operator.NOT_EQUALS
+                || op == InfixExpression.Operator.LESS || op == InfixExpression.Operator.LESS_EQUALS
+                || op == InfixExpression.Operator.GREATER || op == InfixExpression.Operator.GREATER_EQUALS
+                || op == InfixExpression.Operator.CONDITIONAL_AND
+                || op == InfixExpression.Operator.CONDITIONAL_OR;
+        return predicate ? ResolvedType.BOOLEAN : ResolvedType.UNKNOWN;
+    }
+
     public ResolvedType returnTypeOf(MethodInvocation call) {
         if (call == null) return ResolvedType.UNKNOWN;
         IMethodBinding bound = call.resolveMethodBinding();
@@ -892,6 +944,27 @@ public class ProjectAnalyzer {
         ASTNode parent = node.getParent();
 
         switch (parent) {
+            // A condition, in every shape the language spells one. Missing here, they all answered UNKNOWN —
+            // which every check treats as "we don't know, allow it" — so an `if` slot accepted a number as
+            // readily as a yes/no, and the drop that followed wrote source that would not compile.
+            case IfStatement stmt when stmt.getExpression() == node -> {
+                return ResolvedType.BOOLEAN;
+            }
+            case WhileStatement stmt when stmt.getExpression() == node -> {
+                return ResolvedType.BOOLEAN;
+            }
+            case DoStatement stmt when stmt.getExpression() == node -> {
+                return ResolvedType.BOOLEAN;
+            }
+            case ForStatement stmt when stmt.getExpression() == node -> {
+                return ResolvedType.BOOLEAN;
+            }
+            case ConditionalExpression cond when cond.getExpression() == node -> {
+                return ResolvedType.BOOLEAN;
+            }
+            case PrefixExpression pre when pre.getOperator() == PrefixExpression.Operator.NOT -> {
+                return ResolvedType.BOOLEAN;
+            }
             case VariableDeclarationFragment frag when frag.getInitializer() == node -> {
                 ASTNode gp = frag.getParent();
                 if (gp instanceof VariableDeclarationStatement vds) return resolveType(vds.getType());
