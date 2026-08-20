@@ -14,7 +14,7 @@ import com.botmaker.studio.ui.render.components.TextFieldComponents;
 import com.botmaker.studio.ui.render.components.pickers.PickerContext;
 import com.botmaker.studio.ui.render.components.pickers.PickerRegistry;
 import com.botmaker.studio.types.ResolvedType;
-import com.botmaker.studio.ui.app.vars.ActivityVariablesDialog;
+import com.botmaker.studio.ui.app.vars.EditVariableDialog;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import javafx.scene.Node;
 import javafx.scene.control.*;
@@ -107,17 +107,21 @@ public class VariableDeclarationBlock extends AbstractStatementBlock {
     }
 
     /**
-     * The way to the Variables screen from the block that declares one — a visible control, not a right-click
-     * menu item, because it is now the <em>only</em> place this variable's name and type can be changed. It
-     * opens on this variable's row, so the screen answers the question you were standing in front of.
+     * The way to this variable's screen from the block that declares it — a visible control, not a right-click
+     * menu item, because it is now the <em>only</em> place this variable's name and type can be changed.
+     *
+     * <p>The pencil alone, with the words in the tooltip. It sits inside a sentence — {@code Rect area = …} —
+     * where a second labelled button competes with the statement for the reader's eye, and the glyph is the
+     * part that says what it does. Larger than the label it replaced for the same reason: it has to be a
+     * target now rather than a caption.
      */
     private Node variablesButton(CodeEditorService context) {
         if (isReadOnly()) return null;
-        Button open = new Button("✎ Variables…");
+        Button open = new Button("✎");
         open.getStyleClass().add("variables-open-button");
         open.setTooltip(new Tooltip(
                 "Rename or retype \"" + variableName + "\" — renaming here carries every use with it."));
-        open.setOnAction(e -> ActivityVariablesDialog.show(context, windowOf(context), variableName));
+        open.setOnAction(e -> EditVariableDialog.show(context, windowOf(context), variableName));
         return open;
     }
 
@@ -130,14 +134,12 @@ public class VariableDeclarationBlock extends AbstractStatementBlock {
         return LayoutComponents.createInlineListDisplay(initializer.getUINode(context), "{", "}", false);
     }
 
-    /**
-     * "Variables in this activity…" — the list view of what this method declares. Offered from a declare
-     * block because that is where you are standing when the question "what else is declared here?" comes up.
-     */
+    /** The same screen from the right-click menu, for anyone who looks for it there rather than on the block. */
     @Override
     public java.util.List<javafx.scene.control.MenuItem> blockMenuItems(CodeEditorService context) {
-        javafx.scene.control.MenuItem item = new javafx.scene.control.MenuItem("Variables in this activity…");
-        item.setOnAction(e -> ActivityVariablesDialog.show(context, windowOf(context), variableName));
+        javafx.scene.control.MenuItem item =
+                new javafx.scene.control.MenuItem("Edit \"" + variableName + "\"…");
+        item.setOnAction(e -> EditVariableDialog.show(context, windowOf(context), variableName));
         return java.util.List.of(item);
     }
 }

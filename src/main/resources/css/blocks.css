@@ -2526,42 +2526,18 @@
     -fx-opacity: 0.7;
 }
 
-/* The Variables screen (ui/app/vars/ActivityVariablesDialog): one row per declared local. */
-.variables-row {
-    -fx-background-color: -fx-control-inner-background;
-    -fx-background-radius: 5;
-    -fx-border-color: -bm-divider;
-    -fx-border-radius: 5;
-    -fx-padding: 6 8 6 8;
-}
-
-.variables-type {
-    -fx-font-weight: bold;
-    -fx-padding: 2 8 2 8;
-}
-
-.variables-delete {
-    -fx-padding: 2 7 2 7;
-    -fx-background-radius: 4;
-    -fx-opacity: 0.7;
-}
-
-.variables-delete:hover {
-    -fx-opacity: 1;
-    -fx-text-fill: -bm-danger;
-}
-
-/* Why a rename was refused, under the row it was refused on. */
+/* Why a rename was refused, under the field it was refused in (ui/app/vars/EditVariableDialog). */
 .variables-rename-error {
     -fx-text-fill: -bm-danger;
     -fx-font-size: 11px;
-    -fx-padding: 0 0 2 10;
+    -fx-padding: 0 0 2 80;
 }
 
-/* The declare block's way into that screen — the only place its name and type can now be changed. */
+/* The declare block's way into that screen — the only place its name and type can now be changed. The glyph
+   is the whole button now (the word "Variables…" is in the tooltip), so it is sized to be aimed at. */
 .variables-open-button {
-    -fx-font-size: 10px;
-    -fx-padding: 1 7 1 7;
+    -fx-font-size: 14px;
+    -fx-padding: 0 6 1 6;
     -fx-background-radius: 4;
     -fx-opacity: 0.75;
 }

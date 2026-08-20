@@ -9,6 +9,9 @@ import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.DatePicker;
+import javafx.scene.control.RadioButton;
+import javafx.scene.control.ToggleGroup;
+import javafx.scene.layout.VBox;
 import javafx.stage.Window;
 import org.eclipse.jdt.core.dom.Expression;
 import org.eclipse.jdt.core.dom.MethodInvocation;
@@ -41,46 +44,78 @@ public final class DateArgPicker {
     private static final DateTimeFormatter SHOWN =
             DateTimeFormatter.ofPattern("d MMM yyyy", Locale.getDefault());
 
+    /** What {@code LocalDate.now()} is called, on the button and on its own radio button. */
+    private static final String TODAY = "Today, whenever the bot runs";
+
     public static Node create(CodeEditorService context, ValueSlot arg) {
         Button button = new Button();
         button.getStyleClass().add("date-picker-button");
         button.setText(label(arg));
         button.setOnAction(e -> {
-            LocalDate current = currentDate(arg.node());
-            LocalDate picked = showCalendar(button.getScene() == null ? null : button.getScene().getWindow(),
-                    current == null ? LocalDate.now() : current);
-            if (picked != null) {
-                context.getCodeEditor().replaceWithRawExpression(arg.node(),
-                        "LocalDate.of(%d, %d, %d)".formatted(
-                                picked.getYear(), picked.getMonthValue(), picked.getDayOfMonth()), FQN);
-            }
+            if (arg.node() == null) return;
+            String source = showCalendar(button.getScene() == null ? null : button.getScene().getWindow(),
+                    currentDate(arg.node()), isNow(arg.node()));
+            if (source != null) context.getCodeEditor().replaceWithRawExpression(arg.node(), source, FQN);
         });
         return button;
     }
 
-    private static LocalDate showCalendar(Window owner, LocalDate current) {
+    /**
+     * The calendar, plus the choice the calendar cannot express.
+     *
+     * <p>{@code LocalDate.now()} is the value a fresh date variable is <em>seeded</em> with, and it was the one
+     * value this control could neither show nor produce: the button read back the raw
+     * {@code java.time.LocalDate.now()} source, and opening the picker could only replace it with a fixed day.
+     * "Today" is not a day on a calendar — it is a different kind of answer — so it gets a radio button of its
+     * own rather than a square nobody would recognise.
+     *
+     * @return the source to write, or null when the dialog was cancelled
+     */
+    private static String showCalendar(Window owner, LocalDate current, boolean nowSelected) {
         Dialog<ButtonType> dialog = new Dialog<>();
         ThemedWindows.apply(dialog);
         if (owner != null) dialog.initOwner(owner);
         dialog.setTitle("Date");
         dialog.setHeaderText(null);
 
-        DatePicker calendar = new DatePicker(current);
-        calendar.setShowWeekNumbers(false);
-        calendar.setPadding(new Insets(12));
+        ToggleGroup which = new ToggleGroup();
+        RadioButton today = new RadioButton(TODAY);
+        RadioButton fixed = new RadioButton("A fixed date");
+        today.setToggleGroup(which);
+        fixed.setToggleGroup(which);
+        today.setSelected(nowSelected);
+        fixed.setSelected(!nowSelected);
 
-        dialog.getDialogPane().setContent(calendar);
+        DatePicker calendar = new DatePicker(current == null ? LocalDate.now() : current);
+        calendar.setShowWeekNumbers(false);
+        calendar.disableProperty().bind(fixed.selectedProperty().not());
+        VBox.setMargin(calendar, new Insets(0, 0, 0, 22));
+
+        VBox content = new VBox(8, today, fixed, calendar);
+        content.setPadding(new Insets(12));
+        dialog.getDialogPane().setContent(content);
         dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
         if (dialog.showAndWait().orElse(ButtonType.CANCEL) != ButtonType.OK) return null;
-        return calendar.getValue();
+        if (today.isSelected()) return "LocalDate.now()";
+        LocalDate picked = calendar.getValue();
+        return picked == null ? null : "LocalDate.of(%d, %d, %d)".formatted(
+                picked.getYear(), picked.getMonthValue(), picked.getDayOfMonth());
     }
 
-    /** The date shown on the button, or the raw source when the slot holds something else (a variable, now()). */
+    /** The date shown on the button, or the raw source when the slot holds something else (a variable, a call). */
     private static String label(ValueSlot arg) {
+        if (isNow(arg.node())) return TODAY;
         LocalDate date = currentDate(arg.node());
         if (date != null) return date.format(SHOWN);
         String raw = arg.source();
         return raw.isBlank() ? "Pick a date…" : raw;
+    }
+
+    /** Whether the slot holds {@code LocalDate.now()} — however the file spells the qualifier. */
+    static boolean isNow(Expression node) {
+        return node instanceof MethodInvocation call
+                && "now".equals(call.getName().getIdentifier())
+                && call.arguments().isEmpty();
     }
 
     /**

@@ -67,7 +67,7 @@ public class BodyBlock extends AbstractStatementBlock implements BlockWithChildr
                 placeholder.setOnMouseClicked(e -> {
                     ContextMenu menu = StatementMenu.create(
                             context.getProjectAnalyzer(), getAstNode(), type -> {
-                        context.getCodeEditor().addStatement(this, type, 0);
+                        insertAndOpenIfVariable(context, placeholder, this, type, 0);
                     });
                     menu.show(placeholder, javafx.geometry.Side.BOTTOM, 0, 0);
                 });
@@ -129,9 +129,27 @@ public class BodyBlock extends AbstractStatementBlock implements BlockWithChildr
         // 3. Setup Click Insert Handler
         // This wires the hidden "+" button to the CodeEditor
         dragAndDropManager.enableSeparatorClick(separator, context.getProjectAnalyzer(), targetBody.getAstNode(), type -> {
-            context.getCodeEditor().addStatement(targetBody, type, insertionIndex);
+            insertAndOpenIfVariable(context, separator, targetBody, type, insertionIndex);
         });
 
         return separator;
+    }
+
+    /**
+     * Inserts the chosen block and — when it declares a variable — opens that variable's screen on it.
+     *
+     * <p>Choosing "Whole number" from the statement menu used to drop {@code int number2 = 0;} and stop there,
+     * leaving the two things the user actually came to decide (its name and its starting value) to be found on
+     * the block afterwards. This is the other half of that gesture. It applies to the statement menu only: a
+     * variable arriving from a drag or a recording was not chosen from a list of types, so nothing about it
+     * says the user is mid-decision.
+     */
+    private static void insertAndOpenIfVariable(CodeEditorService context, Node anchor, BodyBlock body,
+                                                com.botmaker.studio.palette.BlockType type, int index) {
+        java.util.Set<String> before =
+                com.botmaker.studio.ui.app.vars.EditVariableDialog.declaredNames(context);
+        context.getCodeEditor().addStatement(body, type, index);
+        com.botmaker.studio.ui.app.vars.EditVariableDialog.openOnCreated(context,
+                anchor.getScene() == null ? null : anchor.getScene().getWindow(), type, before);
     }
 }

@@ -361,18 +361,7 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
         return taken;
     }
 
-    /**
-     * "Variables in this activity…" from the method header — the plan's other entry point, and the one that
-     * reads as "what does this activity declare?" rather than "what else is near this block?".
-     */
-    @Override
-    public java.util.List<javafx.scene.control.MenuItem> blockMenuItems(CodeEditorService context) {
-        javafx.scene.control.MenuItem item = new javafx.scene.control.MenuItem("Variables in this activity\u2026");
-        item.setOnAction(e -> {
-            javafx.scene.Scene scene = getUINode(context).getScene();
-            com.botmaker.studio.ui.app.vars.ActivityVariablesDialog.show(
-                    context, scene == null ? null : scene.getWindow());
-        });
-        return java.util.List.of(item);
-    }
+    // No "Variables in this activity…" entry here any more: it opened a list of every local the activity
+    // declares, and that list is gone. A variable is edited from the block that declares it — the gesture that
+    // says which one. The method header could only ever offer all of them and let the user find theirs.
 }

@@ -827,7 +827,7 @@ public final class ValueEditors {
     }
 
     /** Lets an editor fill the width it is given, which is what a form column wants and a toolbar does not. */
-    static void stretch(Node node) {
+    public static void stretch(Node node) {
         if (node instanceof Control control) control.setMaxWidth(Double.MAX_VALUE);
         else if (node instanceof Region region) region.setMaxWidth(Double.MAX_VALUE);
     }

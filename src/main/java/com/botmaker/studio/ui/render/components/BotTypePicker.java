@@ -42,6 +42,14 @@ public final class BotTypePicker extends MenuButton {
         RETURN_TYPE,
         /** A method parameter: everything a variable can be declared of, so no {@code void}. */
         PARAMETER,
+        /**
+         * A local variable in the file being edited. The same set as {@link #PARAMETER} — a variable is a
+         * variable — but with no shape axis: retyping a declaration goes through
+         * {@code CodeEditor.replaceVariableType}, which writes one {@code ResolvedType} as one type node, and
+         * {@code List<Point>} is not a name that survives that trip. Offering a shape the write path cannot
+         * spell would be a control that silently does the wrong thing.
+         */
+        LOCAL_VARIABLE,
         /** A project variable: the types with a value somebody can write down. See {@link BotType#storable()}. */
         VARIABLE
     }
@@ -50,8 +58,12 @@ public final class BotTypePicker extends MenuButton {
         getStyleClass().add("bot-type-picker");
         setMaxWidth(Double.MAX_VALUE);
 
-        getItems().add(shapeMenu(purpose));
-        getItems().add(new SeparatorMenuItem());
+        // A purpose with one shape has no axis to offer: a "Shape ▸" menu holding a single ticked radio is a
+        // control that cannot be operated, and it pushes the type groups down a row for nothing.
+        if (shapes(purpose).size() > 1) {
+            getItems().add(shapeMenu(purpose));
+            getItems().add(new SeparatorMenuItem());
+        }
         for (BotType.Group group : BotType.Group.values()) {
             List<MenuItem> items = BotType.in(group).stream()
                     .filter(t -> offers(purpose, t))
@@ -74,7 +86,7 @@ public final class BotTypePicker extends MenuButton {
     private static boolean offers(Purpose purpose, BotType type) {
         return switch (purpose) {
             case RETURN_TYPE -> true;
-            case PARAMETER -> type.declarable();
+            case PARAMETER, LOCAL_VARIABLE -> type.declarable();
             case VARIABLE -> type.storable();
         };
     }
@@ -85,9 +97,11 @@ public final class BotTypePicker extends MenuButton {
      * and a method parameter has nobody to ask, so a signature's axis has only {@code T} and {@code List<T>}.
      */
     private static List<BotType.Shape> shapes(Purpose purpose) {
-        return purpose == Purpose.VARIABLE
-                ? List.of(BotType.Shape.values())
-                : List.of(BotType.Shape.ONE, BotType.Shape.ANY_OF);
+        return switch (purpose) {
+            case VARIABLE -> List.of(BotType.Shape.values());
+            case RETURN_TYPE, PARAMETER -> List.of(BotType.Shape.ONE, BotType.Shape.ANY_OF);
+            case LOCAL_VARIABLE -> List.of(BotType.Shape.ONE);
+        };
     }
 
     /**
