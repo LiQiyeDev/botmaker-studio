@@ -11,6 +11,7 @@ import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.TagCatalog;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.VariableRailModel;
+import com.botmaker.studio.state.SnapshotHistory;
 import com.botmaker.studio.ui.app.ActivityFlowDialog;
 import com.botmaker.studio.ui.app.StudioWindow;
 import com.botmaker.studio.ui.app.flow.FlowNames;
@@ -18,6 +19,10 @@ import com.botmaker.studio.ui.app.params.ParamValueWidgets.ValueEditor;
 import com.botmaker.studio.ui.render.components.BotTypePicker;
 import com.botmaker.studio.ui.render.components.TagPicklist;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
+import javafx.animation.Animation;
+import javafx.animation.KeyFrame;
+import javafx.animation.PauseTransition;
+import javafx.animation.Timeline;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -33,6 +38,7 @@ import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.ProgressIndicator;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.Separator;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
 import javafx.css.PseudoClass;
@@ -47,9 +53,11 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 import javafx.stage.Window;
+import javafx.util.Duration;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
 
 /**
@@ -77,6 +85,11 @@ import java.util.function.UnaryOperator;
  * ({@link ParamVisibility}). It is a tick box, ticked by default: a variable exists to be configured, and the
  * dropdown it replaced meant every new one was invisible in the Runner until somebody remembered the dropdown
  * was there.
+ *
+ * <h2>Nothing to save</h2>
+ *
+ * <p>Edits are written as they are made and taken back with ↶ — see {@link #buildBottomBar} for why the Save
+ * button had to go, and {@link #commitPending} for what counts as one step.
  */
 public final class ParametersDialog {
 
@@ -104,6 +117,39 @@ public final class ParametersDialog {
     private String selectedTag = VariableRailModel.ALL;
     private Stage stage;
 
+    /**
+     * Undo/redo over the variable list, in the {@linkplain SnapshotHistory#SnapshotHistory(Consumer)
+     * restore-only} form: this dialog knows both halves of every step, because it decides when one has
+     * happened (see {@link #commitPending}).
+     */
+    private final SnapshotHistory<List<ActivityVariable>> history = new SnapshotHistory<>(this::restore);
+
+    /** The list as of the last recorded step — the "before" the next one is measured against. */
+    private List<ActivityVariable> committed = List.of();
+
+    /**
+     * Typing is not an event this dialog can hear. The value widgets are twenty shapes with twenty different
+     * change signals and the note field fires per keystroke, so instead of listening, the state is compared
+     * against {@link #committed} on a slow tick: identical, nothing happened; different, that is one step.
+     * A burst of typing therefore becomes one ↶, which is what a person means by "take back what I typed".
+     */
+    private static final Duration TYPING_TICK = Duration.millis(700);
+    private Timeline typingWatch;
+
+    /**
+     * Autosave, coalesced — the same arrangement the flow editor uses, for the same reason: a write
+     * regenerates {@code Activities.java} and the registry, which is far too much work to do per keystroke.
+     */
+    private final PauseTransition autosaveDelay = new PauseTransition(Duration.millis(400));
+
+    /** What autosave has to say for itself: "Saving…", "Saved", or "Not saved" when the write was refused. */
+    private final Label savedLabel = new Label();
+
+    private boolean dirty;
+    private boolean saving;
+    private boolean closeWhenSaved;
+    private Button closeButton;
+
     public ParametersDialog(Window owner, ProjectConfig config, ActivityService activityService) {
         this.owner = owner;
         this.config = config;
@@ -130,6 +176,29 @@ public final class ParametersDialog {
         root.setBottom(new VBox(buildAddRow(), buildBottomBar()));
 
         rebuildRail();
+
+        // Wired after the list is seeded, so loading the project does not read as an edit by the user: the
+        // variables as they were opened are the state undo bottoms out at.
+        committed = List.copyOf(variables);
+        history.setOnChanged(this::markDirty);
+        autosaveDelay.setOnFinished(e -> flush());
+        typingWatch = new Timeline(new KeyFrame(TYPING_TICK, e -> commitPending("the value you typed")));
+        typingWatch.setCycleCount(Animation.INDEFINITE);
+        typingWatch.play();
+
+        // The window's own ✕ is the same door as the Close button, and it must not be the one that loses the
+        // last edit: both flush anything outstanding first.
+        stage.setOnCloseRequest(e -> {
+            if (dirty || saving || closeWhenSaved) {
+                e.consume();
+                closeRequested();
+            }
+        });
+        stage.setOnHidden(e -> {
+            typingWatch.stop();
+            autosaveDelay.stop();
+        });
+
         window.show(root);
     }
 
@@ -244,7 +313,6 @@ public final class ParametersDialog {
      */
     private void moveIntoSelected() {
         if (VariableRailModel.ALL.equals(selectedTag)) return;
-        flushAndDiscard();
         String home = ActivityVariable.GENERAL.equals(selectedTag) ? "" : selectedTag;
         List<ActivityVariable> inside = VariableRailModel.in(variables, selectedTag, catalog);
         List<ActivityVariable> outside = variables.stream().filter(v -> !inside.contains(v)).toList();
@@ -254,12 +322,15 @@ public final class ParametersDialog {
         }
         List<String> chosen = pickVariables(outside);
         if (chosen.isEmpty()) return;
-        for (String name : chosen) {
-            int at = indexOf(name);
-            if (at >= 0) variables.set(at, variables.get(at).withTag(home));
-        }
-        error("");
-        rebuildRail();
+        // One step for the batch: filing eight variables at once should be one ↶, not eight.
+        change("filing " + chosen.size() + " variables under " + selectedTag, () -> {
+            for (String name : chosen) {
+                int at = indexOf(name);
+                if (at >= 0) variables.set(at, variables.get(at).withTag(home));
+            }
+            error("");
+            rebuildRail();
+        });
     }
 
     /** A tick box per variable, in one modal. Returns the names ticked, or an empty list if cancelled. */
@@ -313,7 +384,8 @@ public final class ParametersDialog {
     private boolean fileUnder(String name, String tag) {
         ActivityVariable found = variables.stream().filter(v -> v.name().equals(name)).findFirst().orElse(null);
         if (found == null) return false;
-        edit(found.name(), current -> current.withTag(ActivityVariable.GENERAL.equals(tag) ? "" : tag));
+        edit(found.name(), "the category", current ->
+                current.withTag(ActivityVariable.GENERAL.equals(tag) ? "" : tag));
         return true;
     }
 
@@ -371,14 +443,14 @@ public final class ParametersDialog {
         });
         name.setOnAction(e -> {
             commitRename(v, name);
-            e.consume();   // otherwise Enter reaches the default Save button and closes the dialog
+            e.consume();   // Enter commits the name here; it is not also a keystroke for anything else
         });
 
         BotTypePicker type = new BotTypePicker(BotTypePicker.Purpose.VARIABLE);
         type.setChoice(v.type());
         type.setPrefWidth(180);
         type.choiceProperty().addListener((o, was, is) -> {
-            if (is != null && !is.equals(v.type())) edit(v.name(), current -> current.withType(is));
+            if (is != null && !is.equals(v.type())) edit(v.name(), "the type", current -> current.withType(is));
         });
 
         CheckBox shared = new CheckBox("Show to user");
@@ -392,12 +464,11 @@ public final class ParametersDialog {
         drop.getStyleClass().add("row-icon-button");
         drop.setTooltip(new Tooltip("Remove this variable. Any code reading it stops compiling, so check "
                 + "first — nothing here scans your source."));
-        drop.setOnAction(e -> {
-            flushAndDiscard();
+        drop.setOnAction(e -> change("removing " + v.name(), () -> {
             int at = indexOf(v.name());
             if (at >= 0) variables.remove(at);
             rebuildRail();
-        });
+        }));
 
         // The one thing on the card that starts a drag. The name field cannot be it: a TextField's own drag
         // is how text is selected, and stealing that would cost more than the shortcut is worth.
@@ -472,7 +543,8 @@ public final class ParametersDialog {
         picker.setValue(catalog.isDeclared(v.tag()) ? v.tag() : ActivityVariable.GENERAL);
         picker.setOnAction(e -> {
             String chosen = picker.getValue();
-            edit(v.name(), current -> current.withTag(ActivityVariable.GENERAL.equals(chosen) ? "" : chosen));
+            edit(v.name(), "the category", current ->
+                    current.withTag(ActivityVariable.GENERAL.equals(chosen) ? "" : chosen));
         });
         return picker;
     }
@@ -598,7 +670,7 @@ public final class ParametersDialog {
         TextField max = boundField(v.bounds().max(), "no maximum");
         Runnable commit = () -> {
             Bounds declared = new Bounds(min.getText(), max.getText());
-            if (!declared.equals(v.bounds())) edit(v.name(), current -> current.withBounds(declared));
+            if (!declared.equals(v.bounds())) edit(v.name(), "the range", current -> current.withBounds(declared));
         };
         for (TextField field : List.of(min, max)) {
             field.focusedProperty().addListener((o, was, is) -> {
@@ -641,13 +713,14 @@ public final class ParametersDialog {
                 error("'" + candidate + "' is already the name of a variable or an activity.");
                 return;
             }
-            flushAndDiscard();
-            String tag = VariableRailModel.ALL.equals(selectedTag)
-                    || ActivityVariable.GENERAL.equals(selectedTag) ? "" : selectedTag;
-            variables.add(ActivityVariable.create(candidate, type.choice()).withTag(tag));
-            error("");
-            name.clear();
-            rebuildRail();
+            change("adding " + candidate, () -> {
+                String tag = VariableRailModel.ALL.equals(selectedTag)
+                        || ActivityVariable.GENERAL.equals(selectedTag) ? "" : selectedTag;
+                variables.add(ActivityVariable.create(candidate, type.choice()).withTag(tag));
+                error("");
+                name.clear();
+                rebuildRail();
+            });
         };
         add.setOnAction(e -> addVariable.run());
         name.setOnAction(e -> {
@@ -688,12 +761,12 @@ public final class ParametersDialog {
             return;
         }
         error("");
-        edit(v.name(), current -> current.withName(candidate));
+        edit(v.name(), "the name", current -> current.withName(candidate));
     }
 
     private void replaceOptions(ActivityVariable v, List<String> options) {
         error("");
-        edit(v.name(), current -> current.withOptions(options));
+        edit(v.name(), "the choices", current -> current.withOptions(options));
     }
 
     /**
@@ -712,18 +785,66 @@ public final class ParametersDialog {
      * time onto the record they no longer describe — a retype must land on the new type's default, not on
      * whatever text the old widget still held.
      */
-    private void edit(String name, UnaryOperator<ActivityVariable> change) {
-        flushAndDiscard();
-        int at = indexOf(name);
-        if (at < 0) return;
-        variables.set(at, change.apply(variables.get(at)));
+    private void edit(String name, String what, UnaryOperator<ActivityVariable> change) {
+        change(what + " of " + name, () -> {
+            int at = indexOf(name);
+            if (at < 0) return;
+            variables.set(at, change.apply(variables.get(at)));
+            rebuildRail();
+        });
+    }
+
+    /**
+     * One recorded step: whatever was typed and not yet recorded becomes its own step first, then {@code body}
+     * runs and becomes the next one.
+     *
+     * <p>Two steps rather than one because they are two things the user did, and folding a retype into the
+     * number typed before it would make ↶ take back both. The editors are dropped between them for the reason
+     * {@link #edit} used to give: a rebuild must not flush the old type's widget onto the new type's default.
+     */
+    private void change(String label, Runnable body) {
+        commitPending("the value you typed");
+        valueEditors.clear();
+        body.run();
+        commitPending(label);
+    }
+
+    /**
+     * Records everything the list has picked up since the last step, under {@code label} — and does nothing at
+     * all when it has picked up nothing, which is what makes it safe to call on a timer.
+     *
+     * <p>{@link ActivityVariable} is a record, so "has anything changed" is list equality and needs no dirty
+     * flag per field. That is also what lets the note field and the visibility tick write straight into the
+     * list without announcing themselves: the tick notices.
+     */
+    private void commitPending(String label) {
+        flushValues();
+        List<ActivityVariable> now = List.copyOf(variables);
+        if (now.equals(committed)) return;
+        history.record(label, committed, now);
+        committed = now;
+    }
+
+    /**
+     * Puts a snapshot back: ↶ and ↷ both land here, and so nothing else may. The editors are dropped first,
+     * or the rebuild that follows would flush the widgets of the state being undone back over the one being
+     * restored.
+     */
+    private void restore(List<ActivityVariable> snapshot) {
+        valueEditors.clear();
+        variables.clear();
+        variables.addAll(snapshot);
+        committed = List.copyOf(snapshot);
         rebuildRail();
     }
 
     /**
-     * {@link #edit} without the redraw — for the fields that fire on every keystroke or a click, and would
-     * otherwise rebuild the column out from under the cursor. It does not flush, so it must not be used for
-     * anything the value widgets are also writing.
+     * {@link #edit} without the redraw <em>and</em> without a step of its own — for the fields that fire on
+     * every keystroke or a click, and would otherwise rebuild the column out from under the cursor. It does
+     * not flush, so it must not be used for anything the value widgets are also writing.
+     *
+     * <p>Nothing is lost by not recording here: {@link #commitPending} runs on a timer and picks the change
+     * up on its next tick, which is what turns a typed note into one step instead of one per letter.
      */
     private void editQuietly(String name, UnaryOperator<ActivityVariable> change) {
         int at = indexOf(name);
@@ -737,12 +858,6 @@ public final class ParametersDialog {
             if (variables.get(i).name().equals(name)) return i;
         }
         return -1;
-    }
-
-    /** Writes the on-screen widgets back, then forgets them — see {@link #edit}. */
-    private void flushAndDiscard() {
-        flushValues();
-        valueEditors.clear();
     }
 
     /** Writes the on-screen value widgets back into the variables they were built from. */
@@ -762,29 +877,82 @@ public final class ParametersDialog {
 
     // --- saving -------------------------------------------------------------------------------------------
 
+    /**
+     * No Save button. Every edit is written as it is made, and the two arrows are what makes that bearable.
+     *
+     * <p>The Save button it replaces was a promise the dialog could not keep. Half the edits on a card —
+     * renaming, retyping, changing the category, deleting — already rebuilt the column and the rail the
+     * moment they happened, so "Cancel" took back the value you typed and none of the rest. With autosave
+     * there is no "close without saving" to retreat to, so every mutation has to be reversible in the editor
+     * itself; ↶ and ↷ are that, disabled when there is nothing to take back and captioned with what it would
+     * be, the same arrangement as the flow editor.
+     */
     private Node buildBottomBar() {
         progress.setVisible(false);
         progress.setPrefSize(20, 20);
         statusLabel.getStyleClass().add("dialog-error-text");
+        savedLabel.getStyleClass().add("dialog-hint-text");
 
-        Button close = new Button("Cancel");
-        close.setOnAction(e -> stage.close());
-        Button save = new Button("Save");
-        save.setDefaultButton(true);
-        save.getStyleClass().add("primary-button");
-        save.setOnAction(e -> save(save, close));
+        closeButton = new Button("Close");
+        closeButton.getStyleClass().add("primary-button");
+        closeButton.setOnAction(e -> closeRequested());
 
         HBox spacer = new HBox();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox bar = new HBox(10, progress, statusLabel, spacer, close, save);
+        HBox bar = new HBox(10, undoButton(), redoButton(),
+                new Separator(javafx.geometry.Orientation.VERTICAL),
+                progress, savedLabel, statusLabel, spacer, closeButton);
         bar.setAlignment(Pos.CENTER_LEFT);
         bar.setPadding(new Insets(10));
         return bar;
     }
 
-    private void save(Button save, Button close) {
-        error("");
-        flushValues();
+    private Button undoButton() {
+        Button undo = new Button("↶");
+        undo.disableProperty().bind(history.canUndoProperty().not());
+        undo.tooltipProperty().bind(javafx.beans.binding.Bindings.createObjectBinding(
+                () -> new Tooltip(labelled("Undo", history.undoLabelProperty().get())),
+                history.undoLabelProperty()));
+        // What is on screen but not yet recorded is part of what ↶ takes back, so it becomes a step first —
+        // otherwise the number you just typed would survive the undo of the edit before it.
+        undo.setOnAction(e -> {
+            commitPending("the value you typed");
+            history.undo();
+        });
+        return undo;
+    }
+
+    private Button redoButton() {
+        Button redo = new Button("↷");
+        redo.disableProperty().bind(history.canRedoProperty().not());
+        redo.tooltipProperty().bind(javafx.beans.binding.Bindings.createObjectBinding(
+                () -> new Tooltip(labelled("Redo", history.redoLabelProperty().get())),
+                history.redoLabelProperty()));
+        redo.setOnAction(e -> history.redo());
+        return redo;
+    }
+
+    private static String labelled(String verb, String step) {
+        return step == null || step.isBlank() ? verb + " — nothing to " + verb.toLowerCase() : verb + " " + step;
+    }
+
+    /** Notes that something changed and asks for a save — coalesced, so a burst of typing writes once. */
+    private void markDirty() {
+        dirty = true;
+        savedLabel.setText("Saving…");
+        autosaveDelay.playFromStart();
+    }
+
+    /**
+     * Writes the variables, if there is anything to write and nothing already in flight.
+     *
+     * <p>Serialised rather than parallel, for the reason {@code ActivityFlowDialog.flush} gives: an update
+     * rewrites {@code activities.json} and regenerates two source files, and two of those overlapping is a
+     * project in an order nobody chose.
+     */
+    private void flush() {
+        if (!dirty || saving) return;
+        commitPending("the value you typed");
 
         // withVariables on what is current, never a rebuilt config: this dialog owns one field of the model
         // and must hand back every other one exactly as it found it.
@@ -792,22 +960,51 @@ public final class ParametersDialog {
 
         String problem = ActivityFlowDialog.validate(updated);
         if (problem != null) {
+            // Refused, not failed. Stay dirty so the fix saves it, and let go of any pending close: closing
+            // now would leave the edit only in the window.
             error(problem);
+            savedLabel.setText("Not saved");
+            releaseClose();
             return;
         }
-
-        setBusy(save, close, true);
+        error("");
+        dirty = false;
+        saving = true;
+        progress.setVisible(true);
+        savedLabel.setText("Saving…");
         activityService.update(updated).whenComplete((ok, err) -> Platform.runLater(() -> {
-            setBusy(save, close, false);
-            if (err != null) error(rootMessage(err));
-            else stage.close();
+            saving = false;
+            progress.setVisible(false);
+            if (err != null) {
+                dirty = true;   // the next edit, or Close, tries again
+                error(rootMessage(err));
+                savedLabel.setText("Not saved");
+                releaseClose();
+                return;
+            }
+            savedLabel.setText("Saved");
+            if (dirty) flush();
+            else if (closeWhenSaved) stage.close();
         }));
     }
 
-    private void setBusy(Button save, Button close, boolean busy) {
-        progress.setVisible(busy);
-        save.setDisable(busy);
-        close.setDisable(busy);
+    /** Close was pressed: write anything outstanding first, then close — never the other way round. */
+    private void closeRequested() {
+        autosaveDelay.stop();
+        commitPending("the value you typed");
+        if (!dirty && !saving) {
+            stage.close();
+            return;
+        }
+        closeWhenSaved = true;
+        closeButton.setDisable(true);
+        flush();
+    }
+
+    /** Gives the Close button back after a save that didn't land, so the window is never sealed shut. */
+    private void releaseClose() {
+        closeWhenSaved = false;
+        closeButton.setDisable(false);
     }
 
     private void error(String message) {

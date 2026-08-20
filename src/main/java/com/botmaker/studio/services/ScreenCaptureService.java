@@ -283,9 +283,9 @@ public final class ScreenCaptureService {
     }
 
     /**
-     * Interactive rubber-band selection returning the chosen region as {@code [x, y, width, height]} in
-     * logical desktop coordinates (the coordinate space of the SDK's {@code Rect}). Does nothing if the user
-     * cancels (Esc / empty selection) or capture is unavailable.
+     * Interactive rubber-band selection returning the chosen region as {@code [x, y, width, height]} in the
+     * <b>capture source's</b> own pixel space — see {@link #sourcePoint} for why that, and not the desktop's.
+     * Does nothing if the user cancels (Esc / empty selection) or capture is unavailable.
      */
     public void selectRegion(Window owner, Consumer<int[]> onSelected) {
         grabAsync(owner, shot -> showRegionOverlay(owner, shot, onSelected));
@@ -293,8 +293,9 @@ public final class ScreenCaptureService {
 
     /**
      * Interactive point pick: an overlay with a magnified close-up that follows the cursor and a live
-     * coordinate readout; left-click sets the point. Returns {@code [x, y]} in logical desktop
-     * coordinates. Does nothing if the user cancels (Esc) or capture is unavailable.
+     * coordinate readout; left-click sets the point. Returns {@code [x, y]} in the <b>capture source's</b> own
+     * pixel space — see {@link #sourcePoint}. Does nothing if the user cancels (Esc) or capture is
+     * unavailable.
      */
     public void pickPoint(Window owner, Consumer<int[]> onPicked) {
         grabAsync(owner, shot -> showPointOverlay(owner, shot, false,
@@ -749,10 +750,10 @@ public final class ScreenCaptureService {
     }
 
     /**
-     * Rubber-band overlay that reports the selected region as logical desktop coordinates. Mirrors
-     * {@link #showOverlay} but, instead of cropping the image, maps the selection rectangle (pane-logical
-     * pixels) to the screen's logical origin: {@code global = target.min + selection}. Correct at scale 1.0;
-     * mixed-DPI layouts may be slightly off (same caveat as the image crop path).
+     * Rubber-band overlay that reports the selected region in the capture source's pixels. Mirrors
+     * {@link #showOverlay} but, instead of cropping the image, maps the selection rectangle through the same
+     * pane-to-image scale the crop uses — see {@link #sourcePoint} for why the source's origin, and not the
+     * desktop's, is what a picked coordinate is relative to.
      */
     private void showRegionOverlay(Window owner, ScreenShot shot, Consumer<int[]> onSelected) {
         BufferedImage screenshot = shot.image();
@@ -788,13 +789,7 @@ public final class ScreenCaptureService {
         pane.setOnMouseReleased(e -> {
             stage.close();
             if (selection.getWidth() < 3 || selection.getHeight() < 3) return;
-            double ox = shot.bounds().getMinX();
-            double oy = shot.bounds().getMinY();
-            onSelected.accept(new int[]{
-                    (int) Math.round(ox + selection.getX()),
-                    (int) Math.round(oy + selection.getY()),
-                    (int) Math.round(selection.getWidth()),
-                    (int) Math.round(selection.getHeight())});
+            onSelected.accept(sourceRect(shot, pane, selection));
         });
 
         Scene scene = new Scene(pane);
@@ -861,9 +856,6 @@ public final class ScreenCaptureService {
         if (showColor) readout.setGraphic(swatch);
         pane.getChildren().addAll(lens, lensBorder, crosshairOutline, crosshair, readout);
 
-        double ox = shot.bounds().getMinX();
-        double oy = shot.bounds().getMinY();
-
         Stage stage = overlayStage(owner, shot.bounds(), shot.fullScreen(), showColor
                 ? "Move over the colour you want and click to take it. Scroll to zoom. Press Esc to cancel."
                 : "Move to a spot and click to set the point. Scroll to zoom. Press Esc to cancel.");
@@ -905,7 +897,10 @@ public final class ScreenCaptureService {
                 readout.setText("#%02X%02X%02X".formatted(c.getRed(), c.getGreen(), c.getBlue()));
                 swatch.setFill(Color.rgb(c.getRed(), c.getGreen(), c.getBlue()));
             } else {
-                readout.setText((int) Math.round(ox + mx) + ", " + (int) Math.round(oy + my));
+                // The number the pick will report, not the desktop one — the readout is a preview of the
+                // value, and a readout that said something else was how the offset went unnoticed.
+                int[] under = sourcePoint(shot, pane, mx, my);
+                readout.setText(under[0] + ", " + under[1]);
             }
             readout.relocate(lx, ly + lensSize + 2);
             lens.setVisible(true);
@@ -929,8 +924,8 @@ public final class ScreenCaptureService {
         pane.setOnMouseClicked(e -> {
             if (e.getButton() != javafx.scene.input.MouseButton.PRIMARY) return;
             stage.close();
-            onPicked.accept(new ScreenPick((int) Math.round(ox + e.getX()), (int) Math.round(oy + e.getY()),
-                    pixelAt(screenshot, pane, e.getX(), e.getY())));
+            int[] picked = sourcePoint(shot, pane, e.getX(), e.getY());
+            onPicked.accept(new ScreenPick(picked[0], picked[1], pixelAt(screenshot, pane, e.getX(), e.getY())));
         });
 
         Scene scene = new Scene(pane);
@@ -944,6 +939,59 @@ public final class ScreenCaptureService {
 
     private static double clamp(double v, double min, double max) {
         return Math.max(min, Math.min(v, max));
+    }
+
+    // =========================================================================
+    // What a pick reports: the capture source's own pixel space, never the desktop's
+    // =========================================================================
+
+    /**
+     * A point on an overlay, as a coordinate <b>inside the frame that was captured</b> — the top-left of the
+     * chosen screen, window or virtual desktop being {@code 0,0}.
+     *
+     * <p><b>This is the fix for a point picked on the second monitor.</b> Every pick used to add
+     * {@code shot.bounds().getMin*()}, the source's position on the desktop, and hand back a desktop-absolute
+     * number. But a coordinate leaves this dialog to be read by a <em>bot</em>, and a bot never sees the
+     * desktop: it reads one capture source and works in that source's space, which is the contract
+     * {@code docs/display-pipeline.md} §7 states for the pilot and §6 for the bot's own lossless read. A point
+     * picked on a screen whose origin is {@code 1920,0} was therefore a whole monitor to the right of where it
+     * was clicked, the moment anything used it.
+     *
+     * <p>The same overlay already proved the point: an {@link PickStep.ImageStep} crop is cut with
+     * {@link #crop}, in source pixels, so within one "Pick all" pass the template was source-relative while
+     * the {@code Point} beside it was desktop-absolute. They cannot both have been right.
+     *
+     * <p>Whole-desktop targets are unaffected in practice — their origin is the virtual desktop's, normally
+     * {@code 0,0} — so a bot driving the real desktop keeps the numbers it had.
+     *
+     * <p>Scaled through the image rather than taken as logical pixels, for the same reason {@link #crop} is:
+     * on a HiDPI screen the grab is in device pixels and the overlay is laid out in logical ones, and it is
+     * the grab a template is matched against.
+     */
+    private static int[] sourcePoint(ScreenShot shot, Pane pane, double x, double y) {
+        return new int[]{
+                (int) Math.round(x * scaleX(shot, pane)),
+                (int) Math.round(y * scaleY(shot, pane))};
+    }
+
+    /** A selection rectangle in the same space {@link #sourcePoint} reports — {@code [x, y, w, h]}. */
+    private static int[] sourceRect(ScreenShot shot, Pane pane, Rectangle selection) {
+        double sx = scaleX(shot, pane);
+        double sy = scaleY(shot, pane);
+        return new int[]{
+                (int) Math.round(selection.getX() * sx),
+                (int) Math.round(selection.getY() * sy),
+                (int) Math.round(selection.getWidth() * sx),
+                (int) Math.round(selection.getHeight() * sy)};
+    }
+
+    /** Source pixels per pane pixel; 1.0 before the pane has been laid out, which is the honest fallback. */
+    private static double scaleX(ScreenShot shot, Pane pane) {
+        return pane.getWidth() <= 0 ? 1 : shot.image().getWidth() / pane.getWidth();
+    }
+
+    private static double scaleY(ScreenShot shot, Pane pane) {
+        return pane.getHeight() <= 0 ? 1 : shot.image().getHeight() / pane.getHeight();
     }
 
     /**
@@ -966,10 +1014,10 @@ public final class ScreenCaptureService {
     public sealed interface PickStep {
         String label();
 
-        /** A {@code Rect} region → {@code [x, y, w, h]} absolute logical coordinates. */
+        /** A {@code Rect} region → {@code [x, y, w, h]} in the capture source's pixels ({@link #sourcePoint}). */
         record RegionStep(String label, Consumer<int[]> onResult) implements PickStep {}
 
-        /** A {@code Point} → {@code [x, y]} absolute logical coordinates. */
+        /** A {@code Point} → {@code [x, y]} in the capture source's pixels ({@link #sourcePoint}). */
         record PointStep(String label, Consumer<int[]> onResult) implements PickStep {}
 
         /** An {@code ImageTemplate} → the crop and the frame it came from (caller names + saves it). */
@@ -1015,7 +1063,6 @@ public final class ScreenCaptureService {
         private final ScreenShot shot;
         private final List<PickStep> steps;
         private final Runnable onDone;
-        private final double ox, oy;
 
         private final Stage stage;
         private final Pane pane;
@@ -1034,8 +1081,6 @@ public final class ScreenCaptureService {
             this.shot = shot;
             this.steps = steps;
             this.onDone = onDone;
-            this.ox = shot.bounds().getMinX();
-            this.oy = shot.bounds().getMinY();
             // Assigned before the Quit/Esc handlers below capture it (a blank final field read inside a
             // lambda must be definitely assigned at the point the lambda is created).
             this.stage = overlayStage(owner, shot.bounds(), shot.fullScreen(), null);
@@ -1137,7 +1182,8 @@ public final class ScreenCaptureService {
                 if (ly + lensSize > pane.getHeight()) ly = e.getY() - lensSize - 16;
                 lens.relocate(lx, ly);
                 lensBorder.relocate(lx, ly);
-                readout.setText((int) Math.round(ox + e.getX()) + ", " + (int) Math.round(oy + e.getY()));
+                int[] over = sourcePoint(shot, pane, e.getX(), e.getY());
+                readout.setText(over[0] + ", " + over[1]);
                 readout.relocate(lx, ly + lensSize + 2);
                 lens.setVisible(true); lensBorder.setVisible(true); readout.setVisible(true);
             });
@@ -1145,7 +1191,7 @@ public final class ScreenCaptureService {
                 if (e.getButton() != javafx.scene.input.MouseButton.PRIMARY || e.getY() < SESSION_HEADER_H) return;
                 PickStep step = steps.get(index);
                 if (step instanceof PickStep.PointStep ps) {
-                    ps.onResult().accept(new int[]{(int) Math.round(ox + e.getX()), (int) Math.round(oy + e.getY())});
+                    ps.onResult().accept(sourcePoint(shot, pane, e.getX(), e.getY()));
                 }
                 pane.setOnMouseClicked(null);
                 activate(index + 1);
@@ -1172,11 +1218,7 @@ public final class ScreenCaptureService {
                 if (!selection.isVisible() || selection.getWidth() < 3 || selection.getHeight() < 3) return;
                 PickStep step = steps.get(index);
                 if (step instanceof PickStep.RegionStep rs) {
-                    rs.onResult().accept(new int[]{
-                            (int) Math.round(ox + selection.getX()),
-                            (int) Math.round(oy + selection.getY()),
-                            (int) Math.round(selection.getWidth()),
-                            (int) Math.round(selection.getHeight())});
+                    rs.onResult().accept(sourceRect(shot, pane, selection));
                 } else if (step instanceof PickStep.ImageStep is) {
                     BufferedImage cropped = crop(shot.image(), pane, selection);
                     if (cropped != null) {

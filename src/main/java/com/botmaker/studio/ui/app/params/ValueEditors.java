@@ -11,6 +11,9 @@ import com.botmaker.studio.ui.render.components.DurationFields;
 import com.botmaker.studio.ui.render.components.TemplateGallery;
 import com.botmaker.studio.ui.render.components.TemplateGalleryDialog;
 import javafx.application.Platform;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
+import javafx.collections.transformation.FilteredList;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
@@ -23,6 +26,7 @@ import javafx.scene.control.Label;
 import javafx.scene.control.Spinner;
 import javafx.scene.control.SpinnerValueFactory;
 import javafx.scene.control.TextField;
+import javafx.scene.control.TextFormatter;
 import javafx.scene.control.Toggle;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
@@ -45,8 +49,10 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.function.Supplier;
+import java.util.regex.Pattern;
 
 /**
  * One editor per {@link BotType}, built from a wire value and read back as a wire value.
@@ -113,8 +119,8 @@ public final class ValueEditors {
                 box.setSelected(Boolean.parseBoolean(value));
                 yield new Editor(box, () -> Boolean.toString(box.isSelected()));
             }
-            case WHOLE_NUMBER -> number(value, ctx.bounds(), true);
-            case DECIMAL_NUMBER -> number(value, ctx.bounds(), false);
+            case WHOLE_NUMBER -> number(value, ctx.bounds());
+            case DECIMAL_NUMBER -> decimal(value, ctx.bounds());
             case DURATION -> {
                 // The shared four-field control (ui.render.components.DurationFields) — the same one the
                 // block editor's wait picker opens, so a duration means the same thing on both sides.
@@ -145,14 +151,7 @@ public final class ValueEditors {
                 MouseDiagram diagram = new MouseDiagram(value);
                 yield new Editor(diagram, diagram::wire);
             }
-            case KEY -> {
-                // A hundred key names is a list, not a form: the one enum that keeps a dropdown, and it is
-                // editable so the name can be typed rather than scrolled to.
-                ComboBox<String> box = new ComboBox<>();
-                box.getItems().setAll(VariableWire.effectiveOptions(BotType.KEY, List.of()));
-                box.setValue(box.getItems().contains(value) ? value : null);
-                yield new Editor(box, () -> box.getValue() == null ? "" : box.getValue());
-            }
+            case KEY -> keySearch(VariableWire.effectiveOptions(BotType.KEY, List.of()), value);
             case IMAGE_TEMPLATE -> {
                 TemplateChip chip = new TemplateChip(value, ctx.project());
                 yield new Editor(chip, chip::wire);
@@ -229,13 +228,18 @@ public final class ValueEditors {
         };
     }
 
-    /** The file behind a template name, or null when the project has no such template any more. */
+    /**
+     * The file behind a template name, or null when the project has no such template any more.
+     *
+     * <p>Through {@link ImageTemplateLibrary#fileForName}, which is where the images directory lives. It used
+     * to go through {@code pathForName} — the <em>project-relative</em> string that gets stored — and hand
+     * that to {@code Path.of}, so the lookup resolved against Studio's working directory, found nothing, and
+     * every template drew as a bare name with no picture beside it.
+     */
     private static Path templateFile(ProjectConfig project, String name) {
         if (project == null || name.isBlank()) return null;
         try {
-            String path = ImageTemplateLibrary.pathForName(project, name);
-            if (path == null || path.isBlank()) return null;
-            Path file = Path.of(path);
+            Path file = ImageTemplateLibrary.fileForName(project, name);
             return Files.isRegularFile(file) ? file : null;
         } catch (RuntimeException e) {
             return null;
@@ -245,43 +249,138 @@ public final class ValueEditors {
     // --- numbers --------------------------------------------------------------------------------------------
 
     /**
-     * A number as a {@link Spinner}, always — with whichever of the two bounds was declared, and the type's
-     * own limit standing in for the other.
+     * A <em>whole</em> number as a {@link Spinner}, with whichever of the two bounds was declared and the
+     * type's own limit standing in for the other.
      *
      * <p>Both ends being independent is the fix: "at most 10, no minimum" is a sentence a person says, and it
      * used to produce a bare text field because the old branch asked for a complete range before it would
-     * show a spinner at all. There is no step to declare — a whole number steps by one, and a decimal steps
-     * by a tenth, which is fine as a nudge and was never the right thing to persist per variable.
+     * show a spinner at all. There is no step to declare: one is what a whole number steps by, and it is the
+     * truth rather than a guess — which is precisely why a decimal is {@link #decimal a field instead}.
+     *
      */
-    private static Editor number(String wire, Bounds bounds, boolean whole) {
-        double min = number(bounds.min(), whole ? Integer.MIN_VALUE : -Double.MAX_VALUE);
-        double max = number(bounds.max(), whole ? Integer.MAX_VALUE : Double.MAX_VALUE);
+    private static Editor number(String wire, Bounds bounds) {
+        double min = number(bounds.min(), Integer.MIN_VALUE);
+        double max = number(bounds.max(), Integer.MAX_VALUE);
         if (max < min) max = min;
         double current = Math.max(min, Math.min(max, number(wire, Math.max(min, Math.min(max, 0)))));
 
         Spinner<Double> spinner = new Spinner<>();
-        spinner.setValueFactory(
-                new SpinnerValueFactory.DoubleSpinnerValueFactory(min, max, current, whole ? 1 : 0.1));
+        spinner.setValueFactory(new SpinnerValueFactory.DoubleSpinnerValueFactory(min, max, current, 1));
         spinner.setEditable(true);
-        if (whole) {
-            // The factory is a double one so both number types share a widget; whole numbers still have to
-            // read as whole numbers, or a bounded int shows "3.0" in its own editor.
-            double seed = current;
-            spinner.getValueFactory().setConverter(new javafx.util.StringConverter<>() {
-                @Override public String toString(Double v) {
-                    return v == null ? "" : Long.toString(Math.round(v));
-                }
+        // The factory is a double one because the range arithmetic above is; a whole number still has to
+        // read as a whole number, or a bounded int shows "3.0" in its own editor.
+        double seed = current;
+        spinner.getValueFactory().setConverter(new javafx.util.StringConverter<>() {
+            @Override public String toString(Double v) {
+                return v == null ? "" : Long.toString(Math.round(v));
+            }
 
-                @Override public Double fromString(String t) {
-                    return number(t, seed);
-                }
-            });
-            spinner.getEditor().setText(Long.toString(Math.round(current)));
-        } else {
-            spinner.getEditor().setText(trimZero(current));
-        }
+            @Override public Double fromString(String t) {
+                return number(t, seed);
+            }
+        });
+        spinner.getEditor().setText(Long.toString(Math.round(current)));
         if (!bounds.isEmpty()) spinner.setTooltip(new Tooltip(rangeText(bounds)));
         return new Editor(spinner, () -> text(spinner.getEditor()));
+    }
+
+    /**
+     * A decimal as a plain field — deliberately <em>not</em> a spinner.
+     *
+     * <p>A decimal has no natural step. A tenth is right for a threshold, wrong for a scale factor and absurd
+     * for a delay in seconds, and arrows on the control promise there is one. Worse, the spinner's editor
+     * committed through a locale-aware converter, so on a French system the {@code 1.5} that was typed came
+     * back as {@code 1} — the reported "decimals are refused". This field is the wire format and nothing else:
+     * it accepts an optional sign, digits, and one separator, and reads back with the separator normalised to
+     * a dot, because {@code 1,5} is what a French keyboard produces and {@code 1.5} is what the generated
+     * source must say.
+     *
+     * <p>The declared range is a tooltip, not a clamp, for the reason the class javadoc gives: reading is
+     * total, and {@link VariableWire} pulls the value into range downstream where a limit can be tightened
+     * afterwards without sealing a dialog shut.
+     */
+    private static Editor decimal(String wire, Bounds bounds) {
+        TextField field = new TextField(wire == null ? "" : wire.trim());
+        field.setPromptText("0.0");
+        // A filter rather than a validator: the character that cannot be part of a number never arrives, so
+        // there is no state in which the field holds something it has to refuse on the way out.
+        field.setTextFormatter(new TextFormatter<>(change ->
+                isDecimalSoFar(change.getControlNewText()) ? change : null));
+        if (!bounds.isEmpty()) field.setTooltip(new Tooltip(rangeText(bounds)));
+        return new Editor(field, () -> decimalWire(text(field)));
+    }
+
+    /** Everything a decimal can look like <em>while being typed</em>, including the empty and half-typed forms. */
+    private static final Pattern DECIMAL_SO_FAR = Pattern.compile("[+-]?\\d*([.,]\\d*)?");
+
+    /** Whether {@code text} could still become a decimal — a lone {@code -}, a trailing {@code .}, and empty all can. */
+    static boolean isDecimalSoFar(String text) {
+        return DECIMAL_SO_FAR.matcher(text == null ? "" : text).matches();
+    }
+
+    /**
+     * What a decimal field stores: the separator as a dot, whatever the keyboard produced. A French keyboard's
+     * numeric pad types {@code ,} and the generated source has to say {@code 1.5}.
+     */
+    static String decimalWire(String typed) {
+        return typed == null ? "" : typed.trim().replace(',', '.');
+    }
+
+    // --- keys -----------------------------------------------------------------------------------------------
+
+    /**
+     * The one enum that keeps a dropdown, because a hundred key names is a list rather than a form — and the
+     * dropdown you can type into, which is what it always claimed to be. The old comment said the box was
+     * editable so a name could be typed; the code never called {@code setEditable}, so the only way to reach
+     * {@code VK_SEMICOLON} was to scroll past ninety of its neighbours.
+     *
+     * <p>The list narrows on a {@link FilteredList} rather than by refilling the items, because refilling
+     * makes the ComboBox re-derive its editor text from the selection and eats the letters as they are typed.
+     * The predicate always keeps the current selection visible for the same reason: an item filtered out from
+     * under the selection clears it, and a cleared selection blanks the field.
+     *
+     * <p>Reading back prefers what was <em>typed</em> when it names a key exactly (case-insensitively, so
+     * "esc" finds {@code ESCAPE}); anything else falls back to the last item actually chosen, and a name that
+     * matches nothing reads as blank rather than as itself — {@link VariableWire} is the authority on what a
+     * key may be, and handing it half a name to normalise is how a typo became a stored value.
+     */
+    private static Editor keySearch(List<String> names, String value) {
+        ObservableList<String> all = FXCollections.observableArrayList(names);
+        FilteredList<String> shown = new FilteredList<>(all, key -> true);
+
+        ComboBox<String> box = new ComboBox<>();
+        box.setItems(shown);
+        box.setEditable(true);
+        box.setVisibleRowCount(12);
+        box.setPromptText("Type to search…");
+        if (names.contains(value)) box.setValue(value);
+
+        box.getEditor().textProperty().addListener((o, was, is) -> {
+            String needle = is == null ? "" : is.trim().toUpperCase(Locale.ROOT);
+            String chosen = box.getValue();
+            shown.setPredicate(key -> needle.isEmpty()
+                    || key.toUpperCase(Locale.ROOT).contains(needle)
+                    || key.equals(chosen));
+            // Only while the user is actually narrowing: showing the popup on the programmatic text change
+            // that follows a pick would reopen the list the pick just closed.
+            if (!needle.isEmpty() && !needle.equalsIgnoreCase(chosen) && !box.isShowing()) box.show();
+        });
+
+        return new Editor(box, () -> keyWire(names, text(box.getEditor()), box.getValue()));
+    }
+
+    /**
+     * What a key box stores: the constant {@code typed} names, else the one last picked, else nothing.
+     *
+     * <p>Nothing rather than the text itself, because a half-typed name is not a key and {@link VariableWire}
+     * is the authority on what may be one — handing it {@code "esca"} to normalise is how a typo became a
+     * stored value.
+     */
+    static String keyWire(List<String> names, String typed, String chosen) {
+        for (String key : names) {
+            if (key.equalsIgnoreCase(typed)) return key;
+        }
+        return chosen == null ? "" : chosen;
     }
 
     /** "at least 1", "at most 10", "1 to 10" — the declared range as the sentence it is. */
@@ -757,16 +856,9 @@ public final class ValueEditors {
          * thumbnail, which is the honest reading of "this template was deleted".
          */
         private Image preview() {
-            if (project == null || name.isBlank()) return null;
-            try {
-                String path = ImageTemplateLibrary.pathForName(project, name);
-                if (path == null || path.isBlank()) return null;
-                Path file = Path.of(path);
-                if (!Files.isRegularFile(file)) return null;
-                return new Image(file.toUri().toString(), THUMB * 2, THUMB * 2, true, true);
-            } catch (RuntimeException e) {
-                return null;
-            }
+            Path file = templateFile(project, name);
+            if (file == null) return null;
+            return new Image(file.toUri().toString(), THUMB * 2, THUMB * 2, true, true);
         }
     }
 

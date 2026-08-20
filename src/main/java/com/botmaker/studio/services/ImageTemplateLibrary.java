@@ -179,9 +179,21 @@ public final class ImageTemplateLibrary {
                 .toString().replace('\\', '/');
     }
 
-    /** The path string for a template named {@code baseName} (without extension). */
+    /**
+     * The <b>project-root-relative</b> path string for a template named {@code baseName} (without extension) —
+     * what gets <em>stored</em>, in a bot's source and in a variable's wire value, so a project stays portable.
+     *
+     * <p>It is not a path you can open. Two callers did anyway, handing it to {@code Path.of} and resolving it
+     * against whatever directory Studio happened to be started from, which is why a template's thumbnail was
+     * missing everywhere outside the gallery. Use {@link #fileForName} to open one.
+     */
     public static String pathForName(ProjectConfig config, String baseName) {
         return pathFor(config, config.imagesRoot().resolve(baseName + ".png"));
+    }
+
+    /** The template PNG named {@code baseName} as a file you can actually read — absolute, may not exist. */
+    public static Path fileForName(ProjectConfig config, String baseName) {
+        return config.imagesRoot().resolve(baseName + ".png");
     }
 
     /** Base name (no extension) of a template file, used as its display label. */
