@@ -3,6 +3,7 @@ package com.botmaker.studio.parser;
 import com.botmaker.studio.TestSupport;
 import com.botmaker.studio.palette.BotType;
 import com.botmaker.studio.palette.FunctionDraft;
+import com.botmaker.studio.palette.SignatureType;
 import com.botmaker.studio.parser.helpers.MethodSignatures;
 import com.botmaker.studio.parser.helpers.SourceParser;
 import com.botmaker.studio.parser.refactor.MethodReferences;
@@ -23,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -422,5 +424,96 @@ class MethodMigrationTest {
 
         assertFalse(found.isRefusal(), "a different class name is decidable, not doubtful");
         assertTrue(found.calls().isEmpty(), "nothing builds a Bot here");
+    }
+
+    // --- the return at the end of the body -----------------------------------------------------------------
+    //
+    // The other half of a changed result type: the declaration and the body have to agree, and the user is told
+    // which of the two is about to move. The write path does what returnFate says here — see MethodHandler —
+    // so these pin the decision itself rather than the rewrite that follows it.
+
+    /** The one method of {@code source}, which these fixtures each declare exactly one of. */
+    private static MethodDeclaration onlyMethodOf(String source) {
+        TypeDeclaration type = (TypeDeclaration) SourceParser.parse(source).types().getFirst();
+        return type.getMethods()[0];
+    }
+
+    private static String classAround(String method) {
+        return "package test;\n\npublic class Subject {\n" + method + "\n}\n";
+    }
+
+    private static SignatureMigration.ReturnFate fateOf(String method, BotType now) {
+        MethodDeclaration declaration = onlyMethodOf(classAround(method));
+        FunctionDraft before = MethodSignatures.draftOf(declaration).orElseThrow();
+        return SignatureMigration.returnFate(declaration, before.returnType(), SignatureType.of(now));
+    }
+
+    @Test
+    void givingNothingBackTakesTheTrailingReturnWithIt() {
+        assertEquals(SignatureMigration.ReturnFate.REMOVED,
+                fateOf("    public int size() {\n        return 3;\n    }", BotType.NOTHING));
+    }
+
+    @Test
+    void aFunctionThatStartsGivingSomethingBackGainsAReturn() {
+        assertEquals(SignatureMigration.ReturnFate.ADDED,
+                fateOf("    public void go() {\n        int x = 1;\n    }", BotType.TEXT));
+    }
+
+    /**
+     * The case the old rule refused to touch: a value the user wrote themselves, which the new type cannot
+     * hold. Leaving it is not "leaving the user's work alone", it is leaving a file that does not compile.
+     */
+    @Test
+    void aHandWrittenReturnValueThatNoLongerFitsIsReplaced() {
+        assertEquals(SignatureMigration.ReturnFate.REPLACED,
+                fateOf("    public int size() {\n        return 3;\n    }", BotType.TEXT));
+    }
+
+    /** And the other side of it: a value that still fits is still the user's, and stays. */
+    @Test
+    void aReturnValueThatStillFitsIsLeftAsWritten() {
+        assertEquals(SignatureMigration.ReturnFate.UNCHANGED,
+                fateOf("    public int size() {\n        return 3;\n    }", BotType.DECIMAL_NUMBER));
+    }
+
+    /** Read off the source with no bindings, so anything it cannot judge is kept — doubt favours the user. */
+    @Test
+    void aReturnValueTheEditorCannotJudgeIsKept() {
+        assertEquals(SignatureMigration.ReturnFate.UNCHANGED,
+                fateOf("    public int size() {\n        return count();\n    }", BotType.TEXT));
+    }
+
+    /** An early {@code return} inside an {@code if} is flow the user chose; only the last one is the signature's. */
+    @Test
+    void onlyTheLastReturnIsTheSignaturesBusiness() {
+        MethodDeclaration declaration = onlyMethodOf(classAround("""
+                    public int size() {
+                        if (ready) {
+                            return 1;
+                        }
+                        int x = 2;
+                    }"""));
+
+        assertNull(SignatureMigration.trailingReturnOf(declaration),
+                "the body does not end in a return, whatever the if contains");
+    }
+
+    /**
+     * A replaced return value is a preview line and a reason to open the dialog at all — even for a function
+     * nothing calls, where there would otherwise be nothing to show and the body would change unannounced.
+     */
+    @Test
+    void aReplacedReturnValueIsAnnouncedAndWorthAPreview() {
+        MethodDeclaration declaration = onlyMethodOf(classAround(
+                "    public int size() {\n        return 3;\n    }"));
+        FunctionDraft before = MethodSignatures.draftOf(declaration).orElseThrow();
+
+        SignatureMigration.Plan plan = SignatureMigration.of(before,
+                draft("size", BotType.TEXT, List.of()), declaration, List.of());
+
+        assertFalse(plan.isEmpty(), "nothing calls it, but its body is about to change");
+        assertTrue(plan.changes().contains("the value it gives back becomes \"\""),
+                "the preview names the value being written: " + plan.changes());
     }
 }

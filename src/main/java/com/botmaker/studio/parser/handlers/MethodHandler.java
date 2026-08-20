@@ -12,6 +12,7 @@ import com.botmaker.studio.parser.factories.InitializerFactory;
 import com.botmaker.studio.parser.factories.StatementFactory;
 import com.botmaker.studio.parser.helpers.AstRewriteHelper;
 import com.botmaker.studio.parser.helpers.DefaultValueHelper;
+import com.botmaker.studio.parser.helpers.MethodSignatures;
 import com.botmaker.studio.parser.refactor.CallMigrator;
 import com.botmaker.studio.parser.refactor.SignatureMigration;
 import com.botmaker.studio.project.ProjectState;
@@ -238,10 +239,8 @@ public class MethodHandler {
         Type oldNode = method.getReturnType2();
         if (oldNode != null && oldNode.toString().equals(returnType.sourceName())) return;
 
-        ResolvedType oldResolved = oldNode != null
-                ? ProjectAnalyzer.resolveType(oldNode) : ResolvedType.VOID;
-        ResolvedType newResolved = returnType.isVoid()
-                ? ResolvedType.VOID : ResolvedType.named(returnType.sourceName());
+        SignatureType oldType = oldNode == null
+                ? SignatureType.of(BotType.NOTHING) : MethodSignatures.signatureTypeOf(oldNode.toString());
 
         Type newNode = typeNodeFor(ctx, returnType);
         if (oldNode == null) {
@@ -249,7 +248,7 @@ public class MethodHandler {
         } else {
             ctx.rewriter().replace(oldNode, newNode, null);
         }
-        updateTrailingReturn(ctx.ast(), ctx.rewriter(), method, oldResolved, newResolved);
+        updateTrailingReturn(ctx, method, oldType, returnType);
     }
 
     /**
@@ -391,10 +390,19 @@ public class MethodHandler {
         return listType;
     }
 
-    /** The seed for a new function's trailing return — {@code null} for a type the editor only carries. */
+    /**
+     * The value a body is seeded with to produce a {@code type}: the catalogue's own default where there is
+     * one, and otherwise whatever the type itself forces — {@code false} for a carried {@code boolean},
+     * {@code null} for a carried class.
+     *
+     * <p>A carried type still has to compile: {@code return null;} is not a legal body for one that gives back
+     * an {@code int}, and "the editor cannot describe this type" is not the same statement as "it has no
+     * default".
+     */
     private static Expression defaultValueFor(EditContext ctx, SignatureType type) {
         Optional<BotType.Choice> described = type.described();
-        return described.isPresent() ? defaultValueFor(ctx, described.get()) : ctx.ast().newNullLiteral();
+        return described.isPresent() ? defaultValueFor(ctx, described.get())
+                : defaultReturnExpression(ctx.ast(), ResolvedType.named(type.sourceName()));
     }
 
     /** {@code List.of()} for a list, and the type's own catalogue default otherwise. */
@@ -477,38 +485,42 @@ public class MethodHandler {
     }
 
     /**
-     * Adjusts the method's trailing {@code return} to match a changed return type: removes it when switching to
-     * {@code void}; otherwise inserts a default one if none exists, or replaces an <em>untouched</em> default
-     * value with the new type's default (a return the user has written is left alone).
+     * Makes the method's trailing {@code return} agree with a changed return type, doing exactly what
+     * {@link SignatureMigration#returnFate} said would be done.
+     *
+     * <p>The decision is not taken here on purpose: the user was shown a sentence naming it — "the value it
+     * gives back becomes false" — and a body that then did something else would make that sentence a lie. This
+     * only carries it out.
+     *
+     * <p>The value it writes is the <em>catalogue's</em> default, not a null literal. That is the maintainer's
+     * "null in the picker": a function retyped from giving nothing back to giving back {@code Text} used to
+     * gain {@code return null;}, drawn as an empty {@code null} in the value slot, while the very same function
+     * created through the Add Function dialog got {@code return "";}. One seed, one answer — see
+     * {@link #defaultValueFor}, which is what that dialog already used.
      */
-    private static void updateTrailingReturn(AST ast, ASTRewrite rewriter, MethodDeclaration method,
-                                             ResolvedType oldType, ResolvedType newType) {
+    private static void updateTrailingReturn(EditContext ctx, MethodDeclaration method,
+                                             SignatureType oldType, SignatureType newType) {
         Block body = method.getBody();
         if (body == null) return;
-        List<?> statements = body.statements();
-        ListRewrite bodyRewrite = rewriter.getListRewrite(body, Block.STATEMENTS_PROPERTY);
+        ListRewrite bodyRewrite = ctx.rewriter().getListRewrite(body, Block.STATEMENTS_PROPERTY);
+        ReturnStatement trailing = SignatureMigration.trailingReturnOf(method);
 
-        Object last = statements.isEmpty() ? null : statements.get(statements.size() - 1);
-        ReturnStatement trailing = last instanceof ReturnStatement r ? r : null;
-
-        if (newType.isVoid()) {
-            if (trailing != null) bodyRewrite.remove(trailing, null);
-            return;
-        }
-
-        Expression newDefault = defaultReturnExpression(ast, newType);
-        if (trailing == null) {
-            ReturnStatement ret = ast.newReturnStatement();
-            ret.setExpression(newDefault);
-            bodyRewrite.insertLast(ret, null);
-            return;
-        }
-
-        Expression currentExpr = trailing.getExpression();
-        if (currentExpr == null) {
-            rewriter.set(trailing, ReturnStatement.EXPRESSION_PROPERTY, newDefault, null);
-        } else if (currentExpr.toString().equals(defaultReturnExpression(ast, oldType).toString())) {
-            rewriter.replace(currentExpr, newDefault, null);
+        switch (SignatureMigration.returnFate(method, oldType, newType)) {
+            case UNCHANGED -> { }
+            case REMOVED -> bodyRewrite.remove(trailing, null);
+            case ADDED -> {
+                ReturnStatement added = ctx.ast().newReturnStatement();
+                added.setExpression(defaultValueFor(ctx, newType));
+                bodyRewrite.insertLast(added, null);
+            }
+            case REPLACED -> {
+                Expression seed = defaultValueFor(ctx, newType);
+                if (trailing.getExpression() == null) {
+                    ctx.rewriter().set(trailing, ReturnStatement.EXPRESSION_PROPERTY, seed, null);
+                } else {
+                    ctx.rewriter().replace(trailing.getExpression(), seed, null);
+                }
+            }
         }
     }
 

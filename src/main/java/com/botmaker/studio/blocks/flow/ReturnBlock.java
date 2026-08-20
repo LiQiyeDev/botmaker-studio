@@ -7,12 +7,14 @@ import com.botmaker.studio.ui.render.menu.ExpressionMenu;
 
 import com.botmaker.studio.core.AbstractStatementBlock;
 import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.parser.refactor.SignatureMigration;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.ui.render.layout.BlockLayout;
 import com.botmaker.studio.ui.render.components.BlockUIComponents;
 import com.botmaker.studio.ui.render.theme.StyleBuilder;
 import com.botmaker.studio.types.ResolvedType;
 import javafx.scene.Node;
+import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.MenuButton;
@@ -91,6 +93,50 @@ public class ReturnBlock extends AbstractStatementBlock {
                 .withCustomNode(sentenceBuilder.build())
                 .withDeleteButton(deleteAction(context))
                 .build();
+    }
+
+    /**
+     * The delete, unless this is the {@code return} the signature depends on — then it explains instead.
+     *
+     * <p>Removing the last {@code return} of a function that gives something back leaves a file that does not
+     * compile, from one click, with the reason visible only in the Errors tab afterwards. It is not really a
+     * statement the user owns: it is the body's half of the signature, and the way to be rid of it is to say
+     * the function gives nothing back — which removes it as part of that change, calls and all.
+     *
+     * <p>A refusal that says so, rather than no button at all: an early {@code return} inside an {@code if}
+     * deletes normally, so a cross that is simply missing here would read as a rendering bug rather than a
+     * rule.
+     */
+    @Override
+    protected Runnable deleteAction(CodeEditorService context) {
+        Runnable delete = super.deleteAction(context);
+        if (delete == null || !closesAFunctionThatGivesSomethingBack()) return delete;
+        return this::explainPinnedBySignature;
+    }
+
+    /** Whether this is the trailing {@code return} of a non-{@code void} function — the one it cannot lose. */
+    private boolean closesAFunctionThatGivesSomethingBack() {
+        MethodDeclaration method = enclosingMethod();
+        if (method == null || method.getReturnType2() == null) return false;
+        if ("void".equals(method.getReturnType2().toString())) return false;
+        return SignatureMigration.trailingReturnOf(method) == this.astNode;
+    }
+
+    private void explainPinnedBySignature() {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle("This line has to stay");
+        alert.setHeaderText("The function gives back " + findParentMethodReturnType());
+        alert.setContentText("Every path through it has to end by giving that value back, so this line can't "
+                + "be removed on its own.\n\nTo be rid of it, edit the function with the ✎ beside its name and "
+                + "set it to give nothing back — the return goes with it, and every call is updated.");
+        alert.showAndWait();
+    }
+
+    private MethodDeclaration enclosingMethod() {
+        for (ASTNode n = this.astNode; n != null; n = n.getParent()) {
+            if (n instanceof MethodDeclaration method) return method;
+        }
+        return null;
     }
 
     /** Whether this is the pinned {@code return Outcome.X;} that closes an activity's {@code run()}. */

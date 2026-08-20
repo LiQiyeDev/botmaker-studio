@@ -420,6 +420,19 @@ public enum BotType {
             return isList() ? "List<" + type.boxedName + ">" : type.typeName;
         }
 
+        /**
+         * The default value's source text — {@code ""}, {@code false}, {@code List.of()} — or {@code "null"}
+         * for a type the catalogue seeds nothing for.
+         *
+         * <p>It says what {@code MethodHandler} actually writes, which is the point: a function retyped to
+         * give back {@code Text} gets {@code return "";}, and the preview that announced the change has to
+         * name that same value rather than a second guess at it.
+         */
+        public String defaultText() {
+            if (isList()) return "List.of()";
+            return type.defaultValue().map(Initializer::sourceText).orElse("null");
+        }
+
         /** What the user is shown — "Point", "One of Point", or "List of Point". */
         public String label() {
             return shape.prefix + type.label();

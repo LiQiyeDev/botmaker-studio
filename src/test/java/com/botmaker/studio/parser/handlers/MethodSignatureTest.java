@@ -154,6 +154,47 @@ class MethodSignatureTest {
                 "a method that gains a return type gains a default return, or it stops compiling: " + result);
     }
 
+    /**
+     * The maintainer's "null in the picker": a function that starts giving something back used to be seeded
+     * with {@code return null;} — drawn as an empty slot holding a {@code null} — while the same function
+     * created through the Add Function dialog got {@code return "";}. One seed for both.
+     */
+    @Test
+    void aFunctionThatGainsAResultReturnsThatTypesDefaultRatherThanNull() {
+        Env e = env();
+        FunctionDraft draft = draftFor(e.cu(), "caller");
+        String result = apply(e, "caller",
+                new FunctionDraft(draft.name(), SignatureType.of(BotType.TEXT), draft.parameters()));
+
+        assertTrue(result.contains("public String caller()"), result);
+        assertTrue(result.contains("return \"\";"), "the catalogue's own default, not a null: " + result);
+    }
+
+    /** A value that no longer fits is rewritten — the preview said it would be. See MethodMigrationTest. */
+    @Test
+    void aReturnValueThatNoLongerFitsIsRewritten() {
+        String source = """
+                package com.mybot;
+                public class Subject {
+                    public int size() {
+                        return 3;
+                    }
+                }
+                """;
+        CompilationUnit cu = ProjectAnalyzer.createCompilationUnit(
+                TestSupport.runtimeClassPath(), source, TestSupport.SOURCE_ROOT);
+        assertNotNull(cu, "fixture must parse");
+        Env e = new Env(cu, new ProjectAnalyzer(null, new ProjectState()));
+
+        MethodDeclaration size = method(cu, "size");
+        FunctionDraft draft = MethodSignatures.draftOf(size).orElseThrow();
+        String result = MethodHandler.applyFunctionSignature(e.ctx(), source, size,
+                new FunctionDraft(draft.name(), SignatureType.of(BotType.TEXT), draft.parameters()));
+
+        assertTrue(result.contains("public String size()"), result);
+        assertTrue(result.contains("return \"\";"), "3 is not a String: " + result);
+    }
+
     /** A return the user wrote is theirs; only an untouched default may be replaced. */
     @Test
     void switchingToVoidDropsTheTrailingReturn() {

@@ -47,4 +47,42 @@ public sealed interface Initializer
             this.args = List.copyOf(args);
         }
     }
+
+    /**
+     * This default as the source text {@code StatementFactory} would produce for it — {@code ""},
+     * {@code false}, {@code java.time.LocalDate.now()}.
+     *
+     * <p>Two callers, and they are why this is here rather than in the parser: a preview sentence that has to
+     * <em>name</em> the value a body is about to be given ("the value it gives back becomes false"), and the
+     * comparison that asks whether a {@code return} still holds the untouched default it was seeded with. Both
+     * want the text and neither has an {@code AST} to build a node with, so the text comes from the data.
+     *
+     * <p>Compare it through {@link #normalised}, never with {@code equals}: an AST printed back out spaces its
+     * arguments differently from this, and {@code new java.awt.Color(255,255,255)} is the same default as
+     * {@code new java.awt.Color(255, 255, 255)}.
+     */
+    default String sourceText() {
+        return switch (this) {
+            case IntLit(String value) -> value;
+            case DoubleLit(String value) -> value;
+            case BoolLit(boolean value) -> String.valueOf(value);
+            case CharLit(char value) -> "'" + value + "'";
+            case StrLit(String value) -> "\"" + value + "\"";
+            case NullLit ignored -> "null";
+            case NewInstance(String typeName, List<Initializer> args) ->
+                    "new " + typeName + "(" + argText(args) + ")";
+            case EnumConst(String typeName, String constant) -> typeName + "." + constant;
+            case StaticCall(String typeName, String methodName, List<Initializer> args) ->
+                    typeName + "." + methodName + "(" + argText(args) + ")";
+        };
+    }
+
+    /** Everything two spellings of the same expression may differ by: whitespace. */
+    static String normalised(String sourceText) {
+        return sourceText == null ? "" : sourceText.replaceAll("\\s+", "");
+    }
+
+    private static String argText(List<Initializer> args) {
+        return args.stream().map(Initializer::sourceText).reduce((a, b) -> a + ", " + b).orElse("");
+    }
 }

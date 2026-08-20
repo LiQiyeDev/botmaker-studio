@@ -69,6 +69,15 @@ public sealed interface SignatureType {
         return this instanceof Described described && described.choice().isVoid();
     }
 
+    /**
+     * The value a body is seeded with when it has to produce one of these — {@code ""}, {@code false},
+     * {@code List.of()}, and {@code null} for a type the editor only carries, which is the one honest answer
+     * for a type it knows nothing about.
+     */
+    default String defaultText() {
+        return described().map(BotType.Choice::defaultText).orElse("null");
+    }
+
     /** What the user is shown: the choice's own label, or the source text for one that is only carried. */
     default String label() {
         return this instanceof Described described ? described.choice().label() : sourceName();

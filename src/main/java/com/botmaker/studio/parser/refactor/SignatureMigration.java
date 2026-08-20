@@ -1,6 +1,7 @@
 package com.botmaker.studio.parser.refactor;
 
 import com.botmaker.studio.palette.FunctionDraft;
+import com.botmaker.studio.palette.Initializer;
 import com.botmaker.studio.palette.SignatureType;
 import com.botmaker.studio.parser.helpers.AstRewriteHelper;
 import com.botmaker.studio.parser.refactor.MethodReferences.CallSite;
@@ -52,6 +53,8 @@ import java.util.Map;
  *   <tr><td>return type changed</td><td>replace the <em>use</em> with a default — but only where the slot
  *       around it refuses the new type. A call standing as a line of its own is consumed by nothing, and a
  *       slot that would still accept the new value is left exactly as written</td></tr>
+ *   <tr><td>return type changed</td><td>and, in the body itself, make the trailing {@code return} agree —
+ *       see {@link #returnFate}</td></tr>
  * </table>
  *
  * <p>The last one is the maintainer's call and worth stating plainly, because it was decided twice. A call
@@ -101,13 +104,37 @@ public final class SignatureMigration {
     public record RescuedParameter(String name, SignatureType type) {}
 
     /**
-     * The whole migration. {@link #isEmpty()} is the "just save it" case — no call anywhere is touched and no
-     * preview is worth showing.
+     * What a changed result type does to the {@code return} at the end of the body — which has to agree with
+     * the signature or the file stops compiling.
+     *
+     * <p>It is decided here, next to the call rules, because both halves of the change are one question and the
+     * user is shown the answer before either is written. {@code MethodHandler} then does what this says rather
+     * than working it out a second time: a preview that promised the returned value would become {@code false}
+     * and a write that left a {@code LocalDate} there would be two different edits wearing one dialog.
      */
-    public record Plan(List<CallChange> calls, List<RescuedParameter> rescued, List<String> changes) {
+    public enum ReturnFate {
+        /** The body already agrees: no {@code return} to touch, or the one there still fits. */
+        UNCHANGED,
+        /** The function now gives nothing back, so the trailing {@code return} goes. */
+        REMOVED,
+        /** It gives something back and the body said nothing, so a {@code return} is appended. */
+        ADDED,
+        /** The value it gives back no longer fits the new type and becomes that type's default. */
+        REPLACED
+    }
+
+    /**
+     * The whole migration. {@link #isEmpty()} is the "just save it" case — no call anywhere is touched, the
+     * body needs nothing, and no preview is worth showing.
+     */
+    public record Plan(List<CallChange> calls, List<RescuedParameter> rescued, List<String> changes,
+                       ReturnFate returnFate) {
 
         public boolean isEmpty() {
-            return calls.isEmpty() && rescued.isEmpty();
+            // A replaced return value is a body change the user has to have read: a hand-written
+            // `return someDate;` becoming `return false;` is exactly the kind of thing that must not happen
+            // behind a dialog that never opened, even when nothing in the project calls the function.
+            return calls.isEmpty() && rescued.isEmpty() && returnFate != ReturnFate.REPLACED;
         }
 
         /** One line per file: {@code Bot — 3 calls}, in the order the files were scanned. */
@@ -146,13 +173,76 @@ public final class SignatureMigration {
             }
         }
         List<String> changes = new ArrayList<>(changes(before, after, returnChanged));
+        ReturnFate fate = returnFate(declaration, before.returnType(), after.returnType());
+        switch (fate) {
+            case REPLACED -> changes.add("the value it gives back becomes "
+                    + after.returnType().defaultText());
+            case REMOVED -> changes.add("the \"return\" at the end of it is removed");
+            case ADDED -> changes.add("a \"return\" is added at the end, giving back "
+                    + after.returnType().defaultText());
+            case UNCHANGED -> { }
+        }
         int replaced = (int) calls.stream().filter(CallChange.ValueReplaced.class::isInstance).count();
         if (replaced > 0) changes.add(countOf(replaced) + " using its result " + (replaced == 1 ? "is" : "are")
                 + " replaced by a default value");
         if (leftAlone > 0) changes.add(countOf(leftAlone) + " using its result still "
                 + (leftAlone == 1 ? "accepts" : "accept") + " the new type and " + (leftAlone == 1 ? "is" : "are")
                 + " left as written");
-        return new Plan(List.copyOf(calls), rescued(before, after, declaration), List.copyOf(changes));
+        return new Plan(List.copyOf(calls), rescued(before, after, declaration), List.copyOf(changes), fate);
+    }
+
+    // --- the return at the end of the body -----------------------------------------------------------------
+
+    /**
+     * What has to happen to {@code method}'s trailing {@code return} for it to agree with a result type
+     * changing from {@code before} to {@code after}.
+     *
+     * <p>{@code MethodHandler} used to answer half of this on its own: it replaced a return value only when the
+     * value was still the <em>untouched default</em> of the old type, and left anything hand-written alone. As
+     * a rule about ownership that is right — a value the user typed is theirs — and as a rule about compiling
+     * it is not: after {@code Date} → {@code Yes/No} the body still hands back a {@code LocalDate}, and the
+     * file the user is looking at no longer builds. So a hand-written value that no longer fits is replaced
+     * <em>and named in the preview</em>, which is the part that keeps it from being a silent discard. One that
+     * still fits stays.
+     *
+     * <p>"Fits" is judged the way everything else here is judged — from source, without bindings, unknown
+     * fitting. A {@code return findTarget();} whose type nothing here can work out is kept.
+     */
+    public static ReturnFate returnFate(MethodDeclaration method, SignatureType before, SignatureType after) {
+        if (method == null || method.isConstructor() || method.getBody() == null) return ReturnFate.UNCHANGED;
+        if (typeText(before).equals(typeText(after))) return ReturnFate.UNCHANGED;
+
+        ReturnStatement trailing = trailingReturnOf(method);
+        if (after.isVoid()) return trailing == null ? ReturnFate.UNCHANGED : ReturnFate.REMOVED;
+        if (trailing == null) return ReturnFate.ADDED;
+
+        Expression value = trailing.getExpression();
+        if (value == null) return ReturnFate.REPLACED;
+        if (isDefaultOf(value, before)) return ReturnFate.REPLACED;
+        return SlotFit.refusal(ResolvedType.named(after.sourceName()), syntacticTypeOf(value)) == null
+                ? ReturnFate.UNCHANGED : ReturnFate.REPLACED;
+    }
+
+    /**
+     * The {@code return} the signature depends on: the last statement of the body, when that is one.
+     *
+     * <p>Only the last. An early {@code return} inside an {@code if} is a decision the user made about the
+     * flow, and no signature change has anything to say about it.
+     */
+    public static ReturnStatement trailingReturnOf(MethodDeclaration method) {
+        if (method == null || method.getBody() == null) return null;
+        List<?> statements = method.getBody().statements();
+        if (statements.isEmpty()) return null;
+        return statements.get(statements.size() - 1) instanceof ReturnStatement trailing ? trailing : null;
+    }
+
+    /**
+     * Whether {@code value} is a value the editor put there rather than one the user wrote — the old type's own
+     * default, or the bare {@code null} that earlier versions seeded every object-typed return with.
+     */
+    private static boolean isDefaultOf(Expression value, SignatureType type) {
+        String written = Initializer.normalised(value.toString());
+        return written.equals(Initializer.normalised(type.defaultText())) || written.equals("null");
     }
 
     /** The new argument list at one call, in the order the new parameters are in. */
