@@ -29,7 +29,7 @@ public class PickerGalleryWindowTest {
                 boolean legal = switch (shape) {
                     case ONE -> true;
                     case ONE_OF -> type.shapeable();
-                    case ANY_OF -> type.listable();
+                    case ANY_OF, OPEN_LIST -> type.listable();
                 };
                 if (legal) {
                     assertNotNull(variable, type + " in " + shape + " is declarable and needs a row");

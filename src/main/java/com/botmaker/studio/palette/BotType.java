@@ -334,10 +334,18 @@ public enum BotType {
      * everything the two of them said and the cases they could not reach, and a choice of choices is
      * unrepresentable rather than merely discouraged.
      *
-     * <p>{@link #ONE_OF} is a <em>project variable</em> idea and nothing else: fixing the set a value may come
-     * from is a question about something somebody configures, and a method parameter has nobody to ask. In a
-     * signature the axis has only two positions, {@code T} and {@code List<T>} — which is why
-     * {@link #sourceName()} treats {@code ONE} and {@code ONE_OF} identically.
+     * <p>{@link #ONE_OF} and {@link #ANY_OF} are <em>project variable</em> ideas and nothing else: fixing the
+     * set a value may come from is a question about something somebody configures, and a method parameter has
+     * nobody to ask. In a signature the axis has only two positions, {@code T} and {@code List<T>} — which is
+     * why {@link Choice#sourceName()} treats {@code ONE} and {@code ONE_OF} identically, and {@link #ANY_OF}
+     * and {@link #OPEN_LIST} identically.
+     *
+     * <p><b>Why there are two list shapes.</b> {@code ANY_OF} used to be both of them, and which one it meant
+     * was decided by data the user could not see: the Parameters dialog drew tick boxes when the author had
+     * written choices down and a free-text box when they had not, under one label reading "List of…". So the
+     * same shape changed behaviour the moment a choice was added, and there was no way at all to say "a list
+     * the user fills in themselves" about a variable that happened to have choices. Splitting them makes the
+     * question the shape asks the same question the widget answers.
      */
     public enum Shape {
         /** One value, free within its type. */
@@ -345,7 +353,9 @@ public enum BotType {
         /** One value, out of a set the author writes down. Radio buttons in the Parameters dialog. */
         ONE_OF("One of…", "One of "),
         /** Several values out of that set — {@code List<T>} in source. Tick boxes. */
-        ANY_OF("List of…", "List of ");
+        ANY_OF("Many of…", "Many of "),
+        /** A list the user writes themselves, out of no set at all — {@code List<T>} too. Growable rows. */
+        OPEN_LIST("List of…", "List of ");
 
         private final String label;
         private final String prefix;
@@ -360,16 +370,27 @@ public enum BotType {
             return label;
         }
 
-        /** Whether the author writes the set of values down — true for everything but {@link #ONE}. */
+        /**
+         * Whether the author writes the set of values down — the two set-shaped ones.
+         *
+         * <p>It used to read {@code this != ONE}, which was true of every shape that was not one free value
+         * and is the reading {@link #OPEN_LIST} breaks: an open list has as many values as the user likes and
+         * no set behind them.
+         */
         public boolean hasOptions() {
-            return this != ONE;
+            return this == ONE_OF || this == ANY_OF;
+        }
+
+        /** Whether this is written {@code List<T>} — the two many-valued ones, which spell the same. */
+        public boolean isList() {
+            return this == ANY_OF || this == OPEN_LIST;
         }
     }
 
     /**
-     * A type as chosen in a dialog: one of the curated types, in one of the three {@link Shape}s.
+     * A type as chosen in a dialog: one of the curated types, in one of the four {@link Shape}s.
      *
-     * <p>The shape is an axis rather than three times as many constants because it composes with all of them
+     * <p>The shape is an axis rather than four times as many constants because it composes with all of them
      * and carries no information of its own — {@code List<Point>} needs nothing from the catalogue that
      * {@code Point} did not already supply, beyond the box a primitive takes inside the angle brackets.
      */
@@ -378,11 +399,11 @@ public enum BotType {
         public Choice {
             if (type == null) throw new IllegalArgumentException("a type choice needs a type");
             if (shape == null) shape = Shape.ONE;
-            // ANY_OF is `List<T>` in source and only needs a box. ONE_OF is not a type at all — it is a
+            // A list shape is `List<T>` in source and only needs a box. ONE_OF is not a type at all — it is a
             // restriction on a stored value — so it needs a type somebody can store a set of. That asymmetry
             // is why `List<MatchResult>` is a fine return type while "one of a set of match results" is not a
             // sentence.
-            if (shape == Shape.ANY_OF && !type.listable()) {
+            if (shape.isList() && !type.listable()) {
                 throw new IllegalArgumentException("there is no list of " + type.typeName());
             }
             if (shape == Shape.ONE_OF && !type.shapeable()) {
@@ -395,14 +416,21 @@ public enum BotType {
             return new Choice(type, Shape.ONE);
         }
 
-        /** {@code List<type>} — {@link Shape#ANY_OF}, the form a signature writes. */
+        /**
+         * {@code List<type>} — {@link Shape#OPEN_LIST}, the form a signature writes.
+         *
+         * <p>The open one and not {@link Shape#ANY_OF}: a {@code List<Point>} read back out of a method
+         * declaration has no declared set behind it and nobody to ask for one, so calling it "Many of Point"
+         * would name a set that does not exist. The two spell the same in source, so which one a signature
+         * carries is invisible to the generated bot and visible only in the label.
+         */
         public static Choice listOf(BotType type) {
-            return new Choice(type, Shape.ANY_OF);
+            return new Choice(type, Shape.OPEN_LIST);
         }
 
         /** True when this is written {@code List<…>}: several values, not one. */
         public boolean isList() {
-            return shape == Shape.ANY_OF;
+            return shape.isList();
         }
 
         /** True when the author writes down the set of values this may take. */
@@ -433,7 +461,7 @@ public enum BotType {
             return type.defaultValue().map(Initializer::sourceText).orElse("null");
         }
 
-        /** What the user is shown — "Point", "One of Point", or "List of Point". */
+        /** What the user is shown — "Point", "One of Point", "Many of Point", or "List of Point". */
         public String label() {
             return shape.prefix + type.label();
         }
@@ -459,14 +487,24 @@ public enum BotType {
          * is no longer a constant this enum has. Migrating here rather than in an open-time pass means every
          * reader gets it — the project loader, a hand-copied file, a test fixture — and that a project written
          * by the previous Studio opens without a step anyone can forget to run.
+         *
+         * <p>The shape arrives as a {@code String} and not as the enum so that the parse is <b>total</b>: a
+         * file written by a newer Studio, naming a shape this one has never heard of, loads as one free value
+         * rather than failing the whole project open. That is the repo's rule for a persisted closed set —
+         * keep the wire name stable, and never throw on an unrecognised one.
+         *
+         * <p>What this method cannot decide is {@link Shape#ANY_OF} versus {@link Shape#OPEN_LIST} for a file
+         * written before they were split: the answer is whether the variable declares choices, and the choices
+         * are a sibling field this creator never sees. {@link
+         * com.botmaker.studio.project.activity.ActivityVariable} settles it, where both are in hand.
          */
         @com.fasterxml.jackson.annotation.JsonCreator
         static Choice fromJson(@com.fasterxml.jackson.annotation.JsonProperty("type") String type,
-                               @com.fasterxml.jackson.annotation.JsonProperty("shape") Shape shape,
+                               @com.fasterxml.jackson.annotation.JsonProperty("shape") String shape,
                                @com.fasterxml.jackson.annotation.JsonProperty("list") Boolean list) {
             boolean wasChoice = "CHOICE".equals(type);
             BotType base = wasChoice ? TEXT : parse(type);
-            Shape resolved = shape != null ? shape
+            Shape resolved = shape != null ? parseShape(shape)
                     : Boolean.TRUE.equals(list) ? Shape.ANY_OF
                     : wasChoice ? Shape.ONE_OF
                     : Shape.ONE;
@@ -474,8 +512,15 @@ public enum BotType {
             // `List of Direction` — perfectly expressible — into a single direction the day ONE_OF stopped
             // being offered for a closed set. A stored `One of Yes/No` becomes `Yes/No`, keeping its value.
             if (resolved == Shape.ONE_OF && !base.shapeable()) resolved = Shape.ONE;
-            if (resolved == Shape.ANY_OF && !base.listable()) resolved = Shape.ONE;
+            if (resolved.isList() && !base.listable()) resolved = Shape.ONE;
             return new Choice(base, resolved);
+        }
+
+        private static Shape parseShape(String name) {
+            for (Shape candidate : Shape.values()) {
+                if (candidate.name().equals(name)) return candidate;
+            }
+            return Shape.ONE;   // a shape a newer Studio invented: one free value holds the stored text
         }
 
         private static BotType parse(String name) {

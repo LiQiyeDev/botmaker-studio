@@ -150,7 +150,7 @@ class ParameterModelTest {
         assertEquals("fast", single.withOptions(List.of("fast", "safe")).singleValue(),
                 "the deleted choice falls back to the first one still offered");
 
-        ActivityVariable many = ActivityVariable.create("skills", BotType.Choice.listOf(BotType.TEXT))
+        ActivityVariable many = ActivityVariable.create("skills", manyOf(BotType.TEXT))
                 .withOptions(List.of("mine", "fish", "cook")).withValue(List.of("mine", "fish"));
 
         assertEquals(List.of("mine"), many.withOptions(List.of("mine", "cook")).value());
@@ -160,10 +160,18 @@ class ParameterModelTest {
     void aChosenListIsWrittenInTheDeclarationOrderAndNotThePickingOrder() {
         // Two people who ticked the same boxes must produce the same file, or a diff shows a change nobody
         // made.
-        ActivityVariable skills = ActivityVariable.create("skills", BotType.Choice.listOf(BotType.TEXT))
+        ActivityVariable skills = ActivityVariable.create("skills", manyOf(BotType.TEXT))
                 .withOptions(List.of("mine", "fish", "cook"));
 
         assertEquals(List.of("mine", "cook"), skills.withValue(List.of("cook", "mine")).value());
+    }
+
+    /**
+     * "Many of…" — several out of a set the author wrote down. {@link BotType.Choice#listOf} is the
+     * <em>other</em> list shape, the open one a signature carries, and it declares no set at all.
+     */
+    private static BotType.Choice manyOf(BotType type) {
+        return new BotType.Choice(type, BotType.Shape.ANY_OF);
     }
 
     @Test
@@ -178,8 +186,10 @@ class ParameterModelTest {
         assertEquals("how careful", asNumber.description());
 
         assertEquals(List.of("fast", "safe"),
-                mode.withType(BotType.Choice.listOf(BotType.TEXT)).options(),
-                "the choices survive a move onto the list axis");
+                mode.withType(manyOf(BotType.TEXT)).options(),
+                "the choices survive a move from one of them to several of them");
+        assertEquals(List.of(), mode.withType(BotType.Choice.listOf(BotType.TEXT)).options(),
+                "an open list declares no set, so there is nothing for the choices to survive into");
     }
 
     /** The types whose choices are their own: the editor never writes an SDK enum's constants down. */
@@ -202,6 +212,9 @@ class ParameterModelTest {
      *
      * <p>The exception is a type that already <em>is</em> a set ({@link BotType#isClosedSet()}): its editor
      * shows every value it has, so it takes {@code ONE} and {@code ANY_OF} and no {@code ONE_OF}.
+     *
+     * <p>The two shapes that carry a set are the two closed ones. An open list is many values and no set —
+     * which is the whole reason it is a shape of its own rather than an emptiness inside {@code ANY_OF}.
      */
     @Test
     void everyShapeableTypeCarriesOptionsInEveryShapeButOne() {
@@ -209,7 +222,8 @@ class ParameterModelTest {
             assertEquals(!type.isClosedSet(), type.shapeable(),
                     type + " offers One of… iff it is not already a set of its own");
             assertFalse(VariableWire.hasOptions(BotType.Choice.of(type)), type + " as one free value");
-            assertTrue(VariableWire.hasOptions(BotType.Choice.listOf(type)), type + " any of");
+            assertFalse(VariableWire.hasOptions(BotType.Choice.listOf(type)), type + " as an open list");
+            assertTrue(VariableWire.hasOptions(manyOf(type)), type + " many of");
             if (!type.shapeable()) continue;
             assertTrue(VariableWire.hasOptions(new BotType.Choice(type, BotType.Shape.ONE_OF)), type + " one of");
         }
@@ -258,11 +272,52 @@ class ParameterModelTest {
         assertEquals(List.of("fast", "safe"), read.get(0).options());
         assertEquals("safe", read.get(0).singleValue());
 
-        assertEquals(BotType.Choice.listOf(BotType.TEXT), read.get(1).type());
+        // The two list shapes, told apart by the one thing the old file said about them: a set of choices was
+        // written down for "skills" and none for "spots", so one is tick boxes and the other is rows the user
+        // fills in — which is exactly how each of them was drawn before they were two shapes.
+        assertEquals(manyOf(BotType.TEXT), read.get(1).type());
         assertEquals(List.of("mine"), read.get(1).value());
 
         assertEquals(BotType.Choice.of(BotType.WHOLE_NUMBER), read.get(2).type());
         assertEquals(BotType.Choice.listOf(BotType.POINT), read.get(3).type());
+        assertEquals(BotType.Shape.OPEN_LIST, read.get(3).type().shape());
+    }
+
+    /**
+     * A project written by the Studio that had one list shape, reopened by the one that has two. The stored
+     * word is the same {@code ANY_OF} in both variables and only the choices tell them apart — so the rule
+     * has to be read off the variable, not off its type, which is why it does not live in
+     * {@code BotType.Choice}'s own reader.
+     */
+    @Test
+    void aStoredListKeepsTheWidgetItUsedToBeDrawnWith(@TempDir Path dir) throws Exception {
+        Files.writeString(dir.resolve(ActivitiesConfig.FILE_NAME), """
+                { "variables": [
+                    { "name": "skills", "type": { "type": "TEXT", "shape": "ANY_OF" },
+                      "options": ["mine", "cook"], "value": ["mine"] },
+                    { "name": "notes", "type": { "type": "TEXT", "shape": "ANY_OF" },
+                      "value": ["first", "second"] },
+                    { "name": "ways", "type": { "type": "DIRECTION", "shape": "ANY_OF" }, "value": [] }
+                ] }
+                """);
+
+        List<ActivityVariable> read = ActivitiesConfig.read(dir).variables();
+
+        assertEquals(BotType.Shape.ANY_OF, read.get(0).type().shape(), "a set was written down: tick boxes");
+        assertEquals(BotType.Shape.OPEN_LIST, read.get(1).type().shape(),
+                "none was, so it was a free list and stays one");
+        assertEquals(BotType.Shape.ANY_OF, read.get(2).type().shape(),
+                "a closed set brings its own choices; nobody was ever going to write them down");
+        assertEquals(List.of("first", "second"), read.get(1).value(),
+                "and the values it already held are not pruned against a set it does not have");
+    }
+
+    /** The split is a label, not a type: both list shapes are the same {@code List<T>} a bot compiles. */
+    @Test
+    void bothListShapesSpellTheSameSource() {
+        for (BotType type : BotType.storableTypes()) {
+            assertEquals(BotType.Choice.listOf(type).sourceName(), manyOf(type).sourceName(), type.toString());
+        }
     }
 
     @Test

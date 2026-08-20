@@ -71,8 +71,12 @@ public final class ParamValueWidgets {
         // a freshly created "one of…" variable render as the plain single-value editor: the shape was set, the
         // choices were not yet, and the control silently answered a different question than the one asked.
         Node widget = switch (variable.type().shape()) {
-            case ANY_OF -> declared.isEmpty() ? openList(variable, base, ctx, sink)
-                    : checkList(variable, declared, base, ctx, sink);
+            // Tick boxes unconditionally: "many of" is a set the author wrote, and a set they have not
+            // written yet is an empty set, not a different question. The "are there any choices" branch that
+            // used to stand here is what made one shape render as two widgets — it is now the OPEN_LIST
+            // shape's own case, chosen by the user rather than inferred from data they cannot see.
+            case ANY_OF -> checkList(variable, declared, base, ctx, sink);
+            case OPEN_LIST -> openList(variable, base, ctx, sink);
             // Radio buttons, not a dropdown: the choices are the editor's own and there are a handful of
             // them, so showing all of them costs one line each and saves a click to find out what they are.
             case ONE_OF -> radioRow(variable, declared, base, ctx, sink);
@@ -155,7 +159,7 @@ public final class ParamValueWidgets {
     }
 
     /**
-     * A list the author fixed no set for: the user writes the members themselves.
+     * {@link BotType.Shape#OPEN_LIST}: the user writes the members themselves, out of no set at all.
      *
      * <p>Text is one item per line — a newline is not a character anybody types into a value by accident,
      * where a comma is, and twenty strings are faster typed than clicked. Every other type gets a growable

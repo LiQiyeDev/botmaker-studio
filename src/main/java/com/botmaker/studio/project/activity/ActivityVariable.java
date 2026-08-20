@@ -57,6 +57,42 @@ public record ActivityVariable(String name, BotType.Choice type, List<String> va
         value = VariableWire.normalize(value, type, options, bounds);
     }
 
+    /**
+     * Reads the persisted form, settling the one question {@link BotType.Choice#fromJson} cannot.
+     *
+     * <p>{@code ANY_OF} used to mean two things — tick boxes over the author's choices, or a free list the
+     * user filled in — and which one it was showed only in whether any choices were written down. Now that
+     * they are two shapes, a file written before the split has to be read the way it used to <em>render</em>,
+     * or a project full of "List of text" parameters opens with a column of tick boxes over nothing.
+     *
+     * <p>So: a stored {@code ANY_OF} keeps its shape when there is a set behind it — the author's choices, or
+     * the type's own constants for a closed set like {@code Direction} — and becomes {@link
+     * BotType.Shape#OPEN_LIST} when there is not. A newly created "Many of…" with nothing declared yet is
+     * indistinguishable from that on disk and reads back as an open list, which is the shape it was drawn as
+     * anyway; declaring a choice on it is what makes the distinction real.
+     */
+    @com.fasterxml.jackson.annotation.JsonCreator
+    static ActivityVariable fromJson(
+            @com.fasterxml.jackson.annotation.JsonProperty("name") String name,
+            @com.fasterxml.jackson.annotation.JsonProperty("type") BotType.Choice type,
+            @com.fasterxml.jackson.annotation.JsonProperty("value") List<String> value,
+            @com.fasterxml.jackson.annotation.JsonProperty("description") String description,
+            @com.fasterxml.jackson.annotation.JsonProperty("tag") String tag,
+            @com.fasterxml.jackson.annotation.JsonProperty("visibility") ParamVisibility visibility,
+            @com.fasterxml.jackson.annotation.JsonProperty("options") List<String> options,
+            @com.fasterxml.jackson.annotation.JsonProperty("bounds") Bounds bounds) {
+        return new ActivityVariable(name, listShapeOf(type, options), value, description, tag, visibility,
+                options, bounds);
+    }
+
+    /** {@link #fromJson}'s rule, alone so it can be read — and tested — without a file. */
+    static BotType.Choice listShapeOf(BotType.Choice type, List<String> options) {
+        if (type == null || type.shape() != BotType.Shape.ANY_OF) return type;
+        boolean hasSet = (options != null && !options.isEmpty())
+                || !VariableWire.fixedOptions(type.type()).isEmpty();
+        return hasSet ? type : new BotType.Choice(type.type(), BotType.Shape.OPEN_LIST);
+    }
+
     /** A fresh variable of {@code type}, with that type's default value. */
     public static ActivityVariable create(String name, BotType.Choice type) {
         return create(name, type, "");

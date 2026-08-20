@@ -6,6 +6,7 @@ import com.botmaker.studio.ui.app.params.ParamValueWidgets;
 import javafx.scene.Node;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.RadioButton;
+import javafx.scene.control.TextArea;
 import javafx.scene.layout.Pane;
 import org.junit.jupiter.api.Test;
 
@@ -25,6 +26,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * two shapes were invisible until after the author had filled the set in, which is exactly when they were
  * least needed. Worse, a closed-set type like Direction never gets a declared set at all (its values are the
  * SDK's), so "any of Direction" was permanently a textarea of names typed from memory.
+ *
+ * <p>The last of that rule was the one list shape that meant two things. "Many of…" and "List of…" are now two
+ * shapes, so the widget follows the shape here too and there is no state in which a variable changes control
+ * because a choice was added to it.
  */
 class ParamShapeWidgetTest extends FxHeadlessTest {
 
@@ -42,7 +47,7 @@ class ParamShapeWidgetTest extends FxHeadlessTest {
     @Test
     void anyOfAClosedSetTicksTheTypesOwnValuesWithNothingDeclared() {
         ActivityVariable directions = ActivityVariable.create("ways",
-                BotType.Choice.listOf(BotType.DIRECTION));
+                new BotType.Choice(BotType.DIRECTION, BotType.Shape.ANY_OF));
         assertTrue(directions.options().isEmpty(), "nobody declares the directions; the SDK has them");
 
         List<Node> rows = childrenOf(widgetFor(directions));
@@ -70,6 +75,42 @@ class ParamShapeWidgetTest extends FxHeadlessTest {
                 "a second row means constants the grid had no square for and fell through to name buttons");
         assertEquals(known.size(), childrenOf(parts.getFirst()).size(),
                 "one square per direction the SDK has");
+    }
+
+    /**
+     * The two list shapes, side by side on the same type with the same choices declared. Before the split
+     * these were one shape and this test could not have been written: the "many of" reading was reachable
+     * only with choices and the "open list" reading only without them, so no pair of variables differed by
+     * the shape alone.
+     */
+    @Test
+    void theTwoListShapesAreTwoWidgetsOnTheSameTypeAndTheSameChoices() {
+        List<String> skills = List.of("mine", "fish", "cook");
+
+        ActivityVariable many = ActivityVariable.create("many",
+                new BotType.Choice(BotType.TEXT, BotType.Shape.ANY_OF)).withOptions(skills);
+        List<Node> ticks = childrenOf(widgetFor(many));
+        assertEquals(skills.size(), ticks.size());
+        for (Node row : ticks) assertInstanceOf(CheckBox.class, row);
+
+        // A textarea and not a Pane, so it has no children to count: text is written one per line.
+        ActivityVariable open = ActivityVariable.create("open",
+                BotType.Choice.listOf(BotType.TEXT)).withOptions(skills);
+        assertInstanceOf(TextArea.class, widgetFor(open),
+                "an open list is the user's to fill in, whatever the author wrote down");
+        assertTrue(open.options().isEmpty(), "and the choices are not even stored on it");
+    }
+
+    /** Every other type's open list is a growable column of that type's own editor, empty to begin with. */
+    @Test
+    void anOpenListOfSomethingOtherThanTextIsRowsOfItsOwnEditor() {
+        ActivityVariable spots = ActivityVariable.create("spots", BotType.Choice.listOf(BotType.POINT));
+
+        List<Node> parts = childrenOf(widgetFor(spots));
+
+        assertFalse(parts.isEmpty(), "the empty state still has to say something and offer Add");
+        assertTrue(parts.stream().noneMatch(part -> part instanceof CheckBox),
+                "nothing to tick: an open list has no set behind it");
     }
 
     @Test

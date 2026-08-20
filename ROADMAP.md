@@ -6,6 +6,25 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-21 — A screen that reads the file it just wrote, and a signature you can't break
+  (`services/CodeEditorService`, `parser/refactor/SignatureEdits`, `parser/refactor/MethodReferences`,
+  `parser/refactor/SignatureMigration`, `parser/handlers/MethodHandler`, `state/SnapshotHistory`,
+  `ui/app/dev/PickerGalleryWindow`, `ui/app/params/ValueEditors`, `ui/app/params/ParametersDialog`,
+  `services/ScreenCaptureService`, `palette/BotType`).** Seven phases against hands-on testing of round 5.
+  `CodeUpdatedEvent`'s subscriber updates the model synchronously and defers only the re-render, so a listener
+  that re-reads the file it just wrote no longer sees the previous version — the "type picker one late", and
+  the workaround it had grown. Every route that edits a signature now goes through one migration path: the
+  inline ✕ on a method or constructor header refuses while anything still calls it, the constructor's
+  parameter controls build a plan over every `new Foo(…)` (the scanner learned `ClassInstanceCreation`), a
+  retyped return replaces a call only where `SlotFit` refuses it in that slot — so an argument to `print(…)`
+  survives — and the body's trailing `return` is rewritten to match or defended from deletion. Undo spans
+  files: history holds the set of files a change touched, not the active file's text. Pickers: a decimal is a
+  plain field that stores a dot whatever the keyboard types, the Key box searches, a template shows its
+  thumbnail, and a point picked on any screen is in the capture source's own pixels. Parameters has no Save
+  button — every edit commits, with ↶/↷ over `SnapshotHistory` (one history class, three users). And the type
+  shape is four: `One value` · `One of…` · `Many of…` (tick boxes) · `List of…` (the user's own list), which a
+  pre-split file is read into by whether it declared any choices. Dev-only `PickerGalleryWindow` shows every
+  type × shape editor with its live wire value.
 - **2026-08-20 — A variable you can delete, and a signature the whole project follows
   (`ui/app/vars/EditVariableDialog`, `ui/app/vars/DeleteVariableDialog`, `parser/UseFix`, `core/BodyBlock`,
   `parser/CodeEditor`, `palette/FunctionDraft`, `parser/handlers/MethodHandler`,

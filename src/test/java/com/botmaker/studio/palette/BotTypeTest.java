@@ -136,8 +136,13 @@ class BotTypeTest {
 
         BotType.Choice listOfDirection = mapper.readValue(
                 "{\"type\":\"DIRECTION\",\"shape\":\"ANY_OF\"}", BotType.Choice.class);
-        assertEquals(BotType.Choice.listOf(BotType.DIRECTION), listOfDirection,
+        assertEquals(new BotType.Choice(BotType.DIRECTION, BotType.Shape.ANY_OF), listOfDirection,
                 "a list of a closed-set type is still a list");
+
+        BotType.Choice fromTheFuture = mapper.readValue(
+                "{\"type\":\"POINT\",\"shape\":\"ONE_OF_EACH\"}", BotType.Choice.class);
+        assertEquals(BotType.Choice.of(BotType.POINT), fromTheFuture,
+                "a shape a newer Studio invented opens as one free value rather than failing the project");
     }
 
     @Test

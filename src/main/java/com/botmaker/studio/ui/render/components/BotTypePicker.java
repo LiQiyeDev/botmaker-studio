@@ -92,14 +92,16 @@ public final class BotTypePicker extends MenuButton {
     }
 
     /**
-     * Which shapes this purpose can express. {@link BotType.Shape#ONE_OF} is a project-variable idea and
-     * nothing else — fixing the set a value may come from is a question about something somebody configures,
-     * and a method parameter has nobody to ask, so a signature's axis has only {@code T} and {@code List<T>}.
+     * Which shapes this purpose can express. The two set-shaped ones — {@link BotType.Shape#ONE_OF} and
+     * {@link BotType.Shape#ANY_OF} — are project-variable ideas and nothing else: fixing the set a value may
+     * come from is a question about something somebody configures, and a method parameter has nobody to ask.
+     * So a signature's axis has only {@code T} and {@code List<T>}, the latter spelled
+     * {@link BotType.Shape#OPEN_LIST} because there is no set behind it to name.
      */
     private static List<BotType.Shape> shapes(Purpose purpose) {
         return switch (purpose) {
             case VARIABLE -> List.of(BotType.Shape.values());
-            case RETURN_TYPE, PARAMETER -> List.of(BotType.Shape.ONE, BotType.Shape.ANY_OF);
+            case RETURN_TYPE, PARAMETER -> List.of(BotType.Shape.ONE, BotType.Shape.OPEN_LIST);
             case LOCAL_VARIABLE -> List.of(BotType.Shape.ONE);
         };
     }
@@ -131,7 +133,7 @@ public final class BotTypePicker extends MenuButton {
         return switch (shape) {
             case ONE -> true;
             case ONE_OF -> type.shapeable();
-            case ANY_OF -> type.listable();
+            case ANY_OF, OPEN_LIST -> type.listable();
         };
     }
 
