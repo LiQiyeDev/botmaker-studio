@@ -91,8 +91,14 @@ class EditFunctionSignatureTest {
         return subject().getMethods()[0];
     }
 
+    /** A parameter the user has just added — no origin, so the write treats it as new. */
     private static FunctionDraft.Parameter param(String name, BotType type) {
         return new FunctionDraft.Parameter(name, BotType.Choice.of(type));
+    }
+
+    /** The parameter that stood at {@code origin} in the method being edited — what the dialog stamps. */
+    private static FunctionDraft.Parameter param(String name, BotType type, int origin) {
+        return param(name, type).withOrigin(origin);
     }
 
     @Test
@@ -112,7 +118,7 @@ class EditFunctionSignatureTest {
         // referring to a name that no longer existed.
         editor.applyFunctionSignature(clickAt(), new FunctionDraft("clickAt",
                 BotType.Choice.of(BotType.YES_NO),
-                List.of(param("target", BotType.POINT), param("attempts", BotType.WHOLE_NUMBER))));
+                List.of(param("target", BotType.POINT, 0), param("attempts", BotType.WHOLE_NUMBER, 1))));
 
         assertTrue(lastCode.contains("clickAt(Point target, int attempts)"), lastCode);
         assertTrue(lastCode.contains("System.out.println(attempts);"), lastCode);
@@ -122,11 +128,11 @@ class EditFunctionSignatureTest {
 
     @Test
     void retypingAParameterInPlaceLeavesTheBodyAlone() {
-        // Parameters match the draft by position, so changing a type is not "remove then add" — the body's
+        // Parameters match the draft by origin, so changing a type is not "remove then add" — the body's
         // references to that name keep working.
         editor.applyFunctionSignature(clickAt(), new FunctionDraft("clickAt",
                 BotType.Choice.of(BotType.YES_NO),
-                List.of(param("where", BotType.RECT), param("tries", BotType.WHOLE_NUMBER))));
+                List.of(param("where", BotType.RECT, 0), param("tries", BotType.WHOLE_NUMBER, 1))));
 
         assertTrue(lastCode.contains("clickAt(Rect where, int tries)"), lastCode);
         assertTrue(lastCode.contains("return where != null;"), lastCode);
@@ -136,16 +142,54 @@ class EditFunctionSignatureTest {
     void aSurplusParameterIsRemovedAndANewOneAppended() {
         editor.applyFunctionSignature(clickAt(), new FunctionDraft("clickAt",
                 BotType.Choice.of(BotType.YES_NO),
-                List.of(param("where", BotType.POINT), param("howLong", BotType.DURATION))));
+                List.of(param("where", BotType.POINT, 0), param("howLong", BotType.DURATION))));
 
         assertTrue(lastCode.contains("clickAt(Point where, java.time.Duration howLong)"), lastCode);
         assertFalse(lastCode.contains("int tries"), lastCode);
     }
 
     @Test
+    void movingAParameterMovesItRatherThanRetypingWhatSatThere() {
+        // The whole reason a parameter carries an origin. By position this reads as "parameter 0 is now an int
+        // called tries" and "parameter 1 is now a Point called where" — two retypes, and every reference in the
+        // body silently changed meaning. By origin it is one move.
+        editor.applyFunctionSignature(clickAt(), new FunctionDraft("clickAt",
+                BotType.Choice.of(BotType.YES_NO),
+                List.of(param("tries", BotType.WHOLE_NUMBER, 1), param("where", BotType.POINT, 0))));
+
+        assertEquals(1, updates, "a reorder is still one write");
+        assertTrue(lastCode.contains("clickAt(int tries, Point where)"),
+                "both parameters kept their own name and type on the way:\n" + lastCode);
+        assertTrue(lastCode.contains("System.out.println(tries);"), lastCode);
+        assertTrue(lastCode.contains("return where != null;"), lastCode);
+    }
+
+    @Test
+    void aMovedParameterCanBeRenamedInTheSameEdit() {
+        editor.applyFunctionSignature(clickAt(), new FunctionDraft("clickAt",
+                BotType.Choice.of(BotType.YES_NO),
+                List.of(param("attempts", BotType.WHOLE_NUMBER, 1), param("target", BotType.POINT, 0))));
+
+        assertTrue(lastCode.contains("clickAt(int attempts, Point target)"), lastCode);
+        assertTrue(lastCode.contains("System.out.println(attempts);"),
+                "the body follows the parameter it was renamed from:\n" + lastCode);
+        assertTrue(lastCode.contains("return target != null;"), lastCode);
+    }
+
+    @Test
+    void aDraftReadOutOfTheFileKnowsWhereItsParametersCameFrom() {
+        FunctionDraft draft = MethodSignatures.draftOf(clickAt()).orElseThrow();
+
+        assertEquals(0, draft.parameters().getFirst().origin());
+        assertEquals(1, draft.parameters().get(1).origin());
+        assertFalse(draft.parameters().getFirst().isNew(),
+                "a parameter the file already has is never new");
+    }
+
+    @Test
     void aReturnTypeChangedToNothingDropsTheTrailingReturn() {
         editor.applyFunctionSignature(clickAt(), new FunctionDraft("clickAt",
-                BotType.Choice.of(BotType.NOTHING), List.of(param("where", BotType.POINT))));
+                BotType.Choice.of(BotType.NOTHING), List.of(param("where", BotType.POINT, 0))));
 
         assertTrue(lastCode.contains("public void clickAt(Point where)"), lastCode);
         assertFalse(lastCode.contains("return where != null;"),
@@ -193,7 +237,7 @@ class EditFunctionSignatureTest {
         // The rename the dialog is open for, with the return type left as the file wrote it.
         editor.applyFunctionSignature(run, new FunctionDraft("runOnce",
                 MethodSignatures.draftOf(run).orElseThrow().returnType(),
-                List.of(param("tries", BotType.WHOLE_NUMBER))));
+                List.of(param("tries", BotType.WHOLE_NUMBER, 0))));
 
         assertTrue(lastCode.contains("public Outcome runOnce(int tries)"), lastCode);
         assertTrue(lastCode.contains("return Outcome.done();"),

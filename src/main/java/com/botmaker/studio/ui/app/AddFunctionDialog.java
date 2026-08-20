@@ -130,6 +130,8 @@ public final class AddFunctionDialog {
             ParameterRow row = rows.getLast();
             parameter.type().described().ifPresentOrElse(row.picker::setChoice, () -> row.keep(parameter.type()));
             row.nameField.setText(parameter.name());
+            // The row *is* that parameter from here on, wherever the ▲▼ take it — see FunctionDraft.Parameter.
+            row.origin = parameter.origin();
         }
     }
 
@@ -241,7 +243,7 @@ public final class AddFunctionDialog {
 
     private FunctionDraft draft() {
         List<FunctionDraft.Parameter> params = rows.stream()
-                .map(r -> new FunctionDraft.Parameter(r.nameField.getText(), r.type()))
+                .map(r -> new FunctionDraft.Parameter(r.nameField.getText(), r.type(), r.origin))
                 .toList();
         SignatureType returns =
                 keptReturnType != null ? keptReturnType : SignatureType.of(returnPicker.choice());
@@ -270,6 +272,8 @@ public final class AddFunctionDialog {
         private final Button remove = new Button("✕");
         /** Set when this parameter's type is one the editor only carries; the picker is then not shown. */
         private SignatureType kept;
+        /** Which parameter of the edited method this row is, or {@code NEW} for a row the "+" made. */
+        private int origin = FunctionDraft.Parameter.NEW;
 
         private ParameterRow() {
             nameField.setPromptText("name");

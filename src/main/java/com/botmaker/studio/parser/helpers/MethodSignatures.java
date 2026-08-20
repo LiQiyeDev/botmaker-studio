@@ -65,8 +65,8 @@ public final class MethodSignatures {
                 : signatureTypeOf(method.getReturnType2().toString());
 
         List<FunctionDraft.Parameter> parameters = new ArrayList<>();
-        for (Object parameter : method.parameters()) {
-            SingleVariableDeclaration declaration = (SingleVariableDeclaration) parameter;
+        for (int i = 0; i < method.parameters().size(); i++) {
+            SingleVariableDeclaration declaration = (SingleVariableDeclaration) method.parameters().get(i);
             // Varargs and arrays are the two that genuinely cannot round-trip: the {@code …} and the
             // {@code []} are spelled outside the type node (and `String args[]` puts them on the name), so
             // carrying the type text alone would quietly drop them.
@@ -74,8 +74,11 @@ public final class MethodSignatures {
                     || declaration.getType().toString().endsWith("[]")) {
                 return Optional.empty();
             }
+            // Stamped with the index it holds here: this draft is what the dialog opens on, and the rows the
+            // user then moves, renames or deletes carry the stamp back out — so the write knows which
+            // parameter each row *is*, not merely where it ended up.
             parameters.add(new FunctionDraft.Parameter(declaration.getName().getIdentifier(),
-                    signatureTypeOf(declaration.getType().toString())));
+                    signatureTypeOf(declaration.getType().toString()), i));
         }
         return Optional.of(new FunctionDraft(method.getName().getIdentifier(), returnType, parameters));
     }

@@ -159,10 +159,10 @@ public class MethodHandler {
      * is no way to reach that state from here, which is what the maintainer meant by wanting the change to
      * be "compilation safe".
      *
-     * <p>Parameters are matched to the draft <em>by position</em>: the first old parameter becomes the first
-     * new one whatever its name or type, so retyping keeps the body's references intact, and only a genuine
-     * surplus is removed. Renaming rewrites the references inside this method's own body, which the
-     * per-parameter field it replaces never did.
+     * <p>Parameters are matched to the draft <em>by origin</em> — see {@link #applyParameters} — so retyping
+     * keeps the body's references intact, only a parameter the user actually deleted is removed, and moving a
+     * row moves the parameter rather than renaming whatever sat at that index. Renaming rewrites the
+     * references inside this method's own body, which the per-parameter field it replaces never did.
      */
     public static String applyFunctionSignature(EditContext ctx, String originalCode, MethodDeclaration method,
                                                 FunctionDraft draft) {
@@ -203,40 +203,117 @@ public class MethodHandler {
         updateTrailingReturn(ctx.ast(), ctx.rewriter(), method, oldResolved, newResolved);
     }
 
-    /** The parameter list, matched to the draft by position. */
+    /**
+     * The parameter list, matched to the draft <em>by origin</em>.
+     *
+     * <p>Matching by position — what this did — reads a reorder as a pair of retypes: send {@code int tries}
+     * above {@code Point where} with the ▲, and position 0 "becomes" an {@code int} named {@code tries} while
+     * position 1 "becomes" a {@code Point} named {@code where}. The list ends up right, and every reference in
+     * the body to either name has silently changed meaning on the way. {@link FunctionDraft.Parameter#origin}
+     * says which parameter a row <em>is</em>, so the same gesture moves it whole.
+     *
+     * <p>Two shapes of edit, and the cheaper one is preferred: when the kept parameters are still in their old
+     * relative order and the new ones are all at the end, each one is edited where it stands and the file's own
+     * formatting survives untouched. Only a genuine move rebuilds the list, and then from copies of the
+     * original declarations, so a {@code final} or an annotation on a parameter travels with it.
+     */
     private static void applyParameters(EditContext ctx, MethodDeclaration method,
                                         List<FunctionDraft.Parameter> wanted) {
+        List<?> current = method.parameters();
+        if (isReordered(current.size(), wanted)) {
+            rebuildParameters(ctx, method, wanted);
+            return;
+        }
+
+        ASTRewrite rewriter = ctx.rewriter();
+        ListRewrite listRewrite = rewriter.getListRewrite(method, MethodDeclaration.PARAMETERS_PROPERTY);
+
+        for (FunctionDraft.Parameter target : wanted) {
+            if (target.isNew() || target.origin() >= current.size()) continue;
+            editInPlace(ctx, method, (SingleVariableDeclaration) current.get(target.origin()), target);
+        }
+
+        for (int i = current.size() - 1; i >= 0; i--) {
+            if (!isKept(wanted, i)) listRewrite.remove((ASTNode) current.get(i), null);
+        }
+
+        for (FunctionDraft.Parameter target : wanted) {
+            if (target.isNew() || target.origin() >= current.size()) {
+                listRewrite.insertLast(freshParameter(ctx, target), null);
+            }
+        }
+    }
+
+    /** True when the wanted list cannot be reached by editing in place, removing and appending. */
+    private static boolean isReordered(int currentSize, List<FunctionDraft.Parameter> wanted) {
+        int lastOrigin = -1;
+        boolean seenNew = false;
+        for (FunctionDraft.Parameter target : wanted) {
+            if (target.isNew() || target.origin() >= currentSize) {
+                seenNew = true;
+                continue;
+            }
+            // A surviving parameter after a new one, or out of its old order, is a move.
+            if (seenNew || target.origin() <= lastOrigin) return true;
+            lastOrigin = target.origin();
+        }
+        return false;
+    }
+
+    private static boolean isKept(List<FunctionDraft.Parameter> wanted, int origin) {
+        return wanted.stream().anyMatch(p -> !p.isNew() && p.origin() == origin);
+    }
+
+    /** Retypes and renames one surviving parameter where it stands, body references included. */
+    private static void editInPlace(EditContext ctx, MethodDeclaration method,
+                                    SingleVariableDeclaration param, FunctionDraft.Parameter target) {
+        // A carried type is left as written — see applyReturnType; only the name is this dialog's to change.
+        if (!target.type().isKept() && !param.getType().toString().equals(target.type().sourceName())) {
+            ctx.rewriter().replace(param.getType(), typeNodeFor(ctx, target.type()), null);
+        }
+        String newName = target.name().trim();
+        if (!param.getName().getIdentifier().equals(newName)) {
+            AstRewriteHelper.renameWithinMethod(ctx.rewriter(), method, param.getName(), newName);
+        }
+    }
+
+    /** Writes the whole list again in the wanted order, each survivor a copy of the declaration it came from. */
+    private static void rebuildParameters(EditContext ctx, MethodDeclaration method,
+                                          List<FunctionDraft.Parameter> wanted) {
         AST ast = ctx.ast();
         ASTRewrite rewriter = ctx.rewriter();
         ListRewrite listRewrite = rewriter.getListRewrite(method, MethodDeclaration.PARAMETERS_PROPERTY);
         List<?> current = method.parameters();
 
-        for (int i = 0; i < Math.min(current.size(), wanted.size()); i++) {
-            SingleVariableDeclaration param = (SingleVariableDeclaration) current.get(i);
-            FunctionDraft.Parameter target = wanted.get(i);
+        for (int i = current.size() - 1; i >= 0; i--) listRewrite.remove((ASTNode) current.get(i), null);
 
-            // A carried type is left as written — see applyReturnType; only the name is this dialog's to change.
-            if (!target.type().isKept()
-                    && !param.getType().toString().equals(target.type().sourceName())) {
-                rewriter.replace(param.getType(), typeNodeFor(ctx, target.type()), null);
+        for (FunctionDraft.Parameter target : wanted) {
+            if (target.isNew() || target.origin() >= current.size()) {
+                listRewrite.insertLast(freshParameter(ctx, target), null);
+                continue;
+            }
+            SingleVariableDeclaration origin = (SingleVariableDeclaration) current.get(target.origin());
+            SingleVariableDeclaration moved =
+                    (SingleVariableDeclaration) ASTNode.copySubtree(ast, origin);
+            if (!target.type().isKept() && !origin.getType().toString().equals(target.type().sourceName())) {
+                moved.setType(typeNodeFor(ctx, target.type()));
             }
             String newName = target.name().trim();
-            if (!param.getName().getIdentifier().equals(newName)) {
-                AstRewriteHelper.renameWithinMethod(rewriter, method, param.getName(), newName);
+            if (!origin.getName().getIdentifier().equals(newName)) {
+                moved.setName(ast.newSimpleName(newName));
+                // The copy carries the new name; the body still spells the old one, and that is a rewrite of
+                // its own — the moved declaration is a new node, so renaming *it* would reach nothing else.
+                AstRewriteHelper.renameWithinMethod(rewriter, method, origin.getName(), newName);
             }
+            listRewrite.insertLast(moved, null);
         }
+    }
 
-        for (int i = current.size() - 1; i >= wanted.size(); i--) {
-            listRewrite.remove((ASTNode) current.get(i), null);
-        }
-
-        for (int i = current.size(); i < wanted.size(); i++) {
-            FunctionDraft.Parameter target = wanted.get(i);
-            SingleVariableDeclaration added = ast.newSingleVariableDeclaration();
-            added.setType(typeNodeFor(ctx, target.type()));
-            added.setName(ast.newSimpleName(target.name().trim()));
-            listRewrite.insertLast(added, null);
-        }
+    private static SingleVariableDeclaration freshParameter(EditContext ctx, FunctionDraft.Parameter target) {
+        SingleVariableDeclaration added = ctx.ast().newSingleVariableDeclaration();
+        added.setType(typeNodeFor(ctx, target.type()));
+        added.setName(ctx.ast().newSimpleName(target.name().trim()));
+        return added;
     }
 
     /** A type node for a signature type: a curated choice imports what it names, a carried one is copied. */

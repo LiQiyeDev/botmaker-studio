@@ -43,11 +43,40 @@ public record FunctionDraft(String name, SignatureType returnType, List<Paramete
         this(name, SignatureType.of(returnType), parameters);
     }
 
-    /** One parameter: {@code <type> <name>}. */
-    public record Parameter(String name, SignatureType type) {
+    /**
+     * One parameter: {@code <type> <name>}, plus <b>where it came from</b>.
+     *
+     * <p>{@code origin} is the index this parameter held in the method being edited, or {@link #NEW} for one
+     * the user has just added. It is what makes a <em>reorder</em> a reorder: matched by position, moving the
+     * second row above the first is read as "parameter 1 was renamed and retyped, and so was parameter 2" —
+     * two silent retypes of the wrong things, and every call site left arguing with the new order. Matched by
+     * origin, the same gesture moves the parameter, name, type and all.
+     *
+     * <p>It is deliberately not a generated id: the dialog reads a draft out of the AST, hands rows to the
+     * user and reads a draft back, so an index into the list it was read from is exactly as much identity as
+     * exists. Nothing persists it, and a draft built from scratch is all {@link #NEW}.
+     */
+    public record Parameter(String name, SignatureType type, int origin) {
+
+        /** The origin of a parameter that did not exist before this edit. */
+        public static final int NEW = -1;
+
+        public Parameter(String name, SignatureType type) {
+            this(name, type, NEW);
+        }
 
         public Parameter(String name, BotType.Choice type) {
             this(name, SignatureType.of(type));
+        }
+
+        /** True when nothing in the method being edited corresponds to this parameter. */
+        public boolean isNew() {
+            return origin < 0;
+        }
+
+        /** The same parameter, said to have come from index {@code origin} of the method being edited. */
+        public Parameter withOrigin(int origin) {
+            return new Parameter(name, type, origin);
         }
     }
 
