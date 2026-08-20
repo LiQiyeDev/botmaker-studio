@@ -28,6 +28,8 @@ import com.botmaker.studio.parser.helpers.AstRewriteHelper;
 import com.botmaker.studio.parser.helpers.SdkNodes;
 import com.botmaker.studio.parser.helpers.SourceFormatter;
 import com.botmaker.studio.parser.helpers.SourceParser;
+import com.botmaker.studio.parser.refactor.CallMigrator;
+import com.botmaker.studio.parser.refactor.SignatureMigration;
 import com.botmaker.studio.project.LockResolver.EditKind;
 import com.botmaker.studio.project.LockResolver;
 import com.botmaker.studio.project.ProjectConfig;
@@ -41,6 +43,7 @@ import org.eclipse.jdt.core.dom.rewrite.ListRewrite;
 import org.eclipse.jface.text.Document;
 import org.eclipse.jface.text.IDocument;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -715,6 +718,45 @@ public class CodeEditor {
     public void applyFunctionSignature(MethodDeclaration method, FunctionDraft draft) {
         edit(method, EditKind.SIGNATURE, false,
                 (cu, code) -> MethodHandler.applyFunctionSignature(ctx(cu), code, method, draft));
+    }
+
+    /**
+     * The same change, carried to every call in the project — the plan the user approved in
+     * {@code SignatureMigrationDialog}.
+     *
+     * <p>Written in one order for one reason: <b>the other files are rewritten in memory first</b>, and only
+     * once every one of them has produced source that parses does the declaration's own file go through the
+     * guarded write. A rename that lands in the declaration and then fails in the third file leaves a project
+     * that does not build, with no single undo that puts it back — so a failure anywhere is a failure
+     * everywhere, before anything is published. The declaration's file goes last and takes its own local calls
+     * with it in the same rewrite ({@link MethodHandler#applyFunctionSignature}).
+     */
+    public void applyFunctionSignature(MethodDeclaration method, FunctionDraft draft,
+                                       SignatureMigration.Plan plan) {
+        if (plan == null || plan.isEmpty()) {
+            applyFunctionSignature(method, draft);
+            return;
+        }
+        if (!canModify(method, EditKind.SIGNATURE)) return;
+        CompilationUnit cu = getCompilationUnit();
+        if (cu == null) return;
+
+        List<CallMigrator.Rewritten> others = CallMigrator.rewriteOthers(plan, cu, analyzer, state);
+        if (others == null) {
+            eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(
+                    "That change couldn't be written to every file that calls it, so nothing was changed."));
+            return;
+        }
+
+        String newCode = MethodHandler.applyFunctionSignature(ctx(cu), getCurrentCode(), method, draft, plan);
+        if (newCode == null) return;
+        if (!triggerUpdate(newCode, false, method, EditKind.SIGNATURE)) return;
+        try {
+            CallMigrator.commit(others);
+        } catch (IOException e) {
+            eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(
+                    "The function changed, but one of the files calling it couldn't be saved: " + e.getMessage()));
+        }
     }
 
     public void deleteMethod(MethodDeclaration method) {

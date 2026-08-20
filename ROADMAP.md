@@ -6,6 +6,26 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-20 — A variable you can delete, and a signature the whole project follows
+  (`ui/app/vars/EditVariableDialog`, `ui/app/vars/DeleteVariableDialog`, `parser/UseFix`, `core/BodyBlock`,
+  `parser/CodeEditor`, `palette/FunctionDraft`, `parser/handlers/MethodHandler`,
+  `parser/refactor/MethodReferences`, `parser/refactor/SignatureMigration`, `parser/refactor/CallMigrator`,
+  `ui/app/SignatureMigrationDialog`, `blocks/func/MethodDeclarationBlock`).** Four phases against hands-on
+  testing of round 4. The Edit Variable screen rebuilds its value editor from the type the user just picked
+  rather than waiting for a write that a refusal may never publish; inserting a variable from the statement
+  menu opens its screen inline instead of arming a one-shot subscription that missed its own insert and fired
+  on the *next* event — which is why deleting a variable used to open the edit screen; and an emptied slot can
+  be refilled from its own menu as well as by a drop, the dashed region itself now being the click target.
+  Deleting a variable that is used asks once and applies to all — the type's default, or another variable of
+  the same type in scope — through one write (`UseFix`). And a function's signature is no longer a change to
+  its declaration alone: parameters carry the index they came from, so moving a row moves the parameter
+  instead of retyping whatever sat there; `MethodReferences` finds every call in the project from source
+  alone, refusing by name when a file doesn't parse or a call can't be told apart from another class's;
+  `SignatureMigration` works out what happens at each call before anything is written, and `CallMigrator`
+  writes it — every other file rewritten and re-parsed in memory first, so a migration that would half-land
+  changes nothing at all. A change with callers is previewed and cancellable; one without saves as it always
+  did.
+
 - **2026-08-20 — One variable, one screen; a value that can leave its slot; a shell that stays full
   (`ui/render/components/pickers/ValueSlot`, `ui/app/vars/EditVariableDialog`, `parser/SlotVacancy`,
   `parser/CodeEditor`, `ui/dnd/BlockDragAndDropManager`, `core/AbstractCodeBlock`,

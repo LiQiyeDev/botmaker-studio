@@ -12,6 +12,8 @@ import com.botmaker.studio.parser.factories.InitializerFactory;
 import com.botmaker.studio.parser.factories.StatementFactory;
 import com.botmaker.studio.parser.helpers.AstRewriteHelper;
 import com.botmaker.studio.parser.helpers.DefaultValueHelper;
+import com.botmaker.studio.parser.refactor.CallMigrator;
+import com.botmaker.studio.parser.refactor.SignatureMigration;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.palette.ExpressionType;
 import com.botmaker.studio.types.ResolvedType;
@@ -166,7 +168,21 @@ public class MethodHandler {
      */
     public static String applyFunctionSignature(EditContext ctx, String originalCode, MethodDeclaration method,
                                                 FunctionDraft draft) {
-        AST ast = ctx.ast();
+        return applyFunctionSignature(ctx, originalCode, method, draft, null);
+    }
+
+    /**
+     * As above, and in the <em>same</em> rewrite: the calls to this method that live in this file, and a local
+     * for each removed parameter its body still reads.
+     *
+     * <p>Same rewrite because the alternative is two writes — the declaration, then its callers — and between
+     * them sits a file that does not compile, which is exactly the state this dialog was built to make
+     * unreachable. Calls in <em>other</em> files are not this method's business; see {@link CallMigrator}.
+     *
+     * @param plan the approved migration, or null for a change with nothing to migrate
+     */
+    public static String applyFunctionSignature(EditContext ctx, String originalCode, MethodDeclaration method,
+                                                FunctionDraft draft, SignatureMigration.Plan plan) {
         ASTRewrite rewriter = ctx.rewriter();
 
         String newName = draft.name().trim();
@@ -176,8 +192,36 @@ public class MethodHandler {
 
         applyReturnType(ctx, method, draft.returnType());
         applyParameters(ctx, method, draft.parameters());
+        if (plan != null) {
+            rescueRemovedParameters(ctx, method, plan.rescued());
+            CallMigrator.applyIn(ctx, plan);
+        }
 
         return ctx.applyTo(originalCode);
+    }
+
+    /**
+     * Declares a local for each parameter the user removed that the body still refers to, at the top of that
+     * body and seeded with its type's default.
+     *
+     * <p>Without it, removing an input that the function actually uses produces a body full of names that no
+     * longer exist — a change the user asked for, reported as several errors they did not. The local says the
+     * same thing the compiler would, in the one place the value can now come from.
+     */
+    private static void rescueRemovedParameters(EditContext ctx, MethodDeclaration method,
+                                                List<SignatureMigration.RescuedParameter> rescued) {
+        if (rescued.isEmpty() || method.getBody() == null) return;
+        AST ast = ctx.ast();
+        ListRewrite body = ctx.rewriter().getListRewrite(method.getBody(), Block.STATEMENTS_PROPERTY);
+        int at = 0;
+        for (SignatureMigration.RescuedParameter each : rescued) {
+            VariableDeclarationFragment fragment = ast.newVariableDeclarationFragment();
+            fragment.setName(ast.newSimpleName(each.name()));
+            fragment.setInitializer(CallMigrator.defaultFor(ctx, each.type()));
+            VariableDeclarationStatement statement = ast.newVariableDeclarationStatement(fragment);
+            statement.setType(typeNodeFor(ctx, each.type()));
+            body.insertAt(statement, at++, null);
+        }
     }
 
     /** The return type and the trailing {@code return} that has to agree with it. */

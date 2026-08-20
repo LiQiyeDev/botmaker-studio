@@ -3,7 +3,10 @@ package com.botmaker.studio.blocks.func;
 import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.palette.FunctionDraft;
 import com.botmaker.studio.parser.helpers.MethodSignatures;
+import com.botmaker.studio.parser.refactor.MethodReferences;
+import com.botmaker.studio.parser.refactor.SignatureMigration;
 import com.botmaker.studio.ui.app.AddFunctionDialog;
+import com.botmaker.studio.ui.app.SignatureMigrationDialog;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.ui.render.menu.ExpressionMenu;
 
@@ -355,9 +358,45 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
                 return;
             }
             new AddFunctionDialog(owner, otherSignatures(method), current.get()).showAndWait()
-                    .ifPresent(draft -> context.getCodeEditor().applyFunctionSignature(method, draft));
+                    .ifPresent(draft -> migrateAndApply(context, owner, method, current.get(), draft));
         });
         return edit;
+    }
+
+    /**
+     * Carries the edited signature to every call in the project, asking first.
+     *
+     * <p>Three outcomes, and the order is the whole design. A project with a file that doesn't parse, or a call
+     * this editor can't be certain about, is <b>refused</b> — named, explained, and nothing written, because a
+     * rename that reaches three of four call sites is worse than one that reaches none. A signature nothing
+     * calls yet <b>just saves</b>, as it did before this existed. Anything else is <b>previewed</b>: the user
+     * sees what will happen to which files and gets a Cancel that leaves even the declaration untouched.
+     */
+    private static void migrateAndApply(CodeEditorService context, Window owner, MethodDeclaration method,
+                                        FunctionDraft before, FunctionDraft after) {
+        MethodReferences.Result references = MethodReferences.find(context.getState(), method);
+        if (references.isRefusal()) {
+            explainRefusedMigration(owner, method, references.refusal());
+            return;
+        }
+        SignatureMigration.Plan plan =
+                SignatureMigration.of(before, after, method, references.calls());
+        if (plan.isEmpty()) {
+            context.getCodeEditor().applyFunctionSignature(method, after);
+            return;
+        }
+        if (!SignatureMigrationDialog.confirm(owner, method.getName().getIdentifier(), plan)) return;
+        context.getCodeEditor().applyFunctionSignature(method, after, plan);
+    }
+
+    /** Why the change could not be made, naming the file that has to be fixed first. */
+    private static void explainRefusedMigration(Window owner, MethodDeclaration method, String because) {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.initOwner(owner);
+        alert.setTitle("This change can't be made yet");
+        alert.setHeaderText(method.getName().getIdentifier() + " wasn't changed");
+        alert.setContentText(because);
+        alert.showAndWait();
     }
 
     /** Says which part of the signature the dialog cannot describe, and where to change it instead. */
