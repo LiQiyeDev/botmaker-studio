@@ -1,6 +1,7 @@
 package com.botmaker.studio.ui.app.flow;
 
 import com.botmaker.studio.project.activity.FlowEdge;
+import com.botmaker.studio.state.SnapshotHistory;
 import com.botmaker.studio.ui.app.params.ParamValueWidgets;
 import com.botmaker.studio.ui.render.theme.BlockTheme;
 import javafx.application.Platform;
@@ -138,9 +139,9 @@ public final class FlowCanvas extends StackPane {
     /**
      * Undo/redo for this canvas, over whole-canvas snapshots. Every mutation below goes through it, which is
      * what makes autosave and click-to-delete safe to have: nothing is lost, because everything can be taken
-     * back. See {@link FlowHistory} for why snapshots rather than per-mutation inverses.
+     * back. See {@link SnapshotHistory} for why snapshots rather than per-mutation inverses.
      */
-    private final FlowHistory<FlowSnapshot> history = new FlowHistory<>(this::capture, this::restore);
+    private final SnapshotHistory<FlowSnapshot> history = new SnapshotHistory<>(this::capture, this::restore);
 
     /** True while the history is putting a snapshot back: the mutations it performs must not record themselves. */
     private boolean restoring;
@@ -258,7 +259,7 @@ public final class FlowCanvas extends StackPane {
     public void setOnChainChanged(Runnable onChainChanged) { this.onChainChanged = onChainChanged; }
 
     /** Undo/redo for the flow: the dialog drives its arrows and, on every step, saves. */
-    public FlowHistory<FlowSnapshot> history() { return history; }
+    public SnapshotHistory<FlowSnapshot> history() { return history; }
 
     /** Called after every recorded mutation, undo and redo. */
     public void setOnFlowMutated(Runnable onFlowMutated) { this.onFlowMutated = onFlowMutated; }

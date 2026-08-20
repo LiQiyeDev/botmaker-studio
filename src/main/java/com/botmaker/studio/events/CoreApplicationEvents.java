@@ -15,12 +15,30 @@ public class CoreApplicationEvents {
 
     // --- Editing / UI ---
 
+    /**
+     * One file's text changed — and, for a change that spanned files, what it wrote to the others.
+     *
+     * <p>{@code newCode}/{@code previousCode} are the <em>active</em> file, the one the canvas is showing.
+     * {@code alsoChanged} is every other file the same edit wrote, and it exists for one listener: history.
+     * A signature migration rewrites the declaration here and its calls in three other files, and an undo that
+     * only knows about this one puts back a call site that no longer matches. {@code label} is that change in
+     * the words the Undo menu can show.
+     */
     public record CodeUpdatedEvent(String newCode, String previousCode,
-                                   boolean markNewIdentifiersAsUnedited) implements ApplicationEvent {
+                                   boolean markNewIdentifiersAsUnedited,
+                                   String label, List<FileEdit> alsoChanged) implements ApplicationEvent {
+        public CodeUpdatedEvent {
+            alsoChanged = alsoChanged != null ? List.copyOf(alsoChanged) : List.of();
+        }
+
+        /** A write nobody named, touching only the file it was published for — the open-migration path. */
         public CodeUpdatedEvent(String newCode, String previousCode) {
-            this(newCode, previousCode, false);
+            this(newCode, previousCode, false, null, List.of());
         }
     }
+
+    /** One file another file's edit also rewrote: what it said, and what it says now. */
+    public record FileEdit(java.nio.file.Path path, String previousContent, String newContent) {}
 
     public record DiagnosticsUpdatedEvent(List<Diagnostic> diagnostics) implements ApplicationEvent {
         public DiagnosticsUpdatedEvent {
@@ -40,7 +58,9 @@ public class CoreApplicationEvents {
     public record UIBlocksUpdatedEvent(AbstractCodeBlock rootBlock) implements ApplicationEvent {}
     public record BlockAddedEvent(BlockType blockType) implements ApplicationEvent {}
 
-    public record HistoryStateChangedEvent(boolean canUndo, boolean canRedo) implements ApplicationEvent {}
+    /** Whether ↶/↷ are available, and what each would take back — the menu items say so by name. */
+    public record HistoryStateChangedEvent(boolean canUndo, boolean canRedo,
+                                           String undoLabel, String redoLabel) implements ApplicationEvent {}
 
     /** Published after the project's user libraries have been changed and the classpath re-resolved. */
     public record LibrariesChangedEvent(List<UserLibrary> libraries) implements ApplicationEvent {

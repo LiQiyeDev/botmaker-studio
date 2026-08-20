@@ -366,9 +366,25 @@ public class MenuBarManager {
         eventBus.subscribe(CoreApplicationEvents.HistoryStateChangedEvent.class, this::updateMenuState, true);
     }
 
+    /**
+     * Enables ↶/↷ and names what each would take back — "Undo the change to loadTargets, in 4 files".
+     *
+     * <p>The count is the part worth showing: a signature change rewrites the files that call it, and an undo
+     * that quietly puts four files back is alarming unless the menu said so first.
+     */
     private void updateMenuState(CoreApplicationEvents.HistoryStateChangedEvent event) {
-        if (undoItem != null) undoItem.setDisable(!event.canUndo());
-        if (redoItem != null) redoItem.setDisable(!event.canRedo());
+        if (undoItem != null) {
+            undoItem.setDisable(!event.canUndo());
+            undoItem.setText(labelled("Undo", event.canUndo() ? event.undoLabel() : ""));
+        }
+        if (redoItem != null) {
+            redoItem.setDisable(!event.canRedo());
+            redoItem.setText(labelled("Redo", event.canRedo() ? event.redoLabel() : ""));
+        }
+    }
+
+    private static String labelled(String verb, String what) {
+        return what == null || what.isBlank() ? verb : verb + " " + what;
     }
 
     /**

@@ -122,9 +122,21 @@ public class ToolbarManager {
             }
         }, true);
         eventBus.subscribe(CoreApplicationEvents.HistoryStateChangedEvent.class, event -> {
-            if (undoButton != null) undoButton.setDisable(!event.canUndo());
-            if (redoButton != null) redoButton.setDisable(!event.canRedo());
+            if (undoButton != null) {
+                undoButton.setDisable(!event.canUndo());
+                undoButton.setTooltip(new Tooltip(tip("Undo", event.canUndo() ? event.undoLabel() : "", "Ctrl+Z")));
+            }
+            if (redoButton != null) {
+                redoButton.setDisable(!event.canRedo());
+                redoButton.setTooltip(new Tooltip(tip("Redo", event.canRedo() ? event.redoLabel() : "", "Ctrl+Y")));
+            }
         }, true);
+    }
+
+    /** "Undo the change to loadTargets, in 4 files (Ctrl+Z)" — or just the verb, when there is nothing to say. */
+    private static String tip(String verb, String what, String accelerator) {
+        String head = what == null || what.isBlank() ? verb : verb + " " + what;
+        return head + " (" + accelerator + ")";
     }
 
     /**

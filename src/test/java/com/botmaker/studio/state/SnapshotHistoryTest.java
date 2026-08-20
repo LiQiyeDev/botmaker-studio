@@ -1,4 +1,4 @@
-package com.botmaker.studio.ui.app.flow;
+package com.botmaker.studio.state;
 
 import org.junit.jupiter.api.Test;
 
@@ -8,22 +8,23 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The undo/redo stack behind the flow canvas. No JavaFX scene is involved — the history only reads and writes
- * a snapshot through two lambdas, which is exactly why it was written that way: what makes autosave safe is
- * testable without a toolkit.
+ * The undo/redo stack behind the flow canvas and the code editor. No JavaFX scene is involved — the history
+ * only reads and writes a snapshot through two lambdas, which is exactly why it was written that way: what
+ * makes autosave safe is testable without a toolkit.
  *
- * <p>The snapshot here is a {@code String} standing in for a whole canvas. Everything asserted below is about
- * the stack, not about what a flow is.
+ * <p>The snapshot here is a {@code String} standing in for a whole canvas, or for a set of files. Everything
+ * asserted below is about the stack, not about what either of those is.
  */
-public class FlowHistoryTest {
+public class SnapshotHistoryTest {
 
     /** A history over one mutable cell, the smallest thing with a state to restore. */
     private static final class Cell {
         private String value = "start";
-        private final FlowHistory<String> history = new FlowHistory<>(() -> value, v -> value = v);
+        private final SnapshotHistory<String> history = new SnapshotHistory<>(() -> value, v -> value = v);
     }
 
     @Test
@@ -137,5 +138,27 @@ public class FlowHistoryTest {
         cell.history.undo();
         assertEquals("wire A to B", cell.history.redoLabelProperty().get());
         assertEquals("", cell.history.undoLabelProperty().get());
+    }
+
+    @Test
+    void aHistoryThatCannotReadTheStateStillRecordsBothHalves() {
+        // The code editor's shape: by the time a write is announced the old text exists only in the
+        // announcement, so both halves arrive together and there is nothing to capture.
+        AtomicReference<String> file = new AtomicReference<>("before");
+        SnapshotHistory<String> history = new SnapshotHistory<>(file::set);
+
+        history.record("rename it", "before", "after");
+        file.set("after");
+
+        history.undo();
+        assertEquals("before", file.get());
+        history.redo();
+        assertEquals("after", file.get());
+    }
+
+    @Test
+    void aHistoryWithNoCaptureRefusesToInventOne() {
+        SnapshotHistory<String> history = new SnapshotHistory<>(value -> { });
+        assertThrows(IllegalStateException.class, history::mark);
     }
 }

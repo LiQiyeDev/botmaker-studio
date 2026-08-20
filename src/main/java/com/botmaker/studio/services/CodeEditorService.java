@@ -39,10 +39,12 @@ import org.eclipse.jdt.core.dom.ExpressionStatement;
 import org.eclipse.jdt.core.dom.MethodDeclaration;
 import org.eclipse.jdt.core.dom.TypeDeclaration;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -82,7 +84,7 @@ public class CodeEditorService {
         this.diagnosticsManager = diagnosticsManager;
         this.projectAnalyzer = projectAnalyzer;
         this.sdkDocsService = sdkDocsService;
-        this.historyManager = new HistoryManager();
+        this.historyManager = new HistoryManager(this::restoreFiles);
         this.codeEditor = new CodeEditor(config, state, eventBus, projectAnalyzer);
         setupEventHandlers();
     }
@@ -398,33 +400,90 @@ public class CodeEditorService {
         return null;
     }
 
+    /**
+     * Turns one write into one history step: the active file, plus every other file the same edit rewrote.
+     *
+     * <p>The second half is why this is a map rather than a string. A signature migration writes the
+     * declaration here and the calls in the files that use it, and it is one change to the user — so it has to
+     * be one ↶.
+     */
     private void handleCodeUpdateForHistory(CoreApplicationEvents.CodeUpdatedEvent event) {
+        Map<Path, String> before = new LinkedHashMap<>();
+        Map<Path, String> after = new LinkedHashMap<>();
+
+        Path active = activePath();
         String previousCode = event.previousCode();
-        if (previousCode != null && !previousCode.isEmpty()) {
-            historyManager.pushState(previousCode);
-            broadcastHistoryState();
+        if (active != null && previousCode != null && !previousCode.isEmpty()) {
+            before.put(active, previousCode);
+            after.put(active, event.newCode());
         }
+        for (CoreApplicationEvents.FileEdit edit : event.alsoChanged()) {
+            before.put(edit.path(), edit.previousContent());
+            after.put(edit.path(), edit.newContent());
+        }
+
+        historyManager.record(event.label(), before, after);
+        broadcastHistoryState();
     }
 
     private void undo() {
         if (!historyManager.canUndo()) return;
-        applyHistoryState(historyManager.undo(state.getCurrentCode()));
+        historyManager.undo();
+        broadcastHistoryState();
     }
 
     private void redo() {
         if (!historyManager.canRedo()) return;
-        applyHistoryState(historyManager.redo(state.getCurrentCode()));
-    }
-
-    private void applyHistoryState(String code) {
-        // Restore without recording: UIRefreshRequestedEvent refreshes the UI (and state.currentCode)
-        // but does NOT push onto the history stacks, unlike CodeUpdatedEvent.
-        eventBus.publish(new CoreApplicationEvents.UIRefreshRequestedEvent(code));
+        historyManager.redo();
         broadcastHistoryState();
     }
 
+    /**
+     * Puts one step's files back: the ones nobody is looking at straight to disk, the open one through the
+     * refresh.
+     *
+     * <p>Restoring without recording is the point of {@code UIRefreshRequestedEvent} — it updates
+     * {@link ProjectState} and the canvas, and publishes no {@code CodeUpdatedEvent}, so an undo does not
+     * become a step of its own.
+     *
+     * <p>The other files are written to disk here because that is where the change put them:
+     * {@code CallMigrator.commit} wrote them immediately rather than leaving them for a save. Their cached AST
+     * goes with the text, or every suggestion in Studio keeps reading the version that was just taken back.
+     */
+    private void restoreFiles(Map<Path, String> files) {
+        Path active = activePath();
+        for (Map.Entry<Path, String> each : files.entrySet()) {
+            if (each.getKey().equals(active)) continue;
+            writeBack(each.getKey(), each.getValue());
+        }
+        String activeText = active == null ? null : files.get(active);
+        if (activeText != null) {
+            eventBus.publish(new CoreApplicationEvents.UIRefreshRequestedEvent(activeText));
+        }
+    }
+
+    private void writeBack(Path path, String text) {
+        state.getFile(path).ifPresent(file -> {
+            file.setContent(text);
+            file.setAst(null);
+        });
+        try {
+            Files.writeString(path, text);
+        } catch (IOException e) {
+            eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(
+                    "Couldn't put " + path.getFileName() + " back: " + e.getMessage()));
+        }
+    }
+
+    private Path activePath() {
+        ProjectFile file = state.getActiveFile();
+        return file == null ? null : file.getPath();
+    }
+
     private void broadcastHistoryState() {
-        eventBus.publish(new CoreApplicationEvents.HistoryStateChangedEvent(historyManager.canUndo(), historyManager.canRedo()));
+        eventBus.publish(new CoreApplicationEvents.HistoryStateChangedEvent(
+                historyManager.canUndo(), historyManager.canRedo(),
+                historyManager.undoLabel(), historyManager.redoLabel()));
     }
 
     private void handleBreakpointToggle(CoreApplicationEvents.BreakpointToggledEvent event) {

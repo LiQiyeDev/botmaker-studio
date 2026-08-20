@@ -12,10 +12,11 @@ import java.util.List;
  * <p>It holds the {@link ActivityDraft}s themselves rather than copies of them, so restoring a deleted card
  * brings back the object the side panel and the card's toggles are bound to. What it copies is the part that
  * changes — position, the enable flag, the wiring — so two snapshots taken either side of a mutation differ
- * exactly where the mutation did. That is what lets {@link FlowHistory} drop a no-op step by comparing them.
+ * exactly where the mutation did. That is what lets {@link com.botmaker.studio.state.SnapshotHistory} drop a
+ * no-op step by comparing them.
  *
  * <p>Names, descriptions and outcomes are <em>not</em> here: those are edited as text, and a rename rewrites
- * every wire that mentioned it, which no earlier snapshot could be restored across. {@code FlowHistory.clear()}
+ * every wire that mentioned it, which no earlier snapshot could be restored across. {@code SnapshotHistory.clear()}
  * is what covers that case, rather than a wider snapshot that would still get it wrong.
  */
 public record FlowSnapshot(List<CardState> cards, List<FlowEdge> edges, String start) {
@@ -28,7 +29,8 @@ public record FlowSnapshot(List<CardState> cards, List<FlowEdge> edges, String s
         edges = List.copyOf(edges);
     }
 
-    /** This snapshot with {@code draft}'s enable flag set to {@code enabled} — see {@link FlowHistory#commit}. */
+    /** This snapshot with {@code draft}'s enable flag set to {@code enabled} — see
+     *  {@link com.botmaker.studio.state.SnapshotHistory#commit}. */
     public FlowSnapshot withEnabled(ActivityDraft draft, boolean enabled) {
         List<CardState> changed = new ArrayList<>(cards.size());
         for (CardState card : cards) {

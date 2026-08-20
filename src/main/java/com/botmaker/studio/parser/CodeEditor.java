@@ -199,11 +199,39 @@ public class CodeEditor {
      */
     private boolean triggerUpdate(String newCode, boolean markNewIdentifiersAsUnedited,
                                   ASTNode target, EditKind kind) {
+        return triggerUpdate(newCode, markNewIdentifiersAsUnedited, target, kind, List.of());
+    }
+
+    /**
+     * The same, for an edit that also rewrote other files — the migration path, and nothing else.
+     *
+     * <p>{@code alsoChanged} rides along so history records the whole change as one step. Without it, ↶ after a
+     * rename that crossed four files puts one of them back and leaves three calling a name that is gone.
+     */
+    private boolean triggerUpdate(String newCode, boolean markNewIdentifiersAsUnedited,
+                                  ASTNode target, EditKind kind,
+                                  List<CoreApplicationEvents.FileEdit> alsoChanged) {
         String previousCode = getCurrentCode();
         newCode = formatted(newCode);
         if (wouldBreak(newCode, previousCode, target, kind)) return false;
-        eventBus.publish(new CoreApplicationEvents.CodeUpdatedEvent(newCode, previousCode, markNewIdentifiersAsUnedited));
+        eventBus.publish(new CoreApplicationEvents.CodeUpdatedEvent(
+                newCode, previousCode, markNewIdentifiersAsUnedited,
+                stepLabel(target, alsoChanged.size()), alsoChanged));
         return true;
+    }
+
+    /**
+     * What this edit is called when the Undo menu has to name it.
+     *
+     * <p>Deliberately coarse: the node being edited and how many files went with it. A per-control sentence
+     * would mean every one of the fifty write methods carrying a string it never otherwise needs, and "Undo the
+     * change to loadTargets, in 4 files" is already the sentence a user is checking against.
+     */
+    private static String stepLabel(ASTNode target, int otherFiles) {
+        String what = target instanceof MethodDeclaration method
+                ? "the change to " + method.getName().getIdentifier()
+                : "the last change";
+        return otherFiles == 0 ? what : what + ", in " + (otherFiles + 1) + " files";
     }
 
     /**
@@ -746,7 +774,12 @@ public class CodeEditor {
 
         String newCode = MethodHandler.applyFunctionSignature(ctx(cu), getCurrentCode(), method, draft, plan);
         if (newCode == null) return;
-        if (!triggerUpdate(newCode, false, method, EditKind.SIGNATURE)) return;
+        // Read before the commit below overwrites them: this is what ↶ has to put back in those files.
+        List<CoreApplicationEvents.FileEdit> alsoChanged = others.stream()
+                .map(each -> new CoreApplicationEvents.FileEdit(
+                        each.file().getPath(), each.file().getContent(), each.newSource()))
+                .toList();
+        if (!triggerUpdate(newCode, false, method, EditKind.SIGNATURE, alsoChanged)) return;
         try {
             CallMigrator.commit(others);
         } catch (IOException e) {
