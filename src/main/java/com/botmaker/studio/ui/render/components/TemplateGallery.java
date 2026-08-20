@@ -6,7 +6,9 @@ import com.botmaker.studio.services.TagCatalog;
 import com.botmaker.studio.services.TemplateGalleryModel;
 import com.botmaker.studio.services.TemplateManifest;
 import javafx.css.PseudoClass;
+import javafx.geometry.Bounds;
 import javafx.geometry.Insets;
+import javafx.geometry.Point2D;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Hyperlink;
@@ -16,12 +18,14 @@ import javafx.scene.control.ListView;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextField;
 import javafx.scene.image.ImageView;
+import javafx.scene.input.MouseButton;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
+import javafx.scene.shape.Rectangle;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -51,6 +55,8 @@ import java.util.function.Predicate;
 public final class TemplateGallery extends HBox {
 
     private static final PseudoClass SELECTED = PseudoClass.getPseudoClass("selected");
+    /** How far a press has to travel before it is a band and not a click on the background. */
+    private static final double BAND_THRESHOLD = 4;
 
     private final ProjectConfig config;
     private final boolean multiSelect;
@@ -66,8 +72,15 @@ public final class TemplateGallery extends HBox {
     /** The tiles currently on screen, so a selection change repaints without rebuilding the grid. */
     private final Map<Path, Node> tiles = new LinkedHashMap<>();
     private final LinkedHashSet<Path> selected = new LinkedHashSet<>();
-    /** Where a Shift-click measures its range from: the last tile picked without Shift. */
-    private Path anchor;
+
+    /** The grid plus the rubber band drawn over it; the band is unmanaged, so it moves without re-laying out. */
+    private final StackPane gridLayer = new StackPane();
+    private final Rectangle band = new Rectangle();
+    /** The selection the band adds to — everything already picked on a Ctrl-drag, nothing on a plain one. */
+    private List<Path> bandBase = List.of();
+    private double bandOriginX;
+    private double bandOriginY;
+    private boolean banding;
 
     private Predicate<Path> filter = file -> true;
     private Runnable onSelectionChanged;
@@ -97,13 +110,21 @@ public final class TemplateGallery extends HBox {
 
         grid.setPadding(new Insets(4));
         grid.setPrefWrapLength(520);
-        ScrollPane scroll = new ScrollPane(grid);
+        grid.setMaxWidth(Double.MAX_VALUE);
+        grid.setMaxHeight(Double.MAX_VALUE);
+        band.getStyleClass().add("template-gallery-band");
+        band.setManaged(false);
+        band.setVisible(false);
+        gridLayer.setAlignment(Pos.TOP_LEFT);
+        gridLayer.setMaxWidth(Double.MAX_VALUE);
+        gridLayer.setMaxHeight(Double.MAX_VALUE);
+        gridLayer.getChildren().addAll(grid, band);
+        ScrollPane scroll = new ScrollPane(gridLayer);
         scroll.setFitToWidth(true);
-        // Clicking the background clears the selection — otherwise the only way out of a selection is to pick
-        // something else, and "tag nothing" then reads as "tag whatever was left over".
-        scroll.addEventHandler(MouseEvent.MOUSE_PRESSED, e -> {
-            if (e.getTarget() == scroll || e.getTarget() == grid) setSelection(List.of());
-        });
+        // The layer has to reach the bottom of the viewport, or the empty space under the last row belongs to
+        // the ScrollPane and a band cannot be started in the most natural place to start one.
+        scroll.setFitToHeight(true);
+        installBand();
 
         empty.getStyleClass().add("template-gallery-empty");
         empty.setWrapText(true);
@@ -205,7 +226,7 @@ public final class TemplateGallery extends HBox {
         int n = selected.size();
         // The empty state is where the gesture is taught, now that a plain click no longer accumulates.
         selectionCount.setText(n == 0
-                ? "Click to select · Ctrl-click to add · Shift-click for a range"
+                ? "Click to select · Ctrl-click to add · drag a box for several"
                 : n + " selected");
     }
 
@@ -312,36 +333,85 @@ public final class TemplateGallery extends HBox {
             return;
         }
         if (!multiSelect) {
-            anchor = file;
             setSelection(List.of(file));
             return;
         }
-        // The three gestures every file manager has, and in that order of frequency. A plain click *replaces*:
-        // making it toggle instead was meant to advertise multi-select, and what it actually did was make
-        // looking at a second template select both — so the common gesture, "show me that one", was the one that
-        // behaved unlike everywhere else. Ctrl toggles, Shift extends from the anchor, and the selection bar's
-        // "Select all" keeps batch work one gesture away.
+        // The two click gestures every file manager has, and in that order of frequency. A plain click
+        // *replaces*: making it toggle instead was meant to advertise multi-select, and what it actually did was
+        // make looking at a second template select both — so the common gesture, "show me that one", was the one
+        // that behaved unlike everywhere else. Ctrl toggles. Taking several at once is the band's job now:
+        // Shift-click extended over the grid's *wrap* order, which reads as a rectangle only by accident and
+        // swept up whole rows the user never crossed.
         List<Path> next = new ArrayList<>();
-        if (e.isShiftDown() && anchor != null) {
-            next.addAll(rangeBetween(anchor, file));
-        } else if (e.isShortcutDown()) {
+        if (e.isShortcutDown()) {
             next.addAll(selected);
             if (!next.remove(file)) next.add(file);
-            anchor = file;
         } else {
             next.add(file);
-            anchor = file;
         }
         setSelection(next);
     }
 
-    /** Every visible tile from {@code from} to {@code to} inclusive, in the order the grid shows them. */
-    private List<Path> rangeBetween(Path from, Path to) {
-        List<Path> visible = new ArrayList<>(tiles.keySet());
-        int a = visible.indexOf(from);
-        int b = visible.indexOf(to);
-        if (a < 0 || b < 0) return List.of(to);
-        return visible.subList(Math.min(a, b), Math.max(a, b) + 1);
+    /**
+     * Selection by dragging a box over the grid — the gesture a folder of thumbnails is expected to have.
+     *
+     * <p>It is installed on the layer under the tiles, and starts only where a press lands on the background,
+     * so a press on a tile is still that tile's click. A plain drag replaces the selection; Ctrl-drag adds to
+     * what was already picked. A press that never travels is a click on the background, which is how a
+     * selection is cleared — the behaviour the ScrollPane handler used to carry on its own.
+     */
+    private void installBand() {
+        gridLayer.addEventHandler(MouseEvent.MOUSE_PRESSED, e -> {
+            if (e.getButton() != MouseButton.PRIMARY) return;
+            if (e.getTarget() != gridLayer && e.getTarget() != grid) return;
+            if (!multiSelect) {
+                setSelection(List.of());
+                return;
+            }
+            banding = true;
+            bandBase = e.isShortcutDown() ? List.copyOf(selected) : List.of();
+            Point2D origin = gridLayer.sceneToLocal(e.getSceneX(), e.getSceneY());
+            bandOriginX = origin.getX();
+            bandOriginY = origin.getY();
+            stretchBand(bandOriginX, bandOriginY);
+            band.setVisible(false);   // nothing to draw until the press actually travels
+        });
+        gridLayer.addEventHandler(MouseEvent.MOUSE_DRAGGED, e -> {
+            if (!banding) return;
+            Point2D here = gridLayer.sceneToLocal(e.getSceneX(), e.getSceneY());
+            stretchBand(here.getX(), here.getY());
+            if (!band.isVisible() && (band.getWidth() >= BAND_THRESHOLD || band.getHeight() >= BAND_THRESHOLD)) {
+                band.setVisible(true);
+            }
+            if (band.isVisible()) applyBand();
+        });
+        gridLayer.addEventHandler(MouseEvent.MOUSE_RELEASED, e -> {
+            if (!banding) return;
+            boolean travelled = band.isVisible();
+            banding = false;
+            band.setVisible(false);
+            // A press on the background that went nowhere: clear, or — on Ctrl — leave the selection alone.
+            if (!travelled) setSelection(bandBase);
+        });
+    }
+
+    /** Redraws the band as the rectangle between where the press started and where the pointer is now. */
+    private void stretchBand(double x, double y) {
+        band.setX(Math.min(bandOriginX, x));
+        band.setY(Math.min(bandOriginY, y));
+        band.setWidth(Math.abs(x - bandOriginX));
+        band.setHeight(Math.abs(y - bandOriginY));
+    }
+
+    /** Everything the band touches, on top of what it started with. Live, so the drag shows what it will take. */
+    private void applyBand() {
+        Bounds box = band.getBoundsInParent();
+        List<Path> next = new ArrayList<>(bandBase);
+        tiles.forEach((file, tile) -> {
+            Bounds where = gridLayer.sceneToLocal(tile.localToScene(tile.getBoundsInLocal()));
+            if (box.intersects(where) && !next.contains(file)) next.add(file);
+        });
+        setSelection(next);
     }
 
     /** A rail row: a heading, or a tag with its count and — for an activity tag — where it comes from. */

@@ -6,6 +6,27 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-20 — One variable, one screen; a value that can leave its slot; a shell that stays full
+  (`ui/render/components/pickers/ValueSlot`, `ui/app/vars/EditVariableDialog`, `parser/SlotVacancy`,
+  `parser/CodeEditor`, `ui/dnd/BlockDragAndDropManager`, `core/AbstractCodeBlock`,
+  `core/render/ReadOnlyDecorator`, `ui/app/StudioWindow`, `BotMakerStudio`,
+  `ui/render/components/TemplateGallery`).** Four phases against hands-on testing of round 3. Pickers no
+  longer stand on a block: `ValueSlot` is the expression one edits, resolved when it is asked rather than
+  captured — which is why the same date, duration, colour and template pickers the canvas uses now work off
+  the canvas, and why a picker held open across a re-parse can no longer hand `ASTRewrite` a stale node. The
+  Variables *list* is gone; `EditVariableDialog` edits the one variable you opened it on, retypes to anything
+  `BotType.declarable()` allows (`ImageTemplateGroup`, `Matches`, `CaptureSource` were missing before),
+  re-resolves the declaration by (method, name) on every write instead of crashing on the second retype, and
+  says "Today, whenever the bot runs" where it used to print `java.time.LocalDate.now()`. In the editor a
+  filled slot became a drag *source*: a value can move to another slot or become a line of its own, and
+  `SlotVacancy` states once what the slot it left becomes — empty for a declaration's initialiser and a
+  print's argument, the type's default everywhere else, so `if (Vision.sees(logo))` leaves `if (false)` and
+  never broken source. A method whose signature is kept dims only its header now (`lockedSurface`), not the
+  body it invites you to fill. Fullscreen is finally a state the shell knows about — `StudioWindow.fillsScreen`
+  is the one predicate every geometry site asks, so a dialog over a fullscreen editor no longer shrinks it
+  back to a remembered rectangle in the top-left corner. And templates are selected by dragging a box over
+  them; Shift-click's range ran over the grid's wrap order and swept up rows the pointer never crossed.
+
 - **2026-08-20 — Choices that know their type, variables you can find, a shell that holds still
   (`palette/BotType`, `palette/SignatureType`, `ui/app/params/*`, `ui/app/runner/RunnerWindow`,
   `ui/render/components/pickers/*`, `ui/app/vars/ActivityVariablesDialog`, `parser/helpers/BlockNodes`,

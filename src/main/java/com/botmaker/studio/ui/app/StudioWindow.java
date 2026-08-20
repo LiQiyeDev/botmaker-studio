@@ -48,6 +48,20 @@ import javafx.util.Duration;
  */
 public final class StudioWindow {
 
+    /**
+     * True when the window manager owns this stage's rectangle — maximized <em>or</em> fullscreen.
+     *
+     * <p>Every geometry site in Studio branched on {@code isMaximized()} alone, so a fullscreen shell fell
+     * into the plain-window branch and had a saved x/y/w/h written over it: the shrink-and-jump-to-the-
+     * top-left the maintainer saw when a dialog opened over a fullscreen editor. The two states differ in how
+     * the user leaves them and in nothing that matters to geometry — in both, a remembered rectangle is a
+     * rectangle from another time. Public and here rather than duplicated: {@code BotMakerStudio} asks the
+     * same question of the shell.
+     */
+    public static boolean fillsScreen(Stage stage) {
+        return stage != null && (stage.isMaximized() || stage.isFullScreen());
+    }
+
     /** How long after the last move/resize the geometry is written. A drag is hundreds of events. */
     private static final Duration WRITE_DELAY = Duration.millis(600);
     /** Below this, a "remembered" position is one the user cannot reach — an unplugged second screen. */
@@ -170,7 +184,7 @@ public final class StudioWindow {
         write.setOnFinished(e -> ProjectPreferences.saveDialogState(key, state));
 
         ChangeListener<Number> geom = (obs, was, is) -> {
-            if (!stage.isShowing() || stage.isMaximized()) return;
+            if (!stage.isShowing() || fillsScreen(stage)) return;
             state.setX(stage.getX());
             state.setY(stage.getY());
             state.setWidth(stage.getWidth());
@@ -203,20 +217,25 @@ public final class StudioWindow {
      */
     private void pinOwner() {
         if (!(owner instanceof Stage ownerStage)) return;
+        boolean wasFullScreen = ownerStage.isFullScreen();
         boolean wasMaximized = ownerStage.isMaximized();
+        boolean wasFilling = wasFullScreen || wasMaximized;
         double x = ownerStage.getX();
         double y = ownerStage.getY();
         double w = ownerStage.getWidth();
         double h = ownerStage.getHeight();
-        if (!wasMaximized && (Double.isNaN(x) || w <= 0)) return;
+        if (!wasFilling && (Double.isNaN(x) || w <= 0)) return;
 
         Runnable restore = () -> {
             if (!ownerStage.isShowing()) return;
-            if (wasMaximized) {
-                if (!ownerStage.isMaximized()) ownerStage.setMaximized(true);
+            if (wasFilling) {
+                // Ask for the state it was actually in: a fullscreen shell put back with setMaximized would
+                // come back as a maximized one, which is a different window from the user's point of view.
+                if (wasFullScreen && !ownerStage.isFullScreen()) ownerStage.setFullScreen(true);
+                else if (wasMaximized && !ownerStage.isMaximized()) ownerStage.setMaximized(true);
                 return;
             }
-            if (ownerStage.isMaximized()) return;   // the user maximized it themselves; that is not drift
+            if (fillsScreen(ownerStage)) return;   // the user filled the screen themselves; that is not drift
             if (ownerStage.getWidth() != w) ownerStage.setWidth(w);
             if (ownerStage.getHeight() != h) ownerStage.setHeight(h);
             if (ownerStage.getX() != x) ownerStage.setX(x);

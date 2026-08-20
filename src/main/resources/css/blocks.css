@@ -2150,6 +2150,16 @@
     -fx-padding: 4 0 0 4;
 }
 
+/* The rubber band dragged over the grid. Accent-tinted so it reads as a selection and not as a tile, and
+   faint enough that the thumbnails under it stay legible while it is being dragged. */
+.template-gallery-band {
+    -fx-fill: -bm-accent;
+    -fx-opacity: 0.25;
+    -fx-stroke: -bm-accent;
+    -fx-stroke-width: 1.5;
+    -fx-stroke-type: inside;
+}
+
 /* The scroll arrows a menu taller than the screen grows. They sit on the popup pane, so they are painted with
    it — Modena paints them with -fx-color, which is the lookup that was resolving to nothing. */
 .menu-up-arrow,

@@ -9,6 +9,7 @@ import com.botmaker.studio.project.ProjectPreferences;
 import com.botmaker.studio.ui.app.ForceX11Notice;
 import com.botmaker.studio.ui.app.ProjectSelectionScreen;
 import com.botmaker.studio.ui.app.ProjectWindow;
+import com.botmaker.studio.ui.app.StudioWindow;
 import com.botmaker.studio.ui.app.UIManager;
 import com.botmaker.studio.ui.app.runner.RunnerWindow;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
@@ -443,7 +444,7 @@ public class BotMakerStudio extends Application {
         flush.setOnFinished(e -> ProjectPreferences.saveWindowState(state));
 
         javafx.beans.value.ChangeListener<Number> geom = (obs, o, n) -> {
-            if (stage.isMaximized() || !stage.isFocused() || !stage.isShowing()) return;
+            if (StudioWindow.fillsScreen(stage) || !stage.isFocused() || !stage.isShowing()) return;
             state.setX(stage.getX());
             state.setY(stage.getY());
             state.setWidth(stage.getWidth());
@@ -458,6 +459,10 @@ public class BotMakerStudio extends Application {
 
         // The maximize toggle is a user act whatever the focus state, and cheap enough to write straight out.
         stage.maximizedProperty().addListener((obs, was, isMax) -> {
+            // Going fullscreen drops the maximized flag on some window managers. That is the WM answering, not
+            // the user un-maximizing, and persisting it would reopen a session that ended full-screen as a
+            // small window.
+            if (stage.isFullScreen()) return;
             state.setMaximized(isMax);
             ProjectPreferences.saveWindowState(state);
         });
@@ -486,19 +491,31 @@ public class BotMakerStudio extends Application {
      * exactly the path that breaks (editor → user view → editor, maximized throughout) and true only where
      * nothing was wrong. A property that already holds the value fires no invalidation and re-runs no
      * maximize, so the flag is dropped and set again in the same pulse to force one.
+     *
+     * <p>Fullscreen is the same window as far as this is concerned — see {@code StudioWindow.fillsScreen} —
+     * except that the re-assert has to be on the flag the user set: a fullscreen editor put back as a
+     * maximized one has still lost the state it was in.
      */
     private void setScenePreservingGeometry(Stage stage, Scene scene) {
-        boolean wasMaximized = stage.isMaximized();
+        boolean wasFullScreen = stage.isFullScreen();
+        boolean wasFilling = StudioWindow.fillsScreen(stage);
         double x = stage.getX();
         double y = stage.getY();
         double w = stage.getWidth();
         double h = stage.getHeight();
         stage.setScene(scene);
-        if (wasMaximized) {
-            // setScene on a maximized stage leaves the flag on while the scene sits at its own size; taking the
-            // flag off and putting it back re-runs the maximize, which is what makes the root fill the frame.
-            stage.setMaximized(false);
-            stage.setMaximized(true);
+        if (wasFilling) {
+            // setScene on a filled stage leaves the flag on while the scene sits at its own size; taking the
+            // flag off and putting it back re-runs the fill, which is what makes the root fill the frame.
+            // Fullscreen gets the same treatment on its own flag — asserting maximize on it would leave the
+            // user in a window they never asked for.
+            if (wasFullScreen) {
+                stage.setFullScreen(false);
+                stage.setFullScreen(true);
+            } else {
+                stage.setMaximized(false);
+                stage.setMaximized(true);
+            }
             fillStage(stage, scene);
             requestSceneLayout(stage);
             return;
