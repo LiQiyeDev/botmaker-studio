@@ -72,24 +72,10 @@ public class VariableDeclarationBlock extends AbstractStatementBlock {
                 ExpressionSlots.makeDroppable(initNode, initializer, context, varType);
             }
         } else {
-            initNode = createExpressionDropZone(context);
+            initNode = emptyInitializer(context, varType);
         }
 
-        Button addButton = createAddButton(e -> {
-            Expression currentInitializer = initializer != null ?
-                    (Expression) initializer.getAstNode() : null;
-
-            ContextMenu menu = ExpressionMenu.create(
-                    varType, false, context, this.astNode, x -> true,
-                    selection -> {
-                        if (currentInitializer != null) {
-                            applyExpressionSelection(context, currentInitializer, selection);
-                        } else {
-                            context.getCodeEditor().setVariableInitializer((VariableDeclarationStatement) this.astNode, selection);
-                        }
-                    });
-            menu.show((Button)e.getSource(), javafx.geometry.Side.BOTTOM, 0, 0);
-        });
+        Button addButton = createAddButton(e -> showInitializerMenu((Button) e.getSource(), context, varType));
 
         var sentence = BlockLayout.sentence()
                 .addNode(typeLabel)
@@ -104,6 +90,38 @@ public class VariableDeclarationBlock extends AbstractStatementBlock {
                 .withCustomNode(sentence)
                 .withDeleteButton(deleteAction(context))
                 .build();
+    }
+
+    /**
+     * The dashed hole where the starting value goes, opening the same menu as the ⊕ beside it.
+     *
+     * <p>{@code createEmptySlot} is deliberately not reused here: this block's write is
+     * {@code setVariableInitializer}, which unwraps a collection type before asking what the value should be,
+     * and a {@code List<Point>} initialised as if it were a {@code Point} is the bug that buys.
+     */
+    private Node emptyInitializer(CodeEditorService context, ResolvedType varType) {
+        Node zone = createExpressionDropZone(context);
+        if (isReadOnly()) return zone;
+        zone.setCursor(javafx.scene.Cursor.HAND);
+        zone.setOnMouseClicked(e -> {
+            if (e.getButton() != javafx.scene.input.MouseButton.PRIMARY) return;
+            showInitializerMenu(zone, context, varType);
+            e.consume();
+        });
+        return zone;
+    }
+
+    /** The starting-value menu, on the ⊕ or on the empty slot itself. */
+    private void showInitializerMenu(Node anchor, CodeEditorService context, ResolvedType varType) {
+        Expression current = initializer != null ? (Expression) initializer.getAstNode() : null;
+        ContextMenu menu = ExpressionMenu.create(
+                varType, false, context, this.astNode, x -> true,
+                selection -> {
+                    if (current != null) applyExpressionSelection(context, current, selection);
+                    else context.getCodeEditor()
+                            .setVariableInitializer((VariableDeclarationStatement) this.astNode, selection);
+                });
+        menu.show(anchor, javafx.geometry.Side.BOTTOM, 0, 0);
     }
 
     /**

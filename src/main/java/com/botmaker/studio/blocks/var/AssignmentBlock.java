@@ -76,7 +76,7 @@ public class AssignmentBlock extends AbstractStatementBlock {
             // The value side is a drop target; the target side (left) deliberately is not — what is being
             // assigned *to* is chosen by name, not by dragging a call onto it.
             if (rightHandSide != null) sentenceBuilder.addExpressionSlot(rightHandSide, context, ResolvedType.UNKNOWN);
-            else sentenceBuilder.addNode(createExpressionDropZone(context));
+            else sentenceBuilder.addNode(createEmptySlot(context, ResolvedType.UNKNOWN));
             sentenceBuilder
                     .addNode(createAddButton(e -> showExpressionMenu((javafx.scene.control.Button) e.getSource(), context)));
         }

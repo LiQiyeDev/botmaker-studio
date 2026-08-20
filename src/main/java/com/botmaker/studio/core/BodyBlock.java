@@ -146,10 +146,10 @@ public class BodyBlock extends AbstractStatementBlock implements BlockWithChildr
      */
     private static void insertAndOpenIfVariable(CodeEditorService context, Node anchor, BodyBlock body,
                                                 com.botmaker.studio.palette.BlockType type, int index) {
-        java.util.Set<String> before =
-                com.botmaker.studio.ui.app.vars.EditVariableDialog.declaredNames(context);
-        context.getCodeEditor().addStatement(body, type, index);
-        com.botmaker.studio.ui.app.vars.EditVariableDialog.openOnCreated(context,
-                anchor.getScene() == null ? null : anchor.getScene().getWindow(), type, before);
+        // The insert is handed over rather than done here: identifying the new variable means reading the file
+        // before and after the write, and the "before" has to be taken before it. See insertAndOpen.
+        com.botmaker.studio.ui.app.vars.EditVariableDialog.insertAndOpen(context,
+                anchor.getScene() == null ? null : anchor.getScene().getWindow(), type,
+                () -> context.getCodeEditor().addStatement(body, type, index));
     }
 }

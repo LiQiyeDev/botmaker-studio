@@ -1,6 +1,8 @@
 package com.botmaker.studio.blocks;
 
 import com.botmaker.studio.parser.EditorFixture;
+import com.botmaker.studio.parser.ExpressionChoice;
+import com.botmaker.studio.types.ResolvedType;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jdt.core.dom.Expression;
 import org.eclipse.jdt.core.dom.ExpressionStatement;
@@ -97,6 +99,32 @@ class ExpressionDragOutTest {
         assertTrue(fx.lastCode.contains("BotMaker.print();"),
                 "the print keeps its empty slot:\n" + fx.lastCode);
         assertTrue(fx.lastCode.contains("name();"), fx.lastCode);
+    }
+
+    @Test
+    void anEmptiedPrintCanBeFilledFromItsMenuAgain() {
+        // The other half of the test above, and the half that was missing: a slot you can empty and not refill
+        // is a one-way door. The menu path went through a replace-this-node write, so with no node to replace
+        // every pick was discarded in silence — the print could only be refilled by dropping something on it.
+        open("""
+                package test;
+
+                public class Subject {
+                    public void run() {
+                        BotMaker.print();
+                    }
+
+                    String name() { return "x"; }
+                }
+                """);
+        ExpressionStatement print = (ExpressionStatement) statements("run").getFirst();
+
+        fx.editor.fillEmptySlotFromSelection(print,
+                new ExpressionChoice.Method("", "name", List.of(), false), ResolvedType.UNKNOWN);
+
+        assertNotNull(fx.lastCode, "filling the empty slot should have produced a code update");
+        assertTrue(fx.lastCode.contains("BotMaker.print(name())"),
+                "the pick lands in the hole:\n" + fx.lastCode);
     }
 
     @Test

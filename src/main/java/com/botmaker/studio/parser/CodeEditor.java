@@ -862,6 +862,33 @@ public class CodeEditor {
     }
 
     /**
+     * Fills a slot that holds <em>nothing</em> with a pick from the expression menu — the menu counterpart of
+     * {@link #fillEmptySlotFromPalette}, and the one path an empty slot did not have.
+     *
+     * <p>Every menu on a slot went through {@code ExpressionMenu.applySelection}, which replaces a node; with
+     * no node to replace it returned silently. So a print whose argument had been dragged out could be filled
+     * by a drop and by nothing else — the ⊕ beside it opened a menu whose every pick did nothing. (The
+     * declaration block had worked around it with a branch of its own onto {@link #setVariableInitializer};
+     * this is that branch, generalised to the shape rather than the block.)
+     *
+     * @param owner    the statement around the hole, as {@link #fillEmptySlotFromPalette} takes it
+     * @param selection an {@link ExpressionType} or an {@link ExpressionChoice}, as the menu produces
+     * @param expected  what the slot expects, for the pick that needs to know — {@link ResolvedType#UNKNOWN}
+     *                  where the shape declares nothing, which is the usual answer for a print
+     */
+    public void fillEmptySlotFromSelection(ASTNode owner, Object selection, ResolvedType expected) {
+        if (owner == null || selection == null) return;
+        edit(owner, EditKind.BODY, true, (cu, code) -> {
+            EditContext context = ctx(cu);
+            Expression value = NodeCreator.createExpression(context, selection,
+                    expected == null ? ResolvedType.UNKNOWN : expected);
+            if (value == null) return code;
+            if (!placeInEmptySlot(context.rewriter(), owner, value)) return code;
+            return context.applyTo(code);
+        });
+    }
+
+    /**
      * Fills an expression slot with a palette block dropped onto it — the drag counterpart of picking the same
      * call from the expression menu.
      *

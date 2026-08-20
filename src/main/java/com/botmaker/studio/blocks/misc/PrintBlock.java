@@ -35,7 +35,8 @@ public class PrintBlock extends AbstractStatementBlock {
                 .addLabel("Print:");
 
         if (arguments.isEmpty()) {
-            sentenceBuilder.addNode(createExpressionDropZone(context));
+            // UNKNOWN for the same reason the filled slot below uses it: println is overloaded for every type.
+            sentenceBuilder.addNode(createEmptySlot(context, ResolvedType.UNKNOWN));
         } else {
             for (ExpressionBlock arg : arguments) {
                 // A slot, not a bare node: print's argument is the most obvious thing in the editor to drag a

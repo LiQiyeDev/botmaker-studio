@@ -106,15 +106,18 @@ public abstract class AbstractStatementBlock extends AbstractCodeBlock implement
     // --- Expression Menu Helpers (Overloaded for convenience) ---
 
     // 1. Default (Allow all)
-    protected void showExpressionMenuAndReplace(Button button,
+    protected void showExpressionMenuAndReplace(Node anchor,
                                                 CodeEditorService context,
                                                 ResolvedType targetType,
                                                 Expression toReplace) {
-        showExpressionMenuAndReplace(button, context, targetType, toReplace, x -> true);
+        showExpressionMenuAndReplace(anchor, context, targetType, toReplace, x -> true);
     }
 
     // 2. With Filter
-    protected void showExpressionMenuAndReplace(Button button,
+    //
+    // The anchor is any Node, not the ⊕ Button it started as: an empty slot opens this menu on itself, so the
+    // dashed hole is a way in and not only a drop target.
+    protected void showExpressionMenuAndReplace(Node anchor,
                                                 CodeEditorService context,
                                                 ResolvedType targetType,
                                                 Expression toReplace,
@@ -129,8 +132,36 @@ public abstract class AbstractStatementBlock extends AbstractCodeBlock implement
                 context,
                 this.astNode, // Use this block's AST node as context
                 filter,
-                selection -> applyExpressionSelection(context, toReplace, selection)
+                selection -> {
+                    // A null toReplace means the slot holds nothing — a print whose argument was dragged out.
+                    // There is no node to replace, and applyExpressionSelection returns silently when handed
+                    // none, so every pick in this menu did nothing at all: the argument could be put back by a
+                    // drop and by no other means. An empty slot is written to, not replaced.
+                    if (toReplace != null) applyExpressionSelection(context, toReplace, selection);
+                    else context.getCodeEditor().fillEmptySlotFromSelection(this.astNode, selection, targetType);
+                }
         );
-        menu.show(button, javafx.geometry.Side.BOTTOM, 0, 0);
+        menu.show(anchor, javafx.geometry.Side.BOTTOM, 0, 0);
+    }
+
+    /**
+     * The dashed hole a value used to sit in, wired to the same menu the ⊕ beside it opens.
+     *
+     * <p>An empty slot took drops and nothing else: the only other way in was that ⊕, and until now its every
+     * pick was silently discarded. Clicking the hole is the gesture the hole looks like it wants, so it is
+     * worth having even now that the ⊕ works.
+     *
+     * @param expected what the slot expects, or {@link ResolvedType#UNKNOWN} where its shape declares nothing
+     */
+    protected Node createEmptySlot(CodeEditorService context, ResolvedType expected) {
+        Node zone = createExpressionDropZone(context);
+        if (isReadOnly()) return zone;
+        zone.setCursor(javafx.scene.Cursor.HAND);
+        zone.setOnMouseClicked(e -> {
+            if (e.getButton() != javafx.scene.input.MouseButton.PRIMARY) return;
+            showExpressionMenuAndReplace(zone, context, expected, null);
+            e.consume();
+        });
+        return zone;
     }
 }

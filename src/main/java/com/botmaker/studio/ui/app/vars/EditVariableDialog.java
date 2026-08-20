@@ -15,6 +15,7 @@ import com.botmaker.studio.ui.render.components.pickers.PickerContext;
 import com.botmaker.studio.ui.render.components.pickers.PickerRegistry;
 import com.botmaker.studio.ui.render.menu.ExpressionMenu;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
+import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.geometry.Side;
@@ -118,31 +119,55 @@ public final class EditVariableDialog {
     }
 
     /**
-     * Opens on the variable a just-inserted declare block created — the missing half of "add a variable from
-     * the statement menu", which until now dropped a statement named {@code number2} and left the user to find
-     * the ✎ button on it.
+     * Runs {@code insert}, then opens this screen on the variable it created — the missing half of "add a
+     * variable from the statement menu", which until now dropped a statement named {@code number2} and left the
+     * user to find the ✎ button on it. A {@code type} that declares nothing just runs {@code insert}.
      *
-     * <p>The new variable is identified by <em>difference</em>: the caller passes the names declared before the
-     * insert, and whatever is declared afterwards and wasn't is the one. That avoids threading a return value
-     * out of {@code StatementFactory.uniqueName}, several layers down a write path whose result is a string of
+     * <p>The new variable is identified by <em>difference</em>: the names declared before the insert are taken
+     * here, and whatever is declared afterwards and wasn't is the one. That avoids threading a return value out
+     * of {@code StatementFactory.uniqueName}, several layers down a write path whose result is a string of
      * source rather than a node.
      *
-     * @param before every variable name the file declared before the insert — {@link #declaredNames}
+     * <p><b>The insert is run from in here, and that is the fix.</b> This used to be called by the insert site
+     * <em>after</em> its write, and to wait for a {@code CodeUpdatedEvent} — which cannot work, because
+     * {@code EventBus.publish} delivers synchronously on the FX thread: the subscription was armed one line
+     * after the event it was waiting for had already been delivered. It then sat there, armed, until the next
+     * write of any kind — which for the maintainer was the ✕ on the variable they had just made, so
+     * <em>deleting</em> a variable opened its screen. Every insert leaked another one of these.
+     *
+     * <p>The names are read one more hop out still. {@code CodeEditorService} re-parses the file on a
+     * {@code Platform.runLater} of its own, so while the event is being delivered the compilation unit is still
+     * the one from before the insert — asking it then finds no new variable at all. Ours is queued from a
+     * handler that runs after its, so it lands after the re-parse.
      */
-    public static void openOnCreated(CodeEditorService context, Window owner, BlockType type, Set<String> before) {
-        if (context == null || !(type instanceof BlockType.VarDecl)) return;
+    public static void insertAndOpen(CodeEditorService context, Window owner, BlockType type, Runnable insert) {
+        if (context == null || !(type instanceof BlockType.VarDecl)) {
+            insert.run();
+            return;
+        }
+        Set<String> before = declaredNames(context);
+        boolean[] fired = {false};
         EventBus.Subscription[] once = new EventBus.Subscription[1];
         once[0] = context.getEventBus().subscribe(CoreApplicationEvents.CodeUpdatedEvent.class, e -> {
-            if (once[0] != null) once[0].close();
-            declaredNames(context).stream()
+            if (fired[0]) return;
+            fired[0] = true;
+            once[0].close();
+            Platform.runLater(() -> declaredNames(context).stream()
                     .filter(name -> !before.contains(name))
                     .findFirst()
-                    .ifPresent(name -> show(context, owner, name));
+                    .ifPresent(name -> show(context, owner, name)));
         }, true);
+        try {
+            insert.run();
+        } finally {
+            // A refused rewrite publishes nothing. Disarm rather than leave it waiting for the next write —
+            // that is exactly the leak this method exists to have stopped.
+            if (!fired[0]) once[0].close();
+        }
     }
 
-    /** Every variable name the open file declares, at any depth — the "before" of {@link #openOnCreated}. */
-    public static Set<String> declaredNames(CodeEditorService context) {
+    /** Every variable name the open file declares, at any depth — the two halves of {@link #insertAndOpen}. */
+    private static Set<String> declaredNames(CodeEditorService context) {
         Set<String> names = new java.util.LinkedHashSet<>();
         context.getState().getCompilationUnit().ifPresent(cu -> cu.accept(new ASTVisitor() {
             @Override
@@ -261,8 +286,44 @@ public final class EditVariableDialog {
             if (prefilling || now == null) return;
             find().ifPresent(fresh -> context.getCodeEditor()
                     .replaceVariableType(fresh.statement(), ResolvedType.named(now.sourceName())));
+            syncToDeclaredType(picker);
         });
         return picker;
+    }
+
+    /**
+     * Puts the value row — and, if it has to, the type picker itself — back in agreement with the file, right
+     * after a retype was asked for.
+     *
+     * <p>The value editor belongs to the <em>type</em>, not to the picker that chose it: a date that has become
+     * a rectangle needs the region editor, not the calendar it is still showing. {@link #rebuild()} does that,
+     * but it runs off {@code CodeUpdatedEvent} — and a rewrite {@code CodeEditor} refuses publishes no event at
+     * all, so the screen was left claiming a type the file does not have, with the old type's editor under it.
+     * Nothing on screen said which of the two was true.
+     *
+     * <p>So the file is asked directly. When it took the change, this shows the new type's editor a frame
+     * before the event would have; when it didn't, the picker is put back to what the file still says, which is
+     * the only honest answer. The picker is reverted rather than the write retried: whatever refused the
+     * rewrite will refuse it again.
+     */
+    private void syncToDeclaredType(BotTypePicker picker) {
+        Optional<Local> fresh = find();
+        if (fresh.isEmpty()) {
+            valueRow.getChildren().clear();
+            return;
+        }
+        Local local = fresh.get();
+        ResolvedType declared = ProjectAnalyzer.resolveType(local.statement().getType());
+        BotType.Choice.fromSourceName(declared.qualifiedName())
+                .filter(choice -> choice.type().declarable())
+                .filter(choice -> !choice.equals(picker.choice()))
+                .ifPresent(choice -> {
+                    prefilling = true;
+                    picker.setChoice(choice);
+                    prefilling = false;
+                });
+        valueRow.getChildren().setAll(valueControls(local, declared));
+        preview.setText(local.statement().toString().trim());
     }
 
     /** A type shown but not offered: what the file says, with no control to change it. */
