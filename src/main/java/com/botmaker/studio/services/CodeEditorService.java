@@ -9,6 +9,7 @@ import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.parser.BlockConverter;
 import com.botmaker.studio.parser.CodeEditor;
+import com.botmaker.studio.parser.SlotVacancy;
 import com.botmaker.studio.parser.StatementPlacement;
 import com.botmaker.studio.parser.helpers.BlockNodes;
 import com.botmaker.studio.project.LockResolver;
@@ -180,7 +181,9 @@ public class CodeEditorService {
         if (block == null) return;
 
         if (info.targetBody() != null) {
-            if (block instanceof StatementBlock stmt) {
+            if (info.expressionPayload()) {
+                liftExpressionIntoBody(block, info);
+            } else if (block instanceof StatementBlock stmt) {
                 StatementPlacement.Jump jump = StatementPlacement.jumpOf(stmt.getAstNode());
                 if (!StatementPlacement.allows(jump, info.targetBody().getAstNode())) {
                     rejectJumpPlacement(jump);
@@ -196,6 +199,23 @@ public class CodeEditorService {
                 codeEditor.moveBodyDeclaration(decl, (TypeDeclaration) info.targetClass().getAstNode(), info.insertionIndex());
             }
         }
+    }
+
+    /**
+     * A value dragged out of its slot and dropped where a line goes: it becomes {@code value;} and its old slot
+     * is vacated. The drag layer already refused the forms that cannot be a line — this is the second door, and
+     * the one that speaks, since only here is the AST in hand to be sure.
+     */
+    private void liftExpressionIntoBody(CodeBlock block, MoveBlockInfo info) {
+        if (!(block.getAstNode() instanceof Expression source)) {
+            refuseDrop("That value isn't there any more — try the drag again.");
+            return;
+        }
+        if (!SlotVacancy.canStandAlone(source)) {
+            refuseDrop(SlotFit.NOT_A_STATEMENT);
+            return;
+        }
+        codeEditor.moveExpressionToStatement(source, info.targetBody(), info.insertionIndex());
     }
 
     /**
@@ -219,6 +239,11 @@ public class CodeEditorService {
 
         if (info.paletteType() != null) {
             codeEditor.fillSlotFromPalette(slot, info.paletteType());
+            return;
+        }
+        if (info.sourceIsExpression()) {
+            Expression source = droppedExpression(info.sourceBlockId(), slot);
+            if (source != null) codeEditor.moveExpressionBetweenSlots(slot, source);
             return;
         }
         ExpressionStatement stmt = droppedStatement(info.sourceBlockId());
@@ -248,6 +273,36 @@ public class CodeEditorService {
      * different block classes holding two different nodes, and asking {@code instanceof ExpressionStatement}
      * here meant half of them silently fell out of the drop path.
      */
+    /**
+     * The value a slot-to-slot drag names, checked against the slot it is landing in, or null with the reason
+     * already said. Everything here is a refusal the drag layer could not make: it holds an id, and ancestry
+     * and the authoritative type both need the AST.
+     *
+     * @param target the slot being filled — an {@link Expression} when it holds a value, otherwise the
+     *               statement around a hole, which has no declared type of its own to check against
+     */
+    private Expression droppedExpression(String sourceBlockId, ASTNode target) {
+        CodeBlock source = findBlockById(sourceBlockId);
+        if (source == null || !(source.getAstNode() instanceof Expression value)) {
+            refuseDrop("That value isn't there any more — try the drag again.");
+            return null;
+        }
+        // Either direction is fatal: dropping a value inside itself deletes it, and dropping it onto a slot it
+        // contains leaves the surviving node pointing into a tree that no longer exists.
+        if (encloses(value, target) || encloses(target, value)) {
+            refuseDrop("That value is where the slot lives — moving it in would delete both.");
+            return null;
+        }
+        ResolvedType expected = target instanceof Expression slot
+                ? ProjectAnalyzer.inferExpectedType(slot) : ResolvedType.UNKNOWN;
+        String refusal = SlotFit.refusal(expected, projectAnalyzer.valueTypeOf(value));
+        if (refusal != null) {
+            refuseDrop(refusal);
+            return null;
+        }
+        return value;
+    }
+
     private ExpressionStatement droppedStatement(String sourceBlockId) {
         CodeBlock source = findBlockById(sourceBlockId);
         return source == null ? null : BlockNodes.expressionStatementOf(source.getAstNode());
@@ -280,6 +335,11 @@ public class CodeEditorService {
         ASTNode owner = asStatement != null ? asStatement : node;
         if (info.paletteType() != null) {
             codeEditor.fillEmptySlotFromPalette(owner, info.paletteType());
+            return;
+        }
+        if (info.sourceIsExpression()) {
+            Expression source = droppedExpression(info.sourceBlockId(), owner);
+            if (source != null) codeEditor.fillEmptySlotFromExpression(owner, source);
             return;
         }
         ExpressionStatement stmt = droppedStatement(info.sourceBlockId());

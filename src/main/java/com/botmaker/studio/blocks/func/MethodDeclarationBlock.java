@@ -98,6 +98,26 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
         this.body = body;
     }
 
+    /**
+     * The header alone, whenever this method's lock is its <em>signature's</em> — an activity's
+     * {@code Outcome run()} is the case that matters, where the signature is fixed and the body is the whole
+     * reason the stub exists.
+     *
+     * <p>{@code setReadOnly} on this block has only ever meant "the signature is kept"
+     * ({@code BlockConverter}: {@code setReadOnly(!signatureEditable(...))}, with the body's own verdict passed
+     * down separately). The wash did not know that, so a run method the user was invited to fill in was drawn
+     * as dim as the scaffolding around it, and the natural reading of a dim body is that it is locked.
+     *
+     * <p>The body block still dims itself when it is genuinely read-only, so a locked file looks exactly as it
+     * did — see {@code .block-body:read-only} in blocks.css.
+     */
+    @Override
+    public Node lockedSurface(Node root) {
+        if (body == null || body.isReadOnly()) return root;
+        Node header = root.lookup(".block-header");
+        return header != null ? header : root;
+    }
+
     /** The declared method's name — mirrors {@code MethodInvocationBlock.getMethodName()} on the call side. */
     public String getMethodName() {
         return methodName;

@@ -15,6 +15,14 @@ public final class SlotFit {
     private SlotFit() {}
 
     /**
+     * Why a value dragged <em>out</em> of a slot may not be dropped on a body. The counterpart of
+     * {@link #refusal}: that one judges a value against a slot, this one judges it against a line of its own —
+     * see {@code parser.SlotVacancy.canStandAlone}. It lives here for the same reason the others do: the
+     * drag-over tooltip and the status line that repeats it after the drop must be the same words.
+     */
+    public static final String NOT_A_STATEMENT = "This value can't be a line on its own — only a call can.";
+
+    /**
      * Null when a value of {@code actual} may fill a slot of {@code slotType}; the reason it may not,
      * otherwise. Unknown on either side fits — see {@link TypeExpectation#fits} — so a file that has not
      * resolved refuses nothing except the one answer that survives it, a line producing no value at all.

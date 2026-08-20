@@ -180,6 +180,21 @@ public abstract class AbstractCodeBlock implements CodeBlock {
     /** Backs the gutter circle's visibility and the {@code :breakpoint} pseudo-class. */
     public BooleanProperty breakpointActiveProperty() { return breakpointActive; }
 
+    /**
+     * Which part of this block's rendered node the read-only wash belongs on. The whole of it, for every block
+     * whose lock covers everything it draws.
+     *
+     * <p>A method whose <em>signature</em> is kept is not one of those: its body is editable and deliberately
+     * so, and JavaFX composites opacity and saturation over an entire subtree — so marking the block root dimmed
+     * the body the user is meant to work in, which reads as "this is locked too". See
+     * {@link com.botmaker.studio.core.render.ReadOnlyDecorator}.
+     *
+     * @param root this block's rendered node, already built
+     */
+    public Node lockedSurface(Node root) {
+        return root;
+    }
+
     protected Node createExpressionDropZone(CodeEditorService context) {
         // If Read-Only, return a static label or empty region instead of a drop zone
         if (isReadOnly) {

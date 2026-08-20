@@ -22,20 +22,26 @@ import com.botmaker.studio.palette.BlockType;
  * @param paletteType   the palette block dropped, or null for an existing-block drop
  * @param sourceBlockId the id of the existing statement dropped, or null for a palette drop
  * @param emptySlot     whether the slot holds nothing, so the value is placed rather than substituted
+ * @param sourceIsExpression whether {@code sourceBlockId} names a value dragged out of another slot rather
+ *                      than a whole line — the two are consumed differently, and confusing them is expensive:
+ *                      an argument's enclosing line is the whole call, so reading a slot-to-slot move as a line
+ *                      move would carry away everything around the value the user picked up
  */
 public record ExpressionDropInfo(String targetBlockId, BlockType paletteType, String sourceBlockId,
-                                 boolean emptySlot) {
+                                 boolean emptySlot, boolean sourceIsExpression) {
 
     public static ExpressionDropInfo fromPalette(String targetBlockId, BlockType type) {
-        return new ExpressionDropInfo(targetBlockId, type, null, false);
+        return new ExpressionDropInfo(targetBlockId, type, null, false, false);
     }
 
-    public static ExpressionDropInfo fromExistingBlock(String targetBlockId, String sourceBlockId) {
-        return new ExpressionDropInfo(targetBlockId, null, sourceBlockId, false);
+    public static ExpressionDropInfo fromExistingBlock(String targetBlockId, String sourceBlockId,
+                                                       boolean sourceIsExpression) {
+        return new ExpressionDropInfo(targetBlockId, null, sourceBlockId, false, sourceIsExpression);
     }
 
     /** The same drop onto a slot that holds nothing; {@code ownerBlockId} is the statement around it. */
-    public static ExpressionDropInfo intoEmptySlot(String ownerBlockId, BlockType type, String sourceBlockId) {
-        return new ExpressionDropInfo(ownerBlockId, type, sourceBlockId, true);
+    public static ExpressionDropInfo intoEmptySlot(String ownerBlockId, BlockType type, String sourceBlockId,
+                                                   boolean sourceIsExpression) {
+        return new ExpressionDropInfo(ownerBlockId, type, sourceBlockId, true, sourceIsExpression);
     }
 }

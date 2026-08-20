@@ -10,6 +10,7 @@ import com.botmaker.studio.palette.ExpressionType;
 import com.botmaker.studio.palette.FunctionDraft;
 import com.botmaker.studio.palette.MatchesCheck;
 import com.botmaker.studio.palette.SdkType;
+import com.botmaker.studio.parser.factories.InitializerFactory;
 import com.botmaker.studio.parser.factories.StatementFactory;
 import com.botmaker.studio.parser.handlers.EnumManipulationHandler;
 import com.botmaker.studio.parser.handlers.InstantiationHandler;
@@ -923,6 +924,79 @@ public class CodeEditor {
             rewriter.remove(source, null);
             return AstRewriteHelper.applyRewrite(rewriter, code);
         });
+    }
+
+    /**
+     * Moves a value from one expression slot into another: the target takes it, and the slot it came from is
+     * vacated per {@link SlotVacancy}. The drag-out counterpart of {@link #moveExpressionIntoSlot}, which moves
+     * a whole line instead.
+     */
+    public void moveExpressionBetweenSlots(Expression toReplace, Expression source) {
+        if (toReplace == null || source == null || toReplace == source) return;
+        edit(toReplace, EditKind.BODY, true, (cu, code) -> {
+            EditContext context = ctx(cu);
+            Expression moved = (Expression) ASTNode.copySubtree(cu.getAST(), source);
+            vacateSlot(context, source);
+            context.rewriter().replace(toReplace, moved, null);
+            return AstRewriteHelper.applyRewrite(context.rewriter(), code);
+        });
+    }
+
+    /** {@link #moveExpressionBetweenSlots} onto a slot that holds nothing — see {@link #fillEmptySlot}. */
+    public void fillEmptySlotFromExpression(ASTNode owner, Expression source) {
+        if (owner == null || source == null) return;
+        edit(owner, EditKind.BODY, true, (cu, code) -> {
+            EditContext context = ctx(cu);
+            Expression moved = (Expression) ASTNode.copySubtree(cu.getAST(), source);
+            if (!placeInEmptySlot(context.rewriter(), owner, moved)) return code;
+            vacateSlot(context, source);
+            return AstRewriteHelper.applyRewrite(context.rewriter(), code);
+        });
+    }
+
+    /**
+     * Lifts a value out of its slot and drops it into {@code targetBody} as a line of its own — the reverse of
+     * {@link #moveExpressionIntoSlot}, and the reason an {@code if} condition is no longer a one-way door.
+     *
+     * <p>The caller has already checked {@link SlotVacancy#canStandAlone}; this is the second door, since an
+     * expression that is not a statement form would be written as source that does not compile.
+     */
+    public void moveExpressionToStatement(Expression source, BodyBlock targetBody, int targetIndex) {
+        if (source == null || targetBody == null || !SlotVacancy.canStandAlone(source)) return;
+        if (!canInsertAt(targetBody, targetIndex)) return;
+        edit(targetBody.getAstNode(), EditKind.BODY, false, (cu, code) -> {
+            EditContext context = ctx(cu);
+            AST ast = cu.getAST();
+            ExpressionStatement lifted =
+                    ast.newExpressionStatement((Expression) ASTNode.copySubtree(ast, source));
+            vacateSlot(context, source);
+            ListRewrite targetList = AstRewriteHelper.getListRewriteForBody(context.rewriter(), targetBody);
+            PendingInsert deferred =
+                    insertIntoList(targetList, targetBody, lifted, targetIndex, lifted.toString());
+            if (deferred != null) {
+                // The vacancy stays on the rewriter; the RangeMarker keeps the drop offset correct across it.
+                return AstRewriteHelper.applyRewriteAndInsertAt(
+                        context.rewriter(), code, deferred.offset(), deferred.text());
+            }
+            return AstRewriteHelper.applyRewrite(context.rewriter(), code);
+        });
+    }
+
+    /**
+     * Records what {@code source}'s slot becomes once its value has been moved elsewhere: removed outright
+     * where a hole is legal, and otherwise filled with the default value for the type the slot expects — the
+     * same node a retype writes, so the result is always a slot the user can click or drop onto again.
+     *
+     * @see SlotVacancy#mayBeEmpty
+     */
+    private void vacateSlot(EditContext context, Expression source) {
+        if (SlotVacancy.mayBeEmpty(source)) {
+            context.rewriter().remove(source, null);
+            return;
+        }
+        ResolvedType expected = ProjectAnalyzer.inferExpectedType(source);
+        Expression backfill = InitializerFactory.createDefaultInitializer(context, expected);
+        context.rewriter().replace(source, backfill, null);
     }
 
     /** Fills an empty expression slot with a palette block, the drag counterpart of picking it from the menu. */

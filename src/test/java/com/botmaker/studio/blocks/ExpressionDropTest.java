@@ -39,12 +39,12 @@ class ExpressionDropTest {
 
     private void drop(ASTNode slot, ASTNode source) {
         fx.context().getEventBus().publish(new CoreApplicationEvents.ExpressionDropRequestedEvent(
-                ExpressionDropInfo.fromExistingBlock(idOf(slot), idOf(source))));
+                ExpressionDropInfo.fromExistingBlock(idOf(slot), idOf(source), false)));
     }
 
     private void dropIntoEmptySlot(ASTNode owner, ASTNode source) {
         fx.context().getEventBus().publish(new CoreApplicationEvents.ExpressionDropRequestedEvent(
-                ExpressionDropInfo.intoEmptySlot(idOf(owner), null, idOf(source))));
+                ExpressionDropInfo.intoEmptySlot(idOf(owner), null, idOf(source), false)));
     }
 
     /** The block id the drag layer would have put on the dragboard for {@code node}. */

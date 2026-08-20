@@ -21,7 +21,9 @@ public final class ReadOnlyDecorator implements BlockDecorator {
     @Override
     public void decorate(Node node, AbstractCodeBlock block, CodeEditorService context) {
         if (block.isReadOnly()) {
-            node.pseudoClassStateChanged(READ_ONLY, true);
+            // Not always the node itself — a method with a kept signature and an editable body marks only its
+            // header, or the wash would fall on the body too. See AbstractCodeBlock#lockedSurface.
+            block.lockedSurface(node).pseudoClassStateChanged(READ_ONLY, true);
         }
     }
 }

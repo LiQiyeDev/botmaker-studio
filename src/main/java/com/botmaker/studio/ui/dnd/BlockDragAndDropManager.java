@@ -4,6 +4,7 @@ import com.botmaker.studio.ui.render.menu.StatementMenu;
 
 import com.botmaker.studio.palette.BlockCatalog;
 import com.botmaker.studio.palette.BlockType;
+import com.botmaker.studio.parser.SlotVacancy;
 import com.botmaker.studio.parser.StatementPlacement;
 import com.botmaker.studio.parser.helpers.BlockNodes;
 import com.botmaker.studio.blocks.ClassBlock;
@@ -67,6 +68,24 @@ public class BlockDragAndDropManager {
      * {@link com.botmaker.studio.types.TypeExpectation#fits} accepts, so an unresolved file keeps working.
      */
     public static final DataFormat EXPRESSION_TYPE_FORMAT = new DataFormat("application/x-java-expression-type");
+
+    /**
+     * Present when the {@link #EXISTING_BLOCK_FORMAT} id names an <em>expression</em> being dragged out of its
+     * slot rather than a whole line being moved. Its value is {@link #PAYLOAD_STATEMENT} when that expression
+     * may also stand as a line of its own, {@link #PAYLOAD_VALUE} when it may only fill another slot.
+     *
+     * <p>Two things ride on the same format because they are one decision made at drag time, with the AST in
+     * hand. Drag-over has neither: it holds an id, and resolving it back to a node lives service-side. Without
+     * the marker a slot-to-slot drop would be read as a line move — and for an argument nested inside a call
+     * line, "the line this came from" is the whole call, so the drop would have carried away far more than the
+     * user picked up.
+     */
+    public static final DataFormat EXPRESSION_PAYLOAD_FORMAT = new DataFormat("application/x-java-expression-payload");
+
+    /** @see #EXPRESSION_PAYLOAD_FORMAT */
+    public static final String PAYLOAD_STATEMENT = "statement";
+    /** @see #EXPRESSION_PAYLOAD_FORMAT */
+    public static final String PAYLOAD_VALUE = "value";
 
     // Drag-over feedback is driven by pseudo-classes (styled in blocks.css), not inline -fx-style strings,
     // consistent with the :highlighted / :error / :breakpoint approach in AbstractCodeBlock.
@@ -137,6 +156,61 @@ public class BlockDragAndDropManager {
         });
     }
 
+    /**
+     * Makes a filled expression slot a drag <em>source</em>, so a value can leave the slot it is in — into
+     * another slot, or onto a body as a line of its own.
+     *
+     * <p>Until now an expression could only be dropped in. That made every slot a one-way door: the way to
+     * undo a drop was to delete the value and rebuild it somewhere else, and a call sitting in an {@code if}
+     * condition could not be turned back into the plain line it started as.
+     *
+     * <p>Installed on the slot's own node, which is usually the picker control that renders it, so the handler
+     * runs before the statement-level drag installed by {@link #makeBlockMovable} on the line around it — the
+     * user is grabbing the value, not the sentence it sits in.
+     */
+    public void makeExpressionMovable(Node node, CodeBlock block) {
+        if (block == null || block.isReadOnly()) return;
+        if (!(block.getAstNode() instanceof org.eclipse.jdt.core.dom.Expression expression)) return;
+
+        node.setOnDragDetected(event -> {
+            if (startsOnInteractiveControl(event.getTarget(), node)) return;
+            Dragboard db = node.startDragAndDrop(TransferMode.MOVE);
+            ClipboardContent content = new ClipboardContent();
+            content.put(EXISTING_BLOCK_FORMAT, block.getId());
+            content.put(EXPRESSION_PAYLOAD_FORMAT,
+                    SlotVacancy.canStandAlone(expression) ? PAYLOAD_STATEMENT : PAYLOAD_VALUE);
+            content.put(EXPRESSION_TYPE_FORMAT, valueTypeName(expression));
+            db.setContent(content);
+            node.setOpacity(0.5);
+            event.consume();
+        });
+        node.setOnDragDone(event -> {
+            node.setOpacity(1.0);
+            event.consume();
+        });
+    }
+
+    /**
+     * What a dragged expression evaluates to, as a qualified name. Unresolved reports
+     * {@link ResolvedType#UNKNOWN}'s name rather than nothing, for the reason
+     * {@link #expressionTypeName} gives: the format's absence means "this is not a value at all", which is a
+     * different answer from "we could not work out which value".
+     */
+    private static String valueTypeName(org.eclipse.jdt.core.dom.Expression expression) {
+        ITypeBinding binding = expression.resolveTypeBinding();
+        return binding == null ? ResolvedType.UNKNOWN.qualifiedName() : ResolvedType.of(binding).qualifiedName();
+    }
+
+    /** Whether the dragboard carries an expression lifted out of a slot. @see #EXPRESSION_PAYLOAD_FORMAT */
+    private static boolean carriesExpressionPayload(Dragboard db) {
+        return db.hasContent(EXPRESSION_PAYLOAD_FORMAT);
+    }
+
+    /** Whether that expression may also be dropped where a whole line goes. */
+    private static boolean payloadStandsAlone(Dragboard db) {
+        return PAYLOAD_STATEMENT.equals(db.getContent(EXPRESSION_PAYLOAD_FORMAT));
+    }
+
     private static boolean startsOnInteractiveControl(EventTarget target, Node dragRoot) {
         if (!(target instanceof Node)) return false;
         for (Node cur = (Node) target; cur != null && cur != dragRoot; cur = cur.getParent()) {
@@ -203,6 +277,9 @@ public class BlockDragAndDropManager {
      * refused; everything else is unconditionally legal, so this is a cheap check on the common path.
      */
     private static boolean accepts(Dragboard db, BodyBlock targetBody) {
+        // A value lifted out of a slot is only welcome here if it is one of the expression forms that can be a
+        // line on its own. A comparison or a literal is not, and the refusal is said out loud on the drop.
+        if (carriesExpressionPayload(db) && !payloadStandsAlone(db)) return false;
         Object kind = db.getContent(JUMP_KIND_FORMAT);
         if (kind == null) return true;
         StatementPlacement.Jump jump;
@@ -382,12 +459,13 @@ public class BlockDragAndDropManager {
 
         separator.setOnDragEntered(event -> {
             hideInsertButton(separator); // Hide the "+" button while dragging over
-            applyDragOver(separator, event.getDragboard(), accepts(event.getDragboard(), targetBody));
+            paintBodyTarget(separator, event.getDragboard(), accepts(event.getDragboard(), targetBody));
             event.consume();
         });
 
         separator.setOnDragExited(event -> {
             clearDragOver(separator);
+            uninstallTip(separator);
             event.consume();
         });
 
@@ -426,13 +504,15 @@ public class BlockDragAndDropManager {
 
             clearDragOver(sepAbove);
             clearDragOver(sepBelow);
-            if (known) applyDragOver(isTopHalf(event, blockNode) ? sepAbove : sepBelow, db, legal);
+            if (known) paintBodyTarget(isTopHalf(event, blockNode) ? sepAbove : sepBelow, db, legal);
             event.consume();
         });
 
         blockNode.setOnDragExited(event -> {
             clearDragOver(sepAbove);
             clearDragOver(sepBelow);
+            uninstallTip(sepAbove);
+            uninstallTip(sepBelow);
             event.consume();
         });
 
@@ -464,6 +544,17 @@ public class BlockDragAndDropManager {
         } else if (db.hasContent(EXISTING_BLOCK_FORMAT)) {
             String blockId = (String) db.getContent(EXISTING_BLOCK_FORMAT);
             if (blockId.equals(selfId)) return false; // dropped onto itself
+            if (carriesExpressionPayload(db)) {
+                if (!payloadStandsAlone(db)) {
+                    // The drag-over already refused it; saying why on the drop is what stops a springback from
+                    // reading as a bug. Same sentence the slot path uses — see SlotFit.
+                    eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(SlotFit.NOT_A_STATEMENT));
+                    return false;
+                }
+                eventBus.publish(new CoreApplicationEvents.BlockMoveRequestedEvent(
+                        MoveBlockInfo.expression(blockId, targetBody, insertionIndex)));
+                return true;
+            }
             eventBus.publish(new CoreApplicationEvents.BlockMoveRequestedEvent(
                     new MoveBlockInfo(blockId, targetBody, insertionIndex)));
             return true;
@@ -598,7 +689,7 @@ public class BlockDragAndDropManager {
         String sourceId = db.hasContent(EXISTING_BLOCK_FORMAT) ? (String) db.getContent(EXISTING_BLOCK_FORMAT) : null;
         if (palette == null && sourceId == null) return false;
         eventBus.publish(new CoreApplicationEvents.ExpressionDropRequestedEvent(
-                ExpressionDropInfo.intoEmptySlot(owner.getId(), palette, sourceId)));
+                ExpressionDropInfo.intoEmptySlot(owner.getId(), palette, sourceId, carriesExpressionPayload(db))));
         return true;
     }
 
@@ -677,8 +768,23 @@ public class BlockDragAndDropManager {
         return refusalTip;
     }
 
+    /**
+     * Drag-over feedback for a <em>statement</em> position — a separator or a whole line's hitbox. Same shape
+     * as {@link #paintSlot}: red plus a sentence, never red alone. The one refusal a body has to explain is a
+     * value that cannot be a line, which is a mistake the user can only make now that values can be dragged.
+     */
+    private void paintBodyTarget(Node target, Dragboard db, boolean accepted) {
+        applyDragOver(target, db, accepted);
+        if (accepted || !carriesExpressionPayload(db)) {
+            uninstallTip(target);
+            return;
+        }
+        refusalTip().setText(SlotFit.NOT_A_STATEMENT);
+        Tooltip.install(target, refusalTip());
+    }
+
     /** Takes the shared tooltip off {@code target}, doing nothing if it was never needed. */
-    private void uninstallTip(Region target) {
+    private void uninstallTip(Node target) {
         if (refusalTip != null) Tooltip.uninstall(target, refusalTip);
     }
 
@@ -737,7 +843,11 @@ public class BlockDragAndDropManager {
             if (!producesValue(type)) return false;
             info = ExpressionDropInfo.fromPalette(slot.getId(), type);
         } else {
-            info = ExpressionDropInfo.fromExistingBlock(slot.getId(), (String) db.getContent(EXISTING_BLOCK_FORMAT));
+            String sourceId = (String) db.getContent(EXISTING_BLOCK_FORMAT);
+            // Dropping a value back on the slot it came from is not an edit; treating it as one would churn the
+            // AST and cost the user an undo step for having changed their mind mid-drag.
+            if (slot.getId().equals(sourceId)) return false;
+            info = ExpressionDropInfo.fromExistingBlock(slot.getId(), sourceId, carriesExpressionPayload(db));
         }
         eventBus.publish(new CoreApplicationEvents.ExpressionDropRequestedEvent(info));
         return true;
