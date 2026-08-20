@@ -306,4 +306,121 @@ class MethodMigrationTest {
         assertEquals("boolean", replaced.expected().sourceName(),
                 "the slot is filled with what it was written to expect, and `ok` is never retyped");
     }
+
+    /**
+     * The report that overturned the earlier rule: a call inside {@code print(…)} kept its value replaced by a
+     * default even though the argument accepts anything at all. "Its value is used" was being read as "its
+     * value no longer fits", and those are different questions.
+     */
+    @Test
+    void aChangedReturnTypeLeavesACallInASlotThatStillAcceptsIt() {
+        otherFile("""
+                package test;
+
+                public class GoHome {
+                    public void go() {
+                        System.out.println(Bot.clickAt(null, 1));
+                    }
+                }
+                """);
+
+        SignatureMigration.Plan plan = planFor(draft("clickAt", BotType.WHOLE_NUMBER,
+                List.of(param("where", BotType.POINT, 0), param("tries", BotType.WHOLE_NUMBER, 1))));
+
+        SignatureMigration.CallChange inGoHome = plan.calls().stream()
+                .filter(change -> change.site().className().equals("GoHome")).findFirst().orElseThrow();
+        assertInstanceOf(SignatureMigration.CallChange.Rewrite.class, inGoHome,
+                "println takes anything, so there is nothing about this call that stopped working");
+    }
+
+    /** The other side of the same question: a condition needs a yes/no, and a number is not one. */
+    @Test
+    void aChangedReturnTypeReplacesACallInASlotThatRefusesIt() {
+        otherFile("""
+                package test;
+
+                public class GoHome {
+                    public void go() {
+                        if (Bot.clickAt(null, 1)) {
+                        }
+                    }
+                }
+                """);
+
+        SignatureMigration.Plan plan = planFor(draft("clickAt", BotType.WHOLE_NUMBER,
+                List.of(param("where", BotType.POINT, 0), param("tries", BotType.WHOLE_NUMBER, 1))));
+
+        SignatureMigration.CallChange inGoHome = plan.calls().stream()
+                .filter(change -> change.site().className().equals("GoHome")).findFirst().orElseThrow();
+        assertInstanceOf(SignatureMigration.CallChange.ValueReplaced.class, inGoHome,
+                "`if (…)` cannot be given a number, so this one really does have to be replaced");
+    }
+
+    // --- constructors --------------------------------------------------------------------------------------
+
+    /**
+     * A constructor's calls are {@code new Bot(…)}. The scan visited {@link org.eclipse.jdt.core.dom.MethodInvocation}
+     * only, so it reported <b>zero</b> for a class instantiated all over the project — and "nothing calls this"
+     * is the answer that lets a delete through.
+     */
+    @Test
+    void everyInstantiationOfAClassIsFoundForItsConstructor() {
+        String withConstructor = """
+                package test;
+
+                public class Bot {
+                    public Bot(int tries) {
+                    }
+                }
+                """;
+        state.addFile(new ProjectFile(botPath, withConstructor));
+        state.setCompilationUnit(SourceParser.parse(withConstructor));
+        otherFile("""
+                package test;
+
+                public class GoHome {
+                    public void go() {
+                        Bot first = new Bot(1);
+                        Bot second = new Bot(2);
+                    }
+                }
+                """);
+
+        TypeDeclaration bot = (TypeDeclaration) state.getCompilationUnit().orElseThrow().types().getFirst();
+        MethodReferences.Result found = MethodReferences.find(state, bot.getMethods()[0]);
+
+        assertFalse(found.isRefusal(), "both are plain `new Bot(…)`: " + found.refusal());
+        assertEquals(2, found.calls().size(), "every instantiation counts as a call");
+        assertEquals(List.of("GoHome"), found.fileNames());
+    }
+
+    /** A {@code new} of the same arity naming some other class is not this constructor. */
+    @Test
+    void anInstantiationOfAnotherClassIsNotThisConstructor() {
+        String withConstructor = """
+                package test;
+
+                public class Bot {
+                    public Bot(int tries) {
+                    }
+                }
+                """;
+        state.addFile(new ProjectFile(botPath, withConstructor));
+        state.setCompilationUnit(SourceParser.parse(withConstructor));
+        otherFile("""
+                package test;
+
+                public class GoHome {
+                    public void go() {
+                        Object other = new StringBuilder(16);
+                    }
+                }
+                """);
+
+        TypeDeclaration bot = (TypeDeclaration) state.getCompilationUnit().orElseThrow().types().getFirst();
+        MethodReferences.Result found = MethodReferences.find(state, bot.getMethods()[0]);
+
+        assertFalse(found.isRefusal(), "a different class name is decidable, not doubtful");
+        assertTrue(found.calls().isEmpty(), "nothing builds a Bot here");
+    }
 }

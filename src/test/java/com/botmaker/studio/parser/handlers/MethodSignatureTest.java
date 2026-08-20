@@ -3,14 +3,20 @@ package com.botmaker.studio.parser.handlers;
 import com.botmaker.studio.parser.EditContext;
 
 import com.botmaker.studio.TestSupport;
+import com.botmaker.studio.palette.BotType;
+import com.botmaker.studio.palette.FunctionDraft;
+import com.botmaker.studio.palette.SignatureType;
+import com.botmaker.studio.parser.helpers.MethodSignatures;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
-import com.botmaker.studio.types.ResolvedType;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jdt.core.dom.MethodDeclaration;
 import org.eclipse.jdt.core.dom.TypeDeclaration;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
+
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -73,12 +79,35 @@ class MethodSignatureTest {
     }
 
     // ---- Parameters ----
+    //
+    // These used to call setMethodReturnType / addParameterToMethod / deleteParameterFromMethod /
+    // changeMethodParameterType, four transforms that rewrote a declaration on its own. They are gone: every
+    // signature edit now builds a FunctionDraft and goes through applyFunctionSignature, so that is what the
+    // same behaviours are asserted against here. The assertions themselves are unchanged — the file has to end
+    // up saying the same thing whichever way the edit was spelled.
+
+    /** The signature this file declares, as a draft, so a test can change one field of it. */
+    private static FunctionDraft draftFor(CompilationUnit cu, String name) {
+        return MethodSignatures.draftOf(method(cu, name))
+                .orElseThrow(() -> new AssertionError(name + "() should be representable as a draft"));
+    }
+
+    private static String apply(Env e, String methodName, FunctionDraft draft) {
+        return MethodHandler.applyFunctionSignature(e.ctx(), SOURCE, method(e.cu(), methodName), draft);
+    }
+
+    private static FunctionDraft withParameters(FunctionDraft draft, List<FunctionDraft.Parameter> parameters) {
+        return new FunctionDraft(draft.name(), draft.returnType(), parameters);
+    }
 
     @Test
     void addingAParameterAppendsItAndLeavesTheBodyAlone() {
         Env e = env();
-        String result = MethodHandler.addParameterToMethod(
-                e.ctx(), SOURCE, method(e.cu(), "scale"), ResolvedType.BOOLEAN, "loud");
+        FunctionDraft draft = draftFor(e.cu(), "scale");
+        List<FunctionDraft.Parameter> parameters = new ArrayList<>(draft.parameters());
+        parameters.add(new FunctionDraft.Parameter("loud", SignatureType.kept("boolean")));
+
+        String result = apply(e, "scale", withParameters(draft, parameters));
 
         assertTrue(result.contains("scale(int factor, boolean loud)"), result);
         assertTrue(result.contains("int doubled = factor * 2;"), "the body is untouched");
@@ -87,7 +116,7 @@ class MethodSignatureTest {
     @Test
     void deletingAParameterRemovesOnlyThatParameter() {
         Env e = env();
-        String result = MethodHandler.deleteParameterFromMethod(e.cu(), SOURCE, method(e.cu(), "scale"), 0);
+        String result = apply(e, "scale", withParameters(draftFor(e.cu(), "scale"), List.of()));
 
         assertTrue(result.contains("scale()"), result);
         assertTrue(result.contains("public void caller()"), "an unrelated method is untouched");
@@ -96,8 +125,10 @@ class MethodSignatureTest {
     @Test
     void changingAParameterTypeRewritesTheTypeAndNotTheName() {
         Env e = env();
-        String result = MethodHandler.changeMethodParameterType(
-                e.ctx(), SOURCE, method(e.cu(), "scale"), 0, ResolvedType.DOUBLE);
+        FunctionDraft draft = draftFor(e.cu(), "scale");
+        FunctionDraft.Parameter factor = draft.parameters().getFirst();
+        String result = apply(e, "scale", withParameters(draft, List.of(
+                new FunctionDraft.Parameter(factor.name(), SignatureType.kept("double"), factor.origin()))));
 
         assertTrue(result.contains("scale(double factor)"), result);
     }
@@ -106,7 +137,6 @@ class MethodSignatureTest {
     @Test
     void anOutOfRangeParameterIndexChangesNothing() {
         Env e = env();
-        assertEquals(SOURCE, MethodHandler.deleteParameterFromMethod(e.cu(), SOURCE, method(e.cu(), "scale"), 7));
         assertEquals(SOURCE, MethodHandler.renameMethodParameter(e.cu(), SOURCE, method(e.cu(), "scale"), 7, "x"));
     }
 
@@ -115,8 +145,9 @@ class MethodSignatureTest {
     @Test
     void aNewReturnTypeIsAppliedAndTheDefaultReturnFollowsIt() {
         Env e = env();
-        String result = MethodHandler.setMethodReturnType(
-                e.ctx(), SOURCE, method(e.cu(), "caller"), ResolvedType.BOOLEAN);
+        FunctionDraft draft = draftFor(e.cu(), "caller");
+        String result = apply(e, "caller",
+                new FunctionDraft(draft.name(), SignatureType.kept("boolean"), draft.parameters()));
 
         assertTrue(result.contains("public boolean caller()"), result);
         assertTrue(result.contains("return false;"),
@@ -127,13 +158,46 @@ class MethodSignatureTest {
     @Test
     void switchingToVoidDropsTheTrailingReturn() {
         Env e = env();
-        String result = MethodHandler.setMethodReturnType(
-                e.ctx(), SOURCE, method(e.cu(), "scale"), ResolvedType.VOID);
+        FunctionDraft draft = draftFor(e.cu(), "scale");
+        String result = apply(e, "scale",
+                new FunctionDraft(draft.name(), SignatureType.of(BotType.Choice.of(BotType.NOTHING)),
+                        draft.parameters()));
 
         assertTrue(result.contains("public void scale(int factor)"), result);
         assertTrue(!result.contains("return doubled;"),
                 "a void method may not keep returning a value: " + result);
         assertTrue(result.contains("int doubled = factor * 2;"), "the rest of the body survives");
+    }
+
+    /**
+     * A constructor has no return type, and the draft that describes it says it "gives nothing back" — which is
+     * exactly what {@code void} is spelled as for a method. Applying that draft must not act on the likeness:
+     * setting RETURN_TYPE2 here turns {@code Subject(int)} into a method named {@code Subject}, which compiles
+     * and is then never called by anything.
+     */
+    @Test
+    void editingAConstructorDoesNotGiveItAReturnType() {
+        String source = """
+                package com.mybot;
+                public class Subject {
+                    public Subject(int size) {
+                    }
+                }
+                """;
+        CompilationUnit cu = ProjectAnalyzer.createCompilationUnit(
+                TestSupport.runtimeClassPath(), source, TestSupport.SOURCE_ROOT);
+        assertNotNull(cu, "fixture must parse");
+        Env e = new Env(cu, new ProjectAnalyzer(null, new ProjectState()));
+
+        MethodDeclaration constructor = method(cu, "Subject");
+        FunctionDraft draft = MethodSignatures.draftOf(constructor).orElseThrow();
+        FunctionDraft.Parameter size = draft.parameters().getFirst();
+        String result = MethodHandler.applyFunctionSignature(e.ctx(), source, constructor,
+                withParameters(draft, List.of(
+                        new FunctionDraft.Parameter(size.name(), SignatureType.kept("double"), size.origin()))));
+
+        assertTrue(result.contains("public Subject(double size)"), result);
+        assertTrue(!result.contains("void Subject"), "a constructor must not gain a return type: " + result);
     }
 
     // ---- Method identity ----

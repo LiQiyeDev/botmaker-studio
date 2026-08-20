@@ -1,6 +1,8 @@
 package com.botmaker.studio.blocks.func;
 
+import com.botmaker.studio.parser.helpers.MethodSignatures;
 import com.botmaker.studio.services.CodeEditorService;
+import com.botmaker.studio.ui.app.SignatureEdits;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
 import com.botmaker.studio.ui.render.layout.BlockLayout;
 import com.botmaker.studio.ui.render.components.BlockUIComponents;
@@ -45,7 +47,7 @@ public class ConstructorBlock extends MethodDeclarationBlock {
         if (canEditSignature()) {
             Button deleteBtn = new Button("×");
             deleteBtn.getStyleClass().add("header-delete-button");
-            deleteBtn.setOnAction(e -> context.getCodeEditor().deleteMethod(md));
+            deleteBtn.setOnAction(e -> SignatureEdits.delete(context, windowOf(deleteBtn), md));
             topRowBuilder.addNode(deleteBtn);
         }
 
@@ -68,10 +70,13 @@ public class ConstructorBlock extends MethodDeclarationBlock {
         if (canEditSignature()) {
             Button addParamBtn = new Button("+");
             addParamBtn.getStyleClass().add("add-param-button");
+            // A new input means every `new Foo(…)` in the project is now one argument short, so this takes the
+            // migration route too — the plan fills the new position with the type's default at each of them.
             addParamBtn.setOnAction(e -> com.botmaker.studio.ui.render.menu.ExpressionMenu.showTypeMenu(
                     addParamBtn, null, context, null, false, false,
-                    type -> context.getCodeEditor().addParameterToMethod(md, type,
-                            DefaultNames.forType(type.simpleName()))));
+                    type -> SignatureEdits.edit(context, windowOf(addParamBtn), md,
+                            draft -> withAddedParameter(draft, DefaultNames.forType(type.simpleName()),
+                                    MethodSignatures.signatureTypeOf(type.simpleName())))));
             paramRowBuilder.addNode(addParamBtn);
         }
 

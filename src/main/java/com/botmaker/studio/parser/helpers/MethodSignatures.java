@@ -83,8 +83,15 @@ public final class MethodSignatures {
         return Optional.of(new FunctionDraft(method.getName().getIdentifier(), returnType, parameters));
     }
 
-    /** The curated choice for {@code sourceName}, or the text itself when the catalogue has no such type. */
-    private static SignatureType signatureTypeOf(String sourceName) {
+    /**
+     * The curated choice for {@code sourceName}, or the text itself when the catalogue has no such type.
+     *
+     * <p>Public because the header controls build their draft the same way {@link #draftOf} does: a type the
+     * user picks has to become a {@link SignatureType.Described} whenever the catalogue knows it, or the
+     * migration reads it as {@linkplain SignatureType#isKept() carried} and leaves every call's argument
+     * alone — which for a retype is precisely the wrong answer.
+     */
+    public static SignatureType signatureTypeOf(String sourceName) {
         return BotType.Choice.fromSourceName(sourceName)
                 .<SignatureType>map(SignatureType::of)
                 .orElseGet(() -> SignatureType.kept(sourceName));

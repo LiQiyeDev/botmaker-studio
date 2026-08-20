@@ -642,10 +642,6 @@ public class CodeEditor {
     // METHODS
     // =================================================================================
 
-    public void changeMethodParameterType(MethodDeclaration method, int index, ResolvedType newType) {
-        edit(method, EditKind.SIGNATURE, false, (cu, code) -> MethodHandler.changeMethodParameterType(ctx(cu), code, method, index, newType));
-    }
-
     public void addConstructorToClass(TypeDeclaration typeDecl) {
         edit(typeDecl, EditKind.SIGNATURE, true, (cu, code) -> MethodHandler.addConstructorToClass(cu, code, typeDecl));
     }
@@ -759,25 +755,33 @@ public class CodeEditor {
         }
     }
 
+    /**
+     * Removes the declaration, and only it.
+     *
+     * <p>Deliberately unguarded, and deliberately not the thing a delete button calls: the guard — "is anything
+     * still calling this?" — needs a project scan and a window to refuse into, so it lives at the UI edge in
+     * {@code ui/app/SignatureEdits.delete}. This is what that calls once it has an answer.
+     */
     public void deleteMethod(MethodDeclaration method) {
         edit(method, EditKind.SIGNATURE, false, (cu, code) -> MethodHandler.deleteMethodFromClass(cu, code, method));
     }
 
+    /**
+     * Renames one input, in the declaration and in the body that reads it.
+     *
+     * <p>The one parameter edit that is <em>not</em> a migration: arguments are matched by position, so no call
+     * anywhere mentions the name. The type and the count are a different matter — those go through
+     * {@code SignatureEdits}.
+     */
     public void renameMethodParameter(MethodDeclaration method, int index, String newName) {
         edit(method, EditKind.SIGNATURE, false, (cu, code) -> MethodHandler.renameMethodParameter(cu, code, method, index, newName));
     }
 
-    public void setMethodReturnType(MethodDeclaration method, ResolvedType newType) {
-        edit(method, EditKind.SIGNATURE, false, (cu, code) -> MethodHandler.setMethodReturnType(ctx(cu), code, method, newType));
-    }
-
-    public void addParameterToMethod(MethodDeclaration method, ResolvedType type, String paramName) {
-        edit(method, EditKind.SIGNATURE, false, (cu, code) -> MethodHandler.addParameterToMethod(ctx(cu), code, method, type, paramName));
-    }
-
-    public void deleteParameterFromMethod(MethodDeclaration method, int index) {
-        edit(method, EditKind.SIGNATURE, false, (cu, code) -> MethodHandler.deleteParameterFromMethod(cu, code, method, index));
-    }
+    // setMethodReturnType, addParameterToMethod and deleteParameterFromMethod used to live here: one-line
+    // writes of the declaration alone, each reachable from a header control. They are gone rather than kept
+    // "just in case" — every one of them was a way to change a signature without the project noticing, which
+    // is the whole defect this round is closing. The header controls now build a FunctionDraft and go through
+    // applyFunctionSignature below, so there is one write path and it is the one that scans.
 
     public void renameMethod(MethodDeclaration method, String newName) {
         edit(method, EditKind.SIGNATURE, false, (cu, code) -> MethodHandler.renameMethod(cu, code, method, newName));

@@ -6,17 +6,26 @@ import com.botmaker.studio.parser.helpers.AstRewriteHelper;
 import com.botmaker.studio.parser.refactor.MethodReferences.CallSite;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.types.SlotFit;
+import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.jdt.core.dom.BooleanLiteral;
 import org.eclipse.jdt.core.dom.CastExpression;
 import org.eclipse.jdt.core.dom.CharacterLiteral;
 import org.eclipse.jdt.core.dom.ClassInstanceCreation;
+import org.eclipse.jdt.core.dom.ConditionalExpression;
+import org.eclipse.jdt.core.dom.DoStatement;
 import org.eclipse.jdt.core.dom.Expression;
+import org.eclipse.jdt.core.dom.IfStatement;
 import org.eclipse.jdt.core.dom.MethodDeclaration;
 import org.eclipse.jdt.core.dom.NumberLiteral;
 import org.eclipse.jdt.core.dom.ParenthesizedExpression;
+import org.eclipse.jdt.core.dom.ReturnStatement;
 import org.eclipse.jdt.core.dom.SimpleName;
 import org.eclipse.jdt.core.dom.SingleVariableDeclaration;
 import org.eclipse.jdt.core.dom.StringLiteral;
+import org.eclipse.jdt.core.dom.StructuralPropertyDescriptor;
+import org.eclipse.jdt.core.dom.VariableDeclarationFragment;
+import org.eclipse.jdt.core.dom.VariableDeclarationStatement;
+import org.eclipse.jdt.core.dom.WhileStatement;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -40,14 +49,20 @@ import java.util.Map;
  *   <tr><td>parameter removed</td><td>drop that argument</td></tr>
  *   <tr><td>parameters reordered</td><td>permute the arguments by origin</td></tr>
  *   <tr><td>parameter retyped</td><td>keep the argument if it still fits, else the new type's default</td></tr>
- *   <tr><td>return type changed</td><td>replace the <em>use</em> with a default, unless the call is a line of
- *       its own — then nothing consumed it and there is nothing to fix</td></tr>
+ *   <tr><td>return type changed</td><td>replace the <em>use</em> with a default — but only where the slot
+ *       around it refuses the new type. A call standing as a line of its own is consumed by nothing, and a
+ *       slot that would still accept the new value is left exactly as written</td></tr>
  * </table>
  *
- * <p>The last one is the maintainer's call and worth stating plainly: a call whose value is used is replaced by
- * a default of the type the surrounding code was expecting — the <em>old</em> return type, because that is what
- * the slot was written for. The variable it was assigned to is never retyped. Changing a function's output must
- * not silently change the type of things elsewhere in the file.
+ * <p>The last one is the maintainer's call and worth stating plainly, because it was decided twice. A call
+ * whose value is used <em>and no longer fits where it sits</em> is replaced by a default of the type the
+ * surrounding code was expecting — the <em>old</em> return type, because that is what the slot was written for.
+ * The variable it was assigned to is never retyped: changing a function's output must not silently change the
+ * type of things elsewhere in the file.
+ *
+ * <p>The fitting question is the part that was missing. Replacing every used call regardless meant that
+ * retyping a function called inside {@code print(…)} — a slot that accepts anything — threw away a perfectly
+ * good call and wrote a default in its place. See {@link #slotAccepts}.
  *
  * <p>"Does it still fit" is judged from source alone ({@link #syntacticTypeOf}), because a project mid-edit has
  * no bindings. Unknown fits — see {@link SlotFit#refusal} — so the doubt falls towards keeping what the user
@@ -121,15 +136,23 @@ public final class SignatureMigration {
         boolean returnChanged = !typeText(before.returnType()).equals(typeText(after.returnType()));
         String newName = after.name().trim();
 
+        int leftAlone = 0;
         for (CallSite site : sites) {
-            if (returnChanged && !site.isStatement()) {
+            if (returnChanged && !site.isStatement() && !slotAccepts(site, after.returnType())) {
                 calls.add(new CallChange.ValueReplaced(site, before.returnType()));
             } else {
+                if (returnChanged && !site.isStatement()) leftAlone++;
                 calls.add(new CallChange.Rewrite(site, newName, argumentsFor(before, after, site)));
             }
         }
-        return new Plan(List.copyOf(calls), rescued(before, after, declaration),
-                changes(before, after, returnChanged));
+        List<String> changes = new ArrayList<>(changes(before, after, returnChanged));
+        int replaced = (int) calls.stream().filter(CallChange.ValueReplaced.class::isInstance).count();
+        if (replaced > 0) changes.add(countOf(replaced) + " using its result " + (replaced == 1 ? "is" : "are")
+                + " replaced by a default value");
+        if (leftAlone > 0) changes.add(countOf(leftAlone) + " using its result still "
+                + (leftAlone == 1 ? "accepts" : "accept") + " the new type and " + (leftAlone == 1 ? "is" : "are")
+                + " left as written");
+        return new Plan(List.copyOf(calls), rescued(before, after, declaration), List.copyOf(changes));
     }
 
     /** The new argument list at one call, in the order the new parameters are in. */
@@ -146,7 +169,7 @@ public final class SignatureMigration {
                 edits.add(new ArgumentEdit.Keep(origin));
                 continue;
             }
-            Expression argument = (Expression) site.call().arguments().get(origin);
+            Expression argument = (Expression) site.arguments().get(origin);
             edits.add(stillFits(target.type(), argument)
                     ? new ArgumentEdit.Keep(origin) : new ArgumentEdit.Fresh(target.type()));
         }
@@ -219,6 +242,69 @@ public final class SignatureMigration {
 
     private static String typeText(SignatureType type) {
         return type.sourceName();
+    }
+
+    /** {@code 1 call} / {@code 3 calls}, for the preview's own sentences. */
+    private static String countOf(int calls) {
+        return calls + (calls == 1 ? " call" : " calls");
+    }
+
+    // --- does the slot this call sits in still accept it? --------------------------------------------------
+
+    /**
+     * Whether whatever consumes this call's value will still take it once the function returns {@code now}.
+     *
+     * <p>This is the question the rule was missing. It used to replace <em>every</em> call whose value was
+     * used, so changing a function's result type blew away {@code print(readCount())} — a slot that takes
+     * anything at all, and the maintainer's report that overturned the earlier rule. Now the slot is asked, and
+     * only a slot that refuses the new type gets a default written into it.
+     *
+     * <p>An unreadable slot accepts, deliberately: this runs without bindings, so "I cannot tell what this
+     * position expects" must not become "so I rewrote it". The doubt falls the same way it does for arguments —
+     * towards keeping what the user wrote. What it <em>can</em> read from source alone is the handful of
+     * positions that name their own expectation, which is where the damage was.
+     */
+    private static boolean slotAccepts(CallSite site, SignatureType now) {
+        ResolvedType expected = slotTypeOf(site.node());
+        if (expected == null) return true;
+        return SlotFit.refusal(expected, ResolvedType.named(now.sourceName())) == null;
+    }
+
+    /**
+     * What the position around {@code call} expects, read off the source — null when nothing here can say.
+     *
+     * <p>The conditions are the boolean-or-nothing positions Java itself fixes; a declaration's initialiser and
+     * a {@code return} both have their type written a few nodes away. An argument to another call is
+     * deliberately <em>not</em> in this list: its parameter type lives in a declaration that may be in another
+     * file or in a jar, so it is exactly the "cannot tell" that has to accept.
+     */
+    private static ResolvedType slotTypeOf(Expression call) {
+        StructuralPropertyDescriptor location = call.getLocationInParent();
+        ASTNode parent = call.getParent();
+        if (location == IfStatement.EXPRESSION_PROPERTY
+                || location == WhileStatement.EXPRESSION_PROPERTY
+                || location == DoStatement.EXPRESSION_PROPERTY
+                || location == ConditionalExpression.EXPRESSION_PROPERTY) {
+            return ResolvedType.BOOLEAN;
+        }
+        if (location == VariableDeclarationFragment.INITIALIZER_PROPERTY
+                && parent.getParent() instanceof VariableDeclarationStatement declaration) {
+            return ResolvedType.named(declaration.getType().toString());
+        }
+        if (location == ReturnStatement.EXPRESSION_PROPERTY) {
+            MethodDeclaration enclosing = enclosingMethodOf(parent);
+            if (enclosing != null && enclosing.getReturnType2() != null) {
+                return ResolvedType.named(enclosing.getReturnType2().toString());
+            }
+        }
+        return null;
+    }
+
+    private static MethodDeclaration enclosingMethodOf(ASTNode node) {
+        for (ASTNode n = node; n != null; n = n.getParent()) {
+            if (n instanceof MethodDeclaration method) return method;
+        }
+        return null;
     }
 
     // --- does this argument still fit? ---------------------------------------------------------------------

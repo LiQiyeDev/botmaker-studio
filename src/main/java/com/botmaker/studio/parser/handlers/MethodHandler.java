@@ -226,10 +226,15 @@ public class MethodHandler {
 
     /** The return type and the trailing {@code return} that has to agree with it. */
     private static void applyReturnType(EditContext ctx, MethodDeclaration method, SignatureType returnType) {
-        // A type the editor only carries is left exactly as the file wrote it — that is what lets an
-        // activity's `Outcome run(…)` have its name and inputs edited at all. Rewriting it from a description
-        // we do not have is the one thing this must never do.
-        if (returnType.isKept()) return;
+        // A constructor has no return type to change, and `getReturnType2()` being null does not mean "it
+        // returns nothing" here the way it does for a method — it means the question does not apply. Without
+        // this, editing a constructor's parameters would set RETURN_TYPE2 to `void` and quietly turn
+        // `GoHome(int)` into a method named GoHome, which compiles and is never called again.
+        if (method.isConstructor()) return;
+        // Left alone when it is already what the file says — by text, for the reason spelled out in
+        // editInPlace: a type the editor merely carries (`Outcome run(…)`) round-trips to the same source and
+        // so is protected here, while a type the user deliberately picked is written even though the catalogue
+        // cannot describe it.
         Type oldNode = method.getReturnType2();
         if (oldNode != null && oldNode.toString().equals(returnType.sourceName())) return;
 
@@ -311,8 +316,13 @@ public class MethodHandler {
     /** Retypes and renames one surviving parameter where it stands, body references included. */
     private static void editInPlace(EditContext ctx, MethodDeclaration method,
                                     SingleVariableDeclaration param, FunctionDraft.Parameter target) {
-        // A carried type is left as written — see applyReturnType; only the name is this dialog's to change.
-        if (!target.type().isKept() && !param.getType().toString().equals(target.type().sourceName())) {
+        // A type is left alone when it is the one the file already writes — compared by text, not by whether
+        // the catalogue happens to describe it. Those two used to be the same test (`isKept()` meant "don't
+        // touch"), which silently protected the wrong thing: the header's type picker offers every type in the
+        // project, most of which the catalogue has never heard of, so deliberately retyping an input to one of
+        // them did nothing at all. A carried type read out of this very declaration still compares equal, so
+        // `Outcome run(…)` is as safe as it was — safe by value now rather than by category.
+        if (!param.getType().toString().equals(target.type().sourceName())) {
             ctx.rewriter().replace(param.getType(), typeNodeFor(ctx, target.type()), null);
         }
         String newName = target.name().trim();
@@ -466,29 +476,6 @@ public class MethodHandler {
         return ctx.applyTo(originalCode);
     }
 
-    public static String setMethodReturnType(EditContext ctx, String originalCode,
-                                             MethodDeclaration method, ResolvedType newType) {
-        AST ast = ctx.ast();
-        ASTRewrite rewriter = ctx.rewriter();
-
-        Type oldTypeNode = method.getReturnType2();
-        ResolvedType oldType = oldTypeNode != null
-                ? ProjectAnalyzer.resolveType(oldTypeNode) : ResolvedType.VOID;
-
-        Type newTypeNode = newType.isVoid() ?
-                ast.newPrimitiveType(PrimitiveType.VOID) :
-                ProjectAnalyzer.createSimpleTypeNode(ast, newType);
-        rewriter.replace(method.getReturnType2(), newTypeNode, null);
-
-        // Keep the trailing return in sync, but never clobber a return the user has edited.
-        updateTrailingReturn(ast, rewriter, method, oldType, newType);
-
-        if (!newType.isVoid()) {
-            ctx.addImportForSimpleName(newType.leafType().simpleName());
-        }
-        return ctx.applyTo(originalCode);
-    }
-
     /**
      * Adjusts the method's trailing {@code return} to match a changed return type: removes it when switching to
      * {@code void}; otherwise inserts a default one if none exists, or replaces an <em>untouched</em> default
@@ -525,19 +512,12 @@ public class MethodHandler {
         }
     }
 
-    public static String addParameterToMethod(EditContext ctx, String originalCode,
-                                              MethodDeclaration method, ResolvedType type, String paramName) {
-        AST ast = ctx.ast();
-        ListRewrite listRewrite = ctx.rewriter().getListRewrite(method, MethodDeclaration.PARAMETERS_PROPERTY);
-
-        SingleVariableDeclaration newParam = ast.newSingleVariableDeclaration();
-        newParam.setType(ProjectAnalyzer.createSimpleTypeNode(ast, type));
-        newParam.setName(ast.newSimpleName(paramName));
-
-        listRewrite.insertLast(newParam, null);
-        ctx.addImportForSimpleName(type.leafType().simpleName());
-        return ctx.applyTo(originalCode);
-    }
+    // setMethodReturnType, addParameterToMethod, deleteParameterFromMethod and changeMethodParameterType were
+    // here. Each rewrote the declaration alone, and each was reachable from a header control — which is how a
+    // signature could change without a single call site being asked about it. Everything they did,
+    // applyFunctionSignature above does as part of a scanned, previewed migration, so they are deleted rather
+    // than left as a second way in. renameMethodParameter survives because it genuinely is a local edit: no
+    // call anywhere names a parameter.
 
     public static String renameMethodParameter(CompilationUnit cu, String originalCode,
                                         MethodDeclaration method, int index, String newName) {
@@ -547,37 +527,6 @@ public class MethodHandler {
             return AstRewriteHelper.renameSimpleName(cu, originalCode, param.getName(), newName);
         }
         return originalCode;
-    }
-
-    public static String deleteParameterFromMethod(CompilationUnit cu, String originalCode,
-                                            MethodDeclaration method, int index) {
-        ASTRewrite rewriter = ASTRewrite.create(cu.getAST());
-        ListRewrite listRewrite = rewriter.getListRewrite(method, MethodDeclaration.PARAMETERS_PROPERTY);
-        List<?> params = method.parameters();
-
-        if (index >= 0 && index < params.size()) {
-            listRewrite.remove((ASTNode) params.get(index), null);
-        }
-
-        return AstRewriteHelper.applyRewrite(rewriter, originalCode);
-    }
-
-
-    public static String changeMethodParameterType(EditContext ctx, String originalCode,
-                                                   MethodDeclaration method, int index, ResolvedType newType) {
-        List<?> params = method.parameters();
-
-        if (index >= 0 && index < params.size()) {
-            SingleVariableDeclaration param = (SingleVariableDeclaration) params.get(index);
-
-            Type newTypeNode = ProjectAnalyzer.createSimpleTypeNode(ctx.ast(), newType);
-            ctx.rewriter().replace(param.getType(), newTypeNode, null);
-
-            // Ensure the import exists — resolve Named-only picks to an FQN via the analyzer.
-            ctx.addImportForSimpleName(newType.leafType().simpleName());
-        }
-
-        return ctx.applyTo(originalCode);
     }
 
     public static String addConstructorToClass(CompilationUnit cu, String originalCode, TypeDeclaration typeDecl) {

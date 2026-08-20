@@ -237,8 +237,17 @@ class CodeEditorLockTest {
         f.editor.deleteMethod(f.method("run"));
         f.assertRefused("deleting a generated method");
 
+        // Adding a parameter is no longer its own editor call — it is a signature draft like every other
+        // header edit — so the lock is asserted on the path that now carries it.
         Fixture g = flowDriver();
-        g.editor.addParameterToMethod(g.method("run"), com.botmaker.studio.types.ResolvedType.named("int"), "n");
+        com.botmaker.studio.palette.FunctionDraft draft =
+                com.botmaker.studio.parser.helpers.MethodSignatures.draftOf(g.method("run")).orElseThrow();
+        java.util.List<com.botmaker.studio.palette.FunctionDraft.Parameter> parameters =
+                new java.util.ArrayList<>(draft.parameters());
+        parameters.add(new com.botmaker.studio.palette.FunctionDraft.Parameter(
+                "n", com.botmaker.studio.palette.SignatureType.kept("int")));
+        g.editor.applyFunctionSignature(g.method("run"),
+                new com.botmaker.studio.palette.FunctionDraft(draft.name(), draft.returnType(), parameters));
         g.assertRefused("adding a parameter to a generated method");
     }
 

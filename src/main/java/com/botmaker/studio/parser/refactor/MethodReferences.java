@@ -7,12 +7,16 @@ import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.jdt.core.dom.ASTVisitor;
 import org.eclipse.jdt.core.dom.AbstractTypeDeclaration;
 import org.eclipse.jdt.core.dom.BodyDeclaration;
+import org.eclipse.jdt.core.dom.ChildListPropertyDescriptor;
+import org.eclipse.jdt.core.dom.ClassInstanceCreation;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jdt.core.dom.Expression;
+import org.eclipse.jdt.core.dom.ExpressionStatement;
 import org.eclipse.jdt.core.dom.FieldDeclaration;
 import org.eclipse.jdt.core.dom.MethodDeclaration;
 import org.eclipse.jdt.core.dom.MethodInvocation;
 import org.eclipse.jdt.core.dom.SimpleName;
+import org.eclipse.jdt.core.dom.SimpleType;
 import org.eclipse.jdt.core.dom.SingleVariableDeclaration;
 import org.eclipse.jdt.core.dom.Statement;
 import org.eclipse.jdt.core.dom.ThisExpression;
@@ -44,16 +48,53 @@ import java.util.Set;
  * strictly worse than migrating none and saying which file could not be read.
  *
  * <p>A file that does not parse is the same answer for the same reason.
+ *
+ * <h2>Constructors count as calls</h2>
+ *
+ * <p>A constructor's calls are {@code new GoHome(…)}, not {@code goHome(…)}, and this used to visit
+ * {@link MethodInvocation} only — so a constructor scanned as having <b>zero</b> call sites no matter how many
+ * times its class was instantiated. That is worse than not scanning at all: "nothing calls this" is the answer
+ * that lets a delete through, so the one guard the constructor controls rely on would have waved every
+ * instantiation past. {@link ClassInstanceCreation} is now visited under the same three-way verdict.
  */
 public final class MethodReferences {
 
     private MethodReferences() {}
 
-    /** One call to the method, and the file and parse it was found in. */
-    public record CallSite(ProjectFile file, CompilationUnit unit, MethodInvocation call) {
+    /**
+     * One call to the method, and the file and parse it was found in.
+     *
+     * <p>{@code node} is a {@link MethodInvocation} for {@code goHome(…)} and a {@link ClassInstanceCreation}
+     * for {@code new GoHome(…)}. The two are one type here because everything downstream —
+     * {@link SignatureMigration}'s per-argument plan, {@link CallMigrator}'s rewrite — asks a call the same
+     * three questions regardless of which it is: what are your arguments, which property holds them, and is
+     * anything consuming what you produce. So they are asked *here*, once, rather than each reader
+     * re-discovering that a creation has no name to rename.
+     */
+    public record CallSite(ProjectFile file, CompilationUnit unit, Expression node) {
+
+        /** The arguments as written, in order. */
+        public List<?> arguments() {
+            return node instanceof ClassInstanceCreation creation ? creation.arguments()
+                    : ((MethodInvocation) node).arguments();
+        }
+
+        /** Which child list {@link #arguments()} is, for a {@code ListRewrite} over it. */
+        public ChildListPropertyDescriptor argumentsProperty() {
+            return node instanceof ClassInstanceCreation
+                    ? ClassInstanceCreation.ARGUMENTS_PROPERTY : MethodInvocation.ARGUMENTS_PROPERTY;
+        }
+
+        /**
+         * The name that a rename would rewrite, or null when there is none to rewrite. A constructor's name is
+         * its class's, which is not this dialog's to change — renaming the class is a different edit.
+         */
+        public SimpleName nameNode() {
+            return node instanceof MethodInvocation call ? call.getName() : null;
+        }
 
         public int argumentCount() {
-            return call.arguments().size();
+            return arguments().size();
         }
 
         /** The file's class name — {@code Bot}, {@code GoHome} — which is how the preview names it. */
@@ -63,7 +104,7 @@ public final class MethodReferences {
 
         /** True when the call stands as a line of its own, so nothing consumes what it gives back. */
         public boolean isStatement() {
-            return call.getParent() instanceof org.eclipse.jdt.core.dom.ExpressionStatement;
+            return node.getParent() instanceof ExpressionStatement;
         }
     }
 
@@ -133,7 +174,7 @@ public final class MethodReferences {
                     continue;
                 }
             }
-            scan(file, unit, name, arity, owner, projectClasses, calls, uncertain);
+            scan(file, unit, name, arity, owner, declaration.isConstructor(), projectClasses, calls, uncertain);
         }
         return new Result(calls, unreadable, uncertain);
     }
@@ -143,24 +184,59 @@ public final class MethodReferences {
     private enum Verdict { MATCH, OTHER, UNCERTAIN }
 
     private static void scan(ProjectFile file, CompilationUnit unit, String name, int arity, String owner,
-                             Set<String> projectClasses, List<CallSite> calls, List<String> uncertain) {
+                             boolean constructor, Set<String> projectClasses, List<CallSite> calls,
+                             List<String> uncertain) {
         unit.accept(new ASTVisitor() {
             @Override
             public boolean visit(MethodInvocation call) {
+                if (constructor) return true;
                 if (!call.getName().getIdentifier().equals(name)) return true;
                 // A different number of arguments is a different method — Java's own rule, and the one that
                 // keeps an overload out of a rename that was never about it.
                 if (call.arguments().size() != arity) return true;
-                switch (verdictFor(call, owner, projectClasses)) {
-                    case MATCH -> calls.add(new CallSite(file, unit, call));
+                record(call, verdictFor(call, owner, projectClasses));
+                return true;
+            }
+
+            @Override
+            public boolean visit(ClassInstanceCreation creation) {
+                if (!constructor) return true;
+                if (creation.arguments().size() != arity) return true;
+                record(creation, verdictForCreation(creation, owner));
+                return true;
+            }
+
+            private void record(Expression node, Verdict verdict) {
+                switch (verdict) {
+                    case MATCH -> calls.add(new CallSite(file, unit, node));
                     case UNCERTAIN -> {
                         if (!uncertain.contains(file.getClassName())) uncertain.add(file.getClassName());
                     }
                     case OTHER -> { }
                 }
-                return true;
             }
         });
+    }
+
+    /**
+     * Whether this {@code new …(…)} of the right arity is an instantiation of the class being edited.
+     *
+     * <p>Only a bare {@link SimpleType} naming the class is certain. Anything else that <em>ends</em> in the
+     * same name — {@code new com.other.GoHome(…)}, {@code new GoHome<String>(…)} — could be that class or
+     * another one entirely, and telling them apart needs the imports resolved, which is exactly what this class
+     * cannot do. That is a refusal, per the rule above: an answer this cannot be sure of is not a skipped call.
+     *
+     * <p>{@code new GoHome(…) { … }} — an anonymous subclass — still runs the constructor and still passes it
+     * these arguments, so it is a MATCH like any other.
+     */
+    private static Verdict verdictForCreation(ClassInstanceCreation creation, String owner) {
+        Type created = creation.getType();
+        if (created instanceof SimpleType simple && simple.getName() instanceof SimpleName name) {
+            return owner.equals(name.getIdentifier()) ? Verdict.MATCH : Verdict.OTHER;
+        }
+        String text = created.toString();
+        String last = text.substring(text.lastIndexOf('.') + 1).replaceAll("<.*", "").trim();
+        return owner.equals(last) ? Verdict.UNCERTAIN : Verdict.OTHER;
     }
 
     /** Whether this same-named, same-arity call is the one being edited. */

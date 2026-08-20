@@ -2,11 +2,10 @@ package com.botmaker.studio.blocks.func;
 
 import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.palette.FunctionDraft;
+import com.botmaker.studio.palette.SignatureType;
 import com.botmaker.studio.parser.helpers.MethodSignatures;
-import com.botmaker.studio.parser.refactor.MethodReferences;
-import com.botmaker.studio.parser.refactor.SignatureMigration;
 import com.botmaker.studio.ui.app.AddFunctionDialog;
-import com.botmaker.studio.ui.app.SignatureMigrationDialog;
+import com.botmaker.studio.ui.app.SignatureEdits;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.ui.render.menu.ExpressionMenu;
 
@@ -31,6 +30,7 @@ import org.eclipse.jdt.core.dom.SingleVariableDeclaration;
 import org.eclipse.jdt.core.dom.TypeDeclaration;
 
 import java.util.*;
+import java.util.function.UnaryOperator;
 
 public class MethodDeclarationBlock extends AbstractStatementBlock implements BlockWithChildren {
 
@@ -234,7 +234,8 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
         if (canEditSignature()) {
             Button deleteBtn = new Button("×");
             deleteBtn.getStyleClass().add("header-delete-button");
-            deleteBtn.setOnAction(e -> context.getCodeEditor().deleteMethod((MethodDeclaration) this.astNode));
+            deleteBtn.setOnAction(e -> SignatureEdits.delete(
+                    context, windowOf(deleteBtn), (MethodDeclaration) this.astNode));
             topRowBuilder.addNode(deleteBtn);
         }
 
@@ -284,9 +285,16 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
         typeLabel.getStyleClass().add("param-type-label");
 
         if (editable) {
+            // Retyping one input is a signature change like any other, so it goes through the same scan and
+            // preview the ✎ dialog does. Rebuilding the draft and replacing one row's type — rather than
+            // rewriting the declaration in place — is also what keeps every other parameter's origin intact,
+            // so the migration reads this as "input 2 is now a Point" and not as five parameters replaced.
             ExpressionMenu.installTypeSelector(typeLabel, "Click to change type",
                     () -> ProjectAnalyzer.resolveType(param.getType()), context, null,
-                    newType -> context.getCodeEditor().changeMethodParameterType((MethodDeclaration) this.astNode, index, newType));
+                    newType -> SignatureEdits.edit(context, windowOf(typeLabel),
+                            (MethodDeclaration) this.astNode,
+                            draft -> withParameter(draft, index, p -> new FunctionDraft.Parameter(p.name(),
+                                    MethodSignatures.signatureTypeOf(newType.simpleName()), p.origin()))));
         }
 
         String currentName = param.getName().getIdentifier();
@@ -319,13 +327,43 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
             Button deleteBtn = new Button("×");
             deleteBtn.getStyleClass().add("param-delete-button");
 
-            deleteBtn.setOnAction(e -> {
-                context.getCodeEditor().deleteParameterFromMethod((MethodDeclaration) this.astNode, index);
-            });
+            // Same route as the retype above, for the same reason: dropping an input changes what every call
+            // has to pass, and the body may still be reading the name. Both are the migration's business.
+            deleteBtn.setOnAction(e -> SignatureEdits.edit(context, windowOf(deleteBtn),
+                    (MethodDeclaration) this.astNode, draft -> withoutParameter(draft, index)));
             box.getChildren().add(deleteBtn);
         }
 
         return box;
+    }
+
+    /** The window a control is in, for a dialog to be modal over — null before the block is in a scene. */
+    static Window windowOf(Node node) {
+        return node.getScene() == null ? null : node.getScene().getWindow();
+    }
+
+    /** {@code draft} with the parameter at {@code index} run through {@code change}. */
+    static FunctionDraft withParameter(FunctionDraft draft, int index,
+                                       UnaryOperator<FunctionDraft.Parameter> change) {
+        List<FunctionDraft.Parameter> parameters = new ArrayList<>(draft.parameters());
+        if (index < 0 || index >= parameters.size()) return draft;
+        parameters.set(index, change.apply(parameters.get(index)));
+        return new FunctionDraft(draft.name(), draft.returnType(), parameters);
+    }
+
+    /** {@code draft} with one more parameter on the end, marked as new so every call gets a default there. */
+    static FunctionDraft withAddedParameter(FunctionDraft draft, String name, SignatureType type) {
+        List<FunctionDraft.Parameter> parameters = new ArrayList<>(draft.parameters());
+        parameters.add(new FunctionDraft.Parameter(name, type));
+        return new FunctionDraft(draft.name(), draft.returnType(), parameters);
+    }
+
+    /** {@code draft} without the parameter at {@code index}. */
+    static FunctionDraft withoutParameter(FunctionDraft draft, int index) {
+        List<FunctionDraft.Parameter> parameters = new ArrayList<>(draft.parameters());
+        if (index < 0 || index >= parameters.size()) return draft;
+        parameters.remove(index);
+        return new FunctionDraft(draft.name(), draft.returnType(), parameters);
     }
 
     /**
@@ -354,62 +392,13 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
             Window owner = edit.getScene() == null ? null : edit.getScene().getWindow();
             Optional<FunctionDraft> current = MethodSignatures.draftOf(method);
             if (current.isEmpty()) {
-                explainUneditableSignature(owner, method);
+                SignatureEdits.explainUneditable(owner, method);
                 return;
             }
             new AddFunctionDialog(owner, otherSignatures(method), current.get()).showAndWait()
-                    .ifPresent(draft -> migrateAndApply(context, owner, method, current.get(), draft));
+                    .ifPresent(draft -> SignatureEdits.apply(context, owner, method, current.get(), draft));
         });
         return edit;
-    }
-
-    /**
-     * Carries the edited signature to every call in the project, asking first.
-     *
-     * <p>Three outcomes, and the order is the whole design. A project with a file that doesn't parse, or a call
-     * this editor can't be certain about, is <b>refused</b> — named, explained, and nothing written, because a
-     * rename that reaches three of four call sites is worse than one that reaches none. A signature nothing
-     * calls yet <b>just saves</b>, as it did before this existed. Anything else is <b>previewed</b>: the user
-     * sees what will happen to which files and gets a Cancel that leaves even the declaration untouched.
-     */
-    private static void migrateAndApply(CodeEditorService context, Window owner, MethodDeclaration method,
-                                        FunctionDraft before, FunctionDraft after) {
-        MethodReferences.Result references = MethodReferences.find(context.getState(), method);
-        if (references.isRefusal()) {
-            explainRefusedMigration(owner, method, references.refusal());
-            return;
-        }
-        SignatureMigration.Plan plan =
-                SignatureMigration.of(before, after, method, references.calls());
-        if (plan.isEmpty()) {
-            context.getCodeEditor().applyFunctionSignature(method, after);
-            return;
-        }
-        if (!SignatureMigrationDialog.confirm(owner, method.getName().getIdentifier(), plan)) return;
-        context.getCodeEditor().applyFunctionSignature(method, after, plan);
-    }
-
-    /** Why the change could not be made, naming the file that has to be fixed first. */
-    private static void explainRefusedMigration(Window owner, MethodDeclaration method, String because) {
-        Alert alert = new Alert(Alert.AlertType.INFORMATION);
-        alert.initOwner(owner);
-        alert.setTitle("This change can't be made yet");
-        alert.setHeaderText(method.getName().getIdentifier() + " wasn't changed");
-        alert.setContentText(because);
-        alert.showAndWait();
-    }
-
-    /** Says which part of the signature the dialog cannot describe, and where to change it instead. */
-    private static void explainUneditableSignature(Window owner, MethodDeclaration method) {
-        String because = MethodSignatures.unrepresentable(method)
-                .orElse("it uses something the editor cannot describe");
-        Alert alert = new Alert(Alert.AlertType.INFORMATION);
-        alert.initOwner(owner);
-        alert.setTitle("This function is edited in the Java file");
-        alert.setHeaderText(method.getName().getIdentifier() + " can't be edited here");
-        alert.setContentText("The editor can't rewrite this signature because " + because
-                + ".\n\nOpen the Java file to change it. Its body is still yours to edit here.");
-        alert.showAndWait();
     }
 
     /** Every signature the enclosing class declares except this method's own — which cannot clash with itself. */

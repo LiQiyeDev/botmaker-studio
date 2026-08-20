@@ -5,6 +5,7 @@ import com.botmaker.studio.palette.SignatureType;
 import com.botmaker.studio.parser.EditContext;
 import com.botmaker.studio.parser.factories.InitializerFactory;
 import com.botmaker.studio.parser.helpers.SourceParser;
+import com.botmaker.studio.parser.refactor.MethodReferences.CallSite;
 import com.botmaker.studio.parser.refactor.SignatureMigration.ArgumentEdit;
 import com.botmaker.studio.parser.refactor.SignatureMigration.CallChange;
 import com.botmaker.studio.project.ProjectFile;
@@ -14,7 +15,6 @@ import com.botmaker.studio.types.ResolvedType;
 import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jdt.core.dom.Expression;
-import org.eclipse.jdt.core.dom.MethodInvocation;
 import org.eclipse.jdt.core.dom.SimpleName;
 import org.eclipse.jdt.core.dom.rewrite.ListRewrite;
 
@@ -126,20 +126,22 @@ public final class CallMigrator {
     private static void apply(EditContext ctx, CallChange change) {
         switch (change) {
             case CallChange.ValueReplaced replaced -> ctx.rewriter()
-                    .replace(replaced.site().call(), defaultFor(ctx, replaced.expected()), null);
+                    .replace(replaced.site().node(), defaultFor(ctx, replaced.expected()), null);
             case CallChange.Rewrite rewrite -> applyRewrite(ctx, rewrite);
         }
     }
 
     private static void applyRewrite(EditContext ctx, CallChange.Rewrite rewrite) {
-        MethodInvocation call = rewrite.site().call();
-        if (!call.getName().getIdentifier().equals(rewrite.newName())) {
-            ctx.rewriter().set(call.getName(), SimpleName.IDENTIFIER_PROPERTY, rewrite.newName(), null);
+        CallSite site = rewrite.site();
+        SimpleName name = site.nameNode();
+        // Null for a `new GoHome(…)`: its name is the class's, and renaming that is a different edit.
+        if (name != null && !name.getIdentifier().equals(rewrite.newName())) {
+            ctx.rewriter().set(name, SimpleName.IDENTIFIER_PROPERTY, rewrite.newName(), null);
         }
-        if (unchanged(call, rewrite.arguments())) return;
+        if (unchanged(site, rewrite.arguments())) return;
 
-        ListRewrite arguments = ctx.rewriter().getListRewrite(call, MethodInvocation.ARGUMENTS_PROPERTY);
-        List<?> current = call.arguments();
+        ListRewrite arguments = ctx.rewriter().getListRewrite(site.node(), site.argumentsProperty());
+        List<?> current = site.arguments();
         for (int i = current.size() - 1; i >= 0; i--) arguments.remove((ASTNode) current.get(i), null);
         for (ArgumentEdit edit : rewrite.arguments()) {
             arguments.insertLast(nodeFor(ctx, current, edit), null);
@@ -147,8 +149,8 @@ public final class CallMigrator {
     }
 
     /** True when the wanted arguments are the ones already there, in the order they are already in. */
-    private static boolean unchanged(MethodInvocation call, List<ArgumentEdit> wanted) {
-        if (wanted.size() != call.arguments().size()) return false;
+    private static boolean unchanged(CallSite site, List<ArgumentEdit> wanted) {
+        if (wanted.size() != site.argumentCount()) return false;
         for (int i = 0; i < wanted.size(); i++) {
             if (!(wanted.get(i) instanceof ArgumentEdit.Keep keep) || keep.from() != i) return false;
         }
