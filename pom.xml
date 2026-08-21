@@ -584,6 +584,25 @@
                                     <vendor>LiQiyeDev</vendor>
                                     <appImage>${project.build.directory}/dist/BotMaker Studio</appImage>
                                     <destination>${project.build.directory}/dist</destination>
+                                    <!-- OCR's native library is NOT bundled: Tess4J ships a Windows DLL only, and on
+                                         Linux it dlopen()s the system libtesseract through JNA. Nothing links it, so
+                                         jpackage's dependency autodetect (which reads ELF headers) cannot see it and
+                                         the package declared no dependency at all — api.vision.Text then threw
+                                         UnsatisfiedLinkError on any machine that didn't happen to have Tesseract.
+                                         Hence the explicit jpackage linux-package-deps option below.
+
+                                         The plugin's own <linuxPackageDeps> is typed boolean (it emits the bare flag,
+                                         i.e. autodetect), so it cannot carry a value; <additionalOptions> is the
+                                         escape hatch. The DEB and RPM values differ because the distro package names
+                                         do — keep them on their own executions, never factored into a property.
+
+                                         Debian/Ubuntu name the runtime by soname major: libtesseract5 since Debian 12
+                                         / Ubuntu 24.04, libtesseract4 on Ubuntu 22.04. The alternation lets one deb
+                                         install on both. -->
+                                    <additionalOptions>
+                                        <option>--linux-package-deps</option>
+                                        <option>libtesseract5 | libtesseract4</option>
+                                    </additionalOptions>
                                     <linuxShortcut>true</linuxShortcut>
                                     <linuxMenuGroup>Development</linuxMenuGroup>
                                     <linuxAppCategory>Development</linuxAppCategory>
@@ -615,6 +634,17 @@
                                          template is JDK-version-specific. DEB does not need this (dpkg runs the old prerm
                                          first, then the new postinst, which is the correct order), so it is set here only. -->
                                     <resourceDir>${project.basedir}/packaging/linux</resourceDir>
+                                    <!-- See build-deb's note: the OCR native is dlopen()ed, so it must be declared
+                                         by hand. Fedora/RHEL/openSUSE all call the runtime package tesseract-libs.
+                                         Deliberately the PACKAGE NAME, not a soname capability: the soname carries
+                                         the minor version (Fedora 44 provides libtesseract.so.5.5()(64bit), not
+                                         .so.5), so a capability string pins one Tesseract release and makes the rpm
+                                         uninstallable on the next. leptonica needs no entry — tesseract-libs pulls
+                                         it in through rpm's own soname dependency. -->
+                                    <additionalOptions>
+                                        <option>--linux-package-deps</option>
+                                        <option>tesseract-libs</option>
+                                    </additionalOptions>
                                     <linuxShortcut>true</linuxShortcut>
                                     <linuxMenuGroup>Development</linuxMenuGroup>
                                     <linuxAppCategory>Development</linuxAppCategory>

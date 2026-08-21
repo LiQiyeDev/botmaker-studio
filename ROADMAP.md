@@ -6,6 +6,30 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-22 — The Linux packages finally declare the OCR native they need (`pom.xml`, `<additionalOptions>`
+  on `build-deb`/`build-rpm`).** `rpm -q --requires botmaker-studio` on the shipped build answered
+  `xdg-utils` and nothing else, so `api.vision.Text` threw `UnsatisfiedLinkError` on any machine that didn't
+  already have Tesseract — it worked here only because something unrelated had pulled `tesseract-libs` in.
+  The library is genuinely absent from the build by design: Tess4J bundles a Windows DLL only and on Linux
+  `dlopen()`s the system `libtesseract` through JNA, so **nothing links it and jpackage's dependency
+  autodetect — which reads ELF headers — cannot see it.** The rpm now `Requires: tesseract-libs` and the deb
+  `Depends: … libtesseract5 | libtesseract4` (Debian names the runtime by soname major; the alternation
+  covers Ubuntu 22.04 as well as Debian 12 / Ubuntu 24.04).
+
+  Three notes for whoever edits this next. The plugin's own `<linuxPackageDeps>` is **typed `boolean`** — it
+  emits the bare `--linux-package-deps`, i.e. jpackage's autodetect, and cannot carry a value; the raw
+  `<additionalOptions>` escape hatch is the only way. The rpm side deliberately names the **package**, not a
+  soname capability: Fedora 44 provides `libtesseract.so.5.5()(64bit)`, not `.so.5`, so a capability string
+  would pin one Tesseract minor release and make the rpm uninstallable on the next. And XML comments cannot
+  contain `--`, so the option name can't be written literally in the notes beside it.
+
+  Found while verifying: **the CI rpm has no autodetected library dependencies at all.** Built locally on
+  Fedora it picks up ~20 (`glibc`, `libX11`, `freetype`…); built on `ubuntu-latest`, where `rpmbuild` comes
+  from Debian's `rpm` package with no ELF dependency generator, it picks up none. So for released packages
+  this explicit line is not merely a supplement to autodetect — it is the only library dependency there is.
+  Verified with `rpm -qp --requires`, `dpkg-deb -f`, and a `dnf install --assumeno` of the built rpm, which
+  resolved the whole transaction.
+
 - **2026-08-22 — The installer stops shipping other platforms' binaries: rpm 241 MB → 141 MB, deb 249 MB →
   137 MB (`pom.xml`, shade `<filters>` + the `natives-linux`/`natives-windows` profiles).** The shaded jar was
   184 MB and **105 MB of it was OpenCV** — `org.openpnp:opencv` packs all seven platforms into one jar with no

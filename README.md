@@ -175,8 +175,14 @@ Notes:
 - The bundled runtime is the **full build JDK** (`--runtime-image ${java.home}`), not a stripped JRE — the Studio
   shells out to `javac`/`java` and uses JDI to compile, run and debug user bots, so those tools must be present.
 - `jpackage` builds **only for the OS it runs on** — run the profile on each platform you want to ship.
-- Pass `-Djavacpp.platform=<host>` (e.g. `linux-x86_64`, `windows-x86_64`) to ship host-only OpenCV natives
-  instead of every platform's — this cuts the app-image roughly in half (~1.2 GB → ~580 MB). CI does this per leg.
+- The build ships **only the host platform's native libraries**. `org.openpnp:opencv` packs all seven
+  platforms into one classifier-less jar, and Tess4J/JNA carry Windows and macOS binaries too; the shade
+  `<filters>` plus the `natives-linux`/`natives-windows` profiles drop everything the running OS cannot load
+  (jar 184 MB → 98 MB, rpm 241 MB → 141 MB). This is *not* what `-Djavacpp.platform` does — that flag selects
+  classifiers for JavaCPP-packaged artifacts, and none are left in the jar.
+- The Linux packages declare `tesseract-libs` (rpm) / `libtesseract5 | libtesseract4` (deb): OCR's native
+  library is not bundled, it is `dlopen`ed from the system through JNA, so nothing links it and jpackage
+  cannot detect it.
 - For a native installer instead of the portable directory, change `<type>` in the `dist` profile from
   `APP_IMAGE` to `DEB`/`RPM` (Linux), `MSI`/`EXE` (Windows), or `DMG`/`PKG` (macOS).
 
