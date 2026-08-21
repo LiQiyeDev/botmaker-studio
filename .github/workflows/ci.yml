@@ -13,10 +13,17 @@ name: CI
 # -DskipTests still *compiles* the tests, so test code that no longer builds is still caught. (The release
 # half always skipped them — packaging an artifact was never the place to discover a red suite.)
 #
-# botmaker-shared, botmaker-session and botmaker-sdk are resolved from source in `build`, and from their
-# newest published JitPack tag in `package`: this pom pins all three at 0.0.0-SNAPSHOT — the version the
-# umbrella reactor and a local `mvn install` produce — so there is no published artifact under those
-# coordinates to download.
+# botmaker-shared, botmaker-session and botmaker-sdk are resolved FROM SOURCE in both jobs: this pom pins
+# all three at 0.0.0-SNAPSHOT — the version the umbrella reactor and a local `mvn install` produce — so
+# there is no published artifact under those coordinates to download. `build` checks out their main
+# branches (it is a gate: it should notice an upstream break early). `package` checks out the exact tags
+# recorded in .deps.env, so a release is reproducible.
+#
+# `package` used to resolve those three from JitPack instead, which cost a release two things: the tags
+# had to be *published* before Studio could even be tagged (three serial `wait_for_jitpack` polls in the
+# umbrella release.sh, ahead of the only job that actually takes minutes), and the versions were guessed
+# with `git ls-remote --tags | sort -V | tail -1` — "newest tag", which is only usually "the tag this
+# release just cut". Building from source costs ~12s and removes both problems.
 
 on:
   push:
@@ -147,33 +154,53 @@ jobs:
           fi
           echo "appversion=${num}" >> "$GITHUB_OUTPUT"
 
-      - name: Resolve botmaker-shared version
-        id: shared
+      # The three upstream refs this release is built against, pinned in a committed file rather than
+      # guessed from "newest tag". release.sh writes it into the studio release commit; see .deps.env.
+      - name: Read pinned upstream tags
+        id: deps
         shell: bash
         run: |
-          # Studio's pom pins botmaker.shared.version=0.0.0-SNAPSHOT (the reactor/dev value). This standalone
-          # build has no reactor, so resolve the newest published shared release tag and inject it via -D on
-          # the build below — the committed pom is never edited.
-          SHARED=$(git ls-remote --tags --refs https://github.com/LiQiyeDev/botmaker-shared 'v*' | awk -F/ '{print $NF}' | sort -V | tail -1)
-          echo "version=${SHARED:-v0.0.4}" >> "$GITHUB_OUTPUT"
+          set -a; . ./.deps.env; set +a
+          for v in SHARED_TAG SESSION_TAG SDK_TAG; do
+            [ -n "${!v}" ] || { echo "::error::$v is empty in .deps.env"; exit 1; }
+          done
+          {
+            echo "shared=${SHARED_TAG}"
+            echo "session=${SESSION_TAG}"
+            echo "sdk=${SDK_TAG}"
+          } >> "$GITHUB_OUTPUT"
+          echo "building against shared=${SHARED_TAG} session=${SESSION_TAG} sdk=${SDK_TAG}"
 
-      - name: Resolve botmaker-session version
-        id: session
-        shell: bash
-        run: |
-          # Same contract as botmaker-shared above: the committed pom pins 0.0.0-SNAPSHOT for the reactor,
-          # and this standalone build injects the newest published session tag instead.
-          SESSION=$(git ls-remote --tags --refs https://github.com/LiQiyeDev/botmaker-session 'v*' | awk -F/ '{print $NF}' | sort -V | tail -1)
-          echo "version=${SESSION:-v0.0.1}" >> "$GITHUB_OUTPUT"
+      - name: Check out botmaker-shared
+        uses: actions/checkout@v4
+        with:
+          repository: LiQiyeDev/botmaker-shared
+          ref: ${{ steps.deps.outputs.shared }}
+          path: .deps/botmaker-shared
 
-      - name: Resolve botmaker-sdk version
-        id: sdk
+      - name: Check out botmaker-session
+        uses: actions/checkout@v4
+        with:
+          repository: LiQiyeDev/botmaker-session
+          ref: ${{ steps.deps.outputs.session }}
+          path: .deps/botmaker-session
+
+      # Studio compiles against the SDK for type identity (palette/SdkType), so the release build needs it.
+      - name: Check out botmaker-sdk
+        uses: actions/checkout@v4
+        with:
+          repository: LiQiyeDev/botmaker-sdk
+          ref: ${{ steps.deps.outputs.sdk }}
+          path: .deps/botmaker-sdk
+
+      # Lands all three at 0.0.0-SNAPSHOT — the version this pom's properties already default to — so the
+      # build below needs no -Dbotmaker.*.version at all, and resolves nothing from JitPack.
+      - name: Install botmaker-shared, botmaker-session and botmaker-sdk (0.0.0-SNAPSHOT)
         shell: bash
         run: |
-          # Same contract as botmaker-shared/session above. Studio compiles against the SDK for type identity
-          # (palette/SdkType); this standalone build has no reactor, so inject the newest published SDK tag.
-          SDK=$(git ls-remote --tags --refs https://github.com/LiQiyeDev/botmaker-sdk 'v*' | awk -F/ '{print $NF}' | sort -V | tail -1)
-          echo "version=${SDK:-v1.0.21}" >> "$GITHUB_OUTPUT"
+          mvn -B -f .deps/botmaker-shared/pom.xml install -DskipTests
+          mvn -B -f .deps/botmaker-session/pom.xml install -DskipTests
+          mvn -B -f .deps/botmaker-sdk/pom.xml install -DskipTests
 
       - name: Build app-image
         # bash (Git Bash on Windows) keeps -D argument quoting consistent across both runners.
@@ -181,10 +208,10 @@ jobs:
         # -Dapp.version=<tag> bakes the real version into the jpackage --app-version + manifest
         # Implementation-Version, so the installed app reports its true version (else the updater
         # always sees itself as the pom default 1.0.0 and re-prompts).
-        # -Dbotmaker.shared.version=<tag> resolves shared from JitPack (the SNAPSHOT pom default won't resolve
-        # on a clean runner without the reactor). Same for session and the SDK.
+        # No -Dbotmaker.*.version: the step above installed shared/session/sdk at 0.0.0-SNAPSHOT, which is
+        # exactly what this pom's three version properties already default to.
         shell: bash
-        run: mvn -B -Pdist package -DskipTests -Djavacpp.platform=${{ matrix.javacpp }} -Dapp.version=${{ steps.ver.outputs.appversion }} -Dbotmaker.shared.version=${{ steps.shared.outputs.version }} -Dbotmaker.session.version=${{ steps.session.outputs.version }} -Dbotmaker.sdk.version=${{ steps.sdk.outputs.version }}
+        run: mvn -B -Pdist package -DskipTests -Djavacpp.platform=${{ matrix.javacpp }} -Dapp.version=${{ steps.ver.outputs.appversion }}
 
       # The portable app-image (zipped) is kept as a no-install fallback; the native installers
       # (.deb/.rpm on Linux, .msi on Windows) are emitted by `-Pdist` into target/dist alongside it.
