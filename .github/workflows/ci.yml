@@ -2,7 +2,8 @@ name: CI
 
 # One workflow per repo, three jobs distinguished by trigger, not by file:
 #
-#   build    — every push and PR: compiles Studio. The gate.
+#   build    — every push and PR except version tags: compiles Studio. The gate. (On a tag it would only
+#              repeat a compile `package` does anyway, ahead of the job the release is actually waiting on.)
 #   package  — version tags (and a manual dispatch dry run): the per-OS app-images and installers.
 #   release  — version tags only: publishes them as a GitHub Release.
 #
@@ -35,6 +36,9 @@ permissions:
 
 jobs:
   build:
+    # Skipped on version tags: `package` compiles the same tree anyway (from pinned upstreams rather than
+    # their main branches), so on a tag this job is a duplicate compile the release is waiting behind.
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -115,6 +119,15 @@ jobs:
           sudo apt-get install -y rpm fakeroot wget desktop-file-utils
           sudo apt-get install -y dpkg-sig || echo "dpkg-sig unavailable — .deb will ship unsigned"
 
+      # rpmbuild's default payload compression is xz -9 single-threaded, which on a ~400 MB app-image is by
+      # far the slowest thing in this job (measured locally against the equally-slow zstd -19 Fedora default:
+      # 139s -> 24s for the same rpm, 238 MB -> 241 MB, i.e. +1.3% for -115s). xz -2 threaded is chosen over
+      # zstd because every rpm reader can decompress xz regardless of how its rpm was built.
+      # Written before the signing step, which appends its own macros to this file.
+      - name: Speed up RPM payload compression
+        if: runner.os == 'Linux'
+        run: printf '%%_binary_payload w2T.xzdio\n' > ~/.rpmmacros
+
       # Imports the GPG secret key (base64-encoded) so the .rpm/.deb/AppImage can be signed under the
       # "LiQiyeDev" identity. Skipped (leaving unsigned packages) when the signing secrets aren't set, so the
       # pipeline works before the maintainer configures them. See ROADMAP for the one-time key setup.
@@ -128,7 +141,7 @@ jobs:
           echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
           gpgconf --reload gpg-agent || true
           echo "$GPG_PRIVATE_KEY" | base64 -d | gpg --batch --import
-          cat > ~/.rpmmacros <<EOF
+          cat >> ~/.rpmmacros <<EOF
           %_gpg_name ${GPG_KEY_ID}
           %__gpg_sign_cmd %{__gpg} gpg --batch --no-verbose --no-armor --pinentry-mode loopback --passphrase "${GPG_PASSPHRASE}" --no-secmem-warning -u "%{_gpg_name}" -sbo %{__signature_filename} %{__plaintext_filename}
           EOF
@@ -202,7 +215,13 @@ jobs:
           mvn -B -f .deps/botmaker-session/pom.xml install -DskipTests
           mvn -B -f .deps/botmaker-sdk/pom.xml install -DskipTests
 
-      - name: Build app-image
+      - name: Build app-image and installers
+        # One `-Pdist package` produces the app-image *and* this OS's native installers. The installer
+        # executions consume the app-image via jpackage's app-image option instead of rebuilding the bundled
+        # JDK runtime each — see the `dist` profile in pom.xml. What dominates the remainder is payload
+        # compression: rpm's is tuned by the ~/.rpmmacros step above; .deb's (dpkg-deb) and .msi's (WiX)
+        # are not exposed by jpackage.
+        #
         # bash (Git Bash on Windows) keeps -D argument quoting consistent across both runners.
         # -Djavacpp.platform=<host> ships only this OS's OpenCV natives (much smaller image).
         # -Dapp.version=<tag> bakes the real version into the jpackage --app-version + manifest

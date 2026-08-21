@@ -6,6 +6,15 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-21 — The installers stop rebuilding the runtime, and rpm stops compressing at level 19
+  (`pom.xml` `dist` profile, `.github/workflows/ci.yml`).** `build-deb`/`build-rpm`/`build-msi` now take the
+  app-image `build-app-image` produced as their input (`<appImage>`) instead of running input → runtime →
+  package from scratch, so the bundled JDK is assembled once per OS and every installer ships exactly the
+  bytes the portable zip does. The measured cost turned out to be elsewhere, though: rpmbuild's default
+  payload compression. CI writes `%_binary_payload w2T.xzdio` before packaging — 139s → 24s for the same
+  rpm, at +1.3% size. The `build` job no longer runs on version tags, where it only repeated `package`'s
+  compile ahead of the job the release waits on.
+
 - **2026-08-21 — A screen that reads the file it just wrote, and a signature you can't break
   (`services/CodeEditorService`, `parser/refactor/SignatureEdits`, `parser/refactor/MethodReferences`,
   `parser/refactor/SignatureMigration`, `parser/handlers/MethodHandler`, `state/SnapshotHistory`,

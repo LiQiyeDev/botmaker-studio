@@ -499,8 +499,20 @@
                             </execution>
 
                             <!-- Native installers: each is skipped unless its OS profile (below) enables it.
-                                 They reuse the same input/runtime as the app-image; jpackage emits a single
-                                 installer file per type into target/dist. -->
+                                 jpackage emits a single installer file per type into target/dist.
+
+                                 They take the app-image built above as their INPUT (`<appImage>`, i.e.
+                                 jpackage's app-image option) rather than re-running input, then runtime, then
+                                 package from scratch. Executions in one phase run in declaration order, so
+                                 `build-app-image` has always produced target/dist/BotMaker Studio by the time
+                                 these run. Before this, each installer rebuilt the whole bundled JDK runtime:
+                                 three full runtime builds on Linux where one would do, which was most of the
+                                 ~200s the `Build app-image` CI step used to take.
+
+                                 Consequence: everything baked into the app-image (input, mainJar, mainClass,
+                                 javaOptions, runtimeImage, icon) must NOT be repeated here, because jpackage
+                                 rejects those options alongside an app-image. Only packaging-level options
+                                 remain; appVersion stays because the installer carries its own version. -->
                             <execution>
                                 <id>build-deb</id>
                                 <phase>package</phase>
@@ -515,17 +527,8 @@
                                     <linuxPackageName>botmaker-studio</linuxPackageName>
                                     <appVersion>${app.version}</appVersion>
                                     <vendor>LiQiyeDev</vendor>
-                                    <input>${project.build.directory}/jpackage-input</input>
-                                    <mainJar>${project.build.finalName}.jar</mainJar>
-                                    <mainClass>com.botmaker.studio.Launcher</mainClass>
-                                    <!-- Same native-access grant as the dev-run plugin, so the
-                                         packaged app-image/installer launches without the warning. -->
-                                    <javaOptions>
-                                        <javaOption>--enable-native-access=ALL-UNNAMED</javaOption>
-                                    </javaOptions>
-                                    <runtimeImage>${java.home}</runtimeImage>
+                                    <appImage>${project.build.directory}/dist/BotMaker Studio</appImage>
                                     <destination>${project.build.directory}/dist</destination>
-                                    <icon>${installer.icon}</icon>
                                     <linuxShortcut>true</linuxShortcut>
                                     <linuxMenuGroup>Development</linuxMenuGroup>
                                     <linuxAppCategory>Development</linuxAppCategory>
@@ -545,17 +548,8 @@
                                     <linuxPackageName>botmaker-studio</linuxPackageName>
                                     <appVersion>${app.version}</appVersion>
                                     <vendor>LiQiyeDev</vendor>
-                                    <input>${project.build.directory}/jpackage-input</input>
-                                    <mainJar>${project.build.finalName}.jar</mainJar>
-                                    <mainClass>com.botmaker.studio.Launcher</mainClass>
-                                    <!-- Same native-access grant as the dev-run plugin, so the
-                                         packaged app-image/installer launches without the warning. -->
-                                    <javaOptions>
-                                        <javaOption>--enable-native-access=ALL-UNNAMED</javaOption>
-                                    </javaOptions>
-                                    <runtimeImage>${java.home}</runtimeImage>
+                                    <appImage>${project.build.directory}/dist/BotMaker Studio</appImage>
                                     <destination>${project.build.directory}/dist</destination>
-                                    <icon>${installer.icon}</icon>
                                     <linuxShortcut>true</linuxShortcut>
                                     <linuxMenuGroup>Development</linuxMenuGroup>
                                     <linuxAppCategory>Development</linuxAppCategory>
@@ -572,17 +566,8 @@
                                     <name>BotMaker Studio</name>
                                     <appVersion>${app.version}</appVersion>
                                     <vendor>LiQiyeDev</vendor>
-                                    <input>${project.build.directory}/jpackage-input</input>
-                                    <mainJar>${project.build.finalName}.jar</mainJar>
-                                    <mainClass>com.botmaker.studio.Launcher</mainClass>
-                                    <!-- Same native-access grant as the dev-run plugin, so the
-                                         packaged app-image/installer launches without the warning. -->
-                                    <javaOptions>
-                                        <javaOption>--enable-native-access=ALL-UNNAMED</javaOption>
-                                    </javaOptions>
-                                    <runtimeImage>${java.home}</runtimeImage>
+                                    <appImage>${project.build.directory}/dist/BotMaker Studio</appImage>
                                     <destination>${project.build.directory}/dist</destination>
-                                    <icon>${installer.icon}</icon>
                                     <winMenu>true</winMenu>
                                     <winShortcut>true</winShortcut>
                                     <winDirChooser>true</winDirChooser>
