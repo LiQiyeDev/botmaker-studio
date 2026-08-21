@@ -550,6 +550,16 @@
                                     <vendor>LiQiyeDev</vendor>
                                     <appImage>${project.build.directory}/dist/BotMaker Studio</appImage>
                                     <destination>${project.build.directory}/dist</destination>
+                                    <!-- Overrides jpackage's stock RPM spec template with packaging/linux/botmaker-studio.spec
+                                         (the file name must equal linuxPackageName + ".spec" or the override is ignored
+                                         without a word). Its only change is an "is this an erase, not an upgrade?" guard
+                                         around the desktop-entry unregister: rpm runs the new package's post section BEFORE
+                                         the outgoing one's preun, so unguarded, an upgrade registers the menu entry and then
+                                         immediately deletes it — Studio vanishes from the application search until you
+                                         install a second time. Read that file's header before touching this line; the
+                                         template is JDK-version-specific. DEB does not need this (dpkg runs the old prerm
+                                         first, then the new postinst, which is the correct order), so it is set here only. -->
+                                    <resourceDir>${project.basedir}/packaging/linux</resourceDir>
                                     <linuxShortcut>true</linuxShortcut>
                                     <linuxMenuGroup>Development</linuxMenuGroup>
                                     <linuxAppCategory>Development</linuxAppCategory>

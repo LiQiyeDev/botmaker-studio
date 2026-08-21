@@ -6,6 +6,17 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-21 — An RPM upgrade no longer deletes Studio's menu entry (`packaging/linux/botmaker-studio.spec`,
+  `pom.xml` `dist` profile).** Installing a new RPM over an old one made Studio vanish from the application
+  search until you installed a second time. Cause: rpm runs the *new* package's `%post` before the *outgoing*
+  package's `%preun`, and jpackage's stock spec template unregisters the `.desktop` file in `%preun` with no
+  `[ "$1" = 0 ]` guard — so the entry was registered and then immediately deleted. The template is overridden
+  via jpackage's `--resource-dir` (`<resourceDir>`, `build-rpm` only); the fork is byte-identical to JDK 21's
+  upstream template apart from that one guard. **Not fixed upstream in JDK 26**, so bumping the JDK is not a
+  substitute — and the fork is JDK-version-specific, which its header comment spells out. The `.deb` never had
+  the bug (dpkg runs the old `prerm` first, then the new `postinst`); the `.msi` upgrades via a stable
+  `winUpgradeUuid` and is unaffected.
+
 - **2026-08-21 — The installers stop rebuilding the runtime, and rpm stops compressing at level 19
   (`pom.xml` `dist` profile, `.github/workflows/ci.yml`).** `build-deb`/`build-rpm`/`build-msi` now take the
   app-image `build-app-image` produced as their input (`<appImage>`) instead of running input → runtime →
