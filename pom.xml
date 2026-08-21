@@ -310,15 +310,70 @@
                         <configuration>
                             <!-- Don't emit dependency-reduced-pom.xml into the repo root. -->
                             <createDependencyReducedPom>false</createDependencyReducedPom>
-                            <!-- Strip signature files from signed dependency jars; otherwise the
-                                 uber jar fails at build/run with "Invalid signature file digest". -->
+                            <!--
+                              FILTERS. Two jobs: strip dependency signatures, and stop shipping other
+                              platforms' native binaries.
+
+                              The natives dominate the artifact — 105 MB of the 184 MB jar was OpenCV
+                              alone, because org.openpnp:opencv packs all seven platforms into ONE jar
+                              with no classifier to pick from. `-Djavacpp.platform` does not help: it
+                              selects classifiers for JavaCPP artifacts, and openpnp's opencv is not one
+                              (there are no bytedeco/javacpp entries left in the shaded jar at all).
+                              Tess4J and JNA do the same thing on a smaller scale.
+
+                              Everything listed HERE is excluded unconditionally, because no CI leg ever
+                              targets it: macOS is not built at all, and neither is ARM, 32-bit or any
+                              of the exotic Unixes JNA carries. The two platforms that ARE built exclude
+                              each other from the `natives-linux` / `natives-windows` profiles below —
+                              appended to this list, never replacing it.
+
+                              Watch the dashes when editing: com/sun/jna/win32/ is a CLASS package
+                              (StdCallLibrary, W32APIOptions); the natives all live in dirs with a dash,
+                              like com/sun/jna/win32-x86-64/. A `win32*` glob would delete the API.
+                            -->
                             <filters>
                                 <filter>
                                     <artifact>*:*</artifact>
                                     <excludes>
+                                        <!-- Signature files from signed dependency jars; otherwise the
+                                             uber jar fails at build/run with "Invalid signature file
+                                             digest". -->
                                         <exclude>META-INF/*.SF</exclude>
                                         <exclude>META-INF/*.DSA</exclude>
                                         <exclude>META-INF/*.RSA</exclude>
+
+                                        <!-- OpenCV (org.openpnp:opencv), ~50 MB of never-built targets.
+                                             The loader classes under nu/pattern/*.class stay. -->
+                                        <exclude>nu/pattern/opencv/osx/**</exclude>
+                                        <exclude>nu/pattern/opencv/linux/ARMv7/**</exclude>
+                                        <exclude>nu/pattern/opencv/linux/ARMv8/**</exclude>
+                                        <exclude>nu/pattern/opencv/linux/x86_32/**</exclude>
+
+                                        <!-- Tess4J's 32-bit Windows Tesseract + Leptonica DLLs. The
+                                             64-bit pair is handled per-OS below. The Tess4J classes and
+                                             tessdata/*.traineddata are untouched — the traineddata are
+                                             extracted at runtime by OcrNative.tessdataPath(). -->
+                                        <exclude>win32-x86/**</exclude>
+
+                                        <!-- JNA ships 25 platform natives; one is used. These are the
+                                             ones no leg could ever load. -->
+                                        <exclude>com/sun/jna/aix-*/**</exclude>
+                                        <exclude>com/sun/jna/darwin-*/**</exclude>
+                                        <exclude>com/sun/jna/freebsd-*/**</exclude>
+                                        <exclude>com/sun/jna/openbsd-*/**</exclude>
+                                        <exclude>com/sun/jna/sunos-*/**</exclude>
+                                        <exclude>com/sun/jna/linux-arm/**</exclude>
+                                        <exclude>com/sun/jna/linux-armel/**</exclude>
+                                        <exclude>com/sun/jna/linux-aarch64/**</exclude>
+                                        <exclude>com/sun/jna/linux-loongarch64/**</exclude>
+                                        <exclude>com/sun/jna/linux-mips64el/**</exclude>
+                                        <exclude>com/sun/jna/linux-ppc/**</exclude>
+                                        <exclude>com/sun/jna/linux-ppc64le/**</exclude>
+                                        <exclude>com/sun/jna/linux-riscv64/**</exclude>
+                                        <exclude>com/sun/jna/linux-s390x/**</exclude>
+                                        <exclude>com/sun/jna/linux-x86/**</exclude>
+                                        <exclude>com/sun/jna/win32-aarch64/**</exclude>
+                                        <exclude>com/sun/jna/win32-x86/**</exclude>
                                     </excludes>
                                 </filter>
                             </filters>
@@ -605,6 +660,85 @@
                 <installer.skip.deb>false</installer.skip.deb>
                 <installer.skip.rpm>false</installer.skip.rpm>
             </properties>
+        </profile>
+
+        <!--
+          `natives-linux` / `natives-windows`: drop the OTHER built platform's native binaries from the
+          shaded jar. Everything neither leg can use is excluded unconditionally in the shade filters up
+          in <build>; these two only resolve the one axis that genuinely varies — a Linux build must not
+          carry the Windows OpenCV/Tesseract/JNA natives, and vice versa.
+
+          They are separate from `installers-linux`/`installers-windows` above on purpose. Those gate the
+          *installer type* and only bite under -Pdist; these change the jar itself and must apply to every
+          build, including a plain `mvn package` and a dev run, so that what a developer runs has the same
+          native payload as what ships.
+
+          combine.children="append" is load-bearing: without it this list REPLACES the base filter and the
+          META-INF signature excludes vanish, which fails the build much later with "Invalid signature file
+          digest". Verify after editing by listing the jar (see ROADMAP), not by trusting the merge.
+        -->
+        <profile>
+            <id>natives-linux</id>
+            <activation>
+                <os><name>Linux</name></os>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-shade-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>default</id>
+                                <configuration>
+                                    <filters combine.children="append">
+                                        <filter>
+                                            <artifact>*:*</artifact>
+                                            <excludes>
+                                                <exclude>nu/pattern/opencv/windows/**</exclude>
+                                                <exclude>win32-x86-64/**</exclude>
+                                                <exclude>com/sun/jna/win32-x86-64/**</exclude>
+                                            </excludes>
+                                        </filter>
+                                    </filters>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>natives-windows</id>
+            <activation>
+                <os><family>windows</family></os>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-shade-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>default</id>
+                                <configuration>
+                                    <filters combine.children="append">
+                                        <filter>
+                                            <artifact>*:*</artifact>
+                                            <excludes>
+                                                <!-- The whole linux tree: x86_64 is the only one the base
+                                                     filter left, and Windows cannot load it. -->
+                                                <exclude>nu/pattern/opencv/linux/**</exclude>
+                                                <exclude>com/sun/jna/linux-x86-64/**</exclude>
+                                            </excludes>
+                                        </filter>
+                                    </filters>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
         </profile>
         <profile>
             <id>installers-windows</id>

@@ -6,6 +6,32 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-22 — The installer stops shipping other platforms' binaries: rpm 241 MB → 141 MB, deb 249 MB →
+  137 MB (`pom.xml`, shade `<filters>` + the `natives-linux`/`natives-windows` profiles).** The shaded jar was
+  184 MB and **105 MB of it was OpenCV** — `org.openpnp:opencv` packs all seven platforms into one jar with no
+  classifier, so `linux/x86_64` (25 MB compressed) rode along with macOS x86_64/ARM, Windows x64/x86 and Linux
+  ARMv7/ARMv8. **`-Djavacpp.platform` never helped**, contrary to the comment at `ci.yml:227`: it selects
+  classifiers for JavaCPP artifacts and openpnp's opencv is not one — there are zero `bytedeco`/`javacpp`
+  entries left in the shaded jar. Tess4J (13.5 MB of `win32-x86*` Tesseract/Leptonica DLLs) and JNA (25
+  platform natives, one used) did the same on a smaller scale. Jar is now **98 MB**. Everything no leg could
+  ever load is excluded unconditionally in `<build>`; only the one axis that genuinely varies — Linux vs
+  Windows — lives in the two OS profiles, which **append** to that list. `combine.children="append"` is
+  load-bearing: without it the profile replaces the base filter and the `META-INF/*.SF` excludes vanish,
+  surfacing much later as "Invalid signature file digest". Two traps worth keeping in mind when editing:
+  `com/sun/jna/win32/` is a *class* package (`StdCallLibrary`, `W32APIOptions`) while the natives live in
+  dashed dirs like `com/sun/jna/win32-x86-64/`, so a `win32*` glob deletes the API; and the filters sit
+  outside `-Pdist` on purpose, so a dev run has the same native payload as a release. Verified beyond "it
+  builds": exactly one OpenCV native and one JNA native survive, no `.dll`/`.dylib`/`.jnilib` anywhere, zero
+  signature files, and both `OpenCvNative.ensureLoaded()` (→ OpenCV 4.9.0, `Mat` allocates) and
+  `OcrEngine.text()` (→ reads rendered text) run against the filtered jar.
+
+  Two things found while verifying, neither caused by this change: `packaging/linux/botmaker-studio.spec` is
+  actually forked from the **JDK 26** template, not 21 as its header claims (it carries `COMMON_SCRIPTS`,
+  which 21 has no placeholder for) — harmless today, JDK 21 substitutes it away and the `%preun`
+  `if [ "$1" = 0 ]` guard is intact in the built rpm. And **`mvn -Pdist package` fails at `build-rpm` under
+  the JDK 26 that is this machine's default**; CI's temurin 21 builds it cleanly, so build installers locally
+  with `JAVA_HOME=~/.jdks/ms-21.0.11`. Cause not yet pinned.
+
 - **2026-08-21 — One-command install (`packaging/linux/install.sh`).** Registering the repository by hand was
   three commands, and the first of them was wrong: `sudo rpm --import` is unnecessary, because with
   `repo_gpgcheck=1` dnf fetches the key from the repo's own `gpgkey=` and offers to import it on the first

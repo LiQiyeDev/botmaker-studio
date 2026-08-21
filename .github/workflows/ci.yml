@@ -224,7 +224,10 @@ jobs:
         # are not exposed by jpackage.
         #
         # bash (Git Bash on Windows) keeps -D argument quoting consistent across both runners.
-        # -Djavacpp.platform=<host> ships only this OS's OpenCV natives (much smaller image).
+        # -Djavacpp.platform=<host> selects host-only classifiers for JavaCPP-packaged artifacts. It does
+        # NOT govern OpenCV: org.openpnp:opencv is a single jar carrying all seven platforms, with no
+        # classifier to select. Trimming that (and Tess4J's/JNA's foreign natives) is the shade <filters>
+        # + natives-linux/natives-windows profiles in pom.xml, which is what actually halved the installer.
         # -Dapp.version=<tag> bakes the real version into the jpackage --app-version + manifest
         # Implementation-Version, so the installed app reports its true version (else the updater
         # always sees itself as the pom default 1.0.0 and re-prompts).
