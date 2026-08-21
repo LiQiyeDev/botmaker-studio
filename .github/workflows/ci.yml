@@ -6,6 +6,7 @@ name: CI
 #              repeat a compile `package` does anyway, ahead of the job the release is actually waiting on.)
 #   package  — version tags (and a manual dispatch dry run): the per-OS app-images and installers.
 #   release  — version tags only: publishes them as a GitHub Release.
+#   pages    — version tags only: republishes the same .rpm/.deb as dnf/apt repositories on GitHub Pages.
 #
 # `package`/`release` were a separate file (release.yml) purely because their trigger differs, which a
 # job-level `if:` expresses just as well — and with one file there is one entry in the Actions tab.
@@ -306,3 +307,80 @@ jobs:
           generate_release_notes: true
           # Tags containing a hyphen (e.g. v1.0.0-rc1) are treated as pre-releases.
           prerelease: ${{ contains(github.ref_name, '-') }}
+
+  # Republish the .rpm/.deb this release just signed as real dnf and apt repositories, so users get updates
+  # from `dnf upgrade` / `apt upgrade` rather than by revisiting the Releases page. See build-repo.sh for why
+  # the two formats are hosted differently (the rpm is metadata-only; the deb has to be served from here).
+  #
+  # `needs: release` rather than `needs: package`: the dnf metadata points at GitHub Release download URLs,
+  # so the Release must exist first or the repo advertises a 404 for as long as it takes to publish.
+  #
+  # Deployed as a Pages *artifact*, not by committing to a gh-pages branch — at ~240 MB a release, a branch
+  # would grow by that much per tag in git history permanently, even after the file is replaced. Artifact
+  # deployments hold no history: each one wholly replaces the last, which is also what makes "latest release
+  # only" the natural shape rather than something to prune.
+  #
+  # One-time setup: repo → Settings → Pages → Source = "GitHub Actions". Without it deploy-pages fails.
+  pages:
+    needs: release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    # Job-level permissions replace the workflow's, so `contents` has to be restated. deploy-pages needs
+    # id-token for its OIDC handshake with the Pages service.
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    # Pages allows one deployment at a time; queue rather than cancel, so a release never ends up with the
+    # previous tag left live because its own deploy was cancelled by a newer one.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    env:
+      GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+    steps:
+      # Only for .github/scripts/build-repo.sh — nothing here is built from source.
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      # createrepo_c writes the dnf metadata; apt-ftparchive (apt-utils) writes Packages/Release.
+      - name: Install repository tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y createrepo-c apt-utils
+
+      # Same key and same loopback setup as the `package` job — this is a different runner, so it has to be
+      # imported again. Signs the repository *indexes* (repomd.xml.asc, InRelease); the packages themselves
+      # were already signed upstream in `package`.
+      - name: Import signing key
+        if: env.GPG_KEY_ID != ''
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.gnupg && chmod 700 ~/.gnupg
+          echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+          gpgconf --reload gpg-agent || true
+          echo "$GPG_PRIVATE_KEY" | base64 -d | gpg --batch --import
+          echo "BOTMAKER_SIGN=1" >> "$GITHUB_ENV"
+
+      - name: Build dnf + apt repositories
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: bash .github/scripts/build-repo.sh artifacts site "${GITHUB_REF_NAME}"
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

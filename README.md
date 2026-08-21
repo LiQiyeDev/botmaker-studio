@@ -28,6 +28,31 @@ Grab a self-contained build from the [Releases](https://github.com/LiQiyeDev/Bot
 **bundles its own Java + JavaFX runtime**, so there's nothing else to install — unzip and run the launcher. Builds
 are per-OS; pick the one matching your platform.
 
+### Linux: install from the package repository
+
+Fedora/RHEL and Debian/Ubuntu can take Studio from a signed repository instead, so updates arrive through the
+system package manager. The copy-paste snippets live at
+**<https://liqiyedev.github.io/botmaker-studio>**; in short:
+
+```bash
+# Fedora / RHEL
+sudo rpm --import https://liqiyedev.github.io/botmaker-studio/botmaker.asc
+sudo curl -fsSL -o /etc/yum.repos.d/botmaker-studio.repo \
+  https://liqiyedev.github.io/botmaker-studio/botmaker-studio.repo
+sudo dnf install botmaker-studio
+
+# Debian / Ubuntu
+sudo install -d -m 755 /etc/apt/keyrings
+sudo curl -fsSL -o /etc/apt/keyrings/botmaker.asc https://liqiyedev.github.io/botmaker-studio/botmaker.asc
+echo "deb [signed-by=/etc/apt/keyrings/botmaker.asc] https://liqiyedev.github.io/botmaker-studio/deb stable main" \
+  | sudo tee /etc/apt/sources.list.d/botmaker-studio.list
+sudo apt-get update && sudo apt-get install botmaker-studio
+```
+
+The repository carries the **latest release only** — it's an upgrade channel, not an archive; older versions stay
+on the Releases page. The AppImage remains the password-free option: it needs no root and updates itself from
+inside Studio.
+
 To build a release yourself, see [Packaging a Release](#packaging-a-release).
 
 ## Building from Source

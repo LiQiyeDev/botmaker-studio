@@ -6,6 +6,24 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-21 — Studio installs and updates from a signed dnf/apt repository (`.github/scripts/build-repo.sh`,
+  the `pages` job in `ci.yml`).** Updating meant revisiting the Releases page; now `dnf upgrade` / `apt upgrade`
+  do it. On a version tag the `pages` job takes the `.rpm`/`.deb` the `release` job just published and turns them
+  into real repositories on GitHub Pages. The two formats are hosted differently *because each package is
+  ~240 MB against a ~1 GB Pages limit*: **dnf gets metadata only** — `createrepo_c --baseurl` rewrites every
+  `location` to the GitHub Release download URL, so Pages serves a few KB and GitHub's CDN serves the payload
+  (verified: `dnf download --url` against the generated repo resolves to the release asset) — while **apt has to
+  host the `.deb`**, since `Filename:` is archive-root-relative and APT has no equivalent of `xml:base`.
+  Deployed as a Pages *artifact*, not a `gh-pages` branch, which would otherwise grow by 240 MB per tag in git
+  history forever. **Latest release only**, deliberately: an upgrade channel, not an archive. Repository-level
+  signing (`repomd.xml.asc`, `InRelease`, `Release.gpg`) reuses the key that already signs the packages, and the
+  public key is exported to `botmaker.asc` beside the metadata it verifies rather than committed. Two things the
+  tooling gets wrong if you copy the obvious invocation: `--compress-type` does *not* cover `primary.xml`
+  (`--general-compress-type` does), and redirecting `apt-ftparchive release` straight into `dists/stable/Release`
+  makes it walk over its own half-written output and hash it, embedding a run-to-run-varying bogus entry in the
+  file that then gets signed. `UpdateService` is unchanged on purpose — it still serves everyone who installed
+  from a Release asset. One-time setup: repo → Settings → Pages → Source = "GitHub Actions".
+
 - **2026-08-21 — An RPM upgrade no longer deletes Studio's menu entry (`packaging/linux/botmaker-studio.spec`,
   `pom.xml` `dist` profile).** Installing a new RPM over an old one made Studio vanish from the application
   search until you installed a second time. Cause: rpm runs the *new* package's `%post` before the *outgoing*
