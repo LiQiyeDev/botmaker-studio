@@ -172,8 +172,10 @@ Notes:
 
 - A small `com.botmaker.studio.Launcher` (which does *not* extend `Application`) is the jar/app-image entry point —
   launching an `Application` subclass directly from a fat jar fails with "JavaFX runtime components are missing".
-- The bundled runtime is the **full build JDK** (`--runtime-image ${java.home}`), not a stripped JRE — the Studio
-  shells out to `javac`/`java` and uses JDI to compile, run and debug user bots, so those tools must be present.
+- The bundled runtime is **jlinked**, not the whole build JDK: 31 modules instead of 69 (`lib/runtime` 212 MB →
+  143 MB). The root list in `pom.xml` is hand-maintained and deliberately larger than `jdeps` reports, because
+  Studio shells out to `javac`/`java` and attaches a debugger — `jdk.compiler`, `jdk.jdwp.agent`, `jdk.attach`
+  and `jdk.zipfs` are load-bearing but invisible to bytecode analysis. Read the comment there before editing it.
 - `jpackage` builds **only for the OS it runs on** — run the profile on each platform you want to ship.
 - The build ships **only the host platform's native libraries**. `org.openpnp:opencv` packs all seven
   platforms into one classifier-less jar, and Tess4J/JNA carry Windows and macOS binaries too; the shade

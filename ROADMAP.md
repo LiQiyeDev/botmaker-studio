@@ -6,6 +6,38 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-22 — The bundled runtime is jlinked instead of copied whole: rpm 241 MB → 126 MB, deb 249 MB →
+  127 MB, 399 MB → 242 MB installed (`pom.xml`, `build-app-image`).** `<runtimeImage>${java.home}</runtimeImage>`
+  copied the entire build JDK into every package: **69 modules** (jshell, javadoc, hotspot.agent, Graal…), four
+  CDS archives totalling 65 MB *of which the JVM loads exactly one*, and `ct.sym`. It is now
+  `<modulePaths>${java.home}/jmods</modulePaths>` + an explicit `<addModules>`, so jpackage runs jlink and the
+  image carries **31 modules**, 143 MB.
+
+  **The root list is hand-maintained and deliberately larger than `jdeps` reports.** jdeps finds 15; four more
+  are invisible to it because nothing in the bytecode names them, and every one is load-bearing for running a
+  user's bot: `jdk.compiler` (Studio shells out to `${java.home}/bin/javac`), `jdk.jdwp.agent` (the debuggee is
+  launched `-agentlib:jdwp`), `jdk.attach` (JDI's `AttachingConnector`) and `jdk.zipfs` (the jar
+  `FileSystemProvider` behind Resolver and ClassGraph). Four more are judgement: `jdk.charsets` and
+  `jdk.crypto.ec` for TLS, `jdk.localedata` (jlink's default image keeps English only), `jdk.accessibility`.
+  **A missing module here fails at runtime on a user's machine and never in CI** — that is the whole risk of
+  this change, which is why it was verified by exercising each path against the built image rather than by
+  reading the list.
+
+  Two traps found while doing it. **Supplying `<jLinkOptions>` replaces jpackage's defaults, which include
+  jlink's strip-native-commands** — that would delete `bin/java` and `bin/javac`, exactly the tools Studio
+  shells out to; the built image was checked for both. And **jlink compression fights the package compressor**:
+  `zip-6` gave a smaller install (187 MB) but a *bigger* download (rpm 151 MB), because rpm's xz cannot
+  re-compress an already-compressed `lib/modules`. `zip-0` is chosen: download and Pages payload matter more
+  than disk. Also note `--compress` values are jlink's, so this line is JDK-21-specific syntax.
+
+  Measured honestly: the local rpm defaults to zstd-19 while CI sets xz-2T (`~/.rpmmacros`), so the 126 MB
+  above is a **rebuild with CI's compressor**, not the raw local figure. The deb needs no such correction.
+  Verified against the built app-image: 31 modules listed, `bin/java` + `bin/javac` present, all four `.jsa`
+  gone, `javac --release 17` still works (`ct.sym` survives), the zipfs provider is installed, a French locale
+  date renders (`samedi 22 août 2026`), TLS reaches search.maven.org / jitpack.io / api.github.com over HTTP/2,
+  a JVM launched with `-agentlib:jdwp` is attached by a JDI `SocketAttach` connector from the same runtime, and
+  the packaged Studio itself starts (JavaFX up, type index loaded, SDK resolved).
+
 - **2026-08-22 — The Linux packages finally declare the OCR native they need (`pom.xml`, `<additionalOptions>`
   on `build-deb`/`build-rpm`).** `rpm -q --requires botmaker-studio` on the shipped build answered
   `xdg-utils` and nothing else, so `api.vision.Text` threw `UnsatisfiedLinkError` on any machine that didn't
