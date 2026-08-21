@@ -124,6 +124,19 @@ else
   apt_opts="[trusted=yes] "
 fi
 
+# --- the one-command installer -----------------------------------------------------------------------
+# Copied, never generated: it is committed at packaging/linux/install.sh so that what gets reviewed is
+# byte-for-byte what users pipe into a root shell. Its BASE_URL default is hardcoded rather than
+# substituted here for the same reason — which makes drift possible, so it is checked instead of trusted.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INSTALLER="${SCRIPT_DIR}/../../packaging/linux/install.sh"
+[ -f "${INSTALLER}" ] || { echo "::error::installer not found at ${INSTALLER}"; exit 1; }
+grep -qF "BOTMAKER_REPO_URL:-${PAGES_URL}}" "${INSTALLER}" || {
+  echo "::error::install.sh's BASE_URL default does not match ${PAGES_URL} — update packaging/linux/install.sh."
+  exit 1
+}
+install -m 755 "${INSTALLER}" "${SITE}/install.sh"
+
 cat > "${SITE}/botmaker-studio.repo" <<EOF
 [botmaker-studio]
 name=BotMaker Studio
@@ -132,8 +145,12 @@ enabled=1
 ${rpm_gpg}
 EOF
 
-DNF_SNIPPET="sudo rpm --import ${PAGES_URL}/botmaker.asc
-sudo curl -fsSL -o /etc/yum.repos.d/botmaker-studio.repo ${PAGES_URL}/botmaker-studio.repo
+ONELINER="curl -fsSL ${PAGES_URL}/install.sh | sudo bash"
+
+# No `rpm --import` here: with repo_gpgcheck=1 dnf fetches the key from the repo's own gpgkey= and offers
+# to import it on the first metadata read, which an interactive user can simply accept. (install.sh DOES
+# import it explicitly — piped into a root shell there is no terminal to answer that prompt on.)
+DNF_SNIPPET="sudo curl -fsSL -o /etc/yum.repos.d/botmaker-studio.repo ${PAGES_URL}/botmaker-studio.repo
 sudo dnf install botmaker-studio"
 
 APT_SNIPPET="sudo install -d -m 755 /etc/apt/keyrings
@@ -173,13 +190,19 @@ cat > "${SITE}/index.html" <<EOF
 <p class="sub">dnf and apt repositories for <strong>${TAG}</strong>. Install once, then update with your
 package manager like anything else on the system.</p>
 
-<h2>Fedora / RHEL (dnf)</h2>
-<pre><code>${DNF_SNIPPET}</code></pre>
-<p>Later updates: <code>sudo dnf upgrade botmaker-studio</code>.</p>
+<h2>Install</h2>
+<pre><code>${ONELINER}</code></pre>
+<p>Works on Fedora/RHEL and Debian/Ubuntu — it registers the signed repository below and installs from
+it. <a href="install.sh">Read it first</a> if you would rather see what you are piping into a root shell;
+it is short, and it is the same file attached to every release.</p>
 
-<h2>Debian / Ubuntu (apt)</h2>
+<h2>Or do it by hand</h2>
+<p>Fedora / RHEL:</p>
+<pre><code>${DNF_SNIPPET}</code></pre>
+<p>Debian / Ubuntu:</p>
 <pre><code>${APT_SNIPPET}</code></pre>
-<p>Later updates: <code>sudo apt-get update &amp;&amp; sudo apt-get install --only-upgrade botmaker-studio</code>.</p>
+<p>Later updates, either way: <code>sudo dnf upgrade botmaker-studio</code> or
+<code>sudo apt-get update &amp;&amp; sudo apt-get install --only-upgrade botmaker-studio</code>.</p>
 
 <h2>Other platforms</h2>
 <p>Windows (<code>.msi</code>), the portable zip/tarball and the AppImage are on the

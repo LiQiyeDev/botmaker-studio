@@ -288,6 +288,9 @@ jobs:
     # Only publish a Release for actual tag pushes, not manual dry runs.
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
+      # Only for packaging/linux/install.sh below — the packages themselves come from `package`.
+      - uses: actions/checkout@v4
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -297,6 +300,9 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          # install.sh ships as a release asset as well as at the site root, so the one-command install is
+          # reviewable from the Releases page next to the packages it installs, and stays reachable for a
+          # given version even though the repository itself only ever carries the latest.
           files: |
             artifacts/*.zip
             artifacts/*.tar.gz
@@ -304,6 +310,7 @@ jobs:
             artifacts/*.rpm
             artifacts/*.AppImage
             artifacts/*.msi
+            packaging/linux/install.sh
           generate_release_notes: true
           # Tags containing a hyphen (e.g. v1.0.0-rc1) are treated as pre-releases.
           prerelease: ${{ contains(github.ref_name, '-') }}

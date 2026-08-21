@@ -6,6 +6,25 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-21 — One-command install (`packaging/linux/install.sh`).** Registering the repository by hand was
+  three commands, and the first of them was wrong: `sudo rpm --import` is unnecessary, because with
+  `repo_gpgcheck=1` dnf fetches the key from the repo's own `gpgkey=` and offers to import it on the first
+  metadata read (confirmed from a real install on Fedora 44 / dnf5 — it prompted and imported). It is now
+  `curl -fsSL …/install.sh | sudo bash`, on either distro. **The script is committed, not generated:**
+  `build-repo.sh` already emits `index.html` and the `.repo` file from heredocs, which is fine for a few lines
+  of config, but a real script nested in a heredoc inside another script is unreviewable and its `$`-escaping
+  is a trap — and this one is piped into a root shell, so what gets reviewed must be byte-for-byte what ships.
+  `build-repo.sh` copies it (verified `cmp`-identical) and the `release` job attaches it to the GitHub Release
+  beside the packages, which is why that job gained a `checkout` step it never needed before. The script's
+  `BASE_URL` default is hardcoded rather than substituted at build time for the same reviewability reason —
+  which makes drift possible, so `build-repo.sh` **asserts** the default matches the `PAGES_URL` it is
+  publishing to and fails the build otherwise (negative-tested). It lives in `packaging/linux/` beside
+  `botmaker-studio.spec`, not in `.github/scripts/`: that directory holds what CI *runs*, and this is what CI
+  *ships*. Guards, all exercised: non-root, non-x86_64 (the packages are x86_64-only), no `curl`, and no
+  supported package manager — the last pointing at the AppImage, which needs neither root nor a package
+  manager. `arch=amd64` is explicit on the apt line so a foreign-arch host fails cleanly rather than with a
+  confusing `apt-get update` error.
+
 - **2026-08-21 — Studio installs and updates from a signed dnf/apt repository (`.github/scripts/build-repo.sh`,
   the `pages` job in `ci.yml`).** Updating meant revisiting the Releases page; now `dnf upgrade` / `apt upgrade`
   do it. On a version tag the `pages` job takes the `.rpm`/`.deb` the `release` job just published and turns them

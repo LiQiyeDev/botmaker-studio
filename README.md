@@ -31,12 +31,20 @@ are per-OS; pick the one matching your platform.
 ### Linux: install from the package repository
 
 Fedora/RHEL and Debian/Ubuntu can take Studio from a signed repository instead, so updates arrive through the
-system package manager. The copy-paste snippets live at
-**<https://liqiyedev.github.io/botmaker-studio>**; in short:
+system package manager:
 
 ```bash
-# Fedora / RHEL
-sudo rpm --import https://liqiyedev.github.io/botmaker-studio/botmaker.asc
+curl -fsSL https://liqiyedev.github.io/botmaker-studio/install.sh | sudo bash
+```
+
+That registers the signed repository and installs from it, on either distro. The script is
+[`packaging/linux/install.sh`](packaging/linux/install.sh) — committed, attached to every release, and
+published byte-for-byte; read it before piping it into a root shell if you'd rather.
+
+To do the same by hand, the copy-paste snippets are at **<https://liqiyedev.github.io/botmaker-studio>**:
+
+```bash
+# Fedora / RHEL  (dnf offers to import the signing key on the first metadata read)
 sudo curl -fsSL -o /etc/yum.repos.d/botmaker-studio.repo \
   https://liqiyedev.github.io/botmaker-studio/botmaker-studio.repo
 sudo dnf install botmaker-studio
@@ -44,7 +52,7 @@ sudo dnf install botmaker-studio
 # Debian / Ubuntu
 sudo install -d -m 755 /etc/apt/keyrings
 sudo curl -fsSL -o /etc/apt/keyrings/botmaker.asc https://liqiyedev.github.io/botmaker-studio/botmaker.asc
-echo "deb [signed-by=/etc/apt/keyrings/botmaker.asc] https://liqiyedev.github.io/botmaker-studio/deb stable main" \
+echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/botmaker.asc] https://liqiyedev.github.io/botmaker-studio/deb stable main" \
   | sudo tee /etc/apt/sources.list.d/botmaker-studio.list
 sudo apt-get update && sudo apt-get install botmaker-studio
 ```
