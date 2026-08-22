@@ -3,8 +3,10 @@ package com.botmaker.studio.parser.helpers;
 import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.core.dom.AST;
+import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.jdt.core.dom.ASTParser;
 import org.eclipse.jdt.core.dom.CompilationUnit;
+import org.eclipse.jdt.core.dom.Expression;
 
 import java.util.Map;
 
@@ -34,6 +36,27 @@ public final class SourceParser {
         parser.setSource(source.toCharArray());
         parser.setCompilerOptions(latestLevelOptions());
         return (CompilationUnit) parser.createAST(null);
+    }
+
+    /**
+     * Parses {@code source} as a single expression — {@code Precision.TIGHT}, {@code 0}, {@code "x"} — or
+     * {@code null} when it isn't one.
+     *
+     * <p>For the values a migration entry writes out as text. The null is the point: a migration file is data
+     * shipped in someone else's jar, so "that isn't an expression" has to be an answer the caller can refuse
+     * on, not a mangled node that reaches a rewrite. JDT recovers from bad input rather than failing, hence the
+     * explicit problem check.
+     */
+    public static Expression parseExpression(String source) {
+        if (source == null || source.isBlank()) return null;
+        ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
+        parser.setKind(ASTParser.K_EXPRESSION);
+        parser.setSource(source.toCharArray());
+        parser.setCompilerOptions(latestLevelOptions());
+        ASTNode parsed = parser.createAST(null);
+        if (!(parsed instanceof Expression expression)) return null;
+        CompilationUnit root = expression.getRoot() instanceof CompilationUnit cu ? cu : null;
+        return root != null && hasSyntaxErrors(root) ? null : expression;
     }
 
     /**

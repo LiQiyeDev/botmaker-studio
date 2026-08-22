@@ -3,6 +3,7 @@ package com.botmaker.studio.parser.refactor;
 import com.botmaker.studio.palette.BotType;
 import com.botmaker.studio.palette.SignatureType;
 import com.botmaker.studio.parser.EditContext;
+import com.botmaker.studio.parser.ImportManager;
 import com.botmaker.studio.parser.factories.InitializerFactory;
 import com.botmaker.studio.parser.helpers.SourceParser;
 import com.botmaker.studio.parser.refactor.MethodReferences.CallSite;
@@ -13,9 +14,15 @@ import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.types.ResolvedType;
 import org.eclipse.jdt.core.dom.ASTNode;
+import org.eclipse.jdt.core.dom.ASTVisitor;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jdt.core.dom.Expression;
+import org.eclipse.jdt.core.dom.ImportDeclaration;
+import org.eclipse.jdt.core.dom.MethodInvocation;
+import org.eclipse.jdt.core.dom.QualifiedName;
 import org.eclipse.jdt.core.dom.SimpleName;
+import org.eclipse.jdt.core.dom.SimpleType;
+import org.eclipse.jdt.core.dom.SwitchCase;
 import org.eclipse.jdt.core.dom.rewrite.ListRewrite;
 
 import java.io.IOException;
@@ -47,12 +54,20 @@ public final class CallMigrator {
     /** A file the migration changes, and what it should say afterwards. */
     public record Rewritten(ProjectFile file, String newSource) {}
 
-    /** Records into {@code ctx}'s rewrite every call the plan changes that lives in {@code ctx.cu()}. */
-    public static void applyIn(EditContext ctx, SignatureMigration.Plan plan) {
-        if (plan == null) return;
+    /**
+     * Records into {@code ctx}'s rewrite every call the plan changes that lives in {@code ctx.cu()} — false
+     * when one of them cannot be expressed there, which is the caller's cue to abandon the edit.
+     *
+     * <p>A plan built from a signature dialog can never fail this: its changes are renames and argument
+     * shuffles at sites it just found. Only an SDK migration produces a change that can be refused.
+     */
+    public static boolean applyIn(EditContext ctx, SignatureMigration.Plan plan) {
+        if (plan == null) return true;
+        boolean applied = true;
         for (CallChange change : plan.calls()) {
-            if (change.site().unit() == ctx.cu()) apply(ctx, change);
+            if (change.site().unit() == ctx.cu()) applied &= apply(ctx, change);
         }
+        return applied;
     }
 
     /**
@@ -74,7 +89,11 @@ public final class CallMigrator {
         for (Map.Entry<CompilationUnit, List<CallChange>> entry : byUnit.entrySet()) {
             ProjectFile file = entry.getValue().getFirst().site().file();
             EditContext ctx = EditContext.of(entry.getKey(), analyzer, state);
-            for (CallChange change : entry.getValue()) apply(ctx, change);
+            // A change this cannot express — a constant moved to another class with no type written at the
+            // call site to retarget — refuses the migration whole, exactly as an unparseable result does.
+            for (CallChange change : entry.getValue()) {
+                if (!apply(ctx, change)) return null;
+            }
 
             String source = ctx.applyTo(file.getContent());
             if (source == null) return null;
@@ -123,29 +142,177 @@ public final class CallMigrator {
 
     // --- one call ------------------------------------------------------------------------------------------
 
-    private static void apply(EditContext ctx, CallChange change) {
-        switch (change) {
-            case CallChange.ValueReplaced replaced -> ctx.rewriter()
-                    .replace(replaced.site().node(), defaultFor(ctx, replaced.expected()), null);
+    /** Records one change into {@code ctx}'s rewrite — false when it cannot be expressed at that site. */
+    private static boolean apply(EditContext ctx, CallChange change) {
+        return switch (change) {
+            case CallChange.ValueReplaced replaced -> {
+                ctx.rewriter().replace(replaced.site().node(), defaultFor(ctx, replaced.expected()), null);
+                yield true;
+            }
             case CallChange.Rewrite rewrite -> applyRewrite(ctx, rewrite);
-        }
+            case CallChange.MemberMoved moved -> applyMove(ctx, moved);
+        };
     }
 
-    private static void applyRewrite(EditContext ctx, CallChange.Rewrite rewrite) {
+    private static boolean applyRewrite(EditContext ctx, CallChange.Rewrite rewrite) {
         CallSite site = rewrite.site();
         SimpleName name = site.nameNode();
         // Null for a `new GoHome(…)`: its name is the class's, and renaming that is a different edit.
         if (name != null && !name.getIdentifier().equals(rewrite.newName())) {
+            // A bare name reached through a static import is only half-renamed by touching the use: the
+            // import still names the old member, so the file stops compiling. `case UP ->` is the one bare
+            // name with no import behind it, and rightly gets none invented for it.
+            if (site.node() instanceof SimpleName && !isCaseLabel(site.node())
+                    && !renameStaticImport(ctx, name.getIdentifier(), rewrite.newName())) {
+                return false;
+            }
             ctx.rewriter().set(name, SimpleName.IDENTIFIER_PROPERTY, rewrite.newName(), null);
         }
-        if (unchanged(site, rewrite.arguments())) return;
+        if (unchanged(site, rewrite.arguments())) return true;
 
         ListRewrite arguments = ctx.rewriter().getListRewrite(site.node(), site.argumentsProperty());
         List<?> current = site.arguments();
         for (int i = current.size() - 1; i >= 0; i--) arguments.remove((ASTNode) current.get(i), null);
         for (ArgumentEdit edit : rewrite.arguments()) {
-            arguments.insertLast(nodeFor(ctx, current, edit), null);
+            Expression argument = nodeFor(ctx, current, edit);
+            if (argument == null) return false;
+            arguments.insertLast(argument, null);
         }
+        return true;
+    }
+
+    // --- a member that moved to another type ---------------------------------------------------------------
+
+    /**
+     * {@code Tolerance.TIGHT} → {@code Precision.TIGHT}: the type written at the site is replaced and the new
+     * one imported, with the member renamed too when the move renamed it.
+     *
+     * <p>Three shapes, three answers. A qualified use or a static call names its type at the site, so the
+     * qualifier is rewritten. A bare name reached through a static import names it in the import, so the
+     * <em>import</em> is retargeted and the use left alone. A {@code case} label names it nowhere — the type
+     * comes from the switch expression — so moving a constant out of an enum a switch is over cannot be
+     * repaired here at all, and this refuses rather than writing something that looks right and isn't.
+     *
+     * <p>The old import is deliberately left behind. Deciding it is now unused means checking the whole file
+     * for other uses of that type, and an unused import costs a warning, where a wrongly removed one costs a
+     * build.
+     */
+    private static boolean applyMove(EditContext ctx, CallChange.MemberMoved moved) {
+        CallSite site = moved.site();
+        String member = moved.newName() != null ? moved.newName() : nameOf(site);
+        if (member == null) return false;
+
+        if (site.node() instanceof SimpleName bare) {
+            if (isCaseLabel(bare)) return false;
+            return retargetStaticImport(ctx, bare.getIdentifier(), moved.toType(), member);
+        }
+        SimpleName owner = site.ownerNode();
+        if (owner == null) return false;
+        ctx.rewriter().set(owner, SimpleName.IDENTIFIER_PROPERTY, simpleNameOf(moved.toType()), null);
+        ctx.addImport(moved.toType());
+        SimpleName name = site.nameNode();
+        if (name != null && !name.getIdentifier().equals(member)) {
+            ctx.rewriter().set(name, SimpleName.IDENTIFIER_PROPERTY, member, null);
+        }
+        return true;
+    }
+
+    /**
+     * Renames every use of type {@code fromFqn} in {@code ctx}'s file to {@code toFqn}, imports included.
+     *
+     * <p>File-level rather than per-call, and that is the whole reason it isn't a {@link CallChange}: a type is
+     * written in places no call scan records — {@code Precision p;}, a cast, a type argument — and renaming
+     * only the places a call was found leaves a file naming a class that no longer exists.
+     *
+     * <p>What counts as "a use of the type" is read off the shape of the source, since there are no bindings:
+     * a name standing as a {@link SimpleType}, the qualifier of a qualified name, or the receiver of a call.
+     * A local variable sharing a class's exact name would be caught too; that is the accepted cost of no
+     * bindings, and Java naming makes it vanishingly rare.
+     */
+    public static void renameTypeIn(EditContext ctx, String fromFqn, String toFqn) {
+        String from = simpleNameOf(fromFqn);
+        String to = simpleNameOf(toFqn);
+        // A package move keeps the simple name, so every use in the body is already correct: only the imports
+        // move. Rewriting each name to itself would churn the file for nothing.
+        if (!from.equals(to)) ctx.cu().accept(new ASTVisitor() {
+            @Override
+            public boolean visit(SimpleName node) {
+                if (!node.getIdentifier().equals(from) || withinImport(node)) return true;
+                if (node.getLocationInParent() == SimpleType.NAME_PROPERTY
+                        || node.getLocationInParent() == QualifiedName.QUALIFIER_PROPERTY
+                        || node.getLocationInParent() == MethodInvocation.EXPRESSION_PROPERTY) {
+                    ctx.rewriter().set(node, SimpleName.IDENTIFIER_PROPERTY, to, null);
+                }
+                return true;
+            }
+        });
+        for (Object each : ctx.cu().imports()) {
+            ImportDeclaration imp = (ImportDeclaration) each;
+            if (!imp.isStatic()) continue;
+            // `import static a.b.Tolerance.TIGHT;` — the type is the qualifier, and no other edit reaches it.
+            if (imp.getName() instanceof QualifiedName qualified
+                    && qualified.getQualifier().getFullyQualifiedName().equals(fromFqn)) {
+                ctx.rewriter().replace(qualified.getQualifier(),
+                        ctx.ast().newName(toFqn), null);
+            }
+        }
+        ImportManager.removeImport(ctx.cu(), ctx.rewriter(), fromFqn);
+        ctx.addImport(toFqn);
+    }
+
+    /** The member name written at a site — a call's or a field reference's, null for a {@code new}. */
+    private static String nameOf(CallSite site) {
+        return site.nameNode() == null ? null : site.nameNode().getIdentifier();
+    }
+
+    private static boolean isCaseLabel(ASTNode node) {
+        return node.getLocationInParent() == SwitchCase.EXPRESSIONS2_PROPERTY;
+    }
+
+    private static boolean withinImport(ASTNode node) {
+        for (ASTNode n = node; n != null; n = n.getParent()) {
+            if (n instanceof ImportDeclaration) return true;
+        }
+        return false;
+    }
+
+    /** Points the single-member static import of {@code member} at {@code toType#newName}. */
+    private static boolean retargetStaticImport(EditContext ctx, String member, String toType, String newName) {
+        ImportDeclaration imp = staticImportOf(ctx.cu(), member);
+        if (imp == null) return false;
+        ctx.rewriter().replace(imp.getName(), ctx.ast().newName(toType + "." + newName), null);
+        return true;
+    }
+
+    /** Renames the member in the static import that brought {@code member} in — false when there is none. */
+    private static boolean renameStaticImport(EditContext ctx, String member, String newName) {
+        ImportDeclaration imp = staticImportOf(ctx.cu(), member);
+        if (imp == null || !(imp.getName() instanceof QualifiedName qualified)) return false;
+        ctx.rewriter().set(qualified.getName(), SimpleName.IDENTIFIER_PROPERTY, newName, null);
+        return true;
+    }
+
+    /**
+     * The {@code import static …} that brings {@code member} into the file by name, or null.
+     *
+     * <p>An on-demand {@code import static …Key.*} is not one: it says nothing about which names were meant,
+     * so there is nothing to rewrite in it and nothing that could be rewritten safely.
+     */
+    private static ImportDeclaration staticImportOf(CompilationUnit cu, String member) {
+        for (Object each : cu.imports()) {
+            ImportDeclaration imp = (ImportDeclaration) each;
+            if (!imp.isStatic() || imp.isOnDemand()) continue;
+            if (imp.getName() instanceof QualifiedName qualified
+                    && qualified.getName().getIdentifier().equals(member)) {
+                return imp;
+            }
+        }
+        return null;
+    }
+
+    private static String simpleNameOf(String qualifiedName) {
+        int dot = qualifiedName.lastIndexOf('.');
+        return dot < 0 ? qualifiedName : qualifiedName.substring(dot + 1);
     }
 
     /** True when the wanted arguments are the ones already there, in the order they are already in. */
@@ -162,12 +329,24 @@ public final class CallMigrator {
      *
      * <p>A copy, not the original node — the list it came from is being removed by the same rewrite, and a node
      * cannot be both removed and re-inserted.
+     *
+     * <p>Null when a {@link ArgumentEdit.Literal}'s text is not an expression, which refuses the migration.
+     * That text comes out of a migration file shipped in an SDK jar, so it is input, not something this code
+     * can assume well-formed.
      */
     private static Expression nodeFor(EditContext ctx, List<?> current, ArgumentEdit edit) {
         return switch (edit) {
             case ArgumentEdit.Keep keep ->
                     (Expression) ASTNode.copySubtree(ctx.ast(), (ASTNode) current.get(keep.from()));
             case ArgumentEdit.Fresh fresh -> defaultFor(ctx, fresh.type());
+            case ArgumentEdit.Literal literal -> {
+                Expression parsed = SourceParser.parseExpression(literal.source());
+                if (parsed == null) yield null;
+                if (literal.importFqn() != null && !literal.importFqn().isBlank()) {
+                    ctx.addImport(literal.importFqn());
+                }
+                yield (Expression) ASTNode.copySubtree(ctx.ast(), parsed);
+            }
         };
     }
 }

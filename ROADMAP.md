@@ -6,6 +6,18 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-22 — The edit model can express what a migration asks for (`parser/refactor/SignatureMigration`,
+  `parser/refactor/CallMigrator`, `parser/refactor/MethodReferences`).** The primitives a `fix` is built out
+  of, added before anything runs them: `ArgumentEdit.Literal` writes a value the SDK author chose, where
+  `Fresh` could only synthesise the default of a Studio *palette* type; `CallChange.MemberMoved` retargets
+  the type written at a call site — two classes collapsing into one is the commonest SDK break there is, and
+  the one shape Studio's own refactorings never produce; `CallMigrator.renameTypeIn` renames a type across a
+  whole file rather than per call site, because a type is also written in a declaration, a cast and a type
+  argument, none of which a call scan records. `CallSite` widened to hold a field reference — it answers
+  "no arguments" to the argument questions, which is true — so one scan can feed both the report and the
+  rewrite. Every primitive that cannot express its edit returns false and refuses the migration whole: a
+  constant moved out from under a `case` label has no type written anywhere near it, and a guess there
+  compiles against the wrong enum or not at all. 14 tests, each asserting the rewritten source parses.
 - **2026-08-22 — The upgrade report can see constants (`services/SdkUpgradeService`).** `Key.ENTER`,
   `Precision.TIGHT` and `Direction.UP` were invisible to it: the jar scan read methods and constructors and
   never `getFieldInfo()`, and the source scan visited calls and `new` and nothing else. So a release deleting

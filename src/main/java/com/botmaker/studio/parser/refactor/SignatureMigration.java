@@ -83,6 +83,16 @@ public final class SignatureMigration {
 
         /** A value that does not exist at this call yet: write {@code type}'s default. */
         record Fresh(SignatureType type) implements ArgumentEdit {}
+
+        /**
+         * A value written out as source — {@code Precision.TIGHT}, {@code 0}, {@code "left"} — importing
+         * {@code importFqn} (nullable) into whichever file receives it.
+         *
+         * <p>{@link Fresh} cannot express this and is not a near miss: it synthesises the default value of a
+         * <em>Studio palette</em> type, and what an SDK migration needs written into a call is whatever the SDK
+         * author decided, which is usually a constant of a type the palette has never heard of.
+         */
+        record Literal(String source, String importFqn) implements ArgumentEdit {}
     }
 
     /** What happens at one call site. */
@@ -98,6 +108,18 @@ public final class SignatureMigration {
          * call goes and {@code expected}'s default stands in its place.
          */
         record ValueReplaced(CallSite site, SignatureType expected) implements CallChange {}
+
+        /**
+         * The member still exists but on another type: {@code Tolerance.TIGHT} becomes
+         * {@code Precision.TIGHT}. {@code toType} is a fully-qualified name (so a package move is the same
+         * edit) and {@code newName} is null when the move keeps the member's own name.
+         *
+         * <p>This is the one shape a signature edit never produces — Studio's own refactorings move nothing
+         * between classes. It exists for the SDK's {@code migrations.json}, where two types collapsing into one
+         * is the commonest break there is, and it is a {@code CallChange} rather than something parallel so
+         * that {@link CallMigrator} keeps one entry point and one all-or-nothing refusal.
+         */
+        record MemberMoved(CallSite site, String toType, String newName) implements CallChange {}
     }
 
     /** A parameter the user removed that the body still refers to: it becomes a local of the same name. */

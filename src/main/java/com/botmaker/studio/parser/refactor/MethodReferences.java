@@ -15,6 +15,7 @@ import org.eclipse.jdt.core.dom.ExpressionStatement;
 import org.eclipse.jdt.core.dom.FieldDeclaration;
 import org.eclipse.jdt.core.dom.MethodDeclaration;
 import org.eclipse.jdt.core.dom.MethodInvocation;
+import org.eclipse.jdt.core.dom.QualifiedName;
 import org.eclipse.jdt.core.dom.SimpleName;
 import org.eclipse.jdt.core.dom.SimpleType;
 import org.eclipse.jdt.core.dom.SingleVariableDeclaration;
@@ -70,19 +71,36 @@ public final class MethodReferences {
      * three questions regardless of which it is: what are your arguments, which property holds them, and is
      * anything consuming what you produce. So they are asked *here*, once, rather than each reader
      * re-discovering that a creation has no name to rename.
+     *
+     * <p>Since 2026-08 a site may also be a <b>field reference</b> — {@code Key.ENTER} (a
+     * {@link org.eclipse.jdt.core.dom.QualifiedName}) or the bare {@link SimpleName} of a statically-imported
+     * constant or a {@code case} label. A constant is API too, so an SDK migration has to be able to rename or
+     * move one, and the alternative — a second site type with its own copy of "which file, which parse" —
+     * would have meant every consumer switching on which kind it held. Instead a field simply answers "no
+     * arguments" to the argument questions, which is true.
      */
     public record CallSite(ProjectFile file, CompilationUnit unit, Expression node) {
 
-        /** The arguments as written, in order. */
+        /** The arguments as written, in order — empty for a field reference, which has no argument list. */
         public List<?> arguments() {
-            return node instanceof ClassInstanceCreation creation ? creation.arguments()
-                    : ((MethodInvocation) node).arguments();
+            return switch (node) {
+                case ClassInstanceCreation creation -> creation.arguments();
+                case MethodInvocation call -> call.arguments();
+                default -> List.of();
+            };
         }
 
-        /** Which child list {@link #arguments()} is, for a {@code ListRewrite} over it. */
+        /**
+         * Which child list {@link #arguments()} is, for a {@code ListRewrite} over it — null for a field
+         * reference. Never reached for one: an empty argument list is only ever rewritten to itself, which
+         * {@code CallMigrator} short-circuits before asking.
+         */
         public ChildListPropertyDescriptor argumentsProperty() {
-            return node instanceof ClassInstanceCreation
-                    ? ClassInstanceCreation.ARGUMENTS_PROPERTY : MethodInvocation.ARGUMENTS_PROPERTY;
+            return switch (node) {
+                case ClassInstanceCreation ignored -> ClassInstanceCreation.ARGUMENTS_PROPERTY;
+                case MethodInvocation ignored -> MethodInvocation.ARGUMENTS_PROPERTY;
+                default -> null;
+            };
         }
 
         /**
@@ -90,7 +108,34 @@ public final class MethodReferences {
          * its class's, which is not this dialog's to change — renaming the class is a different edit.
          */
         public SimpleName nameNode() {
-            return node instanceof MethodInvocation call ? call.getName() : null;
+            return switch (node) {
+                case MethodInvocation call -> call.getName();
+                case QualifiedName qualified -> qualified.getName();
+                case SimpleName bare -> bare;
+                default -> null;
+            };
+        }
+
+        /**
+         * The name of the type this member is reached <em>through</em> — the {@code Key} of {@code Key.ENTER},
+         * the receiver of a static call, the class of a {@code new} — or null when the source names none, as
+         * it does for a bare statically-imported constant, a {@code case} label, or a call on {@code this}.
+         *
+         * <p>Null is what makes a move refusable rather than guessable: with no type written at the site there
+         * is nothing to retarget, and {@link CallMigrator} declines the whole migration instead of inventing a
+         * qualifier.
+         */
+        public SimpleName ownerNode() {
+            return switch (node) {
+                case QualifiedName qualified ->
+                        qualified.getQualifier() instanceof SimpleName owner ? owner : null;
+                case MethodInvocation call ->
+                        call.getExpression() instanceof SimpleName receiver ? receiver : null;
+                case ClassInstanceCreation creation ->
+                        creation.getType() instanceof SimpleType simple
+                                && simple.getName() instanceof SimpleName name ? name : null;
+                default -> null;
+            };
         }
 
         public int argumentCount() {

@@ -142,6 +142,17 @@ there are three distinct relationships to keep straight:
     Until 2026-08 none of this was read at all, so a release deleting `Key.ENTER` reported *"nothing breaks"*
     while the SDK's own `ApiRulesCheck` (whose member tags always included `field`) demanded a migration for
     it — CI and Studio disagreeing about what an API is.
+  - **What a `fix` is actually made of lives in `parser/refactor`, and each primitive can refuse.**
+    `ArgumentEdit.Literal(source, importFqn)` writes a value the SDK author chose (`Fresh` cannot — it
+    synthesises the default of a *palette* type); `CallChange.MemberMoved(site, toType, newName)` retargets
+    the type written at a call site, the one shape Studio's own refactorings never produce; and
+    `CallMigrator.renameTypeIn` is deliberately **file-level, not per-site** — a type is also written in
+    `Precision p;`, a cast and a type argument, none of which any call scan records, so renaming only the
+    found sites leaves a file naming a class that is gone. `MethodReferences.CallSite` widened to hold a
+    field reference (`arguments()` is simply empty), which is what lets one scan feed both the report and the
+    rewrite. **Every primitive that cannot express its edit returns false and takes the whole migration down
+    with it** — a constant moved out from under a `case` label, or a call on `this` with no type to retarget.
+    That is the same all-or-nothing `rewriteOthers` already enforced for a rewrite that will not parse.
 - **Studio generates bot projects that depend on the SDK.** `services/MavenService` writes each user
   project's `pom.xml` pinning `com.github.LiQiyeDev:botmaker-sdk` (default `SDK_FALLBACK_VERSION`;
   user-selectable in the project screen from JitPack's version list). That pin is independent of the version
