@@ -1,8 +1,11 @@
 package com.botmaker.studio.parser.refactor;
 
 import com.botmaker.studio.parser.helpers.SourceParser;
-import com.botmaker.studio.parser.refactor.SdkMigrationRunner.Fix;
+import com.botmaker.studio.parser.refactor.SdkMigrationRunner.MemberRename;
 import com.botmaker.studio.parser.refactor.SdkMigrationRunner.Outcome;
+import com.botmaker.studio.parser.refactor.SdkMigrationRunner.Removal;
+import com.botmaker.studio.parser.refactor.SdkMigrationRunner.Repairs;
+import com.botmaker.studio.parser.refactor.SdkMigrationRunner.TypeRename;
 import com.botmaker.studio.project.ProjectFile;
 import org.junit.jupiter.api.Test;
 
@@ -18,7 +21,12 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The applier: what the SDK's declared repairs actually do to a bot's source.
+ * The applier: what an SDK upgrade actually does to a bot's source.
+ *
+ * <p>The model under test is "make it compile, then have the user review it". A renamed type is renamed
+ * file-wide; a member that is simply gone becomes a default value where its result was used, and a deleted
+ * statement where it wasn't. Nothing is ever pointed at a different member — the tests that used to cover
+ * that are gone with the fix engine, and their absence is the point.
  *
  * <p>Every test that expects a rewrite asserts the result <b>parses</b>, on top of whatever text it looks for.
  * That is not ceremony — source no compiler accepts is the one failure mode this whole feature exists to
@@ -47,11 +55,20 @@ class SdkMigrationRunnerTest {
         return new ProjectFile(Path.of(name + ".java"), source);
     }
 
-    private static Outcome run(List<Fix> fixes, ProjectFile... editable) {
-        return SdkMigrationRunner.run(fixes, List.of(editable), List.of(), SDK_TYPES, FIELD_OWNERS, null, null);
+    private static Outcome run(Repairs repairs, ProjectFile... editable) {
+        return SdkMigrationRunner.run(repairs, List.of(editable), List.of(), SDK_TYPES, FIELD_OWNERS,
+                null, null);
     }
 
-    /** The new source of {@code file}, or null when the pass left it untouched. */
+    private static Repairs removals(Removal... removals) {
+        return new Repairs(List.of(), List.of(), List.of(removals));
+    }
+
+    private static Repairs renames(TypeRename... types) {
+        return new Repairs(List.of(types), List.of(), List.of());
+    }
+
+    /** The new source of {@code file}, or null when the run left it untouched. */
     private static String textOf(Outcome outcome, ProjectFile file) {
         assertNull(outcome.refusal(), "the migration was refused: " + outcome.refusal());
         return outcome.files().stream()
@@ -68,33 +85,63 @@ class SdkMigrationRunnerTest {
         return source;
     }
 
-    private static Fix rename(String version, String typeFqn, String member, String to) {
-        return new Fix(version, typeFqn, member, -1, SdkMigrationRunner.RENAME_METHOD,
-                to, null, -1, List.of(), null, null);
-    }
-
     // -------------------------------------------------------------------------
-    // The straightforward repairs
+    // A member that is gone
     // -------------------------------------------------------------------------
 
     @Test
-    void aRenamedMethodIsRewrittenAtEveryCallSite() {
+    void aRemovedMethodWhoseResultIsUsedBecomesTheDefaultOfItsOldReturnType() {
+        ProjectFile bot = file("Bot", """
+                package com.mybot;
+                class Bot {
+                    void run() {
+                        boolean hit = Vision.find("target");
+                        int n = Vision.count("target");
+                    }
+                }
+                """);
+        String source = rewritten(run(removals(
+                new Removal("Vision", "find", 1, "boolean"),
+                new Removal("Vision", "count", 1, "int")), bot), bot);
+
+        assertTrue(source.contains("boolean hit = false;"), source);
+        assertTrue(source.contains("int n = 0;"), source);
+        assertFalse(source.contains("Vision."), "no call to the removed member survives:\n" + source);
+    }
+
+    @Test
+    void aRemovedConstantBecomesADefaultToo() {
+        ProjectFile bot = file("Bot", """
+                package com.mybot;
+                class Bot {
+                    Object held = Key.ENTER;
+                }
+                """);
+        String source = rewritten(run(removals(
+                new Removal("Key", "ENTER", SdkReferences.FIELD_READ, "Key")), bot), bot);
+        assertTrue(source.contains("Object held = null;"), source);
+    }
+
+    @Test
+    void aRemovedMemberCalledForItsEffectHasItsWholeStatementDeleted() {
         ProjectFile bot = file("Bot", """
                 package com.mybot;
                 class Bot {
                     void run() {
                         Mouse.click(1, 2);
-                        Mouse.click(3, 4);
+                        Mouse.move(3, 4);
                     }
                 }
                 """);
-        String source = rewritten(run(List.of(rename("2.0.0", PKG + ".Mouse", "click", "tap")), bot), bot);
-        assertFalse(source.contains("Mouse.click"), "no call should still say click:\n" + source);
-        assertEquals(2, source.split("Mouse\\.tap", -1).length - 1, "both calls move:\n" + source);
+        // Replacing the expression would leave `0;` for a value-returning member and nothing writable at all
+        // for a void one, so a statement call goes whole either way.
+        String source = rewritten(run(removals(new Removal("Mouse", "click", 2, "void")), bot), bot);
+        assertFalse(source.contains("Mouse.click"), source);
+        assertTrue(source.contains("Mouse.move(3, 4);"), "the surviving call is untouched:\n" + source);
     }
 
     @Test
-    void aRenameScopedToOneArityLeavesTheOtherOverloadAlone() {
+    void anOverloadThatSurvivesIsLeftAloneBecauseRemovalsMatchOnArity() {
         ProjectFile bot = file("Bot", """
                 package com.mybot;
                 class Bot {
@@ -104,74 +151,14 @@ class SdkMigrationRunnerTest {
                     }
                 }
                 """);
-        Fix onlyTheTriple = new Fix("2.0.0", PKG + ".Mouse", "click", 3, SdkMigrationRunner.RENAME_METHOD,
-                "clickAfter", null, -1, List.of(), null, null);
-        String source = rewritten(run(List.of(onlyTheTriple), bot), bot);
+        String source = rewritten(run(removals(new Removal("Mouse", "click", 3, "void")), bot), bot);
         assertTrue(source.contains("Mouse.click(1, 2);"), "the two-argument call stands:\n" + source);
-        assertTrue(source.contains("Mouse.clickAfter(1, 2, 3);"), "the three-argument one moves:\n" + source);
+        assertFalse(source.contains("Mouse.click(1, 2, 3)"), "the three-argument one goes:\n" + source);
     }
 
-    @Test
-    void aDroppedArgumentLeavesTheOthersInOrder() {
-        ProjectFile bot = file("Bot", """
-                package com.mybot;
-                class Bot {
-                    void run() {
-                        Mouse.click(1, 2, 3);
-                    }
-                }
-                """);
-        Fix drop = new Fix("2.0.0", PKG + ".Mouse", "click", -1, SdkMigrationRunner.DROP_ARGUMENT,
-                null, null, 1, List.of(), null, null);
-        assertTrue(rewritten(run(List.of(drop), bot), bot).contains("Mouse.click(1, 3)"));
-    }
-
-    @Test
-    void reorderedArgumentsFollowTheGivenOrder() {
-        ProjectFile bot = file("Bot", """
-                package com.mybot;
-                class Bot {
-                    void run() {
-                        Mouse.click(1, 2, 3);
-                    }
-                }
-                """);
-        Fix reorder = new Fix("2.0.0", PKG + ".Mouse", "click", -1, SdkMigrationRunner.REORDER_ARGUMENTS,
-                null, null, -1, List.of(2, 0, 1), null, null);
-        assertTrue(rewritten(run(List.of(reorder), bot), bot).contains("Mouse.click(3, 1, 2)"));
-    }
-
-    @Test
-    void anInsertedArgumentLandsAtTheGivenIndexAndBringsItsImport() {
-        ProjectFile bot = file("Bot", """
-                package com.mybot;
-                class Bot {
-                    void run() {
-                        Vision.find("target");
-                    }
-                }
-                """);
-        Fix insert = new Fix("2.0.0", PKG + ".Vision", "find", -1, SdkMigrationRunner.INSERT_ARGUMENT,
-                null, null, 1, List.of(), "Precision.TIGHT", PKG + ".Precision");
-        String source = rewritten(run(List.of(insert), bot), bot);
-        assertTrue(source.contains("Vision.find(\"target\", Precision.TIGHT)"), source);
-        assertTrue(source.contains("import " + PKG + ".Precision;"), "the literal's type is imported:\n" + source);
-    }
-
-    @Test
-    void aConstantMovesToAnotherTypeAndBringsItsImport() {
-        ProjectFile bot = file("Bot", """
-                package com.mybot;
-                class Bot {
-                    Object p = Tolerance.TIGHT;
-                }
-                """);
-        Fix move = new Fix("2.0.0", PKG + ".Tolerance", "TIGHT", -1, SdkMigrationRunner.MOVE_MEMBER,
-                null, PKG + ".Precision", -1, List.of(), null, null);
-        String source = rewritten(run(List.of(move), bot), bot);
-        assertTrue(source.contains("Precision.TIGHT"), source);
-        assertTrue(source.contains("import " + PKG + ".Precision;"), source);
-    }
+    // -------------------------------------------------------------------------
+    // A type that was paired under a new name
+    // -------------------------------------------------------------------------
 
     @Test
     void aRenamedTypeTakesEveryUseWithItIncludingOnesNoCallScanFinds() {
@@ -186,9 +173,9 @@ class SdkMigrationRunnerTest {
                     }
                 }
                 """.formatted(PKG));
-        Fix renameType = new Fix("2.0.0", PKG + ".Tolerance", "", -1, SdkMigrationRunner.RENAME_TYPE,
-                PKG + ".Precision", null, -1, List.of(), null, null);
-        String source = rewritten(run(List.of(renameType), bot), bot);
+        String source = rewritten(
+                run(renames(new TypeRename(PKG + ".Tolerance", PKG + ".Precision")), bot), bot);
+
         assertFalse(source.contains("Tolerance"), "the old name survives nowhere:\n" + source);
         assertTrue(source.contains("import " + PKG + ".Precision;"), source);
         // The field, the local's declared type and the cast are all uses no call scan would have recorded.
@@ -196,51 +183,65 @@ class SdkMigrationRunnerTest {
         assertTrue(source.contains("(Precision) t"), source);
     }
 
-    // -------------------------------------------------------------------------
-    // Ordered replay
-    // -------------------------------------------------------------------------
-
+    /**
+     * The reason each file is swept twice, members before types. Both edits land on the same call, and
+     * {@code ASTRewrite} cannot replace a node and retarget something inside it in one pass.
+     */
     @Test
-    void twoVersionsRenamingTheSameMethodComposeInOneJump() {
+    void aTypeThatWasRenamedAndAMemberThatWentAreBothRepairedInOneFile() {
         ProjectFile bot = file("Bot", """
                 package com.mybot;
+                import %s.Tolerance;
                 class Bot {
                     void run() {
-                        Mouse.foo(1);
+                        Tolerance kept = Tolerance.of(3);
+                        boolean gone = Tolerance.matches(kept);
                     }
                 }
-                """);
-        Outcome outcome = run(List.of(
-                rename("2.0.0", PKG + ".Mouse", "foo", "bar"),
-                rename("3.0.0", PKG + ".Mouse", "bar", "baz")), bot);
-        // Not a chain that was followed: the 2.0.0 pass wrote `bar`, and the 3.0.0 pass then found exactly what
-        // its own entry names, having re-scanned the source the first pass produced.
-        assertTrue(rewritten(outcome, bot).contains("Mouse.baz(1)"));
+                """.formatted(PKG));
+        Repairs repairs = new Repairs(
+                List.of(new TypeRename(PKG + ".Tolerance", PKG + ".Precision")),
+                List.of(),
+                List.of(new Removal("Tolerance", "matches", 1, "boolean")));
+        String source = rewritten(run(repairs, bot), bot);
+
+        assertTrue(source.contains("Precision kept = Precision.of(3);"), source);
+        assertTrue(source.contains("boolean gone = false;"), source);
+        assertFalse(source.contains("Tolerance"), source);
     }
 
     @Test
-    void aRenameUndoneByALaterVersionIsANoOpRatherThanALoop() {
+    void aMemberRenameIsAppliedAtEveryCallSiteOfThatType() {
         ProjectFile bot = file("Bot", """
                 package com.mybot;
                 class Bot {
                     void run() {
-                        Mouse.a(1);
+                        Mouse.click(1, 2);
+                        Mouse.click(3, 4);
                     }
                 }
                 """);
-        // A fixpoint loop — re-running the whole set until nothing changes — never terminates on this pair.
-        Outcome outcome = run(List.of(
-                rename("2.0.0", PKG + ".Mouse", "a", "b"),
-                rename("3.0.0", PKG + ".Mouse", "b", "a")), bot);
-        assertNull(textOf(outcome, bot), "a → b → a leaves the file exactly as it was");
+        Repairs repairs = new Repairs(List.of(), List.of(new MemberRename("Mouse", "click", "tap")),
+                List.of());
+        String source = rewritten(run(repairs, bot), bot);
+        assertFalse(source.contains("Mouse.click"), source);
+        assertEquals(2, source.split("Mouse\\.tap", -1).length - 1, "both calls move:\n" + source);
     }
 
     @Test
     void aFileTheMigrationDoesNotTouchIsNotRewrittenToItself() {
         ProjectFile bot = file("Bot", "package com.mybot;\nclass Bot { void run() { Mouse.click(1, 2); } }\n");
         ProjectFile other = file("Other", "package com.mybot;\nclass Other { void run() {} }\n");
-        Outcome outcome = run(List.of(rename("2.0.0", PKG + ".Mouse", "click", "tap")), bot, other);
+        Outcome outcome = run(removals(new Removal("Mouse", "click", 2, "void")), bot, other);
         assertEquals(1, outcome.files().size(), "only the file that changed is handed back");
+    }
+
+    @Test
+    void aRepairThatMatchesNothingInTheProjectChangesNoFile() {
+        ProjectFile bot = file("Bot", "package com.mybot;\nclass Bot { void run() { Mouse.click(1, 2); } }\n");
+        Outcome outcome = run(removals(new Removal("Vision", "find", 1, "boolean")), bot);
+        assertFalse(outcome.isRefusal());
+        assertTrue(outcome.files().isEmpty());
     }
 
     // -------------------------------------------------------------------------
@@ -248,7 +249,22 @@ class SdkMigrationRunnerTest {
     // -------------------------------------------------------------------------
 
     @Test
-    void aConstantUsedAsACaseLabelCannotBeMovedAndRefusesTheWholeMigration() {
+    void aRemovedVoidMemberWithNoStatementToDeleteRefusesTheWholeMigration() {
+        ProjectFile bot = file("Bot", """
+                package com.mybot;
+                class Bot {
+                    Runnable r = () -> Mouse.click(1, 2);
+                }
+                """);
+        Outcome outcome = run(removals(new Removal("Mouse", "click", 2, "void")), bot);
+        // There is no value to write and no statement to remove; writing something that looks right and
+        // isn't is the one outcome worse than saying so.
+        assertTrue(outcome.isRefusal(), "a void call in a lambda body has nothing to stand in for it");
+        assertTrue(outcome.files().isEmpty(), "a refusal writes nothing");
+    }
+
+    @Test
+    void anAmbiguousCaseLabelStopsTheUpgradeRatherThanGuessingAnEnum() {
         ProjectFile bot = file("Bot", """
                 package com.mybot;
                 class Bot {
@@ -260,23 +276,10 @@ class SdkMigrationRunnerTest {
                     }
                 }
                 """);
-        Fix move = new Fix("2.0.0", PKG + ".Direction", "UP", -1, SdkMigrationRunner.MOVE_MEMBER,
-                null, PKG + ".Heading", -1, List.of(), null, null);
-        Outcome outcome = run(List.of(move), bot);
-        // The label names its enum nowhere — the type lives on the switch expression — so there is no qualifier
-        // to retarget, and inventing one would compile against the wrong class.
-        assertTrue(outcome.isRefusal(), "a case label has no type to move");
-        assertTrue(outcome.files().isEmpty(), "a refusal writes nothing");
-    }
-
-    @Test
-    void aFixThisStudioCannotMakeSenseOfRefusesRatherThanSkippingTheEntry() {
-        ProjectFile bot = file("Bot", "package com.mybot;\nclass Bot { void run() { Mouse.click(1, 2); } }\n");
-        Fix nonsense = new Fix("2.0.0", PKG + ".Mouse", "click", -1, SdkMigrationRunner.DROP_ARGUMENT,
-                null, null, 9, List.of(), null, null);
-        Outcome outcome = run(List.of(nonsense), bot);
-        // Skipping it would leave the user with an upgrade that silently did less than it said.
-        assertTrue(outcome.isRefusal());
+        Map<String, List<String>> ambiguous = Map.of("UP", List.of("Direction", "Heading"));
+        Outcome outcome = SdkMigrationRunner.run(removals(new Removal("Direction", "UP", -1, "Direction")),
+                List.of(bot), List.of(), SDK_TYPES, ambiguous, null, null);
+        assertTrue(outcome.isRefusal(), "which enum the label names cannot be told from the source");
         assertTrue(outcome.files().isEmpty());
     }
 
@@ -284,7 +287,7 @@ class SdkMigrationRunnerTest {
     void aFileThatDoesNotParseStopsTheUpgradeAndNamesItself() {
         ProjectFile bot = file("Bot", "package com.mybot;\nclass Bot { void run() { Mouse.click(1, 2); } }\n");
         ProjectFile broken = file("Broken", "package com.mybot;\nclass Broken { void run( {\n");
-        Outcome outcome = run(List.of(rename("2.0.0", PKG + ".Mouse", "click", "tap")), bot, broken);
+        Outcome outcome = run(removals(new Removal("Mouse", "click", 2, "void")), bot, broken);
         assertTrue(outcome.isRefusal());
         assertTrue(outcome.refusal().contains("Broken"), outcome.refusal());
         assertTrue(outcome.files().isEmpty(), "not even the file that would have rewritten cleanly");
@@ -295,7 +298,7 @@ class SdkMigrationRunnerTest {
         ProjectFile bot = file("Bot", "package com.mybot;\nclass Bot { void run() { Mouse.click(1, 2); } }\n");
         ProjectFile driver = file("FlowDriver",
                 "package com.mybot;\nclass FlowDriver { void run() { Mouse.click(0, 0); } }\n");
-        Outcome outcome = SdkMigrationRunner.run(List.of(rename("2.0.0", PKG + ".Mouse", "click", "tap")),
+        Outcome outcome = SdkMigrationRunner.run(removals(new Removal("Mouse", "click", 2, "void")),
                 List.of(bot), List.of(driver), SDK_TYPES, FIELD_OWNERS, null, null);
         assertTrue(outcome.isRefusal(), "scaffolding is Studio's to write, not an upgrade's");
         assertTrue(outcome.refusal().contains("FlowDriver"), outcome.refusal());
@@ -303,18 +306,14 @@ class SdkMigrationRunnerTest {
     }
 
     @Test
-    void aStaticallyImportedConstantMovesByRetargetingTheImport() {
-        ProjectFile bot = file("Bot", """
-                package com.mybot;
-                import static %s.Tolerance.TIGHT;
-                class Bot {
-                    Object p = TIGHT;
-                }
-                """.formatted(PKG));
-        Fix move = new Fix("2.0.0", PKG + ".Tolerance", "TIGHT", -1, SdkMigrationRunner.MOVE_MEMBER,
-                null, PKG + ".Precision", -1, List.of(), null, null);
-        String source = rewritten(run(List.of(move), bot), bot);
-        assertTrue(source.contains("import static " + PKG + ".Precision.TIGHT;"), source);
-        assertTrue(source.contains("Object p = TIGHT;"), "the use itself is already right:\n" + source);
+    void aGeneratedFileUsingARenamedTypeRefusesTooEvenThoughItWouldRewriteCleanly() {
+        ProjectFile bot = file("Bot", "package com.mybot;\nclass Bot { Object t = Tolerance.TIGHT; }\n");
+        ProjectFile templates = file("Templates",
+                "package com.mybot;\nclass Templates { Object t = Tolerance.TIGHT; }\n");
+        Outcome outcome = SdkMigrationRunner.run(
+                renames(new TypeRename(PKG + ".Tolerance", PKG + ".Precision")),
+                List.of(bot), List.of(templates), SDK_TYPES, FIELD_OWNERS, null, null);
+        assertTrue(outcome.isRefusal(), outcome.refusal());
+        assertTrue(outcome.refusal().contains("Templates"), outcome.refusal());
     }
 }

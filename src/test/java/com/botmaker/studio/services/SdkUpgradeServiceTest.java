@@ -9,7 +9,6 @@ import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.services.SdkUpgradeService.Break;
 import com.botmaker.studio.services.SdkUpgradeService.BreakKind;
 import com.botmaker.studio.services.SdkUpgradeService.Deprecation;
-import com.botmaker.studio.services.SdkUpgradeService.Migration;
 import com.botmaker.studio.services.SdkUpgradeService.Report;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -240,9 +239,13 @@ class SdkUpgradeServiceTest {
 
     @Test
     void aClassThatDisappearedIsAReportedBreak(@TempDir Path tmp) throws IOException {
+        // Reported against the type, not each member of it: the question the user has to answer is what
+        // replaces Legacy, and one line per method it happened to call is noise around that one decision.
         Report r = reportFor(tmp, BOT);
 
-        assertEquals(BreakKind.TYPE_REMOVED, brk(r, "Legacy.anything").orElseThrow().kind());
+        Break gone = brk(r, "Legacy").orElseThrow(() -> new AssertionError(r.breaks().toString()));
+        assertEquals(BreakKind.TYPE_REMOVED, gone.kind());
+        assertEquals(8, gone.sites().get(0).line(), "the line Legacy.anything() is on");
     }
 
     @Test
@@ -277,7 +280,9 @@ class SdkUpgradeServiceTest {
         Report r = service.compare(jarOf(tmp, "old", oldSdk(), Map.of()),
                 jarOf(tmp, "new", without, Map.of()), "1.0.0", "2.0.0");
 
-        Break gone = brk(r, "new Point").orElseThrow(
+        // A withdrawn type is reported once, against the type — so the proof the constructor was scanned at
+        // all is that its line is among the sites.
+        Break gone = brk(r, "Point").orElseThrow(
                 () -> new AssertionError("the constructor call was not found: " + r.breaks()));
         assertEquals(BreakKind.TYPE_REMOVED, gone.kind());
         assertEquals(9, gone.sites().get(0).line());
@@ -484,73 +489,181 @@ class SdkUpgradeServiceTest {
     }
 
     @Test
-    void declaredChangesAreReadFromTheTargetJarAndScopedToTheVersionRange(@TempDir Path tmp)
+    void declaredRenamesAreReadFromTheTargetJarAndScopedToTheVersionRange(@TempDir Path tmp)
             throws IOException {
         Report r = reportWithMigrations(tmp, "1.6.0", "2.0.0", """
-                {"schema": 1, "versions": {
-                  "1.5.0": [{"member": "com.botmaker.sdk.api.Old#thing",
-                             "summary": "already behind us", "manual": "nothing to do"}],
-                  "2.0.0": [{"member": "com.botmaker.sdk.api.Wait#time",
-                             "summary": "time() now counts from the last frame, not from the call",
-                             "manual": "check any bot that relied on the old timing"}],
-                  "3.0.0": [{"member": "com.botmaker.sdk.api.Future#thing",
-                             "summary": "not on this path", "manual": "n/a"}]
+                {"schema": 2, "versions": {
+                  "1.5.0": [{"from": "com.botmaker.sdk.api.Old", "to": "com.botmaker.sdk.api.Older"}],
+                  "2.0.0": [{"from": "com.botmaker.sdk.api.Legacy", "to": "com.botmaker.sdk.api.Modern"}],
+                  "3.0.0": [{"from": "com.botmaker.sdk.api.Future", "to": "com.botmaker.sdk.api.Later"}]
                 }}
                 """);
 
-        assertEquals(List.of("2.0.0"), r.migrations().stream().map(Migration::version).toList(),
+        assertEquals(List.of("2.0.0"), r.renames().stream().map(x -> x.version()).toList(),
                 "only versions in (from, to] — an entry for a release the bot is already past is noise, and "
                         + "one for a release beyond the target has not happened to this bot yet");
-        assertTrue(r.manual().get(0).manual().startsWith("check any bot"),
-                "the SDK author's sentence, verbatim");
-        assertFalse(r.nothingBreaks(), "a declared change is not 'nothing breaks'");
-        assertFalse(r.canMigrate(), "a manual entry disables the whole span");
+    }
+
+    // -------------------------------------------------------------------------
+    // Pairing: which type in the new jar takes the old one's place
+    // -------------------------------------------------------------------------
+
+    /** {@code @ApiId} itself, compiled into whichever fixture jar wants it. CLASS retention is the default. */
+    private static final String API_ID_SOURCE = """
+            package %s;
+            public @interface ApiId { String value(); }
+            """.formatted(PKG);
+
+    private static Map<String, String> sdkWith(Map<String, String> base, String name, String source) {
+        Map<String, String> out = new java.util.HashMap<>(base);
+        out.put("ApiId", API_ID_SOURCE);
+        out.put(name, source);
+        return out;
+    }
+
+    /** The old jar with {@code Legacy} carrying an id, and a new jar where the id sits on a renamed class. */
+    private static Report pairingReport(Path tmp, String oldLegacyId, String newClass, String newClassSource,
+                                        String migrationsJson) throws IOException {
+        Map<String, String> before = sdkWith(oldSdk(), "Legacy", """
+                package %s;
+                %s
+                public class Legacy {
+                    public static void anything() {}
+                }
+                """.formatted(PKG, oldLegacyId));
+        Map<String, String> after = sdkWith(newSdk(), newClass, newClassSource);
+        Map<String, String> resources = migrationsJson == null
+                ? Map.of()
+                : Map.of("META-INF/botmaker/migrations.json", migrationsJson);
+        return serviceOver(tmp, BOT).compare(jarOf(tmp, "old", before, Map.of()),
+                jarOf(tmp, "new", after, resources), "1.0.0", "2.0.0");
     }
 
     @Test
-    void anEntryWithAFixIsAutomaticAndOneWithoutIsNot(@TempDir Path tmp) throws IOException {
-        Report r = reportWithMigrations(tmp, "1.0.0", "2.0.0", """
-                {"schema": 1, "versions": {
-                  "2.0.0": [
-                    {"member": "com.botmaker.sdk.api.Wait#seconds",
-                     "summary": "seconds() was renamed to pause()",
-                     "fix": {"kind": "renameMethod", "to": "pause"}, "when": {"arity": 1}}
-                  ]
-                }}
-                """);
+    void aKeptApiIdPairsARenamedClassWithNothingDeclaredAnywhere(@TempDir Path tmp) throws IOException {
+        // The point of @ApiId: both releases spell the id the same way, so the rename is a fact read out of
+        // the jars rather than something the SDK author had to remember to write down.
+        Report r = pairingReport(tmp, "@ApiId(\"legacy\")", "Modern", """
+                package %s;
+                @ApiId("legacy")
+                public class Modern {
+                    public static void anything() {}
+                }
+                """.formatted(PKG), null);
 
-        assertEquals(1, r.automatic().size(), r.migrations().toString());
-        assertTrue(r.manual().isEmpty());
-        assertEquals("renameMethod", r.automatic().get(0).fix().kind());
-        assertEquals("pause", r.automatic().get(0).fix().options().path("to").asText());
-        assertEquals(1, r.automatic().get(0).fix().arity(), "when.arity scopes the fix to one overload");
-        assertTrue(r.canMigrate(), "every entry has a fix this Studio knows: " + r.migrations());
+        Break renamed = brk(r, "Legacy").orElseThrow(() -> new AssertionError(r.breaks().toString()));
+        assertEquals(BreakKind.TYPE_RENAMED, renamed.kind());
+        assertTrue(renamed.detail().contains("Modern"), renamed.detail());
+        assertTrue(renamed.isRepairable());
+        assertTrue(r.canMigrate(), "a paired rename is repairable: " + r.breaks());
     }
 
     @Test
-    void anUnknownFixKindDegradesToManualAndDisablesTheWholeSpan(@TempDir Path tmp) throws IOException {
-        // The newer-SDK-older-Studio case. The entry must still be SHOWN — an entry silently skipped is a
-        // break the user is never told about — and it must take the rest of the span down with it rather
-        // than letting half the call sites be rewritten.
-        Report r = reportWithMigrations(tmp, "1.0.0", "2.0.0", """
-                {"schema": 1, "versions": {
-                  "2.0.0": [
-                    {"member": "com.botmaker.sdk.api.Wait#seconds",
-                     "summary": "seconds() was renamed to pause()",
-                     "fix": {"kind": "renameMethod", "to": "pause"}},
-                    {"member": "com.botmaker.sdk.api.Mouse#click",
-                     "summary": "click() moved behind a builder",
-                     "fix": {"kind": "wrapInBuilderSomethingFromTheFuture", "to": "x"}}
-                  ]
+    void aDeclaredRenamePairsAClassThatCarriesNoId(@TempDir Path tmp) throws IOException {
+        // v1.0.26 and earlier carry no ids at all, which is exactly what the rename file is the fallback for.
+        Report r = pairingReport(tmp, "", "Modern", """
+                package %s;
+                public class Modern {
+                    public static void anything() {}
+                }
+                """.formatted(PKG), """
+                {"schema": 2, "versions": {
+                  "2.0.0": [{"from": "com.botmaker.sdk.api.Legacy", "to": "com.botmaker.sdk.api.Modern"}]
                 }}
                 """);
 
-        assertEquals(2, r.migrations().size(), "neither entry may be dropped: " + r.migrations());
-        assertEquals(1, r.manual().size());
-        assertTrue(r.manual().get(0).degraded(),
-                "the reason matters — 'needs a newer Studio' is not 'no rewrite can express this'");
-        assertTrue(r.manual().get(0).summary().contains("builder"), "the SDK's own summary still shows");
-        assertFalse(r.canMigrate(), "one unknown kind disables the span, including the renameMethod beside it");
+        assertEquals(BreakKind.TYPE_RENAMED,
+                brk(r, "Legacy").orElseThrow(() -> new AssertionError(r.breaks().toString())).kind());
+        assertTrue(r.canMigrate());
+    }
+
+    @Test
+    void anIdPairsTheTypeNameOnlySoAMemberThatWentIsStillABreakOfItsOwn(@TempDir Path tmp) throws IOException {
+        // The rule that keeps a reused id from becoming a silently wrong rewrite: the class paired, and the
+        // members were still resolved one at a time against it.
+        Report r = pairingReport(tmp, "@ApiId(\"legacy\")", "Modern", """
+                package %s;
+                @ApiId("legacy")
+                public class Modern {
+                    public static void somethingElse() {}
+                }
+                """.formatted(PKG), null);
+
+        assertEquals(BreakKind.TYPE_RENAMED,
+                brk(r, "Legacy").orElseThrow(() -> new AssertionError(r.breaks().toString())).kind());
+        Break gone = brk(r, "Legacy.anything").orElseThrow(
+                () -> new AssertionError("the member is still judged on its own: " + r.breaks()));
+        assertEquals(BreakKind.MEMBER_REMOVED, gone.kind());
+        assertTrue(r.canMigrate(), "both halves are repairable — a rename and a default value");
+    }
+
+    @Test
+    void aRemovedTypeWithNoPairingIsTheOneBreakThatRefusesTheUpgrade(@TempDir Path tmp) throws IOException {
+        // Absence of an id IS the signal. A default value has nowhere to go in `Legacy l = …;`, and Object
+        // would be silently wrong, so this is the one case the model cannot repair.
+        Report r = reportFor(tmp, BOT);
+
+        Break gone = brk(r, "Legacy").orElseThrow(() -> new AssertionError(r.breaks().toString()));
+        assertEquals(BreakKind.TYPE_REMOVED, gone.kind());
+        assertFalse(gone.isRepairable());
+        assertFalse(r.canMigrate(), "one unpaired removed type disables the whole span");
+        assertEquals(List.of(gone), r.unrepairable());
+    }
+
+    @Test
+    void renamesComposeAcrossVersionsRatherThanBeingReplayed(@TempDir Path tmp) throws IOException {
+        // A bot on 1.x has run neither pass, so its source still says `Legacy`. Only the composed fact
+        // Legacy → Modern pairs it; following one link would stop at a class that never existed in either jar.
+        Report r = pairingReport(tmp, "", "Modern", """
+                package %s;
+                public class Modern {
+                    public static void anything() {}
+                }
+                """.formatted(PKG), """
+                {"schema": 2, "versions": {
+                  "2.0.0": [{"from": "com.botmaker.sdk.api.Legacy", "to": "com.botmaker.sdk.api.Middle"}],
+                  "3.0.0": [{"from": "com.botmaker.sdk.api.Middle", "to": "com.botmaker.sdk.api.Modern"}]
+                }}
+                """);
+        // compare() above spans 1.0.0 → 2.0.0, so widen it: the composition is what is under test.
+        Report full = serviceOver(tmp, BOT).compare(
+                jarOf(tmp, "old2", sdkWith(oldSdk(), "Legacy", """
+                        package %s;
+                        public class Legacy { public static void anything() {} }
+                        """.formatted(PKG)), Map.of()),
+                jarOf(tmp, "new2", sdkWith(newSdk(), "Modern", """
+                        package %s;
+                        public class Modern { public static void anything() {} }
+                        """.formatted(PKG)), Map.of("META-INF/botmaker/migrations.json", """
+                        {"schema": 2, "versions": {
+                          "2.0.0": [{"from": "com.botmaker.sdk.api.Legacy",
+                                     "to": "com.botmaker.sdk.api.Middle"}],
+                          "3.0.0": [{"from": "com.botmaker.sdk.api.Middle",
+                                     "to": "com.botmaker.sdk.api.Modern"}]
+                        }}
+                        """)),
+                "1.0.0", "3.0.0");
+
+        assertFalse(r.breaks().isEmpty(), "the narrow span still reports something");
+        assertEquals(BreakKind.TYPE_RENAMED,
+                brk(full, "Legacy").orElseThrow(() -> new AssertionError(full.breaks().toString())).kind());
+        assertTrue(full.canMigrate());
+    }
+
+    @Test
+    void aRenameUndoneByALaterVersionComposesToNothingRatherThanLooping(@TempDir Path tmp) throws IOException {
+        // `a → b` then `b → a` is a legal pair of releases and an infinite loop for anything that re-runs a
+        // set of passes until nothing changes. Composition drops the identity and never notices it was hard.
+        Report r = reportWithMigrations(tmp, "1.0.0", "3.0.0", """
+                {"schema": 2, "versions": {
+                  "2.0.0": [{"from": "com.botmaker.sdk.api.Legacy", "to": "com.botmaker.sdk.api.Middle"}],
+                  "3.0.0": [{"from": "com.botmaker.sdk.api.Middle", "to": "com.botmaker.sdk.api.Legacy"}]
+                }}
+                """);
+
+        // Legacy is genuinely gone from this target, and the round trip pairs it with nothing.
+        assertEquals(BreakKind.TYPE_REMOVED,
+                brk(r, "Legacy").orElseThrow(() -> new AssertionError(r.breaks().toString())).kind());
     }
 
     @Test
@@ -558,14 +671,11 @@ class SdkUpgradeServiceTest {
             throws IOException {
         Report r = reportWithMigrations(tmp, "1.0.0", "2.0.0", """
                 {"schema": 99, "versions": {
-                  "2.0.0": [{"member": "com.botmaker.sdk.api.Wait#seconds",
-                             "summary": "written in a grammar this Studio does not have",
-                             "fix": {"kind": "renameMethod", "to": "pause"}}]
+                  "2.0.0": [{"from": "com.botmaker.sdk.api.Legacy", "to": "com.botmaker.sdk.api.Modern"}]
                 }}
                 """);
 
-        assertTrue(r.migrations().isEmpty(), "a grammar we might MISREAD is refused whole, not best-effort");
-        assertTrue(r.isIncomplete(), "and the refusal is stated rather than looking like an empty file");
+        assertTrue(r.isIncomplete(), "a grammar we might MISREAD is refused whole, not best-effort");
         assertTrue(r.problems().stream().anyMatch(p -> p.contains("schema 99")), r.problems().toString());
         assertFalse(r.canMigrate());
         // The point of refusing only the file: breaks come from scanning the jar and need it not at all.
@@ -573,48 +683,10 @@ class SdkUpgradeServiceTest {
     }
 
     @Test
-    void aDeclaredChangeIsShownAgainstTheLinesItAffects(@TempDir Path tmp) throws IOException {
-        Report r = reportWithMigrations(tmp, "1.0.0", "2.0.0", """
-                {"schema": 1, "versions": {
-                  "2.0.0": [{"member": "com.botmaker.sdk.api.Wait#seconds",
-                             "summary": "seconds() was renamed to pause()",
-                             "fix": {"kind": "renameMethod", "to": "pause"}}]
-                }}
-                """);
-
-        assertEquals(1, r.automatic().get(0).sites().size(), r.automatic().toString());
-        assertTrue(r.automatic().get(0).sites().get(0).toString().endsWith(":6"),
-                "the line Wait.seconds(3) is on: " + r.automatic().get(0).sites());
-    }
-
-    @Test
-    void aLaterEntryIsShownAgainstTheNameTheProjectStillSpells(@TempDir Path tmp) throws IOException {
-        // The ordered-replay trap, in report form. 2.0.0 renames seconds → pause; 3.0.0 then says something
-        // about `pause`. A bot jumping from 1.x has run neither, so its source still says `seconds` — and an
-        // entry that looked for `pause` would find nothing and show a note about a name appearing nowhere.
-        Report r = reportWithMigrations(tmp, "1.0.0", "3.0.0", """
-                {"schema": 1, "versions": {
-                  "2.0.0": [{"member": "com.botmaker.sdk.api.Wait#seconds",
-                             "summary": "seconds() was renamed to pause()",
-                             "fix": {"kind": "renameMethod", "to": "pause"}}],
-                  "3.0.0": [{"member": "com.botmaker.sdk.api.Wait#pause",
-                             "summary": "pause() now counts from the last frame",
-                             "manual": "check any bot that relied on the old timing"}]
-                }}
-                """);
-
-        Migration later = r.migrations().stream().filter(m -> m.version().equals("3.0.0")).findFirst()
-                .orElseThrow();
-        assertEquals(1, later.sites().size(), "resolved back through 2.0.0's rename: " + r.migrations());
-        assertTrue(later.sites().get(0).toString().endsWith(":6"), later.sites().toString());
-    }
-
-    @Test
     void aTargetThatDeclaresNothingIsNotATargetThatFailedToBeRead(@TempDir Path tmp) throws IOException {
         Report r = reportFor(tmp, BOT);
 
-        assertTrue(r.migrations().isEmpty());
+        assertTrue(r.renames().isEmpty());
         assertFalse(r.isIncomplete(), "no migrations file at all is silence, not a problem");
-        assertFalse(r.canMigrate(), "and there is nothing to apply");
     }
 }

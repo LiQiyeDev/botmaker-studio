@@ -13,6 +13,7 @@ import com.botmaker.studio.project.vcs.ProjectVcs;
 import com.botmaker.studio.sharing.SemVer;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.classgraph.AnnotationInfo;
 import io.github.classgraph.ClassInfo;
 import io.github.classgraph.FieldInfo;
 import io.github.classgraph.MethodInfo;
@@ -53,32 +54,54 @@ import java.util.jar.JarFile;
  * bot calls that is <em>gone</em> (with file and line), and what the SDK itself says cannot be migrated
  * automatically.
  *
- * <h2>The repair the SDK ships with the break</h2>
+ * <h2>The repair is a default value, and the SDK declares almost nothing</h2>
  *
- * <p>Every breaking change is declared in the target jar at {@code META-INF/botmaker/migrations.json},
- * keyed by the release that introduced it, and each entry carries either a {@code fix} (something Studio's
- * own rewriter can do) or a {@code manual} sentence (something no rewrite can repair). {@link #migrations}
- * reads that file for every version in {@code (from, to]}; the report shows the two sets separately, because
- * they ask different things of the user.
+ * <p>Until 2026-08-22 every break had to ship its own repair — a {@code fix} in
+ * {@code META-INF/botmaker/migrations.json} naming another member to point the call at. That was guessing:
+ * two members need not share a return type, an arity or any semantics, and a wrong guess yields a bot that
+ * compiles and behaves differently, which is the one outcome worse than a compile error. So the model
+ * inverted. <b>The repair's job is to make the bot compile; the user's job is to make it correct.</b> A call
+ * to a member the target no longer offers is replaced with a <em>default value of the type it used to give
+ * back</em> — {@code false}, {@code 0}, {@code ""}, {@code null} — and a call standing as a statement of its
+ * own is deleted outright.
  *
- * <p>{@link #apply} then carries the {@code fix} entries out: snapshot → repair the source
+ * <p>Two pairings survive that deletion, because a rename must stay a rename: {@code ImageClicker} →
+ * {@code IClicker} is one file-wide edit, and as a removal it would be hundreds of defaulted statements.
+ *
+ * <ol>
+ *   <li><b>{@code @ApiId}</b> — {@code com.botmaker.sdk.api.ApiId}, a stable kebab-case identity on every
+ *       public API type, read straight out of both jars. Both releases spell the id the same way, so the
+ *       pairing is a <em>fact</em> rather than a declaration. Absence of an id is itself the signal that the
+ *       role is gone: it can never invent a counterpart.</li>
+ *   <li><b>{@code migrations.json}</b> — renames only ({@code schema} 2), the fallback for what ids cannot
+ *       reach, chiefly anything renamed relative to v1.0.26, which carries no ids at all.</li>
+ * </ol>
+ *
+ * <p>An id pairs the <b>type name only</b>. Every member is still resolved individually against the paired
+ * type, so an id kept across a redesign degrades to defaults plus review marks rather than a silently wrong
+ * rewrite.
+ *
+ * <p>{@link #apply} then carries it out: snapshot → repair the source
  * ({@code parser/refactor/SdkMigrationRunner}) → bump the pom, one button and one revert away.
  *
- * <p>This replaced {@code mvn rewrite:run} against OpenRewrite recipes. That existed to let a user migrate
- * with no Studio at all; once that stopped being a requirement, an engine we do not control bought nothing
- * {@code parser/refactor/CallMigrator} could not do. One consequence is worth stating because it removed a
- * constraint rather than adding one: OpenRewrite type-attributes against the <em>old</em> SDK, so the
- * rewrite had to run before the pom was bumped, and the dialog had to teach that ordering. Our rewriter
+ * <p>This lineage is worth one line: an OpenRewrite recipe YAML → a declarative fix engine → this.
+ * OpenRewrite existed to let a user migrate with no Studio at all; once that stopped being a requirement, an
+ * engine we do not control bought nothing {@code parser/refactor/CallMigrator} could not do. One consequence
+ * removed a constraint rather than adding one: OpenRewrite type-attributes against the <em>old</em> SDK, so
+ * the rewrite had to run before the pom was bumped, and the dialog had to teach that ordering. Our rewriter
  * resolves the SDK not at all, so snapshot → migrate → bump is a single operation.
  *
- * <h2>A file this Studio cannot fully read is refused, not half-applied</h2>
+ * <h2>The one break that still cannot be repaired</h2>
  *
- * <p>Studio is the version that lags — a bot may pin an SDK newer than the Studio editing it. So a
- * {@code schema} above {@link #MIGRATIONS_MAX_SCHEMA} is refused <em>whole</em> (one line in
- * {@link Report#problems()}; breaks are still reported, since those come from scanning the jar), and an
- * unrecognised {@code fix.kind} degrades that one entry to manual — its summary still shown — rather than
- * being skipped. Both leave {@link Report#canMigrate()} false. Half a migration is the failure
- * {@code CallMigrator.rewriteOthers} returns {@code null} to prevent.
+ * <p>A <b>removed type with no pairing</b> refuses the upgrade, naming the type and its uses. A default has
+ * nowhere to go in {@code ImageTemplate t = …;} and {@code Object} would be silently wrong. Everything else
+ * is repairable, which is why {@link Report#canMigrate()} is now a question about the jars rather than about
+ * what the SDK author remembered to declare.
+ *
+ * <p>Studio is still the version that lags, so a {@code schema} above {@link #MIGRATIONS_MAX_SCHEMA} is
+ * refused <em>whole</em> (one line in {@link Report#problems()}; breaks are still reported, since those come
+ * from scanning the jar). Half a migration is the failure {@code CallMigrator.rewriteOthers} returns
+ * {@code null} to prevent.
  *
  * <h2>What it cannot see</h2>
  *
@@ -111,19 +134,14 @@ public final class SdkUpgradeService {
      * The highest {@code schema} of {@code migrations.json} this Studio knows how to read. A file declaring
      * more is refused whole rather than guessed at — see the class Javadoc.
      *
-     * <p>Adding a {@code fix.kind} does <em>not</em> bump this: an unknown kind degrades to manual, which is
-     * the whole point of having that rule. It bumps only for a grammar change that would make this reader
-     * <em>misread</em> an entry it thinks it understands.
+     * <p>Schema 2 is renames only. Schema 1's {@code fix} grammar is gone, along with the engine that read
+     * it; a schema-1 file is still read, and its {@code from}/{@code to} pairs are simply absent, which is
+     * the right answer — there were none.
      */
-    public static final int MIGRATIONS_MAX_SCHEMA = 1;
+    public static final int MIGRATIONS_MAX_SCHEMA = 2;
 
-    /**
-     * The {@code fix.kind}s this Studio can carry out. Anything else is a newer SDK talking to an older
-     * Studio, and degrades to manual. The rewrites themselves live in {@code parser/refactor}.
-     */
-    public static final Set<String> KNOWN_FIX_KINDS = Set.of(
-            "renameMethod", "renameType", "renameField", "moveMember",
-            "dropArgument", "reorderArguments", "insertArgument");
+    /** The annotation both jars spell a type's stable identity with. Class-retained, so it is in the jar. */
+    private static final String API_ID = "com.botmaker.sdk.api.ApiId";
 
     private static final String MIGRATIONS_ENTRY = "META-INF/botmaker/migrations.json";
 
@@ -157,8 +175,18 @@ public final class SdkUpgradeService {
 
     /** Why a call the bot makes would stop compiling on the target version. */
     public enum BreakKind {
-        /** The whole class is gone from the target SDK. */
+        /**
+         * The class is gone from the target SDK and nothing pairs with it — neither an {@code @ApiId} it
+         * kept nor a rename the SDK declares. <b>The one break that cannot be repaired</b>: a default value
+         * has nowhere to go in {@code ImageTemplate t = …;}, so the upgrade is refused rather than half-made.
+         */
         TYPE_REMOVED,
+        /**
+         * The class was renamed and this bot still writes the old name. Repaired file-wide by
+         * {@code CallMigrator.renameTypeIn} — including the declarations, casts and type arguments no call
+         * scan records. Listed as a break because the bot does not compile until it is made.
+         */
+        TYPE_RENAMED,
         /** The class is still there; no method or constructor of that name is. */
         MEMBER_REMOVED,
         /**
@@ -173,13 +201,25 @@ public final class SdkUpgradeService {
 
     /**
      * One API member this bot calls that the target SDK no longer offers in the shape the bot uses.
-     * {@code detail} is display text — the old and new signatures — and is empty for a removal.
+     * {@code detail} is display text — the old and new signatures, or the type's new name — and is empty for
+     * a plain removal.
+     *
+     * <p>{@code repair} is the sentence the dialog shows beside it: what Studio will write in its place. It
+     * is display text rather than a code, because there are only two shapes of repair now (rename the type,
+     * or stand a default value in) and neither needs to be switched on anywhere but here.
      */
-    public record Break(String type, String member, BreakKind kind, String detail, List<CallSite> sites) {
+    public record Break(String type, String member, BreakKind kind, String detail, String repair,
+                        List<CallSite> sites) {
 
         /** {@code Mouse.click} / {@code new ImageTemplate} — how the user reads it in their own code. */
         public String display() {
+            if (kind == BreakKind.TYPE_REMOVED || kind == BreakKind.TYPE_RENAMED) return type;
             return CTOR.equals(member) ? "new " + type : type + "." + member;
+        }
+
+        /** False for exactly one kind — see {@link BreakKind#TYPE_REMOVED}. */
+        public boolean isRepairable() {
+            return kind != BreakKind.TYPE_REMOVED;
         }
     }
 
@@ -191,43 +231,30 @@ public final class SdkUpgradeService {
     }
 
     /**
-     * The automatic repair for one entry: a {@code kind} from {@link #KNOWN_FIX_KINDS} and its options,
-     * carried as raw JSON because each kind reads different ones ({@code to}, {@code toType}, {@code index},
-     * {@code order}, {@code value}). Phase 4's edit model is what interprets them.
+     * The renames the target jar declares, composed across every version in {@code (from, to]}.
      *
-     * <p>{@code arity} is the optional {@code when.arity} scope, or {@code -1} for "every overload". It
-     * exists because call sites are matched by arity and not by argument type, so an unscoped rename would
-     * hit overloads the SDK author did not mean.
+     * <p>Both maps are keyed and valued the way {@code migrations.json} writes them: a fully-qualified type
+     * name, or {@code fqn#member}. They are the <em>fallback</em> pairing — {@code @ApiId} answers first, and
+     * answers for free — and exist chiefly for anything renamed relative to v1.0.26, which carries no ids.
+     *
+     * <p><b>Composed, not replayed.</b> A bot jumping 1.x → 3.0 still spells a twice-renamed member the 1.x
+     * way, so every version in the span is folded into one map, ascending, and the rewrite makes a single
+     * pass. {@code a→b} in 2.0 then {@code b→a} in 3.0 composes to the identity and is dropped, where
+     * re-running passes until nothing changed would loop forever.
      */
-    public record Fix(String kind, JsonNode options, int arity) {}
+    public record Renames(Map<String, String> types, Map<String, String> members) {
 
-    /**
-     * One breaking change the target SDK declares, read from its {@code migrations.json}.
-     *
-     * <p>Exactly one of {@code fix} and {@code manual} is set — that is the file's own invariant, checked in
-     * the SDK repo by {@code ApiRulesCheck} so a malformed entry is a red build there rather than a
-     * half-migration here. {@code summary} is always present and always shown verbatim: the SDK author wrote
-     * that sentence for the user, and it is never paraphrased.
-     *
-     * <p>An entry whose {@code fix.kind} this Studio does not know arrives here as {@code manual} with
-     * {@code degraded} set, so the dialog can say <em>why</em> it cannot be repaired automatically — "needs a
-     * newer Studio" is a different sentence from "no rewrite can express this".
-     *
-     * <p>{@code sites} is where <em>this project</em> uses the member, spelled as the project spells it
-     * <b>today</b> — which is not always what {@code member} says. See {@link #resolveNames}: a 3.0.0 entry
-     * about {@code baz} has to be shown against the call sites a file still writes as {@code foo}, because
-     * 2.0.0 is what renames {@code foo} to {@code bar} and the user has run neither.
-     */
-    public record Migration(String version, String member, String summary,
-                            Fix fix, String manual, boolean degraded, List<CallSite> sites) {
+        static final Renames NONE = new Renames(Map.of(), Map.of());
 
-        /** True when Studio can carry this one out itself. */
-        public boolean isAutomatic() {
-            return fix != null;
+        boolean isEmpty() {
+            return types.isEmpty() && members.isEmpty();
         }
+    }
 
-        Migration withSites(List<CallSite> found) {
-            return new Migration(version, member, summary, fix, manual, degraded, found);
+    /** One declared rename, for display only: {@code 2.0.0 — ImageClicker → IClicker}. */
+    public record Rename(String version, String from, String to) {
+        public String display() {
+            return from + " → " + to;
         }
     }
 
@@ -235,42 +262,46 @@ public final class SdkUpgradeService {
      * The whole answer to "what happens if I move to this version".
      *
      * <p>{@code problems} is what the scan could <em>not</em> determine — an unresolvable jar, a file that
-     * does not parse. It is separate from the four findings on purpose: an empty {@code breaks} list means
+     * does not parse. It is separate from the findings on purpose: an empty {@code breaks} list means
      * something quite different depending on whether this one is empty too.
+     *
+     * <p>{@code renames} is what the SDK <em>declares</em>, shown so the user can read the release's own
+     * account of itself. It is not the list of what will be rewritten — that is {@code breaks}, which is
+     * intersected with this bot's own call sites and covers the {@code @ApiId} pairings too.
      */
     public record Report(String from, String to,
                          List<String> added,
                          List<Deprecation> deprecated,
                          List<Break> breaks,
-                         List<Migration> migrations,
+                         List<Rename> renames,
                          List<String> problems) {
 
-        /** The entries Studio can carry out itself. */
-        public List<Migration> automatic() {
-            return migrations.stream().filter(Migration::isAutomatic).toList();
+        /** The breaks Studio will repair itself — a type rename, or a default value standing in. */
+        public List<Break> repairable() {
+            return breaks.stream().filter(Break::isRepairable).toList();
         }
 
-        /** The entries that need the user — no fix expressible, or a kind this Studio does not know. */
-        public List<Migration> manual() {
-            return migrations.stream().filter(m -> !m.isAutomatic()).toList();
+        /** The breaks nothing can repair: a removed type with no pairing. See {@link BreakKind#TYPE_REMOVED}. */
+        public List<Break> unrepairable() {
+            return breaks.stream().filter(b -> !b.isRepairable()).toList();
         }
 
         /**
-         * Whether the upgrade may be applied automatically: every declared change has a fix this Studio
-         * understands, and the scan itself read everything.
+         * Whether the upgrade may repair the source: the scan read everything, something needs repairing, and
+         * nothing in it is a removed type with no counterpart.
          *
-         * <p>One manual entry disables the whole span rather than the one file it names. The alternative —
-         * rewrite what we can and leave the rest — is the half-migration the whole design refuses: the user
+         * <p>One unrepairable break disables the whole span rather than the file it sits in. The alternative
+         * — rewrite what we can and leave the rest — is the half-migration the whole design refuses: the user
          * would be left with a project that is neither the old shape nor the new one, and no way to tell
          * which call sites were touched.
          */
         public boolean canMigrate() {
-            return problems.isEmpty() && manual().isEmpty() && !automatic().isEmpty();
+            return problems.isEmpty() && unrepairable().isEmpty() && !breaks.isEmpty();
         }
 
         /** True when the scan ran cleanly and found nothing that would stop this bot compiling. */
         public boolean nothingBreaks() {
-            return breaks.isEmpty() && migrations.isEmpty() && problems.isEmpty();
+            return breaks.isEmpty() && problems.isEmpty();
         }
 
         /** True when the scan could not answer the question, whatever the other lists say. */
@@ -347,13 +378,14 @@ public final class SdkUpgradeService {
         List<Call> calls = callsIn(known, fieldOwners(before, after), problems);
         // Reads problems too — a migrations file this Studio is too old for adds a line here, and does it
         // before the list is frozen.
-        List<Migration> migrations = migrations(newJar, from, to, problems);
+        Renames declared = renames(newJar, from, to, problems);
+        Pairing pairing = Pairing.of(before, after, declared);
 
         return new Report(from, to,
                 additions(before, after),
-                deprecations(after, calls),
-                breaks(before, after, calls),
-                resolveNames(migrations, calls),
+                deprecations(before, after, calls, pairing),
+                breaks(before, after, calls, pairing),
+                renameList(newJar, from, to),
                 List.copyOf(problems));
     }
 
@@ -372,10 +404,11 @@ public final class SdkUpgradeService {
      * failed upgrade leaves a project that still compiles against the version it already had.
      *
      * <p>{@code repairSources} is {@link Report#canMigrate()}, and it gates the middle step only. A span
-     * carrying one change no rewrite can express still has to be <em>switchable</em>: the user reads the manual
-     * notes, makes those edits themselves, and moves. Refusing the whole button in that case would be a trap
-     * with no way out, since the SDK goes on declaring that entry forever. What it must never do is repair
-     * half of the span, which is why the flag is all-or-nothing rather than per entry.
+     * carrying a removed type nothing pairs with still has to be <em>switchable</em>: the user reads which
+     * type it is and where they use it, makes those edits themselves, and moves. Refusing the whole button in
+     * that case would be a trap with no way out, since the target jar goes on lacking that type forever. What
+     * it must never do is repair half of the span, which is why the flag is all-or-nothing rather than per
+     * break.
      */
     public CompletableFuture<Void> apply(String targetVersion, boolean repairSources) {
         return CompletableFuture
@@ -394,8 +427,11 @@ public final class SdkUpgradeService {
     }
 
     /**
-     * Runs every automatic repair the target declares over the project's own files, or throws saying why it
-     * will not. An SDK that declares nothing is not an error — most upgrades break nothing.
+     * Repairs the project's own files against the target jar, or throws saying why it will not. An upgrade
+     * that breaks nothing is not an error — most of them don't.
+     *
+     * <p>Everything it needs it works out again from the two jars: the report the user read is a value, and a
+     * value that crossed a dialog and an FX thread is not evidence about the files on disk right now.
      */
     private void migrateSources(String targetVersion) {
         String from = currentVersion();
@@ -407,21 +443,30 @@ public final class SdkUpgradeService {
         }
 
         List<String> problems = new ArrayList<>();
-        List<Migration> declared = migrations(newJar.get(), from, targetVersion, problems);
+        Renames declared = renames(newJar.get(), from, targetVersion, problems);
         if (!problems.isEmpty()) throw new IllegalStateException(problems.getFirst());
-        for (Migration migration : declared) {
-            if (!migration.isAutomatic()) {
-                throw new IllegalStateException("\"" + migration.member() + "\" has to be changed by hand, so "
-                        + "none of these changes were applied. Make it yourself, then upgrade.");
-            }
-        }
-        List<SdkMigrationRunner.Fix> fixes = declared.stream().map(SdkUpgradeService::fixOf).toList();
-        if (fixes.isEmpty()) return;
 
         Map<String, ApiClass> before = snapshot(oldJar.get());
         Map<String, ApiClass> after = snapshot(newJar.get());
         Set<String> known = new LinkedHashSet<>(before.keySet());
         known.addAll(after.keySet());
+        Map<String, List<String>> fieldOwners = fieldOwners(before, after);
+        Pairing pairing = Pairing.of(before, after, declared);
+
+        List<Call> calls = callsIn(known, fieldOwners, problems);
+        if (!problems.isEmpty()) throw new IllegalStateException(problems.getFirst());
+
+        List<Break> breaks = breaks(before, after, calls, pairing);
+        Break refused = breaks.stream().filter(b -> !b.isRepairable()).findFirst().orElse(null);
+        if (refused != null) {
+            throw new IllegalStateException("\"" + refused.type() + "\" is gone from SDK " + targetVersion
+                    + " and nothing in that release takes its place, so there is no value to stand in for it "
+                    + "where this bot writes the type itself. Change those " + refused.sites().size()
+                    + " place(s) by hand, then upgrade. Nothing has been changed.");
+        }
+
+        SdkMigrationRunner.Repairs repairs = repairsFor(before, after, calls, pairing);
+        if (repairs.isEmpty()) return;
 
         List<ProjectFile> editable = new ArrayList<>();
         List<ProjectFile> generated = new ArrayList<>();
@@ -433,8 +478,8 @@ public final class SdkUpgradeService {
                     .add(file);
         }
 
-        SdkMigrationRunner.Outcome outcome = SdkMigrationRunner.run(fixes, editable, generated,
-                known, fieldOwners(before, after), null, state);
+        SdkMigrationRunner.Outcome outcome = SdkMigrationRunner.run(repairs, editable, generated,
+                known, fieldOwners, null, state);
         if (outcome.isRefusal()) throw new IllegalStateException(outcome.refusal());
         try {
             CallMigrator.commit(outcome.files());
@@ -444,31 +489,74 @@ public final class SdkUpgradeService {
     }
 
     /**
-     * One declared repair, flattened for {@link SdkMigrationRunner}. The JSON stays here — the rewriter reads
-     * typed fields, so the file's grammar is known in one place rather than two.
+     * What the rewriter has to do, derived from the two jars and this bot's own call sites.
+     *
+     * <p>Only types this bot actually mentions are renamed: a file-wide rename is cheap but not free, and a
+     * project that never heard of {@code ImageClicker} should not have its files rewritten to themselves.
      */
-    private static SdkMigrationRunner.Fix fixOf(Migration migration) {
-        JsonNode options = migration.fix().options();
-        String[] parts = migration.member().split("#", 2);
-        List<Integer> order = new ArrayList<>();
-        for (JsonNode each : options.path("order")) order.add(each.asInt());
-        return new SdkMigrationRunner.Fix(migration.version(), parts[0], parts.length > 1 ? parts[1] : "",
-                migration.fix().arity(), migration.fix().kind(),
-                text(options, "to"), text(options, "toType"), options.path("index").asInt(-1),
-                List.copyOf(order), text(options, "value"), text(options, "import"));
+    private static SdkMigrationRunner.Repairs repairsFor(Map<String, ApiClass> before,
+                                                         Map<String, ApiClass> after,
+                                                         List<Call> calls, Pairing pairing) {
+        Map<String, SdkMigrationRunner.TypeRename> types = new LinkedHashMap<>();
+        Map<String, SdkMigrationRunner.MemberRename> members = new LinkedHashMap<>();
+        Map<String, SdkMigrationRunner.Removal> removals = new LinkedHashMap<>();
+
+        for (Call call : calls) {
+            ApiClass then = before.get(call.type());
+            if (then == null || !declares(then, call)) continue;
+
+            ApiClass now = pairing.pairedTo(then, after);
+            if (now == null) continue;                      // refused above; nothing to write
+            if (!now.simpleName().equals(then.simpleName())) {
+                types.putIfAbsent(then.simpleName(), new SdkMigrationRunner.TypeRename(
+                        then.name(), now.name()));
+            }
+
+            String member = pairing.memberName(then, call.member());
+            if (offers(now, member, call.argCount())) {
+                if (!member.equals(call.member())) {
+                    members.putIfAbsent(then.simpleName() + "#" + call.member(),
+                            new SdkMigrationRunner.MemberRename(then.simpleName(), call.member(), member));
+                }
+                continue;
+            }
+            removals.putIfAbsent(then.simpleName() + "#" + call.member() + "#" + call.argCount(),
+                    new SdkMigrationRunner.Removal(then.simpleName(), call.member(), call.argCount(),
+                            returnTypeOf(then, call)));
+        }
+        return new SdkMigrationRunner.Repairs(List.copyOf(types.values()), List.copyOf(members.values()),
+                List.copyOf(removals.values()));
     }
 
-    private static String text(JsonNode node, String field) {
-        JsonNode value = node.path(field);
-        return value.isMissingNode() || value.isNull() ? null : value.asText();
+    /**
+     * The type the old jar said this call gives back — the value the code around it was written for, and so
+     * the type whose default stands in when the member is gone. {@code void} for a call made for its effect,
+     * which is deleted rather than defaulted.
+     */
+    private static String returnTypeOf(ApiClass then, Call call) {
+        return then.byName().getOrDefault(call.member(), List.of()).stream()
+                .filter(m -> call.isField() ? m.field() : !m.field() && m.params().size() == call.argCount())
+                .map(ApiMember::type)
+                .findFirst()
+                // An arity nothing matched is a SIGNATURE_CHANGED break: any overload's type is a better
+                // guess than none, and they are usually the same.
+                .orElseGet(() -> then.byName().getOrDefault(call.member(), List.of()).stream()
+                        .map(ApiMember::type).findFirst().orElse("void"));
     }
 
     // =========================================================================
     // THE TWO JARS
     // =========================================================================
 
-    /** One public API class, reduced to what a compatibility question can be asked of. */
-    private record ApiClass(String simpleName, boolean deprecated,
+    /**
+     * One public API class, reduced to what a compatibility question can be asked of.
+     *
+     * <p>{@code apiId} is the {@code @ApiId} value, or null for a type that carries none — which is not a
+     * gap to be filled in but the signal itself: <b>absence of an id means this role is gone</b>, and a
+     * pairing can never be invented for it. Every type in v1.0.26 and earlier is in that position, which is
+     * what {@code migrations.json}'s rename list exists to cover.
+     */
+    private record ApiClass(String name, String simpleName, String apiId, boolean deprecated,
                             Map<String, List<ApiMember>> byName, Set<String> deprecatedNames) {
 
         /** Whether this class offers {@code name} as a field — an enum constant included. */
@@ -489,8 +577,13 @@ public final class SdkUpgradeService {
      * deprecation rule, the additions diff and the break diff each have one thing to consult. {@code field}
      * is what keeps a constant from being mistaken for a no-argument method — a distinction that matters
      * both ways round, since turning one into the other is itself a break.
+     *
+     * <p>{@code type} is what it gives back, written as source names it — the <b>old</b> jar's answer, since
+     * that is what the code around the call site was written for, and so what a default value standing in for
+     * a removed member has to be a default of. A constructor's is its own class: {@code new ImageTemplate(…)}
+     * yields an {@code ImageTemplate}.
      */
-    private record ApiMember(String name, List<String> params, boolean field) {
+    private record ApiMember(String name, String type, List<String> params, boolean field) {
         String signature() {
             if (field) return name;
             return (CTOR.equals(name) ? "" : name) + "(" + String.join(", ", params) + ")";
@@ -522,8 +615,11 @@ public final class SdkUpgradeService {
         for (MethodInfo mi : all) {
             if (!mi.isPublic() || mi.isSynthetic()) continue;
             String name = mi.isConstructor() ? CTOR : mi.getName();
+            String type = mi.isConstructor()
+                    ? ci.getSimpleName()
+                    : lastSegment(mi.getTypeSignatureOrTypeDescriptor().getResultType().toString());
             byName.computeIfAbsent(name, k -> new ArrayList<>())
-                    .add(new ApiMember(name, paramsOf(mi), false));
+                    .add(new ApiMember(name, type, paramsOf(mi), false));
             // A name counts as deprecated only when every overload carrying it is — same rule as
             // SdkSurfaceService, and for the same reason: the user reads a name, not an overload.
             (mi.hasAnnotation(Deprecated.class.getName()) ? deprecatedNames : liveNames).add(name);
@@ -533,12 +629,30 @@ public final class SdkUpgradeService {
         for (FieldInfo fi : ci.getFieldInfo()) {
             if (!fi.isPublic() || fi.isSynthetic()) continue;
             byName.computeIfAbsent(fi.getName(), k -> new ArrayList<>())
-                    .add(new ApiMember(fi.getName(), List.of(), true));
+                    .add(new ApiMember(fi.getName(), lastSegment(fi.getTypeDescriptor().toString()),
+                            List.of(), true));
             (fi.hasAnnotation(Deprecated.class.getName()) ? deprecatedNames : liveNames).add(fi.getName());
         }
         deprecatedNames.removeAll(liveNames);
-        return new ApiClass(ci.getSimpleName(), ci.hasAnnotation(Deprecated.class.getName()),
+        return new ApiClass(ci.getName(), ci.getSimpleName(), apiIdOf(ci),
+                ci.hasAnnotation(Deprecated.class.getName()),
                 Map.copyOf(byName), Set.copyOf(deprecatedNames));
+    }
+
+    /**
+     * The {@code @ApiId} value on a class, or null.
+     *
+     * <p>Read out of the bytecode by the ClassGraph scan {@code TypeSummaryManager} already runs with
+     * {@code enableAnnotationInfo()}. {@code ApiId} is {@code @Retention(CLASS)} rather than {@code RUNTIME}
+     * for exactly this: it never has to be reflected on at run time, only read off a jar that is not on any
+     * classpath.
+     */
+    private static String apiIdOf(ClassInfo ci) {
+        AnnotationInfo annotation = ci.getAnnotationInfo(API_ID);
+        if (annotation == null) return null;
+        Object value = annotation.getParameterValues(true).getValue("value");
+        String id = value == null ? "" : value.toString().trim();
+        return id.isEmpty() ? null : id;
     }
 
     /**
@@ -561,6 +675,79 @@ public final class SdkUpgradeService {
         Map<String, List<String>> out = new LinkedHashMap<>();
         owners.forEach((name, types) -> out.put(name, List.copyOf(types)));
         return Map.copyOf(out);
+    }
+
+    // =========================================================================
+    // PAIRING: WHICH TYPE IN THE NEW JAR IS THIS OLD ONE?
+    // =========================================================================
+
+    /**
+     * Which type in the target jar takes each old type's place, and what each member is now called.
+     *
+     * <p>Three answers, tried in order, and the order is the design:
+     *
+     * <ol>
+     *   <li><b>The same name.</b> Nothing moved; nothing to write.</li>
+     *   <li><b>The same {@code @ApiId}.</b> A rename that is <em>known</em> rather than declared, because both
+     *       releases spelled the id the same way. Nothing has to be remembered, which is the point — a rename
+     *       nobody wrote down is still a rename.</li>
+     *   <li><b>A declared rename</b> from {@code migrations.json}, composed across the span. The fallback for
+     *       what ids cannot reach: an old release that carries none, or an id retired on purpose.</li>
+     * </ol>
+     *
+     * <p>Then <b>unpaired</b>, which is an answer and not a failure. Absence of an id is the signal that the
+     * role is gone, and this must never invent a counterpart: a wrongly paired type is a bot that compiles and
+     * does something else.
+     *
+     * <p>An id pairs the <b>type name only</b>. Every member is still looked up individually on whatever this
+     * returns, so an id kept across a redesign that dropped half the class degrades to defaults and review
+     * marks rather than a silently wrong rewrite.
+     */
+    private record Pairing(Map<String, String> types, Renames declared) {
+
+        static Pairing of(Map<String, ApiClass> before, Map<String, ApiClass> after, Renames declared) {
+            Map<String, ApiClass> byId = new LinkedHashMap<>();
+            for (ApiClass now : after.values()) {
+                // First id wins. Two types sharing one id is the SDK breaking its own retire-never-reuse
+                // rule; picking either is a guess, and picking the first at least is a stable one.
+                if (now.apiId() != null) byId.putIfAbsent(now.apiId(), now);
+            }
+
+            Map<String, String> pairs = new LinkedHashMap<>();
+            for (ApiClass then : before.values()) {
+                if (after.containsKey(then.simpleName())) {
+                    pairs.put(then.simpleName(), then.simpleName());
+                    continue;
+                }
+                ApiClass byApiId = then.apiId() == null ? null : byId.get(then.apiId());
+                if (byApiId != null) {
+                    pairs.put(then.simpleName(), byApiId.simpleName());
+                    continue;
+                }
+                String renamed = declared.types().get(then.name());
+                ApiClass target = renamed == null ? null : after.get(lastSegment(renamed));
+                if (target != null) pairs.put(then.simpleName(), target.simpleName());
+            }
+            return new Pairing(Map.copyOf(pairs), declared);
+        }
+
+        /** The old type's counterpart in {@code after}, or null when nothing takes its place. */
+        ApiClass pairedTo(ApiClass then, Map<String, ApiClass> after) {
+            String name = types.get(then.simpleName());
+            return name == null ? null : after.get(name);
+        }
+
+        /**
+         * What {@code member} of {@code then} is called in the target — itself, unless a rename says so.
+         *
+         * <p>The entry's {@code to} may name another type as well ({@code A#foo} → {@code B#bar}); only the
+         * member half is read here, because which type the site now writes is the type pairing's answer and
+         * having two sources for it is how they come to disagree.
+         */
+        String memberName(ApiClass then, String member) {
+            String renamed = declared.members().get(then.name() + "#" + member);
+            return renamed == null ? member : memberPart(renamed);
+        }
     }
 
     private static List<String> paramsOf(MethodInfo mi) {
@@ -648,12 +835,17 @@ public final class SdkUpgradeService {
     }
 
     /** Members this bot calls that the target marks {@code @Deprecated}. */
-    private static List<Deprecation> deprecations(Map<String, ApiClass> after, List<Call> calls) {
+    private static List<Deprecation> deprecations(Map<String, ApiClass> before, Map<String, ApiClass> after,
+                                                  List<Call> calls, Pairing pairing) {
         Map<String, List<CallSite>> sites = new LinkedHashMap<>();
         for (Call call : calls) {
-            ApiClass now = after.get(call.type());
+            ApiClass then = before.get(call.type());
+            // Through the pairing, so a renamed-but-deprecated type is still reported: the bot writes the old
+            // name, and looking that up in the new jar would find nothing and say nothing.
+            ApiClass now = then == null ? after.get(call.type()) : pairing.pairedTo(then, after);
             if (now == null) continue;
-            boolean deprecated = now.deprecated() || now.deprecatedNames().contains(call.member());
+            String member = then == null ? call.member() : pairing.memberName(then, call.member());
+            boolean deprecated = now.deprecated() || now.deprecatedNames().contains(member);
             if (deprecated) {
                 sites.computeIfAbsent(call.type() + "#" + call.member(), k -> new ArrayList<>()).add(call.site());
             }
@@ -668,12 +860,16 @@ public final class SdkUpgradeService {
     }
 
     /**
-     * Calls that would stop compiling. Only members the <em>old</em> jar actually had are judged: a call to
-     * something neither jar declares is the bot's own code (or an unindexed library), not a break this
-     * upgrade causes.
+     * Calls that would stop compiling, and what Studio will write in their place. Only members the
+     * <em>old</em> jar actually had are judged: a call to something neither jar declares is the bot's own code
+     * (or an unindexed library), not a break this upgrade causes.
+     *
+     * <p>A renamed type yields <b>two</b> findings where both apply — one {@link BreakKind#TYPE_RENAMED} for
+     * the type, and, for a member that also went, its own removal under the new type. That is the pairing rule
+     * made visible: the id paired the name, the members were still resolved one at a time.
      */
     private static List<Break> breaks(Map<String, ApiClass> before, Map<String, ApiClass> after,
-                                      List<Call> calls) {
+                                      List<Call> calls, Pairing pairing) {
         Map<String, Break> found = new LinkedHashMap<>();
         Map<String, List<CallSite>> sites = new LinkedHashMap<>();
 
@@ -683,45 +879,89 @@ public final class SdkUpgradeService {
             // this file's `Foo.NAME` was ever SDK, and vice versa.
             if (then == null || !declares(then, call)) continue;
 
-            ApiClass now = after.get(call.type());
+            ApiClass now = pairing.pairedTo(then, after);
+            if (now == null) {
+                record(found, sites, new Break(call.type(), "", BreakKind.TYPE_REMOVED, "",
+                        "nothing — this one has to be changed by hand", List.of()), call.site());
+                continue;
+            }
+            if (!now.simpleName().equals(then.simpleName())) {
+                record(found, sites, new Break(call.type(), "", BreakKind.TYPE_RENAMED,
+                        "now " + now.simpleName(),
+                        "every use of \"" + call.type() + "\" becomes \"" + now.simpleName() + "\"",
+                        List.of()), call.site());
+            }
+
+            String member = pairing.memberName(then, call.member());
+            if (offers(now, member, call.argCount())) continue;
+
             BreakKind kind;
             String detail = "";
-            if (now == null) {
-                kind = BreakKind.TYPE_REMOVED;
-            } else if (!declares(now, call)) {
+            if (!declares(now, call.isField(), member)) {
                 // Covers a field turned into a method (and the reverse) as well as an outright removal —
                 // every one of them stops this call site compiling.
                 kind = call.isField() ? BreakKind.FIELD_REMOVED : BreakKind.MEMBER_REMOVED;
-            } else if (call.isField() || acceptsArity(now, call.member(), call.argCount())) {
-                continue;
             } else {
                 kind = BreakKind.SIGNATURE_CHANGED;
-                detail = "was " + signatures(then, call.member()) + " — now " + signatures(now, call.member());
+                detail = "was " + signatures(then, call.member()) + " — now " + signatures(now, member);
             }
-
-            String key = call.type() + "#" + call.member() + "#" + kind;
-            found.putIfAbsent(key, new Break(call.type(), call.member(), kind, detail, List.of()));
-            sites.computeIfAbsent(key, k -> new ArrayList<>()).add(call.site());
+            record(found, sites, new Break(call.type(), call.member(), kind, detail,
+                    repairText(returnTypeOf(then, call)), List.of()), call.site());
         }
 
         return found.entrySet().stream()
                 .map(e -> {
                     Break b = e.getValue();
-                    return new Break(b.type(), b.member(), b.kind(), b.detail(), sorted(sites.get(e.getKey())));
+                    return new Break(b.type(), b.member(), b.kind(), b.detail(), b.repair(),
+                            sorted(sites.get(e.getKey())));
                 })
                 .sorted(Comparator.comparing(Break::display))
                 .toList();
     }
 
-    /** Whether {@code klass} offers this call's member in the shape the call site uses it. */
-    private static boolean declares(ApiClass klass, Call call) {
-        return call.isField() ? klass.declaresField(call.member()) : klass.declaresCallable(call.member());
+    private static void record(Map<String, Break> found, Map<String, List<CallSite>> sites,
+                               Break unsited, CallSite site) {
+        String key = unsited.type() + "#" + unsited.member() + "#" + unsited.kind();
+        found.putIfAbsent(key, unsited);
+        sites.computeIfAbsent(key, k -> new ArrayList<>()).add(site);
     }
 
-    private static boolean acceptsArity(ApiClass klass, String member, int argCount) {
-        // Arity, not types: without bindings the argument *types* at the call site are unknown, and claiming
-        // a break that isn't one is worse than missing one — the user can always compile.
-        // A field shares the map but has no parameter list at all, so it must not answer for arity 0.
+    /** What the user is told will stand in — the one sentence that says the model out loud. */
+    private static String repairText(String returnType) {
+        return "void".equals(returnType)
+                ? "the call is removed, and the function is marked for your review"
+                : "replaced with " + defaultTextOf(returnType) + ", and the function is marked for your review";
+    }
+
+    /** The default this type gets, spelled as the rewrite will spell it. Mirrors {@code InitializerFactory}. */
+    private static String defaultTextOf(String type) {
+        return switch (type) {
+            case "boolean" -> "false";
+            case "byte", "short", "int", "long", "float", "double", "char" -> "0";
+            case "String" -> "\"\"";
+            default -> "null";
+        };
+    }
+
+    /** Whether {@code klass} offers this call's member in the shape the call site uses it. */
+    private static boolean declares(ApiClass klass, Call call) {
+        return declares(klass, call.isField(), call.member());
+    }
+
+    private static boolean declares(ApiClass klass, boolean field, String member) {
+        return field ? klass.declaresField(member) : klass.declaresCallable(member);
+    }
+
+    /**
+     * Whether {@code klass} offers {@code member} in the exact shape a call site uses it — a field, or a
+     * callable taking that many arguments.
+     *
+     * <p>Arity, not types: without bindings the argument <em>types</em> at the call site are unknown, and
+     * claiming a break that isn't one is worse than missing one — the user can always compile. A field shares
+     * the map but has no parameter list at all, so it must not answer for arity 0.
+     */
+    private static boolean offers(ApiClass klass, String member, int argCount) {
+        if (argCount == SdkReferences.FIELD_READ) return klass.declaresField(member);
         return klass.byName().getOrDefault(member, List.of()).stream()
                 .anyMatch(m -> !m.field() && m.params().size() == argCount);
     }
@@ -746,21 +986,26 @@ public final class SdkUpgradeService {
     // =========================================================================
 
     /**
-     * The breaking changes the target jar declares, for every version in {@code (from, to]}.
+     * The renames the target jar declares, for every version in {@code (from, to]}, <b>composed</b> into one
+     * map per kind.
+     *
+     * <p>Composition rather than replay is the whole reason the version keys survived the deletion of the fix
+     * engine. A bot jumping 1.x → 3.0 has never run the 2.0 pass, so it still spells a twice-renamed member
+     * the 1.x way: {@code foo→bar} in 2.0 and {@code bar→baz} in 3.0 have to become the single fact
+     * {@code foo→baz} before anything is rewritten. Folding forward gets that, and gets the hard case free —
+     * {@code a→b} then {@code b→a} composes to the identity and is dropped, where re-running passes until
+     * nothing changed would loop forever on it.
      *
      * <p>When either bound is not a version {@link SemVer} understands — {@code 0.0.0-SNAPSHOT}, most often —
-     * every entry is returned rather than none. An over-long list is a nuisance; a silently empty one is the
-     * report saying "nothing to worry about" when the SDK author wrote down that there is.
-     *
-     * <p>Ordering is by version, ascending, then by member. That is not cosmetic: it is the order the
-     * migration must be <em>replayed</em> in — each version applied as its own pass over what the previous
-     * one produced — so the list the user reads and the list the rewriter walks are the same list.
+     * every version is folded in rather than none. Composing a rename the bot has already had applied costs
+     * nothing (the old name appears nowhere); missing one costs a file naming a class that is gone.
      */
-    private static List<Migration> migrations(Path targetJar, String from, String to, List<String> problems) {
+    private static Renames renames(Path targetJar, String from, String to, List<String> problems) {
         Optional<String> json = readJarEntry(targetJar, MIGRATIONS_ENTRY);
-        if (json.isEmpty()) return List.of();
+        if (json.isEmpty()) return Renames.NONE;
 
-        List<Migration> out = new ArrayList<>();
+        Map<String, String> types = new LinkedHashMap<>();
+        Map<String, String> members = new LinkedHashMap<>();
         try {
             JsonNode root = new ObjectMapper().readTree(json.get());
 
@@ -772,107 +1017,68 @@ public final class SdkUpgradeService {
                 problems.add("SDK " + to + " describes its changes in a newer format (schema " + schema
                         + "; this Studio reads " + MIGRATIONS_MAX_SCHEMA + "). Update Studio to see them and "
                         + "to have them applied for you.");
-                return List.of();
+                return Renames.NONE;
             }
 
-            JsonNode versions = root.path("versions");
-            versions.fieldNames().forEachRemaining(version -> {
-                if (!inRange(version, from, to)) return;
-                for (JsonNode entry : versions.path(version)) {
-                    out.add(migrationOf(version, entry));
-                }
-            });
+            for (Rename rename : declaredRenames(root, from, to)) {
+                compose(rename.from().contains("#") ? members : types, rename.from(), rename.to());
+            }
         } catch (Exception e) {
             problems.add("SDK " + to + " ships a migration file that could not be read (" + e.getMessage()
                     + "), so what it declares about this upgrade is unknown.");
+            return Renames.NONE;
+        }
+        return new Renames(Map.copyOf(types), Map.copyOf(members));
+    }
+
+    /**
+     * Folds {@code from → to} into a map that may already end at {@code from}: every key currently pointing
+     * at {@code from} is re-pointed at {@code to}, and a chain that comes back to its own start is dropped.
+     */
+    private static void compose(Map<String, String> map, String from, String to) {
+        for (Map.Entry<String, String> entry : map.entrySet()) {
+            if (entry.getValue().equals(from) && !entry.getKey().equals(from)) entry.setValue(to);
+        }
+        map.put(from, to);
+        map.entrySet().removeIf(entry -> entry.getKey().equals(entry.getValue()));
+    }
+
+    /**
+     * Every declared rename in {@code (from, to]}, ascending — the list the report shows and the order
+     * {@link #compose} has to see them in.
+     */
+    private static List<Rename> declaredRenames(JsonNode root, String from, String to) {
+        List<Rename> out = new ArrayList<>();
+        JsonNode versions = root.path("versions");
+        versions.fieldNames().forEachRemaining(version -> {
+            if (!inRange(version, from, to)) return;
+            for (JsonNode entry : versions.path(version)) {
+                String was = entry.path("from").asText("");
+                String now = entry.path("to").asText("");
+                if (!was.isBlank() && !now.isBlank()) out.add(new Rename(version, was, now));
+            }
+        });
+        out.sort(Comparator.comparing((Rename r) -> strip(r.version()), SdkUpgradeService::compareVersions)
+                .thenComparing(Rename::from));
+        return out;
+    }
+
+    /** The same list, for display — read again rather than threaded through, since it is only ever shown. */
+    private static List<Rename> renameList(Path targetJar, String from, String to) {
+        Optional<String> json = readJarEntry(targetJar, MIGRATIONS_ENTRY);
+        if (json.isEmpty()) return List.of();
+        try {
+            return declaredRenames(new ObjectMapper().readTree(json.get()), from, to);
+        } catch (Exception e) {
+            // Already reported as a problem by renames(); a second sentence saying the same thing is noise.
             return List.of();
         }
-        out.sort(Comparator.comparing((Migration m) -> strip(m.version()), SdkUpgradeService::compareVersions)
-                .thenComparing(Migration::member));
-        return List.copyOf(out);
     }
 
-    /**
-     * One entry, with the degradation rule applied: a {@code fix} whose {@code kind} this Studio does not
-     * know becomes a manual entry that still shows its summary. Never dropped — an entry silently skipped is
-     * a break the user is never told about, which is the one outcome worse than not repairing it.
-     */
-    private static Migration migrationOf(String version, JsonNode entry) {
-        String member = entry.path("member").asText("");
-        String summary = entry.path("summary").asText("");
-        JsonNode fix = entry.path("fix");
-
-        if (fix.isMissingNode() || fix.isNull()) {
-            return new Migration(version, member, summary, null, entry.path("manual").asText(""), false,
-                    List.of());
-        }
-
-        String kind = fix.path("kind").asText("");
-        if (!KNOWN_FIX_KINDS.contains(kind)) {
-            return new Migration(version, member, summary, null,
-                    "This Studio is too old to repair this one automatically (it does not know how to apply a "
-                            + "\"" + kind + "\" fix). Update Studio, or change these call sites by hand.",
-                    true, List.of());
-        }
-        int arity = entry.path("when").path("arity").asInt(-1);
-        return new Migration(version, member, summary, new Fix(kind, fix, arity), "", false, List.of());
-    }
-
-    /**
-     * Attaches each entry's call sites, resolved through the renames the earlier versions in the span perform.
-     *
-     * <p>The trail is the half of ordered replay that the <em>report</em> needs, and it is easy to leave out
-     * and impossible to notice missing. If 2.0.0 renames {@code foo} to {@code bar} and 3.0.0 then drops
-     * {@code bar}, the user upgrading straight from 1.x has a project that says {@code foo} everywhere: an
-     * entry naming {@code bar} would find nothing and quietly show no sites at all — the most confusing
-     * possible upgrade reporting a note about a name that appears nowhere.
-     *
-     * <p>So the versions are walked in the order they will be applied, each entry resolved against the trail
-     * built by the versions <em>before</em> it, and only then does that version's own rename join the trail.
-     * {@code migrations} has already sorted them ascending, which is the same order the rewriter walks.
-     */
-    private static List<Migration> resolveNames(List<Migration> migrations, List<Call> calls) {
-        Map<String, List<CallSite>> sites = new LinkedHashMap<>();
-        for (Call call : calls) {
-            sites.computeIfAbsent(call.key(), k -> new ArrayList<>()).add(call.site());
-            // A type-level entry — `renameType`, or a whole class withdrawn — names no member, and is keyed
-            // here as `Key#` so it collects every use of the type rather than none.
-            sites.computeIfAbsent(call.type() + "#", k -> new ArrayList<>()).add(call.site());
-        }
-
-        Map<String, String> spelledNow = new LinkedHashMap<>();
-        List<Migration> out = new ArrayList<>();
-        for (Migration migration : migrations) {
-            String declared = simpleKeyOf(migration.member());
-            String today = spelledNow.getOrDefault(declared, declared);
-            out.add(migration.withSites(sorted(sites.getOrDefault(today, List.of()))));
-
-            String after = renamedTo(migration, declared);
-            if (after != null) spelledNow.put(after, today);
-        }
-        return List.copyOf(out);
-    }
-
-    /** The key this entry's fix leaves behind, or null when it renames nothing this can follow. */
-    private static String renamedTo(Migration migration, String declared) {
-        if (!migration.isAutomatic()) return null;
-        String[] parts = declared.split("#", 2);
-        String type = parts[0];
-        String member = parts.length > 1 ? parts[1] : "";
-        JsonNode options = migration.fix().options();
-        return switch (migration.fix().kind()) {
-            case "renameMethod", "renameField" -> type + "#" + options.path("to").asText(member);
-            case "renameType" -> lastSegment(options.path("to").asText(type)) + "#" + member;
-            case "moveMember" -> lastSegment(options.path("toType").asText(type))
-                    + "#" + options.path("to").asText(member);
-            default -> null;
-        };
-    }
-
-    /** {@code com.botmaker.sdk.api.Key#ENTER} → {@code Key#ENTER} — what a call site is keyed by. */
-    private static String simpleKeyOf(String member) {
-        String[] parts = member.split("#", 2);
-        return lastSegment(parts[0]) + "#" + (parts.length > 1 ? parts[1] : "");
+    /** {@code com.botmaker.sdk.api.Key#ENTER} → {@code ENTER}; a name with no {@code #} is its own answer. */
+    private static String memberPart(String key) {
+        int hash = key.indexOf('#');
+        return hash < 0 ? key : key.substring(hash + 1);
     }
 
     private static String lastSegment(String name) {

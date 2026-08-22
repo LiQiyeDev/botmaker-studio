@@ -83,16 +83,6 @@ public final class SignatureMigration {
 
         /** A value that does not exist at this call yet: write {@code type}'s default. */
         record Fresh(SignatureType type) implements ArgumentEdit {}
-
-        /**
-         * A value written out as source — {@code Precision.TIGHT}, {@code 0}, {@code "left"} — importing
-         * {@code importFqn} (nullable) into whichever file receives it.
-         *
-         * <p>{@link Fresh} cannot express this and is not a near miss: it synthesises the default value of a
-         * <em>Studio palette</em> type, and what an SDK migration needs written into a call is whatever the SDK
-         * author decided, which is usually a constant of a type the palette has never heard of.
-         */
-        record Literal(String source, String importFqn) implements ArgumentEdit {}
     }
 
     /** What happens at one call site. */
@@ -110,16 +100,27 @@ public final class SignatureMigration {
         record ValueReplaced(CallSite site, SignatureType expected) implements CallChange {}
 
         /**
-         * The member still exists but on another type: {@code Tolerance.TIGHT} becomes
-         * {@code Precision.TIGHT}. {@code toType} is a fully-qualified name (so a package move is the same
-         * edit) and {@code newName} is null when the move keeps the member's own name.
+         * The member is gone, and a <em>literal</em> default of the type it used to give back stands in:
+         * {@code false}, {@code 0}, {@code ""} or {@code null}, and nothing else.
          *
-         * <p>This is the one shape a signature edit never produces — Studio's own refactorings move nothing
-         * between classes. It exists for the SDK's {@code migrations.json}, where two types collapsing into one
-         * is the commonest break there is, and it is a {@code CallChange} rather than something parallel so
-         * that {@link CallMigrator} keeps one entry point and one all-or-nothing refusal.
+         * <p>Deliberately not {@link ValueReplaced}, which asks the palette what a type's default is — and the
+         * palette answers {@code new Point()} for a type it can construct. That is right for a signature edit,
+         * where the type is one the editor offers and certainly exists, and wrong here, where the type is
+         * frequently the one that was just <em>removed</em>: {@code new Key()} names a class the target jar
+         * does not have, trading a missing method for a missing class. A literal always compiles.
          */
-        record MemberMoved(CallSite site, String toType, String newName) implements CallChange {}
+        record ValueDefaulted(CallSite site, String typeName) implements CallChange {}
+
+        /**
+         * The call stood as a line of its own and is removed outright, statement and all.
+         *
+         * <p>{@link ValueReplaced} cannot cover this and is not a near miss: it replaces the <em>expression</em>,
+         * which for a call made purely for its effect yields {@code 0;} — and for a {@code void} member there
+         * is no value to write at all. This is the one shape a signature edit never produces; it exists for an
+         * SDK upgrade, where a removed member is repaired by making the bot compile rather than by guessing at
+         * a replacement.
+         */
+        record CallDeleted(CallSite site) implements CallChange {}
     }
 
     /** A parameter the user removed that the body still refers to: it becomes a local of the same name. */

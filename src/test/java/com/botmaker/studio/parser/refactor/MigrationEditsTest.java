@@ -1,5 +1,6 @@
 package com.botmaker.studio.parser.refactor;
 
+import com.botmaker.studio.palette.SignatureType;
 import com.botmaker.studio.parser.EditContext;
 import com.botmaker.studio.parser.helpers.SourceParser;
 import com.botmaker.studio.parser.refactor.MethodReferences.CallSite;
@@ -31,7 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * The edit primitives an SDK migration is built out of, exercised on their own.
  *
  * <p>Nothing here reads a {@code migrations.json} or upgrades anything: this is the layer below that, where a
- * "rename this constant" or "this member lives on another class now" becomes characters in a file. Testing it
+ * "rename this constant" or "this one is gone, stand a default in" becomes characters in a file. Testing it
  * here rather than through the upgrade means a failure says which edit is wrong instead of which upgrade is.
  *
  * <p>Every test asserts the rewritten source <b>parses</b>. That is not ceremony — an edit that produces text
@@ -40,7 +41,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class MigrationEditsTest {
 
-    // --- literal arguments ---------------------------------------------------------------------------------
+    // --- arguments and defaults ----------------------------------------------------------------------------
 
     private static final String CALLER = """
             package test;
@@ -53,44 +54,66 @@ class MigrationEditsTest {
             """;
 
     @Test
-    void aLiteralArgumentCanBeWrittenFirstMiddleOrLast() {
-        for (int position = 0; position <= 2; position++) {
-            List<ArgumentEdit> edits = new ArrayList<>(List.of(new ArgumentEdit.Keep(0),
-                    new ArgumentEdit.Keep(1)));
-            edits.add(position, new ArgumentEdit.Literal("Precision.TIGHT",
-                    "com.botmaker.sdk.api.vision.Precision"));
+    void argumentsArePermutedByOriginAndDroppedByOmission() {
+        String swapped = rewrite(CALLER, unit -> new CallChange.Rewrite(callTo(unit, "find"), "find",
+                List.of(new ArgumentEdit.Keep(1), new ArgumentEdit.Keep(0))));
+        assertParses(swapped);
+        assertTrue(swapped.contains("find(3, \"target\")"), swapped);
 
-            String source = rewrite(CALLER, unit -> {
-                CallSite site = callTo(unit, "find");
-                return new CallChange.Rewrite(site, "find", List.copyOf(edits));
-            });
-
-            assertNotNull(source, "position " + position);
-            assertTrue(source.contains("Precision.TIGHT"), source);
-            assertTrue(source.contains("import com.botmaker.sdk.api.vision.Precision;"), source);
-            assertParses(source);
-        }
-        // And in the order asked for, not merely present.
-        String first = rewrite(CALLER, unit -> new CallChange.Rewrite(callTo(unit, "find"), "find",
-                List.of(new ArgumentEdit.Literal("Precision.TIGHT", null), new ArgumentEdit.Keep(0))));
-        assertTrue(first.contains("find(Precision.TIGHT, \"target\")"), first);
+        String dropped = rewrite(CALLER, unit -> new CallChange.Rewrite(callTo(unit, "find"), "find",
+                List.of(new ArgumentEdit.Keep(0))));
+        assertParses(dropped);
+        assertTrue(dropped.contains("find(\"target\")"), dropped);
     }
 
-    @Test
-    void aLiteralNeedingNoImportBringsNoneIn() {
-        String source = rewrite(CALLER, unit -> new CallChange.Rewrite(callTo(unit, "find"), "find",
-                List.of(new ArgumentEdit.Keep(0), new ArgumentEdit.Literal("0", null))));
+    // --- a member that is simply gone ----------------------------------------------------------------------
 
-        assertTrue(source.contains("find(\"target\", 0)"), source);
-        assertFalse(source.contains("import"), source);
+    /**
+     * The repair the SDK upgrade actually makes now: the value is gone, so the <em>type</em> the code around
+     * it expected supplies a default. Nothing is pointed at another member — that would be a guess whose
+     * failure mode is a bot that compiles and behaves differently.
+     */
+    @Test
+    void aRemovedMemberUsedAsAValueBecomesTheDefaultOfItsOldType() {
+        String usesTheResult = """
+                package test;
+
+                public class Bot {
+                    public void run() {
+                        boolean found = Vision.find("target", 3);
+                    }
+                }
+                """;
+        String source = rewrite(usesTheResult, unit -> new CallChange.ValueReplaced(callTo(unit, "find"),
+                SignatureType.kept("boolean")));
+
         assertParses(source);
+        assertTrue(source.contains("boolean found = false;"), source);
+        assertFalse(source.contains("Vision.find"), source);
     }
 
     @Test
-    void aLiteralThatIsNotAnExpressionRefusesTheWholeMigration() {
-        // The text comes out of a jar somebody else built, so this is input, not an invariant.
-        assertNull(rewrite(CALLER, unit -> new CallChange.Rewrite(callTo(unit, "find"), "find",
-                List.of(new ArgumentEdit.Literal("class Nope {}", null), new ArgumentEdit.Keep(1)))));
+    void aRemovedMemberOnALineOfItsOwnIsDeletedRatherThanDefaulted() {
+        // ValueReplaced would leave `0;` here, and for a void member there is no value to write at all.
+        String source = rewrite(CALLER, unit -> new CallChange.CallDeleted(callTo(unit, "find")));
+
+        assertParses(source);
+        assertFalse(source.contains("Vision.find"), source);
+        assertFalse(source.contains(";;"), "the statement goes whole, semicolon included:\n" + source);
+    }
+
+    @Test
+    void aDeletionOfSomethingThatIsNotAStatementRefusesRatherThanGuessing() {
+        String consumed = """
+                package test;
+
+                public class Bot {
+                    public void run() {
+                        System.out.println(Vision.find("target", 3));
+                    }
+                }
+                """;
+        assertNull(rewrite(consumed, unit -> new CallChange.CallDeleted(callTo(unit, "find"))));
     }
 
     // --- a renamed type ------------------------------------------------------------------------------------
@@ -203,72 +226,6 @@ class MigrationEditsTest {
         // A label has no import behind it, so none is touched and certainly none is written.
         assertTrue(source.contains("import static com.botmaker.sdk.api.Key.ESCAPE;"), source);
         assertEquals(1, source.lines().filter(line -> line.startsWith("import")).count(), source);
-    }
-
-    // --- a member that moved -------------------------------------------------------------------------------
-
-    @Test
-    void aConstantMovesToAnotherClassAndBringsItsImport() {
-        String source = rewrite(CONSTANT_USER, unit ->
-                new CallChange.MemberMoved(fieldAt(unit, "ENTER"), "com.botmaker.sdk.api.Button", null));
-
-        assertParses(source);
-        assertTrue(source.contains("Button.ENTER"), source);
-        assertTrue(source.contains("import com.botmaker.sdk.api.Button;"), source);
-    }
-
-    @Test
-    void aMoveMayRenameTheMemberAtTheSameTime() {
-        String source = rewrite(CONSTANT_USER, unit ->
-                new CallChange.MemberMoved(fieldAt(unit, "ENTER"), "com.botmaker.sdk.api.Button", "RETURN"));
-
-        assertParses(source);
-        assertTrue(source.contains("Button.RETURN"), source);
-    }
-
-    @Test
-    void aStaticallyImportedConstantMovesByRetargetingTheImport() {
-        String source = rewrite(CONSTANT_USER, unit ->
-                new CallChange.MemberMoved(fieldAt(unit, "ESCAPE"), "com.botmaker.sdk.api.Button", null));
-
-        assertParses(source);
-        assertTrue(source.contains("import static com.botmaker.sdk.api.Button.ESCAPE;"), source);
-        // The use is a bare name and stays one; the import is what carried the type.
-        assertTrue(source.contains("Object escape = ESCAPE;"), source);
-    }
-
-    @Test
-    void aMethodMovesToAnotherClass() {
-        String source = rewrite(CALLER, unit -> new CallChange.MemberMoved(callTo(unit, "find"),
-                "com.botmaker.sdk.api.vision.ImageFinder", "locate"));
-
-        assertParses(source);
-        assertTrue(source.contains("ImageFinder.locate(\"target\", 3)"), source);
-        assertTrue(source.contains("import com.botmaker.sdk.api.vision.ImageFinder;"), source);
-    }
-
-    @Test
-    void aCaseLabelCannotBeMovedToAnotherTypeAndSaysSoByRefusing() {
-        // The label's type is the switch expression's, written nowhere near the label — so there is no
-        // qualifier to retarget, and inventing one would compile against the wrong enum or not at all.
-        assertNull(rewrite(CONSTANT_USER, unit ->
-                new CallChange.MemberMoved(caseLabel(unit, "UP"), "com.botmaker.sdk.api.Axis", null)));
-    }
-
-    @Test
-    void aCallOnThisHasNoTypeToRetargetSoAMoveIsRefused() {
-        String bareCall = """
-                package test;
-
-                public class Bot {
-                    public void run() {
-                        find("target");
-                    }
-                }
-                """;
-        assertNull(rewrite(bareCall, unit ->
-                new CallChange.MemberMoved(callTo(unit, "find"), "com.botmaker.sdk.api.vision.ImageFinder",
-                        null)));
     }
 
     // --- harness -------------------------------------------------------------------------------------------

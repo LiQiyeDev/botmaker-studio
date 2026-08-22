@@ -106,20 +106,28 @@ there are three distinct relationships to keep straight:
   call sites: what's new, what the bot calls that is now deprecated, what the bot calls that is **gone**
   (file + line), and what the SDK declares about each break (`META-INF/botmaker/migrations.json`; the
   `summary` is the SDK author's sentence and is never paraphrased). Three things about it are load-bearing:
-  - **Every break the SDK ships declares its own repair, or says why it has none.** Each entry in
-    `migrations.json` carries exactly one of a `fix` (a `kind` from `SdkUpgradeService.KNOWN_FIX_KINDS`,
-    applied by `parser/refactor`) or a `manual` sentence. `Report.automatic()` / `Report.manual()` are the
-    two lists the dialog shows separately, because they ask different things of the user — one is a button,
-    the other is reading. **One manual entry disables the whole span** (`Report.canMigrate()`): rewriting
-    some call sites and leaving the rest is the half-migration `CallMigrator.rewriteOthers` returns `null`
-    to prevent.
+  - **The repair makes the bot compile; the user makes it correct.** A member the target no longer offers is
+    **not** pointed at another member — that was guessing, and a wrong guess yields a bot that compiles and
+    behaves differently. It gets a **literal default of the type the old jar said it returned**
+    (`CallMigrator.literalDefaultFor`: `false`, `0`, `""`, `null` — never `new Point()`, since the type is
+    often the one that was just removed), and a call standing as a **statement of its own is deleted**
+    (`CallChange.CallDeleted`), because `0;` is not a statement. The enclosing function is then marked for
+    review — Phase 3 of the plan, not landed yet.
+  - **`@ApiId` pairs types; `migrations.json` is renames only.** `SdkUpgradeService.Pairing` answers "which
+    type in the new jar takes this old one's place" in three steps: same name → same `@ApiId`
+    (`com.botmaker.sdk.api.ApiId`, CLASS-retained, read from the jar by the ClassGraph scan
+    `TypeSummaryManager` already runs) → a declared rename → **unpaired**. Unpaired is an answer, not a
+    failure: absence of an id *is* the signal the role is gone, and inventing a counterpart is the one
+    mistake that cannot be undone by review. An id pairs the **type name only** — members are still resolved
+    one at a time on whatever it returns, so an id kept across a redesign degrades to defaults plus review
+    marks. **A removed type with no pairing is the one break that refuses the upgrade**
+    (`BreakKind.TYPE_REMOVED`, `Break.isRepairable()` false): a default has nowhere to go in
+    `ImageTemplate t = …;`. It disables the whole span (`Report.canMigrate()`), because rewriting some call
+    sites and leaving the rest is the half-migration `CallMigrator.rewriteOthers` returns `null` to prevent.
   - **Studio is the version that lags**, so it degrades rather than guessing. A `schema` above
-    `MIGRATIONS_MAX_SCHEMA` is refused **whole** — one `problems()` line, no entries — since a grammar we do
-    not know is one we may *misread*; breaks are still reported, coming from the jar scan and needing no
-    file. An unknown `fix.kind` degrades that **one** entry to manual (summary still shown, `degraded()`
-    true so the dialog can say *"needs a newer Studio"* rather than *"no rewrite can express this"*) and
-    takes the span's auto-apply down with it. **Adding a `fix.kind` therefore does not bump `schema`** —
-    that graceful path is the entire point of having the rule.
+    `MIGRATIONS_MAX_SCHEMA` (2) is refused **whole** — one `problems()` line, no renames — since a grammar we
+    do not know is one we may *misread*; breaks are still reported, coming from the jar scan and needing no
+    file.
   - This replaced `mvn rewrite:run` against OpenRewrite recipes in 2026-08. OpenRewrite existed for one
     requirement — migrating with no Studio at all — and once that was withdrawn it bought nothing
     `CallMigrator` could not do. Note which way that cut: OpenRewrite type-attributes against the **old**
@@ -142,25 +150,22 @@ there are three distinct relationships to keep straight:
     Until 2026-08 none of this was read at all, so a release deleting `Key.ENTER` reported *"nothing breaks"*
     while the SDK's own `ApiRulesCheck` (whose member tags always included `field`) demanded a migration for
     it — CI and Studio disagreeing about what an API is.
-  - **What a `fix` is actually made of lives in `parser/refactor`, and each primitive can refuse.**
-    `ArgumentEdit.Literal(source, importFqn)` writes a value the SDK author chose (`Fresh` cannot — it
-    synthesises the default of a *palette* type); `CallChange.MemberMoved(site, toType, newName)` retargets
-    the type written at a call site, the one shape Studio's own refactorings never produce; and
+  - **The edit primitives live in `parser/refactor`, and each can refuse.** `CallChange.ValueDefaulted` and
+    `CallChange.CallDeleted` are the two an SDK upgrade produces and a signature edit never does;
     `CallMigrator.renameTypeIn` is deliberately **file-level, not per-site** — a type is also written in
     `Precision p;`, a cast and a type argument, none of which any call scan records, so renaming only the
     found sites leaves a file naming a class that is gone. `MethodReferences.CallSite` widened to hold a
     field reference (`arguments()` is simply empty), which is what lets one scan feed both the report and the
     rewrite. **Every primitive that cannot express its edit returns false and takes the whole migration down
-    with it** — a constant moved out from under a `case` label, or a call on `this` with no type to retarget.
-    That is the same all-or-nothing `rewriteOthers` already enforced for a rewrite that will not parse.
-  - **Applying is `parser/refactor/SdkMigrationRunner`, and it is ordered replay — never a fixpoint.** Each
-    version in `(from, to]` is one pass, ascending, over the source the previous pass produced. `foo→bar` in
-    2.0.0 then `bar→baz` in 3.0.0 composes for free, because the 3.0.0 pass re-scans and finds exactly the
-    name its own entry was written against. Re-running the whole set until nothing changes would instead
-    *loop forever* on `a→b` + `b→a`, a legal pair of releases; ordered replay gets it right (`a→b→a`, a
-    no-op) without noticing it was hard. **The report replays the names too** — `SdkUpgradeService.resolveNames`
-    keeps a rename trail so a 3.0.0 note about `baz` is shown against the line the file still spells `foo`.
-    Without it the most confusing upgrade there is would show a note pointing at a name appearing nowhere.
+    with it** — a removed `void` member in a one-line lambda body, or a constant used as a `case` label whose
+    enum cannot be told. That is the same all-or-nothing `rewriteOthers` already enforced for a rewrite that
+    will not parse.
+  - **Applying is `parser/refactor/SdkMigrationRunner`: one pass over composed facts, two sweeps per file.**
+    There is no replay. The version keys in `migrations.json` are **composed** before anything is written —
+    `foo→bar` (2.0) and `bar→baz` (3.0) fold into `foo→baz`, which is what a bot that has run neither pass
+    actually needs, and `a→b` + `b→a` folds to the identity and is dropped where a fixpoint loop would run
+    forever. Each file is then swept **members first, types second, with a re-parse between**: a removed
+    member of a renamed type is otherwise two `ASTRewrite` edits on one node, which it cannot express.
   - **One scanner, two readers: `parser/refactor/SdkReferences`.** The report asks it what the bot calls; the
     runner asks it the same question to know what to rewrite. Two scans would eventually disagree, and the
     disagreement's shape is the worst available — a dialog listing three call sites beside a button that
@@ -173,9 +178,12 @@ there are three distinct relationships to keep straight:
     build, not the SDK. When a fix targets something a scaffold file uses, the whole upgrade is refused with
     that sentence: it needs a newer Studio, not a cleverer rewrite.
   - **`apply(target, repairSources)` is snapshot → migrate → bump, and `repairSources` gates only the middle.**
-    A span with one manual entry must still be *switchable* — the user reads the note, makes that edit, moves —
-    because the SDK goes on declaring the entry forever, so refusing the button outright is a trap with no way
-    out. What it must never do is repair half a span, which is why the flag is per-upgrade, not per entry.
+    A span carrying a removed type nothing pairs with must still be *switchable* — the user reads which type
+    it is and where they use it, makes those edits, moves — because the target jar goes on lacking that type
+    forever, so refusing the button outright is a trap with no way out. What it must never do is repair half a
+    span, which is why the flag is per-upgrade, not per break. `migrateSources` re-derives everything from the
+    two jars rather than trusting the `Report` the dialog holds: a value that crossed a dialog and an FX
+    thread is not evidence about the files on disk right now.
 - **Studio generates bot projects that depend on the SDK.** `services/MavenService` writes each user
   project's `pom.xml` pinning `com.github.LiQiyeDev:botmaker-sdk` (default `SDK_FALLBACK_VERSION`;
   user-selectable in the project screen from JitPack's version list). That pin is independent of the version

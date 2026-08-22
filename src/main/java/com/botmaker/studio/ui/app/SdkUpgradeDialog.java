@@ -3,7 +3,6 @@ package com.botmaker.studio.ui.app;
 import com.botmaker.studio.services.SdkUpgradeService;
 import com.botmaker.studio.services.SdkUpgradeService.Break;
 import com.botmaker.studio.services.SdkUpgradeService.Deprecation;
-import com.botmaker.studio.services.SdkUpgradeService.Migration;
 import com.botmaker.studio.services.SdkUpgradeService.Report;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
@@ -197,8 +196,14 @@ public final class SdkUpgradeDialog {
                         ? "Nothing in the files that could be read."
                         : "Nothing — every SDK call in this bot still exists on " + r.to() + "."));
 
-        if (!r.manual().isEmpty()) {
-            reportBox.getChildren().add(section("What you have to change yourself", lines(r.manual(), true)));
+        if (!r.unrepairable().isEmpty()) {
+            List<String> byHand = new ArrayList<>();
+            for (Break b : r.unrepairable()) {
+                byHand.add(b.display() + " — no type in " + r.to() + " takes its place, and this bot writes "
+                        + "the name itself, so there is nothing to stand in for it.");
+                for (var site : b.sites()) byHand.add("        " + site);
+            }
+            reportBox.getChildren().add(section("What you have to change yourself", byHand));
         }
 
         List<String> deprecated = new ArrayList<>();
@@ -212,32 +217,20 @@ public final class SdkUpgradeDialog {
         reportBox.getChildren().add(section("What's new", r.added(),
                 "No new public API between " + r.from() + " and " + r.to() + "."));
 
-        if (!r.automatic().isEmpty()) {
-            reportBox.getChildren().add(automaticCard(r));
+        if (!r.renames().isEmpty()) {
+            reportBox.getChildren().add(section("Renamed in this range",
+                    r.renames().stream().map(x -> x.version() + " — " + x.display()).toList()));
         }
-    }
 
-    /**
-     * One line per entry, its summary indented under it; {@code withAction} adds the "what to do" line.
-     *
-     * <p>The call sites come last, and matter most on a manual entry: the sentence tells the user what to
-     * change, and these tell them where. They are the project's <em>current</em> spelling of the member even
-     * when an earlier version in the same span renames it — see {@code SdkUpgradeService.resolveNames}.
-     */
-    private static List<String> lines(List<Migration> migrations, boolean withAction) {
-        List<String> out = new ArrayList<>();
-        for (Migration m : migrations) {
-            out.add(m.member().isBlank() ? m.version() : m.version() + " — " + m.member());
-            if (!m.summary().isBlank()) out.add("        " + m.summary());
-            if (withAction && !m.manual().isBlank()) out.add("        → " + m.manual());
-            for (var site : m.sites()) out.add("        " + site);
+        if (!r.repairable().isEmpty()) {
+            reportBox.getChildren().add(repairCard(r));
         }
-        return out;
     }
 
     private static String describe(Break b) {
         return switch (b.kind()) {
             case TYPE_REMOVED -> " — the whole class is gone";
+            case TYPE_RENAMED -> " — " + b.detail();
             case MEMBER_REMOVED -> " — removed";
             case FIELD_REMOVED -> " — the constant is gone";
             case SIGNATURE_CHANGED -> " — " + b.detail();
@@ -245,22 +238,34 @@ public final class SdkUpgradeDialog {
     }
 
     /**
-     * What the SDK says Studio can repair for you, and whether the button below will actually do it.
+     * What Studio will write in place of each break, and whether the button below will actually do it.
+     *
+     * <p>It says the model out loud, because the model is the surprising part: the repair makes the bot
+     * <em>compile</em>, not behave the same. A member that is gone becomes a default value, a call made for
+     * its effect is deleted, and the function around it is marked for the user to go through afterwards.
+     * Promising more than that would be guessing — two members need not share a return type or any meaning.
      *
      * <p>There is deliberately no second Apply button here. The repair is not a separate operation the user
      * could run on its own — it happens between the snapshot and the pom bump, and running it without either
      * would leave a project rewritten for an SDK it does not yet pin. One button, one revert away.
      */
-    private Node automaticCard(Report r) {
-        Label heading = new Label("What Studio can change for you");
+    private Node repairCard(Report r) {
+        Label heading = new Label("What Studio will change for you");
         heading.setStyle("-fx-font-weight: bold;");
 
-        Label why = new Label("SDK " + r.to() + " ships a repair for each of these, so they can be applied to "
-                + "your call sites automatically.");
+        Label why = new Label("These are repaired so the bot compiles again — a renamed class is renamed "
+                + "everywhere, and anything that is simply gone is replaced by a default value (or deleted, "
+                + "where the call was a line of its own). That can leave the bot doing something different, "
+                + "so every function touched is marked for you to review afterwards.");
         why.setWrapText(true);
 
+        List<String> lines = new ArrayList<>();
+        for (Break b : r.repairable()) {
+            lines.add(b.display() + describe(b));
+            lines.add("        → " + b.repair());
+        }
         VBox card = new VBox(6, heading, why);
-        card.getChildren().add(section("", lines(r.automatic(), false)));
+        card.getChildren().add(section("", lines));
 
         Label note = new Label(r.canMigrate()
                 ? "\"Snapshot, repair & switch\" below does all of it: your project is committed to Project "
@@ -275,7 +280,7 @@ public final class SdkUpgradeDialog {
     }
 
     /**
-     * Why the whole span is off, not just the entry that caused it. One unrepairable change disables the
+     * Why the whole span is off, not just the break that caused it. One unrepairable change disables the
      * lot: rewriting some of the call sites and leaving the rest would produce a project in neither shape,
      * with nothing telling the user which half was touched.
      */
@@ -283,10 +288,8 @@ public final class SdkUpgradeDialog {
         if (r.isIncomplete()) {
             return "Some of this project could not be read, so nothing will be rewritten automatically.";
         }
-        boolean degraded = r.manual().stream().anyMatch(Migration::degraded);
-        return degraded
-                ? "Some of these changes need a newer Studio, so none of them will be applied automatically."
-                : "Some changes in this range have to be made by hand, so none will be applied automatically.";
+        return "A class this bot uses is gone with nothing to take its place, so none of these will be "
+                + "applied automatically. Change those uses by hand first.";
     }
 
     // -------------------------------------------------------------------------

@@ -17,6 +17,7 @@ import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.jdt.core.dom.ASTVisitor;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jdt.core.dom.Expression;
+import org.eclipse.jdt.core.dom.ExpressionStatement;
 import org.eclipse.jdt.core.dom.ImportDeclaration;
 import org.eclipse.jdt.core.dom.MethodInvocation;
 import org.eclipse.jdt.core.dom.QualifiedName;
@@ -133,6 +134,29 @@ public final class CallMigrator {
         return value == null ? ctx.ast().newNullLiteral() : value;
     }
 
+    /**
+     * A default for {@code typeName} that compiles whatever the type turns out to be: {@code false},
+     * {@code 0}, {@code ""} or {@code null}, and no imports.
+     *
+     * <p>Deliberately blunter than {@link #defaultFor}. That one asks the palette, which will happily answer
+     * {@code new Point()} — correct for a signature edit, where the type is one the editor offers and is
+     * certainly on the classpath, and wrong for an SDK upgrade, where the type is often the very one the new
+     * jar dropped. Naming a class that no longer exists trades a missing method for a missing class.
+     *
+     * <p>{@code null} for every reference type, including {@code List} and the boxed primitives. An empty
+     * list would sometimes be kinder and sometimes be a lie about what the bot used to do; {@code null} is
+     * uniformly honest, and the function it sits in is marked for review either way.
+     */
+    public static Expression literalDefaultFor(EditContext ctx, String typeName) {
+        String type = typeName == null ? "" : typeName.trim();
+        return switch (type) {
+            case "boolean" -> ctx.ast().newBooleanLiteral(false);
+            case "byte", "short", "int", "long", "float", "double", "char" -> ctx.ast().newNumberLiteral("0");
+            case "String", "java.lang.String" -> ctx.ast().newStringLiteral();
+            default -> ctx.ast().newNullLiteral();
+        };
+    }
+
     /** A {@code List<Point>} is a list; anything else is what the signature calls it. */
     private static ResolvedType resolvedOf(SignatureType type) {
         return type.described().filter(BotType.Choice::isList)
@@ -149,8 +173,22 @@ public final class CallMigrator {
                 ctx.rewriter().replace(replaced.site().node(), defaultFor(ctx, replaced.expected()), null);
                 yield true;
             }
+            case CallChange.ValueDefaulted defaulted -> {
+                ctx.rewriter().replace(defaulted.site().node(),
+                        literalDefaultFor(ctx, defaulted.typeName()), null);
+                yield true;
+            }
             case CallChange.Rewrite rewrite -> applyRewrite(ctx, rewrite);
-            case CallChange.MemberMoved moved -> applyMove(ctx, moved);
+            case CallChange.CallDeleted deleted -> {
+                // The site was only ever recorded as deleted because it *is* a statement; this re-checks
+                // rather than casting, because a refusal here is the difference between a whole migration
+                // abandoned cleanly and a ClassCastException out of a background thread.
+                if (!(deleted.site().node().getParent() instanceof ExpressionStatement statement)) {
+                    yield false;
+                }
+                ctx.rewriter().remove(statement, null);
+                yield true;
+            }
         };
     }
 
@@ -177,42 +215,6 @@ public final class CallMigrator {
             Expression argument = nodeFor(ctx, current, edit);
             if (argument == null) return false;
             arguments.insertLast(argument, null);
-        }
-        return true;
-    }
-
-    // --- a member that moved to another type ---------------------------------------------------------------
-
-    /**
-     * {@code Tolerance.TIGHT} → {@code Precision.TIGHT}: the type written at the site is replaced and the new
-     * one imported, with the member renamed too when the move renamed it.
-     *
-     * <p>Three shapes, three answers. A qualified use or a static call names its type at the site, so the
-     * qualifier is rewritten. A bare name reached through a static import names it in the import, so the
-     * <em>import</em> is retargeted and the use left alone. A {@code case} label names it nowhere — the type
-     * comes from the switch expression — so moving a constant out of an enum a switch is over cannot be
-     * repaired here at all, and this refuses rather than writing something that looks right and isn't.
-     *
-     * <p>The old import is deliberately left behind. Deciding it is now unused means checking the whole file
-     * for other uses of that type, and an unused import costs a warning, where a wrongly removed one costs a
-     * build.
-     */
-    private static boolean applyMove(EditContext ctx, CallChange.MemberMoved moved) {
-        CallSite site = moved.site();
-        String member = moved.newName() != null ? moved.newName() : nameOf(site);
-        if (member == null) return false;
-
-        if (site.node() instanceof SimpleName bare) {
-            if (isCaseLabel(bare)) return false;
-            return retargetStaticImport(ctx, bare.getIdentifier(), moved.toType(), member);
-        }
-        SimpleName owner = site.ownerNode();
-        if (owner == null) return false;
-        ctx.rewriter().set(owner, SimpleName.IDENTIFIER_PROPERTY, simpleNameOf(moved.toType()), null);
-        ctx.addImport(moved.toType());
-        SimpleName name = site.nameNode();
-        if (name != null && !name.getIdentifier().equals(member)) {
-            ctx.rewriter().set(name, SimpleName.IDENTIFIER_PROPERTY, member, null);
         }
         return true;
     }
@@ -260,11 +262,6 @@ public final class CallMigrator {
         ctx.addImport(toFqn);
     }
 
-    /** The member name written at a site — a call's or a field reference's, null for a {@code new}. */
-    private static String nameOf(CallSite site) {
-        return site.nameNode() == null ? null : site.nameNode().getIdentifier();
-    }
-
     private static boolean isCaseLabel(ASTNode node) {
         return node.getLocationInParent() == SwitchCase.EXPRESSIONS2_PROPERTY;
     }
@@ -274,14 +271,6 @@ public final class CallMigrator {
             if (n instanceof ImportDeclaration) return true;
         }
         return false;
-    }
-
-    /** Points the single-member static import of {@code member} at {@code toType#newName}. */
-    private static boolean retargetStaticImport(EditContext ctx, String member, String toType, String newName) {
-        ImportDeclaration imp = staticImportOf(ctx.cu(), member);
-        if (imp == null) return false;
-        ctx.rewriter().replace(imp.getName(), ctx.ast().newName(toType + "." + newName), null);
-        return true;
     }
 
     /** Renames the member in the static import that brought {@code member} in — false when there is none. */
@@ -329,24 +318,12 @@ public final class CallMigrator {
      *
      * <p>A copy, not the original node — the list it came from is being removed by the same rewrite, and a node
      * cannot be both removed and re-inserted.
-     *
-     * <p>Null when a {@link ArgumentEdit.Literal}'s text is not an expression, which refuses the migration.
-     * That text comes out of a migration file shipped in an SDK jar, so it is input, not something this code
-     * can assume well-formed.
      */
     private static Expression nodeFor(EditContext ctx, List<?> current, ArgumentEdit edit) {
         return switch (edit) {
             case ArgumentEdit.Keep keep ->
                     (Expression) ASTNode.copySubtree(ctx.ast(), (ASTNode) current.get(keep.from()));
             case ArgumentEdit.Fresh fresh -> defaultFor(ctx, fresh.type());
-            case ArgumentEdit.Literal literal -> {
-                Expression parsed = SourceParser.parseExpression(literal.source());
-                if (parsed == null) yield null;
-                if (literal.importFqn() != null && !literal.importFqn().isBlank()) {
-                    ctx.addImport(literal.importFqn());
-                }
-                yield (Expression) ASTNode.copySubtree(ctx.ast(), parsed);
-            }
         };
     }
 }

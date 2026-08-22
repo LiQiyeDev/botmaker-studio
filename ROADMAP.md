@@ -6,6 +6,24 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-22 — The repair inverts: pairing and default values replace the fix engine
+  (`services/SdkUpgradeService`, `parser/refactor/SdkMigrationRunner`, `CallMigrator`, `SignatureMigration`,
+  `ui/app/SdkUpgradeDialog`).** Same day as the entry below, and it deletes most of it. A `fix` pointing one
+  member at another was guessing — two members need not share a return type, an arity or any semantics — so
+  **the repair's job is now to make the bot compile and the user's to make it correct**: a member the target
+  no longer offers becomes a *literal* default of its old return type (`CallChange.ValueDefaulted` →
+  `CallMigrator.literalDefaultFor`), and a call standing as a line of its own is deleted
+  (`CallChange.CallDeleted`). Types are paired by **`@ApiId`** read out of both jars, then by a declared
+  rename, then not at all — and *not at all* is the answer, never a guess. `migrations.json` is renames only
+  (schema 2), **composed** across versions rather than replayed. Gone with it: `SdkMigrationRunner.Fix` and
+  the seven kinds, `KNOWN_FIX_KINDS`, `Migration`/`Fix`/`degraded`, `resolveNames` and the rename trail,
+  `CallChange.MemberMoved`, `ArgumentEdit.Literal`. One break still refuses the upgrade — a removed type with
+  no pairing, since a default has nowhere to go in `ImageTemplate t = …;`. Two bugs the tests caught and the
+  design would not have: the palette's default for an unknown object type is `new Key()`, which names the
+  class that was just deleted; and a renamed type whose member also went is two `ASTRewrite` edits on one
+  node, so each file is swept members-then-types with a re-parse between. **Still owed: the `@NeedsReview`
+  mark** that makes the defaults reviewable — phases 3–5 of the plan.
+
 - **2026-08-22 — *Upgrade SDK…* now repairs the bot, not just describes it (`parser/refactor/SdkMigrationRunner`,
   `parser/refactor/SdkReferences`, `services/SdkUpgradeService`, `ui/app/SdkUpgradeDialog`).** Dropping
   OpenRewrite removed the only thing that ever *executed* a migration, which is what made the applier
