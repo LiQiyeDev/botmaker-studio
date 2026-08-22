@@ -157,7 +157,12 @@ class TypeSummaryManagerCacheTest {
         Path cache = TypeSummaryManager.getCacheFileForJar(jar.toString());
         assertTrue(Files.exists(cache), "no cache written at " + cache);
         assertTrue(Files.size(cache) > 0);
-        assertEquals("fixture-1.0.jar.json", cache.getFileName().toString());
+        // The jar's own name, a format marker, then .json. The marker is asserted loosely on purpose: it is
+        // bumped whenever the scan configuration changes (see TypeSummaryManager.CACHE_FORMAT), and pinning
+        // it here would turn a deliberate cache invalidation into a red test every time.
+        String name = cache.getFileName().toString();
+        assertTrue(name.startsWith("fixture-1.0.jar."), "cache is keyed by the jar's name, was " + name);
+        assertTrue(name.endsWith(".json"), "cache is ClassGraph JSON, was " + name);
     }
 
     /**

@@ -91,6 +91,62 @@ public class DiagnosticsManager {
         return issues;
     }
 
+    /**
+     * Answers "is {@code className.method} deprecated in this project's SDK?". Injected by {@code BotProject}
+     * from {@code services/SdkSurfaceService} rather than depended on directly, so this package keeps knowing
+     * nothing about Maven, jars or ClassGraph — and so a headless test gets the null default, which reports
+     * nothing.
+     */
+    private java.util.function.BiPredicate<String, String> deprecationProbe;
+
+    public void setDeprecationProbe(java.util.function.BiPredicate<String, String> probe) {
+        this.deprecationProbe = probe;
+    }
+
+    /**
+     * One {@link DiagnosticSeverity#Warning} per call site whose SDK method is {@code @Deprecated} — the
+     * project-wide view of what the struck-through method names on the blocks are each saying individually.
+     *
+     * <p><b>Advisory, never blocking.</b> These are deliberately <em>not</em> returned from
+     * {@link #validateBlocks()}: that list aborts the run, and a deprecated call compiles and runs perfectly
+     * well today. The whole point of the deprecation cycle is that the user gets a release of warning while
+     * everything still works ({@code docs/refactor/21-api-compat.md}); turning it into a refusal would take
+     * that away.
+     *
+     * <p>Only qualified calls on an SDK facade are considered — {@code Wait.seconds(1)}, never a bare
+     * {@code foo()} — because the receiver is what identifies the class without a binding, and blocks are
+     * re-parsed often enough that waiting for bindings would make this flicker.
+     */
+    public List<Diagnostic> deprecationWarnings() {
+        List<Diagnostic> out = new ArrayList<>();
+        if (deprecationProbe == null || nodeToBlockMap == null || sourceCode == null) return out;
+        Set<ASTNode> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (ASTNode root : nodeToBlockMap.keySet()) {
+            root.accept(new org.eclipse.jdt.core.dom.ASTVisitor() {
+                @Override
+                public boolean visit(org.eclipse.jdt.core.dom.MethodInvocation node) {
+                    if (!(node.getExpression() instanceof org.eclipse.jdt.core.dom.SimpleName receiver)) return true;
+                    String className = receiver.getIdentifier();
+                    if (!com.botmaker.studio.palette.SdkType.isFacadeClass(className)) return true;
+                    String method = node.getName().getIdentifier();
+                    if (!deprecationProbe.test(className, method)) return true;
+                    // The same invocation is reachable from several map keys (a block and its parent block);
+                    // identity-dedupe so the Errors panel shows one row per call, not one per owner.
+                    if (!seen.add(node)) return true;
+                    int start = node.getStartPosition();
+                    Diagnostic d = new Diagnostic();
+                    d.setSeverity(DiagnosticSeverity.Warning);
+                    d.setRange(new Range(positionOf(start), positionOf(start + node.getLength())));
+                    d.setMessage(className + "." + method + "() is deprecated and will be removed in a future"
+                            + " SDK version. It still works — open the block's ? for the replacement.");
+                    out.add(d);
+                    return true;
+                }
+            });
+        }
+        return out;
+    }
+
     /** Inverse of {@link #getOffsetFromPosition}: source character offset → LSP (line, character) position. */
     private Position positionOf(int offset) {
         if (sourceCode == null || offset < 0) return new Position(0, 0);

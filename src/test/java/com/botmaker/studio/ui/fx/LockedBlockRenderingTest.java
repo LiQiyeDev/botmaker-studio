@@ -101,7 +101,7 @@ class LockedBlockRenderingTest extends FxHeadlessTest {
 
         CodeEditorService context = new CodeEditorService(
                 CONFIG, state, bus, converter, dnd, null,
-                new com.botmaker.studio.suggestions.ProjectAnalyzer(null, state), null);
+                new com.botmaker.studio.suggestions.ProjectAnalyzer(null, state), null, null);
         return new Rendered(result.root(), context, state);
     }
 

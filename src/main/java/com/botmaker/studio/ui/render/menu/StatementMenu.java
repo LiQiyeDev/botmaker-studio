@@ -98,6 +98,12 @@ public final class StatementMenu {
         }
 
         // Default: one submenu per SDK facade class (in SdkType order), enumerating that class's static methods.
+        //
+        // Gating on THIS bot's SDK is already implicit here and must stay so: sdkFacadeSubmenu returns null
+        // when the facade resolves no methods, and the analyzer resolves against the bot's own jar — so a
+        // class its SDK doesn't have contributes nothing. An explicit SdkSurfaceService filter would be a
+        // second answer to the same question, from the same jar. Do not add one; do not "optimize away" the
+        // null return, which is the gate.
         for (SdkType facade : SdkType.MENU_FACADES) {
             Menu sub = sdkFacadeSubmenu(facade, analyzer, onSelection);
             if (sub != null) menu.getItems().add(sub);

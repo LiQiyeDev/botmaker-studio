@@ -22,6 +22,7 @@ import com.botmaker.studio.types.SlotFit;
 import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.palette.FunctionDraft;
 import com.botmaker.studio.palette.SdkDocs;
+import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
 import com.botmaker.studio.ui.dnd.DropInfo;
 import com.botmaker.studio.ui.dnd.ExpressionDropInfo;
@@ -64,6 +65,7 @@ public class CodeEditorService {
     private final HistoryManager historyManager;
     private final ProjectAnalyzer projectAnalyzer;
     private final SdkDocsService sdkDocsService;
+    private final SdkSurfaceService sdkSurfaceService;
 
     /** Cache of the last rendered block-tree root, exposed via {@link #getRootBlock()} for the overlay editor. */
     private AbstractCodeBlock lastRootBlock;
@@ -75,7 +77,8 @@ public class CodeEditorService {
             BlockConverter blockConverter,
             BlockDragAndDropManager dragAndDropManager,
             DiagnosticsManager diagnosticsManager, ProjectAnalyzer projectAnalyzer,
-            SdkDocsService sdkDocsService) {
+            SdkDocsService sdkDocsService,
+            SdkSurfaceService sdkSurfaceService) {
         this.config = config;
         this.state = state;
         this.eventBus = eventBus;
@@ -84,6 +87,7 @@ public class CodeEditorService {
         this.diagnosticsManager = diagnosticsManager;
         this.projectAnalyzer = projectAnalyzer;
         this.sdkDocsService = sdkDocsService;
+        this.sdkSurfaceService = sdkSurfaceService;
         this.historyManager = new HistoryManager(this::restoreFiles);
         this.codeEditor = new CodeEditor(config, state, eventBus, projectAnalyzer);
         setupEventHandlers();
@@ -99,6 +103,31 @@ public class CodeEditorService {
     /** SDK method documentation (summaries + param docs), parsed from the resolved SDK sources jar.
      *  {@link SdkDocs#EMPTY} while loading or when no docs service is wired (headless tests). */
     public SdkDocs getSdkDocs() { return sdkDocsService == null ? SdkDocs.EMPTY : sdkDocsService.current(); }
+
+    // -----------------------------------------------------------------------------------------------------
+    // This project's SDK surface. Nullable (headless tests wire no such service), so the three questions the
+    // blocks actually ask are answered here rather than at ~10 call sites that would each have to remember
+    // which way "unknown" falls. Presence answers optimistically, deprecation answers negatively — a probe
+    // that isn't there must never hide a block, and must never strike one through either.
+    // -----------------------------------------------------------------------------------------------------
+
+    /** This project's SDK surface, or {@code null} when none is wired. Prefer the three helpers below. */
+    public SdkSurfaceService getSdkSurface() { return sdkSurfaceService; }
+
+    /** The menu facades this project's SDK actually has — {@link SdkType#MENU_FACADES} when unknown. */
+    public List<SdkType> sdkMenuFacades() {
+        return sdkSurfaceService == null ? SdkType.MENU_FACADES : sdkSurfaceService.menuFacades();
+    }
+
+    /** The facade class names this project's SDK actually has — {@link SdkType#FACADE_NAMES} when unknown. */
+    public List<String> sdkFacadeNames() {
+        return sdkSurfaceService == null ? SdkType.FACADE_NAMES : sdkSurfaceService.facadeNames();
+    }
+
+    /** True when {@code className.member} is {@code @Deprecated} in this project's SDK. False when unknown. */
+    public boolean isSdkMemberDeprecated(String className, String member) {
+        return sdkSurfaceService != null && sdkSurfaceService.isMemberDeprecated(className, member);
+    }
 
     private void setupEventHandlers() {
         // Both of the code-refresh subscriptions below adopt the new text into ProjectState *now* and defer only

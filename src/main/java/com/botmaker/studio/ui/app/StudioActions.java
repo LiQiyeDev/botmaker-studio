@@ -176,7 +176,12 @@ final class StudioActions {
         new GalleryDialog(primaryStage, gallery, botInstaller, gitHubAuth, gitHubClient).show();
     }
 
-    private void openManageLibraries() {
+    /**
+     * Public because the SDK-floor banner on the canvas offers it too, not only the Project menu — that
+     * banner exists precisely to send the user here, and routing it through the menu callback would mean the
+     * banner could silently stop working if the wiring changed. Same reason {@code openProjectSetup} is public.
+     */
+    public void openManageLibraries() {
         new ManageLibrariesDialog(primaryStage, libraryService, mavenCentralSearch, jitPackSearch).show();
     }
 

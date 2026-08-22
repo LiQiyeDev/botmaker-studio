@@ -6,6 +6,7 @@ import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.LibraryService;
 import com.botmaker.studio.services.ProjectSettingsService;
+import com.botmaker.studio.services.SdkSurfaceService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
 import com.botmaker.studio.validation.DiagnosticsManager;
@@ -37,6 +38,7 @@ public record StudioContext(ProjectConfig config,
                             LibraryService libraryService,
                             ActivityService activityService,
                             ProjectSettingsService projectSettingsService,
+                            SdkSurfaceService sdkSurfaceService,
                             CodeEditorService codeEditorService,
                             CodeExecutionService codeExecutionService) {
 }

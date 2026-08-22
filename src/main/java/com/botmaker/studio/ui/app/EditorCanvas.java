@@ -4,6 +4,8 @@ import com.botmaker.studio.core.CodeBlock;
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.services.CodeEditorService;
+import com.botmaker.studio.services.MavenService;
+import com.botmaker.studio.services.SdkSurfaceService;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
 import com.botmaker.studio.ui.dnd.BlockEvent;
 import javafx.application.Platform;
@@ -41,9 +43,12 @@ final class EditorCanvas {
      * @param readerMode        renders without controls, under a banner offering the switch to Editor mode
      * @param projectName       named in that banner
      * @param onSwitchToEditor  the banner's button
+     * @param sdkSurface        this project's SDK surface; a version below the floor adds a second banner
+     * @param onUpgradeSdk      that banner's button — Manage Libraries, where the version is actually changed
      */
     EditorCanvas(CodeEditorService codeEditorService, EventBus eventBus,
-                 boolean readerMode, String projectName, Runnable onSwitchToEditor) {
+                 boolean readerMode, String projectName, Runnable onSwitchToEditor,
+                 SdkSurfaceService sdkSurface, Runnable onUpgradeSdk) {
         this.codeEditorService = codeEditorService;
         this.eventBus = eventBus;
 
@@ -74,6 +79,11 @@ final class EditorCanvas {
         if (readerMode) {
             blocksContainer.getStyleClass().add("reader-mode");
             column.getChildren().addFirst(readerBanner(projectName, onSwitchToEditor));
+        }
+        // Below the floor: say so once, above everything, and let the project open anyway. Added last so it
+        // lands above the Reader banner when a project is both — the SDK is the more actionable of the two.
+        if (sdkSurface != null && sdkSurface.isBelowMinimum()) {
+            column.getChildren().addFirst(sdkFloorBanner(sdkSurface.sdkVersion(), onUpgradeSdk));
         }
     }
 
@@ -152,6 +162,29 @@ final class EditorCanvas {
         HBox banner = new HBox(10, msg, spacer, toEditor);
         banner.setAlignment(Pos.CENTER_LEFT);
         banner.getStyleClass().add("reader-banner");
+        return banner;
+    }
+
+    /**
+     * The "this bot pins an SDK older than Studio supports" banner.
+     *
+     * <p>Deliberately <em>not</em> a modal, a refusal, or a red error. The bot compiles and runs exactly as it
+     * did yesterday; what it loses is that Studio's palette is a superset of what its jar has, so some blocks
+     * it offers would not compile. That is worth one line above the canvas and nothing more — a Studio that
+     * won't open an old project is strictly worse than one that mentions it.
+     */
+    private static HBox sdkFloorBanner(String version, Runnable onUpgradeSdk) {
+        Label msg = new Label("This bot uses SDK " + version + ", older than the "
+                + MavenService.MIN_SDK_VERSION + " this Studio is built for. It still runs — but some blocks"
+                + " in the palette may not compile against it.");
+        msg.setWrapText(true);
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        Button upgrade = new Button("Upgrade SDK…");
+        upgrade.setOnAction(e -> onUpgradeSdk.run());
+        HBox banner = new HBox(10, msg, spacer, upgrade);
+        banner.setAlignment(Pos.CENTER_LEFT);
+        banner.getStyleClass().add("sdk-floor-banner");
         return banner;
     }
 }

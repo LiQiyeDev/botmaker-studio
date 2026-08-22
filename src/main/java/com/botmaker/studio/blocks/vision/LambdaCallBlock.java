@@ -151,7 +151,10 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
         }
         ComboBox<String> selector = new ComboBox<>();
         selector.getStyleClass().add("sdk-class-selector");
-        selector.getItems().addAll(SdkType.FACADE_NAMES);
+        // Restricted to the facades this bot's own SDK has — offering it a class its jar lacks turns a
+        // one-click rewrite into a call that cannot compile. The current facade is re-added below regardless,
+        // so a call already pointing somewhere unknown still shows what it says.
+        selector.getItems().addAll(context.sdkFacadeNames());
         if (!selector.getItems().contains(facade)) selector.getItems().add(0, facade);
         selector.setValue(facade);
         selector.getStyleClass().add("block-selector");

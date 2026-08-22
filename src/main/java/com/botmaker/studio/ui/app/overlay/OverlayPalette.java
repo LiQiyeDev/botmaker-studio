@@ -60,7 +60,10 @@ final class OverlayPalette {
     /** The bar itself: a caption over the wrapping row of facade chips and the ＋ Add block button. */
     VBox node() {
         FlowPane chips = new FlowPane(6, 6);
-        for (SdkType facade : SdkType.MENU_FACADES) {
+        // This project's SDK, not Studio's: a chip for a facade the bot's jar doesn't have would open onto
+        // "(SDK not indexed yet)" — a message about the wrong thing entirely — and offer a call that cannot
+        // compile. Falls back to the full set when the surface is unknown (see CodeEditorService).
+        for (SdkType facade : context.sdkMenuFacades()) {
             chips.getChildren().add(facadeMenuButton(facade));
         }
         Button addBlock = new Button("＋ Add block");

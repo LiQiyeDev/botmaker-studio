@@ -21,6 +21,7 @@ import com.botmaker.studio.ui.render.menu.MenuComponents;
 import com.botmaker.studio.util.MethodSignature;
 import com.botmaker.studio.types.ResolvedType;
 import javafx.scene.Node;
+import javafx.scene.control.Tooltip;
 import javafx.scene.control.*;
 import javafx.scene.layout.HBox;
 import javafx.stage.Window;
@@ -147,7 +148,10 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
             // class's first method) — the AST rewrite then re-renders the block.
             ComboBox<String> classSelector = new ComboBox<>();
             classSelector.getStyleClass().add("sdk-class-selector");
-            classSelector.getItems().addAll(SdkType.FACADE_NAMES);
+            // This bot's SDK, not Studio's — see CodeEditorService.sdkFacadeNames(). The call's own class is
+            // re-added just below when it isn't in the list, so switching away from a facade the jar no longer
+            // has is possible while switching *to* one it never had is not.
+            classSelector.getItems().addAll(context.sdkFacadeNames());
             if (!classSelector.getItems().contains(fixedScopeName)) {
                 classSelector.getItems().add(0, fixedScopeName);
             }
@@ -240,10 +244,13 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
             sentenceBuilder.addNode(sdkBadge);
         }
 
+        Node methodNode = isReadOnly() ? staticValueLabel(methodName) : methodSelector;
+        markIfDeprecated(methodNode, context, currentScopeGetter);
+
         sentenceBuilder
                 .addNode(scopeNode)
                 .addLabel(".")
-                .addNode(isReadOnly() ? staticValueLabel(methodName) : methodSelector);
+                .addNode(methodNode);
 
         if (!isReadOnly()) {
             // Both of these rewrite the call, so a locked block gets neither. The info button below stays: it
@@ -767,6 +774,35 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
      * current method — a click-open popover with the method summary and per-parameter descriptions. SDK-only
      * for now (the generic call path has no doc source); no-op when nothing is documented.
      */
+    /**
+     * Strikes {@code methodNode} through and explains why, when the call names a method this project's SDK
+     * marks {@code @Deprecated}. Nothing is blocked: the call still compiles and still runs — this is the one
+     * release of notice the API contract owes the user before the method goes
+     * ({@code docs/refactor/21-api-compat.md}), and it is the only place they would ever see it.
+     *
+     * <p>The <em>fact</em> comes from bytecode ({@code SdkSurfaceService}); the <em>replacement</em> from the
+     * {@code @deprecated} Javadoc of the bot's own sources jar ({@code SdkDocs}). Either can be missing — an
+     * annotated method with no note still strikes through with a generic tooltip, and a note with no
+     * annotation says nothing at all, because the compiler is what the user will ultimately answer to.
+     */
+    private void markIfDeprecated(Node methodNode, CodeEditorService context,
+                                  java.util.function.Supplier<String> scopeGetter) {
+        if (fixedScopeName == null) return; // only SDK facade calls have a surface to check against
+        String currentScope = scopeGetter.get();
+        String targetType = (currentScope != null) ? resolveTargetType(currentScope, context) : fixedScopeName;
+        if (!context.isSdkMemberDeprecated(targetType, methodName)) return;
+
+        methodNode.getStyleClass().add("deprecated-member");
+        String note = context.getSdkDocs().overloads(targetType, methodName).stream()
+                .map(SdkDocs.Overload::deprecated)
+                .filter(d -> d != null && !d.isBlank())
+                .findFirst()
+                .orElse("");
+        Tooltip.install(methodNode, new Tooltip(note.isBlank()
+                ? methodName + "() is deprecated and will be removed in a future SDK version."
+                : methodName + "() is deprecated — " + note.trim()));
+    }
+
     private void addInfoButton(SentenceLayoutBuilder builder, CodeEditorService context,
                                java.util.function.Supplier<String> scopeGetter) {
         if (fixedScopeName == null) return;
@@ -782,7 +818,14 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
         SdkDocs.Overload o = overload.get();
 
         StringBuilder body = new StringBuilder();
-        if (o.summary() != null && !o.summary().isBlank()) body.append(o.summary().trim());
+        // First, because it changes what the rest of the explanation is worth reading for.
+        if (o.deprecated() != null && !o.deprecated().isBlank()) {
+            body.append("⚠ Deprecated — ").append(o.deprecated().trim());
+        }
+        if (o.summary() != null && !o.summary().isBlank()) {
+            if (body.length() > 0) body.append("\n\n");
+            body.append(o.summary().trim());
+        }
         for (SdkDocs.Param p : o.params()) {
             if (p.desc() != null && !p.desc().isBlank()) {
                 if (body.length() > 0) body.append("\n\n");

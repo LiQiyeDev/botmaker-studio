@@ -6,6 +6,31 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-22 — The palette is the bot's SDK, not Studio's (`services/SdkSurfaceService`,
+  `MavenService.MIN_SDK_VERSION`, `index/TypeSummaryManager`).** Three SDK versions are in play at any
+  moment — the one a bot pins, the one Studio was built against, and the newest published — and Studio knew
+  only its own. `palette/SdkType` holds ~55 class literals from *Studio's* SDK, so a bot on an older version
+  was offered facades its jar does not have; the feedback was a javac line, after the block was built.
+  `SdkSurfaceService` answers "does *this* project's SDK have this class/member, and is it `@Deprecated`?"
+  by reading the `ClassInfo` `TypeSummaryManager` already holds — it parses nothing and adds no dependency.
+  Deprecation comes from **bytecode** (`@Deprecated` is `RUNTIME`-retained), which required
+  `enableAnnotationInfo()` on the ClassGraph scan and therefore a cache-format bump (`CACHE_FORMAT`) — the
+  cache is mtime-fresh against an unchanged jar, so a scan-configuration change reaches nobody without one.
+  The *replacement text* stays Javadoc (`SdkDocsParser` now keeps `@deprecated`), because the annotation and
+  the sentence can disagree and only the annotation is what the compiler acts on.
+  **Fails open by design**: with no SDK indexed every class reads as present and nothing reads as
+  deprecated — a broken probe must never hide a block the user has, nor strike one through.
+  Gated surfaces: the `OverlayPalette` chips, the class dropdowns on `MethodInvocationBlock` /
+  `LambdaCallBlock`, `ProjectSettingsDialog`'s favourites. **`StatementMenu` and `MenuBuilders` were already
+  correct and were left alone** — they enumerate members through `ProjectAnalyzer` and drop a facade that
+  resolves none, which is the same jar answering the same question; both now say so in a comment, because
+  "optimizing away" that null return would silently remove the gate. Deprecated calls render struck through
+  with the replacement in the tooltip and the `?` popover, and raise one advisory **Warning** row per call
+  site in the Errors panel — advisory on purpose, never blocking: the call compiles and runs, and that
+  release of notice *is* the deprecation cycle (`../docs/refactor/21-api-compat.md`). Below
+  `MIN_SDK_VERSION` (1.0.26, the last release before `api.*` came under contract) the project still opens,
+  under one amber banner offering *Upgrade SDK…* → Manage Libraries.
+
 - **2026-08-22 — Generated bots resolve on a clean machine again (`MavenService.SDK_FALLBACK_VERSION`,
   `.deps.env`).** A project created by a packaged Studio failed to compile anywhere that had never built
   the BotMaker repo: the SDK's *own* published pom named `botmaker-shared:0.0.0-SNAPSHOT` and

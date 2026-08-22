@@ -69,6 +69,20 @@ public final class MavenService {
     public static final String SDK_FALLBACK_VERSION = "1.0.26";
 
     /**
+     * Oldest SDK this Studio is built to edit. Below it the project still <em>opens</em> — a banner offers the
+     * upgrade, nothing is refused: an old bot that runs is not a broken bot, and a Studio that won't open one
+     * is worse than a Studio that warns about it.
+     *
+     * <p>{@code 1.0.26} is the last release cut before {@code api.*} came under contract
+     * ({@code docs/refactor/21-api-compat.md}), so it is the oldest version whose surface is known to relate
+     * to this one by any rule at all. Anything older predates every guarantee Studio's palette assumes.
+     *
+     * <p>Kept {@code <=} {@link #SDK_FALLBACK_VERSION} by {@code release.sh}, so a fresh project can never be
+     * created below the floor Studio itself imposes.
+     */
+    public static final String MIN_SDK_VERSION = "1.0.26";
+
+    /**
      * Locally-installed SDK dev builds found in {@code ~/.m2} (typically {@code 0.0.0-SNAPSHOT}, produced by
      * {@code mvn -pl botmaker-sdk -am install} from the umbrella root), newest first. These never appear in
      * JitPack's tag list, so the version pickers surface them from here — a developer picks the local build

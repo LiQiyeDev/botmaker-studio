@@ -21,8 +21,23 @@ public final class SdkDocs {
     /** One parameter of an SDK method overload: its real name, declared type, and {@code @param} text. */
     public record Param(String name, String type, String desc) {}
 
-    /** One method overload: the Javadoc summary plus its ordered parameters. */
-    public record Overload(String summary, List<Param> params) {}
+    /**
+     * One method overload: the Javadoc summary, its ordered parameters, and — when the method is on its way
+     * out — the {@code @deprecated} tag's text.
+     *
+     * <p>{@code deprecated} is the <em>explanation</em> ("use {@code startIfNotRunning()} instead"), never the
+     * fact. The fact comes from the {@code @Deprecated} annotation in bytecode, via
+     * {@code services/SdkSurfaceService}; that split is deliberate, because the two can disagree and only one
+     * of them is what the compiler will act on. A method annotated but undocumented still strikes through —
+     * it just has nothing extra to say, and this stays {@code ""}.
+     */
+    public record Overload(String summary, List<Param> params, String deprecated) {
+
+        /** An overload with no deprecation note — what every non-deprecated method parses to. */
+        public Overload(String summary, List<Param> params) {
+            this(summary, params, "");
+        }
+    }
 
     /** No documentation available (sources jar unresolved / offline). */
     public static final SdkDocs EMPTY = new SdkDocs(Map.of());

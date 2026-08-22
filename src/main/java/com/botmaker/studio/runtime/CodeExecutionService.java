@@ -110,7 +110,11 @@ public class CodeExecutionService {
         // shown slot errors). Every *value* slot now seeds a compiling default, so this fires only for the
         // positions that need a name — see UnfilledSlot.
         List<org.eclipse.lsp4j.Diagnostic> emptySlotIssues = diagnosticsManager.validateBlocks();
-        eventBus.publish(new CoreApplicationEvents.DiagnosticsUpdatedEvent(emptySlotIssues));
+        // Deprecated SDK calls ride along in the same panel but never gate the run: they compile and work
+        // today, and the warning IS the deprecation cycle (see DiagnosticsManager.deprecationWarnings).
+        List<org.eclipse.lsp4j.Diagnostic> published = new java.util.ArrayList<>(emptySlotIssues);
+        published.addAll(diagnosticsManager.deprecationWarnings());
+        eventBus.publish(new CoreApplicationEvents.DiagnosticsUpdatedEvent(published));
         if (!emptySlotIssues.isEmpty()) {
             status("Run aborted: choose a variable for the highlighted slot(s) — see the Errors tab.");
             return;

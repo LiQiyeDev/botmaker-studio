@@ -181,7 +181,7 @@ public class ProjectSettingsDialog {
         });
 
         // No manual typing: class from the SDK facade list, methods multi-selected from that class's methods.
-        ComboBox<String> classCombo = new ComboBox<>(FXCollections.observableArrayList(SdkType.FACADE_NAMES));
+        ComboBox<String> classCombo = new ComboBox<>(FXCollections.observableArrayList(availableFacades()));
         classCombo.setPromptText("class");
         ListView<String> methodsList = new ListView<>();
         methodsList.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
@@ -250,7 +250,7 @@ public class ProjectSettingsDialog {
         });
 
         // Add row: class -> method -> overload, all from the SDK API surface (no manual typing).
-        ComboBox<String> classCombo = new ComboBox<>(FXCollections.observableArrayList(SdkType.FACADE_NAMES));
+        ComboBox<String> classCombo = new ComboBox<>(FXCollections.observableArrayList(availableFacades()));
         classCombo.setPromptText("class");
         ComboBox<String> methodCombo = new ComboBox<>();
         methodCombo.setPromptText("method");
@@ -313,6 +313,20 @@ public class ProjectSettingsDialog {
         if (className == null || methodName == null || projectAnalyzer == null) return List.of();
         return projectAnalyzer.getMethods(className, true).stream()
                 .filter(m -> m.name().equals(methodName)).collect(Collectors.toList());
+    }
+
+    /**
+     * The facades <em>this project's</em> SDK actually has, in {@link SdkType} order — a facade that resolves
+     * no static methods is not in the bot's jar (the analyzer reads that jar, not the one Studio compiled
+     * against), and favouriting a method on a class the bot doesn't have would store a setting that can only
+     * ever fail. Falls back to the full list while the jar is still being indexed, so the dropdown is never
+     * mysteriously empty — {@link #sdkIndexed()} is what gates the controls until then.
+     */
+    private List<String> availableFacades() {
+        if (!sdkIndexed()) return SdkType.FACADE_NAMES;
+        return SdkType.FACADE_NAMES.stream()
+                .filter(c -> !projectAnalyzer.getMethods(c, true).isEmpty())
+                .collect(Collectors.toList());
     }
 
     /** True once the SDK jar is indexed so the facades resolve to methods (else the dropdowns stay disabled). */

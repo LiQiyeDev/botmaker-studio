@@ -83,6 +83,22 @@ there are three distinct relationships to keep straight:
   version *it* pins, which may be older than Studio's. So methods still come from `ProjectAnalyzer` scanning
   the bot's **resolved** SDK jar with ClassGraph, and Javadoc from `SdkDocsService` parsing the bot's
   `botmaker-sdk:<version>:sources` jar. Adding a *method* to an existing facade needs no Studio change.
+- **`SdkType` is the superset; `services/SdkSurfaceService` is what the bot actually has, and the palette is
+  the intersection.** Those two drifting apart is the normal case, not the exception — a bot pins one SDK,
+  Studio ships on its own train — and until 2026-08 nothing noticed: an older bot was offered blocks its jar
+  could not compile, and the only feedback was a javac line *after* the block was built. The service parses
+  nothing; it reads the `ClassInfo` `TypeSummaryManager` already holds, including `@Deprecated` (bytecode, a
+  `RUNTIME` annotation — **not** parsed Javadoc; the Javadoc `@deprecated` *text* naming the replacement is
+  `SdkDocs.Overload.deprecated()`, a separate thing that can disagree). **It fails open**: with no SDK
+  indexed, every presence query answers yes and every deprecation query answers no — a degraded probe must
+  never hide a block the user legitimately has, nor strike one through.
+  **Most menus need no explicit gate and must not grow one**: `StatementMenu` and `MenuBuilders` enumerate
+  members through `ProjectAnalyzer` first and drop a facade that resolves none, which is the same jar
+  answering the same question. The service exists for the surfaces where nothing enumerates first — the
+  `OverlayPalette` chips, the class dropdowns on `MethodInvocationBlock`/`LambdaCallBlock`, and
+  `ProjectSettingsDialog`'s favourites.
+  `MavenService.MIN_SDK_VERSION` is the floor: below it the project **still opens**, under one amber banner
+  offering *Upgrade SDK…*. An old bot that runs is not a broken bot.
 - **Studio generates bot projects that depend on the SDK.** `services/MavenService` writes each user
   project's `pom.xml` pinning `com.github.LiQiyeDev:botmaker-sdk` (default `SDK_FALLBACK_VERSION`;
   user-selectable in the project screen from JitPack's version list). That pin is independent of the version

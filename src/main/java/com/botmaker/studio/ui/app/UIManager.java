@@ -11,6 +11,7 @@ import com.botmaker.studio.project.StudioContext;
 import com.botmaker.studio.project.vcs.ProjectVcs;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.ProjectSettingsService;
+import com.botmaker.studio.services.SdkSurfaceService;
 import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.ui.app.pilot.RemotePilotUi;
 import com.botmaker.studio.ui.render.theme.BlockTheme;
@@ -70,6 +71,8 @@ public class UIManager implements ProjectWindow {
     private final ProjectState state;
 
     private final ProjectSettingsService projectSettingsService;
+    /** This project's SDK surface — read once, by the canvas, to decide whether the version floor is breached. */
+    private final SdkSurfaceService sdkSurfaceService;
     private final ToolbarManager toolbarManager;
     private final EventLogManager eventLogManager;
     private final MenuBarManager menuBarManager;
@@ -126,6 +129,7 @@ public class UIManager implements ProjectWindow {
         // (config, state, eventBus). The capture service honors the default target so pickers stop re-asking
         // which screen to use.
         this.projectSettingsService = ctx.projectSettingsService();
+        this.sdkSurfaceService = ctx.sdkSurfaceService();
         ScreenCaptureService screenCaptureService = new ScreenCaptureService(projectSettingsService);
         this.remotePilot = new RemotePilotUi(
                 primaryStage, eventBus, config, projectSettingsService, ctx.codeExecutionService());
@@ -357,7 +361,8 @@ public class UIManager implements ProjectWindow {
 
         // --- 3. Center: Code Canvas ---
         editorCanvas = new EditorCanvas(codeEditorService, eventBus, state.isReaderMode(),
-                config.projectName(), this::switchToEditorMode);
+                config.projectName(), this::switchToEditorMode,
+                sdkSurfaceService, actions::openManageLibraries);
 
         // --- 4. Bottom Panel: Terminal/Errors ---
         outputArea = new TextArea();

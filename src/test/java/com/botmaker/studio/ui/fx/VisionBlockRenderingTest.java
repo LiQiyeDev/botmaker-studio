@@ -105,7 +105,7 @@ class VisionBlockRenderingTest extends FxHeadlessTest {
         assertNotNull(root, "converter should produce a root block");
 
         CodeEditorService context = new CodeEditorService(
-                CONFIG, state, bus, converter, dnd, null, new ProjectAnalyzer(null, state), null);
+                CONFIG, state, bus, converter, dnd, null, new ProjectAnalyzer(null, state), null, null);
 
         for (CodeBlock b : flatten(root)) {
             if (b.getClass().getSimpleName().equals("LambdaCallBlock")) return new Rendered(b, context);

@@ -208,10 +208,14 @@ public class TypeSummaryManager {
     private void indexJar(String jar) {
         try {
             // Scan is intentionally not closed: ClassInfo objects are read for the manager's lifetime.
+            // Annotation info is what makes @Deprecated readable (it is a RUNTIME-retained annotation, so it
+            // is in the class file — but ClassGraph does not record annotations unless asked). SdkSurfaceService
+            // reads it to strike deprecated SDK calls through; without this the flag is silently always false.
             ScanResult scan = new ClassGraph()
                     .overrideClasspath(jar)
                     .enableMethodInfo()
                     .enableFieldInfo()
+                    .enableAnnotationInfo()
                     .scan();
 
             store(jar, scan);
@@ -255,12 +259,20 @@ public class TypeSummaryManager {
     // =========================================================================
 
     /**
+     * Bumped whenever the {@link ClassGraph} scan configuration changes, so the new setting actually reaches
+     * an existing installation. Freshness is decided by mtime ({@link #isCacheFresh}), and a cache written
+     * before the change is <em>newer</em> than the unchanged jar — so it would be loaded forever, missing
+     * whatever the new setting records. {@code v2} = annotation info enabled (for {@code @Deprecated}).
+     */
+    private static final String CACHE_FORMAT = "v2";
+
+    /**
      * Derives a stable cache file path for a given jar.
-     * e.g. ~/.cache/botmaker/jars/somelib-1.0.0.jar.json
+     * e.g. ~/.cache/botmaker/jars/somelib-1.0.0.jar.v2.json
      */
     public static Path getCacheFileForJar(String jarPath) {
         String jarFileName = Path.of(jarPath).getFileName().toString();
-        return BotMakerDirs.getCacheDir().resolve("jars").resolve(jarFileName + ".json");
+        return BotMakerDirs.getCacheDir().resolve("jars").resolve(jarFileName + "." + CACHE_FORMAT + ".json");
     }
 
     /**

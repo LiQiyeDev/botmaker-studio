@@ -102,6 +102,7 @@ class UIManagerSceneTest extends FxHeadlessTest {
                 new LibraryService(config, state, new TypeSummaryManager(Set.of()), bus),
                 new ActivityService(config, state, bus),
                 new ProjectSettingsService(config, state, bus),
+                null, // no SDK surface: nothing is resolved here, so the palette gate is inert by design
                 fixture.context(),
                 execution);
         uiManager = new UIManager(ctx, stage);

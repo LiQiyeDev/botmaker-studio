@@ -943,6 +943,36 @@
     -fx-font-weight: bold;
 }
 
+/*
+ * The SDK floor banner: this bot pins an SDK older than MavenService.MIN_SDK_VERSION. Amber, not red, and
+ * above a project that opened normally — an old bot that runs is not a broken bot. Same shape as
+ * .reader-banner deliberately: both say "this project is in a mode", and one visual grammar for that is
+ * enough.
+ */
+.sdk-floor-banner {
+    -fx-background-color: -bm-cat-variables;
+    -bm-text-on-color: -bm-on-accent;
+    -fx-padding: 6 12 6 12;
+    -fx-alignment: center-left;
+}
+.sdk-floor-banner .label {
+    -fx-text-fill: -bm-text-on-color;
+    -fx-font-weight: bold;
+}
+
+/*
+ * A method this project's SDK marks @Deprecated. Strikethrough plus a little transparency — the call still
+ * compiles and still runs, so it must stay legible and stay clickable; this is notice, not an error state,
+ * and painting it in -bm-danger would be a lie about what happens if the user runs it.
+ *
+ * Two rules because the node is a ComboBox when the block is editable and a plain Label when it is locked:
+ * -fx-strikethrough is a Labeled property, so the first rule reaches the ComboBox's inner label and the
+ * second the Label itself. Both are theme-proof — neither names a colour.
+ */
+.deprecated-member { -fx-opacity: 0.8; }
+.deprecated-member .label { -fx-strikethrough: true; }
+.label.deprecated-member { -fx-strikethrough: true; }
+
 /* The canvas before it has anything to draw — "Loading project…" while the entry point is being parsed. */
 .canvas-placeholder {
     -fx-text-fill: -bm-muted;

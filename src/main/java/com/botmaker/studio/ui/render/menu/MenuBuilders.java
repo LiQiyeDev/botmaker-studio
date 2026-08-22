@@ -86,6 +86,12 @@ final class MenuBuilders {
      * expression-slot analogue of the statement menu's per-facade submenus. Void-only methods naturally drop
      * out (no return value fits an expression slot), and {@link #buildScopeMenu} returns {@code null} for a
      * facade with nothing compatible, so empty submenus are skipped.
+     *
+     * <p>That null return is also what gates this on the bot's <em>own</em> SDK rather than Studio's: the
+     * analyzer resolves against the jar the project pins, so a facade its version doesn't have has no members
+     * and no submenu. {@code services/SdkSurfaceService} exists for the surfaces where nothing enumerates
+     * members first (the chips, the class dropdowns) — adding it here would ask the same jar the same
+     * question twice.
      */
     static void appendSdkFacadeExpressionSubmenus(ContextMenu menu, ResolvedType expectedType,
                                                   CodeEditorService context, Consumer<Object> onSelect) {
