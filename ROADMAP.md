@@ -6,6 +6,23 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-22 — The Linux packages declare the GUI stack, and stop declaring Tesseract (`pom.xml`,
+  `build-deb` + `build-rpm`; `README.md`).** The packages declared `xdg-utils` and Tesseract and nothing
+  else, so a machine without GTK got a JavaFX stack trace instead of a resolver message — and that is not a
+  degraded mode: `libglassgtk3.so` is JavaFX's *only* Linux windowing backend, so no GTK means no GUI at all.
+  Now: rpm takes soname capabilities `libgtk-3.so.0()(64bit)`, `libX11.so.6`, `libXtst.so.6`, `libXi.so.6`,
+  `libXxf86vm.so.1`, `libGL.so.1`, `libfontconfig.so.1` — major-only, hence stable across releases and
+  portable across Fedora/RHEL/openSUSE without a package-name matrix (Tesseract could not use capabilities
+  because its soname carries the *minor* version). deb takes the package names, with
+  `libgtk-3-0t64 | libgtk-3-0` spanning Ubuntu 24.04's `time_t` rename. Only GTK3 is named for the GTK half
+  (pango/cairo/atk/gdk-pixbuf/glib are transitive); `libXtst`/`libXi`/`libXxf86vm`/`libGL` are not GTK
+  dependencies and are listed explicitly, being loaded directly by `libawt_xawt.so` and `libprism_es2.so`.
+  **The Tesseract declaration is deleted, not extended** — the previous entry made it dead. Verified:
+  jpackage passes the parentheses through unmangled (`rpm -qp --requires` shows all seven), `dpkg-deb -f`
+  shows the deb list, neither mentions Tesseract, and `dnf install --assumeno` resolves the whole
+  transaction. **Cannot be verified here** that the dependencies actually *pull in* anything — this host
+  already has GTK; that needs a clean container.
+
 - **2026-08-22 — The Windows leg drops shared's new Linux OCR natives (`pom.xml`, `natives-windows`;
   `README.md`).** `botmaker-shared` now bundles `libtesseract.so` + `libleptonica.so.6` (9.4 MB) so OCR
   works without a system Tesseract — see that module's ROADMAP for why and for the two load-bearing

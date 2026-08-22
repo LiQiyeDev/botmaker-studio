@@ -187,6 +187,15 @@ Notes:
   the tarball and generated bots, none of which can declare a package dependency. `botmaker-shared` now
   stages `libtesseract.so` + `libleptonica.so.6` (9.4 MB, from the JavaCPP presets) into the jar; the
   `natives-windows` profile drops them again on the Windows leg.
+- **The `.rpm` and `.deb` declare the GUI stack** (GTK3, X11, Xtst, Xi, Xxf86vm, GL, fontconfig) by hand, via
+  `--linux-package-deps` in each execution's `<additionalOptions>` — the plugin's own `<linuxPackageDeps>` is a
+  boolean flag and cannot carry a value. Hand-written is the only option that works: the released `.rpm` is
+  built on `ubuntu-latest`, whose `rpm` has no ELF dependency generator, so nothing is autodetected there. The
+  rpm uses soname capabilities (`libgtk-3.so.0()(64bit)`, …), which are major-only and therefore stable across
+  releases; the deb uses package names, with `libgtk-3-0t64 | libgtk-3-0` to span Ubuntu 24.04's `time_t`
+  rename. Only GTK3 is named for the GTK half — pango, cairo, atk, gdk-pixbuf and glib arrive transitively —
+  but `libXtst`/`libXi`/`libXxf86vm`/`libGL` do not come from GTK and are listed explicitly. There is no
+  Tesseract dependency any more; the bullet above replaced it.
 - For a native installer instead of the portable directory, change `<type>` in the `dist` profile from
   `APP_IMAGE` to `DEB`/`RPM` (Linux), `MSI`/`EXE` (Windows), or `DMG`/`PKG` (macOS).
 
