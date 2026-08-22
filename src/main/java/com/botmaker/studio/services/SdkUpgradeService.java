@@ -2,6 +2,10 @@ package com.botmaker.studio.services;
 
 import com.botmaker.studio.index.TypeSummaryManager;
 import com.botmaker.studio.parser.helpers.SourceParser;
+import com.botmaker.studio.parser.refactor.CallMigrator;
+import com.botmaker.studio.parser.refactor.SdkMigrationRunner;
+import com.botmaker.studio.parser.refactor.SdkReferences;
+import com.botmaker.studio.project.FileRole;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
@@ -13,18 +17,7 @@ import io.github.classgraph.ClassInfo;
 import io.github.classgraph.FieldInfo;
 import io.github.classgraph.MethodInfo;
 import io.github.classgraph.MethodParameterInfo;
-import org.eclipse.jdt.core.dom.ASTVisitor;
-import org.eclipse.jdt.core.dom.ClassInstanceCreation;
 import org.eclipse.jdt.core.dom.CompilationUnit;
-import org.eclipse.jdt.core.dom.ImportDeclaration;
-import org.eclipse.jdt.core.dom.MethodInvocation;
-import org.eclipse.jdt.core.dom.QualifiedName;
-import org.eclipse.jdt.core.dom.SimpleName;
-import org.eclipse.jdt.core.dom.SimpleType;
-import org.eclipse.jdt.core.dom.SingleVariableDeclaration;
-import org.eclipse.jdt.core.dom.SwitchCase;
-import org.eclipse.jdt.core.dom.Type;
-import org.eclipse.jdt.core.dom.VariableDeclarationFragment;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -67,6 +60,9 @@ import java.util.jar.JarFile;
  * own rewriter can do) or a {@code manual} sentence (something no rewrite can repair). {@link #migrations}
  * reads that file for every version in {@code (from, to]}; the report shows the two sets separately, because
  * they ask different things of the user.
+ *
+ * <p>{@link #apply} then carries the {@code fix} entries out: snapshot → repair the source
+ * ({@code parser/refactor/SdkMigrationRunner}) → bump the pom, one button and one revert away.
  *
  * <p>This replaced {@code mvn rewrite:run} against OpenRewrite recipes. That existed to let a user migrate
  * with no Studio at all; once that stopped being a requirement, an engine we do not control bought nothing
@@ -132,7 +128,7 @@ public final class SdkUpgradeService {
     private static final String MIGRATIONS_ENTRY = "META-INF/botmaker/migrations.json";
 
     /** A constructor has no name of its own; this is how japicmp and {@code migrations.json} spell one. */
-    private static final String CTOR = "<init>";
+    private static final String CTOR = SdkReferences.CTOR;
 
     private final ProjectConfig config;
     private final ProjectState state;
@@ -216,13 +212,22 @@ public final class SdkUpgradeService {
      * <p>An entry whose {@code fix.kind} this Studio does not know arrives here as {@code manual} with
      * {@code degraded} set, so the dialog can say <em>why</em> it cannot be repaired automatically — "needs a
      * newer Studio" is a different sentence from "no rewrite can express this".
+     *
+     * <p>{@code sites} is where <em>this project</em> uses the member, spelled as the project spells it
+     * <b>today</b> — which is not always what {@code member} says. See {@link #resolveNames}: a 3.0.0 entry
+     * about {@code baz} has to be shown against the call sites a file still writes as {@code foo}, because
+     * 2.0.0 is what renames {@code foo} to {@code bar} and the user has run neither.
      */
     public record Migration(String version, String member, String summary,
-                            Fix fix, String manual, boolean degraded) {
+                            Fix fix, String manual, boolean degraded, List<CallSite> sites) {
 
         /** True when Studio can carry this one out itself. */
         public boolean isAutomatic() {
             return fix != null;
+        }
+
+        Migration withSites(List<CallSite> found) {
+            return new Migration(version, member, summary, fix, manual, degraded, found);
         }
     }
 
@@ -348,21 +353,31 @@ public final class SdkUpgradeService {
                 additions(before, after),
                 deprecations(after, calls),
                 breaks(before, after, calls),
-                migrations,
+                resolveNames(migrations, calls),
                 List.copyOf(problems));
     }
 
     /**
-     * Snapshots the project into its local history, then rewrites the pom.
+     * The whole upgrade, in one button: snapshot → repair the source → bump the pom.
      *
-     * <p>The snapshot comes first so the whole upgrade is one revert away in the VCS panel — which is the
-     * point, since what a changed SDK does to a bot is only fully visible once the project is reopened.
+     * <p>The snapshot comes first so all of it is one revert away in the VCS panel — which is the point, since
+     * what a changed SDK does to a bot is only fully visible once the project is reopened.
      *
-     * <p>This does not yet run the {@code fix} entries; the source migration lands in a later phase and
-     * slots in between the commit and the pom bump. Until then the dialog says plainly which entries would
-     * have been repaired.
+     * <p>The three steps used to be two, and the missing one was the whole reason the SDK ships repairs at all.
+     * The ordering carries no constraint of its own any more: {@code mvn rewrite:run} had to run <em>before</em>
+     * the bump because OpenRewrite type-attributed against the old SDK, and {@link SdkMigrationRunner} resolves
+     * the SDK not at all.
+     *
+     * <p>Any refusal from the migration aborts before the pom is touched, with nothing written anywhere — so a
+     * failed upgrade leaves a project that still compiles against the version it already had.
+     *
+     * <p>{@code repairSources} is {@link Report#canMigrate()}, and it gates the middle step only. A span
+     * carrying one change no rewrite can express still has to be <em>switchable</em>: the user reads the manual
+     * notes, makes those edits themselves, and moves. Refusing the whole button in that case would be a trap
+     * with no way out, since the SDK goes on declaring that entry forever. What it must never do is repair
+     * half of the span, which is why the flag is all-or-nothing rather than per entry.
      */
-    public CompletableFuture<Void> apply(String targetVersion) {
+    public CompletableFuture<Void> apply(String targetVersion, boolean repairSources) {
         return CompletableFuture
                 .runAsync(() -> {
                     try {
@@ -372,9 +387,80 @@ public final class SdkUpgradeService {
                         throw new RuntimeException(
                                 "Could not snapshot the project before upgrading: " + e.getMessage(), e);
                     }
+                    if (repairSources) migrateSources(targetVersion);
                 })
                 .thenCompose(v -> libraryService.updateLibraries(libraryService.currentLibraries(),
                         targetVersion));
+    }
+
+    /**
+     * Runs every automatic repair the target declares over the project's own files, or throws saying why it
+     * will not. An SDK that declares nothing is not an error — most upgrades break nothing.
+     */
+    private void migrateSources(String targetVersion) {
+        String from = currentVersion();
+        Optional<Path> oldJar = MavenService.resolveSdkJar(config.projectPath(), from);
+        Optional<Path> newJar = MavenService.resolveSdkJar(config.projectPath(), targetVersion);
+        if (oldJar.isEmpty() || newJar.isEmpty()) {
+            throw new IllegalStateException("The SDK jars could not be resolved again, so the upgrade stopped "
+                    + "before changing anything. Check the report and try once more.");
+        }
+
+        List<String> problems = new ArrayList<>();
+        List<Migration> declared = migrations(newJar.get(), from, targetVersion, problems);
+        if (!problems.isEmpty()) throw new IllegalStateException(problems.getFirst());
+        for (Migration migration : declared) {
+            if (!migration.isAutomatic()) {
+                throw new IllegalStateException("\"" + migration.member() + "\" has to be changed by hand, so "
+                        + "none of these changes were applied. Make it yourself, then upgrade.");
+            }
+        }
+        List<SdkMigrationRunner.Fix> fixes = declared.stream().map(SdkUpgradeService::fixOf).toList();
+        if (fixes.isEmpty()) return;
+
+        Map<String, ApiClass> before = snapshot(oldJar.get());
+        Map<String, ApiClass> after = snapshot(newJar.get());
+        Set<String> known = new LinkedHashSet<>(before.keySet());
+        known.addAll(after.keySet());
+
+        List<ProjectFile> editable = new ArrayList<>();
+        List<ProjectFile> generated = new ArrayList<>();
+        for (ProjectFile file : state.getAllFiles()) {
+            // FileRole is the single source of truth for "may the user change this?", and the migration
+            // answers to the same rule the editor does — see SdkMigrationRunner on why a scaffold file is
+            // refused rather than rewritten.
+            (FileRole.of(config, state.getTemplate(), file.getPath()) == FileRole.EDITABLE ? editable : generated)
+                    .add(file);
+        }
+
+        SdkMigrationRunner.Outcome outcome = SdkMigrationRunner.run(fixes, editable, generated,
+                known, fieldOwners(before, after), null, state);
+        if (outcome.isRefusal()) throw new IllegalStateException(outcome.refusal());
+        try {
+            CallMigrator.commit(outcome.files());
+        } catch (IOException e) {
+            throw new RuntimeException("Some files could not be written: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * One declared repair, flattened for {@link SdkMigrationRunner}. The JSON stays here — the rewriter reads
+     * typed fields, so the file's grammar is known in one place rather than two.
+     */
+    private static SdkMigrationRunner.Fix fixOf(Migration migration) {
+        JsonNode options = migration.fix().options();
+        String[] parts = migration.member().split("#", 2);
+        List<Integer> order = new ArrayList<>();
+        for (JsonNode each : options.path("order")) order.add(each.asInt());
+        return new SdkMigrationRunner.Fix(migration.version(), parts[0], parts.length > 1 ? parts[1] : "",
+                migration.fix().arity(), migration.fix().kind(),
+                text(options, "to"), text(options, "toType"), options.path("index").asInt(-1),
+                List.copyOf(order), text(options, "value"), text(options, "import"));
+    }
+
+    private static String text(JsonNode node, String field) {
+        JsonNode value = node.path(field);
+        return value.isMissingNode() || value.isNull() ? null : value.asText();
     }
 
     // =========================================================================
@@ -492,168 +578,47 @@ public final class SdkUpgradeService {
     // =========================================================================
 
     /**
-     * One reference in the bot's source to something that looks like an SDK member — a method call, a
-     * constructor, or a field read. {@code argCount} is {@link #FIELD_READ} for the last of those, which is
-     * how a constant is told apart from a no-argument call.
+     * One reference in the bot's source to something that looks like an SDK member, reduced to what the report
+     * asks of it: which member, how many arguments, and where the user would find it.
+     *
+     * <p>The finding itself is {@link SdkReferences}' — the same scan {@code SdkMigrationRunner} rewrites from.
+     * That sharing is the point: two scans would eventually disagree, and the shape of the disagreement would
+     * be a dialog listing three call sites next to a button that repairs two.
      */
     private record Call(String type, String member, int argCount, CallSite site) {
         boolean isField() {
-            return argCount == FIELD_READ;
+            return argCount == SdkReferences.FIELD_READ;
+        }
+
+        /** {@code Key#ENTER} — the spelling {@code migrations.json} and japicmp both use. */
+        String key() {
+            return type + "#" + member;
         }
     }
-
-    /** {@link Call#argCount()} for a field read: not "zero arguments", but "no argument list at all". */
-    private static final int FIELD_READ = -1;
 
     private List<Call> callsIn(Set<String> sdkTypes, Map<String, List<String>> fieldOwners,
                                List<String> problems) {
         List<Call> calls = new ArrayList<>();
         for (ProjectFile file : state.getAllFiles()) {
+            String path = relativePath(file.getPath());
             CompilationUnit cu = SourceParser.parse(file.getContent());
             if (cu == null || SourceParser.hasSyntaxErrors(cu)) {
-                problems.add(relativePath(file.getPath()) + " does not parse, so its calls were not checked.");
+                problems.add(path + " does not parse, so its calls were not checked.");
                 continue;
             }
-            // Both maps are per-file: a static import and a shadowing local are properties of one
-            // compilation unit, and asking them of the project as a whole would answer the wrong question.
-            Map<String, String> staticImports = staticFieldImports(cu, fieldOwners);
-            Set<String> shadowed = declaredNames(cu);
-            cu.accept(new ASTVisitor() {
-                @Override
-                public boolean visit(MethodInvocation node) {
-                    if (node.getExpression() instanceof SimpleName receiver
-                            && sdkTypes.contains(receiver.getIdentifier())) {
-                        calls.add(new Call(receiver.getIdentifier(), node.getName().getIdentifier(),
-                                node.arguments().size(), siteOf(file, cu, node.getStartPosition())));
-                    }
-                    return true;
-                }
-
-                @Override
-                public boolean visit(ClassInstanceCreation node) {
-                    String type = simpleTypeName(node.getType());
-                    if (type != null && sdkTypes.contains(type)) {
-                        calls.add(new Call(type, CTOR, node.arguments().size(),
-                                siteOf(file, cu, node.getStartPosition())));
-                    }
-                    return true;
-                }
-
-                /** {@code Key.ENTER} — the ordinary shape, and the only certain one. */
-                @Override
-                public boolean visit(QualifiedName node) {
-                    if (node.getQualifier() instanceof SimpleName owner
-                            && sdkTypes.contains(owner.getIdentifier())) {
-                        calls.add(new Call(owner.getIdentifier(), node.getName().getIdentifier(),
-                                FIELD_READ, siteOf(file, cu, node.getStartPosition())));
-                    }
-                    return true;
-                }
-
-                /** A bare name that reaches an {@code import static …Key.ENTER}. */
-                @Override
-                public boolean visit(SimpleName node) {
-                    if (node.getParent() instanceof QualifiedName
-                            || node.getLocationInParent() == MethodInvocation.NAME_PROPERTY) {
-                        return true;
-                    }
-                    String owner = staticImports.get(node.getIdentifier());
-                    if (owner != null && !shadowed.contains(node.getIdentifier())) {
-                        calls.add(new Call(owner, node.getIdentifier(), FIELD_READ,
-                                siteOf(file, cu, node.getStartPosition())));
-                    }
-                    return true;
-                }
-
-                /**
-                 * {@code case UP ->}. The label is an unqualified name whose type lives on the switch
-                 * expression, which without bindings is unreadable — so the owning type is inferred from
-                 * the label alone, and only when exactly one SDK type declares a constant of that name.
-                 */
-                @Override
-                public boolean visit(SwitchCase node) {
-                    for (Object expression : node.expressions()) {
-                        if (!(expression instanceof SimpleName label)) continue;
-                        List<String> owners = fieldOwners.getOrDefault(label.getIdentifier(), List.of());
-                        CallSite site = siteOf(file, cu, label.getStartPosition());
-                        if (owners.size() == 1) {
-                            calls.add(new Call(owners.getFirst(), label.getIdentifier(), FIELD_READ, site));
-                        } else if (owners.size() > 1) {
-                            problems.add(site + ": the case label '" + label.getIdentifier() + "' could be a "
-                                    + "constant on " + String.join(" or ", owners) + ", and which one cannot "
-                                    + "be told from the source, so it was not checked.");
-                        }
-                    }
-                    return true;
-                }
-            });
+            SdkReferences.Scan scan = SdkReferences.in(file, cu, path, sdkTypes, fieldOwners);
+            problems.addAll(scan.problems());
+            for (SdkReferences.Reference reference : scan.references()) {
+                calls.add(new Call(reference.type(), reference.member(), reference.argCount(),
+                        new CallSite(path, cu.getLineNumber(reference.site().node().getStartPosition()))));
+            }
         }
         return calls;
-    }
-
-    /**
-     * The single-member static imports of this file that name a field on a known SDK type, as member name →
-     * owning type. On-demand imports ({@code import static …Key.*}) are left out on purpose: they say
-     * nothing about which names were actually meant, so treating every matching bare name as SDK would
-     * attribute the bot's own constants to the SDK.
-     */
-    private static Map<String, String> staticFieldImports(CompilationUnit cu,
-                                                          Map<String, List<String>> fieldOwners) {
-        Map<String, String> out = new LinkedHashMap<>();
-        for (Object each : cu.imports()) {
-            if (!(each instanceof ImportDeclaration imp) || !imp.isStatic() || imp.isOnDemand()) continue;
-            if (!(imp.getName() instanceof QualifiedName qualified)) continue;
-            String member = qualified.getName().getIdentifier();
-            String owner = lastSegment(qualified.getQualifier().getFullyQualifiedName());
-            if (fieldOwners.getOrDefault(member, List.of()).contains(owner)) out.put(member, owner);
-        }
-        return out;
-    }
-
-    /**
-     * Every name this file declares as a variable, parameter or field. A static import is shadowed by any
-     * of them, and a shadowed name is a use of the bot's own code — reporting it as an SDK break would name
-     * a line that has nothing to do with the SDK.
-     */
-    private static Set<String> declaredNames(CompilationUnit cu) {
-        Set<String> out = new LinkedHashSet<>();
-        cu.accept(new ASTVisitor() {
-            @Override
-            public boolean visit(VariableDeclarationFragment node) {
-                out.add(node.getName().getIdentifier());
-                return true;
-            }
-
-            @Override
-            public boolean visit(SingleVariableDeclaration node) {
-                out.add(node.getName().getIdentifier());
-                return true;
-            }
-        });
-        return out;
-    }
-
-    private static String lastSegment(String name) {
-        int dot = name.lastIndexOf('.');
-        return dot < 0 ? name : name.substring(dot + 1);
-    }
-
-    private CallSite siteOf(ProjectFile file, CompilationUnit cu, int startPosition) {
-        return new CallSite(relativePath(file.getPath()), cu.getLineNumber(startPosition));
     }
 
     private String relativePath(Path path) {
         Path root = config.projectPath();
         return path.startsWith(root) ? root.relativize(path).toString() : path.getFileName().toString();
-    }
-
-    private static String simpleTypeName(Type type) {
-        if (type instanceof SimpleType simple) {
-            String name = simple.getName().getFullyQualifiedName();
-            int dot = name.lastIndexOf('.');
-            return dot < 0 ? name : name.substring(dot + 1);
-        }
-        return null;
     }
 
     // =========================================================================
@@ -838,7 +803,8 @@ public final class SdkUpgradeService {
         JsonNode fix = entry.path("fix");
 
         if (fix.isMissingNode() || fix.isNull()) {
-            return new Migration(version, member, summary, null, entry.path("manual").asText(""), false);
+            return new Migration(version, member, summary, null, entry.path("manual").asText(""), false,
+                    List.of());
         }
 
         String kind = fix.path("kind").asText("");
@@ -846,10 +812,72 @@ public final class SdkUpgradeService {
             return new Migration(version, member, summary, null,
                     "This Studio is too old to repair this one automatically (it does not know how to apply a "
                             + "\"" + kind + "\" fix). Update Studio, or change these call sites by hand.",
-                    true);
+                    true, List.of());
         }
         int arity = entry.path("when").path("arity").asInt(-1);
-        return new Migration(version, member, summary, new Fix(kind, fix, arity), "", false);
+        return new Migration(version, member, summary, new Fix(kind, fix, arity), "", false, List.of());
+    }
+
+    /**
+     * Attaches each entry's call sites, resolved through the renames the earlier versions in the span perform.
+     *
+     * <p>The trail is the half of ordered replay that the <em>report</em> needs, and it is easy to leave out
+     * and impossible to notice missing. If 2.0.0 renames {@code foo} to {@code bar} and 3.0.0 then drops
+     * {@code bar}, the user upgrading straight from 1.x has a project that says {@code foo} everywhere: an
+     * entry naming {@code bar} would find nothing and quietly show no sites at all — the most confusing
+     * possible upgrade reporting a note about a name that appears nowhere.
+     *
+     * <p>So the versions are walked in the order they will be applied, each entry resolved against the trail
+     * built by the versions <em>before</em> it, and only then does that version's own rename join the trail.
+     * {@code migrations} has already sorted them ascending, which is the same order the rewriter walks.
+     */
+    private static List<Migration> resolveNames(List<Migration> migrations, List<Call> calls) {
+        Map<String, List<CallSite>> sites = new LinkedHashMap<>();
+        for (Call call : calls) {
+            sites.computeIfAbsent(call.key(), k -> new ArrayList<>()).add(call.site());
+            // A type-level entry — `renameType`, or a whole class withdrawn — names no member, and is keyed
+            // here as `Key#` so it collects every use of the type rather than none.
+            sites.computeIfAbsent(call.type() + "#", k -> new ArrayList<>()).add(call.site());
+        }
+
+        Map<String, String> spelledNow = new LinkedHashMap<>();
+        List<Migration> out = new ArrayList<>();
+        for (Migration migration : migrations) {
+            String declared = simpleKeyOf(migration.member());
+            String today = spelledNow.getOrDefault(declared, declared);
+            out.add(migration.withSites(sorted(sites.getOrDefault(today, List.of()))));
+
+            String after = renamedTo(migration, declared);
+            if (after != null) spelledNow.put(after, today);
+        }
+        return List.copyOf(out);
+    }
+
+    /** The key this entry's fix leaves behind, or null when it renames nothing this can follow. */
+    private static String renamedTo(Migration migration, String declared) {
+        if (!migration.isAutomatic()) return null;
+        String[] parts = declared.split("#", 2);
+        String type = parts[0];
+        String member = parts.length > 1 ? parts[1] : "";
+        JsonNode options = migration.fix().options();
+        return switch (migration.fix().kind()) {
+            case "renameMethod", "renameField" -> type + "#" + options.path("to").asText(member);
+            case "renameType" -> lastSegment(options.path("to").asText(type)) + "#" + member;
+            case "moveMember" -> lastSegment(options.path("toType").asText(type))
+                    + "#" + options.path("to").asText(member);
+            default -> null;
+        };
+    }
+
+    /** {@code com.botmaker.sdk.api.Key#ENTER} → {@code Key#ENTER} — what a call site is keyed by. */
+    private static String simpleKeyOf(String member) {
+        String[] parts = member.split("#", 2);
+        return lastSegment(parts[0]) + "#" + (parts.length > 1 ? parts[1] : "");
+    }
+
+    private static String lastSegment(String name) {
+        int dot = name.lastIndexOf('.');
+        return dot < 0 ? name : name.substring(dot + 1);
     }
 
     /** Ascending semver where both sides parse, falling back to text so the sort stays total. */

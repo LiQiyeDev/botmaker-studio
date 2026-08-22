@@ -573,6 +573,43 @@ class SdkUpgradeServiceTest {
     }
 
     @Test
+    void aDeclaredChangeIsShownAgainstTheLinesItAffects(@TempDir Path tmp) throws IOException {
+        Report r = reportWithMigrations(tmp, "1.0.0", "2.0.0", """
+                {"schema": 1, "versions": {
+                  "2.0.0": [{"member": "com.botmaker.sdk.api.Wait#seconds",
+                             "summary": "seconds() was renamed to pause()",
+                             "fix": {"kind": "renameMethod", "to": "pause"}}]
+                }}
+                """);
+
+        assertEquals(1, r.automatic().get(0).sites().size(), r.automatic().toString());
+        assertTrue(r.automatic().get(0).sites().get(0).toString().endsWith(":6"),
+                "the line Wait.seconds(3) is on: " + r.automatic().get(0).sites());
+    }
+
+    @Test
+    void aLaterEntryIsShownAgainstTheNameTheProjectStillSpells(@TempDir Path tmp) throws IOException {
+        // The ordered-replay trap, in report form. 2.0.0 renames seconds → pause; 3.0.0 then says something
+        // about `pause`. A bot jumping from 1.x has run neither, so its source still says `seconds` — and an
+        // entry that looked for `pause` would find nothing and show a note about a name appearing nowhere.
+        Report r = reportWithMigrations(tmp, "1.0.0", "3.0.0", """
+                {"schema": 1, "versions": {
+                  "2.0.0": [{"member": "com.botmaker.sdk.api.Wait#seconds",
+                             "summary": "seconds() was renamed to pause()",
+                             "fix": {"kind": "renameMethod", "to": "pause"}}],
+                  "3.0.0": [{"member": "com.botmaker.sdk.api.Wait#pause",
+                             "summary": "pause() now counts from the last frame",
+                             "manual": "check any bot that relied on the old timing"}]
+                }}
+                """);
+
+        Migration later = r.migrations().stream().filter(m -> m.version().equals("3.0.0")).findFirst()
+                .orElseThrow();
+        assertEquals(1, later.sites().size(), "resolved back through 2.0.0's rename: " + r.migrations());
+        assertTrue(later.sites().get(0).toString().endsWith(":6"), later.sites().toString());
+    }
+
+    @Test
     void aTargetThatDeclaresNothingIsNotATargetThatFailedToBeRead(@TempDir Path tmp) throws IOException {
         Report r = reportFor(tmp, BOT);
 

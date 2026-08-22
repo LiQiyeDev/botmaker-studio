@@ -153,6 +153,29 @@ there are three distinct relationships to keep straight:
     rewrite. **Every primitive that cannot express its edit returns false and takes the whole migration down
     with it** — a constant moved out from under a `case` label, or a call on `this` with no type to retarget.
     That is the same all-or-nothing `rewriteOthers` already enforced for a rewrite that will not parse.
+  - **Applying is `parser/refactor/SdkMigrationRunner`, and it is ordered replay — never a fixpoint.** Each
+    version in `(from, to]` is one pass, ascending, over the source the previous pass produced. `foo→bar` in
+    2.0.0 then `bar→baz` in 3.0.0 composes for free, because the 3.0.0 pass re-scans and finds exactly the
+    name its own entry was written against. Re-running the whole set until nothing changes would instead
+    *loop forever* on `a→b` + `b→a`, a legal pair of releases; ordered replay gets it right (`a→b→a`, a
+    no-op) without noticing it was hard. **The report replays the names too** — `SdkUpgradeService.resolveNames`
+    keeps a rename trail so a 3.0.0 note about `baz` is shown against the line the file still spells `foo`.
+    Without it the most confusing upgrade there is would show a note pointing at a name appearing nowhere.
+  - **One scanner, two readers: `parser/refactor/SdkReferences`.** The report asks it what the bot calls; the
+    runner asks it the same question to know what to rewrite. Two scans would eventually disagree, and the
+    disagreement's shape is the worst available — a dialog listing three call sites beside a button that
+    repairs two. A `Reference` therefore carries a `MethodReferences.CallSite` (file, parse, **node**); the
+    report keeps the line and drops the node, the runner keeps the node.
+  - **Studio's own scaffolding is refused, not rewritten and not regenerated.** Only `FileRole.EDITABLE`
+    files are migrated. A generated file (the entry point, `FlowDriver`, `ActivityRegistry`, `Activities`,
+    `Templates`) is rendered from *Studio's* templates, so rewriting it would be overwritten at the next
+    regeneration and regenerating it would reproduce the same old-SDK code — the templates live in the Studio
+    build, not the SDK. When a fix targets something a scaffold file uses, the whole upgrade is refused with
+    that sentence: it needs a newer Studio, not a cleverer rewrite.
+  - **`apply(target, repairSources)` is snapshot → migrate → bump, and `repairSources` gates only the middle.**
+    A span with one manual entry must still be *switchable* — the user reads the note, makes that edit, moves —
+    because the SDK goes on declaring the entry forever, so refusing the button outright is a trap with no way
+    out. What it must never do is repair half a span, which is why the flag is per-upgrade, not per entry.
 - **Studio generates bot projects that depend on the SDK.** `services/MavenService` writes each user
   project's `pom.xml` pinning `com.github.LiQiyeDev:botmaker-sdk` (default `SDK_FALLBACK_VERSION`;
   user-selectable in the project screen from JitPack's version list). That pin is independent of the version

@@ -6,6 +6,24 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-22 — *Upgrade SDK…* now repairs the bot, not just describes it (`parser/refactor/SdkMigrationRunner`,
+  `parser/refactor/SdkReferences`, `services/SdkUpgradeService`, `ui/app/SdkUpgradeDialog`).** Dropping
+  OpenRewrite removed the only thing that ever *executed* a migration, which is what made the applier
+  mandatory rather than nice: a migrations file nobody runs is prose. One button now does snapshot →
+  repair → bump, one revert away in Project History. The rewrite is **ordered replay** — each version in
+  `(from, to]` applied as its own pass over what the previous pass produced — so two releases renaming the
+  same method compose in a single jump without any entry knowing another exists. It is emphatically not a
+  fixpoint loop: `a→b` in 2.0.0 and `b→a` in 3.0.0 is a legal pair of releases and an infinite rewrite for
+  anything that re-runs the set until nothing changes, where replay quietly gets it right. The **report**
+  replays names too, through a rename trail, so a 3.0.0 note about `baz` is shown against the line the
+  project still spells `foo` — without that, the most confusing possible upgrade points at a name appearing
+  nowhere in the project. One scanner (`SdkReferences`) now feeds both the report and the rewrite, because
+  two scans eventually disagree and the disagreement's shape is a dialog listing three call sites next to a
+  button that repairs two. Studio's own generated files are **refused rather than rewritten**: they are
+  rendered from Studio's templates, so rewriting them would be overwritten at the next regeneration and
+  regenerating them would reproduce the same old-SDK code. Every refusal — an unparseable file, an ambiguous
+  `case` label, a malformed fix, a scaffold file in the way — abandons the whole migration with nothing
+  written anywhere. 17 new tests.
 - **2026-08-22 — The edit model can express what a migration asks for (`parser/refactor/SignatureMigration`,
   `parser/refactor/CallMigrator`, `parser/refactor/MethodReferences`).** The primitives a `fix` is built out
   of, added before anything runs them: `ArgumentEdit.Literal` writes a value the SDK author chose, where

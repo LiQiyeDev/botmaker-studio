@@ -170,7 +170,9 @@ public final class SdkUpgradeDialog {
                 report = done;
                 busy(false, "");
                 render(done);
-                applyButton.setText("Snapshot & switch to " + done.to());
+                applyButton.setText(done.canMigrate()
+                        ? "Snapshot, repair & switch to " + done.to()
+                        : "Snapshot & switch to " + done.to());
                 applyButton.setDisable(false);
             });
         }, "sdk-upgrade-check");
@@ -215,13 +217,20 @@ public final class SdkUpgradeDialog {
         }
     }
 
-    /** One line per entry, its summary indented under it; {@code withAction} adds the "what to do" line. */
+    /**
+     * One line per entry, its summary indented under it; {@code withAction} adds the "what to do" line.
+     *
+     * <p>The call sites come last, and matter most on a manual entry: the sentence tells the user what to
+     * change, and these tell them where. They are the project's <em>current</em> spelling of the member even
+     * when an earlier version in the same span renames it — see {@code SdkUpgradeService.resolveNames}.
+     */
     private static List<String> lines(List<Migration> migrations, boolean withAction) {
         List<String> out = new ArrayList<>();
         for (Migration m : migrations) {
             out.add(m.member().isBlank() ? m.version() : m.version() + " — " + m.member());
             if (!m.summary().isBlank()) out.add("        " + m.summary());
             if (withAction && !m.manual().isBlank()) out.add("        → " + m.manual());
+            for (var site : m.sites()) out.add("        " + site);
         }
         return out;
     }
@@ -236,9 +245,11 @@ public final class SdkUpgradeDialog {
     }
 
     /**
-     * What the SDK says Studio can repair for you. The Apply button is deliberately inert for now — the
-     * rewriter that carries these out lands in a later phase — and says so rather than being merely greyed:
-     * a disabled control with no explanation reads as a bug.
+     * What the SDK says Studio can repair for you, and whether the button below will actually do it.
+     *
+     * <p>There is deliberately no second Apply button here. The repair is not a separate operation the user
+     * could run on its own — it happens between the snapshot and the pom bump, and running it without either
+     * would leave a project rewritten for an SDK it does not yet pin. One button, one revert away.
      */
     private Node automaticCard(Report r) {
         Label heading = new Label("What Studio can change for you");
@@ -251,17 +262,13 @@ public final class SdkUpgradeDialog {
         VBox card = new VBox(6, heading, why);
         card.getChildren().add(section("", lines(r.automatic(), false)));
 
-        Button apply = new Button("Apply these changes");
-        apply.setDisable(true);
         Label note = new Label(r.canMigrate()
-                ? "Not available yet — this build reports the repairs but does not carry them out."
+                ? "\"Snapshot, repair & switch\" below does all of it: your project is committed to Project "
+                + "History first, so the whole upgrade is one revert away."
                 : reasonApplyIsOff(r));
         note.setWrapText(true);
         note.getStyleClass().add("sdk-upgrade-empty");
-
-        HBox actions = new HBox(8, apply);
-        actions.setAlignment(Pos.CENTER_LEFT);
-        card.getChildren().addAll(actions, note);
+        card.getChildren().add(note);
 
         card.getStyleClass().add("sdk-upgrade-card");
         return card;
@@ -289,11 +296,14 @@ public final class SdkUpgradeDialog {
     private void runApply() {
         if (report == null) return;
         String target = report.to();
+        boolean repair = report.canMigrate();
 
-        busy(true, "Committing a snapshot and switching to " + target + "…");
+        busy(true, repair
+                ? "Committing a snapshot, repairing your call sites and switching to " + target + "…"
+                : "Committing a snapshot and switching to " + target + "…");
         applyButton.setDisable(true);
 
-        upgrades.apply(target).whenComplete((ignored, error) -> Platform.runLater(() -> {
+        upgrades.apply(target, repair).whenComplete((ignored, error) -> Platform.runLater(() -> {
             if (error != null) {
                 busy(false, "");
                 Throwable cause = error.getCause() != null ? error.getCause() : error;
@@ -302,7 +312,8 @@ public final class SdkUpgradeDialog {
                 applyButton.setDisable(false);
                 return;
             }
-            busy(false, "Now on SDK " + target + ". The previous state is one revert away in Project History.");
+            busy(false, (repair ? "Now on SDK " + target + ", with your call sites repaired. " : "Now on SDK "
+                    + target + ". ") + "The previous state is one revert away in Project History.");
             stage.close();
         }));
     }
