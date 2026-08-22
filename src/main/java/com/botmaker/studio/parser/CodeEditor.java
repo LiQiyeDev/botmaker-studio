@@ -29,6 +29,8 @@ import com.botmaker.studio.parser.helpers.SdkNodes;
 import com.botmaker.studio.parser.helpers.SourceFormatter;
 import com.botmaker.studio.parser.helpers.SourceParser;
 import com.botmaker.studio.parser.refactor.CallMigrator;
+import com.botmaker.studio.parser.refactor.ReviewMarker;
+import com.botmaker.studio.parser.refactor.ReviewMarks;
 import com.botmaker.studio.parser.refactor.SignatureMigration;
 import com.botmaker.studio.project.LockResolver.EditKind;
 import com.botmaker.studio.project.LockResolver;
@@ -765,14 +767,23 @@ public class CodeEditor {
         CompilationUnit cu = getCompilationUnit();
         if (cu == null) return;
 
-        List<CallMigrator.Rewritten> others = CallMigrator.rewriteOthers(plan, cu, analyzer, state);
+        // Both before a single character moves. The snapshot is the only undo for the *other* files that
+        // survives the session, and the marker has to exist before anything references it.
+        if (touchesOtherFiles(plan, cu)) {
+            ReviewMarker.snapshot(config, "Before changing \"" + method.getName().getIdentifier() + "\"");
+        }
+        String marker = ReviewMarker.prepare(config);
+
+        List<CallMigrator.Rewritten> others =
+                CallMigrator.rewriteOthers(plan, cu, analyzer, state, config, marker);
         if (others == null) {
             eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(
                     "That change couldn't be written to every file that calls it, so nothing was changed."));
             return;
         }
 
-        String newCode = MethodHandler.applyFunctionSignature(ctx(cu), getCurrentCode(), method, draft, plan);
+        String newCode = MethodHandler.applyFunctionSignature(ctx(cu), getCurrentCode(), method, draft, plan,
+                marker);
         if (newCode == null) return;
         // Read before the commit below overwrites them: this is what ↶ has to put back in those files.
         List<CoreApplicationEvents.FileEdit> alsoChanged = others.stream()
@@ -786,6 +797,15 @@ public class CodeEditor {
             eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(
                     "The function changed, but one of the files calling it couldn't be saved: " + e.getMessage()));
         }
+    }
+
+    /**
+     * Whether the plan rewrites anything outside the file being edited — the one condition that earns a
+     * Project History snapshot. The editor's own ↶ already puts the active file back and dies with the
+     * session; a file the user never opened has no other way home.
+     */
+    private static boolean touchesOtherFiles(SignatureMigration.Plan plan, CompilationUnit active) {
+        return plan.calls().stream().anyMatch(change -> change.site().unit() != active);
     }
 
     /**
@@ -1227,7 +1247,10 @@ public class CodeEditor {
      */
     public void deleteVariable(VariableDeclarationStatement decl, UseFix fix) {
         if (decl == null || fix == null || !canDelete(decl)) return;
-        edit(decl, EditKind.BODY, false, (cu, code) -> deleteVariable(ctx(cu), code, decl, fix));
+        // Renaming the uses to another variable is a complete repair — the body goes on reading a real value,
+        // and nothing is left to check. Defaulting them is not, so only that one is recorded.
+        String marker = fix instanceof UseFix.Rename ? null : ReviewMarker.prepare(config);
+        edit(decl, EditKind.BODY, false, (cu, code) -> deleteVariable(ctx(cu), code, decl, fix, marker));
     }
 
     public void pasteCode(BodyBlock targetBody, int index, String codeToPaste) {
@@ -1496,7 +1519,7 @@ public class CodeEditor {
      * refuses rather than half-doing it.
      */
     private static String deleteVariable(EditContext ctx, String originalCode,
-                                         VariableDeclarationStatement decl, UseFix fix) {
+                                         VariableDeclarationStatement decl, UseFix fix, String markerPackage) {
         if (decl.fragments().size() != 1
                 || !(decl.fragments().getFirst() instanceof VariableDeclarationFragment fragment)) return null;
         ASTRewrite rewriter = ctx.rewriter();
@@ -1527,6 +1550,13 @@ public class CodeEditor {
         }
 
         rewriter.remove(decl, null);
+        if (markerPackage != null && !uses.isEmpty()) {
+            String name = fragment.getName().getIdentifier();
+            ReviewMarks.mark(ctx, AstRewriteHelper.enclosingMethod(decl), markerPackage,
+                    List.of("the variable \"" + name + "\" was deleted, and the "
+                            + uses.size() + (uses.size() == 1 ? " place" : " places")
+                            + " that read it now read a default value instead."));
+        }
         return ctx.applyTo(originalCode);
     }
 

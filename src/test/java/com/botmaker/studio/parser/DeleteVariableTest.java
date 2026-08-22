@@ -62,8 +62,12 @@ class DeleteVariableTest {
         fx.editor.deleteVariable(declaration("run", "attempts"), UseFix.DEFAULT);
 
         assertNotNull(fx.lastCode, "the delete should have produced a code update");
-        assertFalse(fx.lastCode.contains("attempts"),
-                "neither the declaration nor its uses survive:\n" + fx.lastCode);
+        // Not `contains("attempts")`: the review mark names the variable it removed, so the word survives in
+        // the one place it is meant to — see needsReviewIsMarkedWhereUsesBecameDefaults below.
+        assertFalse(fx.lastCode.contains("int attempts"),
+                "the declaration does not survive:\n" + fx.lastCode);
+        assertFalse(fx.lastCode.contains("print(attempts"),
+                "neither do its uses:\n" + fx.lastCode);
         assertTrue(fx.lastCode.contains("BotMaker.print(0)"),
                 "a use takes the declared type's default:\n" + fx.lastCode);
         assertTrue(fx.lastCode.contains("BotMaker.print(0 + 1)"),
@@ -117,10 +121,77 @@ class DeleteVariableTest {
         fx.editor.deleteVariable(declaration("run", "attempts"), UseFix.DEFAULT);
 
         assertNotNull(fx.lastCode, "the delete should have produced a code update");
-        assertFalse(fx.lastCode.contains("attempts"),
-                "no trace of the variable is left:\n" + fx.lastCode);
+        assertFalse(fx.lastCode.contains("int attempts"),
+                "the declaration is gone:\n" + fx.lastCode);
+        assertFalse(fx.lastCode.contains("attempts ="), "and the line that wrote it:\n" + fx.lastCode);
+        assertFalse(fx.lastCode.contains("attempts++"), "and the one that bumped it:\n" + fx.lastCode);
         assertTrue(fx.lastCode.contains("BotMaker.print(0)"),
                 "the use that reads it still becomes the default:\n" + fx.lastCode);
+    }
+
+    // -------------------------------------------------------------------------
+    // What it leaves behind for the user
+    // -------------------------------------------------------------------------
+
+    @Test
+    void needsReviewIsMarkedWhereUsesBecameDefaults() {
+        open("""
+                package test;
+
+                public class Subject {
+                    public void run() {
+                        int attempts = 3;
+                        BotMaker.print(attempts);
+                    }
+                }
+                """);
+
+        fx.editor.deleteVariable(declaration("run", "attempts"), UseFix.DEFAULT);
+
+        assertTrue(fx.lastCode.contains("@NeedsReview"),
+                "a use that became a zero is not a complete repair:\n" + fx.lastCode);
+        // Escaped, because the name is quoted inside a string literal in the annotation.
+        assertTrue(fx.lastCode.contains("\\\"attempts\\\""),
+                "the mark says which variable went:\n" + fx.lastCode);
+    }
+
+    @Test
+    void pointingTheUsesAtAnotherVariableIsACompleteRepairAndIsNotMarked() {
+        open("""
+                package test;
+
+                public class Subject {
+                    public void run() {
+                        int kept = 7;
+                        int attempts = 3;
+                        BotMaker.print(attempts);
+                    }
+                }
+                """);
+
+        fx.editor.deleteVariable(declaration("run", "attempts"), new UseFix.Rename("kept"));
+
+        assertFalse(fx.lastCode.contains("@NeedsReview"),
+                "the body still reads a real value, so there is nothing to look at:\n" + fx.lastCode);
+    }
+
+    @Test
+    void aVariableNothingReadsLeavesNoMarkEither() {
+        open("""
+                package test;
+
+                public class Subject {
+                    public void run() {
+                        int attempts = 3;
+                        BotMaker.print(1);
+                    }
+                }
+                """);
+
+        fx.editor.deleteVariable(declaration("run", "attempts"), UseFix.DEFAULT);
+
+        assertFalse(fx.lastCode.contains("@NeedsReview"),
+                "no use was defaulted, so nothing changed meaning:\n" + fx.lastCode);
     }
 
     @Test

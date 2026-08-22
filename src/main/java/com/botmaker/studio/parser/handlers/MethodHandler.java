@@ -14,6 +14,7 @@ import com.botmaker.studio.parser.helpers.AstRewriteHelper;
 import com.botmaker.studio.parser.helpers.DefaultValueHelper;
 import com.botmaker.studio.parser.helpers.MethodSignatures;
 import com.botmaker.studio.parser.refactor.CallMigrator;
+import com.botmaker.studio.parser.refactor.ReviewMarks;
 import com.botmaker.studio.parser.refactor.SignatureMigration;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.palette.ExpressionType;
@@ -23,6 +24,7 @@ import org.eclipse.jdt.core.dom.*;
 import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 import org.eclipse.jdt.core.dom.rewrite.ListRewrite;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -184,6 +186,16 @@ public class MethodHandler {
      */
     public static String applyFunctionSignature(EditContext ctx, String originalCode, MethodDeclaration method,
                                                 FunctionDraft draft, SignatureMigration.Plan plan) {
+        return applyFunctionSignature(ctx, originalCode, method, draft, plan, null);
+    }
+
+    /**
+     * The same, recording on this function and on the functions that call it what the change left needing a
+     * look. A null {@code markerPackage} turns that off.
+     */
+    public static String applyFunctionSignature(EditContext ctx, String originalCode, MethodDeclaration method,
+                                                FunctionDraft draft, SignatureMigration.Plan plan,
+                                                String markerPackage) {
         ASTRewrite rewriter = ctx.rewriter();
 
         String newName = draft.name().trim();
@@ -195,10 +207,37 @@ public class MethodHandler {
         applyParameters(ctx, method, draft.parameters());
         if (plan != null) {
             rescueRemovedParameters(ctx, method, plan.rescued());
-            CallMigrator.applyIn(ctx, plan);
+            CallMigrator.applyIn(ctx, plan, markerPackage);
+            // Last, so the mark merges with anything CallMigrator has already put on this same function —
+            // a function that calls itself is the ordinary case here, not a curiosity.
+            if (markerPackage != null) {
+                ReviewMarks.mark(ctx, method, markerPackage, ownEntries(draft, plan));
+            }
         }
 
         return ctx.applyTo(originalCode);
+    }
+
+    /**
+     * What the change did to <em>this</em> function's own body that the user has to check: a value the editor
+     * wrote where theirs used to be.
+     *
+     * <p>Both of these are honest repairs of a change the user asked for, and both discard something they
+     * typed. A rescued parameter is the sharper of the two — the body goes on reading {@code tries}, and it is
+     * no longer the caller's {@code tries} but a zero declared at the top, which nothing in the preview shows
+     * as a difference in behaviour.
+     */
+    private static List<String> ownEntries(FunctionDraft draft, SignatureMigration.Plan plan) {
+        List<String> entries = new ArrayList<>();
+        for (SignatureMigration.RescuedParameter rescued : plan.rescued()) {
+            entries.add("the input \"" + rescued.name() + "\" was removed, so this now starts by declaring it "
+                    + "as " + rescued.type().defaultText() + " — decide where that value should come from.");
+        }
+        if (plan.returnFate() == SignatureMigration.ReturnFate.REPLACED) {
+            entries.add("the value this gives back no longer fits its new type and was replaced with "
+                    + draft.returnType().defaultText() + ".");
+        }
+        return entries;
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.botmaker.studio.services;
 
+import com.botmaker.studio.parser.refactor.ReviewMarker;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
@@ -99,6 +100,24 @@ public final class TemplateReferences {
      * literal instead — still correct, and the only thing left to write.
      */
     public static List<Path> retarget(ProjectConfig config, ProjectState state, String oldName, String newName) {
+        return retarget(config, state, oldName, newName, null, null);
+    }
+
+    /**
+     * The same, marking each rewritten block's function for review with {@code reviewEntry}.
+     *
+     * <p>Only the caller knows whether the retarget was lossless. A <b>rename</b> points every block at the
+     * same image under a new name and is not marked — nothing about the bot's behaviour moved. Pointing blocks
+     * at a <b>different</b> template, which is what a delete and a missing-file repair both do, changes what
+     * the bot looks for on screen, and is exactly the kind of change that is invisible in the diff a week
+     * later.
+     *
+     * <p>The rewrite stays line by line and the mark is worked out from the line numbers afterwards
+     * ({@link ReviewMarker#markLines}), because the two spellings this replaces cannot span a line and parsing
+     * every file to find them would fail on the one file that most needs the mark: one that does not compile.
+     */
+    public static List<Path> retarget(ProjectConfig config, ProjectState state, String oldName, String newName,
+                                      String markerPackage, String reviewEntry) {
         Pattern constant = constantReferenceTo(oldName);
         Pattern literal = literalReferenceTo(oldName);
         String newConstant = TemplateConstants.constantFor(newName);
@@ -109,12 +128,21 @@ public final class TemplateReferences {
 
         List<Path> changed = new ArrayList<>();
         forEachSource(config, state, (file, source) -> {
-            String rewritten = source;
-            if (constant != null) rewritten = constant.matcher(rewritten).replaceAll(constantReplacement);
-            rewritten = literal.matcher(rewritten).replaceAll(literalReplacement);
-            if (rewritten.equals(source)) return null;
+            String[] lines = source.split("\n", -1);
+            List<Integer> touched = new ArrayList<>();
+            for (int i = 0; i < lines.length; i++) {
+                String rewritten = lines[i];
+                if (constant != null) rewritten = constant.matcher(rewritten).replaceAll(constantReplacement);
+                rewritten = literal.matcher(rewritten).replaceAll(literalReplacement);
+                if (rewritten.equals(lines[i])) continue;
+                lines[i] = rewritten;
+                touched.add(i + 1);
+            }
+            if (touched.isEmpty()) return null;
             changed.add(file);
-            return rewritten;
+            String rewritten = String.join("\n", lines);
+            if (reviewEntry == null || !ReviewMarker.marksSurvive(config, state, file)) return rewritten;
+            return ReviewMarker.markLines(rewritten, touched, markerPackage, reviewEntry);
         });
         return List.copyOf(changed);
     }

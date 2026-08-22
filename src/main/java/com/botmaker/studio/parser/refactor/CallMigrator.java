@@ -9,16 +9,19 @@ import com.botmaker.studio.parser.helpers.SourceParser;
 import com.botmaker.studio.parser.refactor.MethodReferences.CallSite;
 import com.botmaker.studio.parser.refactor.SignatureMigration.ArgumentEdit;
 import com.botmaker.studio.parser.refactor.SignatureMigration.CallChange;
+import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.types.ResolvedType;
 import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.jdt.core.dom.ASTVisitor;
+import org.eclipse.jdt.core.dom.ClassInstanceCreation;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jdt.core.dom.Expression;
 import org.eclipse.jdt.core.dom.ExpressionStatement;
 import org.eclipse.jdt.core.dom.ImportDeclaration;
+import org.eclipse.jdt.core.dom.MethodDeclaration;
 import org.eclipse.jdt.core.dom.MethodInvocation;
 import org.eclipse.jdt.core.dom.QualifiedName;
 import org.eclipse.jdt.core.dom.SimpleName;
@@ -30,8 +33,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * The writing half of a signature change: it takes the {@linkplain SignatureMigration.Plan plan} the user has
@@ -63,11 +68,24 @@ public final class CallMigrator {
      * shuffles at sites it just found. Only an SDK migration produces a change that can be refused.
      */
     public static boolean applyIn(EditContext ctx, SignatureMigration.Plan plan) {
+        return applyIn(ctx, plan, null);
+    }
+
+    /**
+     * The same, recording a {@linkplain ReviewMarks review mark} on the function around every call the change
+     * leaves needing a look — see {@link #reviewEntries}. A null {@code markerPackage} turns that off, which
+     * is what a caller with nowhere to write the annotation passes.
+     */
+    public static boolean applyIn(EditContext ctx, SignatureMigration.Plan plan, String markerPackage) {
         if (plan == null) return true;
         boolean applied = true;
+        Map<MethodDeclaration, Set<String>> marks = new LinkedHashMap<>();
         for (CallChange change : plan.calls()) {
-            if (change.site().unit() == ctx.cu()) applied &= apply(ctx, change);
+            if (change.site().unit() != ctx.cu()) continue;
+            applied &= apply(ctx, change);
+            if (markerPackage != null) note(marks, change);
         }
+        marks.forEach((method, entries) -> ReviewMarks.mark(ctx, method, markerPackage, List.copyOf(entries)));
         return applied;
     }
 
@@ -80,6 +98,18 @@ public final class CallMigrator {
      */
     public static List<Rewritten> rewriteOthers(SignatureMigration.Plan plan, CompilationUnit active,
                                                 ProjectAnalyzer analyzer, ProjectState state) {
+        return rewriteOthers(plan, active, analyzer, state, null, null);
+    }
+
+    /**
+     * The same, marking for review in each of those files as {@link #applyIn} does in the active one. The
+     * marks go into that file's own rewrite, so a file that comes out broken takes its marks down with it —
+     * and a file Studio generates is rewritten like any other but never marked, since the next regeneration
+     * would erase the mark ({@link ReviewMarker#marksSurvive}).
+     */
+    public static List<Rewritten> rewriteOthers(SignatureMigration.Plan plan, CompilationUnit active,
+                                                ProjectAnalyzer analyzer, ProjectState state,
+                                                ProjectConfig config, String markerPackage) {
         Map<CompilationUnit, List<CallChange>> byUnit = new LinkedHashMap<>();
         for (CallChange change : plan.calls()) {
             if (change.site().unit() == active) continue;
@@ -92,9 +122,15 @@ public final class CallMigrator {
             EditContext ctx = EditContext.of(entry.getKey(), analyzer, state);
             // A change this cannot express — a constant moved to another class with no type written at the
             // call site to retarget — refuses the migration whole, exactly as an unparseable result does.
+            boolean marking = markerPackage != null
+                    && ReviewMarker.marksSurvive(config, state, file.getPath());
+            Map<MethodDeclaration, Set<String>> marks = new LinkedHashMap<>();
             for (CallChange change : entry.getValue()) {
                 if (!apply(ctx, change)) return null;
+                if (marking) note(marks, change);
             }
+            marks.forEach((method, entries) ->
+                    ReviewMarks.mark(ctx, method, markerPackage, List.copyOf(entries)));
 
             String source = ctx.applyTo(file.getContent());
             if (source == null) return null;
@@ -205,6 +241,102 @@ public final class CallMigrator {
                 yield true;
             }
         };
+    }
+
+    // --- what the user still has to look at ----------------------------------------------------------------
+
+    /** Files {@code change}'s entries, if any, under the function they belong to. */
+    private static void note(Map<MethodDeclaration, Set<String>> marks, CallChange change) {
+        List<String> entries = reviewEntries(change);
+        if (entries.isEmpty()) return;
+        MethodDeclaration method = ReviewMarks.enclosingMethod(change.site().node());
+        if (method == null) return;   // a call in a field initialiser: nowhere to hang a @Target(METHOD) mark
+        marks.computeIfAbsent(method, m -> new LinkedHashSet<>()).addAll(entries);
+    }
+
+    /**
+     * What one call change costs the user, in sentences — empty when the change is <em>complete</em> and there
+     * is nothing to look at.
+     *
+     * <p>The distinction is the whole value of the review list, and it is the same one the SDK upgrade draws.
+     * A rename, a reorder, a dropped literal: the call afterwards does exactly what it did before, and burying
+     * the sites whose meaning changed under the ones that did not is how a list stops being read. What is
+     * recorded is only ever a place where <b>a value the user wrote was replaced by a placeholder, or work the
+     * call used to do stopped happening</b>.
+     */
+    private static List<String> reviewEntries(CallChange change) {
+        return switch (change) {
+            case CallChange.ValueReplaced replaced -> List.of(
+                    "this used the result of \"" + calledName(replaced.site())
+                            + "\", which no longer fits here — it now reads "
+                            + replaced.expected().defaultText() + ".");
+            // The two SDK-upgrade shapes. SdkMigrationRunner writes its own marks, naming the member that was
+            // removed — which it knows and this does not — so there is nothing to add here.
+            case CallChange.ValueDefaulted ignored -> List.of();
+            case CallChange.CallDeleted ignored -> List.of();
+            case CallChange.Rewrite rewrite -> rewriteEntries(rewrite);
+        };
+    }
+
+    private static List<String> rewriteEntries(CallChange.Rewrite rewrite) {
+        List<String> entries = new ArrayList<>();
+        String called = calledName(rewrite.site());
+        for (ArgumentEdit edit : rewrite.arguments()) {
+            if (edit instanceof ArgumentEdit.Fresh fresh) {
+                entries.add("\"" + called + "\" gained an input here, filled in with "
+                        + fresh.type().defaultText() + " — check that is the value you want.");
+            }
+        }
+        entries.addAll(droppedWork(rewrite, called));
+        return entries;
+    }
+
+    /**
+     * Arguments the new call no longer has a place for <em>that did something</em>.
+     *
+     * <p>Dropping {@code clickAt(p, 3)}'s {@code 3} is a change the user asked for and read in the preview;
+     * dropping {@code clickAt(p, countTargets())} silently stops {@code countTargets} from running, which is
+     * not visible anywhere afterwards. Only the second is worth a row.
+     */
+    private static List<String> droppedWork(CallChange.Rewrite rewrite, String called) {
+        List<?> current = rewrite.site().arguments();
+        Set<Integer> kept = new LinkedHashSet<>();
+        for (ArgumentEdit edit : rewrite.arguments()) {
+            if (edit instanceof ArgumentEdit.Keep keep) kept.add(keep.from());
+        }
+        List<String> entries = new ArrayList<>();
+        for (int i = 0; i < current.size(); i++) {
+            if (kept.contains(i) || !(current.get(i) instanceof Expression argument)) continue;
+            if (!doesSomething(argument)) continue;
+            entries.add("\"" + called + "\" lost the input \"" + argument
+                    + "\" here, so what it did no longer runs.");
+        }
+        return entries;
+    }
+
+    /** True when throwing this expression away throws work away — it calls or constructs something. */
+    private static boolean doesSomething(Expression argument) {
+        boolean[] found = {false};
+        argument.accept(new ASTVisitor() {
+            @Override
+            public boolean visit(MethodInvocation node) {
+                found[0] = true;
+                return false;
+            }
+
+            @Override
+            public boolean visit(ClassInstanceCreation node) {
+                found[0] = true;
+                return false;
+            }
+        });
+        return found[0];
+    }
+
+    /** What the call is called, for a sentence — the class's name for a {@code new Thing(…)}. */
+    private static String calledName(CallSite site) {
+        SimpleName name = site.nameNode();
+        return name != null ? name.getIdentifier() : site.className();
     }
 
     private static boolean applyRewrite(EditContext ctx, CallChange.Rewrite rewrite) {

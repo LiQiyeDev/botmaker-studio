@@ -2,6 +2,7 @@ package com.botmaker.studio.ui.app;
 
 import com.botmaker.studio.events.CoreApplicationEvents.ResourcesChangedEvent;
 import com.botmaker.studio.events.EventBus;
+import com.botmaker.studio.parser.refactor.ReviewMarker;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.services.CodeEditorService;
@@ -343,9 +344,12 @@ public class ResourceManagerDialog {
         String wanted = ImageTemplateLibrary.sanitizeName(nameField.getText());
         if (renameProblem(current, wanted) != null) return;
         try {
+            // Every file this touches is one the user is not looking at, so Project History is the only undo.
+            ReviewMarker.snapshot(config, "Before renaming the template \"" + current + "\"");
             ImageTemplateLibrary.renameTemplate(config, file, wanted);
             // After the file has moved, so a failure to rewrite leaves the sources naming a template that is
             // gone (a compile error) rather than one that no longer exists under that name (a silent miss).
+            // Unmarked: every block still points at the same picture, under a new name.
             List<Path> touched = TemplateReferences.retarget(config, state(), current, wanted);
             refreshEditor();
             published();
@@ -624,9 +628,12 @@ public class ResourceManagerDialog {
         TemplateGalleryDialog.open(stage, config, options, picked -> {
             if (picked.isEmpty()) return;
             String replacement = ImageTemplateLibrary.baseName(picked.getFirst());
+            ReviewMarker.snapshot(config, "Before deleting templates used by the bot");
+            String marker = ReviewMarker.prepare(config);
             int rewritten = 0;
             for (String name : used.keySet()) {
-                rewritten += TemplateReferences.retarget(config, state(), name, replacement).size();
+                rewritten += TemplateReferences.retarget(config, state(), name, replacement, marker,
+                        repointEntry(name, replacement)).size();
             }
             refreshEditor();
             deleteAll(files, skippedDefault, rewritten);
@@ -819,13 +826,26 @@ public class ResourceManagerDialog {
                     picked -> {
                         if (picked.isEmpty()) return;
                         String replacement = ImageTemplateLibrary.baseName(picked.getFirst());
+                        ReviewMarker.snapshot(config, "Before repointing templates whose file was gone");
+                        String marker = ReviewMarker.prepare(config);
                         for (String name : used.keySet()) {
-                            TemplateReferences.retarget(config, state(), name, replacement);
+                            TemplateReferences.retarget(config, state(), name, replacement, marker,
+                                    repointEntry(name, replacement));
                         }
                         refreshEditor();
                         forgetMissing(missing);
                     });
         }
+    }
+
+    /**
+     * What a repointed block leaves the user to check. Named rather than inlined because both places that
+     * repoint — deleting a template that is in use, and repairing one whose file has gone — owe the same
+     * sentence: the blocks compile and run, and they are now looking for a different picture.
+     */
+    private static String repointEntry(String oldName, String replacement) {
+        return "this looked for the template \"" + oldName + "\", which is gone — it now looks for \""
+                + replacement + "\", which may not be what it should be watching for.";
     }
 
     /** Drops the manifest entries of templates that no longer have a file, and regenerates the constants. */

@@ -181,6 +181,38 @@ there are three distinct relationships to keep straight:
     annotation — and, once the file holds no marks at all, the import. **A rename is not marked**: the bot
     does afterwards exactly what it did before, and burying the sites that changed meaning under the ones
     that did not is how a review list stops being read.
+  - **The marker is not an SDK-upgrade feature — every refactor that rewrites a file uses it
+    (`parser/refactor/ReviewMarker`).** `ReviewMarks` edits one tree through one `EditContext` and knows
+    nothing of a project; `ReviewMarker` is the project-level half: `prepare` (write the annotation, answer
+    the package to import it from), `snapshot` (a Project History commit), `marksSurvive` (never mark a file
+    Studio regenerates), and `markLines` (mark the functions a set of changed *line numbers* falls inside —
+    the way in for a rewrite done in text rather than in an AST). Four refactors now go through it:
+    - **A signature edit** — `CallMigrator.applyIn` / `rewriteOthers` mark at each call site, and
+      `MethodHandler.applyFunctionSignature` marks the edited function itself for a rescued parameter or a
+      replaced return value. `CallMigrator.reviewEntries` is where the *complete vs. lossy* line is drawn: a
+      rename, a reorder or a dropped **literal** leaves the call doing exactly what it did, so it is not
+      recorded; a new input filled in with a default, a used result that no longer fits, and a dropped
+      argument that **called or constructed something** all are (`droppedWork`).
+    - **Deleting a variable** — marked when the uses become defaults, not when they are pointed at another
+      variable, which is a complete repair.
+    - **Repointing a template** (`TemplateReferences.retarget`, `ResourceManagerDialog.repointEntry`) —
+      marked when blocks end up looking for a *different* picture (a delete, a missing-file repair), not on a
+      rename, where every block still watches for the same thing under a new name.
+    - `SdkMigrationRunner`, as above.
+  - **`prepare` may answer null, and that is not a failure.** A mark is a reference to a generated annotation,
+    so if the annotation cannot be written the choice is between refusing the refactor and doing it unmarked
+    — and unmarked is plainly better: the user asked for the rename, not the bookkeeping. It has to be called
+    **before** anything is written, so the answer is known while refusing is still cheap. `snapshot` is
+    best-effort for the same reason: a project whose history was never initialised must not lose the ability
+    to rename a function.
+  - **The snapshot rule is "does this touch a file the user is not looking at".** `CodeEditor.touchesOtherFiles`
+    asks exactly that of the plan. The editor's own ↶ already puts the active file back and dies with the
+    session; a file the user never opened has no other way home, and a template repoint happens outside the
+    editor entirely. Active-file-only edits take no snapshot — a commit per keystroke is not a history.
+  - **Generated files are rewritten but never marked.** A call in the activity registry has to be renamed with
+    everything else or the bot stops compiling, but the file is regenerated on the next save, which would
+    silently erase the mark. A review row that disappears on its own is worse than no row: the user is never
+    told the thing they were meant to look at has stopped being listed.
   - **One scanner, two readers: `parser/refactor/SdkReferences`.** The report asks it what the bot calls; the
     runner asks it the same question to know what to rewrite. Two scans would eventually disagree, and the
     disagreement's shape is the worst available — a dialog listing three call sites beside a button that

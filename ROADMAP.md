@@ -6,6 +6,27 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-22 — Every refactor marks and snapshots, not just the SDK upgrade
+  (`parser/refactor/ReviewMarker`, `CallMigrator`, `parser/handlers/MethodHandler`, `parser/CodeEditor`,
+  `services/TemplateReferences`, `ui/app/ResourceManagerDialog`).** Studio had at least four refactors that
+  rewrote files the user was not looking at and reported nothing at all — a signature edit built a `Plan`
+  naming every affected call site in every file and then **discarded it**. They now share one facility.
+  `ReviewMarker` is the project-level half of the marker: `prepare` writes the annotation and answers the
+  package, `snapshot` commits to Project History, `marksSurvive` refuses to mark a file Studio regenerates,
+  and `markLines` marks the functions a set of changed *line numbers* falls inside — the way in for a rewrite
+  done in text rather than in an AST, which is what a template repoint is.
+  What is marked is only ever a place where **a value the user wrote became a placeholder, or work the code
+  used to do stopped happening**: a new input filled in with a default, a used result that no longer fits, a
+  dropped argument that *called or constructed something*, a removed parameter rescued as a zeroed local, a
+  replaced return value, a deleted variable whose uses became defaults, a block now watching for a different
+  picture. A rename, a reorder, a dropped literal and a variable pointed at another variable are complete
+  repairs and are recorded nowhere — burying the sites that changed meaning under the ones that did not is
+  how a review list stops being read. **The snapshot rule** is one question, `CodeEditor.touchesOtherFiles`:
+  the editor's ↶ already covers the active file and dies with the session, so only a refactor reaching a file
+  the user never opened earns a commit. Two deliberate non-failures: `prepare` answering null does the change
+  unmarked rather than refusing it, and a file that does not parse is still retargeted, just not marked.
+  **Still owed: the review panel** — phase 5; the marks are real, and still only visible in the file.
+
 - **2026-08-22 — `@NeedsReview`: the repair now leaves a record of what it could not finish
   (`parser/refactor/ReviewMarks`, `SdkMigrationRunner`, `project/ProjectConfig`, `project/FileRole`).** The
   entry below made the upgrade write defaults; this is the other half of that bargain. Every function that
@@ -21,7 +42,7 @@ whenever work lands here (see CLAUDE.md → Roadmap).
   **rename is deliberately not marked**, since the bot afterwards does exactly what it did before. `FileRole`
   classes the generated file `GENERATED` before the template gate, so an `EMPTY` project gets one too and the
   explorer never lists it. **Still owed: the review panel** that reads these marks back and lets the user
-  tick them off — phases 4–5 of the plan; the marks are real but currently only visible in the file.
+  tick them off — phase 5 of the plan; phase 4 (every other refactor marking too) is the entry above.
 
 - **2026-08-22 — The repair inverts: pairing and default values replace the fix engine
   (`services/SdkUpgradeService`, `parser/refactor/SdkMigrationRunner`, `CallMigrator`, `SignatureMigration`,

@@ -146,6 +146,71 @@ class TemplateReferencesTest {
         assertEquals(open.getContent(), Files.readString(file));
     }
 
+    // -------------------------------------------------------------------------
+    // Pointing blocks at a different picture, and saying so
+    // -------------------------------------------------------------------------
+
+    @Test
+    void aRepointMarksTheFunctionTheRewrittenLineIsIn(@TempDir Path root) throws IOException {
+        ProjectConfig config = project(root);
+        write(config, "Miner.java", """
+                package com.refbot;
+                class Miner {
+                    void mine() {
+                        find(new ImageTemplate(Templates.GOLD_ORE));
+                    }
+
+                    void rest() {
+                        sleep(1);
+                    }
+                }
+                """);
+
+        TemplateReferences.retarget(config, null, "gold_ore", "gold_vein", "com.refbot",
+                "this looked for \"gold_ore\", which is gone.");
+
+        String source = Files.readString(config.sourceRoot().resolve("Miner.java"));
+        assertTrue(source.contains("Templates.GOLD_VEIN"), source);
+        assertTrue(source.contains("@NeedsReview"), source);
+        // Only mine() — rest() names no template, so nothing about it changed.
+        assertEquals(1, count(source, "@NeedsReview"), source);
+        assertTrue(source.indexOf("@NeedsReview") < source.indexOf("void mine()"), source);
+    }
+
+    /** A rename points every block at the same picture, so there is nothing to review. */
+    @Test
+    void aRetargetWithNoEntryMarksNothing(@TempDir Path root) throws IOException {
+        ProjectConfig config = project(root);
+        write(config, "Miner.java", """
+                package com.refbot;
+                class Miner {
+                    void mine() {
+                        find(new ImageTemplate(Templates.GOLD_ORE));
+                    }
+                }
+                """);
+
+        TemplateReferences.retarget(config, null, "gold_ore", "gold_vein");
+
+        assertFalse(Files.readString(config.sourceRoot().resolve("Miner.java")).contains("@NeedsReview"));
+    }
+
+    /**
+     * A file that does not parse is still retargeted — that is the whole reason this works in text — and
+     * simply goes unmarked, rather than being left half-rewritten or refused.
+     */
+    @Test
+    void aFileThatDoesNotParseIsStillRetargetedJustNotMarked(@TempDir Path root) throws IOException {
+        ProjectConfig config = project(root);
+        write(config, "Broken.java", "class Broken { String a = Templates.GOLD_ORE; void oops( }\n");
+
+        TemplateReferences.retarget(config, null, "gold_ore", "gold_vein", "com.refbot", "look at this");
+
+        String source = Files.readString(config.sourceRoot().resolve("Broken.java"));
+        assertTrue(source.contains("Templates.GOLD_VEIN"), source);
+        assertFalse(source.contains("@NeedsReview"), source);
+    }
+
     private static int count(String haystack, String needle) {
         int n = 0;
         for (int i = haystack.indexOf(needle); i >= 0; i = haystack.indexOf(needle, i + needle.length())) n++;

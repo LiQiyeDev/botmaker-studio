@@ -8,6 +8,7 @@ import com.botmaker.studio.palette.FunctionDraft;
 import com.botmaker.studio.parser.helpers.SourceParser;
 import com.botmaker.studio.parser.refactor.MethodReferences;
 import com.botmaker.studio.parser.refactor.SignatureMigration;
+import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
@@ -213,5 +214,94 @@ class SignatureMigrationApplyTest {
 
         assertTrue(lastCode.contains("public void hoverOver(int spot)"), lastCode);
         assertEquals(GO_HOME, goHomeOnDisk(), "no other file is touched for a change no other file can see");
+    }
+
+    // --- what the change leaves behind for the user --------------------------------------------------------
+
+    /**
+     * The same migrations, run through an editor that has a project to write a marker into.
+     *
+     * <p>The editor above deliberately has none ({@code config} is null), which is what makes every assertion
+     * up to here about the repaired code alone. These are the same gestures with the bookkeeping switched on.
+     */
+    private void migrateWithProject(FunctionDraft after) throws IOException {
+        ProjectConfig config = ProjectConfig.forProject("MyBot", dir.resolve("projects"));
+        Files.createDirectories(config.mainPackageDir());
+        EventBus bus = new EventBus(false);
+        bus.subscribe(CoreApplicationEvents.CodeUpdatedEvent.class, e -> lastCode = e.newCode());
+        CodeEditor marking = new CodeEditor(config, state, bus, new ProjectAnalyzer(null, state));
+
+        MethodDeclaration method = clickAt();
+        MethodReferences.Result references = MethodReferences.find(state, method);
+        assertFalse(references.isRefusal(), references.refusal());
+        marking.applyFunctionSignature(method,
+                after, SignatureMigration.of(before(), after, method, references.calls()));
+    }
+
+    @Test
+    void aRenameIsACompleteRepairAndIsMarkedNowhere() throws IOException {
+        migrateWithProject(new FunctionDraft("tapAt", BotType.Choice.of(BotType.YES_NO), before().parameters()));
+
+        assertFalse(lastCode.contains("@NeedsReview"),
+                "every call afterwards does exactly what it did before:\n" + lastCode);
+        assertFalse(goHomeOnDisk().contains("@NeedsReview"), goHomeOnDisk());
+    }
+
+    @Test
+    void anAddedParameterMarksEveryFunctionItWasGuessedIn() throws IOException {
+        migrateWithProject(new FunctionDraft("clickAt", BotType.Choice.of(BotType.YES_NO),
+                List.of(param("x", BotType.WHOLE_NUMBER, 0), param("tries", BotType.WHOLE_NUMBER, 1),
+                        added("label", BotType.TEXT))));
+
+        assertTrue(lastCode.contains("@NeedsReview"), "run() calls it twice with a placeholder:\n" + lastCode);
+        assertTrue(lastCode.contains("gained an input"), lastCode);
+        assertTrue(goHomeOnDisk().contains("@NeedsReview"),
+                "so does go(), in the file the user never opened:\n" + goHomeOnDisk());
+        assertTrue(goHomeOnDisk().contains("import com.mybot.NeedsReview;"),
+                "and it is imported there, since that file is not in the bot's own package:\n" + goHomeOnDisk());
+    }
+
+    @Test
+    void aRemovedParameterMarksTheFunctionWhoseBodyNowReadsAZero() throws IOException {
+        migrateWithProject(new FunctionDraft("clickAt", BotType.Choice.of(BotType.WHOLE_NUMBER),
+                List.of(param("x", BotType.WHOLE_NUMBER, 0))));
+
+        assertTrue(lastCode.contains("int tries = 0;"), lastCode);
+        assertTrue(lastCode.contains("was removed, so this now starts by declaring it"),
+                "the body goes on reading tries, and it is no longer the caller's:\n" + lastCode);
+    }
+
+    @Test
+    void aCallThatLostAnArgumentThatDidSomethingIsMarkedAndOneThatLostALiteralIsNot() throws IOException {
+        // GoHome calls clickAt(5, 6) — a bare literal, dropped in silence. Bot.run's calls are literals too,
+        // so the whole migration should mark nothing at any call site.
+        migrateWithProject(new FunctionDraft("clickAt", BotType.Choice.of(BotType.YES_NO),
+                List.of(param("x", BotType.WHOLE_NUMBER, 0))));
+
+        assertFalse(goHomeOnDisk().contains("@NeedsReview"),
+                "dropping a 6 the user watched being dropped is not a review row:\n" + goHomeOnDisk());
+    }
+
+    @Test
+    void aChangedReturnTypeMarksOnlyTheCallThatNoLongerFits() throws IOException {
+        migrateWithProject(new FunctionDraft("clickAt", BotType.Choice.of(BotType.WHOLE_NUMBER),
+                before().parameters()));
+
+        assertTrue(lastCode.contains("boolean ok = false;"), lastCode);
+        assertTrue(lastCode.contains("no longer fits here"), lastCode);
+        assertFalse(goHomeOnDisk().contains("@NeedsReview"),
+                "GoHome's call stands as its own line and consumed nothing:\n" + goHomeOnDisk());
+    }
+
+    @Test
+    void theMarkerAnnotationIsWrittenIntoTheBotOnce() throws IOException {
+        ProjectConfig config = ProjectConfig.forProject("MyBot", dir.resolve("projects"));
+        migrateWithProject(new FunctionDraft("clickAt", BotType.Choice.of(BotType.YES_NO),
+                List.of(param("x", BotType.WHOLE_NUMBER, 0), param("tries", BotType.WHOLE_NUMBER, 1),
+                        added("label", BotType.TEXT))));
+
+        Path marker = config.mainPackageDir().resolve("NeedsReview.java");
+        assertTrue(Files.exists(marker), "the marks reference an annotation that has to exist");
+        assertTrue(Files.readString(marker).contains("RetentionPolicy.SOURCE"), Files.readString(marker));
     }
 }
