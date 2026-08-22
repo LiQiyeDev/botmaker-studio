@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-22 — Generated bots resolve on a clean machine again (`MavenService.SDK_FALLBACK_VERSION`,
+  `.deps.env`).** A project created by a packaged Studio failed to compile anywhere that had never built
+  the BotMaker repo: the SDK's *own* published pom named `botmaker-shared:0.0.0-SNAPSHOT` and
+  `botmaker-session:0.0.0-SNAPSHOT`, so the bad pin arrived transitively and no amount of correctness in
+  the bot's own pom helped. The cause was in the two library modules, not here — `mvn install -D…` steers
+  the build it runs in but publishes the **committed** pom, so `jitpack.yml`'s `-Dbotmaker.shared.version`
+  was thrown away at publish time; both now run `flatten-maven-plugin` (see their ROADMAPs). Studio's only
+  part is the SDK fallback pin, bumped to the first fixed SDK by `release.sh`. **Existing bots are not
+  fixed by the release** — their pom pins the old SDK tag and needs bumping by hand or via *Project ▸
+  Manage Libraries*. Invisible on a dev box because `~/.m2` always holds a local `0.0.0-SNAPSHOT` of both
+  modules; `release.sh`'s `verify_jitpack` now runs a clean-room `dependency:resolve` per released tag so
+  the next occurrence is caught at release time rather than by a user on Windows.
+
 - **2026-08-22 — The Linux packages declare the GUI stack, and stop declaring Tesseract (`pom.xml`,
   `build-deb` + `build-rpm`; `README.md`).** The packages declared `xdg-utils` and Tesseract and nothing
   else, so a machine without GTK got a JavaFX stack trace instead of a resolver message — and that is not a
