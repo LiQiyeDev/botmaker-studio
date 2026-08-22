@@ -131,6 +131,17 @@ there are three distinct relationships to keep straight:
     attributed to the SDK at all and is not reported. A file that does not parse goes in `Report.problems()`
     rather than being skipped: `nothingBreaks()` is false whenever anything could not be read, because
     "nothing breaks" from a scan that read half the project is the one answer worse than no answer.
+  - **Fields and constants are API too, and the scan reads all three shapes of use.** `Key.ENTER`,
+    `Precision.TIGHT`, `Direction.UP` break a bot exactly as hard as a method, so public fields are scanned
+    out of both jars into the same `byName` map (an enum constant *is* a static field — the five public enums
+    come for free) and marked `ApiMember.field`, which is what stops a constant answering for a no-argument
+    call. On the source side that means a qualified `QualifiedName` read, a bare name reaching an
+    `import static`, and a **`case` label** — whose enum type lives on the switch expression and so is not
+    written at the label at all. The unqualified two therefore take `MethodReferences`' three-way verdict:
+    exactly one SDK type declaring that constant is a match, several is a `problems()` line, none is not SDK.
+    Until 2026-08 none of this was read at all, so a release deleting `Key.ENTER` reported *"nothing breaks"*
+    while the SDK's own `ApiRulesCheck` (whose member tags always included `field`) demanded a migration for
+    it — CI and Studio disagreeing about what an API is.
 - **Studio generates bot projects that depend on the SDK.** `services/MavenService` writes each user
   project's `pom.xml` pinning `com.github.LiQiyeDev:botmaker-sdk` (default `SDK_FALLBACK_VERSION`;
   user-selectable in the project screen from JitPack's version list). That pin is independent of the version

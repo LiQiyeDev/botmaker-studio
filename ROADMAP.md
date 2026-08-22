@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-22 — The upgrade report can see constants (`services/SdkUpgradeService`).** `Key.ENTER`,
+  `Precision.TIGHT` and `Direction.UP` were invisible to it: the jar scan read methods and constructors and
+  never `getFieldInfo()`, and the source scan visited calls and `new` and nothing else. So a release deleting
+  an enum constant answered *"nothing breaks"* — while the SDK's own rules check, whose member tags always
+  included `field`, demanded a migration for the very same break. CI and Studio disagreed about what an API
+  is. Both halves widen: fields land in the same `byName` map (an enum constant is a static field, so five
+  public enums arrive for free) marked `ApiMember.field` so a constant cannot answer for a no-argument call,
+  and three shapes of use are recognised — the qualified read, a bare name reaching an `import static`, and a
+  **`case` label**, whose enum type is carried by the switch expression and never written at the label. That
+  last one is why the unqualified shapes take `MethodReferences`' three-way verdict: one owning SDK type is a
+  match, two is a line in `problems()`, none is not SDK. `BreakKind.FIELD_REMOVED` exists so the report can
+  say *"the constant is gone"* rather than describing `Key.ENTER` as a method.
+
 - **2026-08-22 — The upgrade report reads `migrations.json`, and stops printing a command
   (`services/SdkUpgradeService`, `ui/app/SdkUpgradeDialog`).** The repair used to be an `mvn rewrite:run`
   line the user pasted; the SDK dropped OpenRewrite, so `Note` becomes `Migration` — read from the target

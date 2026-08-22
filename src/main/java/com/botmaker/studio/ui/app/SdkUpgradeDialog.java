@@ -230,6 +230,7 @@ public final class SdkUpgradeDialog {
         return switch (b.kind()) {
             case TYPE_REMOVED -> " — the whole class is gone";
             case MEMBER_REMOVED -> " — removed";
+            case FIELD_REMOVED -> " — the constant is gone";
             case SIGNATURE_CHANGED -> " — " + b.detail();
         };
     }

@@ -305,6 +305,145 @@ class SdkUpgradeServiceTest {
     }
 
     // -------------------------------------------------------------------------
+    // Fields, constants and enum constants
+    // -------------------------------------------------------------------------
+
+    /** The constants fixture, before: two enums and a class of constants, all present. */
+    private static Map<String, String> oldConstants() {
+        Map<String, String> m = new java.util.HashMap<>(oldSdk());
+        m.put("Key", "package %s; public enum Key { ENTER, ESCAPE, TAB }".formatted(PKG));
+        m.put("Direction", "package %s; public enum Direction { UP, DOWN }".formatted(PKG));
+        m.put("Precision", """
+                package %s;
+                public class Precision {
+                    public static final int TIGHT = 1;
+                    public static final int LOOSE = 2;
+                }
+                """.formatted(PKG));
+        return m;
+    }
+
+    /** After: {@code Key.ENTER}, {@code Key.ESCAPE}, {@code Direction.UP} and {@code Precision.TIGHT} gone. */
+    private static Map<String, String> newConstants() {
+        Map<String, String> m = new java.util.HashMap<>(newSdk());
+        m.put("Key", "package %s; public enum Key { TAB }".formatted(PKG));
+        m.put("Direction", "package %s; public enum Direction { DOWN }".formatted(PKG));
+        m.put("Precision", """
+                package %s;
+                public class Precision {
+                    public static final int LOOSE = 2;
+                }
+                """.formatted(PKG));
+        return m;
+    }
+
+    /** All three shapes a constant is written in: qualified, statically imported, and a {@code case} label. */
+    private static final String CONSTANTS_BOT = """
+            package com.mybot;
+            import static com.botmaker.sdk.api.Key.ESCAPE;
+            public class Subject {
+                public void run() {
+                    Object enter = Key.ENTER;
+                    int tight = Precision.TIGHT;
+                    Object esc = ESCAPE;
+                    Direction d = Direction.DOWN;
+                    switch (d) {
+                        case UP -> {}
+                        default -> {}
+                    }
+                }
+            }
+            """;
+
+    private static Report constantsReport(Path tmp, Map<String, String> after) throws IOException {
+        SdkUpgradeService service = serviceOver(tmp, CONSTANTS_BOT);
+        return service.compare(jarOf(tmp, "old", oldConstants(), Map.of()),
+                jarOf(tmp, "new", after, Map.of()), "1.0.0", "2.0.0");
+    }
+
+    @Test
+    void aDeletedEnumConstantIsABreakWhereverItIsWritten(@TempDir Path tmp) throws IOException {
+        Report r = constantsReport(tmp, newConstants());
+
+        Break enter = brk(r, "Key.ENTER").orElseThrow(
+                () -> new AssertionError("a deleted enum constant is as breaking as a deleted method: "
+                        + r.breaks()));
+        assertEquals(BreakKind.FIELD_REMOVED, enter.kind());
+        assertEquals(5, enter.sites().get(0).line(), "the qualified read's own line");
+
+        assertEquals(BreakKind.FIELD_REMOVED, brk(r, "Precision.TIGHT").orElseThrow().kind());
+        assertEquals(6, brk(r, "Precision.TIGHT").orElseThrow().sites().get(0).line());
+    }
+
+    @Test
+    void aStaticallyImportedConstantIsFoundUnderItsBareName(@TempDir Path tmp) throws IOException {
+        Report r = constantsReport(tmp, newConstants());
+
+        Break escape = brk(r, "Key.ESCAPE").orElseThrow(
+                () -> new AssertionError("the bare ESCAPE reaches the static import: " + r.breaks()));
+        assertEquals(7, escape.sites().get(0).line(),
+                "attributed to the use, not to the import line");
+    }
+
+    @Test
+    void aCaseLabelIsAConstantUseEvenThoughItsTypeIsNotWrittenThere(@TempDir Path tmp) throws IOException {
+        Report r = constantsReport(tmp, newConstants());
+
+        Break up = brk(r, "Direction.UP").orElseThrow(
+                () -> new AssertionError("`case UP ->` is a use of Direction.UP: " + r.breaks()));
+        assertEquals(BreakKind.FIELD_REMOVED, up.kind());
+        assertEquals(10, up.sites().get(0).line());
+        // The other label in the same switch survives, and must not be dragged in with it.
+        assertTrue(brk(r, "Direction.DOWN").isEmpty(), r.breaks().toString());
+    }
+
+    @Test
+    void aCaseLabelTwoSdkTypesCouldOwnIsAnUnansweredQuestionNotAGuess(@TempDir Path tmp) throws IOException {
+        // A second enum declaring UP makes the label ambiguous: without bindings the switch expression's
+        // type is unreadable, and naming the wrong class is worse than admitting it.
+        Map<String, String> before = new java.util.HashMap<>(oldConstants());
+        before.put("Axis", "package %s; public enum Axis { UP, SIDEWAYS }".formatted(PKG));
+        SdkUpgradeService service = serviceOver(tmp, CONSTANTS_BOT);
+        Report r = service.compare(jarOf(tmp, "old", before, Map.of()),
+                jarOf(tmp, "new", newConstants(), Map.of()), "1.0.0", "2.0.0");
+
+        assertTrue(brk(r, "Direction.UP").isEmpty(), "guessed an owner it could not know: " + r.breaks());
+        assertTrue(r.problems().stream().anyMatch(p -> p.contains("UP") && p.contains("Axis")),
+                r.problems().toString());
+        assertTrue(r.isIncomplete());
+    }
+
+    @Test
+    void aBotUsingOnlyConstantsNoLongerReportsThatNothingBreaks(@TempDir Path tmp) throws IOException {
+        // The regression this phase exists for: before fields were scanned, a release deleting every
+        // constant this bot reads answered "nothing breaks".
+        SdkUpgradeService service = serviceOver(tmp, CONSTANTS_BOT);
+        Report r = service.compare(jarOf(tmp, "old", oldConstants(), Map.of()),
+                jarOf(tmp, "new", newConstants(), Map.of()), "1.0.0", "2.0.0");
+
+        assertFalse(r.nothingBreaks());
+        assertFalse(r.breaks().isEmpty());
+    }
+
+    @Test
+    void aConstantThatSurvivedIsNotABreakAndANewOneReadsAsAValue(@TempDir Path tmp) throws IOException {
+        Map<String, String> after = new java.util.HashMap<>(newConstants());
+        after.put("Precision", """
+                package %s;
+                public class Precision {
+                    public static final int LOOSE = 2;
+                    public static final int EXACT = 3;
+                }
+                """.formatted(PKG));
+        Report r = constantsReport(tmp, after);
+
+        assertTrue(brk(r, "Precision.LOOSE").isEmpty(), "an untouched constant is not a break");
+        assertTrue(r.added().contains("Precision.EXACT"),
+                "a constant is read as a value, not called: " + r.added());
+        assertFalse(r.added().contains("Precision.EXACT(…)"), r.added().toString());
+    }
+
+    // -------------------------------------------------------------------------
     // Honesty about what could not be read
     // -------------------------------------------------------------------------
 

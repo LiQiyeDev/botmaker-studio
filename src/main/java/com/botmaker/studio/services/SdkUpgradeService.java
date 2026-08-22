@@ -10,15 +10,21 @@ import com.botmaker.studio.sharing.SemVer;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.classgraph.ClassInfo;
+import io.github.classgraph.FieldInfo;
 import io.github.classgraph.MethodInfo;
 import io.github.classgraph.MethodParameterInfo;
 import org.eclipse.jdt.core.dom.ASTVisitor;
 import org.eclipse.jdt.core.dom.ClassInstanceCreation;
 import org.eclipse.jdt.core.dom.CompilationUnit;
+import org.eclipse.jdt.core.dom.ImportDeclaration;
 import org.eclipse.jdt.core.dom.MethodInvocation;
+import org.eclipse.jdt.core.dom.QualifiedName;
 import org.eclipse.jdt.core.dom.SimpleName;
 import org.eclipse.jdt.core.dom.SimpleType;
+import org.eclipse.jdt.core.dom.SingleVariableDeclaration;
+import org.eclipse.jdt.core.dom.SwitchCase;
 import org.eclipse.jdt.core.dom.Type;
+import org.eclipse.jdt.core.dom.VariableDeclarationFragment;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -87,6 +93,21 @@ import java.util.jar.JarFile;
  * call through a variable is not attributed and so is not reported. A file that does not parse is named in
  * {@link Report#problems()} rather than skipped silently: "nothing breaks" must never be the answer given by
  * a scan that could not read half the project.
+ *
+ * <h2>Fields and constants count as API</h2>
+ *
+ * <p>{@code Key.ENTER}, {@code Precision.TIGHT}, {@code Direction.UP} are as much of the surface as any
+ * method, and a release that deletes one breaks a bot exactly as hard. Public fields are therefore scanned
+ * out of both jars alongside methods and constructors (an enum constant is a static field, so the five
+ * public enums arrive for free), and three shapes of use are recognised in the bot's own source: the
+ * qualified read {@code Key.ENTER}, a bare name reaching a {@code import static …Key.ENTER}, and a
+ * {@code case} label, whose enum type is carried by the switch expression and so cannot be read off the
+ * label at all.
+ *
+ * <p>That last one is why the unqualified shapes follow {@code MethodReferences}' three-way verdict rather
+ * than a simple match: a bare {@code UP} that names a constant on exactly one known SDK type is attributed,
+ * one that could be a constant on several is a line in {@link Report#problems()}, and one that matches
+ * nothing is not an SDK reference. Guessing between two enums would report a break in the wrong class.
  */
 public final class SdkUpgradeService {
 
@@ -144,6 +165,12 @@ public final class SdkUpgradeService {
         TYPE_REMOVED,
         /** The class is still there; no method or constructor of that name is. */
         MEMBER_REMOVED,
+        /**
+         * The class is still there; the field or enum constant this bot reads is not. Distinct from
+         * {@link #MEMBER_REMOVED} so the report can say "the constant is gone" instead of describing
+         * {@code Key.ENTER} as though it were a method.
+         */
+        FIELD_REMOVED,
         /** The name survives, but no overload takes the number of arguments this bot passes. */
         SIGNATURE_CHANGED
     }
@@ -312,7 +339,7 @@ public final class SdkUpgradeService {
         List<String> problems = new ArrayList<>();
         Set<String> known = new LinkedHashSet<>(before.keySet());
         known.addAll(after.keySet());
-        List<Call> calls = callsIn(known, problems);
+        List<Call> calls = callsIn(known, fieldOwners(before, after), problems);
         // Reads problems too — a migrations file this Studio is too old for adds a line here, and does it
         // before the list is frozen.
         List<Migration> migrations = migrations(newJar, from, to, problems);
@@ -356,11 +383,30 @@ public final class SdkUpgradeService {
 
     /** One public API class, reduced to what a compatibility question can be asked of. */
     private record ApiClass(String simpleName, boolean deprecated,
-                            Map<String, List<ApiMember>> byName, Set<String> deprecatedNames) {}
+                            Map<String, List<ApiMember>> byName, Set<String> deprecatedNames) {
 
-    /** One public method or constructor: its name and its parameter types, as the user would read them. */
-    private record ApiMember(String name, List<String> params) {
+        /** Whether this class offers {@code name} as a field — an enum constant included. */
+        boolean declaresField(String name) {
+            return byName.getOrDefault(name, List.of()).stream().anyMatch(ApiMember::field);
+        }
+
+        /** Whether this class offers {@code name} as something callable: a method or a constructor. */
+        boolean declaresCallable(String name) {
+            return byName.getOrDefault(name, List.of()).stream().anyMatch(m -> !m.field());
+        }
+    }
+
+    /**
+     * One public member: a method or constructor with its parameter types, or a field with none.
+     *
+     * <p>Fields share {@code byName} with methods rather than living in a set of their own, so the
+     * deprecation rule, the additions diff and the break diff each have one thing to consult. {@code field}
+     * is what keeps a constant from being mistaken for a no-argument method — a distinction that matters
+     * both ways round, since turning one into the other is itself a break.
+     */
+    private record ApiMember(String name, List<String> params, boolean field) {
         String signature() {
+            if (field) return name;
             return (CTOR.equals(name) ? "" : name) + "(" + String.join(", ", params) + ")";
         }
     }
@@ -390,14 +436,45 @@ public final class SdkUpgradeService {
         for (MethodInfo mi : all) {
             if (!mi.isPublic() || mi.isSynthetic()) continue;
             String name = mi.isConstructor() ? CTOR : mi.getName();
-            byName.computeIfAbsent(name, k -> new ArrayList<>()).add(new ApiMember(name, paramsOf(mi)));
+            byName.computeIfAbsent(name, k -> new ArrayList<>())
+                    .add(new ApiMember(name, paramsOf(mi), false));
             // A name counts as deprecated only when every overload carrying it is — same rule as
             // SdkSurfaceService, and for the same reason: the user reads a name, not an overload.
             (mi.hasAnnotation(Deprecated.class.getName()) ? deprecatedNames : liveNames).add(name);
         }
+        // Fields go through the same map and the same deprecation rule. Enum constants need no special
+        // case: the compiler emits each one as a public static field of the enum type.
+        for (FieldInfo fi : ci.getFieldInfo()) {
+            if (!fi.isPublic() || fi.isSynthetic()) continue;
+            byName.computeIfAbsent(fi.getName(), k -> new ArrayList<>())
+                    .add(new ApiMember(fi.getName(), List.of(), true));
+            (fi.hasAnnotation(Deprecated.class.getName()) ? deprecatedNames : liveNames).add(fi.getName());
+        }
         deprecatedNames.removeAll(liveNames);
         return new ApiClass(ci.getSimpleName(), ci.hasAnnotation(Deprecated.class.getName()),
                 Map.copyOf(byName), Set.copyOf(deprecatedNames));
+    }
+
+    /**
+     * Constant name → the SDK types declaring it, across <em>both</em> jars. The union is deliberate: an
+     * unqualified use of a constant the target removed still has to be recognised, and only the old jar
+     * knows it ever existed.
+     */
+    private static Map<String, List<String>> fieldOwners(Map<String, ApiClass> before,
+                                                         Map<String, ApiClass> after) {
+        Map<String, Set<String>> owners = new LinkedHashMap<>();
+        for (Map<String, ApiClass> jar : List.of(before, after)) {
+            for (ApiClass klass : jar.values()) {
+                for (Map.Entry<String, List<ApiMember>> entry : klass.byName().entrySet()) {
+                    if (entry.getValue().stream().anyMatch(ApiMember::field)) {
+                        owners.computeIfAbsent(entry.getKey(), k -> new TreeSet<>()).add(klass.simpleName());
+                    }
+                }
+            }
+        }
+        Map<String, List<String>> out = new LinkedHashMap<>();
+        owners.forEach((name, types) -> out.put(name, List.copyOf(types)));
+        return Map.copyOf(out);
     }
 
     private static List<String> paramsOf(MethodInfo mi) {
@@ -414,10 +491,22 @@ public final class SdkUpgradeService {
     // THE BOT'S OWN CALL SITES
     // =========================================================================
 
-    /** One call in the bot's source to something that looks like an SDK member. */
-    private record Call(String type, String member, int argCount, CallSite site) {}
+    /**
+     * One reference in the bot's source to something that looks like an SDK member — a method call, a
+     * constructor, or a field read. {@code argCount} is {@link #FIELD_READ} for the last of those, which is
+     * how a constant is told apart from a no-argument call.
+     */
+    private record Call(String type, String member, int argCount, CallSite site) {
+        boolean isField() {
+            return argCount == FIELD_READ;
+        }
+    }
 
-    private List<Call> callsIn(Set<String> sdkTypes, List<String> problems) {
+    /** {@link Call#argCount()} for a field read: not "zero arguments", but "no argument list at all". */
+    private static final int FIELD_READ = -1;
+
+    private List<Call> callsIn(Set<String> sdkTypes, Map<String, List<String>> fieldOwners,
+                               List<String> problems) {
         List<Call> calls = new ArrayList<>();
         for (ProjectFile file : state.getAllFiles()) {
             CompilationUnit cu = SourceParser.parse(file.getContent());
@@ -425,6 +514,10 @@ public final class SdkUpgradeService {
                 problems.add(relativePath(file.getPath()) + " does not parse, so its calls were not checked.");
                 continue;
             }
+            // Both maps are per-file: a static import and a shadowing local are properties of one
+            // compilation unit, and asking them of the project as a whole would answer the wrong question.
+            Map<String, String> staticImports = staticFieldImports(cu, fieldOwners);
+            Set<String> shadowed = declaredNames(cu);
             cu.accept(new ASTVisitor() {
                 @Override
                 public boolean visit(MethodInvocation node) {
@@ -445,9 +538,104 @@ public final class SdkUpgradeService {
                     }
                     return true;
                 }
+
+                /** {@code Key.ENTER} — the ordinary shape, and the only certain one. */
+                @Override
+                public boolean visit(QualifiedName node) {
+                    if (node.getQualifier() instanceof SimpleName owner
+                            && sdkTypes.contains(owner.getIdentifier())) {
+                        calls.add(new Call(owner.getIdentifier(), node.getName().getIdentifier(),
+                                FIELD_READ, siteOf(file, cu, node.getStartPosition())));
+                    }
+                    return true;
+                }
+
+                /** A bare name that reaches an {@code import static …Key.ENTER}. */
+                @Override
+                public boolean visit(SimpleName node) {
+                    if (node.getParent() instanceof QualifiedName
+                            || node.getLocationInParent() == MethodInvocation.NAME_PROPERTY) {
+                        return true;
+                    }
+                    String owner = staticImports.get(node.getIdentifier());
+                    if (owner != null && !shadowed.contains(node.getIdentifier())) {
+                        calls.add(new Call(owner, node.getIdentifier(), FIELD_READ,
+                                siteOf(file, cu, node.getStartPosition())));
+                    }
+                    return true;
+                }
+
+                /**
+                 * {@code case UP ->}. The label is an unqualified name whose type lives on the switch
+                 * expression, which without bindings is unreadable — so the owning type is inferred from
+                 * the label alone, and only when exactly one SDK type declares a constant of that name.
+                 */
+                @Override
+                public boolean visit(SwitchCase node) {
+                    for (Object expression : node.expressions()) {
+                        if (!(expression instanceof SimpleName label)) continue;
+                        List<String> owners = fieldOwners.getOrDefault(label.getIdentifier(), List.of());
+                        CallSite site = siteOf(file, cu, label.getStartPosition());
+                        if (owners.size() == 1) {
+                            calls.add(new Call(owners.getFirst(), label.getIdentifier(), FIELD_READ, site));
+                        } else if (owners.size() > 1) {
+                            problems.add(site + ": the case label '" + label.getIdentifier() + "' could be a "
+                                    + "constant on " + String.join(" or ", owners) + ", and which one cannot "
+                                    + "be told from the source, so it was not checked.");
+                        }
+                    }
+                    return true;
+                }
             });
         }
         return calls;
+    }
+
+    /**
+     * The single-member static imports of this file that name a field on a known SDK type, as member name →
+     * owning type. On-demand imports ({@code import static …Key.*}) are left out on purpose: they say
+     * nothing about which names were actually meant, so treating every matching bare name as SDK would
+     * attribute the bot's own constants to the SDK.
+     */
+    private static Map<String, String> staticFieldImports(CompilationUnit cu,
+                                                          Map<String, List<String>> fieldOwners) {
+        Map<String, String> out = new LinkedHashMap<>();
+        for (Object each : cu.imports()) {
+            if (!(each instanceof ImportDeclaration imp) || !imp.isStatic() || imp.isOnDemand()) continue;
+            if (!(imp.getName() instanceof QualifiedName qualified)) continue;
+            String member = qualified.getName().getIdentifier();
+            String owner = lastSegment(qualified.getQualifier().getFullyQualifiedName());
+            if (fieldOwners.getOrDefault(member, List.of()).contains(owner)) out.put(member, owner);
+        }
+        return out;
+    }
+
+    /**
+     * Every name this file declares as a variable, parameter or field. A static import is shadowed by any
+     * of them, and a shadowed name is a use of the bot's own code — reporting it as an SDK break would name
+     * a line that has nothing to do with the SDK.
+     */
+    private static Set<String> declaredNames(CompilationUnit cu) {
+        Set<String> out = new LinkedHashSet<>();
+        cu.accept(new ASTVisitor() {
+            @Override
+            public boolean visit(VariableDeclarationFragment node) {
+                out.add(node.getName().getIdentifier());
+                return true;
+            }
+
+            @Override
+            public boolean visit(SingleVariableDeclaration node) {
+                out.add(node.getName().getIdentifier());
+                return true;
+            }
+        });
+        return out;
+    }
+
+    private static String lastSegment(String name) {
+        int dot = name.lastIndexOf('.');
+        return dot < 0 ? name : name.substring(dot + 1);
     }
 
     private CallSite siteOf(ProjectFile file, CompilationUnit cu, int startPosition) {
@@ -483,9 +671,11 @@ public final class SdkUpgradeService {
             }
             for (String name : now.byName().keySet()) {
                 if (!then.byName().containsKey(name)) {
+                    // A constant is read as a value, so it is shown as one: Key.ENTER, not Key.ENTER(…).
+                    String call = now.declaresCallable(name) ? "(…)" : "";
                     out.add(CTOR.equals(name)
                             ? "new " + now.simpleName() + "(…)"
-                            : now.simpleName() + "." + name + "(…)");
+                            : now.simpleName() + "." + name + call);
                 }
             }
         }
@@ -524,16 +714,20 @@ public final class SdkUpgradeService {
 
         for (Call call : calls) {
             ApiClass then = before.get(call.type());
-            if (then == null || !then.byName().containsKey(call.member())) continue;
+            // In the shape the bot uses it: a name the old jar had only as a method is not evidence that
+            // this file's `Foo.NAME` was ever SDK, and vice versa.
+            if (then == null || !declares(then, call)) continue;
 
             ApiClass now = after.get(call.type());
             BreakKind kind;
             String detail = "";
             if (now == null) {
                 kind = BreakKind.TYPE_REMOVED;
-            } else if (!now.byName().containsKey(call.member())) {
-                kind = BreakKind.MEMBER_REMOVED;
-            } else if (acceptsArity(now, call.member(), call.argCount())) {
+            } else if (!declares(now, call)) {
+                // Covers a field turned into a method (and the reverse) as well as an outright removal —
+                // every one of them stops this call site compiling.
+                kind = call.isField() ? BreakKind.FIELD_REMOVED : BreakKind.MEMBER_REMOVED;
+            } else if (call.isField() || acceptsArity(now, call.member(), call.argCount())) {
                 continue;
             } else {
                 kind = BreakKind.SIGNATURE_CHANGED;
@@ -554,15 +748,22 @@ public final class SdkUpgradeService {
                 .toList();
     }
 
+    /** Whether {@code klass} offers this call's member in the shape the call site uses it. */
+    private static boolean declares(ApiClass klass, Call call) {
+        return call.isField() ? klass.declaresField(call.member()) : klass.declaresCallable(call.member());
+    }
+
     private static boolean acceptsArity(ApiClass klass, String member, int argCount) {
         // Arity, not types: without bindings the argument *types* at the call site are unknown, and claiming
         // a break that isn't one is worse than missing one — the user can always compile.
+        // A field shares the map but has no parameter list at all, so it must not answer for arity 0.
         return klass.byName().getOrDefault(member, List.of()).stream()
-                .anyMatch(m -> m.params().size() == argCount);
+                .anyMatch(m -> !m.field() && m.params().size() == argCount);
     }
 
     private static String signatures(ApiClass klass, String member) {
-        List<ApiMember> overloads = klass.byName().getOrDefault(member, List.of());
+        List<ApiMember> overloads = klass.byName().getOrDefault(member, List.of()).stream()
+                .filter(m -> !m.field()).toList();
         if (overloads.isEmpty()) return "(nothing)";
         return overloads.stream().map(ApiMember::signature).sorted().distinct()
                 .reduce((a, b) -> a + " / " + b).orElse("");
