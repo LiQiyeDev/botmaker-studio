@@ -330,6 +330,31 @@
 .diagnostic-icon--info    { -fx-text-fill: -bm-severity-info; }
 
 /* ---------------------------------------------------------------------------
+ * Review tab (ReviewPanel): what a refactor changed and could not finish. The
+ * bar reuses .diagnostics-filter-bar — it is the same band in the same place,
+ * and a second token-identical rule is a second thing to keep in step.
+ * --------------------------------------------------------------------------- */
+.review-summary {
+    -fx-font-weight: bold;
+}
+
+.review-cell {
+    -fx-padding: 2 0 2 0;
+}
+
+/* Where it is: quieter than the sentence, because the sentence is what is read. */
+.review-cell-where {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -bm-muted;
+}
+
+/* What happened — prose, so it wraps (see ReviewPanel.row) and keeps the body text colour. */
+.review-cell-what {
+    -fx-font-family: "Segoe UI", sans-serif;
+}
+
+/* ---------------------------------------------------------------------------
  * Dialog chrome — the confirm action, the live source preview, the refusal line
  * and the small per-row buttons. Tokens only: a dialog is a separate Scene and
  * inherits nothing from the window that opened it (see ThemedWindows).
@@ -634,6 +659,23 @@
     -bm-text-on-color: -bm-on-accent;
     -fx-text-fill: -bm-text-on-color;
     -fx-background-color: -bm-accent;
+}
+
+/*
+ * "⚑ 2 to review" beside the function's name — the one annotation the block editor renders. It borrows the
+ * warning severity token rather than the accent: this is the same "look at this" the Errors tab means, one
+ * step down in urgency, and it must not read as the "Your code goes here" invitation next to it.
+ */
+.method-review-badge {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-padding: 2 8 2 8;
+    -fx-background-radius: 8px;
+    -fx-text-fill: -bm-severity-warning-text;
+    -fx-background-color: -bm-band;
+    -fx-border-color: -bm-severity-warning;
+    -fx-border-radius: 8px;
+    -fx-border-width: 1px;
 }
 
 .method-lock-badge:locked {

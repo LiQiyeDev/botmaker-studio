@@ -1,6 +1,9 @@
 package com.botmaker.studio.ui.app;
 
+import com.botmaker.studio.blocks.func.MethodDeclarationBlock;
 import com.botmaker.studio.config.VersionInfo;
+import com.botmaker.studio.core.BlockWithChildren;
+import com.botmaker.studio.core.CodeBlock;
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.ProjectConfig;
@@ -11,6 +14,7 @@ import com.botmaker.studio.project.StudioContext;
 import com.botmaker.studio.project.vcs.ProjectVcs;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.ProjectSettingsService;
+import com.botmaker.studio.services.ReviewService;
 import com.botmaker.studio.services.SdkSurfaceService;
 import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.ui.app.pilot.RemotePilotUi;
@@ -35,6 +39,7 @@ import javafx.scene.shape.Rectangle;
 import javafx.stage.Stage;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.EnumMap;
 import java.util.function.Consumer;
 
@@ -97,6 +102,8 @@ public class UIManager implements ProjectWindow {
     private EditorCanvas editorCanvas;
     /** The Errors bottom tab. Built by {@link #createScene()}. */
     private DiagnosticsPanel diagnosticsPanel;
+    /** The Review bottom tab — the marks every refactor leaves. Built by {@link #createScene()}. */
+    private ReviewPanel reviewPanel;
     /** The bottom tool window's tabs, keyed by the closed set so nothing selects one by index. */
     private final EnumMap<BottomTab, Tab> bottomTabs = new EnumMap<>(BottomTab.class);
     /** Restores the dividers and the open tab at open, and writes them back from {@link #dispose()}. */
@@ -267,6 +274,9 @@ public class UIManager implements ProjectWindow {
     @Override
     public Scene createScene() {
         menuBarManager.setOnSelectProject(v -> { if (onSelectProject != null) onSelectProject.accept(null); });
+        // Wired here rather than in StudioActions: what it opens is a tab of this window, and the actions
+        // object knows nothing about the shell's tool window.
+        menuBarManager.setOnReviewChanges(this::openReview);
         menuBarManager.setOnPreviewAsUser(() -> { if (onPreviewAsUser != null) onPreviewAsUser.run(); });
         // The toolbar's 👁 is the same action, not a lookalike — see ToolbarManager for what it replaced.
         toolbarManager.setOnPreviewAsUser(() -> { if (onPreviewAsUser != null) onPreviewAsUser.run(); });
@@ -377,18 +387,25 @@ public class UIManager implements ProjectWindow {
         vcsPanel = new VcsPanel(primaryStage, config.projectName(), config.projectPath(), actions.botPublisher(),
                 actions.gitHubAuth(), actions.gitHubClient(), eventBus, actions::openPublishDialog);
 
+        // What the last refactor changed and could not finish. Scanned from the sources, never cached.
+        reviewPanel = new ReviewPanel(config, state, this::revealMarkedFunction);
+
         bottomTabs.clear();
         bottomTabs.put(BottomTab.TERMINAL, bottomTab(BottomTab.TERMINAL, outputArea));
         bottomTabs.put(BottomTab.ERRORS, bottomTab(BottomTab.ERRORS, diagnosticsPanel.node()));
+        bottomTabs.put(BottomTab.REVIEW, bottomTab(BottomTab.REVIEW, reviewPanel.node()));
         bottomTabs.put(BottomTab.EVENT_LOG, bottomTab(BottomTab.EVENT_LOG, eventLogManager.getView()));
         bottomTabs.put(BottomTab.VCS, bottomTab(BottomTab.VCS, vcsPanel.getView()));
 
         bottomTabPane = new TabPane();
         bottomTabPane.getTabs().addAll(bottomTabs.values());
-        // Keep the changed-files tree fresh whenever the user opens the tab.
+        // Keep the changed-files tree and the review list fresh whenever the user opens their tab. Both read
+        // the project rather than holding a copy of it, which is why opening is the right moment to re-read.
         Tab vcsTab = bottomTabs.get(BottomTab.VCS);
+        Tab reviewTab = bottomTabs.get(BottomTab.REVIEW);
         bottomTabPane.getSelectionModel().selectedItemProperty().addListener((o, was, now) -> {
             if (now == vcsTab && vcsPanel != null) vcsPanel.refresh();
+            if (now == reviewTab && reviewPanel != null) reviewPanel.refresh();
         });
 
         // --- 5. Layout Assembly ---
@@ -517,6 +534,48 @@ public class UIManager implements ProjectWindow {
         MenuItem clear = new MenuItem("Clear");
         clear.setOnAction(e -> console.clear());
         return new ContextMenu(copy, new SeparatorMenuItem(), clear);
+    }
+
+    /**
+     * Project ▸ Review Changes: raises the Review tab and re-reads the marks. The only way in besides the tab
+     * itself, and the one a user who has just closed a migration dialog will look for.
+     */
+    private void openReview() {
+        if (reviewPanel != null) reviewPanel.refresh();
+        selectBottomTab(BottomTab.REVIEW);
+    }
+
+    /**
+     * Takes the user to the function a review row names: opens its file if it isn't the active one, then
+     * scrolls its block into view and highlights it.
+     *
+     * <p>The block is found on the next pulse, not now: switching files re-parses and re-renders the canvas,
+     * and the block this row is about does not exist until that has happened.
+     */
+    private void revealMarkedFunction(ReviewService.Item item) {
+        if (item == null || editorCanvas == null) return;
+        Path active = state.getActiveFile() == null ? null : state.getActiveFile().getPath();
+        if (active == null || !active.equals(item.file())) codeEditorService.switchToFile(item.file());
+        Platform.runLater(() -> codeEditorService.getRootBlock()
+                .map(root -> functionBlock(root, item.function()))
+                .ifPresent(editorCanvas::scrollToBlock));
+    }
+
+    /**
+     * The {@code MethodDeclarationBlock} for {@code name} anywhere under {@code block}, or null. By name
+     * because that is what a mark records — an overload pair resolves to the first, which is the same function
+     * on screen to within a scroll.
+     */
+    private static CodeBlock functionBlock(CodeBlock block, String name) {
+        if (block instanceof MethodDeclarationBlock method && name.equals(method.getMethodName())) {
+            return method;
+        }
+        if (!(block instanceof BlockWithChildren parent)) return null;
+        for (CodeBlock child : parent.getChildren()) {
+            CodeBlock found = functionBlock(child, name);
+            if (found != null) return found;
+        }
+        return null;
     }
 
     /** Raises a bottom tab. A no-op before {@code createScene()} has built them. */

@@ -6,6 +6,24 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-23 — The Review tab: the marks are now something the user can see and tick off
+  (`services/ReviewService`, `services/BotSources`, `ui/app/ReviewPanel`, `ui/app/BottomTab`,
+  `ui/app/UIManager`, `ui/app/MenuBarManager`, `blocks/func/MethodDeclarationBlock`, `css/blocks.css`).**
+  The last phase of the review plan, and the one the other four were for: until now a refactor wrote
+  `@NeedsReview` into the source and nothing anywhere read it back, so the only way to find out what BotMaker
+  had changed was to open every file in the bot as text. There is now a fifth bottom tab beside Errors and
+  VCS — one row per *entry*, saying where it is and what happened, clicking through to the function on the
+  canvas, and a **Mark Reviewed** button that strips that entry (the last one taking the annotation, and its
+  import, with it). Project ▸ **Review Changes** raises it; the function block itself carries a
+  **"⚑ 2 to review"** badge, the one annotation the block editor renders, with the entries as its tooltip.
+  **Nothing is cached.** The list is re-scanned from the sources whenever the tab is opened, because the
+  source is the truth: four refactors write marks and two of them never go through the editor, so a panel
+  holding its own copy would be wrong more often than right. A file whose text does not contain
+  `NeedsReview` is never parsed, which is what makes re-scanning cheap enough to do on every open. The
+  **entry text identifies a row**, not the function name — two overloads can both be marked. `BotSources`
+  was extracted from `TemplateReferences` so the sweep that finds marks and the sweep that rewrites template
+  references are one walk: buffer before disk, and a rewrite written to both.
+
 - **2026-08-22 — Every refactor marks and snapshots, not just the SDK upgrade
   (`parser/refactor/ReviewMarker`, `CallMigrator`, `parser/handlers/MethodHandler`, `parser/CodeEditor`,
   `services/TemplateReferences`, `ui/app/ResourceManagerDialog`).** Studio had at least four refactors that
@@ -25,7 +43,7 @@ whenever work lands here (see CLAUDE.md → Roadmap).
   the editor's ↶ already covers the active file and dies with the session, so only a refactor reaching a file
   the user never opened earns a commit. Two deliberate non-failures: `prepare` answering null does the change
   unmarked rather than refusing it, and a file that does not parse is still retargeted, just not marked.
-  **Still owed: the review panel** — phase 5; the marks are real, and still only visible in the file.
+  The review panel that reads these marks back is the entry above (phase 5, landed 2026-08-23).
 
 - **2026-08-22 — `@NeedsReview`: the repair now leaves a record of what it could not finish
   (`parser/refactor/ReviewMarks`, `SdkMigrationRunner`, `project/ProjectConfig`, `project/FileRole`).** The
@@ -41,8 +59,8 @@ whenever work lands here (see CLAUDE.md → Roadmap).
   into the one annotation Java allows and dedupe, so two upgrades and a rename stack into one list; a
   **rename is deliberately not marked**, since the bot afterwards does exactly what it did before. `FileRole`
   classes the generated file `GENERATED` before the template gate, so an `EMPTY` project gets one too and the
-  explorer never lists it. **Still owed: the review panel** that reads these marks back and lets the user
-  tick them off — phase 5 of the plan; phase 4 (every other refactor marking too) is the entry above.
+  explorer never lists it. The panel that reads these marks back and lets the user tick them off is phase 5
+  (2026-08-23); phase 4 (every other refactor marking too) is the entry above.
 
 - **2026-08-22 — The repair inverts: pairing and default values replace the fix engine
   (`services/SdkUpgradeService`, `parser/refactor/SdkMigrationRunner`, `CallMigrator`, `SignatureMigration`,

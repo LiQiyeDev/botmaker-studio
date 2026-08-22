@@ -35,6 +35,7 @@ public class MenuBarManager {
     private Runnable onParameters;
     /** Kept so the entry can be renamed once the project's settings model is known. */
     private Runnable onRecoverProjectFiles;
+    private Runnable onReviewChanges;
     private Runnable onManageResources;
     private Runnable onProjectSettings;
     private Runnable onProjectSetup;
@@ -237,6 +238,13 @@ public class MenuBarManager {
             if (onRecoverProjectFiles != null) onRecoverProjectFiles.run();
         });
 
+        // Beside Project History on purpose: the two answer the same question from opposite ends — what did
+        // BotMaker change, and what of it still needs looking at.
+        MenuItem reviewItem = new MenuItem("Review Changes");
+        reviewItem.setOnAction(e -> {
+            if (onReviewChanges != null) onReviewChanges.run();
+        });
+
         MenuItem historyItem = new MenuItem("Project History...");
         historyItem.setOnAction(e -> {
             if (onShowHistory != null) onShowHistory.run();
@@ -265,7 +273,7 @@ public class MenuBarManager {
                 activityFlowItem, parametersItem, manageResourcesItem,
                 new SeparatorMenuItem(),
                 projectSettingsItem, new SeparatorMenuItem(),
-                recoverFilesItem, historyItem, new SeparatorMenuItem(),
+                recoverFilesItem, reviewItem, historyItem, new SeparatorMenuItem(),
                 browseGalleryItem, publishGalleryItem, new SeparatorMenuItem(),
                 projectRepoItem);
         return projectMenu;
@@ -618,6 +626,11 @@ public class MenuBarManager {
      */
     public void setOnUpgradeSdk(Runnable callback) {
         this.onUpgradeSdk = callback;
+    }
+
+    /** Sets the callback for when "Review Changes" is clicked — raises the Review tab. */
+    public void setOnReviewChanges(Runnable callback) {
+        this.onReviewChanges = callback;
     }
 
     /**

@@ -209,6 +209,20 @@ there are three distinct relationships to keep straight:
     asks exactly that of the plan. The editor's own ↶ already puts the active file back and dies with the
     session; a file the user never opened has no other way home, and a template repoint happens outside the
     editor entirely. Active-file-only edits take no snapshot — a commit per keystroke is not a history.
+  - **The Review tab is a scan, never a list something kept (`services/ReviewService`, `ui/app/ReviewPanel`).**
+    Marks live in the source precisely so that nothing has to hold a copy of them: an edit that moves a
+    function moves its mark, and a revert through Project History takes the marks out with the change. The
+    price is that the list is *derived* — `ReviewService.scan` re-reads the bot's sources every time the tab
+    is opened, `markReviewed` strips one entry and the panel re-scans rather than removing the row. That is
+    cheap (a bot is tens of files, and a file with no `NeedsReview` in its text is never parsed) and it
+    cannot go stale, which a cached list demonstrably would: four refactors write marks and two of them never
+    touch the editor. The **entry text**, not the function name, identifies a row — two overloads can both be
+    marked. `services/BotSources` is the one walk over the bot's `.java` files, shared with
+    `TemplateReferences`: buffer before disk, and a rewrite written to both.
+  - **The badge is the only annotation the block editor renders** (`MethodDeclarationBlock.reviewBadge`). It
+    reads `@NeedsReview` off the very `MethodDeclaration` the block was built from, so the count cannot drift
+    and a mark stripped in the tab is gone from the header on the next render with nothing kept in step. The
+    entries are its tooltip: the header has room for a count, not for three sentences.
   - **Generated files are rewritten but never marked.** A call in the activity registry has to be renamed with
     everything else or the bot stops compiling, but the file is regenerated on the next save, which would
     silently erase the mark. A review row that disappears on its own is worse than no row: the user is never

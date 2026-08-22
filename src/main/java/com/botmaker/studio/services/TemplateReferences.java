@@ -2,23 +2,14 @@ package com.botmaker.studio.services;
 
 import com.botmaker.studio.parser.refactor.ReviewMarker;
 import com.botmaker.studio.project.ProjectConfig;
-import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.project.TemplateConstants;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Stream;
 
 /**
  * Where a template is used in the bot's own source, and how to point those uses somewhere else.
@@ -174,76 +165,11 @@ public final class TemplateReferences {
 
     // ── walking the bot's sources ───────────────────────────────────────────────────────────────────────
 
-    /** What to do with one source file; return the rewritten text, or null to leave it alone. */
-    @FunctionalInterface
-    private interface Rewrite {
-        String apply(Path file, String source);
-    }
-
     /**
-     * Visits every {@code .java} file the bot owns exactly once, preferring the open buffer's text over the
-     * file on disk where a file is open — the buffer is what the user is looking at, and may hold edits the
-     * disk has not seen. A returned rewrite is written to whichever copies exist.
+     * Every {@code .java} file the bot owns, buffer first — see {@link BotSources}, which is shared with
+     * {@link ReviewService}'s sweep for review marks.
      */
-    private static void forEachSource(ProjectConfig config, ProjectState state, Rewrite rewrite) {
-        Map<Path, ProjectFile> open = new LinkedHashMap<>();
-        if (state != null) {
-            for (ProjectFile file : state.getAllFiles()) {
-                if (file.getPath() != null) open.put(file.getPath().toAbsolutePath().normalize(), file);
-            }
-        }
-        Set<Path> seen = new LinkedHashSet<>();
-        Path generated = config.templatesSourceFile().toAbsolutePath().normalize();
-
-        for (Path file : javaFiles(config)) {
-            if (file.equals(generated) || !seen.add(file)) continue;
-            ProjectFile buffer = open.get(file);
-            String source = buffer != null ? buffer.getContent() : read(file);
-            if (source == null) continue;
-            String rewritten = rewrite.apply(file, source);
-            if (rewritten == null) continue;
-            if (buffer != null) buffer.setContent(rewritten);
-            write(file, rewritten);
-        }
-        // An open file outside the source root (a library source the user opened) is still worth rewriting if
-        // it is one of ours; anything the walk already covered is skipped by `seen`.
-        for (Map.Entry<Path, ProjectFile> entry : open.entrySet()) {
-            if (entry.getKey().equals(generated) || !seen.add(entry.getKey())) continue;
-            String rewritten = rewrite.apply(entry.getKey(), entry.getValue().getContent());
-            if (rewritten == null) continue;
-            entry.getValue().setContent(rewritten);
-            if (Files.isRegularFile(entry.getKey())) write(entry.getKey(), rewritten);
-        }
-    }
-
-    /** Every {@code .java} file under the project's source root, absolute and normalized. */
-    private static List<Path> javaFiles(ProjectConfig config) {
-        Path root = config.sourceRoot();
-        if (root == null || !Files.isDirectory(root)) return List.of();
-        try (Stream<Path> files = Files.walk(root)) {
-            return files.filter(Files::isRegularFile)
-                    .filter(p -> p.getFileName().toString().endsWith(".java"))
-                    .map(p -> p.toAbsolutePath().normalize())
-                    .toList();
-        } catch (IOException | UncheckedIOException e) {
-            System.err.println("Couldn't list the project's sources: " + e.getMessage());
-            return List.of();
-        }
-    }
-
-    private static String read(Path file) {
-        try {
-            return Files.readString(file);
-        } catch (IOException e) {
-            return null;   // unreadable is not a use site; nothing to rewrite
-        }
-    }
-
-    private static void write(Path file, String source) {
-        try {
-            Files.writeString(file, source);
-        } catch (IOException e) {
-            System.err.println("Couldn't update " + file.getFileName() + ": " + e.getMessage());
-        }
+    private static void forEachSource(ProjectConfig config, ProjectState state, BotSources.Rewrite rewrite) {
+        BotSources.forEach(config, state, rewrite);
     }
 }
