@@ -6,6 +6,20 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-22 — A release cannot ship a floor above its own SDK (`.github/workflows/ci.yml`, umbrella
+  `release.sh`).** `MIN_SDK_VERSION` and `SDK_FALLBACK_VERSION` are one promise between them — the oldest
+  SDK Studio edits without a banner, and the SDK a *freshly created* bot pins — and nothing held them in
+  order. The fallback is bumped mechanically by `release.sh` on every `--sdk` release; the floor is only
+  ever raised by hand, so the two drift in opposite directions and the failure state is silent: Studio
+  generates a project that opens under its own too-old-SDK banner. `check_sdk_floor` now refuses a
+  `--studio` release in which the floor is newer than the SDK new bots will pin — in the **decide** pass,
+  beside `check_api_bump`, because by tagging time pilot and studio are already pushed and a pushed tag
+  cannot be edited. It compares against the SDK *this run will ship*, not the committed constant, so
+  releasing Studio and a new SDK together is judged on the end state. No network, no `mvn`.
+  The GitHub Release notes now open with **"Requires BotMaker SDK x.y.z or newer"**, read out of
+  `MavenService.java` at the tag rather than written down a second place, and say plainly that an older
+  bot still opens — a banner offering *Upgrade SDK…*, never a refusal.
+
 - **2026-08-22 — Upgrading the SDK tells you what it costs first (`services/SdkUpgradeService`,
   `ui/app/SdkUpgradeDialog`, *Project ▸ Upgrade SDK…*).** Changing the SDK version was a cell edit in
   Manage Libraries: it rewrote one line of the pom, said nothing, and the user found out what it cost by

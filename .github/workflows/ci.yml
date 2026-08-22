@@ -300,9 +300,27 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      # The SDK floor is a property of the build, not of the release notes, so it is read out of the
+      # source this tag was cut from rather than written down twice. release.sh has already refused the
+      # release if this is newer than the SDK a fresh project pins (check_sdk_floor).
+      - name: Read the SDK floor this build imposes
+        id: floor
+        run: |
+          floor=$(sed -n -E 's/.*[[:space:]]MIN_SDK_VERSION = "([^"]*)".*/\1/p' \
+                    src/main/java/com/botmaker/studio/services/MavenService.java | head -1)
+          echo "min_sdk=$floor" >> "$GITHUB_OUTPUT"
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          # Prepended to the generated notes: which SDK versions this Studio edits. Older bots still
+          # open — they get a banner offering Project > Upgrade SDK..., never a refusal — but a user
+          # deciding whether to update should see the number before downloading 240 MB.
+          body: |
+            **Requires BotMaker SDK ${{ steps.floor.outputs.min_sdk }} or newer.** A bot pinned to an older SDK
+            still opens; Studio shows a banner offering **Project ▸ Upgrade SDK…**, which reports exactly what
+            the upgrade breaks in *your* bot — with file and line — before anything is changed.
+
           # install.sh ships as a release asset as well as at the site root, so the one-command install is
           # reviewable from the Releases page next to the packages it installs, and stays reachable for a
           # given version even though the repository itself only ever carries the latest.
