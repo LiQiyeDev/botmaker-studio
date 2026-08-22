@@ -96,6 +96,25 @@ public record ProjectConfig(
         return sourceRoot.resolve("com").resolve(packageName).resolve("FlowDriver.java");
     }
 
+    /**
+     * The generated {@code NeedsReview.java} — the annotation a refactor marks a function with when it changed
+     * it in a way the user has to finish. Written on demand by {@code parser.refactor.ReviewMarks}, not by any
+     * template, so a bot that has never been refactored does not have this file.
+     */
+    public Path needsReviewSourceFile() {
+        return mainPackageDir().resolve("NeedsReview.java");
+    }
+
+    /** {@code src/main/java/com/<pkg>} — the package every generated sidecar is written into. */
+    public Path mainPackageDir() {
+        return sourceRoot.resolve("com").resolve(packageName);
+    }
+
+    /** {@code com.<pkg>} — the bot's own package, as an import would spell it. */
+    public String mainPackage() {
+        return "com." + packageName;
+    }
+
     /** {@code src/main/java/com/<pkg>/activities} — where per-activity subclass stubs live. */
     public Path activitiesPackageDir() {
         return sourceRoot.resolve("com").resolve(packageName).resolve("activities");

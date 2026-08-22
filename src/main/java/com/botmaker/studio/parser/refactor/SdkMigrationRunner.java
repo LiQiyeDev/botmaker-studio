@@ -9,8 +9,11 @@ import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import org.eclipse.jdt.core.dom.CompilationUnit;
+import org.eclipse.jdt.core.dom.MethodDeclaration;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -31,8 +34,14 @@ import java.util.Set;
  * {@code null}), and a call standing as a statement of its own is <b>deleted</b> rather than defaulted, since
  * {@code 0;} is not a statement any compiler accepts.
  *
- * <p>That leaves the bot compiling and, in places, wrong — deliberately. The enclosing function is marked for
- * the user to review, which is the other half of the bargain and is not this class's job.
+ * <p>That leaves the bot compiling and, in places, wrong — deliberately. So the other half of the bargain is
+ * written in the same rewrite: every function that got a default or lost a call is annotated
+ * {@code @NeedsReview} ({@link ReviewMarks}), naming what happened to it. The mark lands with the repair or
+ * not at all — a migration refused halfway leaves neither.
+ *
+ * <p><b>A rename is not marked.</b> {@code ImageClicker.click} becoming {@code IClicker.click} is a complete
+ * repair: the bot does afterwards exactly what it did before, so asking the user to look at it would bury the
+ * sites that genuinely changed meaning under the ones that did not.
  *
  * <h2>One pass over the facts, in two sweeps per file</h2>
  *
@@ -142,10 +151,12 @@ public final class SdkMigrationRunner {
      * @param generated   the files that may not, scanned only so a repair that would have touched one is caught
      * @param sdkTypes    every SDK class simple name, for {@link SdkReferences}
      * @param fieldOwners constant name → declaring SDK types, likewise
+     * @param markerPackage the bot's own package, holding the generated {@code NeedsReview} — null to skip
+     *                      marking altogether, which only a test that is asserting about the code wants
      */
     public static Outcome run(Repairs repairs, List<ProjectFile> editable, List<ProjectFile> generated,
                               Set<String> sdkTypes, Map<String, List<String>> fieldOwners,
-                              ProjectAnalyzer analyzer, ProjectState state) {
+                              String markerPackage, ProjectAnalyzer analyzer, ProjectState state) {
         String blocked = scaffoldingInTheWay(generated, repairs, sdkTypes, fieldOwners);
         if (blocked != null) return Outcome.refused(blocked);
 
@@ -154,7 +165,8 @@ public final class SdkMigrationRunner {
             String original = file.getContent();
             if (original == null) continue;
 
-            Applied members = rewriteMembers(file, original, repairs, sdkTypes, fieldOwners, analyzer, state);
+            Applied members = rewriteMembers(file, original, repairs, sdkTypes, fieldOwners,
+                    markerPackage, analyzer, state);
             if (members.refusal() != null) return Outcome.refused(members.refusal());
             String afterMembers = members.text() == null ? original : members.text();
 
@@ -187,7 +199,7 @@ public final class SdkMigrationRunner {
      */
     private static Applied rewriteMembers(ProjectFile file, String text, Repairs repairs,
                                           Set<String> sdkTypes, Map<String, List<String>> fieldOwners,
-                                          ProjectAnalyzer analyzer, ProjectState state) {
+                                          String markerPackage, ProjectAnalyzer analyzer, ProjectState state) {
         CompilationUnit unit = SourceParser.parse(text);
         if (unit == null || SourceParser.hasSyntaxErrors(unit)) {
             return Applied.refused("\"" + file.getClassName() + "\" does not parse, so it could not be "
@@ -197,6 +209,9 @@ public final class SdkMigrationRunner {
         if (!scan.problems().isEmpty()) return Applied.refused(scan.problems().getFirst());
 
         List<CallChange> changes = new ArrayList<>();
+        // Insertion-ordered per function, and a set: two identical calls in one function are one thing to look
+        // at, and the review list should say so once.
+        Map<MethodDeclaration, Set<String>> marks = new LinkedHashMap<>();
         for (SdkReferences.Reference reference : scan.references()) {
             Removal removal = repairs.removals().stream().filter(r -> r.matches(reference))
                     .findFirst().orElse(null);
@@ -205,6 +220,7 @@ public final class SdkMigrationRunner {
                 // and for a void member there is no value at all. Either way the statement goes.
                 if (reference.site().isStatement()) {
                     changes.add(new CallChange.CallDeleted(reference.site()));
+                    note(marks, reference, removal, "the call was removed");
                 } else if (removal.isVoid()) {
                     return Applied.refused("SDK removed " + removal.type() + "." + removal.member()
                             + ", which \"" + file.getClassName() + "\" uses somewhere that is not a line of "
@@ -212,6 +228,8 @@ public final class SdkMigrationRunner {
                             + "in its place, so nothing has been changed.");
                 } else {
                     changes.add(new CallChange.ValueDefaulted(reference.site(), removal.returnType()));
+                    note(marks, reference, removal, "the value it produced is now "
+                            + CallMigrator.literalDefaultText(removal.returnType()));
                 }
                 continue;
             }
@@ -231,7 +249,30 @@ public final class SdkMigrationRunner {
                     + "that cannot be repaired from the source alone — most often a constant used as a case "
                     + "label, whose type the source never names. Nothing has been changed.");
         }
+        if (markerPackage != null) {
+            marks.forEach((method, entries) ->
+                    ReviewMarks.mark(ctx, method, markerPackage, List.copyOf(entries)));
+        }
         return finish(ctx, file, text);
+    }
+
+    /**
+     * Remembers that {@code reference}'s enclosing function needs looking at, and why.
+     *
+     * <p>The entry names the member and what stands in its place, and deliberately carries <b>no line
+     * number</b>: it is written into the source and outlives every later edit, so a number in it would be
+     * wrong by the second time the user opened the file. The function is the unit the review walks anyway.
+     *
+     * <p>A reference outside any function — a field initializer at class level — is silently unmarked rather
+     * than refused. It is still repaired; there is simply nowhere to hang a {@code @Target(METHOD)} annotation.
+     */
+    private static void note(Map<MethodDeclaration, Set<String>> marks, SdkReferences.Reference reference,
+                             Removal removal, String what) {
+        MethodDeclaration method = ReviewMarks.enclosingMethod(reference.site().node());
+        if (method == null) return;
+        marks.computeIfAbsent(method, m -> new LinkedHashSet<>())
+                .add(removal.type() + "." + removal.member() + " is gone from this BotMaker version — "
+                        + what + ", so this may no longer do what it did.");
     }
 
     /** Sweep two: the types, file-wide, over whatever sweep one produced. */

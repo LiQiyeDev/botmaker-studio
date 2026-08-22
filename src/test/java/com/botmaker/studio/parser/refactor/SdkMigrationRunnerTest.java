@@ -55,9 +55,20 @@ class SdkMigrationRunnerTest {
         return new ProjectFile(Path.of(name + ".java"), source);
     }
 
+    /**
+     * A run with <b>no marker package</b>, so the rewrites here are the repair and nothing else. What the
+     * {@code @NeedsReview} marks say is {@link ReviewMarksTest}'s subject and {@link #marked} below's; keeping
+     * it out of the default harness is what lets these assertions be about the code the bot ends up with.
+     */
     private static Outcome run(Repairs repairs, ProjectFile... editable) {
         return SdkMigrationRunner.run(repairs, List.of(editable), List.of(), SDK_TYPES, FIELD_OWNERS,
-                null, null);
+                null, null, null);
+    }
+
+    /** The same run with marking on, as the upgrade really calls it. */
+    private static Outcome marked(Repairs repairs, ProjectFile... editable) {
+        return SdkMigrationRunner.run(repairs, List.of(editable), List.of(), SDK_TYPES, FIELD_OWNERS,
+                "com.mybot", null, null);
     }
 
     private static Repairs removals(Removal... removals) {
@@ -278,7 +289,7 @@ class SdkMigrationRunnerTest {
                 """);
         Map<String, List<String>> ambiguous = Map.of("UP", List.of("Direction", "Heading"));
         Outcome outcome = SdkMigrationRunner.run(removals(new Removal("Direction", "UP", -1, "Direction")),
-                List.of(bot), List.of(), SDK_TYPES, ambiguous, null, null);
+                List.of(bot), List.of(), SDK_TYPES, ambiguous, null, null, null);
         assertTrue(outcome.isRefusal(), "which enum the label names cannot be told from the source");
         assertTrue(outcome.files().isEmpty());
     }
@@ -299,7 +310,7 @@ class SdkMigrationRunnerTest {
         ProjectFile driver = file("FlowDriver",
                 "package com.mybot;\nclass FlowDriver { void run() { Mouse.click(0, 0); } }\n");
         Outcome outcome = SdkMigrationRunner.run(removals(new Removal("Mouse", "click", 2, "void")),
-                List.of(bot), List.of(driver), SDK_TYPES, FIELD_OWNERS, null, null);
+                List.of(bot), List.of(driver), SDK_TYPES, FIELD_OWNERS, null, null, null);
         assertTrue(outcome.isRefusal(), "scaffolding is Studio's to write, not an upgrade's");
         assertTrue(outcome.refusal().contains("FlowDriver"), outcome.refusal());
         assertTrue(outcome.files().isEmpty());
@@ -312,8 +323,124 @@ class SdkMigrationRunnerTest {
                 "package com.mybot;\nclass Templates { Object t = Tolerance.TIGHT; }\n");
         Outcome outcome = SdkMigrationRunner.run(
                 renames(new TypeRename(PKG + ".Tolerance", PKG + ".Precision")),
-                List.of(bot), List.of(templates), SDK_TYPES, FIELD_OWNERS, null, null);
+                List.of(bot), List.of(templates), SDK_TYPES, FIELD_OWNERS, null, null, null);
         assertTrue(outcome.isRefusal(), outcome.refusal());
         assertTrue(outcome.refusal().contains("Templates"), outcome.refusal());
+    }
+
+    // -------------------------------------------------------------------------
+    // What the repair leaves behind for the user
+    // -------------------------------------------------------------------------
+
+    @Test
+    void aFunctionThatGotADefaultIsMarkedForReviewInTheSameRewrite() {
+        ProjectFile bot = file("Bot", """
+                package com.mybot;
+                class Bot {
+                    void run() {
+                        boolean hit = Vision.find("target");
+                    }
+                }
+                """);
+        String source = rewritten(marked(removals(new Removal("Vision", "find", 1, "boolean")), bot), bot);
+
+        assertTrue(source.contains("boolean hit = false;"), source);
+        assertTrue(source.contains("@NeedsReview"), "the repair is half of the bargain:\n" + source);
+        assertTrue(source.contains("Vision.find is gone"), source);
+        assertTrue(source.contains("now false"), "the mark says what stands in its place:\n" + source);
+    }
+
+    @Test
+    void aDeletedStatementIsMarkedTooSinceNothingIsLeftAtTheSiteToNotice() {
+        ProjectFile bot = file("Bot",
+                "package com.mybot;\nclass Bot { void run() { Mouse.click(1, 2); } }\n");
+        String source = rewritten(marked(removals(new Removal("Mouse", "click", 2, "void")), bot), bot);
+
+        // Not `contains("Mouse.click")` — the mark names the member it removed, so the string is still there,
+        // in the one place it is meant to be.
+        assertFalse(source.contains("Mouse.click(1, 2);"), source);
+        assertTrue(source.contains("the call was removed"), source);
+    }
+
+    @Test
+    void twoRemovalsInOneFunctionMergeIntoOneAnnotationRatherThanTwo() {
+        ProjectFile bot = file("Bot", """
+                package com.mybot;
+                class Bot {
+                    void run() {
+                        boolean hit = Vision.find("a");
+                        int n = Vision.count("a");
+                    }
+                }
+                """);
+        String source = rewritten(marked(removals(
+                new Removal("Vision", "find", 1, "boolean"),
+                new Removal("Vision", "count", 1, "int")), bot), bot);
+
+        assertEquals(1, source.split("@NeedsReview", -1).length - 1, "Java allows only one:\n" + source);
+        assertTrue(source.contains("Vision.find is gone"), source);
+        assertTrue(source.contains("Vision.count is gone"), source);
+    }
+
+    @Test
+    void twoCallsOfTheSameRemovedMemberInOneFunctionAreOneThingToLookAt() {
+        ProjectFile bot = file("Bot", """
+                package com.mybot;
+                class Bot {
+                    void run() {
+                        boolean a = Vision.find("a");
+                        boolean b = Vision.find("b");
+                    }
+                }
+                """);
+        String source = rewritten(marked(removals(new Removal("Vision", "find", 1, "boolean")), bot), bot);
+
+        assertEquals(1, source.split("Vision.find is gone", -1).length - 1,
+                "one entry, not one per call site:\n" + source);
+    }
+
+    @Test
+    void aRenamedTypeIsACompleteRepairAndIsNotMarked() {
+        ProjectFile bot = file("Bot", "package com.mybot;\nclass Bot { Object t = Tolerance.TIGHT; }\n");
+        String source = rewritten(
+                marked(renames(new TypeRename(PKG + ".Tolerance", PKG + ".Precision")), bot), bot);
+
+        assertTrue(source.contains("Precision.TIGHT"), source);
+        assertFalse(source.contains("@NeedsReview"),
+                "the bot does afterwards exactly what it did before:\n" + source);
+    }
+
+    @Test
+    void aRemovalOutsideAnyFunctionIsStillRepairedEvenThoughThereIsNowhereToMarkIt() {
+        ProjectFile bot = file("Bot", "package com.mybot;\nclass Bot { boolean hit = Vision.find(\"a\"); }\n");
+        String source = rewritten(marked(removals(new Removal("Vision", "find", 1, "boolean")), bot), bot);
+
+        assertTrue(source.contains("boolean hit = false;"), source);
+        assertFalse(source.contains("@NeedsReview"), "@Target(METHOD) has nowhere to go here:\n" + source);
+    }
+
+    @Test
+    void aStubOutsideTheBotsPackageImportsTheMarkerItJustGained() {
+        ProjectFile stub = file("Mining", """
+                package com.mybot.activities;
+                class Mining {
+                    void run() {
+                        boolean hit = Vision.find("ore");
+                    }
+                }
+                """);
+        String source = rewritten(marked(removals(new Removal("Vision", "find", 1, "boolean")), stub), stub);
+
+        assertTrue(source.contains("import com.mybot.NeedsReview;"), source);
+    }
+
+    @Test
+    void aFileInTheBotsOwnPackageNeedsNoImportForIt() {
+        ProjectFile bot = file("Bot",
+                "package com.mybot;\nclass Bot { void run() { boolean h = Vision.find(\"a\"); } }\n");
+        String source = rewritten(marked(removals(new Removal("Vision", "find", 1, "boolean")), bot), bot);
+
+        assertTrue(source.contains("@NeedsReview"), source);
+        assertFalse(source.contains("import"), "same package:\n" + source);
     }
 }

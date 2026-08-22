@@ -111,8 +111,8 @@ there are three distinct relationships to keep straight:
     behaves differently. It gets a **literal default of the type the old jar said it returned**
     (`CallMigrator.literalDefaultFor`: `false`, `0`, `""`, `null` — never `new Point()`, since the type is
     often the one that was just removed), and a call standing as a **statement of its own is deleted**
-    (`CallChange.CallDeleted`), because `0;` is not a statement. The enclosing function is then marked for
-    review — Phase 3 of the plan, not landed yet.
+    (`CallChange.CallDeleted`), because `0;` is not a statement. The enclosing function is then annotated
+    `@NeedsReview` **in the same rewrite** — see the review-marks bullet below.
   - **`@ApiId` pairs types; `migrations.json` is renames only.** `SdkUpgradeService.Pairing` answers "which
     type in the new jar takes this old one's place" in three steps: same name → same `@ApiId`
     (`com.botmaker.sdk.api.ApiId`, CLASS-retained, read from the jar by the ClassGraph scan
@@ -166,6 +166,21 @@ there are three distinct relationships to keep straight:
     actually needs, and `a→b` + `b→a` folds to the identity and is dropped where a fixpoint loop would run
     forever. Each file is then swept **members first, types second, with a re-parse between**: a removed
     member of a renamed type is otherwise two `ASTRewrite` edits on one node, which it cannot express.
+  - **The record of an incomplete repair is `@NeedsReview` in the bot's own source
+    (`parser/refactor/ReviewMarks`).** Not a sidecar under `.botmaker/`: the diff cannot answer this later —
+    once the pom is bumped the old jar is gone and re-diffing the project finds nothing — and an annotation
+    cannot drift from the code it describes, reverts with it through Project History, and needs no schema or
+    cleanup pass. It is **generated into the bot's package on demand** (`ReviewMarks.ensureFile`,
+    `ProjectConfig.needsReviewSourceFile`) rather than shipped by the SDK, because every bot an upgrade is
+    about to touch is pinned to the *older* SDK — an annotation arriving with the version the user is trying
+    to leave would help nobody. `@Retention(SOURCE)`, so a marked bot ships the same bytes as an unmarked
+    one. `FileRole` calls it `GENERATED` **before the template gate** (so an `EMPTY` project gets one too)
+    and therefore `isDerived`, which keeps it out of the explorer: nothing in it is about this bot, and the
+    block editor has no blocks for an annotation declaration. Writing **merges** into the mark already there
+    (Java allows one per method) and dedupes; `strip` removes one entry, and the last one takes the
+    annotation — and, once the file holds no marks at all, the import. **A rename is not marked**: the bot
+    does afterwards exactly what it did before, and burying the sites that changed meaning under the ones
+    that did not is how a review list stops being read.
   - **One scanner, two readers: `parser/refactor/SdkReferences`.** The report asks it what the bot calls; the
     runner asks it the same question to know what to rewrite. Two scans would eventually disagree, and the
     disagreement's shape is the worst available — a dialog listing three call sites beside a button that

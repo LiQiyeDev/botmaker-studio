@@ -6,6 +6,23 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-22 — `@NeedsReview`: the repair now leaves a record of what it could not finish
+  (`parser/refactor/ReviewMarks`, `SdkMigrationRunner`, `project/ProjectConfig`, `project/FileRole`).** The
+  entry below made the upgrade write defaults; this is the other half of that bargain. Every function that
+  got a default or lost a call is annotated in **the same rewrite** — so the mark lands with the repair or,
+  when the migration refuses, neither does — with one line per member saying what it was replaced with. The
+  mark lives in the bot's **own source** rather than a sidecar for a reason worth keeping: once the pom is
+  bumped the old jar is out of the picture and re-diffing finds nothing, and an annotation cannot drift from
+  the code it describes, reverts with it through Project History, and needs no schema. `NeedsReview.java` is
+  **generated into the bot's package on demand**, not shipped by the SDK — every bot an upgrade touches is
+  pinned to the *older* SDK, so an annotation arriving with the version the user is trying to leave would
+  help nobody. `@Retention(SOURCE)`: a marked bot ships the same bytes as an unmarked one. Marks **merge**
+  into the one annotation Java allows and dedupe, so two upgrades and a rename stack into one list; a
+  **rename is deliberately not marked**, since the bot afterwards does exactly what it did before. `FileRole`
+  classes the generated file `GENERATED` before the template gate, so an `EMPTY` project gets one too and the
+  explorer never lists it. **Still owed: the review panel** that reads these marks back and lets the user
+  tick them off — phases 4–5 of the plan; the marks are real but currently only visible in the file.
+
 - **2026-08-22 — The repair inverts: pairing and default values replace the fix engine
   (`services/SdkUpgradeService`, `parser/refactor/SdkMigrationRunner`, `CallMigrator`, `SignatureMigration`,
   `ui/app/SdkUpgradeDialog`).** Same day as the entry below, and it deletes most of it. A `fix` pointing one
@@ -21,8 +38,8 @@ whenever work lands here (see CLAUDE.md → Roadmap).
   no pairing, since a default has nowhere to go in `ImageTemplate t = …;`. Two bugs the tests caught and the
   design would not have: the palette's default for an unknown object type is `new Key()`, which names the
   class that was just deleted; and a renamed type whose member also went is two `ASTRewrite` edits on one
-  node, so each file is swept members-then-types with a re-parse between. **Still owed: the `@NeedsReview`
-  mark** that makes the defaults reviewable — phases 3–5 of the plan.
+  node, so each file is swept members-then-types with a re-parse between. The `@NeedsReview` mark that makes
+  the defaults reviewable landed in the entry above.
 
 - **2026-08-22 — *Upgrade SDK…* now repairs the bot, not just describes it (`parser/refactor/SdkMigrationRunner`,
   `parser/refactor/SdkReferences`, `services/SdkUpgradeService`, `ui/app/SdkUpgradeDialog`).** Dropping

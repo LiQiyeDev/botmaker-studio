@@ -4,6 +4,7 @@ import com.botmaker.studio.index.TypeSummaryManager;
 import com.botmaker.studio.parser.helpers.SourceParser;
 import com.botmaker.studio.parser.refactor.CallMigrator;
 import com.botmaker.studio.parser.refactor.SdkMigrationRunner;
+import com.botmaker.studio.parser.refactor.ReviewMarks;
 import com.botmaker.studio.parser.refactor.SdkReferences;
 import com.botmaker.studio.project.FileRole;
 import com.botmaker.studio.project.ProjectConfig;
@@ -479,9 +480,13 @@ public final class SdkUpgradeService {
         }
 
         SdkMigrationRunner.Outcome outcome = SdkMigrationRunner.run(repairs, editable, generated,
-                known, fieldOwners, null, state);
+                known, fieldOwners, config.mainPackage(), null, state);
         if (outcome.isRefusal()) throw new IllegalStateException(outcome.refusal());
         try {
+            // The annotation the rewritten files now reference. Written before them, so the project never
+            // exists in a state where a mark names a type that isn't there — and only when the migration has
+            // already agreed to write something, so a refused upgrade adds no file at all.
+            ReviewMarks.ensureFile(config.mainPackageDir(), config.mainPackage());
             CallMigrator.commit(outcome.files());
         } catch (IOException e) {
             throw new RuntimeException("Some files could not be written: " + e.getMessage(), e);
@@ -933,14 +938,9 @@ public final class SdkUpgradeService {
                 : "replaced with " + defaultTextOf(returnType) + ", and the function is marked for your review";
     }
 
-    /** The default this type gets, spelled as the rewrite will spell it. Mirrors {@code InitializerFactory}. */
+    /** The default this type gets, spelled as the rewrite will spell it — the rewriter's own switch. */
     private static String defaultTextOf(String type) {
-        return switch (type) {
-            case "boolean" -> "false";
-            case "byte", "short", "int", "long", "float", "double", "char" -> "0";
-            case "String" -> "\"\"";
-            default -> "null";
-        };
+        return CallMigrator.literalDefaultText(type);
     }
 
     /** Whether {@code klass} offers this call's member in the shape the call site uses it. */

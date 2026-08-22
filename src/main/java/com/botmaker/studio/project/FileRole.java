@@ -86,6 +86,11 @@ public enum FileRole {
 
         String normalized = file.toString().replace("\\", "/");
         if (normalized.contains("com/botmaker/library")) return LIBRARY;
+
+        // Checked before the template gate, deliberately: the review marker is not part of any scaffold. It is
+        // written on demand by whichever refactor first needed it, so an EMPTY project can have one too.
+        if (isReviewMarker(config, file.toAbsolutePath())) return GENERATED;
+
         if (template != ProjectTemplate.GAME_BOT) return EDITABLE;
 
         Path abs = file.toAbsolutePath();
@@ -119,11 +124,25 @@ public enum FileRole {
      * asked, never in the list — which is why there is one list.
      */
     private static boolean isStudioOwned(ProjectConfig config, Path abs) {
-        return sameFile(abs, config.mainSourceFile())
+        return isReviewMarker(config, abs)
+                || sameFile(abs, config.mainSourceFile())
                 || sameFile(abs, config.activitiesSourceFile())
                 || sameFile(abs, config.activityRegistrySourceFile())
                 || sameFile(abs, config.flowDriverSourceFile())
                 || sameFile(abs, config.templatesSourceFile());
+    }
+
+    /**
+     * True for the generated {@code NeedsReview.java}.
+     *
+     * <p>It is {@link #GENERATED} — and therefore {@linkplain #isDerived derived}, so the explorer does not
+     * list it — for the same reason {@code Templates.java} is: nothing in it is about <em>this</em> bot. It is
+     * a fixed four-line annotation declaration whose only purpose is to let the marks on the user's own
+     * functions compile, it is regenerated from {@code ReviewMarks.annotationSource} whenever it is missing,
+     * and a user who opened it would find a Java construct the block editor has no blocks for.
+     */
+    private static boolean isReviewMarker(ProjectConfig config, Path abs) {
+        return sameFile(abs, config.needsReviewSourceFile());
     }
 
     private static boolean sameFile(Path abs, Path other) {

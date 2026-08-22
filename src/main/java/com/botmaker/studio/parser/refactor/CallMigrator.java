@@ -157,6 +157,21 @@ public final class CallMigrator {
         };
     }
 
+    /**
+     * The same default, spelled the way source spells it — for the upgrade report and for the review mark,
+     * which both have to say what the rewrite is about to write. One switch, so the sentence and the code
+     * cannot drift apart.
+     */
+    public static String literalDefaultText(String typeName) {
+        String type = typeName == null ? "" : typeName.trim();
+        return switch (type) {
+            case "boolean" -> "false";
+            case "byte", "short", "int", "long", "float", "double", "char" -> "0";
+            case "String", "java.lang.String" -> "\"\"";
+            default -> "null";
+        };
+    }
+
     /** A {@code List<Point>} is a list; anything else is what the signature calls it. */
     private static ResolvedType resolvedOf(SignatureType type) {
         return type.described().filter(BotType.Choice::isList)
