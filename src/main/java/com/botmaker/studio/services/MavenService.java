@@ -413,12 +413,34 @@ public final class MavenService {
      * May block on the network — call off the FX thread.
      */
     public static Optional<Path> resolveSdkSourcesJar(Path projectDir) {
+        return resolveSdkArtifact(projectDir, readSdkVersion(projectDir), "sources");
+    }
+
+    /**
+     * Resolves the SDK's own (classifier-less) jar for an <em>arbitrary</em> version — not necessarily the
+     * one this project pins. That is what {@link SdkUpgradeService} compares against: answering "what breaks
+     * if I move to v2.0.0" means reading v2.0.0's bytecode, which nothing else in Studio ever needs.
+     *
+     * <p>The project's own pom is still consulted, for its {@code <repositories>} — JitPack is declared
+     * there, so a version that has never been resolved on this machine downloads on demand.
+     */
+    public static Optional<Path> resolveSdkJar(Path projectDir, String version) {
+        return resolveSdkArtifact(projectDir, version, "");
+    }
+
+    /**
+     * Resolves one BotMaker SDK artifact from the local repo, downloading it via the project pom's
+     * repositories if absent. {@code classifier} is {@code ""} for the jar itself, {@code "sources"} for the
+     * sources jar. Best-effort: empty when the pom is missing, the artifact cannot be resolved, or offline.
+     * May block on the network — call off the FX thread.
+     */
+    public static Optional<Path> resolveSdkArtifact(Path projectDir, String version, String classifier) {
         Model model = readModel(projectDir);
-        if (model == null) {
+        if (model == null || version == null || version.isBlank()) {
             return Optional.empty();
         }
         Artifact artifact = new DefaultArtifact(
-                SDK_GROUP_ID, SDK_ARTIFACT_ID, "sources", "jar", readSdkVersion(projectDir));
+                SDK_GROUP_ID, SDK_ARTIFACT_ID, classifier, "jar", version.trim());
 
         RepositorySystem system = new RepositorySystemSupplier().get();
         DefaultRepositorySystemSession session = MavenRepositorySystemUtils.newSession();
@@ -435,7 +457,7 @@ public final class MavenService {
             var file = result.getArtifact().getFile();
             return file != null ? Optional.of(file.toPath()) : Optional.empty();
         } catch (ArtifactResolutionException e) {
-            System.err.println("Could not resolve SDK sources jar: " + e.getMessage());
+            System.err.println("Could not resolve SDK artifact " + artifact + ": " + e.getMessage());
             return Optional.empty();
         }
     }

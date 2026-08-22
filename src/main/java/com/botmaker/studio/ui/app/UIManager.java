@@ -362,7 +362,7 @@ public class UIManager implements ProjectWindow {
         // --- 3. Center: Code Canvas ---
         editorCanvas = new EditorCanvas(codeEditorService, eventBus, state.isReaderMode(),
                 config.projectName(), this::switchToEditorMode,
-                sdkSurfaceService, actions::openManageLibraries);
+                sdkSurfaceService, actions::openSdkUpgrade);
 
         // --- 4. Bottom Panel: Terminal/Errors ---
         outputArea = new TextArea();

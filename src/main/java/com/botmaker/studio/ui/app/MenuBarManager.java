@@ -29,6 +29,7 @@ public class MenuBarManager {
     private final Stage primaryStage;
     private Consumer<Void> onSelectProject;
     private Runnable onManageLibraries;
+    private Runnable onUpgradeSdk;
     private Runnable onManageImports;
     private Runnable onActivityFlow;
     private Runnable onParameters;
@@ -196,6 +197,13 @@ public class MenuBarManager {
             if (onManageLibraries != null) onManageLibraries.run();
         });
 
+        // Beside Manage Libraries, not inside it: the SDK version is the one library whose change can stop
+        // the bot compiling, and that deserves a report rather than a cell edit.
+        MenuItem upgradeSdkItem = new MenuItem("Upgrade SDK...");
+        upgradeSdkItem.setOnAction(e -> {
+            if (onUpgradeSdk != null) onUpgradeSdk.run();
+        });
+
         MenuItem manageImportsItem = new MenuItem("Manage Imports...");
         manageImportsItem.setOnAction(e -> {
             if (onManageImports != null) onManageImports.run();
@@ -253,7 +261,7 @@ public class MenuBarManager {
 
         projectMenu.getItems().addAll(
                 projectSetupItem, new SeparatorMenuItem(),
-                manageLibrariesItem, manageImportsItem, new SeparatorMenuItem(),
+                manageLibrariesItem, upgradeSdkItem, manageImportsItem, new SeparatorMenuItem(),
                 activityFlowItem, parametersItem, manageResourcesItem,
                 new SeparatorMenuItem(),
                 projectSettingsItem, new SeparatorMenuItem(),
@@ -603,6 +611,13 @@ public class MenuBarManager {
      */
     public void setOnManageLibraries(Runnable callback) {
         this.onManageLibraries = callback;
+    }
+
+    /**
+     * Sets the callback for when "Upgrade SDK..." is clicked
+     */
+    public void setOnUpgradeSdk(Runnable callback) {
+        this.onUpgradeSdk = callback;
     }
 
     /**

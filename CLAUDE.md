@@ -99,6 +99,28 @@ there are three distinct relationships to keep straight:
   `ProjectSettingsDialog`'s favourites.
   `MavenService.MIN_SDK_VERSION` is the floor: below it the project **still opens**, under one amber banner
   offering *Upgrade SDK…*. An old bot that runs is not a broken bot.
+- **Changing the SDK version is a report, not a cell edit — `services/SdkUpgradeService`** (*Project ▸ Upgrade
+  SDK…*, and where the floor banner's button goes). It resolves the **target** version's jar
+  (`MavenService.resolveSdkJar`, any version — the project pom's JitPack repo means it need never have been on
+  this machine), ClassGraph-scans it beside the pinned one, and intersects the difference with the bot's own
+  call sites: what's new, what the bot calls that is now deprecated, what the bot calls that is **gone**
+  (file + line), and what the SDK declares unmigratable (`META-INF/botmaker/upgrade-notes.json`, verbatim —
+  those sentences are the SDK author's, never paraphrased). Three things about it are load-bearing:
+  - **The two steps are ordered, and the dialog says so.** Recipes ship in the **new** jar but must run
+    against source the **old** SDK still explains, so: snapshot → `mvn rewrite:run` (pom still on the old
+    version) → **then** bump the pom. `apply()` is only that last step, and takes the `ProjectVcs` commit
+    first, so a user who gets the order wrong is one revert away. Collapsing this into one button produces a
+    project neither version parses.
+  - **Studio runs no recipes and owns no rewriting engine.** It prints the exact `mvn` line
+    (`SdkUpgradeService.REWRITE_PLUGIN` is **pinned** — 6.12.0 cannot read `META-INF/rewrite` at all on
+    JDK 24+, so an unpinned command fails on the very feature it invokes). Both the recipe classpath and the
+    recipe name are plugin *user properties*, so nothing is added to the bot's pom and this works on bots
+    generated long before the feature existed. In-app rewriting is deferred, deliberately.
+  - **Breaks are judged by arity, not by argument types, and only for members the old jar had.** There are no
+    bindings (same constraint as `parser/refactor/MethodReferences`), so a call through a variable is not
+    attributed to the SDK at all and is not reported. A file that does not parse goes in `Report.problems()`
+    rather than being skipped: `nothingBreaks()` is false whenever anything could not be read, because
+    "nothing breaks" from a scan that read half the project is the one answer worse than no answer.
 - **Studio generates bot projects that depend on the SDK.** `services/MavenService` writes each user
   project's `pom.xml` pinning `com.github.LiQiyeDev:botmaker-sdk` (default `SDK_FALLBACK_VERSION`;
   user-selectable in the project screen from JitPack's version list). That pin is independent of the version

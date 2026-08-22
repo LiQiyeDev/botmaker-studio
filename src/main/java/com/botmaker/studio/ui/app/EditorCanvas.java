@@ -44,7 +44,8 @@ final class EditorCanvas {
      * @param projectName       named in that banner
      * @param onSwitchToEditor  the banner's button
      * @param sdkSurface        this project's SDK surface; a version below the floor adds a second banner
-     * @param onUpgradeSdk      that banner's button — Manage Libraries, where the version is actually changed
+     * @param onUpgradeSdk      that banner's button — the Upgrade SDK report, which is where a version change
+     *                          starts: it reads both jars and says what moving would cost before anything moves
      */
     EditorCanvas(CodeEditorService codeEditorService, EventBus eventBus,
                  boolean readerMode, String projectName, Runnable onSwitchToEditor,

@@ -961,6 +961,29 @@
 }
 
 /*
+ * The Upgrade SDK report. Named colours only — the whole point of the dialog is to be read carefully, and a
+ * hard-coded grey that vanishes on one of the two themes is the one failure mode that matters here.
+ *
+ * The `detail` rule carries the call sites and the SDK's own upgrade notes: subordinate to the line above,
+ * never so faint that a file:line becomes hard to read off the screen and type into an editor.
+ */
+.sdk-upgrade-card {
+    -fx-background-color: -bm-popup-bg;
+    -fx-border-color: -bm-popup-border;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-padding: 10;
+}
+.sdk-upgrade-detail {
+    -fx-opacity: 0.85;
+    -fx-font-family: monospace;
+}
+.sdk-upgrade-empty {
+    -fx-opacity: 0.75;
+    -fx-font-style: italic;
+}
+
+/*
  * A method this project's SDK marks @Deprecated. Strikethrough plus a little transparency — the call still
  * compiles and still runs, so it must stay legible and stay clickable; this is notice, not an error state,
  * and painting it in -bm-danger would be a lie about what happens if the user runs it.

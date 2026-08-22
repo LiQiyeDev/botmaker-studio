@@ -6,6 +6,27 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-22 — Upgrading the SDK tells you what it costs first (`services/SdkUpgradeService`,
+  `ui/app/SdkUpgradeDialog`, *Project ▸ Upgrade SDK…*).** Changing the SDK version was a cell edit in
+  Manage Libraries: it rewrote one line of the pom, said nothing, and the user found out what it cost by
+  opening the project. That is a bad trade for a bot whose *source is the model* — `BlockConverter` parses
+  blocks out of Java on every open, so a renamed SDK method does not become a red block, it becomes a file
+  that no longer parses into the shape the editor expects. The dialog resolves the **target** version's jar
+  (`MavenService.resolveSdkJar`, generalised from the sources-jar resolve; the project pom's JitPack repo
+  means the version need never have been on this machine), scans it beside the pinned one, and intersects
+  the difference with the bot's own call sites: *what breaks* with file and line, *what cannot be migrated*
+  (read verbatim out of the target jar's `upgrade-notes.json`), *what you use that is now deprecated*, and
+  *what's new*. **The two steps are ordered and shown as two:** the recipes ship in the new jar but must run
+  against source the old SDK still explains, so the source rewrite goes first with the pom still on the old
+  version, and only then does `apply()` snapshot to `ProjectVcs` and bump the pom — one button would produce
+  a project neither version parses. **Studio runs no recipes** (deferred, and a Maven feature rather than a
+  Studio one): it prints the exact `mvn` line, with the plugin version pinned because 6.12.0 cannot read
+  `META-INF/rewrite` at all on JDK 24+. Breaks are judged by **arity, not argument types** — there are no
+  bindings here, and claiming a break that isn't one is worse than missing one — and a file that does not
+  parse is *named* in `Report.problems()` rather than skipped, so "nothing breaks" is never the answer given
+  by a scan that could not read the project. The floor banner's *Upgrade SDK…* now lands here rather than in
+  Manage Libraries.
+
 - **2026-08-22 — The palette is the bot's SDK, not Studio's (`services/SdkSurfaceService`,
   `MavenService.MIN_SDK_VERSION`, `index/TypeSummaryManager`).** Three SDK versions are in play at any
   moment — the one a bot pins, the one Studio was built against, and the newest published — and Studio knew
@@ -29,7 +50,7 @@ whenever work lands here (see CLAUDE.md → Roadmap).
   site in the Errors panel — advisory on purpose, never blocking: the call compiles and runs, and that
   release of notice *is* the deprecation cycle (`../docs/refactor/21-api-compat.md`). Below
   `MIN_SDK_VERSION` (1.0.26, the last release before `api.*` came under contract) the project still opens,
-  under one amber banner offering *Upgrade SDK…* → Manage Libraries.
+  under one amber banner offering *Upgrade SDK…* (which now opens the upgrade report above).
 
 - **2026-08-22 — Generated bots resolve on a clean machine again (`MavenService.SDK_FALLBACK_VERSION`,
   `.deps.env`).** A project created by a packaged Studio failed to compile anywhere that had never built

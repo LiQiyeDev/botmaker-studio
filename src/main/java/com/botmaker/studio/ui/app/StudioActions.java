@@ -5,6 +5,7 @@ import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectCreator;
 import com.botmaker.studio.project.ProjectFile;
+import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.project.StudioContext;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.CodeEditorService;
@@ -14,6 +15,7 @@ import com.botmaker.studio.services.LibraryService;
 import com.botmaker.studio.services.MavenCentralSearch;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
+import com.botmaker.studio.services.SdkUpgradeService;
 import com.botmaker.studio.sharing.BotInstaller;
 import com.botmaker.studio.sharing.BotPublisher;
 import com.botmaker.studio.sharing.BotSource;
@@ -44,6 +46,7 @@ final class StudioActions {
 
     private final Stage primaryStage;
     private final ProjectConfig config;
+    private final ProjectState state;
     private final EventBus eventBus;
     private final CodeEditorService codeEditorService;
     private final ProjectSettingsService projectSettingsService;
@@ -80,6 +83,7 @@ final class StudioActions {
                   Runnable recoverProjectFiles) {
         this.primaryStage = primaryStage;
         this.config = ctx.config();
+        this.state = ctx.state();
         this.eventBus = ctx.eventBus();
         this.codeEditorService = ctx.codeEditorService();
         this.projectSettingsService = ctx.projectSettingsService();
@@ -100,6 +104,7 @@ final class StudioActions {
 
         // --- Project ---
         menuBar.setOnManageLibraries(this::openManageLibraries);
+        menuBar.setOnUpgradeSdk(this::openSdkUpgrade);
         menuBar.setOnProjectSetup(this::openProjectSetup);
         toolbar.setOnProjectSetup(this::openProjectSetup);
         menuBar.setOnManageImports(this::openManageImports);
@@ -183,6 +188,16 @@ final class StudioActions {
      */
     public void openManageLibraries() {
         new ManageLibrariesDialog(primaryStage, libraryService, mavenCentralSearch, jitPackSearch).show();
+    }
+
+    /**
+     * The same operation Manage Libraries offers as a cell edit — change the SDK version — but with the
+     * consequences read out of both jars first. Public for the same reason as {@link #openManageLibraries}:
+     * the canvas banner is a second, non-menu route to it.
+     */
+    public void openSdkUpgrade() {
+        new SdkUpgradeDialog(primaryStage,
+                new SdkUpgradeService(config, state, libraryService, jitPackSearch)).show();
     }
 
     private void openManageImports() {
