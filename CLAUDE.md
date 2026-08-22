@@ -104,18 +104,28 @@ there are three distinct relationships to keep straight:
   (`MavenService.resolveSdkJar`, any version — the project pom's JitPack repo means it need never have been on
   this machine), ClassGraph-scans it beside the pinned one, and intersects the difference with the bot's own
   call sites: what's new, what the bot calls that is now deprecated, what the bot calls that is **gone**
-  (file + line), and what the SDK declares unmigratable (`META-INF/botmaker/upgrade-notes.json`, verbatim —
-  those sentences are the SDK author's, never paraphrased). Three things about it are load-bearing:
-  - **The two steps are ordered, and the dialog says so.** Recipes ship in the **new** jar but must run
-    against source the **old** SDK still explains, so: snapshot → `mvn rewrite:run` (pom still on the old
-    version) → **then** bump the pom. `apply()` is only that last step, and takes the `ProjectVcs` commit
-    first, so a user who gets the order wrong is one revert away. Collapsing this into one button produces a
-    project neither version parses.
-  - **Studio runs no recipes and owns no rewriting engine.** It prints the exact `mvn` line
-    (`SdkUpgradeService.REWRITE_PLUGIN` is **pinned** — 6.12.0 cannot read `META-INF/rewrite` at all on
-    JDK 24+, so an unpinned command fails on the very feature it invokes). Both the recipe classpath and the
-    recipe name are plugin *user properties*, so nothing is added to the bot's pom and this works on bots
-    generated long before the feature existed. In-app rewriting is deferred, deliberately.
+  (file + line), and what the SDK declares about each break (`META-INF/botmaker/migrations.json`; the
+  `summary` is the SDK author's sentence and is never paraphrased). Three things about it are load-bearing:
+  - **Every break the SDK ships declares its own repair, or says why it has none.** Each entry in
+    `migrations.json` carries exactly one of a `fix` (a `kind` from `SdkUpgradeService.KNOWN_FIX_KINDS`,
+    applied by `parser/refactor`) or a `manual` sentence. `Report.automatic()` / `Report.manual()` are the
+    two lists the dialog shows separately, because they ask different things of the user — one is a button,
+    the other is reading. **One manual entry disables the whole span** (`Report.canMigrate()`): rewriting
+    some call sites and leaving the rest is the half-migration `CallMigrator.rewriteOthers` returns `null`
+    to prevent.
+  - **Studio is the version that lags**, so it degrades rather than guessing. A `schema` above
+    `MIGRATIONS_MAX_SCHEMA` is refused **whole** — one `problems()` line, no entries — since a grammar we do
+    not know is one we may *misread*; breaks are still reported, coming from the jar scan and needing no
+    file. An unknown `fix.kind` degrades that **one** entry to manual (summary still shown, `degraded()`
+    true so the dialog can say *"needs a newer Studio"* rather than *"no rewrite can express this"*) and
+    takes the span's auto-apply down with it. **Adding a `fix.kind` therefore does not bump `schema`** —
+    that graceful path is the entire point of having the rule.
+  - This replaced `mvn rewrite:run` against OpenRewrite recipes in 2026-08. OpenRewrite existed for one
+    requirement — migrating with no Studio at all — and once that was withdrawn it bought nothing
+    `CallMigrator` could not do. Note which way that cut: OpenRewrite type-attributes against the **old**
+    SDK, so the rewrite had to run *before* the pom was bumped and the dialog had to teach that ordering.
+    Our rewriter never resolves the SDK, so **snapshot → migrate → bump is one operation**, not two steps a
+    user can get wrong.
   - **Breaks are judged by arity, not by argument types, and only for members the old jar had.** There are no
     bindings (same constraint as `parser/refactor/MethodReferences`), so a call through a variable is not
     attributed to the SDK at all and is not reported. A file that does not parse goes in `Report.problems()`

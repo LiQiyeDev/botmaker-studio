@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-22 — The upgrade report reads `migrations.json`, and stops printing a command
+  (`services/SdkUpgradeService`, `ui/app/SdkUpgradeDialog`).** The repair used to be an `mvn rewrite:run`
+  line the user pasted; the SDK dropped OpenRewrite, so `Note` becomes `Migration` — read from the target
+  jar's `META-INF/botmaker/migrations.json`, each entry carrying exactly one of a `fix` Studio can apply or
+  a `manual` sentence. The dialog shows those as two lists rather than one, since only one of them is a
+  button. Two rules are the interesting part: **one manual entry disables the whole span** (`canMigrate()`),
+  because a half-migrated project is in neither shape and nothing says which half moved; and **Studio is the
+  version that lags**, so a `schema` above `MIGRATIONS_MAX_SCHEMA` is refused *whole* (breaks still report —
+  they come from the jar scan) while an unknown `fix.kind` degrades that one entry to manual with its
+  summary intact. Also gone with the engine: the two-step ordering the dialog had to teach. OpenRewrite
+  type-attributed against the *old* SDK; ours resolves the SDK not at all.
+  *Apply is present but inert* — the rewriter that carries the fixes out is the next phase.
+
 - **2026-08-22 — A release cannot ship a floor above its own SDK (`.github/workflows/ci.yml`, umbrella
   `release.sh`).** `MIN_SDK_VERSION` and `SDK_FALLBACK_VERSION` are one promise between them — the oldest
   SDK Studio edits without a banner, and the SDK a *freshly created* bot pins — and nothing held them in

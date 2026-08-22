@@ -3,7 +3,7 @@ package com.botmaker.studio.ui.app;
 import com.botmaker.studio.services.SdkUpgradeService;
 import com.botmaker.studio.services.SdkUpgradeService.Break;
 import com.botmaker.studio.services.SdkUpgradeService.Deprecation;
-import com.botmaker.studio.services.SdkUpgradeService.Note;
+import com.botmaker.studio.services.SdkUpgradeService.Migration;
 import com.botmaker.studio.services.SdkUpgradeService.Report;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
@@ -16,9 +16,6 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressIndicator;
 import javafx.scene.control.ScrollPane;
-import javafx.scene.control.TextArea;
-import javafx.scene.input.Clipboard;
-import javafx.scene.input.ClipboardContent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
@@ -37,14 +34,13 @@ import java.util.List;
  * user found out what that cost by opening their project afterwards. This is the same operation with the
  * answer shown first — {@link SdkUpgradeService} does the reading, this only lays it out.
  *
- * <p><b>The two steps are ordered and the dialog says so.</b> The migration recipes ship in the <em>new</em>
- * jar but have to run against source the <em>old</em> SDK still explains, so the source rewrite comes first,
- * with the pom still pinned to the old version, and the pom bump second. Presenting them as one button would
- * be simpler and would produce a project that neither version can parse.
+ * <p><b>The span is split into what Studio can repair and what needs you</b>, because those two lists ask
+ * completely different things. The first is a button; the second is reading. Mixing them into one "what
+ * changed" list is how a user comes to believe an upgrade was handled when half of it was addressed to them.
  *
- * <p>Studio does not run the rewrite itself, by design (see {@link SdkUpgradeService}); it hands over the
- * exact command. That is a Maven feature rather than a Studio one, which is why it works on bots generated
- * long before this dialog existed.
+ * <p>This replaced a card that printed an {@code mvn rewrite:run} command to paste. The ordering that card
+ * had to teach — rewrite first, with the pom still on the old version, then bump — was imposed by
+ * OpenRewrite type-attributing against the old SDK, and went away with it (see {@link SdkUpgradeService}).
  */
 public final class SdkUpgradeDialog {
 
@@ -199,14 +195,8 @@ public final class SdkUpgradeDialog {
                         ? "Nothing in the files that could be read."
                         : "Nothing — every SDK call in this bot still exists on " + r.to() + "."));
 
-        if (!r.notes().isEmpty()) {
-            List<String> lines = new ArrayList<>();
-            for (Note n : r.notes()) {
-                lines.add(n.member().isBlank() ? n.version() : n.version() + " — " + n.member());
-                if (!n.summary().isBlank()) lines.add("        " + n.summary());
-                if (!n.action().isBlank()) lines.add("        → " + n.action());
-            }
-            reportBox.getChildren().add(section("What cannot be migrated automatically", lines));
+        if (!r.manual().isEmpty()) {
+            reportBox.getChildren().add(section("What you have to change yourself", lines(r.manual(), true)));
         }
 
         List<String> deprecated = new ArrayList<>();
@@ -220,9 +210,20 @@ public final class SdkUpgradeDialog {
         reportBox.getChildren().add(section("What's new", r.added(),
                 "No new public API between " + r.from() + " and " + r.to() + "."));
 
-        if (!r.rewriteCommand().isBlank()) {
-            reportBox.getChildren().add(rewriteCard(r));
+        if (!r.automatic().isEmpty()) {
+            reportBox.getChildren().add(automaticCard(r));
         }
+    }
+
+    /** One line per entry, its summary indented under it; {@code withAction} adds the "what to do" line. */
+    private static List<String> lines(List<Migration> migrations, boolean withAction) {
+        List<String> out = new ArrayList<>();
+        for (Migration m : migrations) {
+            out.add(m.member().isBlank() ? m.version() : m.version() + " — " + m.member());
+            if (!m.summary().isBlank()) out.add("        " + m.summary());
+            if (withAction && !m.manual().isBlank()) out.add("        → " + m.manual());
+        }
+        return out;
     }
 
     private static String describe(Break b) {
@@ -234,37 +235,50 @@ public final class SdkUpgradeDialog {
     }
 
     /**
-     * Step 1, and the reason the dialog has two steps at all. Shown before the apply button is used, because
-     * the command must run while the pom still pins the old version.
+     * What the SDK says Studio can repair for you. The Apply button is deliberately inert for now — the
+     * rewriter that carries these out lands in a later phase — and says so rather than being merely greyed:
+     * a disabled control with no explanation reads as a bug.
      */
-    private Node rewriteCard(Report r) {
-        Label heading = new Label("Step 1 — migrate your source, before switching");
+    private Node automaticCard(Report r) {
+        Label heading = new Label("What Studio can change for you");
         heading.setStyle("-fx-font-weight: bold;");
 
-        Label why = new Label("Run this in the project folder while the pom still says " + r.from()
-                + ". It reads the migration recipes out of the " + r.to()
-                + " jar and rewrites your call sites; it changes nothing in your pom.");
+        Label why = new Label("SDK " + r.to() + " ships a repair for each of these, so they can be applied to "
+                + "your call sites automatically.");
         why.setWrapText(true);
 
-        TextArea command = new TextArea(r.rewriteCommand());
-        command.setEditable(false);
-        command.setWrapText(true);
-        command.setPrefRowCount(3);
+        VBox card = new VBox(6, heading, why);
+        card.getChildren().add(section("", lines(r.automatic(), false)));
 
-        Button copy = new Button("Copy command");
-        copy.setOnAction(e -> {
-            ClipboardContent content = new ClipboardContent();
-            content.putString(r.rewriteCommand());
-            Clipboard.getSystemClipboard().setContent(content);
-            status("Command copied to the clipboard.");
-        });
+        Button apply = new Button("Apply these changes");
+        apply.setDisable(true);
+        Label note = new Label(r.canMigrate()
+                ? "Not available yet — this build reports the repairs but does not carry them out."
+                : reasonApplyIsOff(r));
+        note.setWrapText(true);
+        note.getStyleClass().add("sdk-upgrade-empty");
 
-        HBox actions = new HBox(8, copy);
+        HBox actions = new HBox(8, apply);
         actions.setAlignment(Pos.CENTER_LEFT);
+        card.getChildren().addAll(actions, note);
 
-        VBox card = new VBox(6, heading, why, command, actions);
         card.getStyleClass().add("sdk-upgrade-card");
         return card;
+    }
+
+    /**
+     * Why the whole span is off, not just the entry that caused it. One unrepairable change disables the
+     * lot: rewriting some of the call sites and leaving the rest would produce a project in neither shape,
+     * with nothing telling the user which half was touched.
+     */
+    private static String reasonApplyIsOff(Report r) {
+        if (r.isIncomplete()) {
+            return "Some of this project could not be read, so nothing will be rewritten automatically.";
+        }
+        boolean degraded = r.manual().stream().anyMatch(Migration::degraded);
+        return degraded
+                ? "Some of these changes need a newer Studio, so none of them will be applied automatically."
+                : "Some changes in this range have to be made by hand, so none will be applied automatically.";
     }
 
     // -------------------------------------------------------------------------
@@ -302,10 +316,12 @@ public final class SdkUpgradeDialog {
 
     /** A heading and its lines; {@code emptyText} is shown in place of an empty list (and says why it is ok). */
     private Node section(String title, List<String> lines, String emptyText) {
-        Label heading = new Label(title);
-        heading.setStyle("-fx-font-weight: bold;");
-
-        VBox box = new VBox(2, heading);
+        VBox box = new VBox(2);
+        if (!title.isBlank()) {
+            Label heading = new Label(title);
+            heading.setStyle("-fx-font-weight: bold;");
+            box.getChildren().add(heading);
+        }
         if (lines.isEmpty()) {
             Label empty = new Label(emptyText);
             empty.setWrapText(true);

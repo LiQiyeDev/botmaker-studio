@@ -54,19 +54,29 @@ import java.util.jar.JarFile;
  * bot calls that is <em>gone</em> (with file and line), and what the SDK itself says cannot be migrated
  * automatically.
  *
- * <h2>It rewrites no source, and deliberately owns no rewriting engine</h2>
+ * <h2>The repair the SDK ships with the break</h2>
  *
- * <p>The repair is {@code mvn rewrite:run} against the recipes the SDK jar ships at
- * {@code META-INF/rewrite/} — a Maven feature, not a Studio one, which is why it works on bots generated
- * long before any of this existed and needs no edit to the bot's pom. {@link #rewriteCommand} builds that
- * exact line for the user to paste. Studio applying the recipes itself is a separate, deferred decision.
+ * <p>Every breaking change is declared in the target jar at {@code META-INF/botmaker/migrations.json},
+ * keyed by the release that introduced it, and each entry carries either a {@code fix} (something Studio's
+ * own rewriter can do) or a {@code manual} sentence (something no rewrite can repair). {@link #migrations}
+ * reads that file for every version in {@code (from, to]}; the report shows the two sets separately, because
+ * they ask different things of the user.
  *
- * <h2>The order is not arbitrary</h2>
+ * <p>This replaced {@code mvn rewrite:run} against OpenRewrite recipes. That existed to let a user migrate
+ * with no Studio at all; once that stopped being a requirement, an engine we do not control bought nothing
+ * {@code parser/refactor/CallMigrator} could not do. One consequence is worth stating because it removed a
+ * constraint rather than adding one: OpenRewrite type-attributes against the <em>old</em> SDK, so the
+ * rewrite had to run before the pom was bumped, and the dialog had to teach that ordering. Our rewriter
+ * resolves the SDK not at all, so snapshot → migrate → bump is a single operation.
  *
- * <p>The recipes live in the <em>new</em> jar but must run against source that still parses and
- * type-attributes against the <em>old</em> one. So: snapshot → run the rewrite (pom still on the old
- * version) → <em>then</em> bump the pom. {@link #apply} is only the last step, and takes the VCS snapshot
- * before it so the whole thing is one revert away.
+ * <h2>A file this Studio cannot fully read is refused, not half-applied</h2>
+ *
+ * <p>Studio is the version that lags — a bot may pin an SDK newer than the Studio editing it. So a
+ * {@code schema} above {@link #MIGRATIONS_MAX_SCHEMA} is refused <em>whole</em> (one line in
+ * {@link Report#problems()}; breaks are still reported, since those come from scanning the jar), and an
+ * unrecognised {@code fix.kind} degrades that one entry to manual — its summary still shown — rather than
+ * being skipped. Both leave {@link Report#canMigrate()} false. Half a migration is the failure
+ * {@code CallMigrator.rewriteOthers} returns {@code null} to prevent.
  *
  * <h2>What it cannot see</h2>
  *
@@ -81,20 +91,26 @@ import java.util.jar.JarFile;
 public final class SdkUpgradeService {
 
     /**
-     * The rewrite plugin, pinned. Do not let this float to whatever {@code mvn} picks: 6.12.0 cannot read
-     * {@code META-INF/rewrite/} at all on JDK 24+ (recipe discovery goes through ClassGraph's memory
-     * mapping, which throws there), so an unpinned command fails on exactly the feature it is invoking.
-     * See {@code botmaker-sdk/src/main/resources/META-INF/rewrite/botmaker-sdk.yml} for the full note.
+     * The highest {@code schema} of {@code migrations.json} this Studio knows how to read. A file declaring
+     * more is refused whole rather than guessed at — see the class Javadoc.
+     *
+     * <p>Adding a {@code fix.kind} does <em>not</em> bump this: an unknown kind degrades to manual, which is
+     * the whole point of having that rule. It bumps only for a grammar change that would make this reader
+     * <em>misread</em> an entry it thinks it understands.
      */
-    public static final String REWRITE_PLUGIN = "org.openrewrite.maven:rewrite-maven-plugin:6.46.1";
+    public static final int MIGRATIONS_MAX_SCHEMA = 1;
 
-    /** The aggregator recipe the SDK ships; it composes every per-release migration in order. */
-    public static final String UPGRADE_RECIPE = "com.botmaker.sdk.UpgradeToLatest";
+    /**
+     * The {@code fix.kind}s this Studio can carry out. Anything else is a newer SDK talking to an older
+     * Studio, and degrades to manual. The rewrites themselves live in {@code parser/refactor}.
+     */
+    public static final Set<String> KNOWN_FIX_KINDS = Set.of(
+            "renameMethod", "renameType", "renameField", "moveMember",
+            "dropArgument", "reorderArguments", "insertArgument");
 
-    private static final String RECIPE_ENTRY = "META-INF/rewrite/botmaker-sdk.yml";
-    private static final String NOTES_ENTRY = "META-INF/botmaker/upgrade-notes.json";
+    private static final String MIGRATIONS_ENTRY = "META-INF/botmaker/migrations.json";
 
-    /** A constructor has no name of its own; this is how japicmp and {@code upgrade-notes.json} spell one. */
+    /** A constructor has no name of its own; this is how japicmp and {@code migrations.json} spell one. */
     private static final String CTOR = "<init>";
 
     private final ProjectConfig config;
@@ -152,10 +168,36 @@ public final class SdkUpgradeService {
     }
 
     /**
-     * A break the SDK itself declares unmigratable, read verbatim from the target jar's
-     * {@code upgrade-notes.json}. Never paraphrased here: the SDK author wrote these sentences for the user.
+     * The automatic repair for one entry: a {@code kind} from {@link #KNOWN_FIX_KINDS} and its options,
+     * carried as raw JSON because each kind reads different ones ({@code to}, {@code toType}, {@code index},
+     * {@code order}, {@code value}). Phase 4's edit model is what interprets them.
+     *
+     * <p>{@code arity} is the optional {@code when.arity} scope, or {@code -1} for "every overload". It
+     * exists because call sites are matched by arity and not by argument type, so an unscoped rename would
+     * hit overloads the SDK author did not mean.
      */
-    public record Note(String version, String member, String summary, String action) {}
+    public record Fix(String kind, JsonNode options, int arity) {}
+
+    /**
+     * One breaking change the target SDK declares, read from its {@code migrations.json}.
+     *
+     * <p>Exactly one of {@code fix} and {@code manual} is set — that is the file's own invariant, checked in
+     * the SDK repo by {@code ApiRulesCheck} so a malformed entry is a red build there rather than a
+     * half-migration here. {@code summary} is always present and always shown verbatim: the SDK author wrote
+     * that sentence for the user, and it is never paraphrased.
+     *
+     * <p>An entry whose {@code fix.kind} this Studio does not know arrives here as {@code manual} with
+     * {@code degraded} set, so the dialog can say <em>why</em> it cannot be repaired automatically — "needs a
+     * newer Studio" is a different sentence from "no rewrite can express this".
+     */
+    public record Migration(String version, String member, String summary,
+                            Fix fix, String manual, boolean degraded) {
+
+        /** True when Studio can carry this one out itself. */
+        public boolean isAutomatic() {
+            return fix != null;
+        }
+    }
 
     /**
      * The whole answer to "what happens if I move to this version".
@@ -168,13 +210,35 @@ public final class SdkUpgradeService {
                          List<String> added,
                          List<Deprecation> deprecated,
                          List<Break> breaks,
-                         List<Note> notes,
-                         String rewriteCommand,
+                         List<Migration> migrations,
                          List<String> problems) {
+
+        /** The entries Studio can carry out itself. */
+        public List<Migration> automatic() {
+            return migrations.stream().filter(Migration::isAutomatic).toList();
+        }
+
+        /** The entries that need the user — no fix expressible, or a kind this Studio does not know. */
+        public List<Migration> manual() {
+            return migrations.stream().filter(m -> !m.isAutomatic()).toList();
+        }
+
+        /**
+         * Whether the upgrade may be applied automatically: every declared change has a fix this Studio
+         * understands, and the scan itself read everything.
+         *
+         * <p>One manual entry disables the whole span rather than the one file it names. The alternative —
+         * rewrite what we can and leave the rest — is the half-migration the whole design refuses: the user
+         * would be left with a project that is neither the old shape nor the new one, and no way to tell
+         * which call sites were touched.
+         */
+        public boolean canMigrate() {
+            return problems.isEmpty() && manual().isEmpty() && !automatic().isEmpty();
+        }
 
         /** True when the scan ran cleanly and found nothing that would stop this bot compiling. */
         public boolean nothingBreaks() {
-            return breaks.isEmpty() && notes.isEmpty() && problems.isEmpty();
+            return breaks.isEmpty() && migrations.isEmpty() && problems.isEmpty();
         }
 
         /** True when the scan could not answer the question, whatever the other lists say. */
@@ -183,7 +247,7 @@ public final class SdkUpgradeService {
         }
 
         static Report unavailable(String from, String to, String problem) {
-            return new Report(from, to, List.of(), List.of(), List.of(), List.of(), "", List.of(problem));
+            return new Report(from, to, List.of(), List.of(), List.of(), List.of(), List.of(problem));
         }
     }
 
@@ -249,23 +313,27 @@ public final class SdkUpgradeService {
         Set<String> known = new LinkedHashSet<>(before.keySet());
         known.addAll(after.keySet());
         List<Call> calls = callsIn(known, problems);
+        // Reads problems too — a migrations file this Studio is too old for adds a line here, and does it
+        // before the list is frozen.
+        List<Migration> migrations = migrations(newJar, from, to, problems);
 
         return new Report(from, to,
                 additions(before, after),
                 deprecations(after, calls),
                 breaks(before, after, calls),
-                notes(newJar, from, to),
-                rewriteCommand(newJar, to),
+                migrations,
                 List.copyOf(problems));
     }
 
     /**
-     * The last step of an upgrade: snapshot the project into its local history, then rewrite the pom.
+     * Snapshots the project into its local history, then rewrites the pom.
      *
-     * <p>Deliberately <em>not</em> the first step. The migration recipes are read from the new jar but must
-     * run against source the old SDK still explains, so the user runs {@link #rewriteCommand} while the pom
-     * still says the old version and calls this afterwards. The commit is what makes that ordering safe to
-     * get wrong: everything up to here is one revert away in the VCS panel.
+     * <p>The snapshot comes first so the whole upgrade is one revert away in the VCS panel — which is the
+     * point, since what a changed SDK does to a bot is only fully visible once the project is reopened.
+     *
+     * <p>This does not yet run the {@code fix} entries; the source migration lands in a later phase and
+     * slots in between the commit and the pom bump. Until then the dialog says plainly which entries would
+     * have been repaired.
      */
     public CompletableFuture<Void> apply(String targetVersion) {
         return CompletableFuture
@@ -280,21 +348,6 @@ public final class SdkUpgradeService {
                 })
                 .thenCompose(v -> libraryService.updateLibraries(libraryService.currentLibraries(),
                         targetVersion));
-    }
-
-    /**
-     * The exact command that migrates this bot's source, or {@code ""} when the target jar ships no recipes
-     * (every SDK before the contract started, and any release that broke nothing).
-     *
-     * <p>Both the recipe classpath and the recipe name are {@code rewrite-maven-plugin} user properties, so
-     * this adds nothing to the bot's pom and pins no plugin there.
-     */
-    public static String rewriteCommand(Path targetJar, String targetVersion) {
-        if (readJarEntry(targetJar, RECIPE_ENTRY).isEmpty()) return "";
-        return "mvn " + REWRITE_PLUGIN + ":run"
-                + " -Drewrite.recipeArtifactCoordinates="
-                + MavenService.SDK_GROUP_ID + ":" + MavenService.SDK_ARTIFACT_ID + ":" + targetVersion
-                + " -Drewrite.activeRecipes=" + UPGRADE_RECIPE;
     }
 
     // =========================================================================
@@ -527,33 +580,81 @@ public final class SdkUpgradeService {
     // =========================================================================
 
     /**
-     * The unmigratable changes the target jar declares, for every version in {@code (from, to]}.
+     * The breaking changes the target jar declares, for every version in {@code (from, to]}.
      *
      * <p>When either bound is not a version {@link SemVer} understands — {@code 0.0.0-SNAPSHOT}, most often —
      * every entry is returned rather than none. An over-long list is a nuisance; a silently empty one is the
      * report saying "nothing to worry about" when the SDK author wrote down that there is.
+     *
+     * <p>Ordering is by version, ascending, then by member. That is not cosmetic: it is the order the
+     * migration must be <em>replayed</em> in — each version applied as its own pass over what the previous
+     * one produced — so the list the user reads and the list the rewriter walks are the same list.
      */
-    private static List<Note> notes(Path targetJar, String from, String to) {
-        Optional<String> json = readJarEntry(targetJar, NOTES_ENTRY);
+    private static List<Migration> migrations(Path targetJar, String from, String to, List<String> problems) {
+        Optional<String> json = readJarEntry(targetJar, MIGRATIONS_ENTRY);
         if (json.isEmpty()) return List.of();
 
-        List<Note> out = new ArrayList<>();
+        List<Migration> out = new ArrayList<>();
         try {
-            JsonNode versions = new ObjectMapper().readTree(json.get()).path("versions");
+            JsonNode root = new ObjectMapper().readTree(json.get());
+
+            int schema = root.path("schema").asInt(0);
+            if (schema > MIGRATIONS_MAX_SCHEMA) {
+                // Refused whole, and deliberately not "best effort": a grammar we do not know is one we may
+                // MISREAD, which is worse than not reading it. Breaks are still reported below — those come
+                // from scanning the jar and need this file not at all.
+                problems.add("SDK " + to + " describes its changes in a newer format (schema " + schema
+                        + "; this Studio reads " + MIGRATIONS_MAX_SCHEMA + "). Update Studio to see them and "
+                        + "to have them applied for you.");
+                return List.of();
+            }
+
+            JsonNode versions = root.path("versions");
             versions.fieldNames().forEachRemaining(version -> {
                 if (!inRange(version, from, to)) return;
                 for (JsonNode entry : versions.path(version)) {
-                    out.add(new Note(version,
-                            entry.path("member").asText(""),
-                            entry.path("summary").asText(""),
-                            entry.path("action").asText("")));
+                    out.add(migrationOf(version, entry));
                 }
             });
         } catch (Exception e) {
-            System.err.println("Could not read " + NOTES_ENTRY + " from " + targetJar + ": " + e.getMessage());
+            problems.add("SDK " + to + " ships a migration file that could not be read (" + e.getMessage()
+                    + "), so what it declares about this upgrade is unknown.");
+            return List.of();
         }
-        out.sort(Comparator.comparing(Note::version).thenComparing(Note::member));
+        out.sort(Comparator.comparing((Migration m) -> strip(m.version()), SdkUpgradeService::compareVersions)
+                .thenComparing(Migration::member));
         return List.copyOf(out);
+    }
+
+    /**
+     * One entry, with the degradation rule applied: a {@code fix} whose {@code kind} this Studio does not
+     * know becomes a manual entry that still shows its summary. Never dropped — an entry silently skipped is
+     * a break the user is never told about, which is the one outcome worse than not repairing it.
+     */
+    private static Migration migrationOf(String version, JsonNode entry) {
+        String member = entry.path("member").asText("");
+        String summary = entry.path("summary").asText("");
+        JsonNode fix = entry.path("fix");
+
+        if (fix.isMissingNode() || fix.isNull()) {
+            return new Migration(version, member, summary, null, entry.path("manual").asText(""), false);
+        }
+
+        String kind = fix.path("kind").asText("");
+        if (!KNOWN_FIX_KINDS.contains(kind)) {
+            return new Migration(version, member, summary, null,
+                    "This Studio is too old to repair this one automatically (it does not know how to apply a "
+                            + "\"" + kind + "\" fix). Update Studio, or change these call sites by hand.",
+                    true);
+        }
+        int arity = entry.path("when").path("arity").asInt(-1);
+        return new Migration(version, member, summary, new Fix(kind, fix, arity), "", false);
+    }
+
+    /** Ascending semver where both sides parse, falling back to text so the sort stays total. */
+    private static int compareVersions(String a, String b) {
+        if (SemVer.isValid(a) && SemVer.isValid(b)) return SemVer.compare(a, b);
+        return a.compareTo(b);
     }
 
     private static boolean inRange(String version, String from, String to) {

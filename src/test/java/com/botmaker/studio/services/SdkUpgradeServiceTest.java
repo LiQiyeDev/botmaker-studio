@@ -9,7 +9,7 @@ import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.services.SdkUpgradeService.Break;
 import com.botmaker.studio.services.SdkUpgradeService.BreakKind;
 import com.botmaker.studio.services.SdkUpgradeService.Deprecation;
-import com.botmaker.studio.services.SdkUpgradeService.Note;
+import com.botmaker.studio.services.SdkUpgradeService.Migration;
 import com.botmaker.studio.services.SdkUpgradeService.Report;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -334,54 +334,111 @@ class SdkUpgradeServiceTest {
     // What the SDK jar itself says
     // -------------------------------------------------------------------------
 
-    @Test
-    void unmigratableNotesAreReadFromTheTargetJarAndScopedToTheVersionRange(@TempDir Path tmp)
+    /** Builds a target jar carrying {@code json} as its migrations file, and reports against it. */
+    private static Report reportWithMigrations(Path tmp, String from, String to, String json)
             throws IOException {
-        String notes = """
-                {"versions": {
-                  "1.5.0": [{"member": "com.botmaker.sdk.api.Old#thing",
-                             "summary": "already behind us", "action": "nothing to do"}],
-                  "2.0.0": [{"member": "com.botmaker.sdk.api.Wait#time",
-                             "summary": "time() now counts from the last frame, not from the call",
-                             "action": "check any bot that relied on the old timing"}],
-                  "3.0.0": [{"member": "com.botmaker.sdk.api.Future#thing",
-                             "summary": "not on this path", "action": "n/a"}]
-                }}
-                """;
         SdkUpgradeService service = serviceOver(tmp, BOT);
-        Report r = service.compare(
+        return service.compare(
                 jarOf(tmp, "old", oldSdk(), Map.of()),
-                jarOf(tmp, "new", newSdk(), Map.of("META-INF/botmaker/upgrade-notes.json", notes)),
-                "1.6.0", "2.0.0");
-
-        assertEquals(List.of("2.0.0"), r.notes().stream().map(Note::version).toList(),
-                "only versions in (from, to] — a note for a release the bot is already past is noise, and one "
-                        + "for a release beyond the target has not happened to this bot yet");
-        assertTrue(r.notes().get(0).action().startsWith("check any bot"),
-                "the SDK author's sentence, verbatim");
-        assertFalse(r.nothingBreaks(), "an unmigratable note is not 'nothing breaks'");
+                jarOf(tmp, "new", newSdk(), Map.of("META-INF/botmaker/migrations.json", json)),
+                from, to);
     }
 
     @Test
-    void theRewriteCommandIsOfferedOnlyWhenTheTargetShipsRecipes(@TempDir Path tmp) throws IOException {
-        SdkUpgradeService service = serviceOver(tmp, BOT);
+    void declaredChangesAreReadFromTheTargetJarAndScopedToTheVersionRange(@TempDir Path tmp)
+            throws IOException {
+        Report r = reportWithMigrations(tmp, "1.6.0", "2.0.0", """
+                {"schema": 1, "versions": {
+                  "1.5.0": [{"member": "com.botmaker.sdk.api.Old#thing",
+                             "summary": "already behind us", "manual": "nothing to do"}],
+                  "2.0.0": [{"member": "com.botmaker.sdk.api.Wait#time",
+                             "summary": "time() now counts from the last frame, not from the call",
+                             "manual": "check any bot that relied on the old timing"}],
+                  "3.0.0": [{"member": "com.botmaker.sdk.api.Future#thing",
+                             "summary": "not on this path", "manual": "n/a"}]
+                }}
+                """);
 
-        Path noRecipes = jarOf(tmp, "new", newSdk(), Map.of());
-        assertEquals("", service.compare(jarOf(tmp, "old", oldSdk(), Map.of()), noRecipes, "1.0.0", "2.0.0")
-                .rewriteCommand(), "offering a command that would find no recipes is worse than none");
+        assertEquals(List.of("2.0.0"), r.migrations().stream().map(Migration::version).toList(),
+                "only versions in (from, to] — an entry for a release the bot is already past is noise, and "
+                        + "one for a release beyond the target has not happened to this bot yet");
+        assertTrue(r.manual().get(0).manual().startsWith("check any bot"),
+                "the SDK author's sentence, verbatim");
+        assertFalse(r.nothingBreaks(), "a declared change is not 'nothing breaks'");
+        assertFalse(r.canMigrate(), "a manual entry disables the whole span");
+    }
 
-        Path withRecipes = jarOf(tmp, "new", newSdk(), Map.of(
-                "META-INF/rewrite/botmaker-sdk.yml",
-                "type: specs.openrewrite.org/v1beta/recipe\nname: " + SdkUpgradeService.UPGRADE_RECIPE + "\n"));
-        String command = service.compare(jarOf(tmp, "old", oldSdk(), Map.of()), withRecipes, "1.0.0", "v2.0.0")
-                .rewriteCommand();
+    @Test
+    void anEntryWithAFixIsAutomaticAndOneWithoutIsNot(@TempDir Path tmp) throws IOException {
+        Report r = reportWithMigrations(tmp, "1.0.0", "2.0.0", """
+                {"schema": 1, "versions": {
+                  "2.0.0": [
+                    {"member": "com.botmaker.sdk.api.Wait#seconds",
+                     "summary": "seconds() was renamed to pause()",
+                     "fix": {"kind": "renameMethod", "to": "pause"}, "when": {"arity": 1}}
+                  ]
+                }}
+                """);
 
-        assertTrue(command.contains(SdkUpgradeService.REWRITE_PLUGIN),
-                "the plugin version is pinned deliberately — 6.12.0 cannot read META-INF/rewrite on JDK 24+");
-        assertTrue(command.contains("-Drewrite.recipeArtifactCoordinates="
-                        + MavenService.SDK_GROUP_ID + ":" + MavenService.SDK_ARTIFACT_ID + ":v2.0.0"),
-                "the recipes come from the target jar, by coordinate: " + command);
-        assertTrue(command.contains("-Drewrite.activeRecipes=" + SdkUpgradeService.UPGRADE_RECIPE), command);
-        assertFalse(command.contains("pom.xml"), "the command must not ask the user to edit their pom");
+        assertEquals(1, r.automatic().size(), r.migrations().toString());
+        assertTrue(r.manual().isEmpty());
+        assertEquals("renameMethod", r.automatic().get(0).fix().kind());
+        assertEquals("pause", r.automatic().get(0).fix().options().path("to").asText());
+        assertEquals(1, r.automatic().get(0).fix().arity(), "when.arity scopes the fix to one overload");
+        assertTrue(r.canMigrate(), "every entry has a fix this Studio knows: " + r.migrations());
+    }
+
+    @Test
+    void anUnknownFixKindDegradesToManualAndDisablesTheWholeSpan(@TempDir Path tmp) throws IOException {
+        // The newer-SDK-older-Studio case. The entry must still be SHOWN — an entry silently skipped is a
+        // break the user is never told about — and it must take the rest of the span down with it rather
+        // than letting half the call sites be rewritten.
+        Report r = reportWithMigrations(tmp, "1.0.0", "2.0.0", """
+                {"schema": 1, "versions": {
+                  "2.0.0": [
+                    {"member": "com.botmaker.sdk.api.Wait#seconds",
+                     "summary": "seconds() was renamed to pause()",
+                     "fix": {"kind": "renameMethod", "to": "pause"}},
+                    {"member": "com.botmaker.sdk.api.Mouse#click",
+                     "summary": "click() moved behind a builder",
+                     "fix": {"kind": "wrapInBuilderSomethingFromTheFuture", "to": "x"}}
+                  ]
+                }}
+                """);
+
+        assertEquals(2, r.migrations().size(), "neither entry may be dropped: " + r.migrations());
+        assertEquals(1, r.manual().size());
+        assertTrue(r.manual().get(0).degraded(),
+                "the reason matters — 'needs a newer Studio' is not 'no rewrite can express this'");
+        assertTrue(r.manual().get(0).summary().contains("builder"), "the SDK's own summary still shows");
+        assertFalse(r.canMigrate(), "one unknown kind disables the span, including the renameMethod beside it");
+    }
+
+    @Test
+    void aMigrationsFileFromANewerStudioIsRefusedWholeButBreaksAreStillReported(@TempDir Path tmp)
+            throws IOException {
+        Report r = reportWithMigrations(tmp, "1.0.0", "2.0.0", """
+                {"schema": 99, "versions": {
+                  "2.0.0": [{"member": "com.botmaker.sdk.api.Wait#seconds",
+                             "summary": "written in a grammar this Studio does not have",
+                             "fix": {"kind": "renameMethod", "to": "pause"}}]
+                }}
+                """);
+
+        assertTrue(r.migrations().isEmpty(), "a grammar we might MISREAD is refused whole, not best-effort");
+        assertTrue(r.isIncomplete(), "and the refusal is stated rather than looking like an empty file");
+        assertTrue(r.problems().stream().anyMatch(p -> p.contains("schema 99")), r.problems().toString());
+        assertFalse(r.canMigrate());
+        // The point of refusing only the file: breaks come from scanning the jar and need it not at all.
+        assertTrue(brk(r, "Wait.seconds").isPresent(), "breaks must survive an unreadable migrations file");
+    }
+
+    @Test
+    void aTargetThatDeclaresNothingIsNotATargetThatFailedToBeRead(@TempDir Path tmp) throws IOException {
+        Report r = reportFor(tmp, BOT);
+
+        assertTrue(r.migrations().isEmpty());
+        assertFalse(r.isIncomplete(), "no migrations file at all is silence, not a problem");
+        assertFalse(r.canMigrate(), "and there is nothing to apply");
     }
 }
