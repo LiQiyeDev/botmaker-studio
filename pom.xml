@@ -818,6 +818,12 @@
                                                      filter left, and Windows cannot load it. -->
                                                 <exclude>nu/pattern/opencv/linux/**</exclude>
                                                 <exclude>com/sun/jna/linux-x86-64/**</exclude>
+                                                <!-- shared's Linux OCR natives (libtesseract.so +
+                                                     libleptonica.so.6, 9.4 MB). Root-anchored on purpose:
+                                                     this is JNA's RESOURCE_PREFIX directory, a sibling of
+                                                     the win32-x86-64/ one Tess4J ships, NOT the
+                                                     com/sun/jna/linux-x86-64/ excluded just above. -->
+                                                <exclude>linux-x86-64/**</exclude>
                                             </excludes>
                                         </filter>
                                     </filters>

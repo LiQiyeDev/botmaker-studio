@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-22 — The Windows leg drops shared's new Linux OCR natives (`pom.xml`, `natives-windows`;
+  `README.md`).** `botmaker-shared` now bundles `libtesseract.so` + `libleptonica.so.6` (9.4 MB) so OCR
+  works without a system Tesseract — see that module's ROADMAP for why and for the two load-bearing
+  filenames. The only change needed here is the mirror of the exclude the Linux leg already had: one
+  `<exclude>linux-x86-64/**</exclude>` in the `natives-windows` profile's appended filter block. **It is
+  root-anchored deliberately** — `linux-x86-64/` is JNA's `RESOURCE_PREFIX` directory at the jar root, a
+  sibling of Tess4J's `win32-x86-64/`, and must not be confused with `com/sun/jna/linux-x86-64/`, which is
+  JNA's own dispatch native and has its own exclude line. Widening that glob would take JNA's dispatch with
+  it and break *all* native access, not just OCR. Linux shaded jar 98 → 106 MB; packages ~126 → ~130 MB.
+  **Not verifiable on a Linux host:** `natives-linux` is activated by `<os><name>Linux</name></os>`, and
+  `-Pnatives-windows` adds to that rather than replacing it, so a local Windows-leg build has *both* filter
+  sets and strips every native. The Windows matrix leg in CI is the only real check.
+
 - **2026-08-22 — The bundled runtime is jlinked instead of copied whole: rpm 241 MB → 126 MB, deb 249 MB →
   127 MB, 399 MB → 242 MB installed (`pom.xml`, `build-app-image`).** `<runtimeImage>${java.home}</runtimeImage>`
   copied the entire build JDK into every package: **69 modules** (jshell, javadoc, hotspot.agent, Graal…), four

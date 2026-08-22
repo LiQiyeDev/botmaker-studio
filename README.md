@@ -182,9 +182,11 @@ Notes:
   `<filters>` plus the `natives-linux`/`natives-windows` profiles drop everything the running OS cannot load
   (jar 184 MB → 98 MB, rpm 241 MB → 141 MB). This is *not* what `-Djavacpp.platform` does — that flag selects
   classifiers for JavaCPP-packaged artifacts, and none are left in the jar.
-- The Linux packages declare `tesseract-libs` (rpm) / `libtesseract5 | libtesseract4` (deb): OCR's native
-  library is not bundled, it is `dlopen`ed from the system through JNA, so nothing links it and jpackage
-  cannot detect it.
+- **OCR is self-contained on Linux too**, as of 2026-08-22. Tess4J ships Windows DLLs only and used to
+  `dlopen` the system `libtesseract`, so OCR failed wherever one wasn't installed — including the AppImage,
+  the tarball and generated bots, none of which can declare a package dependency. `botmaker-shared` now
+  stages `libtesseract.so` + `libleptonica.so.6` (9.4 MB, from the JavaCPP presets) into the jar; the
+  `natives-windows` profile drops them again on the Windows leg.
 - For a native installer instead of the portable directory, change `<type>` in the `dist` profile from
   `APP_IMAGE` to `DEB`/`RPM` (Linux), `MSI`/`EXE` (Windows), or `DMG`/`PKG` (macOS).
 
