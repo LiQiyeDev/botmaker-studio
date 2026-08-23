@@ -475,119 +475,162 @@ class SdkUpgradeServiceTest {
     }
 
     // -------------------------------------------------------------------------
-    // What the SDK jar itself says
+    // Pairing: which element in the new jar takes the old one's place
     // -------------------------------------------------------------------------
 
-    /** Builds a target jar carrying {@code json} as its migrations file, and reports against it. */
-    private static Report reportWithMigrations(Path tmp, String from, String to, String json)
-            throws IOException {
-        SdkUpgradeService service = serviceOver(tmp, BOT);
-        return service.compare(
-                jarOf(tmp, "old", oldSdk(), Map.of()),
-                jarOf(tmp, "new", newSdk(), Map.of("META-INF/botmaker/migrations.json", json)),
-                from, to);
-    }
-
-    @Test
-    void declaredRenamesAreReadFromTheTargetJarAndScopedToTheVersionRange(@TempDir Path tmp)
-            throws IOException {
-        Report r = reportWithMigrations(tmp, "1.6.0", "2.0.0", """
-                {"schema": 2, "versions": {
-                  "1.5.0": [{"from": "com.botmaker.sdk.api.Old", "to": "com.botmaker.sdk.api.Older"}],
-                  "2.0.0": [{"from": "com.botmaker.sdk.api.Legacy", "to": "com.botmaker.sdk.api.Modern"}],
-                  "3.0.0": [{"from": "com.botmaker.sdk.api.Future", "to": "com.botmaker.sdk.api.Later"}]
-                }}
-                """);
-
-        assertEquals(List.of("2.0.0"), r.renames().stream().map(x -> x.version()).toList(),
-                "only versions in (from, to] — an entry for a release the bot is already past is noise, and "
-                        + "one for a release beyond the target has not happened to this bot yet");
-    }
-
-    // -------------------------------------------------------------------------
-    // Pairing: which type in the new jar takes the old one's place
-    // -------------------------------------------------------------------------
-
-    /** {@code @ApiId} itself, compiled into whichever fixture jar wants it. CLASS retention is the default. */
-    private static final String API_ID_SOURCE = """
-            package %s;
-            public @interface ApiId { String value(); }
-            """.formatted(PKG);
-
-    private static Map<String, String> sdkWith(Map<String, String> base, String name, String source) {
+    /**
+     * The two pointer annotations themselves, compiled into whichever fixture jar wants them. CLASS retention
+     * is the default, which is exactly what the real ones declare — and what makes them readable off a jar.
+     */
+    private static Map<String, String> withPointers(Map<String, String> base) {
         Map<String, String> out = new java.util.HashMap<>(base);
-        out.put("ApiId", API_ID_SOURCE);
-        out.put(name, source);
+        out.put("ReplacedBy", """
+                package %s;
+                public @interface ReplacedBy { String value() default ""; }
+                """.formatted(PKG));
+        out.put("Replaces", """
+                package %s;
+                public @interface Replaces { String[] value(); }
+                """.formatted(PKG));
         return out;
     }
 
-    /** The old jar with {@code Legacy} carrying an id, and a new jar where the id sits on a renamed class. */
-    private static Report pairingReport(Path tmp, String oldLegacyId, String newClass, String newClassSource,
-                                        String migrationsJson) throws IOException {
-        Map<String, String> before = sdkWith(oldSdk(), "Legacy", """
+    /**
+     * The old jar with {@code Legacy} carrying {@code legacyAnnotation}, and the new jar with
+     * {@code newClasses} added to it. Everything else is the standard fixture pair.
+     */
+    private static Report pointerReport(Path tmp, String legacyAnnotation, Map<String, String> newClasses,
+                                        String from, String to) throws IOException {
+        Map<String, String> before = withPointers(oldSdk());
+        before.put("Legacy", """
                 package %s;
                 %s
                 public class Legacy {
                     public static void anything() {}
                 }
-                """.formatted(PKG, oldLegacyId));
-        Map<String, String> after = sdkWith(newSdk(), newClass, newClassSource);
-        Map<String, String> resources = migrationsJson == null
-                ? Map.of()
-                : Map.of("META-INF/botmaker/migrations.json", migrationsJson);
+                """.formatted(PKG, legacyAnnotation));
+        Map<String, String> after = withPointers(newSdk());
+        after.putAll(newClasses);
         return serviceOver(tmp, BOT).compare(jarOf(tmp, "old", before, Map.of()),
-                jarOf(tmp, "new", after, resources), "1.0.0", "2.0.0");
+                jarOf(tmp, "new", after, Map.of()), from, to);
     }
 
-    @Test
-    void aKeptApiIdPairsARenamedClassWithNothingDeclaredAnywhere(@TempDir Path tmp) throws IOException {
-        // The point of @ApiId: both releases spell the id the same way, so the rename is a fact read out of
-        // the jars rather than something the SDK author had to remember to write down.
-        Report r = pairingReport(tmp, "@ApiId(\"legacy\")", "Modern", """
+    /** The class that took {@code Legacy}'s place, carrying whatever backward pointer the test wants. */
+    private static String modern(String annotation) {
+        return """
                 package %s;
-                @ApiId("legacy")
+                %s
                 public class Modern {
                     public static void anything() {}
                 }
-                """.formatted(PKG), null);
+                """.formatted(PKG, annotation);
+    }
 
+    private static void assertPaired(Report r) {
         Break renamed = brk(r, "Legacy").orElseThrow(() -> new AssertionError(r.breaks().toString()));
-        assertEquals(BreakKind.TYPE_RENAMED, renamed.kind());
+        assertEquals(BreakKind.TYPE_RENAMED, renamed.kind(), r.breaks() + " " + r.problems());
         assertTrue(renamed.detail().contains("Modern"), renamed.detail());
         assertTrue(renamed.isRepairable());
-        assertTrue(r.canMigrate(), "a paired rename is repairable: " + r.breaks());
+        assertTrue(r.canMigrate(), "a paired rename is repairable: " + r.breaks() + " " + r.problems());
     }
 
     @Test
-    void aDeclaredRenamePairsAClassThatCarriesNoId(@TempDir Path tmp) throws IOException {
-        // v1.0.26 and earlier carry no ids at all, which is exactly what the rename file is the fallback for.
-        Report r = pairingReport(tmp, "", "Modern", """
-                package %s;
-                public class Modern {
-                    public static void anything() {}
-                }
-                """.formatted(PKG), """
-                {"schema": 2, "versions": {
-                  "2.0.0": [{"from": "com.botmaker.sdk.api.Legacy", "to": "com.botmaker.sdk.api.Modern"}]
-                }}
-                """);
+    void theOldJarsForwardPointerAloneIsEnoughToPairARename(@TempDir Path tmp) throws IOException {
+        // The bot spells the type the old way, so the old jar — the one it is pinned to — is the first place
+        // worth asking, and on its own it answers.
+        assertPaired(pointerReport(tmp, "@ReplacedBy(\"com.botmaker.sdk.api.Modern\")",
+                Map.of("Modern", modern("")), "1.0.0", "2.0.0"));
+    }
 
-        assertEquals(BreakKind.TYPE_RENAMED,
+    @Test
+    void theNewJarsBackwardPointerAloneIsEnoughToo(@TempDir Path tmp) throws IOException {
+        // The half that survives the deletion: once Legacy is finally removed, @Replaces on the survivor is
+        // the only remaining record that it was ever called that.
+        assertPaired(pointerReport(tmp, "",
+                Map.of("Modern", modern("@Replaces(\"com.botmaker.sdk.api.Legacy@1.5.0\")")),
+                "1.0.0", "2.0.0"));
+    }
+
+    @Test
+    void bothEndsAgreeingIsStillOneAnswer(@TempDir Path tmp) throws IOException {
+        assertPaired(pointerReport(tmp, "@ReplacedBy(\"com.botmaker.sdk.api.Modern\")",
+                Map.of("Modern", modern("@Replaces(\"com.botmaker.sdk.api.Legacy@1.5.0\")")),
+                "1.0.0", "2.0.0"));
+    }
+
+    @Test
+    void thePointersComposeIntoAChainWithNoIntermediateJar(@TempDir Path tmp) throws IOException {
+        // The case the two halves exist for. `Legacy → Middle` was announced by the release the bot is on;
+        // `Middle → Modern` by a later one. Middle is in NEITHER jar in hand, and the bot still says Legacy.
+        assertPaired(pointerReport(tmp, "@ReplacedBy(\"com.botmaker.sdk.api.Middle\")",
+                Map.of("Modern", modern("@Replaces(\"com.botmaker.sdk.api.Middle@2.5.0\")")),
+                "1.0.0", "3.0.0"));
+    }
+
+    @Test
+    void anEntryFromBeforeTheBotsOwnVersionIsNotAboutThisBot(@TempDir Path tmp) throws IOException {
+        // The entry records the last release in which the old spelling existed. A bot pinned after that never
+        // wrote it that way, so its `Legacy` is a different Legacy — reintroduced and removed again — and
+        // pairing the two would be the invented answer the design refuses.
+        Report r = pointerReport(tmp, "",
+                Map.of("Modern", modern("@Replaces(\"com.botmaker.sdk.api.Legacy@0.9.0\")")),
+                "1.0.0", "2.0.0");
+
+        assertEquals(BreakKind.TYPE_REMOVED,
                 brk(r, "Legacy").orElseThrow(() -> new AssertionError(r.breaks().toString())).kind());
-        assertTrue(r.canMigrate());
     }
 
     @Test
-    void anIdPairsTheTypeNameOnlySoAMemberThatWentIsStillABreakOfItsOwn(@TempDir Path tmp) throws IOException {
-        // The rule that keeps a reused id from becoming a silently wrong rewrite: the class paired, and the
-        // members were still resolved one at a time against it.
-        Report r = pairingReport(tmp, "@ApiId(\"legacy\")", "Modern", """
+    void aPointerToSomethingTheTargetDoesNotHaveIsNoPointerAtAll(@TempDir Path tmp) throws IOException {
+        Report r = pointerReport(tmp, "@ReplacedBy(\"com.botmaker.sdk.api.Ghost\")",
+                Map.of("Modern", modern("")), "1.0.0", "2.0.0");
+
+        assertEquals(BreakKind.TYPE_REMOVED,
+                brk(r, "Legacy").orElseThrow(() -> new AssertionError(r.breaks().toString())).kind());
+    }
+
+    @Test
+    void anEmptyPointerIsTheAuthorSayingNothingTakesItsPlace(@TempDir Path tmp) throws IOException {
+        // Not an omission — the bare annotation is required on every deprecated element, and it reads as an
+        // answer. javac writes no value element for it, so this also proves an absent value is not misread
+        // as an absent annotation.
+        Report r = pointerReport(tmp, "@ReplacedBy", Map.of("Modern", modern("")), "1.0.0", "2.0.0");
+
+        assertEquals(BreakKind.TYPE_REMOVED,
+                brk(r, "Legacy").orElseThrow(() -> new AssertionError(r.breaks().toString())).kind());
+    }
+
+    @Test
+    void anOldNameTwoSurvivorsBothClaimIsAQuestionNotAGuess(@TempDir Path tmp) throws IOException {
+        Report r = pointerReport(tmp, "", Map.of(
+                        "Modern", modern("@Replaces(\"com.botmaker.sdk.api.Legacy@1.5.0\")"),
+                        "Other", """
+                                package %s;
+                                @Replaces("com.botmaker.sdk.api.Legacy@1.5.0")
+                                public class Other {
+                                    public static void anything() {}
+                                }
+                                """.formatted(PKG)),
+                "1.0.0", "2.0.0");
+
+        assertEquals(BreakKind.TYPE_REMOVED,
+                brk(r, "Legacy").orElseThrow(() -> new AssertionError(r.breaks().toString())).kind());
+        assertTrue(r.problems().stream().anyMatch(p -> p.contains("Legacy") && p.contains("Modern")),
+                "the user is told why it could not be answered: " + r.problems());
+        assertFalse(r.canMigrate());
+    }
+
+    @Test
+    void aPointerPairsThatOneElementOnlySoAMemberThatWentIsStillABreakOfItsOwn(@TempDir Path tmp)
+            throws IOException {
+        // The rule that keeps a pointer kept across a redesign from becoming a silently wrong rewrite: the
+        // class paired, and the members were still resolved one at a time against it.
+        Report r = pointerReport(tmp, "@ReplacedBy(\"com.botmaker.sdk.api.Modern\")", Map.of("Modern", """
                 package %s;
-                @ApiId("legacy")
                 public class Modern {
                     public static void somethingElse() {}
                 }
-                """.formatted(PKG), null);
+                """.formatted(PKG)), "1.0.0", "2.0.0");
 
         assertEquals(BreakKind.TYPE_RENAMED,
                 brk(r, "Legacy").orElseThrow(() -> new AssertionError(r.breaks().toString())).kind());
@@ -598,9 +641,40 @@ class SdkUpgradeServiceTest {
     }
 
     @Test
-    void aRemovedTypeWithNoPairingIsTheOneBreakThatRefusesTheUpgrade(@TempDir Path tmp) throws IOException {
-        // Absence of an id IS the signal. A default value has nowhere to go in `Legacy l = …;`, and Object
-        // would be silently wrong, so this is the one case the model cannot repair.
+    void aMemberPairsOnItsOwnPointerWithTheTypeUntouched(@TempDir Path tmp) throws IOException {
+        // What @ApiId could never express: the type did not move at all, one method on it was renamed.
+        Map<String, String> before = withPointers(oldSdk());
+        before.put("Mouse", """
+                package %s;
+                public class Mouse {
+                    public static void click(int x, int y) {}
+                    @Deprecated
+                    @ReplacedBy("com.botmaker.sdk.api.Mouse#twoClicks")
+                    public static void doubleClick(int x, int y) {}
+                }
+                """.formatted(PKG));
+        Map<String, String> after = withPointers(newSdk());
+        after.put("Mouse", """
+                package %s;
+                public class Mouse {
+                    public static void click(int x, int y, long delayMs) {}
+                    @Replaces("com.botmaker.sdk.api.Mouse#doubleClick@1.5.0")
+                    public static void twoClicks(int x, int y) {}
+                }
+                """.formatted(PKG));
+        Report r = serviceOver(tmp, BOT).compare(jarOf(tmp, "old", before, Map.of()),
+                jarOf(tmp, "new", after, Map.of()), "1.0.0", "2.0.0");
+
+        assertTrue(brk(r, "Mouse.doubleClick").isEmpty(),
+                "a member with a pointer that resolves is a rename, not a removal: " + r.breaks());
+        // And the type itself was never in question: the other break on Mouse is still reported.
+        assertEquals(BreakKind.SIGNATURE_CHANGED, brk(r, "Mouse.click").orElseThrow().kind());
+    }
+
+    @Test
+    void aRemovedTypeWithNoPointerIsTheOneBreakThatRefusesTheUpgrade(@TempDir Path tmp) throws IOException {
+        // Absence of a pointer IS the signal. A default value has nowhere to go in `Legacy l = …;`, and
+        // Object would be silently wrong, so this is the one case the model cannot repair.
         Report r = reportFor(tmp, BOT);
 
         Break gone = brk(r, "Legacy").orElseThrow(() -> new AssertionError(r.breaks().toString()));
@@ -611,82 +685,10 @@ class SdkUpgradeServiceTest {
     }
 
     @Test
-    void renamesComposeAcrossVersionsRatherThanBeingReplayed(@TempDir Path tmp) throws IOException {
-        // A bot on 1.x has run neither pass, so its source still says `Legacy`. Only the composed fact
-        // Legacy → Modern pairs it; following one link would stop at a class that never existed in either jar.
-        Report r = pairingReport(tmp, "", "Modern", """
-                package %s;
-                public class Modern {
-                    public static void anything() {}
-                }
-                """.formatted(PKG), """
-                {"schema": 2, "versions": {
-                  "2.0.0": [{"from": "com.botmaker.sdk.api.Legacy", "to": "com.botmaker.sdk.api.Middle"}],
-                  "3.0.0": [{"from": "com.botmaker.sdk.api.Middle", "to": "com.botmaker.sdk.api.Modern"}]
-                }}
-                """);
-        // compare() above spans 1.0.0 → 2.0.0, so widen it: the composition is what is under test.
-        Report full = serviceOver(tmp, BOT).compare(
-                jarOf(tmp, "old2", sdkWith(oldSdk(), "Legacy", """
-                        package %s;
-                        public class Legacy { public static void anything() {} }
-                        """.formatted(PKG)), Map.of()),
-                jarOf(tmp, "new2", sdkWith(newSdk(), "Modern", """
-                        package %s;
-                        public class Modern { public static void anything() {} }
-                        """.formatted(PKG)), Map.of("META-INF/botmaker/migrations.json", """
-                        {"schema": 2, "versions": {
-                          "2.0.0": [{"from": "com.botmaker.sdk.api.Legacy",
-                                     "to": "com.botmaker.sdk.api.Middle"}],
-                          "3.0.0": [{"from": "com.botmaker.sdk.api.Middle",
-                                     "to": "com.botmaker.sdk.api.Modern"}]
-                        }}
-                        """)),
-                "1.0.0", "3.0.0");
-
-        assertFalse(r.breaks().isEmpty(), "the narrow span still reports something");
-        assertEquals(BreakKind.TYPE_RENAMED,
-                brk(full, "Legacy").orElseThrow(() -> new AssertionError(full.breaks().toString())).kind());
-        assertTrue(full.canMigrate());
-    }
-
-    @Test
-    void aRenameUndoneByALaterVersionComposesToNothingRatherThanLooping(@TempDir Path tmp) throws IOException {
-        // `a → b` then `b → a` is a legal pair of releases and an infinite loop for anything that re-runs a
-        // set of passes until nothing changes. Composition drops the identity and never notices it was hard.
-        Report r = reportWithMigrations(tmp, "1.0.0", "3.0.0", """
-                {"schema": 2, "versions": {
-                  "2.0.0": [{"from": "com.botmaker.sdk.api.Legacy", "to": "com.botmaker.sdk.api.Middle"}],
-                  "3.0.0": [{"from": "com.botmaker.sdk.api.Middle", "to": "com.botmaker.sdk.api.Legacy"}]
-                }}
-                """);
-
-        // Legacy is genuinely gone from this target, and the round trip pairs it with nothing.
-        assertEquals(BreakKind.TYPE_REMOVED,
-                brk(r, "Legacy").orElseThrow(() -> new AssertionError(r.breaks().toString())).kind());
-    }
-
-    @Test
-    void aMigrationsFileFromANewerStudioIsRefusedWholeButBreaksAreStillReported(@TempDir Path tmp)
-            throws IOException {
-        Report r = reportWithMigrations(tmp, "1.0.0", "2.0.0", """
-                {"schema": 99, "versions": {
-                  "2.0.0": [{"from": "com.botmaker.sdk.api.Legacy", "to": "com.botmaker.sdk.api.Modern"}]
-                }}
-                """);
-
-        assertTrue(r.isIncomplete(), "a grammar we might MISREAD is refused whole, not best-effort");
-        assertTrue(r.problems().stream().anyMatch(p -> p.contains("schema 99")), r.problems().toString());
-        assertFalse(r.canMigrate());
-        // The point of refusing only the file: breaks come from scanning the jar and need it not at all.
-        assertTrue(brk(r, "Wait.seconds").isPresent(), "breaks must survive an unreadable migrations file");
-    }
-
-    @Test
-    void aTargetThatDeclaresNothingIsNotATargetThatFailedToBeRead(@TempDir Path tmp) throws IOException {
+    void aTargetThatPointsNowhereIsNotATargetThatFailedToBeRead(@TempDir Path tmp) throws IOException {
         Report r = reportFor(tmp, BOT);
 
-        assertTrue(r.renames().isEmpty());
-        assertFalse(r.isIncomplete(), "no migrations file at all is silence, not a problem");
+        assertFalse(r.problems().stream().anyMatch(p -> p.contains("claimed")),
+                "no pointers at all is silence, not a problem: " + r.problems());
     }
 }

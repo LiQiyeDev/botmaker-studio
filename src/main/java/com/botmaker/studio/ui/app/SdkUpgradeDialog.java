@@ -217,11 +217,6 @@ public final class SdkUpgradeDialog {
         reportBox.getChildren().add(section("What's new", r.added(),
                 "No new public API between " + r.from() + " and " + r.to() + "."));
 
-        if (!r.renames().isEmpty()) {
-            reportBox.getChildren().add(section("Renamed in this range",
-                    r.renames().stream().map(x -> x.version() + " — " + x.display()).toList()));
-        }
-
         if (!r.repairable().isEmpty()) {
             reportBox.getChildren().add(repairCard(r));
         }

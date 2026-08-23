@@ -6,6 +6,25 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-23 — Pairing is a redirect written at both ends, composed (`services/SdkUpgradeService`,
+  `ui/app/SdkUpgradeDialog`, `SdkUpgradeServiceTest`).** Phase 3 of six. `@ApiId` and
+  `META-INF/botmaker/migrations.json` are gone from the reader, and with them `Renames`, `Rename`,
+  `Report.renames`, `compose`, `inRange`, `readJarEntry`, `MIGRATIONS_MAX_SCHEMA` and the schema-refusal path
+  in the dialog. What answers "which element in the new jar takes this old one's place" is now a walk over a
+  small graph of **old spelling → newer spelling**, built from the SDK's two new annotations: the **old**
+  jar's `@ReplacedBy` (the element the bot actually calls, saying where it went) and the **new** jar's
+  `@Replaces`, read backwards and filtered by era — an entry records the last version its old spelling
+  existed in, so it is consulted only for a bot pinned at or below that. Either half alone resolves one hop;
+  **composed** they resolve a chain (`a`→`b` in 2.0, `b`→`c` in 3.0) with no intermediate jar ever fetched,
+  bounded by a visited set so a rename undone by a later release is a cycle that reaches nothing rather than
+  a loop. Three refusals are deliberate: a spelling the target still has is answered by the **live element**,
+  never by an entry, so accumulated history cannot go stale into a wrong answer; two survivors claiming one
+  old spelling at one version leave it **unpaired** with a line in `Report.problems()`; and nothing is ever
+  paired by guesswork. **Types and members pair independently** — a member rename with the type untouched is
+  the case `@ApiId` could never express — and an *empty* `@ReplacedBy` is the author saying outright that
+  nothing takes an element's place (javac emits no value for the bare form, so an absent value must not be
+  misread as an absent annotation).
+
 - **2026-08-23 — The Review tab: the marks are now something the user can see and tick off
   (`services/ReviewService`, `services/BotSources`, `ui/app/ReviewPanel`, `ui/app/BottomTab`,
   `ui/app/UIManager`, `ui/app/MenuBarManager`, `blocks/func/MethodDeclarationBlock`, `css/blocks.css`).**
