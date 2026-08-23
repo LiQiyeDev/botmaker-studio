@@ -1,6 +1,8 @@
 package com.botmaker.studio.util;
 
 import com.botmaker.studio.types.ResolvedType;
+import io.github.classgraph.MethodInfo;
+import io.github.classgraph.MethodParameterInfo;
 
 import java.util.List;
 
@@ -64,6 +66,48 @@ public record MethodSignature(String name, List<ResolvedType> paramTypes, List<S
             sb.append(paramTypes.get(i).simpleName());
         }
         return sb.toString();
+    }
+
+    /**
+     * The {@link #signatureKey()} of a method read straight from a jar, without building a
+     * {@link MethodSignature} for it — the <em>other</em> vocabulary the same key has to be spelled in.
+     *
+     * <p>Two parts of Studio ask about the same overload from opposite ends. The menus and the blocks hold
+     * {@code MethodSignature}s, which {@code ProjectAnalyzer} builds from the ClassGraph index; {@code
+     * services/SdkSurfaceService} reads the index directly and never builds one, because it answers questions
+     * about members the user has not inserted. Both must agree on the string, or a curated overload is
+     * annotated in the SDK and silently never offered — a failure with no symptom other than a missing menu
+     * entry. So the derivation lives here once, beside the key it has to match, and
+     * {@code SignatureKeyAgreementTest} asserts the two agree for every method in the SDK jar.
+     *
+     * <p>The rules it mirrors are {@code ProjectAnalyzer.toMethodSignature}: generic arguments are dropped
+     * ({@code Consumer<MatchResult>} → {@code Consumer}), and a varargs tail is spelled as its <em>element</em>
+     * type, because the bytecode descriptor of {@code ImageTemplate...} is {@code ImageTemplate[]} and every
+     * caller reasons about the element.
+     */
+    public static String signatureKeyOf(MethodInfo mi) {
+        MethodParameterInfo[] params = mi.getParameterInfo();
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < params.length; i++) {
+            if (i > 0) sb.append(',');
+            boolean varargsTail = mi.isVarArgs() && i == params.length - 1;
+            sb.append(simpleNameOf(params[i].getTypeSignatureOrTypeDescriptor().toString(), varargsTail));
+        }
+        return sb.toString();
+    }
+
+    /** A bytecode descriptor reduced to the simple name {@link ResolvedType#simpleName()} would give it. */
+    private static String simpleNameOf(String descriptor, boolean dropOneArrayDimension) {
+        String base = descriptor;
+        int generic = base.indexOf('<');
+        if (generic >= 0) base = base.substring(0, generic);
+        int dims = 0;
+        while (base.endsWith("[]")) {
+            dims++;
+            base = base.substring(0, base.length() - 2);
+        }
+        if (dropOneArrayDimension && dims > 0) dims--;
+        return ResolvedType.named(base).asArray(dims).simpleName();
     }
 
     /**

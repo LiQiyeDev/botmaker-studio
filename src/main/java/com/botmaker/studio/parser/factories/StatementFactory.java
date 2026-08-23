@@ -12,6 +12,7 @@ import com.botmaker.studio.parser.handlers.MatchesSwitchHandler;
 import com.botmaker.studio.parser.helpers.SdkNodes;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.services.ImageTemplateLibrary;
+import com.botmaker.studio.services.SdkSurfaceService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.types.JdkType;
 import com.botmaker.studio.types.PrimitiveKind;
@@ -195,7 +196,7 @@ public class StatementFactory {
             // fewest arguments (the simplest starting point). Seed a default value per parameter (a
             // CaptureSource slot gets the project-default target — see InitializerFactory). When no overload
             // resolves at all (unknown method), fall back to a single empty "+" slot the user fills.
-            List<ResolvedType> params = defaultOverloadParams(l, ctx.state(), ctx.analyzer());
+            List<ResolvedType> params = defaultOverloadParams(l, ctx.state(), ctx.analyzer(), ctx.surface());
             if (params != null) {
                 for (ResolvedType p : params) {
                     mi.arguments().add(InitializerFactory.createDefaultInitializer(ctx, p));
@@ -213,14 +214,22 @@ public class StatementFactory {
      * the method resolves at all (an unknown method) — callers then use a single empty slot.
      */
     private static List<ResolvedType> defaultOverloadParams(BlockType.LibraryCall l, ProjectState state,
-                                                            ProjectAnalyzer analyzer) {
+                                                            ProjectAnalyzer analyzer,
+                                                            SdkSurfaceService surface) {
         if (analyzer == null) return null;
         List<MethodSignature> sigs = analyzer.getMethods(l.facade().simpleName(), true).stream()
                 .filter(s -> s.name().equals(l.method()))
                 .collect(Collectors.toList());
         if (sigs.isEmpty()) return null;
+        // A fresh insert has no current overload to protect, so the offered set applies without exception:
+        // the menu proposed this name because some overload is offered, and that is the one to create.
+        // fewestParams over the unfiltered list would happily land the user on a hidden shape.
+        if (surface != null) sigs = surface.retainOffered(l.facade().simpleName(), l.method(), sigs, null);
         String favKey = (state != null && state.getSettings() != null)
                 ? state.getSettings().favoriteSignature(l.facade().simpleName() + "#" + l.method()) : null;
+        // A favorite pinned before the facade was curated may name an overload that is no longer offered;
+        // bestForKey then finds nothing in the filtered list and the fallback takes over, which is the
+        // intended degradation — a stale preference must not resurrect a hidden overload.
         MethodSignature chosen = MethodSignature.bestForKey(sigs, favKey);
         if (chosen == null) chosen = MethodSignature.fewestParams(sigs);
         return chosen != null ? chosen.paramTypes() : null;

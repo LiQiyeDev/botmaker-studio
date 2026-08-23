@@ -89,7 +89,7 @@ public class CodeEditorService {
         this.sdkDocsService = sdkDocsService;
         this.sdkSurfaceService = sdkSurfaceService;
         this.historyManager = new HistoryManager(this::restoreFiles);
-        this.codeEditor = new CodeEditor(config, state, eventBus, projectAnalyzer);
+        this.codeEditor = new CodeEditor(config, state, eventBus, projectAnalyzer, sdkSurfaceService);
         setupEventHandlers();
     }
 

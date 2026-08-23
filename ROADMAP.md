@@ -6,6 +6,31 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-23 — Studio reads the SDK's `@Palette` and offers only what it names
+  (`services/SdkSurfaceService`, `ui/render/menu/StatementMenu`, `blocks/func/MethodInvocationBlock`,
+  `parser/factories/StatementFactory`, `util/MethodSignature`).** Phase 3.9 of twelve. The menus stop being a
+  dump of every public static method a facade has. `SdkSurfaceService` — which already scans the bot's own
+  jar for presence and `@Deprecated` — now also records, per method name, the *signature keys* carrying
+  `@Palette`, plus whether the jar knows the annotation at all (its class's presence in the index is the
+  probe; absent means an SDK that predates curation and every menu is unchanged). The rule that keeps this
+  safe is **filter what is offered, never what is resolved**: `findSignatures` stays unfiltered because it
+  backs argument typing and the current-overload lookup, while the ⚙ picker shows *offered ∪ the overload
+  this call is already on*, so a block on a hidden overload keeps rendering, keeps compiling and can still
+  see where it is. `StatementMenu.facadeMethodNames` (submenus **and** the search view, which funnels through
+  it) drops names with no offered overload; `StatementFactory`'s default-overload pick applies the offered
+  set with no exception, since a fresh insert has no current overload to protect — and a favorite pinned
+  before curation that names a hidden overload now falls back rather than resurrecting it. The standing
+  "do not add an `SdkSurfaceService` filter" note in `StatementMenu` was amended, not violated: it settles
+  *presence*, which the null-submenu return still gates implicitly; curation is a second question the same
+  jar answers and nothing enumerable can. One risk was worth a test of its own — the key is derived in two
+  vocabularies (`MethodSignature.signatureKey()` from the analyzer's signatures, `signatureKeyOf(MethodInfo)`
+  from the raw index) and a mismatch would have had *no symptom*: an annotated overload simply never
+  appearing. `SignatureKeyAgreementTest` compares both for every method in the real SDK jar. `EditContext`
+  and `CodeEditor` gained a nullable `SdkSurfaceService` so the write path can see it; null — tests, headless
+  edits, every migration path — offers everything, exactly as an uncurated SDK does. Tests: eight in
+  `SdkSurfacePaletteTest` over three real compiled jars (old, curated, uncurated-class-in-curated-jar), plus
+  the agreement test.
+
 - **2026-08-23 — A type the bot only *writes* is now seen, and a default now says what type it is
   (`parser/refactor/SdkReferences`, `CallMigrator`, `services/SdkUpgradeService`).** Phase 2 of twelve. Two
   repair defects, both silent. (1) `SdkReferences` saw `Foo.bar()`, `new Foo()` and `Foo.CONST` and nothing

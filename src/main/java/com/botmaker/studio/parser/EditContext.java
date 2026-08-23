@@ -2,6 +2,7 @@ package com.botmaker.studio.parser;
 
 import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.project.ProjectState;
+import com.botmaker.studio.services.SdkSurfaceService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.types.ResolvedType;
 import org.eclipse.jdt.core.dom.AST;
@@ -24,30 +25,41 @@ import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
  * real argument, not ambient state. Same for the original source text: only the outermost entry point holds
  * it, and {@link #applyTo} is where it belongs.
  *
- * <p>{@code analyzer} and {@code state} are both nullable — the shorter entry points and most tests have
- * neither, and every consumer already treats them as best-effort.
+ * <p>{@code analyzer}, {@code state} and {@code surface} are all nullable — the shorter entry points and most
+ * tests have none of them, and every consumer already treats them as best-effort.
+ *
+ * @param surface what this project's SDK offers ({@code @Palette}), so a block created from the menu is
+ *                seeded with an overload the menu would actually propose. Null means "offer everything",
+ *                which is what an uncurated SDK, a headless edit and every migration path answer anyway —
+ *                hence the {@code of} overloads that omit it, which is most of them.
  */
 public record EditContext(AST ast, CompilationUnit cu, ASTRewrite rewriter,
-                          ProjectAnalyzer analyzer, ProjectState state) {
+                          ProjectAnalyzer analyzer, ProjectState state, SdkSurfaceService surface) {
 
     /**
      * A context over {@code cu} with a freshly created rewriter — what an entry point that takes
      * {@code (CompilationUnit cu, String originalCode, …)} and returns new source builds first.
      */
     public static EditContext of(CompilationUnit cu, ProjectAnalyzer analyzer, ProjectState state) {
+        return of(cu, analyzer, state, null);
+    }
+
+    /** As above, carrying the SDK's curation — the interactive edit path, which is the only one that offers. */
+    public static EditContext of(CompilationUnit cu, ProjectAnalyzer analyzer, ProjectState state,
+                                 SdkSurfaceService surface) {
         AST ast = cu.getAST();
-        return new EditContext(ast, cu, ASTRewrite.create(ast), analyzer, state);
+        return new EditContext(ast, cu, ASTRewrite.create(ast), analyzer, state, surface);
     }
 
     /** As above, over an <em>existing</em> rewriter — for a nested edit that must land in the same rewrite. */
     public static EditContext of(CompilationUnit cu, ASTRewrite rewriter, ProjectAnalyzer analyzer,
                                  ProjectState state) {
-        return new EditContext(cu.getAST(), cu, rewriter, analyzer, state);
+        return new EditContext(cu.getAST(), cu, rewriter, analyzer, state, null);
     }
 
     /** This context with {@code state} attached, for a path that acquires one partway down. */
     public EditContext withState(ProjectState newState) {
-        return newState == state ? this : new EditContext(ast, cu, rewriter, analyzer, newState);
+        return newState == state ? this : new EditContext(ast, cu, rewriter, analyzer, newState, surface);
     }
 
     /** Imports the project's generated {@code Templates} class if this file isn't already in its package. */

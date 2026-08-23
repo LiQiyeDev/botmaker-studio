@@ -80,6 +80,8 @@ public class CodeEditor {
     private final EventBus eventBus;
     private final ProjectAnalyzer analyzer;
     private final RefusalJournal journal;
+    /** What this project's SDK offers ({@code @Palette}); null in tests and headless edits — see {@link #ctx}. */
+    private final com.botmaker.studio.services.SdkSurfaceService sdkSurface;
 
     private static final Map<String, InfixExpression.Operator> INFIX_OPS = Map.ofEntries(
             Map.entry("+", InfixExpression.Operator.PLUS),
@@ -114,17 +116,34 @@ public class CodeEditor {
     );
 
     public CodeEditor(ProjectConfig config, ProjectState state, EventBus eventBus, ProjectAnalyzer analyzer) {
-        this(config, state, eventBus, analyzer, RefusalJournal.inCacheDir());
+        this(config, state, eventBus, analyzer, RefusalJournal.inCacheDir(), null);
     }
 
     /** As above, writing refusals somewhere other than the cache dir — for a test that asserts on them. */
     public CodeEditor(ProjectConfig config, ProjectState state, EventBus eventBus, ProjectAnalyzer analyzer,
                       RefusalJournal journal) {
+        this(config, state, eventBus, analyzer, journal, null);
+    }
+
+    /**
+     * As the four-argument form, carrying this project's SDK curation so a block created from the menu is
+     * seeded with an overload the menu proposes — what the running app builds. The surface is nullable and is
+     * null everywhere else: a test or a headless edit offers everything, which is exactly how an uncurated
+     * SDK behaves.
+     */
+    public CodeEditor(ProjectConfig config, ProjectState state, EventBus eventBus, ProjectAnalyzer analyzer,
+                      com.botmaker.studio.services.SdkSurfaceService sdkSurface) {
+        this(config, state, eventBus, analyzer, RefusalJournal.inCacheDir(), sdkSurface);
+    }
+
+    private CodeEditor(ProjectConfig config, ProjectState state, EventBus eventBus, ProjectAnalyzer analyzer,
+                       RefusalJournal journal, com.botmaker.studio.services.SdkSurfaceService sdkSurface) {
         this.config = config;
         this.state = state;
         this.eventBus = eventBus;
         this.analyzer = analyzer;
         this.journal = journal;
+        this.sdkSurface = sdkSurface;
     }
 
     private String getCurrentCode() { return state.getCurrentCode(); }
@@ -327,7 +346,7 @@ public class CodeEditor {
      * why the handlers take a single {@link EditContext} rather than re-listing the same four arguments.
      */
     private EditContext ctx(CompilationUnit cu) {
-        return EditContext.of(cu, analyzer, state);
+        return EditContext.of(cu, analyzer, state, sdkSurface);
     }
 
     /**

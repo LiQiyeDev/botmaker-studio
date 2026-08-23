@@ -461,6 +461,25 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
                 .collect(Collectors.toList());
     }
 
+    /**
+     * The overloads to <em>offer</em> the user for {@code className.methodName} — the SDK's {@code @Palette}
+     * set, plus whichever overload this call is already on.
+     *
+     * <p>Deliberately not {@link #findSignatures}, and deliberately not a replacement for it: that one is what
+     * <em>resolves</em> a call (argument types, the current overload, {@code switchToOverload}) and must never
+     * be filtered, or a block sitting on an overload the SDK no longer proposes would stop rendering the
+     * arguments it actually has. Curation is about what to propose; resolution is about what is there.
+     *
+     * <p>An unindexed or uncurated SDK — and a headless {@code CodeEditorService} with no surface at all —
+     * offers everything, so this is the identity function everywhere except a curated facade.
+     */
+    private List<MethodSignature> offeredSignatures(CodeEditorService context, String className, String methodName) {
+        List<MethodSignature> all = findSignatures(context, className, methodName);
+        if (context.getSdkSurface() == null) return all;
+        return context.getSdkSurface().retainOffered(className, methodName, all,
+                MethodSignature.bestForArgs(all, currentArgTypes()));
+    }
+
     private MethodSignature determineCurrentSignature(CodeEditorService context, String className, String methodName){
         // Resolve by the ACTUAL argument types, not just their count — so same-arity overloads that differ only
         // in a parameter's type (e.g. find(t, CaptureSource) vs find(t, Rect) vs find(t, double), all arity-2)
@@ -517,7 +536,11 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
             String targetType = resolveTargetType(currentScope, context);
             String currentMethod = methodSelector.getValue();
 
-            List<MethodSignature> signatures = findSignatures(context, targetType, currentMethod);
+            // OFFERED, not resolved. findSignatures stays unfiltered everywhere else — it backs argument
+            // typing and the current-overload lookup, and a block sitting on a hidden overload must keep
+            // rendering and compiling. Here the user is *choosing*, so the SDK's curation applies — with the
+            // overload this call is already on kept regardless, so the picker never denies where the block is.
+            List<MethodSignature> signatures = offeredSignatures(context, targetType, currentMethod);
 
             // Overload selection: switch this call to the picked overload now (arg sync is automatic).
             MenuComponents.populate(signatureBtn.getItems(), signatures, MethodSignature::toString,

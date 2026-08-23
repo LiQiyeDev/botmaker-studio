@@ -109,6 +109,19 @@ there are three distinct relationships to keep straight:
   answering the same question. The service exists for the surfaces where nothing enumerates first — the
   `OverlayPalette` chips, the class dropdowns on `MethodInvocationBlock`/`LambdaCallBlock`, and
   `ProjectSettingsDialog`'s favourites.
+  **That rule is about *presence*. Curation is a second question and does need an explicit filter** (2026-08-23):
+  since the SDK's `@Palette`, "is this method here?" and "should we lead with it?" are different, and nothing
+  enumerable answers the second — so `StatementMenu.facadeMethodNames`, the ⚙ overload picker, the ★ favourite
+  submenu and `StatementFactory`'s default-overload pick all consult the service. The invariant that keeps it
+  safe: **filter what is *offered*, never what is *resolved*.** `MethodInvocationBlock.findSignatures` stays
+  unfiltered (it backs argument typing and the current-overload lookup), and the picker shows *offered ∪ the
+  overload this call is already on*, so a block sitting on a hidden overload keeps rendering, keeps compiling
+  and can still see where it is. An SDK with no `@Palette` class in its index predates curation and every menu
+  is byte-for-byte unchanged; so is a facade whose own type is unannotated. One trap worth knowing: the
+  signature key is derived in two vocabularies — `MethodSignature.signatureKey()` from the analyzer's
+  signatures and `signatureKeyOf(MethodInfo)` from the raw index — and a mismatch has **no symptom**, just an
+  annotated overload that never appears; `SignatureKeyAgreementTest` compares both for every method in the
+  real SDK jar and is the reason to keep the derivation in one place.
   `MavenService.MIN_SDK_VERSION` is the floor: below it the project **still opens**, under one amber banner
   offering *Upgrade SDK…*. An old bot that runs is not a broken bot.
 - **Changing the SDK version is a report, not a cell edit — `services/SdkUpgradeService`** (*Project ▸ Upgrade

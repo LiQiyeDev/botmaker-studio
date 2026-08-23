@@ -424,12 +424,13 @@ public class BlockDragAndDropManager {
 
     /** @param targetBody the body the "+" inserts into — blocks illegal there are left out of the menu */
     public void enableSeparatorClick(Pane separator, com.botmaker.studio.suggestions.ProjectAnalyzer analyzer,
+                                   com.botmaker.studio.services.SdkSurfaceService surface,
                                    ASTNode targetBody, Consumer<BlockType> onInsert) {
         for (Node child : separator.getChildren()) {
             if (child instanceof Button) {
                 Button btn = (Button) child;
                 btn.setOnAction(e -> {
-                    ContextMenu menu = StatementMenu.create(analyzer, targetBody, onInsert);
+                    ContextMenu menu = StatementMenu.create(analyzer, surface, targetBody, onInsert);
 
                     // Store reference to menu so MouseExited knows not to hide button
                     btn.setUserData(menu);

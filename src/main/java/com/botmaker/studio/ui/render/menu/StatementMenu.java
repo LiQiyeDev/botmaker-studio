@@ -5,6 +5,7 @@ import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.parser.StatementPlacement;
+import com.botmaker.studio.services.SdkSurfaceService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.util.MethodSignature;
 import javafx.scene.control.ContextMenu;
@@ -43,21 +44,25 @@ public final class StatementMenu {
      *                 in which case only the language blocks are shown.
      */
     public static ContextMenu create(ProjectAnalyzer analyzer, Consumer<BlockType> onSelection) {
-        return create(analyzer, null, onSelection);
+        return create(analyzer, null, null, onSelection);
     }
 
     /**
      * As {@link #create(ProjectAnalyzer, Consumer)}, but only offering blocks legal in {@code targetBody} — a
      * {@code break} isn't listed where there's no loop or switch to break out of, so an illegal insert can't be
      * chosen in the first place. Pass {@code null} to offer everything.
+     *
+     * @param surface this project's SDK's curation ({@code @Palette}); {@code null} — headless, or no project
+     *                resolved — offers every method the analyzer finds, as an uncurated jar does.
      */
-    public static ContextMenu create(ProjectAnalyzer analyzer, org.eclipse.jdt.core.dom.ASTNode targetBody,
+    public static ContextMenu create(ProjectAnalyzer analyzer, SdkSurfaceService surface,
+                                     org.eclipse.jdt.core.dom.ASTNode targetBody,
                                      Consumer<BlockType> onSelection) {
         Predicate<BlockType> allowed =
                 targetBody == null ? b -> true : b -> StatementPlacement.allows(b, targetBody);
         ContextMenu menu = new ContextMenu();
         MenuBuilders.withSearch(menu, "Search blocks…",
-                (m, query) -> rebuildItems(m, query, analyzer, allowed, onSelection));
+                (m, query) -> rebuildItems(m, query, analyzer, surface, allowed, onSelection));
         return menu;
     }
 
@@ -74,6 +79,7 @@ public final class StatementMenu {
 
     /** Rebuilds the menu body (everything below the search box at index 0) for the current search {@code query}. */
     private static void rebuildItems(ContextMenu menu, String query, ProjectAnalyzer analyzer,
+                                     SdkSurfaceService surface,
                                      Predicate<BlockType> allowed, Consumer<BlockType> onSelection) {
         MenuBuilders.clearBody(menu);
 
@@ -86,7 +92,7 @@ public final class StatementMenu {
             for (BlockType b : languageBlocks(allowed)) {
                 if (b.displayName().toLowerCase().contains(q)) matches.add(statementItem(b, onSelection));
             }
-            for (SdkCall call : sdkCalls(analyzer)) {
+            for (SdkCall call : sdkCalls(analyzer, surface)) {
                 if (call.block().displayName().toLowerCase().contains(q)) {
                     matches.add(MenuIcons.decorate(statementItem(call.block(), onSelection),
                             MenuIcons.iconFor(call.facade())));
@@ -99,13 +105,19 @@ public final class StatementMenu {
 
         // Default: one submenu per SDK facade class (in SdkType order), enumerating that class's static methods.
         //
-        // Gating on THIS bot's SDK is already implicit here and must stay so: sdkFacadeSubmenu returns null
-        // when the facade resolves no methods, and the analyzer resolves against the bot's own jar — so a
-        // class its SDK doesn't have contributes nothing. An explicit SdkSurfaceService filter would be a
-        // second answer to the same question, from the same jar. Do not add one; do not "optimize away" the
-        // null return, which is the gate.
+        // PRESENCE is gated implicitly here and must stay so: sdkFacadeSubmenu returns null when the facade
+        // resolves no methods, and the analyzer resolves against the bot's own jar — so a class its SDK
+        // doesn't have contributes nothing. Do not add an SdkSurfaceService *presence* filter; it would be a
+        // second answer to the same question, from the same jar. Do not "optimize away" the null return,
+        // which is the gate.
+        //
+        // CURATION is a different question and does need the explicit filter that arrived with @Palette (see
+        // facadeMethodNames). "Is this method here?" and "should we lead with it?" are not the same, and
+        // nothing enumerable answers the second — a method the analyzer resolves perfectly well may still not
+        // be one we propose. The rule that keeps the two apart: filter what is OFFERED, never what is
+        // RESOLVED. Blocks already in the file resolve through the analyzer, untouched.
         for (SdkType facade : SdkType.MENU_FACADES) {
-            Menu sub = sdkFacadeSubmenu(facade, analyzer, onSelection);
+            Menu sub = sdkFacadeSubmenu(facade, analyzer, surface, onSelection);
             if (sub != null) menu.getItems().add(sub);
         }
 
@@ -145,11 +157,12 @@ public final class StatementMenu {
      * the default overload is chosen at insert time by {@code StatementFactory}). Returns {@code null} when the
      * analyzer is absent or the facade resolves no static methods (e.g. the SDK jar isn't on the classpath yet).
      */
-    private static Menu sdkFacadeSubmenu(SdkType facade, ProjectAnalyzer analyzer, Consumer<BlockType> onSelection) {
+    private static Menu sdkFacadeSubmenu(SdkType facade, ProjectAnalyzer analyzer, SdkSurfaceService surface,
+                                         Consumer<BlockType> onSelection) {
         if (analyzer == null) return null;
         Menu sub = new Menu(facade.simpleName());
         String icon = MenuIcons.iconFor(facade);
-        for (String method : facadeMethodNames(facade, analyzer)) {
+        for (String method : facadeMethodNames(facade, analyzer, surface)) {
             sub.getItems().add(MenuIcons.decorate(
                     statementItem(sdkCall(facade, method, method), onSelection), icon));
         }
@@ -160,22 +173,30 @@ public final class StatementMenu {
     private record SdkCall(SdkType facade, BlockType block) {}
 
     /** Every SDK facade method as a flat list of class-qualified statement blocks, for the search view. */
-    private static List<SdkCall> sdkCalls(ProjectAnalyzer analyzer) {
+    private static List<SdkCall> sdkCalls(ProjectAnalyzer analyzer, SdkSurfaceService surface) {
         List<SdkCall> out = new ArrayList<>();
         if (analyzer == null) return out;
         for (SdkType facade : SdkType.MENU_FACADES) {
-            for (String method : facadeMethodNames(facade, analyzer)) {
+            for (String method : facadeMethodNames(facade, analyzer, surface)) {
                 out.add(new SdkCall(facade, sdkCall(facade, method, facade.simpleName() + "." + method)));
             }
         }
         return out;
     }
 
-    /** Distinct static method names of {@code facade}, sorted — the entries of its statement submenu. */
-    private static List<String> facadeMethodNames(SdkType facade, ProjectAnalyzer analyzer) {
+    /**
+     * Distinct static method names of {@code facade}, sorted — the entries of its statement submenu, and (via
+     * {@link #sdkCalls}) of the search view, so both are curated by this one method.
+     *
+     * <p>A name survives when the SDK offers at least one of its overloads. Which overload the insert then
+     * creates is {@code StatementFactory}'s business, and it applies the same set.
+     */
+    private static List<String> facadeMethodNames(SdkType facade, ProjectAnalyzer analyzer,
+                                                  SdkSurfaceService surface) {
         return analyzer.getMethods(facade.simpleName(), true).stream()
                 .map(MethodSignature::name)
                 .distinct()
+                .filter(name -> surface == null || surface.isOffered(facade.simpleName(), name))
                 .sorted()
                 .collect(Collectors.toList());
     }

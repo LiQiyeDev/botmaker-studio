@@ -729,7 +729,8 @@ public final class ProgramShapeOverlay {
         InsertionCursor c = cursor();
         if (c == null) return;
         var menu = StatementMenu.create(
-                context.getProjectAnalyzer(), c.body().getAstNode(), this::insertBelowCursor);
+                context.getProjectAnalyzer(), context.getSdkSurface(), c.body().getAstNode(),
+                this::insertBelowCursor);
         menu.show(anchor, Side.BOTTOM, 0, 0);
     }
 
