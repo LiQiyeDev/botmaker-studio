@@ -105,6 +105,7 @@ final class StudioActions {
         // --- Project ---
         menuBar.setOnManageLibraries(this::openManageLibraries);
         menuBar.setOnUpgradeSdk(this::openSdkUpgrade);
+        menuBar.setOnModernise(this::openModernise);
         menuBar.setOnProjectSetup(this::openProjectSetup);
         toolbar.setOnProjectSetup(this::openProjectSetup);
         menuBar.setOnManageImports(this::openManageImports);
@@ -198,6 +199,16 @@ final class StudioActions {
     public void openSdkUpgrade() {
         new SdkUpgradeDialog(primaryStage,
                 new SdkUpgradeService(config, state, libraryService, jitPackSearch)).show();
+    }
+
+    /**
+     * The same report and the same repair pass with no version in it — move this bot off what the SDK it
+     * already pins has deprecated. It needs no network at all: the answer is in the jar the project resolves
+     * today.
+     */
+    private void openModernise() {
+        new SdkUpgradeDialog(primaryStage,
+                new SdkUpgradeService(config, state, libraryService, jitPackSearch)).showModernise();
     }
 
     private void openManageImports() {

@@ -98,6 +98,21 @@ import java.util.concurrent.CompletableFuture;
  * <p>{@link #apply} then carries it out: snapshot → repair the source
  * ({@code parser/refactor/SdkMigrationRunner}) → bump the pom, one button and one revert away.
  *
+ * <h2>Modernising: the same walk, one hop further, no version change</h2>
+ *
+ * <p>A pointer says where something went whether or not it has gone yet — that is what a deprecation window
+ * <em>is</em>, both ends present at once. So {@link #modernisations()} asks the identical question of a
+ * single jar, the one the bot already pins: the graph is walked with one extra rule, that a spelling the jar
+ * marks {@code @Deprecated} <em>and</em> points somewhere is walked past rather than accepted. Everything
+ * downstream — the shape check, the arity repair, the review marks, the all-or-nothing commit — is the code
+ * that was already there, which is the reason it is a stopping rule and not a second engine.
+ *
+ * <p>Two things reach it: <b>Project ▸ Modernise…</b>, which touches no pom at all, and the upgrade dialog's
+ * "also move off deprecated members", where the extra hop is taken during the upgrade so a bot does not
+ * arrive on the new version already owing the same work. The one rule that differs is that modernising never
+ * writes a default value: a deprecated member is still there, so anything the shape check refuses is left
+ * alone and stays on the list, where the user can see it.
+ *
  * <p>This lineage is worth one line: an OpenRewrite recipe YAML → a declarative fix engine → this.
  * OpenRewrite existed to let a user migrate with no Studio at all; once that stopped being a requirement, an
  * engine we do not control bought nothing {@code parser/refactor/CallMigrator} could not do. One consequence
@@ -224,10 +239,24 @@ public final class SdkUpgradeService {
         }
     }
 
-    /** A member this bot calls that is {@code @Deprecated} in the target SDK. Compiles; will not forever. */
-    public record Deprecation(String type, String member, List<CallSite> sites) {
+    /**
+     * A member this bot calls that is {@code @Deprecated} in the SDK being read. Compiles; will not forever.
+     *
+     * <p>{@code becomes} and {@code repair} are the two halves of the answer <em>the SDK itself</em> gives:
+     * the {@code @ReplacedBy} target resolved against that same jar, and the sentence saying what moving
+     * there would cost. Both are empty when the member points nowhere — a deprecation the author has not
+     * said what to do about is a deprecation nothing can act on, and saying so is the point of the pair
+     * being empty rather than absent.
+     */
+    public record Deprecation(String type, String member, String becomes, String repair,
+                              List<CallSite> sites) {
         public String display() {
             return CTOR.equals(member) ? "new " + type : type + "." + member;
+        }
+
+        /** Whether Studio can move these calls itself — something took its place and the shapes line up. */
+        public boolean isMovable() {
+            return !repair.isEmpty();
         }
     }
 
@@ -267,6 +296,20 @@ public final class SdkUpgradeService {
             return problems.isEmpty() && unrepairable().isEmpty() && !breaks.isEmpty();
         }
 
+        /** The deprecated members Studio can move off by itself — what "Modernise" would actually rewrite. */
+        public List<Deprecation> movable() {
+            return deprecated.stream().filter(Deprecation::isMovable).toList();
+        }
+
+        /**
+         * Whether modernising has anything to do. Deliberately not {@link #canMigrate()}: that one asks
+         * whether a <em>break</em> may be repaired, and nothing here is broken — every one of these calls
+         * compiles today and would go on compiling if the user closed the dialog.
+         */
+        public boolean canModernise() {
+            return problems.isEmpty() && !movable().isEmpty();
+        }
+
         /** True when the scan ran cleanly and found nothing that would stop this bot compiling. */
         public boolean nothingBreaks() {
             return breaks.isEmpty() && problems.isEmpty();
@@ -303,6 +346,18 @@ public final class SdkUpgradeService {
      * source file. Call it off the FX thread.
      */
     public Report compare(String targetVersion) {
+        return compare(targetVersion, false);
+    }
+
+    /**
+     * The same report, optionally reading <em>through</em> the target's own deprecations.
+     *
+     * <p>{@code alsoModernise} is the dialog's checkbox, and it changes one thing: a member that survives the
+     * upgrade but arrives {@code @Deprecated} with a {@code @ReplacedBy} is followed one hop further, so the
+     * report names where it went and the repair moves the call there. With it off, such a member is listed as
+     * a deprecation with nothing beside it — which is the honest answer, since it still compiles.
+     */
+    public Report compare(String targetVersion, boolean alsoModernise) {
         String from = currentVersion();
         String to = targetVersion == null ? "" : targetVersion.trim();
         if (to.isEmpty()) {
@@ -321,7 +376,29 @@ public final class SdkUpgradeService {
                             + "nothing to compare the target against.");
         }
 
-        return compare(oldJar.get(), newJar.get(), from, to);
+        return compare(oldJar.get(), newJar.get(), from, to, alsoModernise);
+    }
+
+    /**
+     * What moving off this SDK's own deprecated members would do — the same question with <b>one</b> jar.
+     *
+     * <p>There is no version change and so no diff: the jar is compared with itself, and the only thing that
+     * moves is what the SDK's authors have already said should move. Every finding therefore lands in
+     * {@link Report#deprecated()} and {@link Report#breaks()} comes back empty, because nothing here is
+     * broken — that is the whole difference between this and an upgrade, and why it has a question of its
+     * own ({@link Report#canModernise()}) rather than borrowing {@link Report#canMigrate()}.
+     *
+     * <p><b>Blocking</b>, for the same reasons {@link #compare(String)} is.
+     */
+    public Report modernisations() {
+        String version = currentVersion();
+        Optional<Path> jar = MavenService.resolveSdkJar(config.projectPath(), version);
+        if (jar.isEmpty()) {
+            return Report.unavailable(version, version,
+                    "The SDK this project pins (" + version + ") could not be resolved, so there is nothing "
+                            + "to read its deprecations out of.");
+        }
+        return compare(jar.get(), jar.get(), version, version, true);
     }
 
     /**
@@ -332,6 +409,10 @@ public final class SdkUpgradeService {
      * that went away entirely) are exactly the ones no released pair of versions exhibits yet.
      */
     Report compare(Path oldJar, Path newJar, String from, String to) {
+        return compare(oldJar, newJar, from, to, false);
+    }
+
+    Report compare(Path oldJar, Path newJar, String from, String to, boolean throughDeprecations) {
         Map<String, ApiClass> before = snapshot(oldJar);
         Map<String, ApiClass> after = snapshot(newJar);
         if (before.isEmpty() || after.isEmpty()) {
@@ -346,7 +427,7 @@ public final class SdkUpgradeService {
         List<Call> calls = callsIn(known, fieldOwners(before, after), problems);
         // Writes into problems too — an old spelling two survivors both claim is a question this cannot
         // answer, and it is recorded before the list is frozen.
-        Pairing pairing = Pairing.of(before, after, from, problems);
+        Pairing pairing = Pairing.of(before, after, from, problems, throughDeprecations);
 
         return new Report(from, to,
                 additions(before, after),
@@ -376,20 +457,41 @@ public final class SdkUpgradeService {
      * it must never do is repair half of the span, which is why the flag is all-or-nothing rather than per
      * break.
      */
-    public CompletableFuture<Void> apply(String targetVersion, boolean repairSources) {
+    public CompletableFuture<Void> apply(String targetVersion, boolean repairSources, boolean alsoModernise) {
         return CompletableFuture
                 .runAsync(() -> {
-                    try {
-                        ProjectVcs vcs = new ProjectVcs(config.projectPath());
-                        vcs.commit("Before SDK upgrade to " + targetVersion);
-                    } catch (IOException e) {
-                        throw new RuntimeException(
-                                "Could not snapshot the project before upgrading: " + e.getMessage(), e);
+                    snapshot("Before SDK upgrade to " + targetVersion);
+                    if (repairSources || alsoModernise) {
+                        migrateSources(targetVersion, alsoModernise, true);
                     }
-                    if (repairSources) migrateSources(targetVersion);
                 })
                 .thenCompose(v -> libraryService.updateLibraries(libraryService.currentLibraries(),
                         targetVersion));
+    }
+
+    /**
+     * Moves this bot off the deprecated members of the SDK it already pins — snapshot, then rewrite. No pom
+     * is touched, because there is no version change: this is the same repair machinery answering the
+     * question the SDK's own {@code @ReplacedBy} pointers pose, at any moment the user chooses.
+     *
+     * <p>It is the one entry point that is not an upgrade, and the one place a <em>default value</em> is
+     * never written: a deprecated member is still there, so there is nothing to stand in for. Anything the
+     * shape check refuses is simply left alone and stays on the deprecation list.
+     */
+    public CompletableFuture<Void> modernise() {
+        return CompletableFuture.runAsync(() -> {
+            snapshot("Before modernising");
+            migrateSources(currentVersion(), true, false);
+        });
+    }
+
+    /** The one revert away everything here promises. */
+    private void snapshot(String message) {
+        try {
+            new ProjectVcs(config.projectPath()).commit(message);
+        } catch (IOException e) {
+            throw new RuntimeException("Could not snapshot the project first: " + e.getMessage(), e);
+        }
     }
 
     /**
@@ -399,7 +501,7 @@ public final class SdkUpgradeService {
      * <p>Everything it needs it works out again from the two jars: the report the user read is a value, and a
      * value that crossed a dialog and an FX thread is not evidence about the files on disk right now.
      */
-    private void migrateSources(String targetVersion) {
+    private void migrateSources(String targetVersion, boolean throughDeprecations, boolean allowDefaults) {
         String from = currentVersion();
         Optional<Path> oldJar = MavenService.resolveSdkJar(config.projectPath(), from);
         Optional<Path> newJar = MavenService.resolveSdkJar(config.projectPath(), targetVersion);
@@ -414,7 +516,7 @@ public final class SdkUpgradeService {
         Set<String> known = new LinkedHashSet<>(before.keySet());
         known.addAll(after.keySet());
         Map<String, List<String>> fieldOwners = fieldOwners(before, after);
-        Pairing pairing = Pairing.of(before, after, from, problems);
+        Pairing pairing = Pairing.of(before, after, from, problems, throughDeprecations);
 
         List<Call> calls = callsIn(known, fieldOwners, problems);
         // The same all-or-nothing rule the report states: anything the scan could not answer — a file that
@@ -430,7 +532,7 @@ public final class SdkUpgradeService {
                     + " place(s) by hand, then upgrade. Nothing has been changed.");
         }
 
-        SdkMigrationRunner.Repairs repairs = repairsFor(before, after, calls, pairing);
+        SdkMigrationRunner.Repairs repairs = repairsFor(before, after, calls, pairing, allowDefaults);
         if (repairs.isEmpty()) return;
 
         List<ProjectFile> editable = new ArrayList<>();
@@ -462,10 +564,16 @@ public final class SdkUpgradeService {
      *
      * <p>Only types this bot actually mentions are renamed: a file-wide rename is cheap but not free, and a
      * project that never heard of {@code ImageClicker} should not have its files rewritten to themselves.
+     *
+     * <p>{@code allowDefaults} is off for exactly one caller — {@link #modernise()}. A default value stands
+     * in for something that is <em>gone</em>, and nothing is gone when the two jars are the same one: a
+     * deprecated member is still there and still compiles, so a modernisation that cannot be made cleanly is
+     * left alone rather than replaced by {@code false}.
      */
     private static SdkMigrationRunner.Repairs repairsFor(Map<String, ApiClass> before,
                                                          Map<String, ApiClass> after,
-                                                         List<Call> calls, Pairing pairing) {
+                                                         List<Call> calls, Pairing pairing,
+                                                         boolean allowDefaults) {
         Map<String, SdkMigrationRunner.TypeRename> types = new LinkedHashMap<>();
         Map<String, SdkMigrationRunner.Redirect> redirects = new LinkedHashMap<>();
         Map<String, SdkMigrationRunner.Removal> removals = new LinkedHashMap<>();
@@ -489,7 +597,7 @@ public final class SdkUpgradeService {
             }
             // Nothing to redirect to. Either the call already resolves on the paired type — the type sweep
             // will carry it across on its own — or there is nowhere for it to go and a default stands in.
-            if (offers(now, call.member(), call.argCount())) continue;
+            if (!allowDefaults || offers(now, call.member(), call.argCount())) continue;
             removals.putIfAbsent(key,
                     new SdkMigrationRunner.Removal(then.simpleName(), call.member(), call.argCount(),
                             returnTypeOf(then, call)));
@@ -861,23 +969,29 @@ public final class SdkUpgradeService {
         record Member(String type, String name) {}
 
         static Pairing of(Map<String, ApiClass> before, Map<String, ApiClass> after, String botVersion,
-                          List<String> problems) {
+                          List<String> problems, boolean throughDeprecations) {
             Map<String, String> edges = forwardEdges(before);
             backwardEdges(after, botVersion, problems).forEach(edges::putIfAbsent);
+            // Modernising walks one hop further than an upgrade does, so it needs the pointers the *target*
+            // jar's own deprecated elements carry. They are the same shape of edge; only the stopping rule
+            // below differs, which is the whole of what "also move off deprecated members" means.
+            if (throughDeprecations) forwardEdges(after).forEach(edges::putIfAbsent);
 
             Map<String, String> types = new LinkedHashMap<>();
             Map<String, Member> members = new LinkedHashMap<>();
             for (ApiClass then : before.values()) {
-                if (after.containsKey(then.simpleName())) {
+                String typeEnd = follow(then.name(), edges, after, throughDeprecations);
+                ApiClass target = typeEnd.contains("#") ? null : resolveType(typeEnd, after);
+                if (target != null) {
+                    types.put(then.simpleName(), target.simpleName());
+                } else if (after.containsKey(then.simpleName())) {
+                    // The name survives even if the package moved under it. Nothing pointed anywhere, so the
+                    // same spelling is the answer — this is the short-circuit an upgrade takes almost always.
                     types.put(then.simpleName(), then.simpleName());
-                } else {
-                    String end = follow(then.name(), edges, after);
-                    ApiClass target = end.contains("#") ? null : resolveType(end, after);
-                    if (target != null) types.put(then.simpleName(), target.simpleName());
                 }
                 for (String member : then.byName().keySet()) {
                     String key = then.name() + "#" + member;
-                    String end = follow(key, edges, after);
+                    String end = follow(key, edges, after, throughDeprecations);
                     if (end.equals(key)) continue;                  // nothing pointed anywhere
                     ApiClass owner = resolveType(typePart(end), after);
                     if (owner != null && owner.byName().containsKey(memberPart(end))) {
@@ -961,16 +1075,36 @@ public final class SdkUpgradeService {
             return SemVer.compare(bot, entryVersion) <= 0;
         }
 
-        /** Walks the edges until the spelling is one the target jar has, or until there is nowhere to go. */
-        private static String follow(String start, Map<String, String> edges, Map<String, ApiClass> after) {
+        /**
+         * Walks the edges until the spelling is one the target jar has, or until there is nowhere to go.
+         *
+         * <p>{@code throughDeprecations} moves the finish line by one condition: a spelling the target does
+         * have, but has marked {@code @Deprecated} <em>and</em> pointed somewhere, is walked past rather
+         * than accepted. That is the only difference between an upgrade and a modernisation — the same
+         * graph, read one hop further — and it is why a bot can move off a deprecated member with no version
+         * change at all. A deprecated element with no pointer stops the walk like any other: there is
+         * nothing to say about it.
+         */
+        private static String follow(String start, Map<String, String> edges, Map<String, ApiClass> after,
+                                     boolean throughDeprecations) {
             Set<String> seen = new LinkedHashSet<>();
             String at = start;
-            while (seen.add(at) && !exists(at, after)) {
+            while (seen.add(at) && (!exists(at, after) || (throughDeprecations && edges.containsKey(at)
+                    && isDeprecated(at, after)))) {
                 String next = edges.get(at);
                 if (next == null) return at;
                 at = next;
             }
             return at;
+        }
+
+        /** Whether the target jar marks this exact spelling {@code @Deprecated}. False for one it lacks. */
+        private static boolean isDeprecated(String spelling, Map<String, ApiClass> after) {
+            ApiClass owner = resolveType(typePart(spelling), after);
+            if (owner == null) return false;
+            return spelling.contains("#")
+                    ? owner.deprecatedNames().contains(memberPart(spelling))
+                    : owner.deprecated();
         }
 
         /** Whether the target jar declares this exact spelling — the same fully-qualified type, at that. */
@@ -1099,10 +1233,19 @@ public final class SdkUpgradeService {
         return List.copyOf(out);
     }
 
-    /** Members this bot calls that the target marks {@code @Deprecated}. */
+    /**
+     * Members this bot calls that the target marks {@code @Deprecated}, each with what the SDK itself says
+     * to use instead.
+     *
+     * <p>The replacement is read the same way every other answer here is — through {@link #redirectFor},
+     * against the same jar — so a row that promises a move is a row the repair pass will actually make.
+     * It is empty in two cases that read alike and are not alike: the member points nowhere, or it points
+     * somewhere the shapes refuse. Both leave the user to it, which is what a deprecation is for.
+     */
     private static List<Deprecation> deprecations(Map<String, ApiClass> before, Map<String, ApiClass> after,
                                                   List<Call> calls, Pairing pairing) {
         Map<String, List<CallSite>> sites = new LinkedHashMap<>();
+        Map<String, String[]> moves = new LinkedHashMap<>();
         for (Call call : calls) {
             ApiClass then = before.get(call.type());
             // Through the pairing, so a renamed-but-deprecated type is still reported: the bot writes the old
@@ -1110,18 +1253,46 @@ public final class SdkUpgradeService {
             ApiClass now = then == null ? after.get(call.type()) : pairing.pairedTo(then, after);
             if (now == null) continue;
             String member = then == null ? call.member() : pairing.memberName(then, now, call.member());
-            boolean deprecated = now.deprecated() || now.deprecatedNames().contains(member);
-            if (deprecated) {
-                sites.computeIfAbsent(call.type() + "#" + call.member(), k -> new ArrayList<>()).add(call.site());
-            }
+            // Both ends of the pairing are asked, and the origin has to be, because modernising follows the
+            // pointer *past* the deprecated element: what the bot writes is the deprecated half, and what it
+            // is paired with is precisely the half that is not. Asking only the destination would report
+            // nothing at all in the one case this list exists for.
+            ApiClass origin = after.get(call.type());
+            boolean deprecated = now.deprecated() || now.deprecatedNames().contains(member)
+                    || (origin != null
+                    && (origin.deprecated() || origin.deprecatedNames().contains(call.member())));
+            if (!deprecated) continue;
+            String key = call.type() + "#" + call.member();
+            sites.computeIfAbsent(key, k -> new ArrayList<>()).add(call.site());
+            if (then != null) moves.computeIfAbsent(key, k -> moveText(then, now, call, after, pairing));
         }
         return sites.entrySet().stream()
                 .map(e -> {
                     String[] parts = e.getKey().split("#", 2);
-                    return new Deprecation(parts[0], parts[1], sorted(e.getValue()));
+                    String[] move = moves.getOrDefault(e.getKey(), new String[]{"", ""});
+                    return new Deprecation(parts[0], parts[1], move[0], move[1], sorted(e.getValue()));
                 })
                 .sorted(Comparator.comparing(Deprecation::display))
                 .toList();
+    }
+
+    /**
+     * Where a deprecated call would go and what that would cost, as {@code {becomes, repair}} — both empty
+     * when the answer is "nowhere".
+     *
+     * <p>A deprecated <em>type</em> that was replaced has no redirect of its own: nothing about the call
+     * changes but the name it is reached through, and that is the file-wide rename's job. It is still an
+     * answer the user wants to read, so it is written here in the type sweep's own words.
+     */
+    private static String[] moveText(ApiClass then, ApiClass now, Call call,
+                                     Map<String, ApiClass> after, Pairing pairing) {
+        SdkMigrationRunner.Redirect redirect = redirectFor(then, now, call, after, pairing);
+        if (redirect != null) return new String[]{redirect.display(), repairText(redirect)};
+        if (!now.simpleName().equals(then.simpleName())) {
+            return new String[]{now.simpleName(),
+                    "every use of \"" + then.simpleName() + "\" becomes \"" + now.simpleName() + "\""};
+        }
+        return new String[]{"", ""};
     }
 
     /**
@@ -1155,18 +1326,22 @@ public final class SdkUpgradeService {
                         "nothing — this one has to be changed by hand", List.of()), call.site());
                 continue;
             }
-            if (!now.simpleName().equals(then.simpleName())) {
+            // A type paired elsewhere while its own name survives in the target is not a break — the bot
+            // goes on compiling. That is a modernisation (a deprecated class pointed at its successor), and
+            // it belongs on the deprecation list, where the rename is offered rather than announced.
+            if (!now.simpleName().equals(then.simpleName()) && !after.containsKey(then.simpleName())) {
                 record(found, sites, new Break(call.type(), "", BreakKind.TYPE_RENAMED,
                         "now " + now.simpleName(),
                         "every use of \"" + call.type() + "\" becomes \"" + now.simpleName() + "\"",
                         List.of()), call.site());
             }
 
-            // A call that still resolves under the same spelling is no break at all; one that resolves
-            // somewhere else is a break with a redirect for a repair, and is still listed, because the bot
-            // does not compile until the redirect is made.
+            // A call that still resolves under the same spelling is no break at all — deprecated or not,
+            // pointed somewhere or not, it compiles, and a deprecation is not a break. One that resolves
+            // only somewhere else is a break with a redirect for a repair, and is still listed, because the
+            // bot does not compile until the redirect is made.
+            if (offers(now, call.member(), call.argCount())) continue;
             SdkMigrationRunner.Redirect redirect = redirectFor(then, now, call, after, pairing);
-            if (redirect == null && offers(now, call.member(), call.argCount())) continue;
 
             BreakKind kind;
             String detail = "";

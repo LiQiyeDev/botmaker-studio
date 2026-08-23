@@ -6,6 +6,25 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-23 — Modernise: moving off deprecated members with no version change
+  (`services/SdkUpgradeService`, `ui/app/SdkUpgradeDialog`, `MenuBarManager`, `StudioActions`).** Phase 5 of
+  six. A pointer says where something went whether or not it has gone yet — a deprecation window *is* both
+  ends present at once — so the whole of this phase is **one stopping rule**: `Pairing.follow` may now walk
+  *past* a spelling the jar has, when that spelling is `@Deprecated` **and** points somewhere. With it,
+  `modernisations()` asks the identical question of a single jar (the one the bot already pins) and
+  everything downstream is the code that was already there: the same `Redirect`, the same shape check, the
+  same arity repair, the same `@NeedsReview` marks, the same all-or-nothing commit. There is no second
+  engine, which was the point of doing it this way. Two entry points reach it — **Project ▸ Modernise…**,
+  which touches no pom and needs no network, and the upgrade dialog's *"also move off members deprecated on
+  that version"*, so a bot does not arrive on a new SDK already owing the same work. Modernising is the one
+  path that **never writes a default value**: a deprecated member is still there, so anything the shape check
+  refuses is left alone and stays on the list under *"what you have to decide yourself"*. Two report
+  corrections fell out of it and are worth their own line — `Deprecation` now carries `becomes`/`repair`
+  (read from `@ReplacedBy` through the same `redirectFor` the repair uses, so a row that promises a move is a
+  row the rewrite makes), and **a call that still resolves is no longer listed as a break**, deprecated or
+  not, which stopped a deprecated-and-renamed type being announced as something that breaks a bot that in
+  fact compiles.
+
 - **2026-08-23 — The redirect the jars confirm, at the call site (`parser/refactor/SdkMigrationRunner`,
   `CallMigrator`, `SignatureMigration`, `services/SdkUpgradeService`, `ui/app/SdkUpgradeDialog`).** Phase 4 of
   six. A member the target still offers *somewhere* is now pointed there instead of defaulted:

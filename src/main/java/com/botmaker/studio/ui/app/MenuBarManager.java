@@ -30,6 +30,7 @@ public class MenuBarManager {
     private Consumer<Void> onSelectProject;
     private Runnable onManageLibraries;
     private Runnable onUpgradeSdk;
+    private Runnable onModernise;
     private Runnable onManageImports;
     private Runnable onActivityFlow;
     private Runnable onParameters;
@@ -205,6 +206,13 @@ public class MenuBarManager {
             if (onUpgradeSdk != null) onUpgradeSdk.run();
         });
 
+        // The half of Upgrade SDK that needs no upgrade: this bot's own SDK already says which of the members
+        // it calls are on the way out and what replaces them, and acting on that is not a version change.
+        MenuItem moderniseItem = new MenuItem("Modernise...");
+        moderniseItem.setOnAction(e -> {
+            if (onModernise != null) onModernise.run();
+        });
+
         MenuItem manageImportsItem = new MenuItem("Manage Imports...");
         manageImportsItem.setOnAction(e -> {
             if (onManageImports != null) onManageImports.run();
@@ -269,7 +277,8 @@ public class MenuBarManager {
 
         projectMenu.getItems().addAll(
                 projectSetupItem, new SeparatorMenuItem(),
-                manageLibrariesItem, upgradeSdkItem, manageImportsItem, new SeparatorMenuItem(),
+                manageLibrariesItem, upgradeSdkItem, moderniseItem, manageImportsItem,
+                new SeparatorMenuItem(),
                 activityFlowItem, parametersItem, manageResourcesItem,
                 new SeparatorMenuItem(),
                 projectSettingsItem, new SeparatorMenuItem(),
@@ -626,6 +635,11 @@ public class MenuBarManager {
      */
     public void setOnUpgradeSdk(Runnable callback) {
         this.onUpgradeSdk = callback;
+    }
+
+    /** Sets the callback for when "Modernise..." is clicked — the same report with no version change. */
+    public void setOnModernise(Runnable callback) {
+        this.onModernise = callback;
     }
 
     /** Sets the callback for when "Review Changes" is clicked — raises the Review tab. */

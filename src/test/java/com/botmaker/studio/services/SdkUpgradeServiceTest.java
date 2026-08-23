@@ -843,4 +843,137 @@ class SdkUpgradeServiceTest {
         assertTrue(moved.repair().startsWith("replaced with null"), moved.repair());
         assertTrue(moved.isRepairable());
     }
+
+    // -------------------------------------------------------------------------
+    // Modernising: the same walk over one jar, with no version change
+    // -------------------------------------------------------------------------
+
+    /** A bot on one deprecated call and one live one, so the two lists can be told apart. */
+    private static final String TIMER_BOT = """
+            package com.mybot;
+            public class Subject {
+                public void run() {
+                    Wait.time(500);
+                    Point p = new Point(1, 2);
+                }
+            }
+            """;
+
+    /**
+     * One jar compared with <em>itself</em>. That is the whole of what modernising is: no diff, no target
+     * version, nothing removed — only what the SDK's own {@code @ReplacedBy} pointers say about members it
+     * has already marked on the way out.
+     */
+    private static Report moderniseReport(Path tmp, Map<String, String> sdk, boolean through)
+            throws IOException {
+        Path jar = jarOf(tmp, "same", withPointers(sdk), Map.of());
+        return serviceOver(tmp, TIMER_BOT).compare(jar, jar, "1.0.0", "1.0.0", through);
+    }
+
+    private static Optional<Deprecation> dep(Report r, String display) {
+        return r.deprecated().stream().filter(d -> d.display().equals(display)).findFirst();
+    }
+
+    /** The pinned SDK, with {@code Wait.time} deprecated and pointed at {@code pointer}. */
+    private static Map<String, String> pinnedSdk(String pointer, String replacement) {
+        Map<String, String> sdk = new java.util.HashMap<>(oldSdk());
+        sdk.put("Wait", """
+                package %s;
+                public class Wait {
+                    public static void seconds(int s) {}
+                    @Deprecated(since = "1.0.0", forRemoval = true)
+                    %s
+                    public static void time(long ms) {}
+                    %s
+                }
+                """.formatted(PKG, pointer, replacement));
+        return sdk;
+    }
+
+    @Test
+    void aDeprecatedMemberThatSaysWhereToGoIsSomethingModerniseCanMoveOnItsOwn(@TempDir Path tmp)
+            throws IOException {
+        Report r = moderniseReport(tmp, pinnedSdk("@ReplacedBy(\"" + PKG + ".Wait#pause\")",
+                "public static void pause(long ms) {}"), true);
+
+        // Nothing here is a break: the bot compiles today and would go on compiling. That is why the
+        // question is canModernise() and not canMigrate(), which asks whether a break may be repaired.
+        assertTrue(r.breaks().isEmpty(), "a jar against itself breaks nothing: " + r.breaks());
+        assertFalse(r.canMigrate());
+        assertTrue(r.canModernise(), "problems=" + r.problems() + " deprecated=" + r.deprecated());
+
+        Deprecation moving = dep(r, "Wait.time").orElseThrow(() -> new AssertionError(r.deprecated().toString()));
+        assertEquals("Wait.pause", moving.becomes());
+        assertTrue(moving.repair().startsWith("becomes Wait.pause"), moving.repair());
+        assertEquals(List.of(moving), r.movable());
+    }
+
+    @Test
+    void aDeprecationTheSdkSaysNothingAboutIsLeftWhereItIs(@TempDir Path tmp) throws IOException {
+        // The pointer is what makes a deprecation actionable. Without one there is no answer to move to,
+        // and inventing one is the guess this whole design refuses — so the row is listed with nothing
+        // beside it and the button stays off.
+        Report r = moderniseReport(tmp, pinnedSdk("", ""), true);
+
+        Deprecation stuck = dep(r, "Wait.time").orElseThrow(() -> new AssertionError(r.deprecated().toString()));
+        assertEquals("", stuck.becomes());
+        assertFalse(stuck.isMovable());
+        assertFalse(r.canModernise(), "nothing to move: " + r.movable());
+    }
+
+    @Test
+    void aDeprecatedMemberIsOnlyFollowedWhenTheExtraHopWasAskedFor(@TempDir Path tmp) throws IOException {
+        // The same jar and the same pointer, read as a plain upgrade would read it. A member that still
+        // exists stops the walk, so the row says it is deprecated and nothing more — which is honest, since
+        // the call does still compile.
+        Report r = moderniseReport(tmp, pinnedSdk("@ReplacedBy(\"" + PKG + ".Wait#pause\")",
+                "public static void pause(long ms) {}"), false);
+
+        Deprecation row = dep(r, "Wait.time").orElseThrow(() -> new AssertionError(r.deprecated().toString()));
+        assertEquals("", row.becomes());
+        assertFalse(r.canModernise());
+    }
+
+    @Test
+    void aModernisationThatChangesShapeIsMadeAndMarkedRatherThanRefused(@TempDir Path tmp)
+            throws IOException {
+        Report r = moderniseReport(tmp, pinnedSdk("@ReplacedBy(\"" + PKG + ".Wait#pause\")",
+                "public static void pause(long ms, boolean interruptible) {}"), true);
+
+        Deprecation moving = dep(r, "Wait.time").orElseThrow(() -> new AssertionError(r.deprecated().toString()));
+        assertTrue(moving.repair().contains("gains 1 input"), moving.repair());
+        assertTrue(moving.repair().contains("marked for your review"),
+                "a shape that moved is exactly what the Review tab is for: " + moving.repair());
+        assertTrue(r.canModernise());
+    }
+
+    @Test
+    void aDeprecatedClassPointedAtItsSuccessorIsOfferedAsARenameNotAnnouncedAsABreak(@TempDir Path tmp)
+            throws IOException {
+        // Both spellings are in the one jar — that is what a deprecation window is — so the old name still
+        // compiles. Reporting it as a break would be false; it belongs on the list of things to move.
+        Map<String, String> sdk = new java.util.HashMap<>(oldSdk());
+        sdk.put("Wait", """
+                package %s;
+                @Deprecated(since = "1.0.0", forRemoval = true)
+                @ReplacedBy("%s.Pause")
+                public class Wait {
+                    public static void seconds(int s) {}
+                    public static void time(long ms) {}
+                }
+                """.formatted(PKG, PKG));
+        sdk.put("Pause", """
+                package %s;
+                public class Pause {
+                    public static void seconds(int s) {}
+                    public static void time(long ms) {}
+                }
+                """.formatted(PKG));
+        Report r = moderniseReport(tmp, sdk, true);
+
+        assertTrue(r.breaks().isEmpty(), "the old name is still there: " + r.breaks());
+        Deprecation moving = dep(r, "Wait.time").orElseThrow(() -> new AssertionError(r.deprecated().toString()));
+        assertEquals("Pause", moving.becomes());
+        assertTrue(moving.repair().contains("every use of \"Wait\" becomes \"Pause\""), moving.repair());
+    }
 }
