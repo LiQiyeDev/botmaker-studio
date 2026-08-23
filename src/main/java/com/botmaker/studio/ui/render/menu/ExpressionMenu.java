@@ -9,6 +9,7 @@ import com.botmaker.studio.parser.ExpressionChoice;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.services.CodeEditorService;
+import com.botmaker.studio.services.SdkSurfaceService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.ui.app.capture.CaptureSourcePicker;
@@ -460,7 +461,8 @@ public final class ExpressionMenu {
             if (varType.isArray()) continue;                  // arrays have no meaningful instance members
             if (varType.isPrimitive() && !varType.isString()) continue;
             MenuBuilders.addIfNonNull(out, MenuBuilders.buildScopeMenu(
-                    var.name(), var.name(), varType.qualifiedName(), false, expectedType, analyzer, onSelect));
+                    var.name(), var.name(), varType.qualifiedName(), false, expectedType, analyzer,
+                    context.getSdkSurface(), onSelect));
         }
         return out;
     }
@@ -605,12 +607,14 @@ public final class ExpressionMenu {
                 ? analyzer.getAvailableScopes(contextNode) : null;
 
         List<Menu> scopeMenus = new ArrayList<>();
+        SdkSurfaceService surface = (context != null) ? context.getSdkSurface() : null;
 
         // 1. Enclosing class's own methods — local call (no receiver).
         String enclosingClass = enclosingClassName(contextNode);
         if (analyzer != null && enclosingClass != null) {
             MenuBuilders.addIfNonNull(scopeMenus, MenuBuilders.buildScopeMenu(
-                    "This (" + enclosingClass + ")", "", enclosingClass, false, expectedType, analyzer, onSelect));
+                    "This (" + enclosingClass + ")", "", enclosingClass, false, expectedType, analyzer,
+                    surface, onSelect));
         }
 
         // 2. Visible variables (instance members) + 3. in-scope static classes. Each submenu is dropped when
@@ -625,14 +629,16 @@ public final class ExpressionMenu {
                 if (varType.isArray()) continue;                  // arrays have no meaningful instance members
                 if (varType.isPrimitive() && !varType.isString()) continue;
                 MenuBuilders.addIfNonNull(scopeMenus, MenuBuilders.buildScopeMenu(
-                        var.name(), var.name(), varType.qualifiedName(), false, expectedType, analyzer, onSelect));
+                        var.name(), var.name(), varType.qualifiedName(), false, expectedType, analyzer,
+                        surface, onSelect));
             }
         }
         if (scope != null) {
             for (ITypeBinding type : scope.types()) {
                 if (type.getName().equals(enclosingClass)) continue; // already covered as "This (...)"
                 MenuBuilders.addIfNonNull(scopeMenus, MenuBuilders.buildScopeMenu(
-                        type.getName(), type.getName(), type.getQualifiedName(), true, expectedType, analyzer, onSelect));
+                        type.getName(), type.getName(), type.getQualifiedName(), true, expectedType, analyzer,
+                        surface, onSelect));
             }
         }
 
@@ -643,7 +649,7 @@ public final class ExpressionMenu {
         if (analyzer != null && analyzer.getLibraryIndex() != null) {
             Menu libMenu = MenuIcons.decorate(new Menu("Library (static)"), MenuIcons.LIBRARY);
             libMenu.getItems().add(MenuBuilders.disabledItem("Loading…"));
-            libMenu.setOnShowing(ev -> populateLibraryStatics(libMenu, expectedType, analyzer, onSelect));
+            libMenu.setOnShowing(ev -> populateLibraryStatics(libMenu, expectedType, analyzer, surface, onSelect));
             functionMenu.getItems().add(libMenu);
         }
         return functionMenu;
@@ -657,8 +663,15 @@ public final class ExpressionMenu {
         return null;
     }
 
-    /** Lazily fills the "Library (static)" submenu, grouped by package; idempotent. */
-    private static void populateLibraryStatics(Menu libMenu, ResolvedType expectedType, ProjectAnalyzer analyzer, Consumer<Object> onSelect) {
+    /**
+     * Lazily fills the "Library (static)" submenu, grouped by package; idempotent.
+     *
+     * <p>{@code surface} is threaded through for uniformity rather than because it can bite here: SDK facades
+     * are excluded from this listing outright (below), and a user's own jar has no entry in the SDK index, so
+     * {@code buildScopeMenu} finds nothing to curate either way.
+     */
+    private static void populateLibraryStatics(Menu libMenu, ResolvedType expectedType, ProjectAnalyzer analyzer,
+                                               SdkSurfaceService surface, Consumer<Object> onSelect) {
         if (Boolean.TRUE.equals(libMenu.getProperties().get("loaded"))) return;
         libMenu.getProperties().put("loaded", true);
         libMenu.getItems().clear();
@@ -676,7 +689,8 @@ public final class ExpressionMenu {
             classes.stream()
                     .sorted(Comparator.comparing(ClassInfo::getSimpleName))
                     .forEach(ci -> MenuBuilders.addIfNonNull(pkgMenu.getItems(), MenuBuilders.buildScopeMenu(
-                            ci.getSimpleName(), ci.getSimpleName(), ci.getName(), true, expectedType, analyzer, onSelect)));
+                            ci.getSimpleName(), ci.getSimpleName(), ci.getName(), true, expectedType, analyzer,
+                            surface, onSelect)));
             if (!pkgMenu.getItems().isEmpty()) libMenu.getItems().add(pkgMenu); // skip jars/packages with nothing compatible
         });
         if (libMenu.getItems().isEmpty()) libMenu.getItems().add(MenuBuilders.disabledItem("(None compatible)"));

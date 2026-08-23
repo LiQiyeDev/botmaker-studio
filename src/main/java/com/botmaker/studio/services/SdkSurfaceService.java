@@ -193,13 +193,46 @@ public final class SdkSurfaceService {
     }
 
     /**
-     * True when {@code simpleName} is in strict mode — the class itself carries {@code @Palette}. A facade
+     * The index key for {@code typeName}, or {@code null} when it does not name an SDK type at all —
+     * meaning "not ours, offer everything".
+     *
+     * <p>The index is keyed by <b>simple name</b>, and the callers speak two vocabularies: the facade menus
+     * pass {@code "Window"} while a variable scope, an in-scope type and a library class all pass a
+     * fully-qualified name. Accepting both is not merely a convenience — for the qualified half it is what
+     * makes a name collision safe. A user is free to write their own {@code Window}, and keying blindly on the
+     * last segment would filter <em>their</em> methods by the SDK's verdicts about a class they never used, so
+     * a qualified name is admitted only when it is genuinely under the SDK's api package.
+     *
+     * <p><b>A bare simple name is trusted, and that is a real if narrow hole.</b> Every menu that passes one
+     * has already resolved it through {@link SdkType}, but {@code MethodInvocationBlock}'s class scope can also
+     * be a class the user wrote, so a user class named exactly {@code Window} would be curated by the SDK's
+     * answer. This predates the present change (the ⚙ picker has always keyed this way), it cannot be closed
+     * from here — the caller is the only one holding the binding that would settle it — and its cost is a
+     * couple of the user's own methods missing from one dropdown, never a wrong edit. Left as it is, on
+     * purpose, rather than papered over with a guess.
+     */
+    private String paletteKey(String typeName) {
+        if (typeName == null || typeName.isEmpty()) return null;
+        int dot = typeName.lastIndexOf('.');
+        if (dot < 0) return typeName;
+        String pkg = typeName.substring(0, dot);
+        return TypeSummaryManager.DEFAULT_ALLOWED_PACKAGE_PREFIXES.stream().anyMatch(pkg::startsWith)
+                ? typeName.substring(dot + 1)
+                : null;
+    }
+
+    /**
+     * True when {@code typeName} is in strict mode — the class itself carries {@code @Palette}. A facade
      * that does not is uncurated and offers all of its public static methods, which is what lets the sweep
      * annotate one facade at a time without the half-done ones changing behaviour.
+     *
+     * <p>Takes a simple name or an FQN; see {@link #paletteKey}.
      */
-    public boolean isCurated(String simpleName) {
+    public boolean isCurated(String typeName) {
         if (!paletteAware || !isIndexed()) return false;
-        TypeFacts facts = surface.get(simpleName);
+        String key = paletteKey(typeName);
+        if (key == null) return false;
+        TypeFacts facts = surface.get(key);
         return facts != null && facts.curated();
     }
 
@@ -211,9 +244,9 @@ public final class SdkSurfaceService {
      * <p>The keys are {@link MethodSignature#signatureKey()} spellings, so a caller filters its own
      * {@code List<MethodSignature>} with them directly.
      */
-    public Set<String> offeredSignatures(String simpleName, String member) {
-        if (!isCurated(simpleName)) return null;
-        TypeFacts facts = surface.get(simpleName);
+    public Set<String> offeredSignatures(String typeName, String member) {
+        if (!isCurated(typeName)) return null;
+        TypeFacts facts = surface.get(paletteKey(typeName));
         Set<String> keys = facts.memberOffered().get(member);
         return keys == null ? Set.of() : keys;
     }
@@ -247,6 +280,22 @@ public final class SdkSurfaceService {
         // Never hand back nothing: a class curated in a way that hides every overload of a name the caller is
         // already looking at would leave an empty picker, which reads as a broken block rather than a choice.
         return out.isEmpty() ? sigs : out;
+    }
+
+    /**
+     * {@code names} reduced to the members offered on {@code typeName}, with {@code keep} kept whatever the
+     * answer — the <em>name</em>-level twin of {@link #retainOffered}, for the surfaces that list members
+     * before they list overloads (a member submenu, a method dropdown). Pass {@code keep = null} where
+     * nothing is currently selected.
+     *
+     * <p><b>Deliberately without {@link #retainOffered}'s never-hand-back-nothing guard.</b> That guard exists
+     * because an empty ⚙ picker on a block that plainly <em>has</em> an overload reads as breakage. An empty
+     * member list does not: the caller drops the whole submenu, which is the same thing it already does for a
+     * type with nothing compatible with the slot, and is a correct answer rather than a confusing one.
+     */
+    public List<String> retainOfferedNames(String typeName, List<String> names, String keep) {
+        if (names == null || !isCurated(typeName)) return names;
+        return names.stream().filter(n -> isOffered(typeName, n) || n.equals(keep)).toList();
     }
 
     // =========================================================================

@@ -6,6 +6,29 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-24 — `@Palette` reaches the expression menu, which it had never touched
+  (`ui/render/menu/MenuBuilders`, `ui/render/menu/ExpressionMenu`, `blocks/func/MethodInvocationBlock`,
+  `services/SdkSurfaceService`, `palette/SdkType`).** Phase 3.12 of twelve. The 3.9 rollout curated the
+  statement menu, the ⚙ picker, the ★ favourites and `StatementFactory`'s default overload — and stopped,
+  because the standing comment on `MenuBuilders` arguing against a *presence* gate read as a general
+  prohibition. The result was that **the entire expression menu, its search view and the method-name dropdown
+  went on offering everything**, so a year of curation verdicts had no reader outside the statement menu — and
+  every verdict on a `FACADE_HIDDEN` type (`Window`, `Debug`, `Watchdog`, `PopupGuard`, `Session`) or a `VALUE`
+  type (`Rect`) had almost none at all, since neither has a statement submenu in the first place.
+  `MenuBuilders.buildScopeMenu` is the single member-listing routine behind the expression menu, its flat
+  search leaves, and every variable / `this` / in-scope-type / library scope, so **one filter there closes six
+  call sites**; `MethodInvocationBlock.populateMethodList` closes the seventh. New
+  `SdkSurfaceService.retainOfferedNames` is the name-level twin of `retainOffered` and deliberately drops its
+  never-hand-back-nothing guard — an empty ⚙ picker reads as a broken block, an absent submenu does not.
+  `paletteKey` lets every query take a simple name *or* an FQN and admits a qualified one only under
+  `com.botmaker.sdk.api`, so a bot's own `com.mybot.Window` is not filtered by the SDK's opinion of a different
+  class (`PaletteKeyResolutionTest`, 7 tests). The fields half of a member submenu stays uncurated on purpose:
+  `@Palette` has no `FIELD` target and gains none, because `Precision.TIGHT` and the `BotSettings` defaults are
+  named anchors rather than rival spellings. Recorded alongside it, in `Palette`'s javadoc and `SdkType.Role`'s:
+  **curation is about members, `Role` is about types**, they live in different repos on purpose, and a
+  `FACADE_HIDDEN`/`VALUE` type is still worth curating because its members are reached through a variable's
+  member menu. Studio 1399 tests green.
+
 - **2026-08-23 — Studio reads the SDK's `@Palette` and offers only what it names
   (`services/SdkSurfaceService`, `ui/render/menu/StatementMenu`, `blocks/func/MethodInvocationBlock`,
   `parser/factories/StatementFactory`, `util/MethodSignature`).** Phase 3.9 of twelve. The menus stop being a

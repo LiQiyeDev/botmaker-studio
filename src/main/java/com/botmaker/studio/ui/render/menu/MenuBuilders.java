@@ -3,6 +3,7 @@ package com.botmaker.studio.ui.render.menu;
 import com.botmaker.studio.parser.ExpressionChoice;
 import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.services.CodeEditorService;
+import com.botmaker.studio.services.SdkSurfaceService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.util.MethodSignature;
@@ -87,11 +88,19 @@ final class MenuBuilders {
      * out (no return value fits an expression slot), and {@link #buildScopeMenu} returns {@code null} for a
      * facade with nothing compatible, so empty submenus are skipped.
      *
-     * <p>That null return is also what gates this on the bot's <em>own</em> SDK rather than Studio's: the
-     * analyzer resolves against the jar the project pins, so a facade its version doesn't have has no members
-     * and no submenu. {@code services/SdkSurfaceService} exists for the surfaces where nothing enumerates
-     * members first (the chips, the class dropdowns) — adding it here would ask the same jar the same
+     * <p><b>PRESENCE is gated implicitly by that null return</b> and must stay so: the analyzer resolves
+     * against the jar the project pins, so a facade its version doesn't have has no members and no submenu.
+     * {@code services/SdkSurfaceService} exists for the surfaces where nothing enumerates members first (the
+     * chips, the class dropdowns) — adding a <em>presence</em> filter here would ask the same jar the same
      * question twice.
+     *
+     * <p><b>CURATION is a different question and does need the explicit filter</b> that {@link #buildScopeMenu}
+     * now applies. "Is this member here?" and "should we lead with it?" are not the same, and nothing
+     * enumerable answers the second — a member the analyzer resolves perfectly well may still not be one the
+     * SDK proposes. This is the exact twin of the note at {@code StatementMenu.rebuildItems}, and until
+     * 2026-08-24 it said only the paragraph above, which is why the whole expression menu went on offering
+     * everything for a year of curation. The rule that keeps the two apart: <b>filter what is OFFERED, never
+     * what is RESOLVED</b> — blocks already in the file resolve through the analyzer, untouched.
      */
     static void appendSdkFacadeExpressionSubmenus(ContextMenu menu, ResolvedType expectedType,
                                                   CodeEditorService context, Consumer<Object> onSelect) {
@@ -100,7 +109,8 @@ final class MenuBuilders {
         if (analyzer == null) return;
         for (SdkType facade : SdkType.MENU_FACADES) {
             String name = facade.simpleName();
-            Menu sub = buildScopeMenu(name, name, name, true, expectedType, analyzer, onSelect);
+            Menu sub = buildScopeMenu(name, name, name, true, expectedType, analyzer,
+                    context.getSdkSurface(), onSelect);
             if (sub != null) menu.getItems().add(MenuIcons.decorate(sub, MenuIcons.iconFor(facade)));
         }
     }
@@ -113,7 +123,8 @@ final class MenuBuilders {
         if (analyzer == null) return;
         for (SdkType facade : SdkType.MENU_FACADES) {
             String name = facade.simpleName();
-            Menu sub = buildScopeMenu(name, name, name, true, expectedType, analyzer, onSelect);
+            Menu sub = buildScopeMenu(name, name, name, true, expectedType, analyzer,
+                    context.getSdkSurface(), onSelect);
             if (sub == null) continue;
             List<MenuItem> leaves = new ArrayList<>();
             collectMenuLeaves(sub, leaves);
@@ -131,17 +142,35 @@ final class MenuBuilders {
      * ("This (Foo)" labelled, {@code scope=""} so the reference has no receiver; fields are then skipped since
      * a bare receiver-less field isn't offered here). Returns {@code null} when nothing is compatible, so the
      * caller can drop the whole scope/jar entry rather than show an empty submenu.
+     *
+     * <p>{@code surface} curates the <b>methods</b> half: on an SDK type in strict mode, only the
+     * {@code @Palette} overloads are listed, and a name whose every overload is hidden drops out entirely.
+     * {@code null} — a headless edit, an uncurated jar, a type that isn't the SDK's — offers everything, which
+     * is what every SDK released so far answers. This is the one place the expression menu and its search view
+     * both go through, so filtering here covers both.
+     *
+     * <p>The <b>fields</b> half is deliberately never curated. {@code @Palette} has no {@code FIELD} target
+     * and gains none: the constant sets are small and closed ({@code BotSettings} 7, {@code Precision} 4,
+     * {@code Text} 2, {@code Direction} 4) and each entry is a named anchor a user reaches for —
+     * {@code Precision.TIGHT} is the whole point of {@code Precision} having constants. Enum constants also
+     * reach the activity-variable pickers through {@code SdkType.enumConstantNames()}, which reads the
+     * {@code Class<?>} directly and never consults the index, so curating them here would be half an answer.
      */
     static Menu buildScopeMenu(String label, String scope, String typeName, boolean isStatic,
-                               ResolvedType expectedType, ProjectAnalyzer analyzer, Consumer<Object> onSelect) {
+                               ResolvedType expectedType, ProjectAnalyzer analyzer,
+                               SdkSurfaceService surface, Consumer<Object> onSelect) {
         Menu scopeMenu = new Menu(label);
 
         // Methods (grouped by name; overloads nest one level).
         Map<String, List<MethodSignature>> grouped = analyzer.getMethods(typeName, isStatic).stream()
                 .filter(m -> m.returnsCompatibleWith(expectedType))
                 .collect(Collectors.groupingBy(MethodSignature::name));
-        grouped.keySet().stream().sorted().forEach(mName -> {
+        List<String> names = grouped.keySet().stream().sorted().collect(Collectors.toList());
+        // Nothing is currently selected in a menu that is being built from scratch, hence keep = null.
+        if (surface != null) names = surface.retainOfferedNames(typeName, names, null);
+        names.forEach(mName -> {
             List<MethodSignature> sigs = grouped.get(mName);
+            if (surface != null) sigs = surface.retainOffered(typeName, mName, sigs, null);
             if (sigs.size() == 1) {
                 MethodSignature sig = sigs.getFirst();
                 MenuItem item = new MenuItem(mName);

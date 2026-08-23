@@ -161,7 +161,22 @@ public enum SdkType {
     PRECISION(Precision.class, Role.VALUE),
     TEXT_MATCH(TextMatch.class, Role.VALUE);
 
-    /** What a type is to the editor. */
+    /**
+     * What a type is to the editor.
+     *
+     * <p><b>This is the type-level half of the palette, and the SDK's {@code @Palette} is the member-level
+     * half.</b> The two answer different questions and live in different repos on purpose: whether a type
+     * earns its own submenu — and under which icon, in which position — is an editorial call about
+     * <em>Studio's own menus</em>, while which of its methods are worth proposing is a call the SDK author
+     * makes at the declaration. Unifying them (a {@code menu =} attribute on {@code @Palette}) was considered
+     * and rejected.
+     *
+     * <p>The consequence to keep straight, because it reads as a contradiction otherwise: a
+     * {@link #FACADE_HIDDEN} or {@link #VALUE} type may perfectly well be {@code @Palette}-curated. Its
+     * members are still reached — through a variable's member submenu in the expression menu, and through the
+     * ⚙ overload picker on a block already placed — and both of those consult curation. Curating it does not
+     * put it in the insert menus, and is not an attempt to.
+     */
     public enum Role {
         /** A facade shown as a submenu in the statement/expression insert menus. */
         FACADE,

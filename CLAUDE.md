@@ -104,19 +104,44 @@ there are three distinct relationships to keep straight:
   `SdkDocs.Overload.deprecated()`, a separate thing that can disagree). **It fails open**: with no SDK
   indexed, every presence query answers yes and every deprecation query answers no — a degraded probe must
   never hide a block the user legitimately has, nor strike one through.
-  **Most menus need no explicit gate and must not grow one**: `StatementMenu` and `MenuBuilders` enumerate
-  members through `ProjectAnalyzer` first and drop a facade that resolves none, which is the same jar
-  answering the same question. The service exists for the surfaces where nothing enumerates first — the
-  `OverlayPalette` chips, the class dropdowns on `MethodInvocationBlock`/`LambdaCallBlock`, and
+  **No menu needs an explicit *presence* gate and none must grow one**: `StatementMenu` and `MenuBuilders`
+  enumerate members through `ProjectAnalyzer` first and drop a facade that resolves none, which is the same jar
+  answering the same question. The service's presence queries exist for the surfaces where nothing enumerates
+  first — the `OverlayPalette` chips, the class dropdowns on `MethodInvocationBlock`/`LambdaCallBlock`, and
   `ProjectSettingsDialog`'s favourites.
   **That rule is about *presence*. Curation is a second question and does need an explicit filter** (2026-08-23):
   since the SDK's `@Palette`, "is this method here?" and "should we lead with it?" are different, and nothing
-  enumerable answers the second — so `StatementMenu.facadeMethodNames`, the ⚙ overload picker, the ★ favourite
-  submenu and `StatementFactory`'s default-overload pick all consult the service. The invariant that keeps it
-  safe: **filter what is *offered*, never what is *resolved*.** `MethodInvocationBlock.findSignatures` stays
-  unfiltered (it backs argument typing and the current-overload lookup), and the picker shows *offered ∪ the
-  overload this call is already on*, so a block sitting on a hidden overload keeps rendering, keeps compiling
-  and can still see where it is. An SDK with no `@Palette` class in its index predates curation and every menu
+  enumerable answers the second. The invariant that keeps it safe: **filter what is *offered*, never what is
+  *resolved*.** `MethodInvocationBlock.findSignatures` stays unfiltered (it backs argument typing and the
+  current-overload lookup), and the picker shows *offered ∪ the overload this call is already on*, so a block
+  sitting on a hidden overload keeps rendering, keeps compiling and can still see where it is.
+  **Every surface that *proposes* a member consults it, and getting that list wrong is the mistake this
+  feature has already made once.** The 2026-08-23 rollout filtered `StatementMenu.facadeMethodNames`, the ⚙
+  picker, the ★ favourite submenu and `StatementFactory`'s default-overload pick — and stopped there, leaving
+  the **whole expression menu** offering everything for a year of curation, because the standing "don't gate
+  presence here" comment on `MenuBuilders` read as a general prohibition. 2026-08-24 closed it:
+  **`MenuBuilders.buildScopeMenu`** is the single member-listing routine behind the expression menu *and* its
+  search view *and* every variable/`this`/library scope, so one filter there covers six call sites, and
+  **`MethodInvocationBlock.populateMethodList`** filters the method-name dropdown. The name-level twin of
+  `retainOffered` is `SdkSurfaceService.retainOfferedNames`, which deliberately has **no** never-hand-back-
+  nothing guard: an empty ⚙ picker on a block that plainly has overloads reads as breakage, an absent submenu
+  does not.
+  **Curation is about members; `SdkType.Role` is about types, and the two are separate on purpose.** Whether a
+  type gets a submenu at all (`FACADE`), is recognised for chrome but never offered (`FACADE_HIDDEN` —
+  `Window`, `Debug`, `Watchdog`, `PopupGuard`, `Session`) or is an import target only (`VALUE` — `Rect`,
+  `Point`, the result types) is Studio's editorial call, travelling with an icon and a display order the SDK
+  knows nothing about; folding it into `@Palette` as a `menu =` attribute was considered and rejected. The
+  corollary that reads as a contradiction from the wrong end: a `FACADE_HIDDEN` or `VALUE` type is still worth
+  curating, because its members are reached through a variable's member submenu and a placed block's ⚙ picker.
+  **Constants are never curated** — the fields half of a member submenu is always offered whole (`@Palette` has
+  no `FIELD` target, and enum constants reach the activity pickers through `SdkType.enumConstantNames()`, which
+  never consults the index).
+  One collision to know about: the index is keyed by **simple name**, so `SdkSurfaceService.paletteKey` admits
+  a *qualified* name only under `com.botmaker.sdk.api` — a user's own `com.mybot.Window` is nobody's to curate
+  (`PaletteKeyResolutionTest`). A **bare** simple name is still trusted, so a user class named exactly `Window`
+  reaching `MethodInvocationBlock`'s class scope would be curated by the SDK's answer; that hole predates the
+  change, costs a couple of missing dropdown entries and never a wrong edit, and is left open rather than
+  guessed at. An SDK with no `@Palette` class in its index predates curation and every menu
   is byte-for-byte unchanged; so is a facade whose own type is unannotated. One trap worth knowing: the
   signature key is derived in two vocabularies — `MethodSignature.signatureKey()` from the analyzer's
   signatures and `signatureKeyOf(MethodInfo)` from the raw index — and a mismatch has **no symptom**, just an

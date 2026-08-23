@@ -409,6 +409,15 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
                 .sorted()
                 .collect(Collectors.toList());
 
+        // OFFERED, not resolved — the same rule the ⚙ picker applies, one level up at the method *name*.
+        // The name this call is already on is kept whatever the SDK says, so switching scope back and forth
+        // can never leave the block pointing at a method its own dropdown denies; and an uncurated jar, an
+        // uncurated type or a headless edit is the identity function here.
+        if (context.getSdkSurface() != null) {
+            availableMethods = context.getSdkSurface()
+                    .retainOfferedNames(targetClassName, availableMethods, this.methodName);
+        }
+
         methodSelector.getItems().addAll(availableMethods);
     }
 
