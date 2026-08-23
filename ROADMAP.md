@@ -6,6 +6,18 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-23 — A type the bot only *writes* is now seen, and a default now says what type it is
+  (`parser/refactor/SdkReferences`, `CallMigrator`, `services/SdkUpgradeService`).** Phase 2 of twelve. Two
+  repair defects, both silent. (1) `SdkReferences` saw `Foo.bar()`, `new Foo()` and `Foo.CONST` and nothing
+  else, so a bot whose only contact with a removed class was `ImageTemplate t;`, a parameter or a
+  `List<ImageTemplate>` got **no break at all** and was upgraded into something that would not compile — new
+  `typeUses` yields those places, `breaks()` and `repairsFor` read them, and `mentions` became the same walk
+  narrowed to the positions the rename actually rewrites. (2) `literalDefaultFor` wrote a bare `null`
+  everywhere, so a defaulted call in a receiver position became `null.width()`; it is now site-aware and
+  writes `((ImageTemplate) null)` where the site supplies no type — receiver, argument, conditional branch —
+  and the plain literal in an assignment or a `return`. Tests: five in `MigrationEditsTest`, two in
+  `SdkUpgradeServiceTest`.
+
 - **2026-08-23 — Docs: the SDK relationship rewritten around the pointer pair (`CLAUDE.md`,
   `parser/refactor/SdkReferences`).** Phase 1 of twelve, and the docs debt the previous six-phase plan left
   behind. The *Relationship to the SDK* bullets still described `@ApiId` pairing types, `migrations.json`

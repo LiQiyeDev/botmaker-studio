@@ -16,16 +16,22 @@ import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.types.ResolvedType;
 import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.jdt.core.dom.ASTVisitor;
+import org.eclipse.jdt.core.dom.CastExpression;
 import org.eclipse.jdt.core.dom.ClassInstanceCreation;
 import org.eclipse.jdt.core.dom.CompilationUnit;
+import org.eclipse.jdt.core.dom.ConditionalExpression;
 import org.eclipse.jdt.core.dom.Expression;
 import org.eclipse.jdt.core.dom.ExpressionStatement;
+import org.eclipse.jdt.core.dom.FieldAccess;
 import org.eclipse.jdt.core.dom.ImportDeclaration;
 import org.eclipse.jdt.core.dom.MethodDeclaration;
 import org.eclipse.jdt.core.dom.MethodInvocation;
+import org.eclipse.jdt.core.dom.NullLiteral;
+import org.eclipse.jdt.core.dom.ParenthesizedExpression;
 import org.eclipse.jdt.core.dom.QualifiedName;
 import org.eclipse.jdt.core.dom.SimpleName;
 import org.eclipse.jdt.core.dom.SimpleType;
+import org.eclipse.jdt.core.dom.SuperMethodInvocation;
 import org.eclipse.jdt.core.dom.SwitchCase;
 import org.eclipse.jdt.core.dom.rewrite.ListRewrite;
 
@@ -184,13 +190,43 @@ public final class CallMigrator {
      * uniformly honest, and the function it sits in is marked for review either way.
      */
     public static Expression literalDefaultFor(EditContext ctx, String typeName) {
+        return literalDefaultFor(ctx, typeName, null, null);
+    }
+
+    /**
+     * The same default, cast where the site gives it no type of its own.
+     *
+     * <p>{@code null} is the one literal here that carries no type, and there are three places a bare one does
+     * not compile or does not mean one thing: as a <b>receiver</b> ({@code null.width()} is not Java), as an
+     * <b>argument</b> to something overloaded (which overload is now a question javac refuses to answer), and
+     * in a <b>conditional branch</b>. In those, and only those, it is written {@code ((ImageTemplate) null)},
+     * and the type is imported.
+     *
+     * <p>{@code typeFqn} is the fully-qualified name of {@code typeName} in the jar being upgraded <em>to</em>,
+     * and null when there is none — a primitive, a {@code void}, or a type that release also dropped. Without
+     * one there is nothing to cast to, so the bare literal is written exactly as before: a type the target no
+     * longer has cannot be the answer here, and it does not have to be, because the bot writing that type
+     * itself is a {@code TYPE_REMOVED} break that has already refused the upgrade.
+     */
+    public static Expression literalDefaultFor(EditContext ctx, String typeName, String typeFqn, ASTNode site) {
         String type = typeName == null ? "" : typeName.trim();
-        return switch (type) {
+        Expression literal = switch (type) {
             case "boolean" -> ctx.ast().newBooleanLiteral(false);
             case "byte", "short", "int", "long", "float", "double", "char" -> ctx.ast().newNumberLiteral("0");
             case "String", "java.lang.String" -> ctx.ast().newStringLiteral();
             default -> ctx.ast().newNullLiteral();
         };
+        if (!(literal instanceof NullLiteral) || !needsItsOwnType(site) || typeFqn == null) return literal;
+
+        ctx.addImport(typeFqn);
+        CastExpression cast = ctx.ast().newCastExpression();
+        cast.setType(ctx.ast().newSimpleType(ctx.ast().newSimpleName(simpleNameOf(typeFqn))));
+        cast.setExpression(literal);
+        // Parenthesised whatever the position: `((Foo) null).bar()` needs it, and an argument reads no worse
+        // for it than it would with one pair of brackets fewer.
+        ParenthesizedExpression wrapped = ctx.ast().newParenthesizedExpression();
+        wrapped.setExpression(cast);
+        return wrapped;
     }
 
     /**
@@ -199,13 +235,39 @@ public final class CallMigrator {
      * cannot drift apart.
      */
     public static String literalDefaultText(String typeName) {
+        return literalDefaultText(typeName, null, null);
+    }
+
+    /** The same, for a known site — so a review mark says {@code (ImageTemplate) null} when that is what lands. */
+    public static String literalDefaultText(String typeName, String typeFqn, ASTNode site) {
         String type = typeName == null ? "" : typeName.trim();
-        return switch (type) {
+        String literal = switch (type) {
             case "boolean" -> "false";
             case "byte", "short", "int", "long", "float", "double", "char" -> "0";
             case "String", "java.lang.String" -> "\"\"";
             default -> "null";
         };
+        if (!"null".equals(literal) || !needsItsOwnType(site) || typeFqn == null) return literal;
+        return "(" + simpleNameOf(typeFqn) + ") null";
+    }
+
+    /**
+     * True when the value replacing {@code site} has to say what type it is, because nothing around it does.
+     *
+     * <p>An assignment, a {@code return} and a statement of its own all have a type already — the variable's,
+     * the function's, or none at all — so they take the plain literal, and adding a cast there would be noise
+     * in a diff the user has to read.
+     */
+    private static boolean needsItsOwnType(ASTNode site) {
+        if (site == null) return false;
+        Object at = site.getLocationInParent();
+        return at == MethodInvocation.EXPRESSION_PROPERTY
+                || at == MethodInvocation.ARGUMENTS_PROPERTY
+                || at == ClassInstanceCreation.ARGUMENTS_PROPERTY
+                || at == SuperMethodInvocation.ARGUMENTS_PROPERTY
+                || at == FieldAccess.EXPRESSION_PROPERTY
+                || at == ConditionalExpression.THEN_EXPRESSION_PROPERTY
+                || at == ConditionalExpression.ELSE_EXPRESSION_PROPERTY;
     }
 
     /** A {@code List<Point>} is a list; anything else is what the signature calls it. */
@@ -226,7 +288,8 @@ public final class CallMigrator {
             }
             case CallChange.ValueDefaulted defaulted -> {
                 ctx.rewriter().replace(defaulted.site().node(),
-                        literalDefaultFor(ctx, defaulted.typeName()), null);
+                        literalDefaultFor(ctx, defaulted.typeName(), defaulted.typeFqn(),
+                                defaulted.site().node()), null);
                 yield true;
             }
             case CallChange.Rewrite rewrite -> applyRewrite(ctx, rewrite);

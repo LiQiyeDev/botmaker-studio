@@ -120,13 +120,26 @@ public final class SdkMigrationRunner {
      * old value sat; otherwise the site falls back to a literal default of {@code returnType}, exactly as a
      * {@link Removal} does.
      *
+     * <p>{@code returnTypeFqn} is {@code returnType} spelled fully in the target jar, for the same reason
+     * {@link Removal} carries one: the fallback below is a literal default, and a default in a position with
+     * no type of its own has to say what it is.
+     *
      * <p>{@link #shapeChanged()} is derived rather than passed: a redirect that keeps every argument where it
      * was and gives back the same type is a <b>rename</b>, does afterwards exactly what it did before, and is
      * not marked for review. Anything that gains, loses or retypes something is.
      */
     public record Redirect(String type, String member, int argCount,
                            String toTypeFqn, String toMember, List<ArgumentEdit> arguments,
-                           String returnType, String toReturnType, boolean expressionSafe) {
+                           String returnType, String toReturnType, boolean expressionSafe,
+                           String returnTypeFqn) {
+
+        /** The same, where the fallback default has nothing to cast to — see {@link Removal#Removal}. */
+        public Redirect(String type, String member, int argCount,
+                        String toTypeFqn, String toMember, List<ArgumentEdit> arguments,
+                        String returnType, String toReturnType, boolean expressionSafe) {
+            this(type, member, argCount, toTypeFqn, toMember, arguments,
+                    returnType, toReturnType, expressionSafe, null);
+        }
 
         boolean matches(SdkReferences.Reference reference) {
             return reference.type().equals(type)
@@ -168,9 +181,16 @@ public final class SdkMigrationRunner {
      * <p>{@code argCount} is {@link SdkReferences#FIELD_READ} for a constant and the exact argument count
      * otherwise: overloads are matched by arity, so removing {@code click(int)} must not touch {@code click()}.
      * {@code returnType} is the <b>old</b> jar's answer, because that is the type the code around the call
-     * site was written for.
+     * site was written for. {@code returnTypeFqn} is the same type spelled fully in the <b>target</b> jar, or
+     * null when that release has no such type — the cast a default needs where the site gives it no type of
+     * its own ({@link CallMigrator#literalDefaultFor}).
      */
-    public record Removal(String type, String member, int argCount, String returnType) {
+    public record Removal(String type, String member, int argCount, String returnType, String returnTypeFqn) {
+
+        /** A removal with nothing to cast to — a primitive, a {@code void}, or a type the target also lost. */
+        public Removal(String type, String member, int argCount, String returnType) {
+            this(type, member, argCount, returnType, null);
+        }
 
         boolean matches(SdkReferences.Reference reference) {
             return reference.type().equals(type)
@@ -290,9 +310,11 @@ public final class SdkMigrationRunner {
                             + "its own — most often the body of a one-line lambda. There is nothing to put "
                             + "in its place, so nothing has been changed.");
                 } else {
-                    changes.add(new CallChange.ValueDefaulted(reference.site(), removal.returnType()));
+                    changes.add(new CallChange.ValueDefaulted(reference.site(), removal.returnType(),
+                            removal.returnTypeFqn()));
                     note(marks, reference, removal.type(), removal.member(), "the value it produced is now "
-                            + CallMigrator.literalDefaultText(removal.returnType()));
+                            + CallMigrator.literalDefaultText(removal.returnType(), removal.returnTypeFqn(),
+                            reference.site().node()));
                 }
                 continue;
             }
@@ -306,11 +328,13 @@ public final class SdkMigrationRunner {
                 changes.add(redirect.changeAt(reference.site()));
                 if (redirect.shapeChanged()) noteRedirect(marks, reference, redirect);
             } else {
-                changes.add(new CallChange.ValueDefaulted(reference.site(), redirect.returnType()));
+                changes.add(new CallChange.ValueDefaulted(reference.site(), redirect.returnType(),
+                        redirect.returnTypeFqn()));
                 note(marks, reference, redirect.type(), redirect.member(),
                         "it is now " + redirect.display() + ", whose result does not fit where this uses it, "
                                 + "and the value it produced is now "
-                                + CallMigrator.literalDefaultText(redirect.returnType()));
+                                + CallMigrator.literalDefaultText(redirect.returnType(),
+                                redirect.returnTypeFqn(), reference.site().node()));
             }
         }
         if (changes.isEmpty()) return Applied.unchanged();

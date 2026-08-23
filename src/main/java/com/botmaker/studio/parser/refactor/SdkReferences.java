@@ -41,6 +41,10 @@ import java.util.Set;
  * {@code Mouse.click(…)}, {@code new ImageTemplate(…)}, {@code Key.ENTER} — which is how every generated block
  * writes them. A call through a variable is not attributed, and so is neither reported nor rewritten.
  *
+ * <p>A member is not the only thing a file can lose. {@link #typeUses} answers the other half — every place
+ * the source writes an SDK <em>type</em> without calling it — because a removed type has no value to stand in
+ * for and so is the one break that refuses an upgrade; a scan that only saw calls reported none of it.
+ *
  * <p>Two shapes name no type at all and are resolved from elsewhere in the file: a bare name reaching an
  * {@code import static …Key.ENTER}, and a {@code case} label, whose enum type lives on the switch expression.
  * The label is the one that can be genuinely ambiguous — {@code case UP ->} where two SDK enums declare
@@ -76,6 +80,18 @@ public final class SdkReferences {
             return type + "#" + member;
         }
     }
+
+    /**
+     * One place a file <em>writes an SDK type's name</em> without calling anything on it — {@code Precision p;},
+     * a parameter, a return type, a field, a cast, a type argument, an {@code instanceof}, a catch clause.
+     *
+     * <p>Not a {@link Reference}, and the difference is the point: a reference is a member, and a member that
+     * goes can be stood in for. A type written on its own has no value to default to, so a bot that only
+     * <em>holds</em> a removed type is exactly the case an upgrade must refuse — and until this existed, that
+     * bot got no finding at all and was left uncompilable. It carries the same {@link CallSite} so the report
+     * and the runner keep reading one shape.
+     */
+    public record TypeUse(String type, CallSite site) {}
 
     /**
      * What one file yielded. {@code problems} is what could not be <em>determined</em> — an ambiguous
@@ -178,17 +194,70 @@ public final class SdkReferences {
         return new Scan(List.copyOf(references), List.copyOf(problems));
     }
 
-    /** True when {@code unit} writes {@code simpleName} anywhere — the gate on a file-wide type rename. */
-    public static boolean mentions(CompilationUnit unit, String simpleName) {
-        boolean[] found = {false};
+    /**
+     * Every place {@code unit} writes a type name that {@link CallMigrator#renameTypeIn} would rewrite, as
+     * simple name → the nodes writing it.
+     *
+     * <p>One walk, two readers, for the same reason {@link #in} is one scan: {@link #typeUses} keeps the
+     * declaration positions, {@link #mentions} asks whether any position at all names the type. The three
+     * positions are the rename's own — a name standing as a {@link SimpleType}, the qualifier of a qualified
+     * name, the receiver of a call — so a file the gate lets through is a file the rename has something to do
+     * in, and a file it stops is one the rename would only have added an import to.
+     */
+    private static Map<String, List<SimpleName>> typeNames(CompilationUnit unit) {
+        Map<String, List<SimpleName>> out = new LinkedHashMap<>();
         unit.accept(new ASTVisitor() {
             @Override
             public boolean visit(SimpleName node) {
-                if (node.getIdentifier().equals(simpleName)) found[0] = true;
-                return !found[0];
+                if (withinImport(node)) return true;
+                Object at = node.getLocationInParent();
+                if (at == SimpleType.NAME_PROPERTY
+                        || at == QualifiedName.QUALIFIER_PROPERTY
+                        || at == MethodInvocation.EXPRESSION_PROPERTY) {
+                    out.computeIfAbsent(node.getIdentifier(), k -> new ArrayList<>()).add(node);
+                }
+                return true;
             }
         });
-        return found[0];
+        return out;
+    }
+
+    /**
+     * Every SDK type this file writes without calling it — see {@link TypeUse}.
+     *
+     * <p>A {@code new ImageTemplate(…)} is left out although its class name is a {@link SimpleType}: the same
+     * line is already a constructor {@link Reference}, and a break that listed it twice would be telling the
+     * user about one place in their source as if it were two.
+     */
+    public static List<TypeUse> typeUses(ProjectFile file, CompilationUnit unit, Set<String> sdkTypes) {
+        List<TypeUse> out = new ArrayList<>();
+        typeNames(unit).forEach((name, nodes) -> {
+            if (!sdkTypes.contains(name)) return;
+            for (SimpleName node : nodes) {
+                if (node.getLocationInParent() != SimpleType.NAME_PROPERTY) continue;
+                if (node.getParent().getLocationInParent() == ClassInstanceCreation.TYPE_PROPERTY) continue;
+                out.add(new TypeUse(name, new CallSite(file, unit, node)));
+            }
+        });
+        return List.copyOf(out);
+    }
+
+    /**
+     * True when {@code unit} writes {@code simpleName} as a type — the gate on a file-wide type rename.
+     *
+     * <p>A {@code import static …Precision.TIGHT;} counts, and has to: the rename rewrites that qualifier too,
+     * and it is the one shape a file can name a type by while writing it nowhere in the body.
+     */
+    public static boolean mentions(CompilationUnit unit, String simpleName) {
+        if (typeNames(unit).containsKey(simpleName)) return true;
+        for (Object each : unit.imports()) {
+            if (!(each instanceof ImportDeclaration imp) || !imp.isStatic() || imp.isOnDemand()) continue;
+            if (imp.getName() instanceof QualifiedName qualified
+                    && lastSegment(qualified.getQualifier().getFullyQualifiedName()).equals(simpleName)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

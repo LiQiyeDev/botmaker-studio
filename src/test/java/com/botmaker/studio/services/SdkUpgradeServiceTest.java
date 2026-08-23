@@ -289,6 +289,66 @@ class SdkUpgradeServiceTest {
     }
 
     // -------------------------------------------------------------------------
+    // A type the bot only writes
+    // -------------------------------------------------------------------------
+
+    /**
+     * A bot that never calls the SDK type it depends on. Every line here writes {@code Legacy} and none of
+     * them is a call, so a scan that only looked for calls found nothing at all — and an upgrade that reports
+     * nothing goes ahead, leaving a project that does not compile against a class the release deleted.
+     */
+    private static final String HOLDER = """
+            package com.mybot;
+            import java.util.List;
+            public class Subject {
+                private Legacy kept;
+                public void run(Legacy given) {
+                    List<Legacy> all = null;
+                    Object o = null;
+                    Legacy cast = (Legacy) o;
+                }
+            }
+            """;
+
+    @Test
+    void aBotThatOnlyHoldsARemovedTypeIsStillRefused(@TempDir Path tmp) throws IOException {
+        Report r = reportFor(tmp, HOLDER);
+
+        Break gone = brk(r, "Legacy").orElseThrow(
+                () -> new AssertionError("a type written but never called is still a break: " + r.breaks()));
+        assertEquals(BreakKind.TYPE_REMOVED, gone.kind());
+        assertFalse(r.canMigrate(), "there is no value to stand in for a type in a declaration");
+        // The declaration, the parameter, the type argument, and the cast — which writes the name twice on
+        // one line and is one place to look, since the sites are deduplicated.
+        assertEquals(List.of(4, 5, 6, 8), gone.sites().stream().map(SdkUpgradeService.CallSite::line).toList(),
+                gone.sites().toString());
+    }
+
+    @Test
+    void aRenamedTypeIsRepairedEvenWhereTheBotOnlyWritesIt(@TempDir Path tmp) throws IOException {
+        Map<String, String> before = withPointers(oldSdk());
+        before.put("Legacy", """
+                package %s;
+                @ReplacedBy("com.botmaker.sdk.api.Modern")
+                public class Legacy {
+                    public static void anything() {}
+                }
+                """.formatted(PKG));
+        Map<String, String> after = withPointers(newSdk());
+        after.put("Modern", modern(""));
+
+        Report r = serviceOver(tmp, HOLDER).compare(jarOf(tmp, "old", before, Map.of()),
+                jarOf(tmp, "new", after, Map.of()), "1.0.0", "2.0.0");
+
+        Break renamed = brk(r, "Legacy").orElseThrow(() -> new AssertionError(r.breaks().toString()));
+        assertEquals(BreakKind.TYPE_RENAMED, renamed.kind(), r.breaks() + " " + r.problems());
+        assertTrue(r.canMigrate(), "the rename is file-wide and always covered these places: " + r.problems());
+        assertEquals(List.of(4, 5, 6, 8),
+                renamed.sites().stream().map(SdkUpgradeService.CallSite::line).toList(),
+                "the report has to name every one, since the rewrite touches every one: " + renamed.sites());
+    }
+
+    // -------------------------------------------------------------------------
     // Deprecation, additions
     // -------------------------------------------------------------------------
 

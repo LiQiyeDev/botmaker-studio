@@ -424,15 +424,15 @@ public final class SdkUpgradeService {
         List<String> problems = new ArrayList<>();
         Set<String> known = new LinkedHashSet<>(before.keySet());
         known.addAll(after.keySet());
-        List<Call> calls = callsIn(known, fieldOwners(before, after), problems);
+        Uses uses = usesIn(known, fieldOwners(before, after), problems);
         // Writes into problems too — an old spelling two survivors both claim is a question this cannot
         // answer, and it is recorded before the list is frozen.
         Pairing pairing = Pairing.of(before, after, from, problems, throughDeprecations);
 
         return new Report(from, to,
                 additions(before, after),
-                deprecations(before, after, calls, pairing),
-                breaks(before, after, calls, pairing),
+                deprecations(before, after, uses.calls(), pairing),
+                breaks(before, after, uses, pairing),
                 List.copyOf(problems));
     }
 
@@ -518,21 +518,22 @@ public final class SdkUpgradeService {
         Map<String, List<String>> fieldOwners = fieldOwners(before, after);
         Pairing pairing = Pairing.of(before, after, from, problems, throughDeprecations);
 
-        List<Call> calls = callsIn(known, fieldOwners, problems);
+        Uses uses = usesIn(known, fieldOwners, problems);
         // The same all-or-nothing rule the report states: anything the scan could not answer — a file that
         // does not parse, an old name two survivors both claim — stops the rewrite before it writes.
         if (!problems.isEmpty()) throw new IllegalStateException(problems.getFirst());
 
-        List<Break> breaks = breaks(before, after, calls, pairing);
+        List<Break> breaks = breaks(before, after, uses, pairing);
         Break refused = breaks.stream().filter(b -> !b.isRepairable()).findFirst().orElse(null);
         if (refused != null) {
             throw new IllegalStateException("\"" + refused.type() + "\" is gone from SDK " + targetVersion
                     + " and nothing in that release takes its place, so there is no value to stand in for it "
-                    + "where this bot writes the type itself. Change those " + refused.sites().size()
-                    + " place(s) by hand, then upgrade. Nothing has been changed.");
+                    + "where this bot writes the type itself. Change these by hand, then upgrade: "
+                    + String.join(", ", refused.sites().stream().map(CallSite::toString).toList())
+                    + ". Nothing has been changed.");
         }
 
-        SdkMigrationRunner.Repairs repairs = repairsFor(before, after, calls, pairing, allowDefaults);
+        SdkMigrationRunner.Repairs repairs = repairsFor(before, after, uses, pairing, allowDefaults);
         if (repairs.isEmpty()) return;
 
         List<ProjectFile> editable = new ArrayList<>();
@@ -572,13 +573,26 @@ public final class SdkUpgradeService {
      */
     private static SdkMigrationRunner.Repairs repairsFor(Map<String, ApiClass> before,
                                                          Map<String, ApiClass> after,
-                                                         List<Call> calls, Pairing pairing,
+                                                         Uses uses, Pairing pairing,
                                                          boolean allowDefaults) {
         Map<String, SdkMigrationRunner.TypeRename> types = new LinkedHashMap<>();
         Map<String, SdkMigrationRunner.Redirect> redirects = new LinkedHashMap<>();
         Map<String, SdkMigrationRunner.Removal> removals = new LinkedHashMap<>();
 
-        for (Call call : calls) {
+        // A type the bot only *writes* — `ImageTemplate t;`, a parameter, a type argument — is renamed on
+        // the same evidence as one it calls. The rename itself was always file-wide and so always covered
+        // these places; what was missing was any reason to run it on a file that makes no call at all.
+        for (TypeUse use : uses.types()) {
+            ApiClass then = before.get(use.type());
+            if (then == null) continue;
+            ApiClass now = pairing.pairedTo(then, after);
+            if (now != null && !now.simpleName().equals(then.simpleName())) {
+                types.putIfAbsent(then.simpleName(),
+                        new SdkMigrationRunner.TypeRename(then.name(), now.name()));
+            }
+        }
+
+        for (Call call : uses.calls()) {
             ApiClass then = before.get(call.type());
             if (then == null || !declares(then, call)) continue;
 
@@ -598,9 +612,10 @@ public final class SdkUpgradeService {
             // Nothing to redirect to. Either the call already resolves on the paired type — the type sweep
             // will carry it across on its own — or there is nowhere for it to go and a default stands in.
             if (!allowDefaults || offers(now, call.member(), call.argCount())) continue;
+            String removed = returnTypeOf(then, call);
             removals.putIfAbsent(key,
                     new SdkMigrationRunner.Removal(then.simpleName(), call.member(), call.argCount(),
-                            returnTypeOf(then, call)));
+                            removed, returnTypeFqn(removed, after)));
         }
         return new SdkMigrationRunner.Repairs(List.copyOf(types.values()), List.copyOf(redirects.values()),
                 List.copyOf(removals.values()));
@@ -652,7 +667,7 @@ public final class SdkUpgradeService {
             String newReturn = typeOfField(owner, name);
             return new SdkMigrationRunner.Redirect(then.simpleName(), call.member(), call.argCount(),
                     moved ? owner.name() : null, name, List.of(), oldReturn, newReturn,
-                    fits(oldReturn, newReturn, after));
+                    fits(oldReturn, newReturn, after), returnTypeFqn(oldReturn, after));
         }
 
         List<ApiMember> overloads = owner.byName().getOrDefault(name, List.of()).stream()
@@ -670,7 +685,8 @@ public final class SdkUpgradeService {
         }
         return new SdkMigrationRunner.Redirect(then.simpleName(), call.member(), call.argCount(),
                 moved ? owner.name() : null, name, argumentsFor(call.argCount(), chosen),
-                oldReturn, chosen.type(), fits(oldReturn, chosen.type(), after));
+                oldReturn, chosen.type(), fits(oldReturn, chosen.type(), after),
+                returnTypeFqn(oldReturn, after));
     }
 
     /**
@@ -742,6 +758,21 @@ public final class SdkUpgradeService {
                 // guess than none, and they are usually the same.
                 .orElseGet(() -> then.byName().getOrDefault(call.member(), List.of()).stream()
                         .map(ApiMember::type).findFirst().orElse("void"));
+    }
+
+    /**
+     * That same type spelled fully, <em>as the target jar has it</em> — null when the target has no such
+     * class, which includes every primitive, {@code void} and {@code String}.
+     *
+     * <p>It is asked of the target and not of the old jar on purpose: this is what a cast in the repaired
+     * source will name, and naming a class the release just dropped would trade one compile error for
+     * another. Where it answers null the repair writes the bare literal, exactly as it did before — and the
+     * one case that would leave uncompilable ({@code ImageTemplate t;} against a jar without it) is a
+     * {@link BreakKind#TYPE_REMOVED} break, which has already refused the upgrade.
+     */
+    private static String returnTypeFqn(String returnType, Map<String, ApiClass> after) {
+        ApiClass klass = after.get(returnType);
+        return klass == null ? null : klass.name();
     }
 
     // =========================================================================
@@ -1182,9 +1213,22 @@ public final class SdkUpgradeService {
         }
     }
 
-    private List<Call> callsIn(Set<String> sdkTypes, Map<String, List<String>> fieldOwners,
-                               List<String> problems) {
+    /**
+     * One place the bot writes an SDK type's name without calling it — {@code ImageTemplate t;}, a parameter,
+     * a {@code List<ImageTemplate>}, a cast.
+     *
+     * <p>It carries no member because there is none: this is the bot depending on a type <em>existing</em>.
+     * That is why it is here at all — a removed type is the one break with no repair, and a report built only
+     * from calls said nothing about a bot that merely holds one.
+     */
+    private record TypeUse(String type, CallSite site) {}
+
+    /** Everything one pass over the bot's sources found, which is what every reader downstream needs. */
+    private record Uses(List<Call> calls, List<TypeUse> types) {}
+
+    private Uses usesIn(Set<String> sdkTypes, Map<String, List<String>> fieldOwners, List<String> problems) {
         List<Call> calls = new ArrayList<>();
+        List<TypeUse> types = new ArrayList<>();
         for (ProjectFile file : state.getAllFiles()) {
             String path = relativePath(file.getPath());
             CompilationUnit cu = SourceParser.parse(file.getContent());
@@ -1198,8 +1242,12 @@ public final class SdkUpgradeService {
                 calls.add(new Call(reference.type(), reference.member(), reference.argCount(),
                         new CallSite(path, cu.getLineNumber(reference.site().node().getStartPosition()))));
             }
+            for (SdkReferences.TypeUse use : SdkReferences.typeUses(file, cu, sdkTypes)) {
+                types.add(new TypeUse(use.type(),
+                        new CallSite(path, cu.getLineNumber(use.site().node().getStartPosition()))));
+            }
         }
-        return calls;
+        return new Uses(List.copyOf(calls), List.copyOf(types));
     }
 
     private String relativePath(Path path) {
@@ -1310,31 +1358,26 @@ public final class SdkUpgradeService {
      * exactly what the {@code repair} sentence is for.
      */
     private static List<Break> breaks(Map<String, ApiClass> before, Map<String, ApiClass> after,
-                                      List<Call> calls, Pairing pairing) {
+                                      Uses uses, Pairing pairing) {
         Map<String, Break> found = new LinkedHashMap<>();
         Map<String, List<CallSite>> sites = new LinkedHashMap<>();
 
-        for (Call call : calls) {
+        // The type verdict first, and from the places the bot writes the type *name* — which a call scan
+        // never sees. Without this a bot whose only contact with a removed class is `ImageTemplate t;` got no
+        // finding at all and was upgraded into something that does not compile.
+        for (TypeUse use : uses.types()) {
+            ApiClass then = before.get(use.type());
+            if (then != null) typeVerdict(found, sites, then, after, pairing, use.site());
+        }
+
+        for (Call call : uses.calls()) {
             ApiClass then = before.get(call.type());
             // In the shape the bot uses it: a name the old jar had only as a method is not evidence that
             // this file's `Foo.NAME` was ever SDK, and vice versa.
             if (then == null || !declares(then, call)) continue;
 
+            if (typeVerdict(found, sites, then, after, pairing, call.site())) continue;
             ApiClass now = pairing.pairedTo(then, after);
-            if (now == null) {
-                record(found, sites, new Break(call.type(), "", BreakKind.TYPE_REMOVED, "",
-                        "nothing — this one has to be changed by hand", List.of()), call.site());
-                continue;
-            }
-            // A type paired elsewhere while its own name survives in the target is not a break — the bot
-            // goes on compiling. That is a modernisation (a deprecated class pointed at its successor), and
-            // it belongs on the deprecation list, where the rename is offered rather than announced.
-            if (!now.simpleName().equals(then.simpleName()) && !after.containsKey(then.simpleName())) {
-                record(found, sites, new Break(call.type(), "", BreakKind.TYPE_RENAMED,
-                        "now " + now.simpleName(),
-                        "every use of \"" + call.type() + "\" becomes \"" + now.simpleName() + "\"",
-                        List.of()), call.site());
-            }
 
             // A call that still resolves under the same spelling is no break at all — deprecated or not,
             // pointed somewhere or not, it compiles, and a deprecation is not a break. One that resolves
@@ -1373,6 +1416,35 @@ public final class SdkUpgradeService {
                 })
                 .sorted(Comparator.comparing(Break::display))
                 .toList();
+    }
+
+    /**
+     * Records what became of {@code then} as a type, at one site — true when it is <b>gone</b>, which is the
+     * caller's cue that there is nothing further to say about that site.
+     *
+     * <p>One place builds the two type findings because two loops now reach them: a call written on the type,
+     * and a place the type is written on its own. Both are the same fact about the same class, so both file
+     * into the same finding and the sites simply accumulate.
+     */
+    private static boolean typeVerdict(Map<String, Break> found, Map<String, List<CallSite>> sites,
+                                       ApiClass then, Map<String, ApiClass> after, Pairing pairing,
+                                       CallSite site) {
+        ApiClass now = pairing.pairedTo(then, after);
+        if (now == null) {
+            record(found, sites, new Break(then.simpleName(), "", BreakKind.TYPE_REMOVED, "",
+                    "nothing — this one has to be changed by hand", List.of()), site);
+            return true;
+        }
+        // A type paired elsewhere while its own name survives in the target is not a break — the bot goes on
+        // compiling. That is a modernisation (a deprecated class pointed at its successor), and it belongs on
+        // the deprecation list, where the rename is offered rather than announced.
+        if (!now.simpleName().equals(then.simpleName()) && !after.containsKey(then.simpleName())) {
+            record(found, sites, new Break(then.simpleName(), "", BreakKind.TYPE_RENAMED,
+                    "now " + now.simpleName(),
+                    "every use of \"" + then.simpleName() + "\" becomes \"" + now.simpleName() + "\"",
+                    List.of()), site);
+        }
+        return false;
     }
 
     private static void record(Map<String, Break> found, Map<String, List<CallSite>> sites,

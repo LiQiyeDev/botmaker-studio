@@ -102,6 +102,119 @@ class MigrationEditsTest {
         assertFalse(source.contains(";;"), "the statement goes whole, semicolon included:\n" + source);
     }
 
+    // --- a default that has to say what type it is ---------------------------------------------------------
+
+    /**
+     * The three positions where a bare {@code null} is not an answer, and the one where it is.
+     *
+     * <p>A receiver is the clear case: {@code null.width()} is not Java at all, so before this the repair
+     * traded a missing method for a file that would not parse. An argument to something overloaded is the
+     * quiet one — it compiles right up until two overloads both accept {@code null}, and then javac refuses
+     * a call the user never wrote. An assignment already has a type on its left, so it takes the plain
+     * literal: a cast there is noise in a diff somebody has to read.
+     */
+    @Test
+    void aDefaultInAPositionWithNoTypeOfItsOwnIsCast() {
+        String receiver = """
+                package test;
+
+                public class Bot {
+                    public void run() {
+                        int w = Vision.find("target", 3).width();
+                    }
+                }
+                """;
+        String source = rewrite(receiver, unit -> new CallChange.ValueDefaulted(callTo(unit, "find"),
+                "ImageTemplate", "com.botmaker.sdk.api.vision.ImageTemplate"));
+
+        assertParses(source);
+        assertTrue(source.contains("((ImageTemplate) null).width()"), source);
+        assertTrue(source.contains("import com.botmaker.sdk.api.vision.ImageTemplate;"),
+                "the cast names a type this file has to be able to resolve:\n" + source);
+    }
+
+    @Test
+    void aDefaultPassedToSomethingOverloadedIsCastToo() {
+        String argument = """
+                package test;
+
+                public class Bot {
+                    public void run() {
+                        show(Vision.find("target", 3));
+                    }
+
+                    private void show(ImageTemplate t) {}
+
+                    private void show(String s) {}
+                }
+                """;
+        String source = rewrite(argument, unit -> new CallChange.ValueDefaulted(callTo(unit, "find"),
+                "ImageTemplate", "com.botmaker.sdk.api.vision.ImageTemplate"));
+
+        assertParses(source);
+        assertTrue(source.contains("show(((ImageTemplate) null))"), source);
+    }
+
+    @Test
+    void aDefaultAssignedToAVariableKeepsThePlainLiteral() {
+        String assigned = """
+                package test;
+
+                public class Bot {
+                    public void run() {
+                        ImageTemplate t = Vision.find("target", 3);
+                    }
+                }
+                """;
+        String source = rewrite(assigned, unit -> new CallChange.ValueDefaulted(callTo(unit, "find"),
+                "ImageTemplate", "com.botmaker.sdk.api.vision.ImageTemplate"));
+
+        assertParses(source);
+        assertTrue(source.contains("ImageTemplate t = null;"), source);
+        assertFalse(source.contains("(ImageTemplate) null"), "nothing to disambiguate here:\n" + source);
+    }
+
+    /**
+     * No FQN means the target jar has no such type, and a cast to a class that is not there would trade one
+     * compile error for another. The bare literal is written instead — which is what the bot's own
+     * {@code TYPE_REMOVED} break is for, and it refuses the upgrade before this is reached.
+     */
+    @Test
+    void aDefaultWithNothingToCastToStaysBare() {
+        String receiver = """
+                package test;
+
+                public class Bot {
+                    public void run() {
+                        int w = Vision.find("target", 3).width();
+                    }
+                }
+                """;
+        String source = rewrite(receiver,
+                unit -> new CallChange.ValueDefaulted(callTo(unit, "find"), "ImageTemplate", null));
+
+        assertParses(source);
+        assertTrue(source.contains("null.width()"), source);
+    }
+
+    @Test
+    void aDefaultThatIsNotNullNeverNeedsACastAnywhere() {
+        String receiver = """
+                package test;
+
+                public class Bot {
+                    public void run() {
+                        int n = Vision.name("target", 3).length();
+                    }
+                }
+                """;
+        String source = rewrite(receiver, unit -> new CallChange.ValueDefaulted(callTo(unit, "name"),
+                "String", "java.lang.String"));
+
+        assertParses(source);
+        assertTrue(source.contains("\"\".length()"), source);
+    }
+
     @Test
     void aDeletionOfSomethingThatIsNotAStatementRefusesRatherThanGuessing() {
         String consumed = """

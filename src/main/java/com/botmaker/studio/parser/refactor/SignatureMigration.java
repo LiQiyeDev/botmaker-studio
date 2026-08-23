@@ -133,8 +133,14 @@ public final class SignatureMigration {
          * where the type is one the editor offers and certainly exists, and wrong here, where the type is
          * frequently the one that was just <em>removed</em>: {@code new Key()} names a class the target jar
          * does not have, trading a missing method for a missing class. A literal always compiles.
+         *
+         * <p>{@code typeFqn} is that type's fully-qualified name <b>in the jar being upgraded to</b>, or null
+         * when the target has no such type (or the default is not a {@code null} at all). It is what lets a
+         * site with no type of its own — a receiver, an overloaded argument — be written
+         * {@code ((ImageTemplate) null)} instead of a bare {@code null} that would not compile or would not
+         * pick an overload. See {@link CallMigrator#literalDefaultFor}.
          */
-        record ValueDefaulted(CallSite site, String typeName) implements CallChange {}
+        record ValueDefaulted(CallSite site, String typeName, String typeFqn) implements CallChange {}
 
         /**
          * The call stood as a line of its own and is removed outright, statement and all.

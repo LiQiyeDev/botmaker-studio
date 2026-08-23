@@ -116,7 +116,10 @@ there are three distinct relationships to keep straight:
     the arguments already passed are kept in order and the difference filled or dropped, which is
     `SignatureMigration`'s machinery. Everything the check refuses falls back to a **literal default of the
     type the old jar said it returned** (`CallMigrator.literalDefaultFor`: `false`, `0`, `""`, `null` — never
-    `new Point()`, since the type is often the one just removed), a **deleted statement** for a `void`
+    `new Point()`, since the type is often the one just removed — and **cast where the site gives the value
+    no type of its own**: `((ImageTemplate) null).width()`, since `null.width()` is not Java and a bare
+    `null` argument can make an overload ambiguous; an assignment or a `return` keeps the plain literal), a
+    **deleted statement** for a `void`
     (`CallChange.CallDeleted`, because `0;` is not a statement), and `@NeedsReview` on the enclosing function
     **in the same rewrite** — see the review-marks bullet below. *The repair makes the bot compile; the user
     makes it correct.*
@@ -250,6 +253,15 @@ there are three distinct relationships to keep straight:
     disagreement's shape is the worst available — a dialog listing three call sites beside a button that
     repairs two. A `Reference` therefore carries a `MethodReferences.CallSite` (file, parse, **node**); the
     report keeps the line and drops the node, the runner keeps the node.
+  - **A member is not the only thing a bot can lose: `SdkReferences.typeUses` is the other half.** It yields
+    every place the source *writes* an SDK type without calling it — a field, a parameter, a return type, a
+    local, a cast, a type argument, an `instanceof`, a catch clause — and `breaks()` reads it, so a removed
+    unpaired type is a `TYPE_REMOVED` break **even in a bot with zero calls**, and a `TYPE_RENAMED` one lists
+    those places too. Until 2026-08-23 such a bot got *no finding at all* and was upgraded into something
+    that did not compile; the file-wide rename was always right, only the report and the gate that decides a
+    file is worth renaming were blind to it. `mentions` is now the same walk asking a narrower question —
+    the three positions `renameTypeIn` actually rewrites, plus a static import's qualifier — rather than
+    "any name anywhere", which matched a local variable that happened to share a class's name.
   - **Studio's own scaffolding is refused, not rewritten and not regenerated.** Only `FileRole.EDITABLE`
     files are migrated. A generated file (the entry point, `FlowDriver`, `ActivityRegistry`, `Activities`,
     `Templates`) is rendered from *Studio's* templates, so rewriting it would be overwritten at the next
