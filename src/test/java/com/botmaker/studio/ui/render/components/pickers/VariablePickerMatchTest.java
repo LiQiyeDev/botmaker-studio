@@ -7,6 +7,7 @@ import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jdt.core.dom.Expression;
 import org.eclipse.jdt.core.dom.ExpressionStatement;
 import org.eclipse.jdt.core.dom.MethodDeclaration;
+import org.eclipse.jdt.core.dom.MethodInvocation;
 import org.eclipse.jdt.core.dom.Statement;
 import org.eclipse.jdt.core.dom.TypeDeclaration;
 import org.junit.jupiter.api.Test;
@@ -37,7 +38,7 @@ class VariablePickerMatchTest {
         MethodDeclaration run = ((TypeDeclaration) unit.types().getFirst()).getMethods()[0];
         @SuppressWarnings("unchecked")
         List<Statement> statements = run.getBody().statements();
-        org.eclipse.jdt.core.dom.MethodInvocation call =
+      MethodInvocation call =
                 (org.eclipse.jdt.core.dom.MethodInvocation) ((ExpressionStatement) statements.getFirst()).getExpression();
         Expression argument = (Expression) call.arguments().getFirst();
         return () -> argument;

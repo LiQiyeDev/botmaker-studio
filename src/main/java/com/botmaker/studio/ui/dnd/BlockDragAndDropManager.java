@@ -424,7 +424,7 @@ public class BlockDragAndDropManager {
 
     /** @param targetBody the body the "+" inserts into — blocks illegal there are left out of the menu */
     public void enableSeparatorClick(Pane separator, com.botmaker.studio.suggestions.ProjectAnalyzer analyzer,
-                                     org.eclipse.jdt.core.dom.ASTNode targetBody, Consumer<BlockType> onInsert) {
+                                   ASTNode targetBody, Consumer<BlockType> onInsert) {
         for (Node child : separator.getChildren()) {
             if (child instanceof Button) {
                 Button btn = (Button) child;

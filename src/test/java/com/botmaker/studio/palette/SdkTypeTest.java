@@ -22,11 +22,14 @@ class SdkTypeTest {
     private static final List<String> EXPECTED_FACADES = List.of(
             "Mouse", "Keyboard", "Wait", "ImageFinder", "ImageClicker", "ImageWaiter", "Pixel", "Text",
             "VisionContext", "BotSettings", "Debug", "Session", "Game", "Target", "Emulators", "Bot",
-            "Watchdog", "PopupGuard", "Activity", "Source", "Window", "Bots", "Time");
+            "Watchdog", "PopupGuard", "Activity", "Source", "Window", "Time");
 
-    /** The exact set the removed {@code SdkApi.MENU_HIDDEN} carried. */
+    /**
+     * The set the removed {@code SdkApi.MENU_HIDDEN} carried, minus {@code Bots}: SDK 1.1.0 moved the whole
+     * observation stack into {@code com.botmaker.sdk.internal}, so there is no longer an SDK call to hide.
+     */
     private static final List<String> EXPECTED_HIDDEN =
-            List.of("Bots", "Window", "Watchdog", "PopupGuard", "Debug", "Session");
+            List.of("Window", "Watchdog", "PopupGuard", "Debug", "Session");
 
     @Test
     void facadeSetAndOrderAreUnchanged() {
@@ -67,7 +70,8 @@ class SdkTypeTest {
                 SdkType.byName("ImageFinder").orElseThrow().qualifiedName());
         assertEquals("com.botmaker.sdk.api.vision.ImageTemplate",
                 SdkType.byName("ImageTemplate").orElseThrow().qualifiedName());
-        assertEquals("com.botmaker.sdk.api.Point", SdkType.byName("Point").orElseThrow().qualifiedName());
+        assertEquals("com.botmaker.sdk.api.geometry.Point",
+                SdkType.byName("Point").orElseThrow().qualifiedName());
     }
 
     @Test

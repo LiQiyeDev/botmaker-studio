@@ -35,12 +35,16 @@ class BotTypeTest {
                 .flatMap(t -> t.sdkType().stream())
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
 
-        // Plumbing, the target dialogs' business, and the observation callbacks. If one of these ever belongs
-        // in a variable declaration, that is a decision to take deliberately — not by widening a filter.
+        // Plumbing and the target dialogs' business. If one of these ever belongs in a variable declaration,
+        // that is a decision to take deliberately — not by widening a filter.
+        //
+        // The list is shorter than it was because SDK 1.1.0 settled several of these at the source: the
+        // CaptureSource implementations and the whole observation stack moved to com.botmaker.sdk.internal,
+        // so they are not in SdkType at all any more and cannot be offered by any filter. What is left here
+        // is the set that is still public API and still excluded by this file's judgement rather than by the
+        // SDK's package boundary.
         for (SdkType excluded : List.of(SdkType.BOT_MAKER, SdkType.BOT_STUCK_EXCEPTION, SdkType.START_MODE,
-                SdkType.DESKTOP, SdkType.MONITOR, SdkType.NAMED_WINDOW, SdkType.SCREEN, SdkType.SESSION_SOURCE,
                 SdkType.EMULATOR_SOURCE, SdkType.EMULATOR, SdkType.EMULATOR_REF, SdkType.LAUNCH_TARGET,
-                SdkType.SURFACE, SdkType.CLICK_EVENT, SdkType.MATCH_EVENT, SdkType.BOT_OBSERVER,
                 SdkType.SESSION, SdkType.TIME)) {
             assertFalse(offered.contains(excluded), excluded + " should not be offered as a bot type");
         }

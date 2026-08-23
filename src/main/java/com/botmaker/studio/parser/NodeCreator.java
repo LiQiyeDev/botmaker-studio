@@ -50,10 +50,10 @@ public class NodeCreator {
                 case ExpressionChoice.NewVariable nv -> ast.newSimpleName(nv.name());
                 // A ready-made snippet (e.g. a capture-source helper call): parse and copy into this AST.
                 case ExpressionChoice.RawExpression rx -> {
-                    org.eclipse.jdt.core.dom.ASTParser p = org.eclipse.jdt.core.dom.ASTParser.newParser(AST.getJLSLatest());
+                  ASTParser p = org.eclipse.jdt.core.dom.ASTParser.newParser(AST.getJLSLatest());
                     p.setKind(org.eclipse.jdt.core.dom.ASTParser.K_EXPRESSION);
                     p.setSource(rx.code().toCharArray());
-                    org.eclipse.jdt.core.dom.ASTNode parsed = p.createAST(null);
+                  ASTNode parsed = p.createAST(null);
                     yield (parsed instanceof Expression pe) ? (Expression) ASTNode.copySubtree(ast, pe) : ast.newNullLiteral();
                 }
             };

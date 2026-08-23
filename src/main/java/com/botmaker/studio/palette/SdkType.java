@@ -1,32 +1,24 @@
 package com.botmaker.studio.palette;
 
-import com.botmaker.sdk.api.BotMaker;
-import com.botmaker.sdk.api.BotSettings;
-import com.botmaker.sdk.api.Debug;
-import com.botmaker.sdk.api.Point;
-import com.botmaker.sdk.api.Rect;
-import com.botmaker.sdk.api.Session;
-import com.botmaker.sdk.api.Size;
-import com.botmaker.sdk.api.Time;
 import com.botmaker.sdk.api.bot.Activity;
 import com.botmaker.sdk.api.bot.Bot;
+import com.botmaker.sdk.api.bot.BotSettings;
 import com.botmaker.sdk.api.bot.BotStuckException;
 import com.botmaker.sdk.api.bot.PopupGuard;
+import com.botmaker.sdk.api.bot.Session;
 import com.botmaker.sdk.api.bot.StartMode;
 import com.botmaker.sdk.api.bot.Watchdog;
 import com.botmaker.sdk.api.capture.CaptureSource;
-import com.botmaker.sdk.api.capture.Desktop;
-import com.botmaker.sdk.api.capture.Monitor;
-import com.botmaker.sdk.api.capture.NamedWindow;
-import com.botmaker.sdk.api.capture.Screen;
-import com.botmaker.sdk.api.capture.SessionSource;
 import com.botmaker.sdk.api.capture.Source;
 import com.botmaker.sdk.api.capture.Window;
-import com.botmaker.sdk.api.core.Direction;
 import com.botmaker.sdk.api.emulator.Emulator;
 import com.botmaker.sdk.api.emulator.EmulatorRef;
 import com.botmaker.sdk.api.emulator.Emulators;
 import com.botmaker.sdk.api.emulator.EmulatorSource;
+import com.botmaker.sdk.api.geometry.Direction;
+import com.botmaker.sdk.api.geometry.Point;
+import com.botmaker.sdk.api.geometry.Rect;
+import com.botmaker.sdk.api.geometry.Size;
 import com.botmaker.sdk.api.interaction.Key;
 import com.botmaker.sdk.api.interaction.Keyboard;
 import com.botmaker.sdk.api.interaction.Mouse;
@@ -35,11 +27,9 @@ import com.botmaker.sdk.api.interaction.Wait;
 import com.botmaker.sdk.api.launch.Game;
 import com.botmaker.sdk.api.launch.LaunchTarget;
 import com.botmaker.sdk.api.launch.Target;
-import com.botmaker.sdk.api.observe.BotObserver;
-import com.botmaker.sdk.api.observe.Bots;
-import com.botmaker.sdk.api.observe.ClickEvent;
-import com.botmaker.sdk.api.observe.MatchEvent;
-import com.botmaker.sdk.api.observe.Surface;
+import com.botmaker.sdk.api.util.BotMaker;
+import com.botmaker.sdk.api.util.Debug;
+import com.botmaker.sdk.api.util.Time;
 import com.botmaker.sdk.api.vision.ColorMatch;
 import com.botmaker.sdk.api.vision.ImageClicker;
 import com.botmaker.sdk.api.vision.ImageFinder;
@@ -63,6 +53,14 @@ import java.util.Optional;
 /**
  * The BotMaker-SDK public API surface as a closed, compiler-checked set — every class under
  * {@code com.botmaker.sdk.api}, named by a real class literal rather than a string.
+ *
+ * <p><b>Only {@code api}, never {@code internal}.</b> The SDK draws that line for us: a type a bot can
+ * <em>write down</em> lives in {@code api}, and a type it can only ever <em>receive</em> lives in
+ * {@code internal}. The {@code CaptureSource} implementations ({@code Desktop}, {@code Monitor},
+ * {@code NamedWindow}, {@code SessionSource}) and the whole observation stack ({@code Bots},
+ * {@code BotObserver}, {@code Surface}, the event records) moved there in SDK 1.1.0 and left this enum with
+ * them. Nothing here should be added back for a type only a factory returns — this file is the palette's
+ * spelling of the SDK's own boundary, not a second one.
  *
  * <p>This replaces the old {@code SdkApi}, which mirrored the facade names as a hand-maintained
  * {@code List<String>} that nothing verified. Three things follow from holding the {@link Class} instead:
@@ -133,7 +131,6 @@ public enum SdkType {
     ACTIVITY(Activity.class, Role.FACADE, "◎"),
     SOURCE(Source.class, Role.FACADE, "🎯"),
     WINDOW(Window.class, Role.FACADE_HIDDEN, "🪟"),
-    BOTS(Bots.class, Role.FACADE_HIDDEN, "🤖"),
     TIME(Time.class, Role.FACADE),
 
     // ---------------------------------------------------------------------------------------------------
@@ -149,12 +146,6 @@ public enum SdkType {
     BOT_STUCK_EXCEPTION(BotStuckException.class, Role.VALUE),
     START_MODE(StartMode.class, Role.VALUE),
     CAPTURE_SOURCE(CaptureSource.class, Role.VALUE),
-    DESKTOP(Desktop.class, Role.VALUE),
-    MONITOR(Monitor.class, Role.VALUE),
-    NAMED_WINDOW(NamedWindow.class, Role.VALUE),
-    /** Intentionally not a facade — it is no longer a user-facing {@code CaptureSource}. */
-    SCREEN(Screen.class, Role.VALUE),
-    SESSION_SOURCE(SessionSource.class, Role.VALUE),
     DIRECTION(Direction.class, Role.VALUE),
     EMULATOR(Emulator.class, Role.VALUE),
     EMULATOR_REF(EmulatorRef.class, Role.VALUE),
@@ -162,10 +153,6 @@ public enum SdkType {
     KEY(Key.class, Role.VALUE),
     MOUSE_BUTTON(MouseButton.class, Role.VALUE),
     LAUNCH_TARGET(LaunchTarget.class, Role.VALUE),
-    BOT_OBSERVER(BotObserver.class, Role.VALUE),
-    CLICK_EVENT(ClickEvent.class, Role.VALUE),
-    MATCH_EVENT(MatchEvent.class, Role.VALUE),
-    SURFACE(Surface.class, Role.VALUE),
     COLOR_MATCH(ColorMatch.class, Role.VALUE),
     IMAGE_TEMPLATE(ImageTemplate.class, Role.VALUE),
     IMAGE_TEMPLATE_GROUP(ImageTemplateGroup.class, Role.VALUE),
@@ -181,9 +168,9 @@ public enum SdkType {
         /**
          * A facade <em>recognized</em> as an SDK call — so existing calls render with the standard SDK-block
          * chrome and are excluded from the generic "Library (static)" listings — but hidden from the insert
-         * menus. {@code Bots}/{@code Window}/{@code Watchdog} are internal wiring the user shouldn't reach
-         * for directly: bot supervision is driven by {@code Bot.start}, capture by the capture-source picker,
-         * and the watchdog by the generated loop. {@code PopupGuard} is the same kind of wiring — the entry
+         * menus. {@code Window}/{@code Watchdog} are internal wiring the user shouldn't reach
+         * for directly: capture is driven by the capture-source picker and the watchdog by the generated
+         * loop. {@code PopupGuard} is the same kind of wiring — the entry
          * point installs it and the flow driver toggles it from each activity's "check for popups" tick; what
          * the user edits is {@code Popups.run()}, not the guard.
          */

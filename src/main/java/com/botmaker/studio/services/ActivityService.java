@@ -385,11 +385,11 @@ public final class ActivityService {
         return String.format("""
                 package com.%s;
 
-                import com.botmaker.sdk.api.Debug;
                 import com.botmaker.sdk.api.bot.Bot;
                 import com.botmaker.sdk.api.bot.PopupGuard;
                 import com.botmaker.sdk.api.bot.Watchdog;
                 import com.botmaker.sdk.api.interaction.Wait;
+                import com.botmaker.sdk.api.util.Debug;
                 %s
                 /**
                  * Walks the Activity Flow drawn in BotMaker Studio. GENERATED — do not edit by hand; manage via

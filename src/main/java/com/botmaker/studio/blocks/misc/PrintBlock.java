@@ -9,6 +9,7 @@ import com.botmaker.studio.ui.render.layout.BlockLayout;
 import com.botmaker.studio.types.ResolvedType;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
+import org.eclipse.jdt.core.dom.Expression;
 import org.eclipse.jdt.core.dom.ExpressionStatement;
 import java.util.ArrayList;
 import java.util.List;
@@ -48,7 +49,7 @@ public class PrintBlock extends AbstractStatementBlock {
 
         // Add Button with Filter (No List in Print)
         Button addButton = createAddButton(e -> {
-            org.eclipse.jdt.core.dom.Expression toReplace = !arguments.isEmpty() ?
+          Expression toReplace = !arguments.isEmpty() ?
                     (org.eclipse.jdt.core.dom.Expression) arguments.getFirst().getAstNode() : null;
 
             showExpressionMenuAndReplace(

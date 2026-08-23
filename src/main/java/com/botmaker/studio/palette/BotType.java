@@ -32,12 +32,17 @@ import java.util.Optional;
  * most of what the SDK ships is not something a bot author should be declaring a variable of.
  *
  * <p><b>What is deliberately absent.</b> {@code BotMaker}, {@code BotStuckException} and {@code StartMode} are
- * plumbing; the {@code CaptureSource} implementations ({@code Desktop}, {@code Monitor}, {@code NamedWindow},
- * {@code Screen}, {@code SessionSource}, {@code EmulatorSource}) are chosen through the capture-target dialog
- * and never named by type — {@link #CAPTURE_SOURCE}, the interface, is the one a variable holds;
- * {@code Emulator}/{@code EmulatorRef} come from {@code Emulators.named(…)} and {@code LaunchTarget} from the
- * launch dialog; and the observation plumbing ({@code Surface}, {@code ClickEvent}, {@code MatchEvent},
- * {@code BotObserver}), {@code Session} and {@code Time} are facades or callbacks, not values to hold.
+ * plumbing; {@code EmulatorSource} is chosen through the capture-target dialog and never named by type —
+ * {@link #CAPTURE_SOURCE}, the interface, is the one a variable holds; {@code Emulator}/{@code EmulatorRef}
+ * come from {@code Emulators.named(…)} and {@code LaunchTarget} from the launch dialog; and {@code Session}
+ * and {@code Time} are facades, not values to hold.
+ *
+ * <p>That list used to be longer. SDK 1.1.0 moved the {@code CaptureSource} implementations
+ * ({@code Desktop}, {@code Monitor}, {@code NamedWindow}, {@code SessionSource}) and the observation stack
+ * ({@code Bots}, {@code BotObserver}, {@code Surface} and the event records) into
+ * {@code com.botmaker.sdk.internal}, on the rule that a type a bot can only ever <em>receive</em> is not
+ * public API. They left {@link SdkType} with that move, so this file no longer has to exclude by hand what
+ * the SDK's own package boundary now excludes.
  *
  * <p>{@link #COLOR} is the JDK's {@code java.awt.Color}, not an SDK type: it is what the block editor's colour
  * picker already commits ({@code ColorArgPicker}), so a variable holding one is the same value a block holds.

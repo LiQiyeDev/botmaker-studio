@@ -71,7 +71,7 @@ class PasteImportsTest {
         f.editor.pasteCode(f.body("run"), 1, "Point where = Mouse.position();");
 
         assertNotNull(f.lastCode);
-        assertTrue(f.lastCode.contains("import com.botmaker.sdk.api.Point;"),
+        assertTrue(f.lastCode.contains("import com.botmaker.sdk.api.geometry.Point;"),
                 () -> "Point must resolve to the SDK in:\n" + f.lastCode);
         assertFalse(f.lastCode.contains("java.awt.Point"),
                 () -> "Point must not resolve to java.awt in:\n" + f.lastCode);

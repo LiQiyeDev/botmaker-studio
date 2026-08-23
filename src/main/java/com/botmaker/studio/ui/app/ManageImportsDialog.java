@@ -151,7 +151,7 @@ public class ManageImportsDialog {
         statusLabel.setText("");
         String fqn = addField.getText() == null ? "" : addField.getText().trim();
         if (!fqn.contains(".")) {
-            error("Enter a fully-qualified class name (e.g. com.botmaker.sdk.api.Point).");
+            error("Enter a fully-qualified class name (e.g. com.botmaker.sdk.api.geometry.Point).");
             return;
         }
         if (imports.contains(fqn)) {

@@ -38,7 +38,7 @@ class EditFunctionSignatureTest {
     private static final String SOURCE = """
             package test;
 
-            import com.botmaker.sdk.api.Point;
+            import com.botmaker.sdk.api.geometry.Point;
 
             public class Subject {
                 public boolean clickAt(Point where, int tries) {
@@ -108,7 +108,7 @@ class EditFunctionSignatureTest {
 
         assertEquals(1, updates, "a half-applied signature must not be reachable, so there is one write");
         assertTrue(lastCode.contains("public void tapAt(Rect area)"), lastCode);
-        assertTrue(lastCode.contains("import com.botmaker.sdk.api.Rect;"),
+        assertTrue(lastCode.contains("import com.botmaker.sdk.api.geometry.Rect;"),
                 "a new parameter type brings its import:\n" + lastCode);
     }
 

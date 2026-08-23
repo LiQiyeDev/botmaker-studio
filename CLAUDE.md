@@ -79,6 +79,18 @@ there are three distinct relationships to keep straight:
   a hand-maintained `List<String>` that nothing verified, plus a second hand-maintained icon map in
   `MenuIcons`. **A new SDK class now needs a constant here or the surrounding code won't see it — but the
   compiler tells you when an existing one moves or is renamed.**
+
+  **`SdkType` mirrors the SDK's `api`/`internal` boundary; it does not draw a second one.** The SDK's rule is
+  *"can a bot write the name down?"* — a type it can only ever *receive* lives in `internal`. When 1.1.0
+  applied that rule, the `CaptureSource` implementations (`Desktop`, `Monitor`, `NamedWindow`,
+  `SessionSource`) and the observation stack (`Bots`, `BotObserver`, `Surface`, `ClickEvent`, `MatchEvent`,
+  `SwipeEvent`) left `api` and left this enum with them, and `Screen` was deleted. Don't add a constant back
+  for a type only a factory returns. The same release sub-packaged the whole surface — `api.geometry.Point`,
+  `api.util.Debug`, `api.bot.Session`, `api.meta.ReplacedBy` — which is why **`ImportManager.repairSdkImports`
+  exists**: an existing bot's `import com.botmaker.sdk.api.Point;` no longer resolves, so it is repointed on
+  open by asking `SdkType` for the simple name's current FQN. A name `SdkType` does not know is left
+  untouched, never guessed — a wrong import compiles into a different type, an untouched one fails where the
+  user can read why.
 - **Method knowledge does _not_ come from that jar, on purpose.** A generated bot compiles against the SDK
   version *it* pins, which may be older than Studio's. So methods still come from `ProjectAnalyzer` scanning
   the bot's **resolved** SDK jar with ClassGraph, and Javadoc from `SdkDocsService` parsing the bot's

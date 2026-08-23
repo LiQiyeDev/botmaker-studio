@@ -188,6 +188,6 @@ class ProjectCreatorTest {
         assertTrue(main.contains("BotMaker.print"), main);
         // ProjectRepair used to hold its own copy of this source that had lost the import, so a recovered
         // empty project didn't compile. There is one copy now; it must carry what it uses.
-        assertTrue(main.contains("import com.botmaker.sdk.api.BotMaker;"), main);
+        assertTrue(main.contains("import com.botmaker.sdk.api.util.BotMaker;"), main);
     }
 }

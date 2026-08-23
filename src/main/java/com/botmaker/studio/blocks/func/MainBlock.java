@@ -7,6 +7,7 @@ import javafx.scene.Node;
 import javafx.scene.control.Label;
 import javafx.scene.layout.VBox;
 import org.eclipse.jdt.core.dom.MethodDeclaration;
+import org.eclipse.jdt.core.dom.Modifier;
 import org.eclipse.jdt.core.dom.SingleVariableDeclaration;
 
 /**
@@ -20,7 +21,7 @@ public class MainBlock extends MethodDeclarationBlock {
     public MainBlock(String id, MethodDeclaration astNode, BlockDragAndDropManager manager) {
         super(id, astNode, manager);
         this.isMainMethod = FileTypeDetector.MAIN_METHOD.equals(astNode.getName().getIdentifier()) &&
-                org.eclipse.jdt.core.dom.Modifier.isStatic(astNode.getModifiers());
+              Modifier.isStatic(astNode.getModifiers());
 
         // Disable delete button for Main method
         this.isDeletable = false;

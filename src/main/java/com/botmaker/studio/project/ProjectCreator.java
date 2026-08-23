@@ -468,7 +468,7 @@ public class ProjectCreator {
         Map<String, String> sources = new LinkedHashMap<>();
         sources.put(className + ".java", String.format("""
             package com.%s;
-            import com.botmaker.sdk.api.BotMaker;
+            import com.botmaker.sdk.api.util.BotMaker;
 
             public class %s {
                 public static void main(String[] args) {
@@ -527,9 +527,9 @@ public class ProjectCreator {
         sources.put("FlowDriver.java", String.format("""
             package com.%s;
 
-            import com.botmaker.sdk.api.Debug;
             import com.botmaker.sdk.api.bot.Bot;
             import com.botmaker.sdk.api.bot.Watchdog;
+            import com.botmaker.sdk.api.util.Debug;
 
             /**
              * Walks the Activity Flow drawn in BotMaker Studio. GENERATED — do not edit by hand; manage via

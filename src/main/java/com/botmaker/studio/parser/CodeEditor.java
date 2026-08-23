@@ -895,6 +895,20 @@ public class CodeEditor {
         return ImportManager.listImports(getCompilationUnit());
     }
 
+    /**
+     * Repoints this file's SDK imports at the packages those classes live in today — see
+     * {@link ImportManager#repairSdkImports}. A no-op (and no edit, so no dirty file) when nothing is stale.
+     */
+    public List<String> repairSdkImports() {
+        List<String> repaired = new java.util.ArrayList<>();
+        edit(getCompilationUnit(), EditKind.SIGNATURE, false, (cu, code) -> {
+            ASTRewrite rewriter = ASTRewrite.create(cu.getAST());
+            repaired.addAll(ImportManager.repairSdkImports(cu, rewriter));
+            return repaired.isEmpty() ? code : AstRewriteHelper.applyRewrite(rewriter, code);
+        });
+        return List.copyOf(repaired);
+    }
+
     public void addImport(String qualifiedName) {
         edit(getCompilationUnit(), EditKind.SIGNATURE, false, (cu, code) -> {
             ASTRewrite rewriter = ASTRewrite.create(cu.getAST());

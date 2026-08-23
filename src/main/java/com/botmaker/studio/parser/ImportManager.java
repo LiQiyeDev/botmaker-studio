@@ -312,6 +312,51 @@ public class ImportManager {
         }
     }
 
+    /**
+     * Repoints this file's {@code com.botmaker.sdk.api.*} imports at wherever those classes live <em>now</em>,
+     * and reports what it changed.
+     *
+     * <p>SDK 1.1.0 reorganised the api package — {@code api.Point} became {@code api.geometry.Point},
+     * {@code api.Debug} became {@code api.util.Debug}, and so on. A bot written against an earlier SDK
+     * carries the old import lines, and a stale import is a hard compile error on a line the user never
+     * wrote: it would open every existing project with a wall of red for a rename nobody asked for. This is
+     * the repair, and it costs nothing because {@link SdkType} already holds the current FQN for every simple
+     * name the SDK owns.
+     *
+     * <p><b>An unrecognised name is left alone, deliberately.</b> A simple name {@link SdkType} does not know
+     * is either a class that left the public API (the {@code CaptureSource} implementations, the observation
+     * stack) or one this Studio is too old to know about, and there is no honest FQN to write for either. A
+     * wrong import compiles into a different type; an untouched one fails to compile where the user can read
+     * why. Nothing a bot could actually have named falls in that gap — those classes were only ever
+     * <em>returned</em>, never written down.
+     *
+     * @return the old FQNs that were repointed, in source order — empty when the file needed nothing
+     */
+    public static List<String> repairSdkImports(CompilationUnit cu, ASTRewrite rewriter) {
+        if (cu == null) return List.of();
+        List<String> repaired = new java.util.ArrayList<>();
+        ListRewrite listRewrite = rewriter.getListRewrite(cu, CompilationUnit.IMPORTS_PROPERTY);
+        for (Object o : cu.imports()) {
+            ImportDeclaration imp = (ImportDeclaration) o;
+            if (imp.isOnDemand() || imp.isStatic()) continue;
+            String stale = imp.getName().getFullyQualifiedName();
+            if (!stale.startsWith(SDK_API_PREFIX)) continue;
+
+            String simpleName = stale.substring(stale.lastIndexOf('.') + 1);
+            String current = SdkType.byName(simpleName).map(SdkType::qualifiedName).orElse(null);
+            if (current == null || current.equals(stale)) continue;
+
+            ImportDeclaration fixed = cu.getAST().newImportDeclaration();
+            fixed.setName(cu.getAST().newName(current));
+            listRewrite.replace(imp, fixed, null);
+            repaired.add(stale);
+        }
+        return List.copyOf(repaired);
+    }
+
+    /** Package prefix every SDK API class shares — the scope {@link #repairSdkImports} is allowed to touch. */
+    private static final String SDK_API_PREFIX = "com.botmaker.sdk.api.";
+
     /** The fully-qualified names of the current file's import declarations, in source order. */
     public static List<String> listImports(CompilationUnit cu) {
         if (cu == null) return List.of();

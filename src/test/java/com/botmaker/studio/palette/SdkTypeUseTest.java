@@ -40,7 +40,7 @@ class SdkTypeUseTest {
                 () -> assertEquals("ImageTemplate", ResolvedType.of(SdkType.IMAGE_TEMPLATE).simpleName()),
                 // The three sub-packages that make the FQNs underivable, and the reason ImportManager has to
                 // consult this enum first: Point/Window/Text all collide with java.awt.
-                () -> assertEquals("com.botmaker.sdk.api.Point", SdkType.POINT.qualifiedName()),
+                () -> assertEquals("com.botmaker.sdk.api.geometry.Point", SdkType.POINT.qualifiedName()),
                 () -> assertEquals("com.botmaker.sdk.api.capture.Window", SdkType.WINDOW.qualifiedName()),
                 () -> assertEquals("com.botmaker.sdk.api.interaction.Mouse", SdkType.MOUSE.qualifiedName()));
     }

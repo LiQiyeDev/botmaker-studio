@@ -24,7 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>Two things the old {@code addMethodToClass} could not do, both asserted here: a signature with parameters
  * at all, and the imports the types in it need. The second is why this path takes an {@code EditContext} — a
- * {@code Point} parameter written into a file with no {@code import com.botmaker.sdk.api.Point} is a red file,
+ * {@code Point} parameter written into a file with no {@code import com.botmaker.sdk.api.geometry.Point} is a red file,
  * and the plain rewriter had no way to add one.
  */
 class AddFunctionEditTest {
@@ -78,7 +78,7 @@ class AddFunctionEditTest {
                         new FunctionDraft.Parameter("tries", BotType.Choice.of(BotType.WHOLE_NUMBER)))), 1);
 
         assertTrue(lastCode.contains("boolean clickAt(Point where, int tries)"), lastCode);
-        assertTrue(lastCode.contains("import com.botmaker.sdk.api.Point;"),
+        assertTrue(lastCode.contains("import com.botmaker.sdk.api.geometry.Point;"),
                 "a Point parameter has to bring its import:\n" + lastCode);
         // A non-void function needs a return to compile; the seed is the type's own default, not null.
         assertTrue(lastCode.contains("return false;"), lastCode);

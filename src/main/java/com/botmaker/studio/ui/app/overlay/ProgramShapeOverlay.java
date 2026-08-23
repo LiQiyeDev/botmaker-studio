@@ -37,6 +37,7 @@ import javafx.scene.paint.Color;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import javafx.stage.Window;
+import org.eclipse.jdt.core.dom.Statement;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -661,7 +662,7 @@ public final class ProgramShapeOverlay {
      * both ✕ and Delete returned here without a word on exactly the rows the overlay is used to build.
      */
     private void delete(StatementBlock stmt, BodyBlock body, int index) {
-        org.eclipse.jdt.core.dom.Statement s = stmt.enclosingStatement();
+      Statement s = stmt.enclosingStatement();
         if (stmt.isReadOnly()) {
             status("Can't delete generated code — it's maintained by Studio.");
             return;

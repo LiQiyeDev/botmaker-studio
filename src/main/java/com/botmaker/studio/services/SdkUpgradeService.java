@@ -14,6 +14,7 @@ import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.project.vcs.ProjectVcs;
 import com.botmaker.studio.sharing.SemVer;
 import io.github.classgraph.AnnotationInfo;
+import io.github.classgraph.AnnotationInfoList;
 import io.github.classgraph.ClassInfo;
 import io.github.classgraph.FieldInfo;
 import io.github.classgraph.MethodInfo;
@@ -155,10 +156,22 @@ import java.util.concurrent.CompletableFuture;
 public final class SdkUpgradeService {
 
     /** The forward pointer, on the deprecated element. Class-retained, so it survives into the jar. */
-    private static final String REPLACED_BY = "com.botmaker.sdk.api.ReplacedBy";
+    private static final String REPLACED_BY = "com.botmaker.sdk.api.meta.ReplacedBy";
 
     /** The backward pointer, on the survivor. Same retention, same reason. */
-    private static final String REPLACES = "com.botmaker.sdk.api.Replaces";
+    private static final String REPLACES = "com.botmaker.sdk.api.meta.Replaces";
+
+    /**
+     * Where the pointers lived before SDK 1.1.0 moved them into {@code api.meta}. Both spellings are read,
+     * and the legacy one is not a courtesy: the jar being upgraded <em>from</em> is by definition the older
+     * of the two, and for a bot coming off 1.0.x it is the only jar carrying the forward pointer on the
+     * element that bot still calls. Reading only the new name would silently turn every pre-1.1.0 redirect
+     * into an unpaired break — the exact failure the pointer pair exists to prevent.
+     */
+    private static final String REPLACED_BY_LEGACY = "com.botmaker.sdk.api.ReplacedBy";
+
+    /** @see #REPLACED_BY_LEGACY */
+    private static final String REPLACES_LEGACY = "com.botmaker.sdk.api.Replaces";
 
     /** A constructor has no name of its own; this is how the pointer grammar spells one. */
     private static final String CTOR = SdkReferences.CTOR;
@@ -870,8 +883,8 @@ public final class SdkUpgradeService {
                     : lastSegment(mi.getTypeSignatureOrTypeDescriptor().getResultType().toString());
             byName.computeIfAbsent(name, k -> new ArrayList<>())
                     .add(new ApiMember(name, type, paramsOf(mi), false,
-                            pointer(mi.getAnnotationInfo().get(REPLACED_BY)),
-                            claims(mi.getAnnotationInfo().get(REPLACES))));
+                            pointer(either(mi.getAnnotationInfo(), REPLACED_BY, REPLACED_BY_LEGACY)),
+                            claims(either(mi.getAnnotationInfo(), REPLACES, REPLACES_LEGACY))));
             // A name counts as deprecated only when every overload carrying it is — same rule as
             // SdkSurfaceService, and for the same reason: the user reads a name, not an overload.
             (mi.hasAnnotation(Deprecated.class.getName()) ? deprecatedNames : liveNames).add(name);
@@ -883,8 +896,8 @@ public final class SdkUpgradeService {
             byName.computeIfAbsent(fi.getName(), k -> new ArrayList<>())
                     .add(new ApiMember(fi.getName(), lastSegment(fi.getTypeDescriptor().toString()),
                             List.of(), true,
-                            pointer(fi.getAnnotationInfo().get(REPLACED_BY)),
-                            claims(fi.getAnnotationInfo().get(REPLACES))));
+                            pointer(either(fi.getAnnotationInfo(), REPLACED_BY, REPLACED_BY_LEGACY)),
+                            claims(either(fi.getAnnotationInfo(), REPLACES, REPLACES_LEGACY))));
             (fi.hasAnnotation(Deprecated.class.getName()) ? deprecatedNames : liveNames).add(fi.getName());
         }
         deprecatedNames.removeAll(liveNames);
@@ -892,7 +905,8 @@ public final class SdkUpgradeService {
         ci.getSuperclasses().forEach(parent -> supertypes.add(parent.getSimpleName()));
         ci.getInterfaces().forEach(parent -> supertypes.add(parent.getSimpleName()));
         return new ApiClass(ci.getName(), ci.getSimpleName(),
-                pointer(ci.getAnnotationInfo(REPLACED_BY)), claims(ci.getAnnotationInfo(REPLACES)),
+                pointer(either(ci.getAnnotationInfo(), REPLACED_BY, REPLACED_BY_LEGACY)),
+                claims(either(ci.getAnnotationInfo(), REPLACES, REPLACES_LEGACY)),
                 ci.hasAnnotation(Deprecated.class.getName()), Set.copyOf(supertypes),
                 Map.copyOf(byName), Set.copyOf(deprecatedNames));
     }
@@ -908,6 +922,20 @@ public final class SdkUpgradeService {
      * {@code @Deprecated} above is read this way: they are never reflected on at run time, only read off a
      * jar that is on no classpath, by the ClassGraph scan {@code TypeSummaryManager} already runs.
      */
+    /**
+     * The first of {@code names} present on {@code annotations}, or {@code null}. Exists so one element can
+     * be asked for a pointer under either its current or its pre-1.1.0 spelling without either read site
+     * having to know there are two.
+     */
+    private static AnnotationInfo either(AnnotationInfoList annotations, String... names) {
+        if (annotations == null) return null;
+        for (String name : names) {
+            AnnotationInfo found = annotations.get(name);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
     private static String pointer(AnnotationInfo annotation) {
         if (annotation == null) return null;
         Object value = annotation.getParameterValues(true).getValue("value");

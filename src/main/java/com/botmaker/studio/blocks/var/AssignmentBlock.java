@@ -101,13 +101,13 @@ public class AssignmentBlock extends AbstractStatementBlock {
 
         if (leftHandSide != null && leftHandSide.getAstNode() != null) {
             Expression lhsExpr = (org.eclipse.jdt.core.dom.Expression) leftHandSide.getAstNode();
-            org.eclipse.jdt.core.dom.ITypeBinding binding = lhsExpr.resolveTypeBinding();
+          ITypeBinding binding = lhsExpr.resolveTypeBinding();
             if (binding != null) {
                 targetType = ResolvedType.of(binding);
             }
         }
 
-        org.eclipse.jdt.core.dom.Expression toReplace = null;
+      Expression toReplace = null;
         if (rightHandSide != null) {
             toReplace = (org.eclipse.jdt.core.dom.Expression) rightHandSide.getAstNode();
         }

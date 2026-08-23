@@ -6,6 +6,7 @@ import com.botmaker.studio.services.CodeEditorService;
 import javafx.stage.Stage;
 import org.junit.jupiter.api.Test;
 import org.eclipse.jdt.core.dom.CompilationUnit;
+import org.eclipse.jdt.core.dom.SimpleName;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -65,7 +66,7 @@ class StateIsCurrentWhenPublishedTest extends FxHeadlessTest {
 
     /** The {@code attempts} declaration's name node, which is what the Variables screen renames. */
     private static org.eclipse.jdt.core.dom.SimpleName declarationName(EditorFixture fixture) {
-        org.eclipse.jdt.core.dom.SimpleName[] found = new org.eclipse.jdt.core.dom.SimpleName[1];
+      SimpleName[] found = new org.eclipse.jdt.core.dom.SimpleName[1];
         fixture.state.getCompilationUnit().orElseThrow().accept(new org.eclipse.jdt.core.dom.ASTVisitor() {
             @Override
             public boolean visit(org.eclipse.jdt.core.dom.VariableDeclarationFragment fragment) {
