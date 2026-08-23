@@ -230,6 +230,21 @@ public final class CallMigrator {
                 yield true;
             }
             case CallChange.Rewrite rewrite -> applyRewrite(ctx, rewrite);
+            case CallChange.Retargeted retargeted -> {
+                // The receiver the source actually writes — `Mouse` in `Mouse.click(…)`, the class of a
+                // `new`, the qualifier of `Key.ENTER`. Null where the source names no type at all (a bare
+                // statically-imported constant, a `case` label), and that is a refusal rather than a guess:
+                // inventing a qualifier is exactly the invented answer this design refuses to give.
+                SimpleName owner = retargeted.site().ownerNode();
+                if (owner == null) yield false;
+                String simple = simpleNameOf(retargeted.newTypeFqn());
+                if (!owner.getIdentifier().equals(simple)) {
+                    ctx.rewriter().set(owner, SimpleName.IDENTIFIER_PROPERTY, simple, null);
+                }
+                ctx.addImport(retargeted.newTypeFqn());
+                yield applyRewrite(ctx, new CallChange.Rewrite(retargeted.site(), retargeted.newName(),
+                        retargeted.arguments()));
+            }
             case CallChange.CallDeleted deleted -> {
                 // The site was only ever recorded as deleted because it *is* a statement; this re-checks
                 // rather than casting, because a refusal here is the difference between a whole migration
@@ -270,10 +285,12 @@ public final class CallMigrator {
                     "this used the result of \"" + calledName(replaced.site())
                             + "\", which no longer fits here — it now reads "
                             + replaced.expected().defaultText() + ".");
-            // The two SDK-upgrade shapes. SdkMigrationRunner writes its own marks, naming the member that was
-            // removed — which it knows and this does not — so there is nothing to add here.
+            // The three SDK-upgrade shapes. SdkMigrationRunner writes its own marks, naming the member that
+            // was removed or where it went — which it knows and this does not — so there is nothing to add
+            // here.
             case CallChange.ValueDefaulted ignored -> List.of();
             case CallChange.CallDeleted ignored -> List.of();
+            case CallChange.Retargeted ignored -> List.of();
             case CallChange.Rewrite rewrite -> rewriteEntries(rewrite);
         };
     }
@@ -471,6 +488,7 @@ public final class CallMigrator {
             case ArgumentEdit.Keep keep ->
                     (Expression) ASTNode.copySubtree(ctx.ast(), (ASTNode) current.get(keep.from()));
             case ArgumentEdit.Fresh fresh -> defaultFor(ctx, fresh.type());
+            case ArgumentEdit.Literal literal -> literalDefaultFor(ctx, literal.typeName());
         };
     }
 }

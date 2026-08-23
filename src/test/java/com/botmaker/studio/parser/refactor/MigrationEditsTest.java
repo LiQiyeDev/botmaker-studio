@@ -228,6 +228,64 @@ class MigrationEditsTest {
         assertEquals(1, source.lines().filter(line -> line.startsWith("import")).count(), source);
     }
 
+    // --- a member that moved to another type ---------------------------------------------------------------
+
+    @Test
+    void aRetargetedCallMovesItsReceiverAndBringsTheImportWithIt() {
+        String source = rewrite(CALLER, unit -> new CallChange.Retargeted(callTo(unit, "find"),
+                "com.botmaker.sdk.api.vision.ImageFinder", "locate",
+                List.of(new ArgumentEdit.Keep(0), new ArgumentEdit.Keep(1))));
+
+        assertParses(source);
+        assertTrue(source.contains("ImageFinder.locate(\"target\", 3)"), source);
+        assertTrue(source.contains("import com.botmaker.sdk.api.vision.ImageFinder;"),
+                "the new type has to be nameable in this file:\n" + source);
+    }
+
+    @Test
+    void aQualifiedConstantIsRetargetedTypeAndAll() {
+        String source = rewrite(CONSTANT_USER, unit -> new CallChange.Retargeted(fieldAt(unit, "ENTER"),
+                "com.botmaker.sdk.api.Keyboard", "RETURN", List.of()));
+
+        assertParses(source);
+        assertTrue(source.contains("Keyboard.RETURN"), source);
+        assertTrue(source.contains("import com.botmaker.sdk.api.Keyboard;"), source);
+    }
+
+    @Test
+    void aBareNameWithNoTypeWrittenAtItCannotBeRetargetedAndRefuses() {
+        // A statically-imported constant and a case label both name no type at the site. There is nothing
+        // there to point elsewhere, and inventing a qualifier is the guess the whole design refuses.
+        assertNull(rewrite(CONSTANT_USER, unit -> new CallChange.Retargeted(fieldAt(unit, "ESCAPE"),
+                "com.botmaker.sdk.api.Keyboard", "ESC", List.of())));
+        assertNull(rewrite(CONSTANT_USER, unit -> new CallChange.Retargeted(caseLabel(unit, "UP"),
+                "com.botmaker.sdk.api.Heading", "NORTH", List.of())));
+    }
+
+    @Test
+    void anInputTheTargetGainedIsFilledWithALiteralThatNeedsNoImport() {
+        String source = rewrite(CALLER, unit -> new CallChange.Rewrite(callTo(unit, "find"), "find",
+                List.of(new ArgumentEdit.Keep(0), new ArgumentEdit.Keep(1),
+                        new ArgumentEdit.Literal("Precision"))));
+
+        assertParses(source);
+        // `null`, not `new Precision()` — the type is whatever the target jar calls it, and this file may
+        // have no way to name it. A literal always compiles.
+        assertTrue(source.contains("find(\"target\", 3, null)"), source);
+        assertEquals(0, source.lines().filter(line -> line.startsWith("import")).count(), source);
+    }
+
+    @Test
+    void aFilledInputOfAPlainTypeGetsThatTypesOwnLiteral() {
+        String source = rewrite(CALLER, unit -> new CallChange.Rewrite(callTo(unit, "find"), "find",
+                List.of(new ArgumentEdit.Keep(0), new ArgumentEdit.Keep(1),
+                        new ArgumentEdit.Literal("long"), new ArgumentEdit.Literal("boolean"),
+                        new ArgumentEdit.Literal("String"))));
+
+        assertParses(source);
+        assertTrue(source.contains("find(\"target\", 3, 0, false, \"\")"), source);
+    }
+
     // --- harness -------------------------------------------------------------------------------------------
 
     /**

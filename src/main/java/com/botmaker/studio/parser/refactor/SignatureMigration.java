@@ -83,6 +83,18 @@ public final class SignatureMigration {
 
         /** A value that does not exist at this call yet: write {@code type}'s default. */
         record Fresh(SignatureType type) implements ArgumentEdit {}
+
+        /**
+         * The same, for a type named only as text: write a <em>literal</em> default of it — {@code false},
+         * {@code 0}, {@code ""} or {@code null}, and nothing that needs an import.
+         *
+         * <p>The argument-level twin of {@link CallChange.ValueDefaulted}, and here for the same reason. An
+         * SDK upgrade redirecting a call to an overload that takes one more input knows that input's type
+         * only as the target jar spells it, and {@link Fresh} would ask the palette — which answers
+         * {@code new Point()} for a type it can construct, and {@code Direction.UP} for an enum. Both name
+         * something this file may not import and the editor may not have. A literal always compiles.
+         */
+        record Literal(String typeName) implements ArgumentEdit {}
     }
 
     /** What happens at one call site. */
@@ -92,6 +104,19 @@ public final class SignatureMigration {
 
         /** The call survives, with this name and these arguments. */
         record Rewrite(CallSite site, String newName, List<ArgumentEdit> arguments) implements CallChange {}
+
+        /**
+         * The same, and on another type: the receiver written at the call site becomes {@code newTypeFqn},
+         * which is imported with it.
+         *
+         * <p>Distinct from {@link Rewrite} because it is the one call change that can be <b>refused</b> at a
+         * site the scan found: a bare statically-imported constant and a {@code case} label name no type at
+         * all, so there is nothing there to retarget and nothing may be invented. A signature edit never
+         * produces one — a function does not move to another class — so this, like {@link ValueDefaulted},
+         * exists for an SDK upgrade, where a member the release moved is the whole point.
+         */
+        record Retargeted(CallSite site, String newTypeFqn, String newName, List<ArgumentEdit> arguments)
+                implements CallChange {}
 
         /**
          * The call is consumed as a value and no longer gives back what the code around it expects, so the

@@ -6,6 +6,24 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-23 — The redirect the jars confirm, at the call site (`parser/refactor/SdkMigrationRunner`,
+  `CallMigrator`, `SignatureMigration`, `services/SdkUpgradeService`, `ui/app/SdkUpgradeDialog`).** Phase 4 of
+  six. A member the target still offers *somewhere* is now pointed there instead of defaulted:
+  `SdkMigrationRunner.MemberRename` became `Redirect`, which carries where the call goes, how its arguments
+  get there, and whether the value that comes back was **checked** to fit. The position decides which
+  question is asked — a call standing as a **statement** is always redirected (that is the case a pure
+  default repair *deletes*, throwing away work the bot did), a call whose value is **used** only when the new
+  return type is the same, a subtype in the target jar, or a widening primitive. Arity is no longer a
+  refusal: arguments are kept in order and the difference filled with the new `ArgumentEdit.Literal` (never
+  the palette's `new Point()` — the type may be one this file cannot name) or dropped. `CallMigrator` regains
+  cross-type retargeting through the new `CallChange.Retargeted`, which rewrites the receiver and imports the
+  new type — and **refuses** where the source names no type at all (a statically-imported constant, a `case`
+  label), taking the whole migration down rather than inventing a qualifier. Marks follow the same line as
+  everywhere else: only a **changed shape** is marked, so a plain rename is silent. Two consequences worth
+  knowing: a redirected member is now **listed as a break**, with the move as its repair sentence — it was
+  invisible before, which meant a pure member rename reported "nothing breaks" and repaired nothing — and an
+  arity change on a kept name is repaired by filling the input in rather than by deleting every call.
+
 - **2026-08-23 — Pairing is a redirect written at both ends, composed (`services/SdkUpgradeService`,
   `ui/app/SdkUpgradeDialog`, `SdkUpgradeServiceTest`).** Phase 3 of six. `@ApiId` and
   `META-INF/botmaker/migrations.json` are gone from the reader, and with them `Renames`, `Rename`,

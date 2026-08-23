@@ -236,9 +236,11 @@ public final class SdkUpgradeDialog {
      * What Studio will write in place of each break, and whether the button below will actually do it.
      *
      * <p>It says the model out loud, because the model is the surprising part: the repair makes the bot
-     * <em>compile</em>, not behave the same. A member that is gone becomes a default value, a call made for
-     * its effect is deleted, and the function around it is marked for the user to go through afterwards.
-     * Promising more than that would be guessing — two members need not share a return type or any meaning.
+     * <em>compile</em>, not behave the same. Where the SDK says what a member became and the target jar
+     * confirms the shapes line up, the call is pointed there; where it does not, the call becomes a default
+     * value, or is deleted if it stood on its own. Either way the function around it is marked for the user
+     * to go through afterwards. Promising more would be guessing — a redirect nobody checked is a bot that
+     * compiles and behaves differently.
      *
      * <p>There is deliberately no second Apply button here. The repair is not a separate operation the user
      * could run on its own — it happens between the snapshot and the pom bump, and running it without either
@@ -249,9 +251,10 @@ public final class SdkUpgradeDialog {
         heading.setStyle("-fx-font-weight: bold;");
 
         Label why = new Label("These are repaired so the bot compiles again — a renamed class is renamed "
-                + "everywhere, and anything that is simply gone is replaced by a default value (or deleted, "
-                + "where the call was a line of its own). That can leave the bot doing something different, "
-                + "so every function touched is marked for you to review afterwards.");
+                + "everywhere, something that moved is pointed at where it went, and anything with nowhere "
+                + "to go is replaced by a default value (or deleted, where the call was a line of its own). "
+                + "That can leave the bot doing something different, so every function whose calls did not "
+                + "come through unchanged is marked for you to review afterwards.");
         why.setWrapText(true);
 
         List<String> lines = new ArrayList<>();

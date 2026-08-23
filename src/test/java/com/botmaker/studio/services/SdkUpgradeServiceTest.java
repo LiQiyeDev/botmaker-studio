@@ -665,10 +665,16 @@ class SdkUpgradeServiceTest {
         Report r = serviceOver(tmp, BOT).compare(jarOf(tmp, "old", before, Map.of()),
                 jarOf(tmp, "new", after, Map.of()), "1.0.0", "2.0.0");
 
-        assertTrue(brk(r, "Mouse.doubleClick").isEmpty(),
-                "a member with a pointer that resolves is a rename, not a removal: " + r.breaks());
-        // And the type itself was never in question: the other break on Mouse is still reported.
-        assertEquals(BreakKind.SIGNATURE_CHANGED, brk(r, "Mouse.click").orElseThrow().kind());
+        // Listed — the bot does not compile until the call moves — but with the move as its repair rather
+        // than a default value, and unmarked, since the shape did not change.
+        Break moved = brk(r, "Mouse.doubleClick").orElseThrow();
+        assertEquals("now Mouse.twoClicks", moved.detail());
+        assertEquals("becomes Mouse.twoClicks", moved.repair());
+        // And the type itself was never in question: the other break on Mouse is still reported. That one
+        // gained an input, so it is repaired by filling it in rather than by deleting the call.
+        Break wider = brk(r, "Mouse.click").orElseThrow();
+        assertEquals(BreakKind.SIGNATURE_CHANGED, wider.kind());
+        assertTrue(wider.repair().contains("gains 1 input"), wider.repair());
     }
 
     @Test
@@ -690,5 +696,151 @@ class SdkUpgradeServiceTest {
 
         assertFalse(r.problems().stream().anyMatch(p -> p.contains("claimed")),
                 "no pointers at all is silence, not a problem: " + r.problems());
+    }
+
+    // -------------------------------------------------------------------------
+    // The redirect, and what the jars have to confirm before it is taken
+    // -------------------------------------------------------------------------
+
+    /**
+     * A bot that <b>uses</b> the value, which is the position where the return type has to be checked. What
+     * the variable is declared as does not enter into it: the check is between the two jars' own answers —
+     * what the old one said the member gave back, and what the new one says its replacement does.
+     */
+    private static final String FINDER_BOT = """
+            package com.mybot;
+            public class Subject {
+                public void run() {
+                    Object found = Finder.find("t");
+                }
+            }
+            """;
+
+    private static Report finderReport(Path tmp, Map<String, String> before,
+                                       Map<String, String> after) throws IOException {
+        return serviceOver(tmp, FINDER_BOT).compare(
+                jarOf(tmp, "old", withPointers(before), Map.of()),
+                jarOf(tmp, "new", withPointers(after), Map.of()), "1.0.0", "2.0.0");
+    }
+
+    /** {@code Finder.find} pointing at whatever the test puts in the new jar. */
+    private static Map<String, String> finderPointingAt(String target) {
+        return Map.of(
+                "Finder", """
+                        package %s;
+                        public class Finder {
+                            @Deprecated
+                            @ReplacedBy("%s")
+                            public static Hit find(String query) { return null; }
+                        }
+                        """.formatted(PKG, target),
+                "Hit", "package %s;\npublic class Hit {}\n".formatted(PKG));
+    }
+
+    @Test
+    void aReplacementThatGivesBackASubtypeStillFitsWhereTheOldValueSat(@TempDir Path tmp) throws IOException {
+        Map<String, String> after = Map.of(
+                "Finder", """
+                        package %s;
+                        public class Finder {
+                            public static Precise locate(String query) { return null; }
+                        }
+                        """.formatted(PKG),
+                "Hit", "package %s;\npublic class Hit {}\n".formatted(PKG),
+                "Precise", "package %s;\npublic class Precise extends Hit {}\n".formatted(PKG));
+        Report r = finderReport(tmp, finderPointingAt(PKG + ".Finder#locate"), after);
+
+        Break moved = brk(r, "Finder.find").orElseThrow(() -> new AssertionError(r.breaks().toString()));
+        assertTrue(moved.repair().startsWith("becomes Finder.locate"), moved.repair());
+        assertFalse(moved.repair().contains("where its result is used"),
+                "a Precise is a Hit, so every site takes the redirect: " + moved.repair());
+    }
+
+    @Test
+    void aReplacementThatGivesBackSomethingElseEntirelyIsOnlyTakenWhereNothingReadsIt(@TempDir Path tmp)
+            throws IOException {
+        Map<String, String> after = Map.of(
+                "Finder", """
+                        package %s;
+                        public class Finder {
+                            public static Session locate(String query) { return null; }
+                        }
+                        """.formatted(PKG),
+                "Hit", "package %s;\npublic class Hit {}\n".formatted(PKG),
+                "Session", "package %s;\npublic class Session {}\n".formatted(PKG));
+        Report r = finderReport(tmp, finderPointingAt(PKG + ".Finder#locate"), after);
+
+        // The pointer is honoured where the value is discarded and refused where it is read — one member,
+        // two answers, decided by the position rather than by trusting the annotation.
+        Break moved = brk(r, "Finder.find").orElseThrow(() -> new AssertionError(r.breaks().toString()));
+        assertTrue(moved.repair().contains("where its result is used"), moved.repair());
+        assertTrue(moved.repair().contains("null"), "and says what stands in there: " + moved.repair());
+    }
+
+    @Test
+    void aWideningPrimitiveIsAConversionTheCompilerMakesItselfSoTheRedirectStands(@TempDir Path tmp)
+            throws IOException {
+        Map<String, String> before = Map.of("Finder", """
+                package %s;
+                public class Finder {
+                    @Deprecated
+                    @ReplacedBy("%s.Finder#tally")
+                    public static long find(String query) { return 0; }
+                }
+                """.formatted(PKG, PKG));
+        Map<String, String> after = Map.of("Finder", """
+                package %s;
+                public class Finder {
+                    public static int tally(String query) { return 0; }
+                }
+                """.formatted(PKG));
+        Report r = finderReport(tmp, before, after);
+
+        Break moved = brk(r, "Finder.find").orElseThrow(() -> new AssertionError(r.breaks().toString()));
+        assertFalse(moved.repair().contains("where its result is used"),
+                "an int goes into a long slot untouched: " + moved.repair());
+    }
+
+    @Test
+    void aMemberThatMovedToAnotherTypeIsRedirectedThereReceiverAndAll(@TempDir Path tmp) throws IOException {
+        Map<String, String> after = Map.of(
+                "Finder", "package %s;\npublic class Finder {}\n".formatted(PKG),
+                "Hit", "package %s;\npublic class Hit {}\n".formatted(PKG),
+                "Vision", """
+                        package %s;
+                        public class Vision {
+                            @Replaces("%s.Finder#find@1.0.0")
+                            public static Hit find(String query) { return null; }
+                        }
+                        """.formatted(PKG, PKG));
+        Report r = finderReport(tmp, finderPointingAt(PKG + ".Vision#find"), after);
+
+        Break moved = brk(r, "Finder.find").orElseThrow(() -> new AssertionError(r.breaks().toString()));
+        assertEquals(BreakKind.MEMBER_REMOVED, moved.kind());
+        assertEquals("now Vision.find", moved.detail());
+        // Same name, same shape — the whole change is which type it is reached through, and that is a
+        // complete repair, so no review mark is promised.
+        assertEquals("becomes Vision.find", moved.repair());
+    }
+
+    @Test
+    void aPointerAtANameWithSeveralOverloadsAndNoneOfThisAritysIsAQuestionNotAGuess(@TempDir Path tmp)
+            throws IOException {
+        Map<String, String> after = Map.of(
+                "Finder", """
+                        package %s;
+                        public class Finder {
+                            public static Hit locate(String query, int limit) { return null; }
+                            public static Hit locate(String query, int limit, int skip) { return null; }
+                        }
+                        """.formatted(PKG),
+                "Hit", "package %s;\npublic class Hit {}\n".formatted(PKG));
+        Report r = finderReport(tmp, finderPointingAt(PKG + ".Finder#locate"), after);
+
+        // Which one the author meant is exactly what the arity was going to say. With none matching and two
+        // to choose from, the call defaults and the user is told — the same answer as no pointer at all.
+        Break moved = brk(r, "Finder.find").orElseThrow(() -> new AssertionError(r.breaks().toString()));
+        assertTrue(moved.repair().startsWith("replaced with null"), moved.repair());
+        assertTrue(moved.isRepairable());
     }
 }

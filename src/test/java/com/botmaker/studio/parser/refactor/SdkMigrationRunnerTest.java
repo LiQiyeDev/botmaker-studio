@@ -1,7 +1,8 @@
 package com.botmaker.studio.parser.refactor;
 
 import com.botmaker.studio.parser.helpers.SourceParser;
-import com.botmaker.studio.parser.refactor.SdkMigrationRunner.MemberRename;
+import com.botmaker.studio.parser.refactor.SdkMigrationRunner.Redirect;
+import com.botmaker.studio.parser.refactor.SignatureMigration.ArgumentEdit;
 import com.botmaker.studio.parser.refactor.SdkMigrationRunner.Outcome;
 import com.botmaker.studio.parser.refactor.SdkMigrationRunner.Removal;
 import com.botmaker.studio.parser.refactor.SdkMigrationRunner.Repairs;
@@ -77,6 +78,22 @@ class SdkMigrationRunnerTest {
 
     private static Repairs renames(TypeRename... types) {
         return new Repairs(List.of(types), List.of(), List.of());
+    }
+
+    private static Repairs redirects(Redirect... redirects) {
+        return new Repairs(List.of(), List.of(redirects), List.of());
+    }
+
+    /**
+     * A redirect that keeps every argument and gives back the same type — the complete repair, the one that
+     * is <b>not</b> marked. {@code toType} null leaves the receiver alone; a name moves it.
+     */
+    private static Redirect redirect(String type, String member, int argCount,
+                                     String toType, String toMember, String returnType) {
+        List<ArgumentEdit> kept = new java.util.ArrayList<>();
+        for (int i = 0; i < Math.max(0, argCount); i++) kept.add(new ArgumentEdit.Keep(i));
+        return new Redirect(type, member, argCount, toType, toMember, List.copyOf(kept),
+                returnType, returnType, true);
     }
 
     /** The new source of {@code file}, or null when the run left it untouched. */
@@ -232,11 +249,156 @@ class SdkMigrationRunnerTest {
                     }
                 }
                 """);
-        Repairs repairs = new Repairs(List.of(), List.of(new MemberRename("Mouse", "click", "tap")),
-                List.of());
-        String source = rewritten(run(repairs, bot), bot);
+        String source = rewritten(
+                run(redirects(redirect("Mouse", "click", 2, null, "tap", "void")), bot), bot);
         assertFalse(source.contains("Mouse.click"), source);
         assertEquals(2, source.split("Mouse\\.tap", -1).length - 1, "both calls move:\n" + source);
+    }
+
+    // -------------------------------------------------------------------------
+    // A member that moved — the checked redirect
+    // -------------------------------------------------------------------------
+
+    /**
+     * The case a pure default repair <em>deletes</em>. Nothing consumes the value, so the target's return
+     * type cannot make the redirect wrong, and the work the bot did goes on being done.
+     */
+    @Test
+    void aCallStandingOnItsOwnIsRedirectedEvenWhenTheNewMemberGivesBackSomethingElse() {
+        ProjectFile bot = file("Bot", """
+                package com.mybot;
+                class Bot {
+                    void run() {
+                        Mouse.click(1, 2);
+                    }
+                }
+                """);
+        Redirect moved = new Redirect("Mouse", "click", 2, PKG + ".Vision", "tap",
+                List.of(new ArgumentEdit.Keep(0), new ArgumentEdit.Keep(1)), "void", "boolean", true);
+        String source = rewritten(marked(redirects(moved), bot), bot);
+
+        assertTrue(source.contains("Vision.tap(1, 2);"), "receiver and name both move:\n" + source);
+        assertTrue(source.contains("import " + PKG + ".Vision;"), "and the new type is imported:\n" + source);
+        assertTrue(source.contains("Mouse.click is now Vision.tap"), "the mark says where it went:\n" + source);
+    }
+
+    @Test
+    void aRedirectThatKeepsTheShapeIsACompleteRepairAndIsNotMarked() {
+        ProjectFile bot = file("Bot", """
+                package com.mybot;
+                class Bot {
+                    boolean run() {
+                        return Vision.find("target");
+                    }
+                }
+                """);
+        String source = rewritten(
+                marked(redirects(redirect("Vision", "find", 1, null, "locate", "boolean")), bot), bot);
+
+        assertTrue(source.contains("return Vision.locate(\"target\");"), source);
+        assertFalse(source.contains("@NeedsReview"),
+                "the bot does afterwards exactly what it did before:\n" + source);
+    }
+
+    /**
+     * The other half of the position rule. Something consumes this value, and what the target gives back was
+     * checked against the old type and does not fit — so the redirect is not taken here.
+     */
+    @Test
+    void aCallWhoseResultIsUsedFallsBackToADefaultWhenTheNewValueDoesNotFit() {
+        ProjectFile bot = file("Bot", """
+                package com.mybot;
+                class Bot {
+                    void run() {
+                        boolean hit = Vision.find("target");
+                        Vision.find("other");
+                    }
+                }
+                """);
+        Redirect unusable = new Redirect("Vision", "find", 1, null, "locate",
+                List.of(new ArgumentEdit.Keep(0)), "boolean", "Point", false);
+        String source = rewritten(marked(redirects(unusable), bot), bot);
+
+        assertTrue(source.contains("boolean hit = false;"), "the used one defaults:\n" + source);
+        assertTrue(source.contains("Vision.locate(\"other\");"), "the statement still moves:\n" + source);
+        assertTrue(source.contains("whose result does not fit"), source);
+    }
+
+    @Test
+    void aRedirectToAnOverloadThatGainedAnInputFillsItWithALiteralAndSaysSo() {
+        ProjectFile bot = file("Bot", """
+                package com.mybot;
+                class Bot {
+                    void run() {
+                        Mouse.click(1, 2);
+                    }
+                }
+                """);
+        Redirect wider = new Redirect("Mouse", "click", 2, null, "click",
+                List.of(new ArgumentEdit.Keep(0), new ArgumentEdit.Keep(1), new ArgumentEdit.Literal("long")),
+                "void", "void", true);
+        String source = rewritten(marked(redirects(wider), bot), bot);
+
+        assertTrue(source.contains("Mouse.click(1, 2, 0);"), "the new input is a literal 0:\n" + source);
+        assertTrue(source.contains("it gained an input, filled in with 0"), source);
+    }
+
+    /**
+     * An argument the target has no place for is dropped, and that is worth a review row for the reason
+     * {@code CallMigrator.droppedWork} exists: whatever it was doing stops happening, invisibly.
+     */
+    @Test
+    void aRedirectThatDropsAnInputSaysWhatNoLongerRuns() {
+        ProjectFile bot = file("Bot", """
+                package com.mybot;
+                class Bot {
+                    void run() {
+                        Mouse.click(1, count());
+                    }
+                    int count() { return 2; }
+                }
+                """);
+        Redirect narrower = new Redirect("Mouse", "click", 2, null, "click",
+                List.of(new ArgumentEdit.Keep(0)), "void", "void", true);
+        String source = rewritten(marked(redirects(narrower), bot), bot);
+
+        assertTrue(source.contains("Mouse.click(1);"), source);
+        assertTrue(source.contains("no longer has a place for 1 input"), source);
+    }
+
+    /**
+     * The refusal the move can hit: a statically-imported bare constant names no type at the site, so there
+     * is nothing there to retarget — and inventing a qualifier is the guess this whole design refuses.
+     */
+    @Test
+    void aConstantWithNoTypeWrittenAtTheSiteCannotBeMovedToAnotherClass() {
+        ProjectFile bot = file("Bot", """
+                package com.mybot;
+                import static %s.Key.ENTER;
+                class Bot {
+                    Object held = ENTER;
+                }
+                """.formatted(PKG));
+        Outcome outcome = run(redirects(new Redirect("Key", "ENTER", SdkReferences.FIELD_READ,
+                PKG + ".Direction", "ENTER", List.of(), "Key", "Direction", true)), bot);
+
+        assertTrue(outcome.isRefusal(), "there is no receiver written here to point elsewhere");
+        assertTrue(outcome.files().isEmpty(), "a refusal writes nothing");
+    }
+
+    @Test
+    void aConstantThatMovedIsRetargetedWhereTheSourceDoesNameItsType() {
+        ProjectFile bot = file("Bot", """
+                package com.mybot;
+                class Bot {
+                    Object held = Key.ENTER;
+                }
+                """);
+        String source = rewritten(run(redirects(new Redirect("Key", "ENTER", SdkReferences.FIELD_READ,
+                PKG + ".Direction", "UP", List.of(), "Key", "Key", true)), bot), bot);
+
+        assertTrue(source.contains("Direction.UP"), source);
+        assertTrue(source.contains("import " + PKG + ".Direction;"), source);
     }
 
     @Test

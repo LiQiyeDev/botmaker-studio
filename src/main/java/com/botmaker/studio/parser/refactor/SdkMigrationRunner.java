@@ -25,28 +25,41 @@ import java.util.Set;
  * facts. This turns them into edits, through the same {@link CallMigrator} a signature change goes through,
  * and hands back the new source of every file — or a sentence saying why it will not.
  *
- * <h2>Compile, then review — the repair does not guess</h2>
+ * <h2>Redirect where it is checked, default where it is not</h2>
  *
- * <p>A member the target no longer offers is <b>not</b> pointed at another member. Two members need not share
- * a return type, an arity or any semantics, so a redirection is a guess whose failure mode is a bot that
- * compiles and behaves differently — the one outcome worse than a compile error. Instead the call site gets a
- * <b>default value of the type the old jar said it returned</b> ({@code false}, {@code 0}, {@code ""},
- * {@code null}), and a call standing as a statement of its own is <b>deleted</b> rather than defaulted, since
- * {@code 0;} is not a statement any compiler accepts.
+ * <p>A member the target still offers somewhere — under a new name, on another type, through a different
+ * argument list — is {@linkplain Redirect redirected} to it. Nothing here decides that: the redirect is
+ * declared by the SDK at both ends ({@code @ReplacedBy} / {@code @Replaces}) and <em>checked</em> against the
+ * target jar by {@code services/SdkUpgradeService} before it arrives, which is what separates it from the
+ * guess this used to refuse. Two positions, two answers:
+ *
+ * <ul>
+ *   <li>a call standing as a <b>statement</b> is always redirected — nothing consumes its value, so the
+ *       target's return type cannot make it wrong. This is the case a pure default repair <em>deletes</em>,
+ *       throwing away work the bot did;</li>
+ *   <li>a call whose value is <b>used</b> is redirected only when the new value still fits where the old one
+ *       sat ({@link Redirect#expressionSafe()}).</li>
+ * </ul>
+ *
+ * <p>Everything else — no pointer, a pointer to nothing, an ambiguous target — gets a <b>default value of the
+ * type the old jar said it returned</b> ({@code false}, {@code 0}, {@code ""}, {@code null}), and a call
+ * standing as a statement of its own is <b>deleted</b> rather than defaulted, since {@code 0;} is not a
+ * statement any compiler accepts.
  *
  * <p>That leaves the bot compiling and, in places, wrong — deliberately. So the other half of the bargain is
- * written in the same rewrite: every function that got a default or lost a call is annotated
- * {@code @NeedsReview} ({@link ReviewMarks}), naming what happened to it. The mark lands with the repair or
- * not at all — a migration refused halfway leaves neither.
+ * written in the same rewrite: every function that got a default, lost a call, or had one redirected into a
+ * different shape is annotated {@code @NeedsReview} ({@link ReviewMarks}), naming what happened to it. The
+ * mark lands with the repair or not at all — a migration refused halfway leaves neither.
  *
  * <p><b>A rename is not marked.</b> {@code ImageClicker.click} becoming {@code IClicker.click} is a complete
  * repair: the bot does afterwards exactly what it did before, so asking the user to look at it would bury the
- * sites that genuinely changed meaning under the ones that did not.
+ * sites that genuinely changed meaning under the ones that did not. That is what
+ * {@link Redirect#shapeChanged()} draws the line at.
  *
  * <h2>One pass over the facts, in two sweeps per file</h2>
  *
- * <p>There is no replay. The version keys in {@code migrations.json} are <em>composed</em> into a single
- * rename map before anything gets here, so what arrives is already "what this bot must end up saying".
+ * <p>There is no replay. A chain of renames across several releases is <em>composed</em> into one answer
+ * before anything gets here, so what arrives is already "what this bot must end up saying".
  *
  * <p>Each file is nevertheless rewritten twice, and the ordering is load-bearing rather than incidental:
  * <b>members first, types second</b>, with a re-parse between. A removed member of a renamed type would
@@ -77,7 +90,7 @@ public final class SdkMigrationRunner {
     private SdkMigrationRunner() {}
 
     /**
-     * A type that changed name — paired by {@code @ApiId} or by a declared rename, and applied file-wide.
+     * A type that changed name — paired by the two-ended pointer the SDK declares, and applied file-wide.
      *
      * <p>Fully-qualified on both sides, so a package move is the same edit as a rename and the imports move
      * with it.
@@ -91,12 +104,62 @@ public final class SdkMigrationRunner {
     }
 
     /**
-     * A member that kept its role under a new name, on a type identified by the name the <b>bot</b> writes.
+     * A member the target still offers somewhere, and the call that reaches it: the same member under a new
+     * name, on another type, or through a different argument list.
      *
-     * <p>{@code @ApiId} deliberately does not answer this: an id pairs the type name only, so a member rename
-     * is the one thing {@code migrations.json} is still for.
+     * <p>The type is the one the <b>bot</b> writes. {@code toTypeFqn} is null when the receiver is not to be
+     * touched — the member stayed on this type, or the type is being renamed file-wide by a
+     * {@link TypeRename} and having two edits move one receiver is how they come to disagree. A non-null one
+     * is a genuine move, and is rewritten and imported at the call site.
+     *
+     * <p>{@code expressionSafe} is the whole reason a redirect may be taken at all. In <b>statement</b>
+     * position the value is discarded, so the target's return type cannot matter and the call is always
+     * redirected — that is the case that is <em>deleted</em> under a pure default repair, losing work the bot
+     * did. In <b>expression</b> position something consumes the value, so the redirect is taken only when
+     * {@code SdkUpgradeService} has checked against the target jar that what comes back still fits where the
+     * old value sat; otherwise the site falls back to a literal default of {@code returnType}, exactly as a
+     * {@link Removal} does.
+     *
+     * <p>{@link #shapeChanged()} is derived rather than passed: a redirect that keeps every argument where it
+     * was and gives back the same type is a <b>rename</b>, does afterwards exactly what it did before, and is
+     * not marked for review. Anything that gains, loses or retypes something is.
      */
-    public record MemberRename(String type, String from, String to) {}
+    public record Redirect(String type, String member, int argCount,
+                           String toTypeFqn, String toMember, List<ArgumentEdit> arguments,
+                           String returnType, String toReturnType, boolean expressionSafe) {
+
+        boolean matches(SdkReferences.Reference reference) {
+            return reference.type().equals(type)
+                    && reference.member().equals(member)
+                    && reference.argCount() == argCount;
+        }
+
+        /** How the user reads where it went: {@code IClicker.tap}, or {@code new Point} for a constructor. */
+        public String display() {
+            String owner = toTypeFqn == null ? type : simpleNameOf(toTypeFqn);
+            return SdkReferences.CTOR.equals(toMember) ? "new " + owner : owner + "." + toMember;
+        }
+
+        /** True when nothing about the call changes but its name and place — see the class Javadoc. */
+        public boolean shapeChanged() {
+            return !returnType.equals(toReturnType) || !isPlainKeep();
+        }
+
+        /** Whether every argument stays exactly where it is: no fill, no drop, no reorder. */
+        private boolean isPlainKeep() {
+            if (arguments.size() != Math.max(0, argCount)) return false;
+            for (int i = 0; i < arguments.size(); i++) {
+                if (!(arguments.get(i) instanceof ArgumentEdit.Keep keep) || keep.from() != i) return false;
+            }
+            return true;
+        }
+
+        CallChange changeAt(MethodReferences.CallSite site) {
+            return toTypeFqn == null
+                    ? new CallChange.Rewrite(site, toMember, arguments)
+                    : new CallChange.Retargeted(site, toTypeFqn, toMember, arguments);
+        }
+    }
 
     /**
      * A member the target no longer offers in the shape this bot uses it — so, at every such call site, a
@@ -121,10 +184,10 @@ public final class SdkMigrationRunner {
     }
 
     /** Everything the upgrade has to write, worked out from the two jars before a character is changed. */
-    public record Repairs(List<TypeRename> types, List<MemberRename> members, List<Removal> removals) {
+    public record Repairs(List<TypeRename> types, List<Redirect> redirects, List<Removal> removals) {
 
         public boolean isEmpty() {
-            return types.isEmpty() && members.isEmpty() && removals.isEmpty();
+            return types.isEmpty() && redirects.isEmpty() && removals.isEmpty();
         }
     }
 
@@ -220,7 +283,7 @@ public final class SdkMigrationRunner {
                 // and for a void member there is no value at all. Either way the statement goes.
                 if (reference.site().isStatement()) {
                     changes.add(new CallChange.CallDeleted(reference.site()));
-                    note(marks, reference, removal, "the call was removed");
+                    note(marks, reference, removal.type(), removal.member(), "the call was removed");
                 } else if (removal.isVoid()) {
                     return Applied.refused("SDK removed " + removal.type() + "." + removal.member()
                             + ", which \"" + file.getClassName() + "\" uses somewhere that is not a line of "
@@ -228,16 +291,27 @@ public final class SdkMigrationRunner {
                             + "in its place, so nothing has been changed.");
                 } else {
                     changes.add(new CallChange.ValueDefaulted(reference.site(), removal.returnType()));
-                    note(marks, reference, removal, "the value it produced is now "
+                    note(marks, reference, removal.type(), removal.member(), "the value it produced is now "
                             + CallMigrator.literalDefaultText(removal.returnType()));
                 }
                 continue;
             }
-            repairs.members().stream()
-                    .filter(m -> m.type().equals(reference.type()) && m.from().equals(reference.member()))
-                    .findFirst()
-                    .ifPresent(rename -> changes.add(new CallChange.Rewrite(reference.site(), rename.to(),
-                            keepAll(Math.max(0, reference.argCount())))));
+            Redirect redirect = repairs.redirects().stream().filter(r -> r.matches(reference))
+                    .findFirst().orElse(null);
+            if (redirect == null) continue;
+            // The position decides. A statement discards the value, so nothing the target gives back can be
+            // wrong there; anywhere else the fit had to be checked against the target jar, and a redirect
+            // that did not pass falls back to the same default a removal gets.
+            if (reference.site().isStatement() || redirect.expressionSafe()) {
+                changes.add(redirect.changeAt(reference.site()));
+                if (redirect.shapeChanged()) noteRedirect(marks, reference, redirect);
+            } else {
+                changes.add(new CallChange.ValueDefaulted(reference.site(), redirect.returnType()));
+                note(marks, reference, redirect.type(), redirect.member(),
+                        "it is now " + redirect.display() + ", whose result does not fit where this uses it, "
+                                + "and the value it produced is now "
+                                + CallMigrator.literalDefaultText(redirect.returnType()));
+            }
         }
         if (changes.isEmpty()) return Applied.unchanged();
 
@@ -267,12 +341,57 @@ public final class SdkMigrationRunner {
      * than refused. It is still repaired; there is simply nowhere to hang a {@code @Target(METHOD)} annotation.
      */
     private static void note(Map<MethodDeclaration, Set<String>> marks, SdkReferences.Reference reference,
-                             Removal removal, String what) {
+                             String type, String member, String what) {
         MethodDeclaration method = ReviewMarks.enclosingMethod(reference.site().node());
         if (method == null) return;
         marks.computeIfAbsent(method, m -> new LinkedHashSet<>())
-                .add(removal.type() + "." + removal.member() + " is gone from this BotMaker version — "
+                .add(type + "." + member + " is gone from this BotMaker version — "
                         + what + ", so this may no longer do what it did.");
+    }
+
+    /**
+     * The same, for a call that <em>was</em> redirected — so the sentence says where it went and what did not
+     * survive the move, rather than that something is gone.
+     *
+     * <p>Only ever called for a {@linkplain Redirect#shapeChanged() changed shape}. A redirect that keeps
+     * every argument and gives back the same type leaves the call doing exactly what it did, and a review
+     * list that lists those buries the sites that genuinely changed under the ones that did not.
+     */
+    private static void noteRedirect(Map<MethodDeclaration, Set<String>> marks,
+                                     SdkReferences.Reference reference, Redirect redirect) {
+        MethodDeclaration method = ReviewMarks.enclosingMethod(reference.site().node());
+        if (method == null) return;
+
+        List<String> what = new ArrayList<>();
+        for (ArgumentEdit edit : redirect.arguments()) {
+            if (edit instanceof ArgumentEdit.Literal literal) {
+                what.add("it gained an input, filled in with "
+                        + CallMigrator.literalDefaultText(literal.typeName()) + " — check that is the value "
+                        + "you want");
+            }
+        }
+        // Whatever the new argument list has no place for. The text of each dropped argument would be
+        // better, but this runs over the reference and not the rewrite: what the site loses is decided by
+        // the shape of the list, and naming the count is honest where naming the wrong expression is not.
+        int dropped = Math.max(0, reference.argCount()) - (int) redirect.arguments().stream()
+                .filter(ArgumentEdit.Keep.class::isInstance).count();
+        if (dropped > 0) {
+            what.add("it no longer has a place for " + dropped + (dropped == 1 ? " input" : " inputs")
+                    + " this call passed, so whatever " + (dropped == 1 ? "that did" : "those did")
+                    + " no longer runs");
+        }
+        if (!redirect.returnType().equals(redirect.toReturnType())) {
+            what.add("it gives back " + describe(redirect.toReturnType()) + " instead of "
+                    + describe(redirect.returnType()));
+        }
+        if (what.isEmpty()) return;
+        marks.computeIfAbsent(method, m -> new LinkedHashSet<>())
+                .add(redirect.type() + "." + redirect.member() + " is now " + redirect.display()
+                        + " in this BotMaker version — " + String.join(", and ", what) + ".");
+    }
+
+    private static String describe(String returnType) {
+        return "void".equals(returnType) ? "nothing" : returnType;
     }
 
     /** Sweep two: the types, file-wide, over whatever sweep one produced. */
@@ -308,12 +427,6 @@ public final class SdkMigrationRunner {
         return rewritten.equals(text) ? Applied.unchanged() : new Applied(rewritten, null);
     }
 
-    private static List<ArgumentEdit> keepAll(int arguments) {
-        List<ArgumentEdit> kept = new ArrayList<>();
-        for (int i = 0; i < arguments; i++) kept.add(new ArgumentEdit.Keep(i));
-        return kept;
-    }
-
     /**
      * The reason a scaffold file blocks this migration, or null when none does. See the class Javadoc for why
      * a generated file is neither rewritten nor regenerated: the code in it is written by Studio's own
@@ -336,8 +449,7 @@ public final class SdkMigrationRunner {
                     SdkReferences.in(file, unit, file.getClassName(), sdkTypes, fieldOwners).references();
             for (SdkReferences.Reference reference : references) {
                 if (repairs.removals().stream().anyMatch(r -> r.matches(reference))
-                        || repairs.members().stream().anyMatch(m -> m.type().equals(reference.type())
-                        && m.from().equals(reference.member()))) {
+                        || repairs.redirects().stream().anyMatch(r -> r.matches(reference))) {
                     return blocked(file, reference.type(), reference.member());
                 }
             }

@@ -6,6 +6,7 @@ import com.botmaker.studio.parser.refactor.CallMigrator;
 import com.botmaker.studio.parser.refactor.SdkMigrationRunner;
 import com.botmaker.studio.parser.refactor.ReviewMarks;
 import com.botmaker.studio.parser.refactor.SdkReferences;
+import com.botmaker.studio.parser.refactor.SignatureMigration.ArgumentEdit;
 import com.botmaker.studio.project.FileRole;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectFile;
@@ -49,19 +50,31 @@ import java.util.concurrent.CompletableFuture;
  * bot calls that is <em>gone</em> (with file and line), and what the SDK itself says cannot be migrated
  * automatically.
  *
- * <h2>The repair is a default value, and the SDK declares almost nothing</h2>
+ * <h2>A redirect where the jars confirm it, a default where they do not</h2>
  *
- * <p>Until 2026-08-22 every break had to ship its own repair — a {@code fix} in
- * {@code META-INF/botmaker/migrations.json} naming another member to point the call at. That was guessing,
- * because nothing checked it: two members need not share a return type, an arity or any semantics. So the
- * model inverted. <b>The repair's job is to make the bot compile; the user's job is to make it correct.</b>
- * A call to a member the target no longer offers is replaced with a <em>default value of the type it used to
- * give back</em> — {@code false}, {@code 0}, {@code ""}, {@code null} — and a call standing as a statement of
- * its own is deleted outright.
+ * <p>The SDK once shipped a repair per break — a {@code fix} in {@code META-INF/botmaker/migrations.json}
+ * naming another member to point the call at — and it was guessing, because nothing checked it: two members
+ * need not share a return type, an arity or any semantics. What replaced it is not the absence of a redirect
+ * but a <b>checked</b> one. Studio holds both jars, so it can ask the questions that objection was really
+ * about, and the position of the call decides which it has to ask:
  *
- * <p>What survives that, because a rename must stay a rename ({@code ImageClicker} → {@code IClicker} is one
- * file-wide edit, and as a removal it would be hundreds of defaulted statements), is a <b>pointer written at
- * both ends</b> — and the two ends are why it needs no jar but the two already in hand:
+ * <ul>
+ *   <li>a call standing as a <b>statement</b> discards its value, so the target's return type cannot make
+ *       the redirect wrong. It is taken. (A pure default repair <em>deletes</em> that statement, throwing
+ *       away work the bot did.)</li>
+ *   <li>a call whose value is <b>used</b> is redirected only when what comes back still fits where the old
+ *       value sat — the same type, a subtype of it in the target jar, or a widening primitive.</li>
+ * </ul>
+ *
+ * <p>Arity is not a reason to refuse either: the arguments the call already passes are kept in order and the
+ * difference is filled with literal defaults or dropped, which is {@code SignatureMigration}'s own machinery.
+ * <b>Everything the check refuses falls back to the old answer</b> — a <em>default value of the type it used
+ * to give back</em> ({@code false}, {@code 0}, {@code ""}, {@code null}), a deleted statement for a
+ * {@code void}, and a review mark either way. <b>The repair's job is to make the bot compile; the user's job
+ * is to make it correct.</b>
+ *
+ * <p>What says where a member went is a <b>pointer written at both ends</b> — and the two ends are why it
+ * needs no jar but the two already in hand:
  *
  * <ol>
  *   <li><b>{@code @ReplacedBy}</b>, read out of the bot's <em>own</em> jar: the forward half, on the
@@ -163,8 +176,8 @@ public final class SdkUpgradeService {
     /** Why a call the bot makes would stop compiling on the target version. */
     public enum BreakKind {
         /**
-         * The class is gone from the target SDK and nothing pairs with it — neither an {@code @ApiId} it
-         * kept nor a rename the SDK declares. <b>The one break that cannot be repaired</b>: a default value
+         * The class is gone from the target SDK and no pointer, at either end, names what took its place.
+         * <b>The one break that cannot be repaired</b>: a default value
          * has nowhere to go in {@code ImageTemplate t = …;}, so the upgrade is refused rather than half-made.
          */
         TYPE_REMOVED,
@@ -191,9 +204,10 @@ public final class SdkUpgradeService {
      * {@code detail} is display text — the old and new signatures, or the type's new name — and is empty for
      * a plain removal.
      *
-     * <p>{@code repair} is the sentence the dialog shows beside it: what Studio will write in its place. It
-     * is display text rather than a code, because there are only two shapes of repair now (rename the type,
-     * or stand a default value in) and neither needs to be switched on anywhere but here.
+     * <p>{@code repair} is the sentence the dialog shows beside it: what Studio will write in its place —
+     * renaming the type, pointing the call at where the member went, or standing a default value in. It is
+     * display text rather than a code because nothing but the dialog reads it: the edit itself is derived
+     * again from the jars at the moment of writing, never from this record.
      */
     public record Break(String type, String member, BreakKind kind, String detail, String repair,
                         List<CallSite> sites) {
@@ -453,7 +467,7 @@ public final class SdkUpgradeService {
                                                          Map<String, ApiClass> after,
                                                          List<Call> calls, Pairing pairing) {
         Map<String, SdkMigrationRunner.TypeRename> types = new LinkedHashMap<>();
-        Map<String, SdkMigrationRunner.MemberRename> members = new LinkedHashMap<>();
+        Map<String, SdkMigrationRunner.Redirect> redirects = new LinkedHashMap<>();
         Map<String, SdkMigrationRunner.Removal> removals = new LinkedHashMap<>();
 
         for (Call call : calls) {
@@ -467,20 +481,143 @@ public final class SdkUpgradeService {
                         then.name(), now.name()));
             }
 
-            String member = pairing.memberName(then, now, call.member());
-            if (offers(now, member, call.argCount())) {
-                if (!member.equals(call.member())) {
-                    members.putIfAbsent(then.simpleName() + "#" + call.member(),
-                            new SdkMigrationRunner.MemberRename(then.simpleName(), call.member(), member));
-                }
+            String key = then.simpleName() + "#" + call.member() + "#" + call.argCount();
+            SdkMigrationRunner.Redirect redirect = redirectFor(then, now, call, after, pairing);
+            if (redirect != null) {
+                redirects.putIfAbsent(key, redirect);
                 continue;
             }
-            removals.putIfAbsent(then.simpleName() + "#" + call.member() + "#" + call.argCount(),
+            // Nothing to redirect to. Either the call already resolves on the paired type — the type sweep
+            // will carry it across on its own — or there is nowhere for it to go and a default stands in.
+            if (offers(now, call.member(), call.argCount())) continue;
+            removals.putIfAbsent(key,
                     new SdkMigrationRunner.Removal(then.simpleName(), call.member(), call.argCount(),
                             returnTypeOf(then, call)));
         }
-        return new SdkMigrationRunner.Repairs(List.copyOf(types.values()), List.copyOf(members.values()),
+        return new SdkMigrationRunner.Repairs(List.copyOf(types.values()), List.copyOf(redirects.values()),
                 List.copyOf(removals.values()));
+    }
+
+    // =========================================================================
+    // THE CHECKED REDIRECT
+    // =========================================================================
+
+    /**
+     * Where this call should point instead, or null when nothing in the target jar can take it.
+     *
+     * <p>This is the one place that decides a redirect, and both readers go through it — {@link #breaks} for
+     * the sentence the dialog shows, {@link #repairsFor} for the edit. Two answers to one question would
+     * eventually be a dialog promising a rewrite the rewriter does not make.
+     *
+     * <p>It answers null for three quite different things, all of which end the same way (a default value and
+     * a review mark): the call already resolves and needs nothing; nothing pairs with it; or something does
+     * but the shapes cannot be reconciled. The last group is where the refusals live, and each is deliberate:
+     *
+     * <ul>
+     *   <li><b>a field paired with a method, or a constructor with a method</b> — the source shapes differ,
+     *       and rewriting one into the other is not a redirect but a rewrite of the surrounding code;</li>
+     *   <li><b>several candidate overloads and none of this call's arity</b> — which one the author meant is
+     *       exactly what an arity was going to tell us, so a guess between two is a guess.</li>
+     * </ul>
+     *
+     * <p>Where a single overload of another arity is the only candidate, the arguments this call already
+     * passes are kept in order and the difference is made up: a {@link ArgumentEdit.Literal} per input the
+     * target gained, and trailing arguments simply dropped for one it lost. That is
+     * {@code SignatureMigration}'s own machinery, doing here what it does for a hand-edited signature.
+     */
+    private static SdkMigrationRunner.Redirect redirectFor(ApiClass then, ApiClass now, Call call,
+                                                           Map<String, ApiClass> after, Pairing pairing) {
+        Pairing.Member target = pairing.targetOf(then, call.member());
+        ApiClass owner = target == null ? now : after.get(target.type());
+        String name = target == null ? call.member() : target.name();
+        if (owner == null) return null;
+        // A constructor is not a method with a funny name: `new Point(…)` and `Point.of(…)` are different
+        // source shapes, and one is not rewritten into the other by renaming anything.
+        if (CTOR.equals(call.member()) != CTOR.equals(name)) return null;
+
+        boolean moved = !owner.name().equals(now.name());
+        String oldReturn = returnTypeOf(then, call);
+
+        if (call.isField()) {
+            if (!owner.declaresField(name)) return null;
+            if (!moved && name.equals(call.member())) return null;      // still there, still spelled the same
+            String newReturn = typeOfField(owner, name);
+            return new SdkMigrationRunner.Redirect(then.simpleName(), call.member(), call.argCount(),
+                    moved ? owner.name() : null, name, List.of(), oldReturn, newReturn,
+                    fits(oldReturn, newReturn, after));
+        }
+
+        List<ApiMember> overloads = owner.byName().getOrDefault(name, List.of()).stream()
+                .filter(m -> !m.field()).toList();
+        if (overloads.isEmpty()) return null;
+
+        ApiMember exact = overloads.stream()
+                .filter(m -> m.params().size() == call.argCount()).findFirst().orElse(null);
+        if (exact != null && !moved && name.equals(call.member())) return null;   // the call already compiles
+
+        ApiMember chosen = exact;
+        if (chosen == null) {
+            if (overloads.size() != 1) return null;
+            chosen = overloads.getFirst();
+        }
+        return new SdkMigrationRunner.Redirect(then.simpleName(), call.member(), call.argCount(),
+                moved ? owner.name() : null, name, argumentsFor(call.argCount(), chosen),
+                oldReturn, chosen.type(), fits(oldReturn, chosen.type(), after));
+    }
+
+    /**
+     * How the call's arguments become the target's: kept in order for as far as both go, then filled or
+     * dropped. Filled with a <em>literal</em> default rather than the palette's, since the parameter's type
+     * is whatever the target jar calls it and may be something this file cannot name.
+     */
+    private static List<ArgumentEdit> argumentsFor(int argCount, ApiMember target) {
+        List<ArgumentEdit> edits = new ArrayList<>();
+        for (int i = 0; i < target.params().size(); i++) {
+            edits.add(i < argCount
+                    ? new ArgumentEdit.Keep(i)
+                    : new ArgumentEdit.Literal(target.params().get(i)));
+        }
+        return List.copyOf(edits);
+    }
+
+    /** What one field gives back — its own declared type, which is what a read of it is worth. */
+    private static String typeOfField(ApiClass klass, String name) {
+        return klass.byName().getOrDefault(name, List.of()).stream()
+                .filter(ApiMember::field).map(ApiMember::type).findFirst().orElse("");
+    }
+
+    /** Every primitive a value of this type may stand in for without a cast. */
+    private static final Map<String, Set<String>> WIDENS = Map.of(
+            "byte", Set.of("short", "int", "long", "float", "double"),
+            "short", Set.of("int", "long", "float", "double"),
+            "char", Set.of("int", "long", "float", "double"),
+            "int", Set.of("long", "float", "double"),
+            "long", Set.of("float", "double"),
+            "float", Set.of("double"));
+
+    /**
+     * Whether a value of {@code now} may stand where one of {@code was} was expected — the check that makes a
+     * redirect in expression position safe rather than hopeful.
+     *
+     * <p>Four ways it can: the same type; a subtype of it in the target jar's own hierarchy; a widening
+     * primitive conversion, which the compiler does silently; or {@code Object}, which takes anything. A
+     * {@code void} <em>old</em> type accepts anything because nothing consumed it in the first place, and a
+     * {@code void} new one fits nowhere, since there is no value to write.
+     *
+     * <p>Everything outside that list answers no — including a type the target jar does not declare at all,
+     * which is where a {@code java.util.List} or a JDK type ends up. That falls the safe way: the site gets a
+     * default and a review row instead of source that may not compile, and the user is told where the member
+     * went in the same sentence.
+     */
+    private static boolean fits(String was, String now, Map<String, ApiClass> after) {
+        if (was == null || now == null) return false;
+        if (was.equals(now)) return true;
+        if ("void".equals(was)) return true;
+        if ("void".equals(now)) return false;
+        if ("Object".equals(was)) return true;
+        if (WIDENS.getOrDefault(now, Set.of()).contains(was)) return true;
+        ApiClass target = after.get(now);
+        return target != null && target.supertypes().contains(was);
     }
 
     /**
@@ -512,6 +649,11 @@ public final class SdkUpgradeService {
     /**
      * One public API class, reduced to what a compatibility question can be asked of.
      *
+     * <p>{@code supertypes} is every class and interface above it, by simple name — the one question the diff
+     * asks that a member cannot answer for itself: whether a redirect's new return value may stand where the
+     * old one did. It is read from the same scan, so it covers the SDK's own hierarchy and stops at the edge
+     * of the jar, which is all a check between two SDK types needs.
+     *
      * <p>{@code replacedBy} is the {@code @ReplacedBy} target, {@code ""} when the annotation is there with
      * no target (the author saying outright that nothing takes this type's place) and null when there is no
      * annotation at all. The two are not the same to read, but they are the same answer here: neither pairs
@@ -519,7 +661,7 @@ public final class SdkUpgradeService {
      * these older spellings became <em>this</em> type.
      */
     private record ApiClass(String name, String simpleName, String replacedBy, List<Claim> replaces,
-                            boolean deprecated,
+                            boolean deprecated, Set<String> supertypes,
                             Map<String, List<ApiMember>> byName, Set<String> deprecatedNames) {
 
         /** Whether this class offers {@code name} as a field — an enum constant included. */
@@ -607,9 +749,12 @@ public final class SdkUpgradeService {
             (fi.hasAnnotation(Deprecated.class.getName()) ? deprecatedNames : liveNames).add(fi.getName());
         }
         deprecatedNames.removeAll(liveNames);
+        Set<String> supertypes = new LinkedHashSet<>();
+        ci.getSuperclasses().forEach(parent -> supertypes.add(parent.getSimpleName()));
+        ci.getInterfaces().forEach(parent -> supertypes.add(parent.getSimpleName()));
         return new ApiClass(ci.getName(), ci.getSimpleName(),
                 pointer(ci.getAnnotationInfo(REPLACED_BY)), claims(ci.getAnnotationInfo(REPLACES)),
-                ci.hasAnnotation(Deprecated.class.getName()),
+                ci.hasAnnotation(Deprecated.class.getName()), Set.copyOf(supertypes),
                 Map.copyOf(byName), Set.copyOf(deprecatedNames));
     }
 
@@ -704,16 +849,16 @@ public final class SdkUpgradeService {
      * version leave it unpaired, with a line in {@link Report#problems()}. And it never invents a pairing:
      * unpaired is an answer, and a wrongly paired element is a bot that compiles and does something else.
      *
-     * <p><b>Members are paired independently of types</b>, and a member pointer may cross types. What is used
-     * of that here is the endpoint's <em>member half</em>, checked against the type this old type paired
-     * with; a member sent to a different type resolves to nothing under that check and degrades to a default
-     * plus a review mark, which is the safe half of the answer. Retargeting the receiver is the call site's
-     * job, not the pairing's.
+     * <p><b>Members are paired independently of types</b>, and a member pointer may cross types. Two readers
+     * ask for different halves of that, deliberately: {@link #memberName} answers "what is this called on the
+     * type this one paired with", so nothing but the type pairing decides which type a site writes, while
+     * {@link #targetOf} hands back the endpoint whole — for {@link #redirectFor}, which is about to move the
+     * receiver as well and is the only caller entitled to see a member that left.
      */
     private record Pairing(Map<String, String> types, Map<String, Member> members) {
 
         /** Where a member pointer ended up: the simple name of the owning type, and the member's own name. */
-        private record Member(String type, String name) {}
+        record Member(String type, String name) {}
 
         static Pairing of(Map<String, ApiClass> before, Map<String, ApiClass> after, String botVersion,
                           List<String> problems) {
@@ -862,6 +1007,17 @@ public final class SdkUpgradeService {
             Member paired = members.get(then.simpleName() + "#" + member);
             return paired != null && paired.type().equals(now.simpleName()) ? paired.name() : member;
         }
+
+        /**
+         * The endpoint itself, type and all — null when no pointer led anywhere the target jar has.
+         *
+         * <p>{@link #memberName} answers the narrower question and keeps the type pairing as the single
+         * source of which type a site writes; this one is for the caller that is <em>about to move the
+         * receiver too</em>, which is the only thing entitled to see an endpoint on another type.
+         */
+        Member targetOf(ApiClass then, String member) {
+            return members.get(then.simpleName() + "#" + member);
+        }
     }
 
     private static List<String> paramsOf(MethodInfo mi) {
@@ -974,8 +1130,13 @@ public final class SdkUpgradeService {
      * (or an unindexed library), not a break this upgrade causes.
      *
      * <p>A renamed type yields <b>two</b> findings where both apply — one {@link BreakKind#TYPE_RENAMED} for
-     * the type, and, for a member that also went, its own removal under the new type. That is the pairing rule
-     * made visible: the id paired the name, the members were still resolved one at a time.
+     * the type, and, for a member that also went, its own finding under the new type. That is the pairing
+     * rule made visible: a pointer pairs the element it is written on, and the members of a paired type are
+     * still resolved one at a time.
+     *
+     * <p>A member the target still offers <em>somewhere</em> is listed too, with the redirect as its repair.
+     * It is a break — the bot does not compile until the call moves — and one Studio makes itself, which is
+     * exactly what the {@code repair} sentence is for.
      */
     private static List<Break> breaks(Map<String, ApiClass> before, Map<String, ApiClass> after,
                                       List<Call> calls, Pairing pairing) {
@@ -1001,21 +1162,32 @@ public final class SdkUpgradeService {
                         List.of()), call.site());
             }
 
-            String member = pairing.memberName(then, now, call.member());
-            if (offers(now, member, call.argCount())) continue;
+            // A call that still resolves under the same spelling is no break at all; one that resolves
+            // somewhere else is a break with a redirect for a repair, and is still listed, because the bot
+            // does not compile until the redirect is made.
+            SdkMigrationRunner.Redirect redirect = redirectFor(then, now, call, after, pairing);
+            if (redirect == null && offers(now, call.member(), call.argCount())) continue;
 
             BreakKind kind;
             String detail = "";
-            if (!declares(now, call.isField(), member)) {
+            if (redirect != null
+                    && (!call.member().equals(redirect.toMember()) || redirect.toTypeFqn() != null)) {
+                // The old spelling is gone; the redirect says where it went, which is what the user needs
+                // to read even though nothing here has to be changed by hand.
+                kind = call.isField() ? BreakKind.FIELD_REMOVED : BreakKind.MEMBER_REMOVED;
+                detail = "now " + redirect.display();
+            } else if (declares(now, call.isField(), call.member())) {
+                kind = BreakKind.SIGNATURE_CHANGED;
+                detail = "was " + signatures(then, call.member()) + " — now "
+                        + signatures(now, call.member());
+            } else {
                 // Covers a field turned into a method (and the reverse) as well as an outright removal —
                 // every one of them stops this call site compiling.
                 kind = call.isField() ? BreakKind.FIELD_REMOVED : BreakKind.MEMBER_REMOVED;
-            } else {
-                kind = BreakKind.SIGNATURE_CHANGED;
-                detail = "was " + signatures(then, call.member()) + " — now " + signatures(now, member);
             }
             record(found, sites, new Break(call.type(), call.member(), kind, detail,
-                    repairText(returnTypeOf(then, call)), List.of()), call.site());
+                    redirect == null ? repairText(returnTypeOf(then, call)) : repairText(redirect),
+                    List.of()), call.site());
         }
 
         return found.entrySet().stream()
@@ -1033,6 +1205,41 @@ public final class SdkUpgradeService {
         String key = unsited.type() + "#" + unsited.member() + "#" + unsited.kind();
         found.putIfAbsent(key, unsited);
         sites.computeIfAbsent(key, k -> new ArrayList<>()).add(site);
+    }
+
+    /**
+     * What the user is told a redirected call becomes.
+     *
+     * <p>Three sentences, because there are three outcomes and the difference matters to whoever reads the
+     * dialog: a plain rename is complete and says so; a redirect that changed shape is complete but wants
+     * looking at; and one that could not be used everywhere says <em>where</em> it could not, since that is
+     * the half the user has to finish.
+     */
+    private static String repairText(SdkMigrationRunner.Redirect redirect) {
+        String was = CTOR.equals(redirect.member())
+                ? "new " + redirect.type() : redirect.type() + "." + redirect.member();
+        List<String> what = new ArrayList<>();
+        if (!redirect.display().equals(was)) what.add("becomes " + redirect.display());
+
+        long gained = redirect.arguments().stream().filter(ArgumentEdit.Literal.class::isInstance).count();
+        long dropped = Math.max(0, redirect.argCount())
+                - redirect.arguments().stream().filter(ArgumentEdit.Keep.class::isInstance).count();
+        if (gained > 0) what.add("gains " + inputs(gained) + ", filled in with a default value");
+        if (dropped > 0) what.add("loses " + inputs(dropped) + " this call passes");
+        // Nothing about the call changes but the type it is reached through, which the file-wide type
+        // rename is already doing — so there is nothing more to promise here.
+        if (what.isEmpty()) what.add("is carried across as it is");
+
+        String head = String.join(" and ", what);
+        if (!redirect.expressionSafe()) {
+            return head + " where it stands on its own, and becomes " + defaultTextOf(redirect.returnType())
+                    + " where its result is used — those functions are marked for your review";
+        }
+        return redirect.shapeChanged() ? head + ", and the function is marked for your review" : head;
+    }
+
+    private static String inputs(long count) {
+        return count + (count == 1 ? " input" : " inputs");
     }
 
     /** What the user is told will stand in — the one sentence that says the model out loud. */
