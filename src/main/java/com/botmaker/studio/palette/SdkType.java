@@ -42,7 +42,7 @@ import com.botmaker.sdk.api.vision.Pixel;
 import com.botmaker.sdk.api.vision.Precision;
 import com.botmaker.sdk.api.vision.Text;
 import com.botmaker.sdk.api.vision.TextMatch;
-import com.botmaker.sdk.api.vision.VisionContext;
+import com.botmaker.sdk.api.vision.Vision;
 
 import java.util.Arrays;
 import java.util.HashMap;
@@ -113,11 +113,11 @@ public enum SdkType {
     /**
      * Exposes the {@code MatchResult} stored by the last find/click/wait call (the vision API returns
      * {@code boolean}/{@code int} now, not {@code MatchResult}), the {@code Matches} stored by the last group
-     * check ({@code getLastMatches()}) and, likewise, the {@code ColorMatch} stored by the last {@code Pixel}
+     * check ({@code lastMatches()}) and, likewise, the {@code ColorMatch} stored by the last {@code Pixel}
      * call. It is the out-of-band escape hatch: a group lambda hands its body the {@code Matches} directly,
      * as the named parameter {@code LambdaCallBlock} renders — prefer that.
      */
-    VISION_CONTEXT(VisionContext.class, Role.FACADE, "👁"),
+    VISION(Vision.class, Role.FACADE, "👁"),
     BOT_SETTINGS(BotSettings.class, Role.FACADE, "⚙"),
     DEBUG(Debug.class, Role.FACADE_HIDDEN, "🐞"),
     SESSION(Session.class, Role.FACADE_HIDDEN),

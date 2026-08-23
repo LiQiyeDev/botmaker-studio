@@ -21,7 +21,7 @@ class SdkTypeTest {
     /** The exact list the removed {@code SdkApi.FACADE_CLASSES} carried, in its order. */
     private static final List<String> EXPECTED_FACADES = List.of(
             "Mouse", "Keyboard", "Wait", "ImageFinder", "ImageClicker", "ImageWaiter", "Pixel", "Text",
-            "VisionContext", "BotSettings", "Debug", "Session", "Game", "Target", "Emulators", "Bot",
+            "Vision", "BotSettings", "Debug", "Session", "Game", "Target", "Emulators", "Bot",
             "Watchdog", "PopupGuard", "Activity", "Source", "Window", "Time");
 
     /**

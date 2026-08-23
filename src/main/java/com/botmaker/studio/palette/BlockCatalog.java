@@ -120,7 +120,7 @@ public final class BlockCatalog {
     // dialog picks a return type and parameter types from. It was five hand-written entries (Point, Rect,
     // Size, MatchResult, ImageTemplate) while the dialog knew a different set again, so a type you could take
     // as a parameter was not necessarily one you could declare. Each entry's seed value is the type's own
-    // default, which is why every one of them compiles the moment it is dropped: VisionContext.getLastMatch()
+    // default, which is why every one of them compiles the moment it is dropped: Vision.lastMatch()
     // rather than null, ImageTemplateGroup.of() rather than an empty group that throws, and the built-in
     // template (shipped by ProjectCreator) rather than a missing "image.png".
     private static final List<BlockType> BOT_VARIABLES = BotType.declarableTypes().stream()

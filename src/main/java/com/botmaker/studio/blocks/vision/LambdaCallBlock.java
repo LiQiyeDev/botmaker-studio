@@ -246,7 +246,7 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
         return v.group()
                 ? "The body is handed the whole combination as \"" + name + "\" (a Matches) — e.g. "
                         + name + ".has(image)"
-                : "The body is handed the hit as \"" + name + "\" (a MatchResult) — e.g. " + name + ".getCenter()";
+                : "The body is handed the hit as \"" + name + "\" (a MatchResult) — e.g. " + name + ".center()";
     }
 
     /**

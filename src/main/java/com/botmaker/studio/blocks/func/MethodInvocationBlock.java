@@ -271,7 +271,7 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
         sentenceBuilder.addLabel(")");
 
         // Return-type badge AFTER the arguments (SDK calls): the vision API returns boolean/int (find/click →
-        // boolean, findAll/clickAll → int, VisionContext.getLastMatch → MatchResult, getLastMatches → Matches),
+        // boolean, findAll/clickAll → int, Vision.lastMatch → MatchResult, lastMatches → Matches),
         // so surface what the call yields — placed after the argument list per the block layout.
         addReturnTypeBadge(sentenceBuilder, context, currentScopeGetter);
 

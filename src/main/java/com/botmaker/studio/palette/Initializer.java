@@ -39,7 +39,7 @@ public sealed interface Initializer
     /** Qualified enum reference, e.g. {@code Direction.NORTH}. */
     record EnumConst(String typeName, String constant) implements Initializer {}
 
-    /** Static method invocation, e.g. {@code VisionContext.getLastMatch()}. */
+    /** Static method invocation, e.g. {@code Vision.lastMatch()}. */
     record StaticCall(String typeName, String methodName, List<Initializer> args) implements Initializer {
         public StaticCall(String typeName, String methodName, List<Initializer> args) {
             this.typeName = typeName;
