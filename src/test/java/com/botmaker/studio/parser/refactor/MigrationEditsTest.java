@@ -31,7 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * The edit primitives an SDK migration is built out of, exercised on their own.
  *
- * <p>Nothing here reads a {@code migrations.json} or upgrades anything: this is the layer below that, where a
+ * <p>Nothing here reads a jar, a pointer annotation or a version: this is the layer below all of that, where a
  * "rename this constant" or "this one is gone, stand a default in" becomes characters in a file. Testing it
  * here rather than through the upgrade means a failure says which edit is wrong instead of which upgrade is.
  *

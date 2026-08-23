@@ -6,6 +6,22 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-23 — Docs: the SDK relationship rewritten around the pointer pair (`CLAUDE.md`,
+  `parser/refactor/SdkReferences`).** Phase 1 of twelve, and the docs debt the previous six-phase plan left
+  behind. The *Relationship to the SDK* bullets still described `@ApiId` pairing types, `migrations.json`
+  supplying renames, and a `MIGRATIONS_MAX_SCHEMA` Studio refuses above — none of which exists. They now
+  describe what actually runs: the **checked redirect** (statement position always taken, expression position
+  only where the new type fits, everything else falling back to a literal default plus `@NeedsReview`),
+  `Pairing` as an **edge walk** over the old jar's `@ReplacedBy` and the new jar's era-filtered `@Replaces`
+  with its three deliberate refusals (the live element wins, an ambiguous claim is unpaired, a pairing is
+  never invented), members paired **independently of types**, and **Modernise** as the same walk one hop
+  further with its own `canModernise()` verdict. The runner's bullet drops "composed version keys" for what
+  `Pairing` really hands it — endpoints already resolved, so `foo`→`bar`→`baz` arrives as one fact and a
+  reverted rename reaches nothing live and is dropped. The degradation story got simpler and is now stated as
+  such: there is no schema to refuse, because an annotation a newer SDK invents is invisible to a scan asking
+  for the two Studio knows. Two `SdkReferences` comments naming japicmp and `migrations.json` as the source of
+  the `Type#member` spelling were corrected to the annotations that actually use it.
+
 - **2026-08-23 — Modernise: moving off deprecated members with no version change
   (`services/SdkUpgradeService`, `ui/app/SdkUpgradeDialog`, `MenuBarManager`, `StudioActions`).** Phase 5 of
   six. A pointer says where something went whether or not it has gone yet — a deprecation window *is* both

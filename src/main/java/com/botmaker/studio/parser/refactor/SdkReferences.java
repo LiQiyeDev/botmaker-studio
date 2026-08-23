@@ -54,7 +54,7 @@ public final class SdkReferences {
     /** {@link Reference#argCount()} for a field read: not "zero arguments", but "no argument list at all". */
     public static final int FIELD_READ = -1;
 
-    /** A constructor has no name of its own; this is how japicmp and {@code migrations.json} spell one. */
+    /** A constructor has no name of its own; this is how {@code @ReplacedBy}/{@code @Replaces} spell one. */
     public static final String CTOR = "<init>";
 
     /**
@@ -71,7 +71,7 @@ public final class SdkReferences {
             return argCount == FIELD_READ;
         }
 
-        /** {@code Key#ENTER} — the spelling {@code migrations.json} and japicmp both use. */
+        /** {@code Key#ENTER} — the same spelling the SDK's pointer annotations use, minus the package. */
         public String key() {
             return type + "#" + member;
         }

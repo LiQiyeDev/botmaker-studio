@@ -104,30 +104,47 @@ there are three distinct relationships to keep straight:
   (`MavenService.resolveSdkJar`, any version — the project pom's JitPack repo means it need never have been on
   this machine), ClassGraph-scans it beside the pinned one, and intersects the difference with the bot's own
   call sites: what's new, what the bot calls that is now deprecated, what the bot calls that is **gone**
-  (file + line), and what the SDK declares about each break (`META-INF/botmaker/migrations.json`; the
-  `summary` is the SDK author's sentence and is never paraphrased). Three things about it are load-bearing:
-  - **The repair makes the bot compile; the user makes it correct.** A member the target no longer offers is
-    **not** pointed at another member — that was guessing, and a wrong guess yields a bot that compiles and
-    behaves differently. It gets a **literal default of the type the old jar said it returned**
-    (`CallMigrator.literalDefaultFor`: `false`, `0`, `""`, `null` — never `new Point()`, since the type is
-    often the one that was just removed), and a call standing as a **statement of its own is deleted**
-    (`CallChange.CallDeleted`), because `0;` is not a statement. The enclosing function is then annotated
-    `@NeedsReview` **in the same rewrite** — see the review-marks bullet below.
-  - **`@ApiId` pairs types; `migrations.json` is renames only.** `SdkUpgradeService.Pairing` answers "which
-    type in the new jar takes this old one's place" in three steps: same name → same `@ApiId`
-    (`com.botmaker.sdk.api.ApiId`, CLASS-retained, read from the jar by the ClassGraph scan
-    `TypeSummaryManager` already runs) → a declared rename → **unpaired**. Unpaired is an answer, not a
-    failure: absence of an id *is* the signal the role is gone, and inventing a counterpart is the one
-    mistake that cannot be undone by review. An id pairs the **type name only** — members are still resolved
-    one at a time on whatever it returns, so an id kept across a redesign degrades to defaults plus review
-    marks. **A removed type with no pairing is the one break that refuses the upgrade**
+  (file + line), and where each break went — read from the **pointer pair the two jars carry**
+  (`@ReplacedBy`/`@Replaces`, `docs/refactor/21-api-compat.md` §4). Four things about it are load-bearing:
+  - **A redirect where the jars confirm it, a default where they do not.** The SDK once shipped a repair per
+    break (a `fix` in `migrations.json`) and it was guessing — nothing checked that two members shared a
+    return type, an arity or any semantics. What replaced it is not the absence of a redirect but a
+    **checked** one, and the call's position decides what has to be checked: a call standing as a
+    **statement** discards its value, so the target's return type cannot make the redirect wrong and it is
+    always taken; a call whose value is **used** is redirected only when what comes back still fits where the
+    old value sat (same type, a subtype in the target jar, or a widening primitive). Arity never refuses —
+    the arguments already passed are kept in order and the difference filled or dropped, which is
+    `SignatureMigration`'s machinery. Everything the check refuses falls back to a **literal default of the
+    type the old jar said it returned** (`CallMigrator.literalDefaultFor`: `false`, `0`, `""`, `null` — never
+    `new Point()`, since the type is often the one just removed), a **deleted statement** for a `void`
+    (`CallChange.CallDeleted`, because `0;` is not a statement), and `@NeedsReview` on the enclosing function
+    **in the same rewrite** — see the review-marks bullet below. *The repair makes the bot compile; the user
+    makes it correct.*
+  - **`SdkUpgradeService.Pairing` follows edges, and pairs members independently of types.** One edge map:
+    the **old** jar's `@ReplacedBy` forwards (the author of the element the bot actually calls saying where it
+    went) plus the **new** jar's `@Replaces` backwards, **filtered by era** — an entry is consulted only for a
+    bot pinned at or below the version it records. The walk follows edges until it reaches a spelling the
+    target jar actually has, which is what resolves a **chain** with no intermediate jar fetched; a visited
+    set bounds it, and a cycle reaching nothing live is simply unpaired. Three deliberate refusals: a
+    spelling the target **still has** is answered by the live element (so an accumulated entry can never go
+    stale into a wrong answer), an ambiguous claim is left unpaired with a `problems()` line, and a pairing is
+    never invented. `memberName` and `targetOf` are the two readers — the first answers "what is this called
+    on the type this one paired with", the second hands back an endpoint that crossed types, and only
+    `redirectFor` (which is about to move the receiver too) is entitled to that.
+  - **A removed type with no pairing is the one break that refuses the upgrade**
     (`BreakKind.TYPE_REMOVED`, `Break.isRepairable()` false): a default has nowhere to go in
     `ImageTemplate t = …;`. It disables the whole span (`Report.canMigrate()`), because rewriting some call
     sites and leaving the rest is the half-migration `CallMigrator.rewriteOthers` returns `null` to prevent.
-  - **Studio is the version that lags**, so it degrades rather than guessing. A `schema` above
-    `MIGRATIONS_MAX_SCHEMA` (2) is refused **whole** — one `problems()` line, no renames — since a grammar we
-    do not know is one we may *misread*; breaks are still reported, coming from the jar scan and needing no
-    file.
+  - **Modernise is the same machinery one hop further.** *Project ▸ Modernise…* touches no pom: it walks the
+    pointers the project's own jar's **deprecated** elements carry (`throughDeprecations`, which also folds in
+    the target jar's forward edges — same shape of edge, only the stopping rule differs) and rewrites the bot
+    off them in place. It has its own verdict, `Report.canModernise()`, rather than borrowing `canMigrate()`:
+    moving off a deprecation is still possible on a project where an unpaired removed type blocks the upgrade.
+    It is also the upgrade dialog's checkbox (`compare(target, alsoModernise)`).
+  - **Studio is the version that lags**, so it degrades rather than guessing — and the pointer model makes
+    that free: an annotation a newer SDK invents is simply invisible to a ClassGraph scan asking for the two
+    Studio knows, so an older Studio falls back to exactly its behaviour against a jar with no pointers at
+    all. There is no schema to refuse any more.
   - This replaced `mvn rewrite:run` against OpenRewrite recipes in 2026-08. OpenRewrite existed for one
     requirement — migrating with no Studio at all — and once that was withdrawn it bought nothing
     `CallMigrator` could not do. Note which way that cut: OpenRewrite type-attributes against the **old**
@@ -160,12 +177,13 @@ there are three distinct relationships to keep straight:
     with it** — a removed `void` member in a one-line lambda body, or a constant used as a `case` label whose
     enum cannot be told. That is the same all-or-nothing `rewriteOthers` already enforced for a rewrite that
     will not parse.
-  - **Applying is `parser/refactor/SdkMigrationRunner`: one pass over composed facts, two sweeps per file.**
-    There is no replay. The version keys in `migrations.json` are **composed** before anything is written —
-    `foo→bar` (2.0) and `bar→baz` (3.0) fold into `foo→baz`, which is what a bot that has run neither pass
-    actually needs, and `a→b` + `b→a` folds to the identity and is dropped where a fixpoint loop would run
-    forever. Each file is then swept **members first, types second, with a re-parse between**: a removed
-    member of a renamed type is otherwise two `ASTRewrite` edits on one node, which it cannot express.
+  - **Applying is `parser/refactor/SdkMigrationRunner`: one pass over resolved endpoints, two sweeps per
+    file.** There is no replay — `Pairing` has already walked the edges to an endpoint the target jar has, so
+    `foo`→`bar` (2.0) and `bar`→`baz` (3.0) reach the runner as the single fact `foo`→`baz`, which is what a
+    bot that has run neither pass actually needs, and `a`→`b` + `b`→`a` reaches nothing live and is dropped
+    where a fixpoint loop would run forever. Each file is then swept **members first, types second, with a
+    re-parse between**: a removed member of a renamed type is otherwise two `ASTRewrite` edits on one node,
+    which it cannot express.
   - **The record of an incomplete repair is `@NeedsReview` in the bot's own source
     (`parser/refactor/ReviewMarks`).** Not a sidecar under `.botmaker/`: the diff cannot answer this later —
     once the pom is bumped the old jar is gone and re-diffing the project finds nothing — and an annotation
