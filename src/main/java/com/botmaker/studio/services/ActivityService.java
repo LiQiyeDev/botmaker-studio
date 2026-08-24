@@ -248,12 +248,18 @@ public final class ActivityService {
      *
      * <p>Memoised on the service, so the generators below can be called with nothing but a model — which is
      * what lets them be exercised against a project directory that does not exist yet.
+     *
+     * <p>The floor is checked here rather than at each caller because this is the one place all of them pass
+     * through: every generated file is a filled template, so every generated file needs an SDK that has
+     * templates. It is checked before the memo is set, so a project sitting below the floor refuses each time
+     * it is asked rather than caching a store it was never allowed to use.
      */
-    private synchronized TemplateStore templates() {
+    private synchronized TemplateStore templates() throws ScaffoldUnsupported {
         if (templates == null) {
             Path project = config == null ? null : config.projectPath();
-            templates = TemplateStore.forVersionNewerThanStudio(project,
-                    project == null ? null : MavenService.readSdkVersion(project));
+            String version = project == null ? null : MavenService.readSdkVersion(project);
+            TemplateStore.requireFloor(version);
+            templates = TemplateStore.forVersionNewerThanStudio(project, version);
         }
         return templates;
     }

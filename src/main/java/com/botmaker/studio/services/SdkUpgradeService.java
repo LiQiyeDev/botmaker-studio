@@ -613,6 +613,18 @@ public final class SdkUpgradeService {
      * produced again — against the new jar, through the same verify-then-emit path a save takes. After the
      * pom has moved, not before: the check has to see the SDK the project actually pins now.
      *
+     * <p><b>Since the floor moved to 1.1.0 this is also where a bot changes shape</b>, and it is the only
+     * place it can. A project created before the scaffold lived in the SDK holds a {@code FlowDriver} that is
+     * a hand-rolled walk loop and an {@code Activities} carrying up to thirteen parser bodies; upgrading it
+     * re-renders both from the new jar's templates, so they come back as a table and a field list. Nothing
+     * about that needs an AST migration — both files are {@link com.botmaker.studio.project.FileRole}
+     * {@code GENERATED}, which means no line in either is the user's. Their stubs, {@code GoHome} and
+     * {@code Popups} are seeds and are not touched: their shape never changed.
+     *
+     * <p>Ordering matters more than it used to for the same reason. Below the floor
+     * {@code TemplateStore.requireFloor} refuses to render anything at all — so running this before the pom
+     * moved would refuse every upgrade that most needs it.
+     *
      * <p>An {@code IOException} here is worth a sentence and not worth failing the upgrade over: the sources
      * are already repaired and the pom is already moved, so undoing it would be the destructive answer. The
      * next save of the activity flow writes these files anyway — and the snapshot taken before the upgrade is

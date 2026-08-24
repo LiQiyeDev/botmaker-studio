@@ -149,6 +149,16 @@ there are three distinct relationships to keep straight:
   real SDK jar and is the reason to keep the derivation in one place.
   `MavenService.MIN_SDK_VERSION` is the floor: below it the project **still opens**, under one amber banner
   offering *Upgrade SDK…*. An old bot that runs is not a broken bot.
+  **The floor is `1.1.0` since 2026-08-24, and it now refuses something as well as warning about something.**
+  1.1.0 is the first SDK carrying the scaffold — `botmaker-templates/` and the `FlowGraph`/`Wire` API those
+  templates call — and Studio has one generation path, no legacy text-block fallback. So below the floor a
+  *generated* file cannot be written at all: `TemplateStore.requireFloor` refuses at the three sites that
+  write one (creation, `ActivityService.templates()`, *Recover Project Files*), naming the version and the way
+  out. Falling open there would emit `FlowGraph.of(…)` into a project whose jar has never heard of it — a bot
+  that does not compile, produced silently, which is the outcome the verify-then-emit path exists to prevent.
+  It is stated as a version comparison and not discovered by looking in the jar on purpose: an absent template
+  directory is also what a fixture or the wrong artifact looks like, and `TemplateStore.forJar` must go on
+  failing open for those. The banner says both halves; the refusal's sentence is the one the user acts on.
 - **Changing the SDK version is a report, not a cell edit — `services/SdkUpgradeService`** (*Project ▸ Upgrade
   SDK…*, and where the floor banner's button goes). It resolves the **target** version's jar
   (`MavenService.resolveSdkJar`, any version — the project pom's JitPack repo means it need never have been on

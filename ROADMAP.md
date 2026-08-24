@@ -6,6 +6,45 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-24 — the SDK floor moves to 1.1.0, and starts refusing rather than only warning
+  (`services/MavenService`, `project/scaffold/TemplateStore#requireFloor` (new), `services/ActivityService`,
+  `project/ProjectCreator`, `ui/app/ProjectRecoveryAction`, `ui/app/EditorCanvas`,
+  `services/SdkUpgradeService`).** Phase 6 of seven. `MIN_SDK_VERSION` and `SDK_FALLBACK_VERSION` both move
+  from `1.0.26` to `1.1.0` — together, because `release.sh`'s `check_sdk_floor` refuses a floor newer than
+  what a freshly created bot pins, and a Studio generating projects that open under its own too-old banner is
+  the bug that gate exists for. The dry run now reads `studio: SDK floor 1.1.0 <= 1.1.0 — ok`.
+
+  What the floor *means* changed with it. It used to be a statement about the palette: 1.0.26 was the last
+  release before `api.*` came under contract, so below it Studio could not say which blocks would compile, and
+  one amber banner said so. 1.1.0 is the first SDK that ships the scaffold itself — `botmaker-templates/` and
+  the `FlowGraph`/`Wire` API those templates call — and Studio deliberately keeps **one** generation path with
+  no legacy text-block fallback to maintain in parallel. So below the floor a generated file cannot be
+  written at all. `TemplateStore.requireFloor` is that refusal, at the three sites that write one: project
+  creation (the New Project dialog lists every JitPack tag, so a user really can pin something older),
+  `ActivityService.templates()` — the one place every generated file passes through — and *Recover Project
+  Files*, asked before its stub loop because a project with no activities would otherwise skip the check and
+  have its seeds rewritten.
+
+  Falling open there would write `FlowGraph.of(…)` into a project whose jar has never heard of `FlowGraph`: a
+  bot that does not compile, produced silently, which is the one outcome the whole verify-then-emit path
+  exists to prevent. It is a version comparison and **not** a look inside the jar on purpose — an absent
+  template directory is also what a fixture, a stub or the wrong artifact looks like, and `forJar` must go on
+  failing open for those. `0.0.0-SNAPSHOT` passes, for the same reason `isBelowMinimum` lets it: it is what a
+  dev-run pins deliberately.
+
+  The banner stops understating it — below the floor the Activity Flow cannot be saved, and reading that
+  before drawing a flow is kinder than meeting it after. Everything else is unchanged: the project opens,
+  every file is editable, it builds and it runs.
+
+  An old bot changes *shape* at one moment, and it is the post-bump hook that was already there:
+  `SdkUpgradeService.regenerateScaffolding`, which runs after the pom has moved (and could not run before —
+  the floor would refuse it). A project created before the scaffold lived in the SDK holds a `FlowDriver`
+  that is a hand-rolled walk loop and an `Activities` carrying up to thirteen parser bodies; both come back
+  as a table and a field list, rendered from the new jar's templates. No AST migration is involved and none
+  is needed: both files are `FileRole.GENERATED`, so no line in either is the user's. Stubs, `GoHome` and
+  `Popups` are seeds and are not touched — their shape never changed, which is checked rather than assumed
+  (an old stub is still `extends Activity<Name.Outcome>` with `isEnabled()` reading `Activities.<Name>`).
+
 - **2026-08-24 — the scaffold's checks collapse into one compile
   (`project/scaffold/ScaffoldScan` (deleted), `ScaffoldSurface`, `ScaffoldCheck`, `ScaffoldEmitter`,
   `test/…/ScaffoldCorpus` (new), `ScaffoldCompileTest` (new), `ScaffoldSurfaceTest` (rewritten)).**

@@ -72,7 +72,8 @@ public class ProjectCreator {
         //    than a refusal. Satisfied is the answer in every ordinary case — see ScaffoldCheck.
         //    The scaffold's *frame* comes from that same SDK — the templates it ships — so the file a bot
         //    gets is the one its own SDK version knows how to be. Resolved before the check, since what is
-        //    checked is what those templates produced.
+        //    checked is what those templates produced. An SDK too old to have templates at all is refused by
+        //    the same call, from the other direction — see TemplateStore.requireFloor.
         Map<String, String> sources = scaffold(sdkVersion,
                 sourcesFor(template, cfg.className(), cfg.packageName(),
                         TemplateStore.forVersionNewerThanStudio(null, effectiveSdkVersion(sdkVersion))));
@@ -136,12 +137,19 @@ public class ProjectCreator {
      * {@link ScaffoldFacts#forVersionNewerThanStudio}, which is where that gate and its reasoning live, since
      * the regeneration path needs exactly the same one.
      *
-     * @throws ScaffoldUnsupported when the SDK has dropped something the generators write and says nothing
-     *                             about what replaced it. Thrown before anything is on disk.
+     * <p>The floor is asked about first, and it is the only question here whose answer can be yes for a
+     * version the user chose freely: the New Project dialog lists every SDK tag JitPack has, so a project can
+     * be pinned to one that predates the scaffold entirely. That is a refusal before the directory exists,
+     * not a bot created and then found to be uncompilable.
+     *
+     * @throws ScaffoldUnsupported when the SDK predates the scaffold, or has dropped something the generators
+     *                             write and says nothing about what replaced it. Thrown before anything is
+     *                             on disk.
      */
     private static Map<String, String> scaffold(String sdkVersion, Map<String, String> rendered)
             throws ScaffoldUnsupported {
         String version = effectiveSdkVersion(sdkVersion);
+        TemplateStore.requireFloor(version);
         return scaffold(version, rendered, ScaffoldFacts.forVersionNewerThanStudio(null, version));
     }
 

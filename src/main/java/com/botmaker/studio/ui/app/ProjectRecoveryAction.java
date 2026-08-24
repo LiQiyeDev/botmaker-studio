@@ -9,7 +9,9 @@ import com.botmaker.studio.project.ProjectTemplate;
 import com.botmaker.studio.project.StudioContext;
 import com.botmaker.studio.project.activity.ActivityDefinition;
 import com.botmaker.studio.project.scaffold.ScaffoldUnsupported;
+import com.botmaker.studio.project.scaffold.TemplateStore;
 import com.botmaker.studio.services.ActivityService;
+import com.botmaker.studio.services.MavenService;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.scene.control.Alert;
@@ -124,11 +126,19 @@ final class ProjectRecoveryAction {
         }
     }
 
-    /** What the generators would produce for this project's scaffold today, keyed by path. */
+    /**
+     * What the generators would produce for this project's scaffold today, keyed by path.
+     *
+     * <p>The floor is asked first and not left to the stub loop below it. A project with no activities yet
+     * would never reach {@code generateStubSource}, and recovery would then happily write the seeds — which
+     * are templates too, and call the same injection API — into a bot whose SDK predates all of it.
+     */
     private static Map<Path, String> canonicalScaffold(StudioContext ctx) throws ScaffoldUnsupported {
         ProjectConfig config = ctx.config();
         ProjectState state = ctx.state();
         ActivityService activityService = ctx.activityService();
+
+        TemplateStore.requireFloor(MavenService.readSdkVersion(config.projectPath()));
 
         Map<Path, String> byPath = new LinkedHashMap<>();
         Path mainDir = config.mainSourceFile().getParent();

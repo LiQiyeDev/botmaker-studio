@@ -1,11 +1,13 @@
 package com.botmaker.studio.project.scaffold;
 
+import com.botmaker.studio.services.MavenService;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -104,5 +106,34 @@ class TemplateStoreTest {
         TemplateStore store = TemplateStore.forJar(java.nio.file.Path.of("no", "such.jar"));
         assertFalse(store.isEmpty());
         assertEquals(TemplateStore.bundled().require("GO_HOME").source(), store.require("GO_HOME").source());
+    }
+
+    /**
+     * …and the floor is what keeps that fallback honest. Falling open lands on templates that call
+     * {@code FlowGraph} and {@code Wire}; an SDK from before those existed cannot compile them, so the version
+     * — not the jar's contents — is what refuses first.
+     */
+    @Test
+    void anSdkOlderThanTheScaffoldIsRefusedByVersion() {
+        ScaffoldUnsupported refusal =
+                assertThrows(ScaffoldUnsupported.class, () -> TemplateStore.requireFloor("1.0.26"));
+        assertTrue(refusal.getMessage().contains("1.0.26"),
+                "the sentence has to name the version the user actually pins: " + refusal.getMessage());
+        assertTrue(refusal.getMessage().contains(MavenService.MIN_SDK_VERSION), refusal.getMessage());
+        assertTrue(refusal.getMessage().contains("Upgrade SDK"),
+                "and the way out: " + refusal.getMessage());
+    }
+
+    /** The three things the floor must let through, each for a different reason. */
+    @Test
+    void theFloorPassesTheFloorItself_aNewerSdk_andADevBuild() {
+        assertDoesNotThrow(() -> TemplateStore.requireFloor(MavenService.MIN_SDK_VERSION));
+        assertDoesNotThrow(() -> TemplateStore.requireFloor("2.0.0"));
+        // 0.0.0-SNAPSHOT is what `mvn -pl botmaker-sdk -am install` produces and what a dev-run pins on
+        // purpose. SemVer sorts it below everything, so a naive comparison would refuse every dev-run.
+        assertDoesNotThrow(() -> TemplateStore.requireFloor("0.0.0-SNAPSHOT"));
+        // No pom, or a pom naming no SDK: MavenService answers the fallback, which is at the floor.
+        assertDoesNotThrow(() -> TemplateStore.requireFloor(null));
+        assertDoesNotThrow(() -> TemplateStore.requireFloor("  "));
     }
 }

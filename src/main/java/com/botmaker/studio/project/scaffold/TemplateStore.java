@@ -56,8 +56,9 @@ import java.util.zip.ZipEntry;
  *
  * <p>Every path that cannot produce templates falls back to {@link #bundled()} rather than failing — an
  * unresolvable jar, an SDK older than the templates, a manifest in a format this Studio cannot parse. That is
- * the same fail-open rule {@code ScaffoldCheck} follows, and what makes it safe is the floor:
- * {@code MavenService.MIN_SDK_VERSION} is what refuses a project whose pinned SDK predates the scaffold.
+ * the same fail-open rule {@code ScaffoldCheck} follows, and what makes it safe is the floor: an SDK that
+ * predates the scaffold is refused by {@link #requireFloor} before any of this is reached, so the fallback
+ * only ever lands on templates the pinned jar could actually carry.
  */
 public final class TemplateStore {
 
@@ -115,6 +116,45 @@ public final class TemplateStore {
     private TemplateStore(String templatePackage, Map<String, Template> byId) {
         this.templatePackage = templatePackage;
         this.byId = byId;
+    }
+
+    // ---- the floor ------------------------------------------------------------------------------------
+
+    /**
+     * Refuses, by name, an SDK too old to carry the scaffold — the one gate in front of every path that
+     * writes a generated file.
+     *
+     * <p>The fallbacks above are all fail-open, and that is right for them: an unresolvable jar or an
+     * unreadable manifest is a degraded probe, and degrading to the templates Studio ships with produces a
+     * correct bot in every case where the SDK is recent enough to compile them. This one is not a probe. An
+     * SDK below {@code MavenService.MIN_SDK_VERSION} ships no {@code botmaker-templates/} <em>and</em> none of
+     * the injection API those templates call, so falling open would write {@code FlowGraph.of(…)} into a
+     * project whose jar has never heard of {@code FlowGraph} — a bot that does not compile, produced silently,
+     * which is the one outcome the whole verify-then-emit path exists to prevent.
+     *
+     * <p>It is stated as a version comparison rather than discovered by looking in the jar on purpose. The
+     * absence of a template directory is also what a fixture, a stub or the wrong artifact looks like, and
+     * those are exactly the cases {@link #forJar} must keep falling open on. The pom's own number is the only
+     * evidence that distinguishes "this SDK predates the scaffold" from "this file is not the SDK".
+     *
+     * <p>Anything {@link SemVer} cannot parse passes, for the same reason {@code SdkSurfaceService
+     * .isBelowMinimum} lets it: the unparseable version that occurs in practice is {@code 0.0.0-SNAPSHOT},
+     * the local dev build a maintainer pins deliberately, and refusing it would break every dev-run.
+     *
+     * @throws ScaffoldUnsupported naming the version and the way out. Thrown before anything is written.
+     */
+    public static void requireFloor(String version) throws ScaffoldUnsupported {
+        if (version == null || version.isBlank()) return;
+        String v = version.trim();
+        if (!SemVer.isValid(v) || !SemVer.isValid(MavenService.MIN_SDK_VERSION)
+                || SemVer.compare(v, MavenService.MIN_SDK_VERSION) >= 0) {
+            return;
+        }
+        throw new ScaffoldUnsupported("This bot uses SDK " + v + ", and the files BotMaker generates for you"
+                + " — Activities, ActivityRegistry and FlowDriver — are built from templates that SDK "
+                + MavenService.MIN_SDK_VERSION + " was the first to ship. Nothing has been changed. Use"
+                + " Project ▸ Upgrade SDK… to move this bot to " + MavenService.MIN_SDK_VERSION
+                + " or newer; everything you wrote yourself is left exactly as it is.");
     }
 
     // ---- where the templates come from ----------------------------------------------------------------

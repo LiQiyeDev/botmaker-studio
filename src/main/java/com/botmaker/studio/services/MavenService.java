@@ -66,21 +66,32 @@ public final class MavenService {
     public static final String SDK_GROUP_ID = "com.github.LiQiyeDev";
     public static final String SDK_ARTIFACT_ID = "botmaker-sdk";
     /** Version used for the SDK when none is supplied / JitPack is unreachable. */
-    public static final String SDK_FALLBACK_VERSION = "1.0.26";
+    public static final String SDK_FALLBACK_VERSION = "1.1.0";
 
     /**
      * Oldest SDK this Studio is built to edit. Below it the project still <em>opens</em> — a banner offers the
      * upgrade, nothing is refused: an old bot that runs is not a broken bot, and a Studio that won't open one
      * is worse than a Studio that warns about it.
      *
-     * <p>{@code 1.0.26} is the last release cut before {@code api.*} came under contract
-     * ({@code docs/refactor/21-api-compat.md}), so it is the oldest version whose surface is known to relate
-     * to this one by any rule at all. Anything older predates every guarantee Studio's palette assumes.
+     * <p><b>What the floor means changed in 1.1.0, and it now bites rather than nags.</b> It used to be a
+     * statement about the <em>palette</em>: {@code 1.0.26} was the last release cut before {@code api.*} came
+     * under contract, so below it Studio could not say which blocks would compile, and the banner said so.
+     * {@code 1.1.0} is the first SDK that ships the scaffold itself — the templates every generated file is
+     * rendered from, and the {@code FlowGraph}/{@code Wire} injection API those templates call. An older jar
+     * has neither, and Studio keeps <b>one</b> generation path deliberately (no legacy text-block fallback to
+     * maintain in parallel), so a generated file simply cannot be written against an SDK below this line.
+     * {@link com.botmaker.studio.project.scaffold.TemplateStore#requireFloor} is where that refusal lives,
+     * and it names the version rather than producing a bot that does not compile.
+     *
+     * <p>Everything else about an older project is unchanged: it opens, its files are read and edited, it
+     * builds and runs. What it cannot do until <em>Project ▸ Upgrade SDK…</em> is have its Activity Flow
+     * saved, since that is the moment Studio would have to write those files.
      *
      * <p>Kept {@code <=} {@link #SDK_FALLBACK_VERSION} by {@code release.sh}, so a fresh project can never be
-     * created below the floor Studio itself imposes.
+     * created below the floor Studio itself imposes. The two moved to {@code 1.1.0} together for exactly
+     * that reason.
      */
-    public static final String MIN_SDK_VERSION = "1.0.26";
+    public static final String MIN_SDK_VERSION = "1.1.0";
 
     /**
      * Locally-installed SDK dev builds found in {@code ~/.m2} (typically {@code 0.0.0-SNAPSHOT}, produced by

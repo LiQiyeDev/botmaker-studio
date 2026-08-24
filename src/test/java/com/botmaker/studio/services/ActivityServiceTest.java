@@ -14,6 +14,7 @@ import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.project.activity.FlowEdge;
 import com.botmaker.studio.project.activity.FlowNode;
 import com.botmaker.studio.project.activity.VariableWire;
+import com.botmaker.studio.project.scaffold.ScaffoldUnsupported;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -330,5 +331,28 @@ public class ActivityServiceTest {
         String reg = service.generateRegistrySource(ActivitiesConfig.empty());
         assertTrue(reg.contains("List.of("), reg);
         assertTrue(!reg.contains("import com.mybot.activities.*;"), reg);
+    }
+
+    /**
+     * A bot pinned below {@link MavenService#MIN_SDK_VERSION} is refused a generated file, by name — the floor
+     * reaching the one place that matters, which is a real project on disk rather than a version string.
+     *
+     * <p>Its jar has neither the templates every generated file is rendered from nor the {@code FlowGraph} /
+     * {@code Wire} API those templates call, and Studio keeps one generation path on purpose. So the honest
+     * outcome is this sentence; the dishonest one would be a bot that does not compile, written silently.
+     * Everything else about the project stays open and editable — see {@code EditorCanvas.sdkFloorBanner}.
+     */
+    @Test
+    void aProjectPinnedBelowTheFloorIsRefusedAGeneratedFile(@TempDir Path dir) throws Exception {
+        ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
+        java.nio.file.Files.createDirectories(config.projectPath());
+        MavenService.writePom(config.projectPath(), config, "1.0.26");
+        ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
+
+        ScaffoldUnsupported refusal = assertThrows(ScaffoldUnsupported.class,
+                () -> service.generateSource(ActivitiesConfig.empty()));
+
+        assertTrue(refusal.getMessage().contains("1.0.26"), refusal.getMessage());
+        assertTrue(refusal.getMessage().contains(MavenService.MIN_SDK_VERSION), refusal.getMessage());
     }
 }

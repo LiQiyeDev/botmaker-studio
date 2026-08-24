@@ -169,15 +169,21 @@ final class EditorCanvas {
     /**
      * The "this bot pins an SDK older than Studio supports" banner.
      *
-     * <p>Deliberately <em>not</em> a modal, a refusal, or a red error. The bot compiles and runs exactly as it
-     * did yesterday; what it loses is that Studio's palette is a superset of what its jar has, so some blocks
-     * it offers would not compile. That is worth one line above the canvas and nothing more — a Studio that
-     * won't open an old project is strictly worse than one that mentions it.
+     * <p>Deliberately <em>not</em> a modal and not a red error. The bot compiles and runs exactly as it did
+     * yesterday, and every file in it stays open and editable — a Studio that won't open an old project is
+     * strictly worse than one that mentions it.
+     *
+     * <p>What the banner has to say changed with the floor at {@code 1.1.0}, and understating it would be the
+     * unkind version. Below the floor the palette is still a superset of what the jar has, as before; but the
+     * generated files are rendered from templates the SDK itself ships, so <b>saving the Activity Flow is
+     * refused</b> until the bot is upgraded. Better to read that here, before drawing a flow, than in a
+     * refusal after. The refusal's own sentence is {@code TemplateStore.requireFloor}'s.
      */
     private static HBox sdkFloorBanner(String version, Runnable onUpgradeSdk) {
         Label msg = new Label("This bot uses SDK " + version + ", older than the "
-                + MavenService.MIN_SDK_VERSION + " this Studio is built for. It still runs — but some blocks"
-                + " in the palette may not compile against it.");
+                + MavenService.MIN_SDK_VERSION + " this Studio is built for. It still runs, and everything"
+                + " here stays open — but some blocks in the palette may not compile against it, and the"
+                + " Activity Flow cannot be saved until you upgrade.");
         msg.setWrapText(true);
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
