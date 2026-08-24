@@ -1,32 +1,44 @@
 # BotMaker Studio
 
-A visual, block-based programming environment for building **PC automation bots** in Java — no syntax to memorize.
-Drag and drop blocks to assemble real Java, get IDE-grade autocomplete and error checking, then run or debug your
-bot in one click.
+A bot watches a game or app on your screen, decides what it sees, and clicks. **BotMaker Studio** is the
+desktop IDE you build one in: assemble the logic from visual blocks, and Studio writes real Java for you — a
+standard Maven project you could open in any IDE.
 
-BotMaker Studio is built with **JavaFX**, generates and edits real Java via the **Eclipse JDT** AST, and ships
-with the **[BotMaker SDK](https://github.com/LiQiyeDev/BotMaker-sdk)** for screen vision (OpenCV template
-matching), mouse, and window control.
+A bot is not a script that runs top to bottom. You break it into **activities**, wire their outcomes together
+in the **Activity Flow**, and the generated driver walks that graph — so what runs next is what you drew.
+
+What a bot can drive: a PC game from Steam, Epic, Heroic or Faugus, any executable or command line, or an app
+inside an Android emulator. It can run on a **private display** so it doesn't take over your desktop, and you
+can watch and drive it from your phone.
+
+Built with **JavaFX**, editing real Java through the **Eclipse JDT** AST, and seeing the screen through the
+**[BotMaker SDK](https://github.com/LiQiyeDev/BotMaker-sdk)** — OpenCV template matching, OCR, mouse, keyboard
+and window control.
 
 ## Features
 
-- 🧩 **Visual block programming** — drag and drop blocks; the Studio writes and edits real Java source for you
-- 🔍 **Type-aware autocomplete** — method/constructor/variable/enum suggestions from your code *and* every library
-  on the classpath, indexed straight from bytecode (ClassGraph)
-- 🤖 **Bot SDK built in** — screen capture, image-template matching, click/wait/find helpers from the BotMaker SDK
-- 🖼️ **Image-template tooling** — capture the screen, crop a target, and save it as a named template asset, all
-  in-app
-- 🐛 **Built-in debugger** — set breakpoints on blocks and step through with visual highlighting (JDI)
-- ⚡ **Real-time diagnostics** — Eclipse JDT compiles your code in-process and surfaces errors/warnings on the
-  blocks themselves
-- 📦 **Library management** — add Maven dependencies from a GUI with live Maven Central autocomplete; no restart
-- 📁 **Multi-project support** — each project is a standard Maven project, openable in any IDE
+- 🧩 **Visual block programming** — drag and drop blocks; Studio writes and edits real Java source for you
+- 🔀 **Activity flow** — break a bot into activities and wire their outcomes on a canvas; the graph is what runs
+- 🎯 **Launch targets** — pick a game from your installed Steam/Epic/Heroic/Faugus libraries, an executable, a
+  command line, or an app inside an emulator
+- 🖥️ **Capture targets** — a window, a screen region, an emulator, or a private display the bot has to itself
+- 🖼️ **Vision** — capture the screen, crop a target, name it, and reference it as a constant; OCR is built in,
+  with its native library bundled rather than borrowed from the host
+- ✍️ **Overlay Editor** — author blocks on top of the running game instead of beside it
+- 🔍 **Type-aware autocomplete** — suggestions from your own code *and* every library on the classpath, indexed
+  straight from bytecode (ClassGraph)
+- ⚡ **Diagnostics and debugging** — JDT compiles in-process and surfaces errors on the blocks themselves; set
+  breakpoints on blocks and step through with visual highlighting (JDI)
+- 📱 **Remote Pilot** — watch and drive a run from your phone
+- 🕘 **Project history** — a refactor that touches files you aren't looking at snapshots first, so it reverts
+- 📦 **Library management** — add Maven dependencies from a GUI with live Maven Central autocomplete, no restart
+- 🚀 **Publish and browse** — share a bot, or install one from the gallery
 
 ## Download
 
 Grab a self-contained build from the [Releases](https://github.com/LiQiyeDev/BotMaker-Studio/releases) page. It
-**bundles its own Java + JavaFX runtime**, so there's nothing else to install — unzip and run the launcher. Builds
-are per-OS; pick the one matching your platform.
+**bundles its own Java + JavaFX runtime**, so there's nothing else to install — unzip and run the launcher.
+Builds are per-OS; pick the one matching your platform.
 
 ### Linux: install from the package repository
 
@@ -57,11 +69,45 @@ echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/botmaker.asc] https://liqiyede
 sudo apt-get update && sudo apt-get install botmaker-studio
 ```
 
-The repository carries the **latest release only** — it's an upgrade channel, not an archive; older versions stay
-on the Releases page. The AppImage remains the password-free option: it needs no root and updates itself from
-inside Studio.
+The repository carries the **latest release only** — it's an upgrade channel, not an archive; older versions
+stay on the Releases page. The AppImage remains the password-free option: it needs no root and updates itself
+from inside Studio.
 
-To build a release yourself, see [Packaging a Release](#packaging-a-release).
+## Quick start
+
+1. Launch Studio and create a project — **New Project ▸ Game bot**.
+2. Tell it what to launch, then what to watch.
+3. Capture an image template, break the bot into activities, wire the flow, and hit **Run**.
+
+**[WORKFLOW.md](WORKFLOW.md) is the full walkthrough** — thirteen steps from an empty project to a published
+bot, plus a diagram of how a run actually loops. The same text is in the app under **Help ▸ Getting Started**;
+both are rendered from one source, so they cannot say different things.
+
+Projects are standard **Maven** projects under `~/BotMakerProjects/<ProjectName>/`:
+
+```
+~/BotMakerProjects/MyBot/
+├── pom.xml                          # a normal Maven pom; pins the SDK version
+├── src/main/java/com/mybot/
+│   ├── MyBot.java                   # entry point — installs the popup guard, hands off to Bot.start
+│   ├── FlowDriver.java              # your activity flow, as a table
+│   ├── Activities.java              # your variables, read back from activities.json
+│   ├── ActivityRegistry.java        # every activity, declared once
+│   ├── GoHome.java                  # recovery hook: get back to a known screen
+│   ├── Popups.java                  # popup guard, run before every vision step
+│   ├── Templates.java               # one constant per image template
+│   └── activities/                  # one file per activity — this is where your blocks live
+└── src/main/resources/
+    ├── activities.json              # the values behind your variables
+    ├── settings.json                # project settings
+    ├── botmaker-project.properties  # capture size, launch target, capture source
+    └── images/                      # the image templates themselves
+```
+
+Everything above `activities/` is **generated and maintained by Studio** — read-only in the editor, because
+rewriting it is how a model change reaches your code. The `pom.xml` is the single source of truth for
+dependencies, and the classpath is resolved in-process with Maven Resolver: **no system `mvn` binary is
+required**. Any folder with this layout shows up in the selection screen.
 
 ## Building from Source
 
@@ -89,163 +135,106 @@ mvn test        # run the test suite (JUnit Jupiter)
 mvn package     # build the shaded (fat) jar under target/
 ```
 
-## Creating a Bot
-
-1. Launch the Studio and create a new project from the selection screen (e.g. `MyBot`).
-2. Assemble logic by dragging blocks from the palette: variables, `if`, loops, prints, and SDK calls.
-3. Use the **BotMaker SDK** blocks/menus to find images on screen, click, and wait.
-4. Hit **Run** to execute, or set breakpoints and **Debug** to step through.
-
-Projects are scaffolded as standard **Maven** projects under `~/BotMakerProjects/<ProjectName>/`:
-
-```
-~/BotMakerProjects/MyBot/
-├── src/main/java/com/mybot/MyBot.java
-└── pom.xml
-```
-
-The `pom.xml` is generated programmatically (Maven Model API) and the classpath is resolved in-process with Maven
-Resolver (Aether) — **no system `mvn` binary is required**. Any folder with that layout shows up in the selection
-screen.
-
-## Managing Libraries
-
-Open **Project → Manage Libraries…** to add or remove dependencies:
-
-- Type a coordinate to get **live Maven Central suggestions** (group / artifact), then pick a version.
-- **Apply** rewrites the project `pom.xml`, re-resolves the classpath, and refreshes the type index so the new
-  library's types appear in block autocomplete — no restart.
-
-The `pom.xml` is the single source of truth: your libraries are simply the dependencies that aren't built-in
-defaults. The pinned BotMaker SDK row is non-removable; its version is editable and sourced from JitPack.
+Studio resolves `botmaker-shared`, `botmaker-session` and the SDK from JitPack. Working on those alongside it?
+Clone the umbrella repo and run `mvn -pl botmaker-studio -am javafx:run` from its root instead, so the sibling
+modules are resolved from the reactor rather than downloaded.
 
 ## How It Works
 
-BotMaker Studio is organized around a **per-project event bus** with a clean service layer. Opening a project
+Studio is organised around a **per-project event bus** with a service layer. Opening a project
 (`BotProject.open()`) is the composition root: it builds `ProjectConfig`, `ProjectState`, the `EventBus`, the
-Maven/classpath services, the type index, the analyzer, and the editor/execution services, then the UI.
+Maven/classpath services, the type index, the analyzer and the editor/execution services, then the UI.
 
-### Block system
+**Blocks** implement `CodeBlock` → `AbstractCodeBlock`, in three kinds: a `StatementBlock` (if, while, print,
+declaration…), an `ExpressionBlock` (literals, identifiers, binary ops…), and the `{ … }` container,
+`BodyBlock`.
 
-Every visual block implements `CodeBlock` → `AbstractCodeBlock`:
+**The round trip** is the heart of it. *Source → blocks:* the parser walks a JDT `CompilationUnit` and builds
+`CodeBlock` instances. *Blocks → source:* `CodeEditor` applies mutations via JDT `ASTRewrite` and publishes a
+`CodeUpdatedEvent` the UI re-parses from. Suggestions come from `ProjectAnalyzer`, which combines a per-jar
+ClassGraph index of the classpath with live AST resolution of your own code. **Run** compiles and runs in a
+separate JVM; **Debug** attaches over JDI with breakpoints set on blocks.
 
-- **`StatementBlock`** — executable statements (if, while, print, variable declaration…)
-- **`ExpressionBlock`** — value-producing expressions (literals, identifiers, binary ops…)
-- **`BodyBlock`** — a container of statements, i.e. a `{ … }` block
+**The scaffold comes from the SDK.** The generated files above are rendered from templates shipped inside the
+SDK jar your project pins — Studio fills in what is true about *your* project and nothing else — so they are
+written in the idiom of your SDK version, not of the Studio that created the project.
 
-### AST ↔ block synchronization
-
-- **Source → blocks:** the parser walks an Eclipse JDT `CompilationUnit` and builds `CodeBlock` instances.
-- **Blocks → source:** `CodeEditor` applies mutations via JDT `ASTRewrite` and publishes a `CodeUpdatedEvent`.
-- **Round trip:** drop a block → drag-and-drop resolves the target → `CodeEditorService` calls `CodeEditor` →
-  the AST is rewritten → the event fires → the UI re-parses the source and refreshes.
-
-### Suggestions
-
-`ProjectAnalyzer` is the single entry point for type-aware suggestions, combining a **library index** (external
-jar types read from bytecode with ClassGraph, cached per-jar) with **live AST resolution** from the user's own
-source.
-
-### Execution & debugging
-
-- **Run** — compiles and runs the project in a separate JVM, streaming output to the event log.
-- **Debug** — uses the Java Debug Interface (JDI) with breakpoints set on blocks and visual step highlighting.
-
-For a deeper dive into the architecture, see [`CLAUDE.md`](CLAUDE.md). The living backlog and changelog are in
-[`ROADMAP.md`](ROADMAP.md).
+For the architecture in depth see [`CLAUDE.md`](CLAUDE.md); the living backlog and changelog are in
+[`ROADMAP.md`](ROADMAP.md) and [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Packaging a Release
 
-The `dist` Maven profile produces a **self-contained app-image** (bundled Java + JavaFX runtime) via `jpackage`, so
-end users need no JDK and no JavaFX install:
+The `dist` Maven profile produces a self-contained app-image (bundled Java + JavaFX runtime) via `jpackage`:
 
 ```bash
 mvn -Pdist package
 # → target/dist/BotMaker Studio/   (run the launcher inside)
 ```
 
-**Releases are built automatically by CI.** Pushing a `v*` tag (e.g. `git tag v1.0.0 && git push origin v1.0.0`)
-runs `.github/workflows/release.yml`, which builds the app-image on both Linux and Windows runners and attaches the
-two zips to a GitHub Release. Tags containing a hyphen (e.g. `v1.0.0-rc1`) publish as pre-releases.
+`jpackage` builds **only for the OS it runs on**, so run the profile on each platform you want to ship.
+Releases are built by CI: pushing a `v*` tag runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml),
+which builds the app-image across the per-OS matrix, publishes the GitHub Release, and refreshes the apt/dnf
+repository behind the install one-liner above.
 
-Notes:
-
-- A small `com.botmaker.studio.Launcher` (which does *not* extend `Application`) is the jar/app-image entry point —
-  launching an `Application` subclass directly from a fat jar fails with "JavaFX runtime components are missing".
-- The bundled runtime is **jlinked**, not the whole build JDK: 31 modules instead of 69 (`lib/runtime` 212 MB →
-  143 MB). The root list in `pom.xml` is hand-maintained and deliberately larger than `jdeps` reports, because
-  Studio shells out to `javac`/`java` and attaches a debugger — `jdk.compiler`, `jdk.jdwp.agent`, `jdk.attach`
-  and `jdk.zipfs` are load-bearing but invisible to bytecode analysis. Read the comment there before editing it.
-- `jpackage` builds **only for the OS it runs on** — run the profile on each platform you want to ship.
-- The build ships **only the host platform's native libraries**. `org.openpnp:opencv` packs all seven
-  platforms into one classifier-less jar, and Tess4J/JNA carry Windows and macOS binaries too; the shade
-  `<filters>` plus the `natives-linux`/`natives-windows` profiles drop everything the running OS cannot load
-  (jar 184 MB → 98 MB, rpm 241 MB → 141 MB). This is *not* what `-Djavacpp.platform` does — that flag selects
-  classifiers for JavaCPP-packaged artifacts, and none are left in the jar.
-- **OCR is self-contained on Linux too**, as of 2026-08-22. Tess4J ships Windows DLLs only and used to
-  `dlopen` the system `libtesseract`, so OCR failed wherever one wasn't installed — including the AppImage,
-  the tarball and generated bots, none of which can declare a package dependency. `botmaker-shared` now
-  stages `libtesseract.so` + `libleptonica.so.6` (9.4 MB, from the JavaCPP presets) into the jar; the
-  `natives-windows` profile drops them again on the Windows leg.
-- **The `.rpm` and `.deb` declare the GUI stack** (GTK3, X11, Xtst, Xi, Xxf86vm, GL, fontconfig) by hand, via
-  `--linux-package-deps` in each execution's `<additionalOptions>` — the plugin's own `<linuxPackageDeps>` is a
-  boolean flag and cannot carry a value. Hand-written is the only option that works: the released `.rpm` is
-  built on `ubuntu-latest`, whose `rpm` has no ELF dependency generator, so nothing is autodetected there. The
-  rpm uses soname capabilities (`libgtk-3.so.0()(64bit)`, …), which are major-only and therefore stable across
-  releases; the deb uses package names, with `libgtk-3-0t64 | libgtk-3-0` to span Ubuntu 24.04's `time_t`
-  rename. Only GTK3 is named for the GTK half — pango, cairo, atk, gdk-pixbuf and glib arrive transitively —
-  but `libXtst`/`libXi`/`libXxf86vm`/`libGL` do not come from GTK and are listed explicitly. There is no
-  Tesseract dependency any more; the bullet above replaced it.
-- For a native installer instead of the portable directory, change `<type>` in the `dist` profile from
-  `APP_IMAGE` to `DEB`/`RPM` (Linux), `MSI`/`EXE` (Windows), or `DMG`/`PKG` (macOS).
+The build is tuned in ways that are easy to break by accident — a jlinked runtime with a hand-maintained
+module list, host-platform-only native libraries, and hand-written GUI package dependencies for the `.rpm` and
+`.deb`. Each is explained in a comment next to the thing it configures in [`pom.xml`](pom.xml); read those
+before editing that profile.
 
 ## Project Structure
 
 ```
 BotMaker-Studio/
-├── pom.xml                          # Maven build (the Studio itself)
-├── src/main/java/com/botmaker/
-│   ├── BotMakerStudio.java          # JavaFX Application entry point
-│   ├── blocks/                      # Concrete blocks: expr/ flow/ func/ loop/ misc/ var/
-│   ├── core/                        # CodeBlock hierarchy + render/ (decorator pipeline)
-│   ├── palette/                     # Insertable block/expression catalogs
-│   ├── parser/                      # AST ↔ block sync; CodeEditor + handlers/ factories/ helpers/
-│   ├── project/                     # BotProject, ProjectConfig/State, activity/
-│   ├── services/                    # CodeEditorService, LibraryService, Execution/Debugging…
-│   ├── runtime/                     # Compile / run / debug (JDI)
-│   ├── index/, types/, suggestions/ # Type index + analyzer + suggestion pipeline
-│   ├── events/                      # Per-project EventBus + CoreApplicationEvents
-│   ├── sharing/                     # Project/gallery sharing
-│   ├── ui/                          # app/ (shell, menus, dialogs) dnd/ render/
-│   ├── config/, state/, util/, validation/
-└── src/main/resources/css/blocks.css  # Block state styling (highlight/error/breakpoint/read-only)
-
-# User projects live OUTSIDE the repo, as standard Maven projects:
-~/BotMakerProjects/<ProjectName>/
-├── src/main/java/com/<projectname>/<ProjectName>.java
-└── pom.xml
+├── pom.xml                            # Maven build (the Studio itself)
+├── WORKFLOW.md                        # generated from studio/docs/Workflow.java — do not hand-edit
+├── src/main/java/com/botmaker/studio/
+│   ├── BotMakerStudio.java            # JavaFX Application
+│   ├── Launcher.java                  # jar/app-image entry point (must not extend Application)
+│   ├── blocks/                        # concrete blocks: expr/ flow/ func/ loop/ misc/ var/ vision/
+│   ├── core/                          # CodeBlock hierarchy + component/ render/
+│   ├── palette/                       # insertable block and expression catalogs
+│   ├── parser/                        # AST ↔ block sync: factories/ guard/ handlers/ helpers/ refactor/
+│   ├── project/                       # BotProject, ProjectConfig/State: activity/ capture/ launch/ scaffold/ vcs/
+│   ├── services/                      # editor, libraries, execution: capture/ launch/ pilot/ platform/ record/
+│   ├── runtime/                       # compile / run / debug (JDI)
+│   ├── emulator/                      # Android emulator probing, ADB and scrcpy surfaces
+│   ├── game/                          # Steam / Epic / Heroic / Faugus library scanners
+│   ├── index/, types/, suggestions/   # type index + analyzer + suggestion pipeline
+│   ├── events/                        # per-project EventBus + CoreApplicationEvents
+│   ├── sharing/                       # publishing, the gallery, project archives
+│   ├── docs/                          # Workflow + RuntimeDiagram: the one source WORKFLOW.md renders from
+│   ├── ui/                            # app/ (shell, menus, dialogs) dnd/ render/ util/
+│   └── config/, state/, util/, validation/
+└── src/main/resources/                # css/ icons/ pilot/
 ```
 
 ## Troubleshooting
 
 **No projects in the selection screen**
-A project must live under `~/BotMakerProjects/` with the layout
-`src/main/java/com/<projectname>/<ProjectName>.java` and a `pom.xml`.
+A project must live under `~/BotMakerProjects/` with a `pom.xml` and the layout
+`src/main/java/com/<projectname>/<ProjectName>.java`.
 
 **SDK types missing from autocomplete**
-Open **Project → Manage Libraries…** and confirm the BotMaker SDK version is set; applying refreshes the type
-index. The SDK resolves from JitPack, so a network connection is needed the first time a version is fetched.
+Open **Project ▸ Manage Libraries…** and confirm the BotMaker SDK version is set; applying refreshes the type
+index. The SDK resolves from JitPack, so the first fetch of a version needs a network connection.
+
+**A banner says the project's SDK is too old**
+The project still opens, and everything in it stays editable, buildable and runnable — but the files Studio
+generates are built from templates that only newer SDKs ship, so the Activity Flow cannot be saved until you
+run **Project ▸ Upgrade SDK…**. The upgrade re-renders the generated files and leaves everything you wrote
+untouched.
 
 ## Contributing
 
 1. Fork and branch (`git checkout -b feature/my-feature`).
-2. Keep the functional-OOP style: prefer immutable values and pure transforms; push side effects to the service
-   layer (see [`CLAUDE.md`](CLAUDE.md) → Code Style).
+2. Keep the functional-OOP style: prefer immutable values and pure transforms; push side effects to the
+   service layer (see [`CLAUDE.md`](CLAUDE.md) → Code Style).
 3. Add tests (JUnit Jupiter) and run `mvn test`.
 4. Open a pull request.
 
-> **Note:** the BotMaker SDK is published to JitPack by the maintainer. Don't tag or publish the SDK yourself; the
-> `0.0.0-SNAPSHOT` pin is intentional.
+> **Note:** the BotMaker SDK is published to JitPack by the maintainer — don't tag or publish it yourself. A
+> dev-run Studio preselects a locally installed `0.0.0-SNAPSHOT` SDK when it finds one, which is why a bot
+> created from a development build is pinned to your own build rather than to a released version.
 
 ## License
 
@@ -255,6 +244,7 @@ Licensed under the MIT License — see [`LICENSE`](LICENSE).
 
 - **Eclipse JDT Core** — in-process Java parsing, AST manipulation, and compilation/diagnostics
 - **ClassGraph** — fast bytecode-level type indexing
-- **OpenCV** (via the BotMaker SDK) — screen vision / template matching
+- **OpenCV** and **Tesseract** (via the BotMaker SDK) — screen vision and OCR
+- **scrcpy** and **adb** — emulator and device capture and control
 - **JavaFX** — desktop UI
 - **Scratch / Blockly** — inspiration for block-based programming
