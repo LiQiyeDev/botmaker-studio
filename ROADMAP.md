@@ -6,6 +6,18 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-24 — the release notes stop being generated commit titles (`CHANGELOG.md`,
+  `.github/workflows/ci.yml`, umbrella `release.sh`).** Phase 5 of twelve. Studio is the one module that
+  already published a GitHub Release, and its body was a floor sentence plus GitHub's auto-generated commit
+  list. It now carries **this version's `CHANGELOG.md` section**, extracted in the `release` job by the same
+  awk `release.sh`'s `changelog_section` uses — one format, deliberately not two extractors, because two
+  would eventually publish two different things from one file. The umbrella gate `check_changelog` refuses
+  a `--studio` release whose changelog has no section for the version being cut, in the decide pass beside
+  `check_sdk_floor` and `check_api_pointers`, before anything is tagged (a pushed tag cannot be edited). An
+  empty extraction is **not** fatal in CI: the packages are already built by then, so the notes degrade to
+  the generated ones. `CHANGELOG.md` covers v1.0.23 → v1.0.30 plus an `## [Unreleased]` section holding
+  what this twelve-phase plan has landed so far; `ROADMAP.md` stays the detailed log and is not what a user
+  reads to decide whether to update.
 - **2026-08-24 — a member that became two, and the choice that goes with it per call site
   (`services/SdkUpgradeService` + its four new siblings, `parser/refactor/SdkMigrationRunner`,
   `ui/app/SdkUpgradeDialog`).** Phase 4.5 of twelve. The pairing graph is **multi-valued**: `SdkPairing`'s

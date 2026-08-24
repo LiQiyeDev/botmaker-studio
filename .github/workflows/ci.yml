@@ -310,16 +310,38 @@ jobs:
                     src/main/java/com/botmaker/studio/services/MavenService.java | head -1)
           echo "min_sdk=$floor" >> "$GITHUB_OUTPUT"
 
+      # What this release actually gives you, in the maintainer's own words. The umbrella release.sh has
+      # already refused the release if CHANGELOG.md has no section for this tag (check_changelog), so an
+      # empty extraction here means the tag was cut by hand; the notes then degrade to the generated ones
+      # rather than failing a release whose packages are already built.
+      #
+      # The awk mirrors release.sh's `changelog_section` deliberately: shared/session/sdk publish their
+      # notes from that function, studio from here, and two different extractors would eventually publish
+      # two different things from one format.
+      - name: Read this release's changelog section
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          {
+            echo "**Requires BotMaker SDK ${{ steps.floor.outputs.min_sdk }} or newer.** A bot pinned to an older SDK"
+            echo "still opens; Studio shows a banner offering **Project ▸ Upgrade SDK…**, which reports exactly what"
+            echo "the upgrade breaks in *your* bot — with file and line — before anything is changed."
+            echo
+            awk -v ver="$ver" '
+              /^## / { if (inside) exit; inside = ($0 ~ "^## \\[" ver "\\]"); next }
+              inside { print }
+            ' CHANGELOG.md | awk 'NF || seen { seen = 1; line[++n] = $0; if (NF) last = n }
+                                  END { for (i = 1; i <= last; i++) print line[i] }'
+          } > release-notes.md
+          cat release-notes.md
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          # Prepended to the generated notes: which SDK versions this Studio edits. Older bots still
-          # open — they get a banner offering Project > Upgrade SDK..., never a refusal — but a user
-          # deciding whether to update should see the number before downloading 240 MB.
-          body: |
-            **Requires BotMaker SDK ${{ steps.floor.outputs.min_sdk }} or newer.** A bot pinned to an older SDK
-            still opens; Studio shows a banner offering **Project ▸ Upgrade SDK…**, which reports exactly what
-            the upgrade breaks in *your* bot — with file and line — before anything is changed.
+          # Prepended to the generated notes: which SDK versions this Studio edits (older bots still open —
+          # they get a banner offering Project > Upgrade SDK..., never a refusal — but a user deciding
+          # whether to update should see the number before downloading 240 MB), then this version's
+          # CHANGELOG.md section.
+          body_path: release-notes.md
 
           # install.sh ships as a release asset as well as at the site root, so the one-command install is
           # reviewable from the Releases page next to the packages it installs, and stays reachable for a

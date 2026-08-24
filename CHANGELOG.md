@@ -1,0 +1,78 @@
+# Changelog
+
+What each released version of BotMaker Studio gives you, in a few bullets. `ROADMAP.md` stays the detailed
+engineering log — why a thing was built, what was rejected, what it cost; this is the short answer to
+*"should I update, and what changes for me?"*, and it is prepended to the GitHub Release notes for the tag.
+
+**`release.sh` refuses to cut a version with no section here** (`check_changelog`, decide pass, before
+anything is tagged). If the top section still says `## [Unreleased]`, rename it to the version being cut and
+date it.
+
+Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
+
+## [Unreleased]
+
+- ***Project ▸ Upgrade SDK…* leads with what the release costs *your* bot, with file and line** — and now
+  also with what the SDK's author said about each move, word for word, out of the `@ReplacedBy` / `@Replaces`
+  pointers the SDK carries in its jar. A redirect that keeps its shape but changes what it does is marked for
+  review instead of shipping silently, and additions are grouped by the version that introduced them.
+- **A member that became two now asks you which one you meant, per call site.** `scroll(3)` and `scroll(-3)`
+  in one bot want different answers, so the dialog lists every call with its own combo — already answered, so
+  you can accept the whole thing untouched.
+- **The palette is curated.** Studio offers the members the SDK's `@Palette` names, in the statement menu, the
+  expression menu, both search views, the ⚙ overload picker and the method-name dropdown. A bot already using
+  a member that is no longer proposed still renders, still resolves and still compiles — filtering applies to
+  what is *offered*, never to what is *resolved*. A bot pinned to an SDK that predates `@Palette` sees exactly
+  the menus it saw before.
+- **Existing projects survive the SDK's package reorganisation**: `api.*` imports are repointed on open rather
+  than opening as a wall of red.
+- A type the bot only *writes* (a field, a parameter, a cast, a type argument) is now seen by the upgrade
+  report, and a defaulted value says what type it is.
+
+## [1.0.30] — 2026-08-22
+
+- Re-tagged against a new SDK. No source change.
+
+## [1.0.29] — 2026-08-22
+
+- Documentation only.
+
+## [1.0.28] — 2026-08-22
+
+- **The Linux packages install cleanly and are less than half the size**: the bundled runtime is jlinked
+  rather than copied whole (rpm 241 → 126 MB, deb similarly), other platforms' natives are gone, and rpm/deb
+  declare the GUI stack they actually need.
+
+## [1.0.27] — 2026-08-21
+
+- **One-command install** on Linux (`packaging/linux/install.sh`) instead of registering the repository by
+  hand.
+
+## [1.0.26] — 2026-08-21
+
+- Re-tagged against a new SDK. No source change.
+
+## [1.0.25] — 2026-08-21
+
+- **Studio installs and updates from a signed dnf/apt repository**, so updates arrive through
+  `dnf upgrade` / `apt upgrade` rather than a visit to the Releases page. An RPM upgrade no longer deletes the
+  application menu entry.
+- **Refactoring across files**: a signature you cannot change behind the project's back, a result type the
+  body agrees with, every picker on one screen, and undo that spans files.
+- The release is built from source at pinned upstream refs rather than from JitPack.
+
+## [1.0.24] — 2026-08-04
+
+- **A selectable UI theme** — Default, Dark, Black, High Contrast — from the View menu.
+
+## [1.0.23] — 2026-08-02
+
+- **The Activity Flow arranges itself**, and a new activity gets a dialog instead of a blank file.
+- **The overlay draws over a live private session** and names the activity it records into; object capture
+  zooms.
+- **An eyedropper**, and one `Precision` editor that hides the knobs a given call cannot use.
+- The bot's tuning became project settings rather than a generated `BotSettings.java`.
+
+## Earlier
+
+v1.0.22 and below predate this file. `ROADMAP.md` has the dated log.
