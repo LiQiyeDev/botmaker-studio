@@ -29,6 +29,18 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
   the menus it saw before.
 - **Existing projects survive the SDK's package reorganisation**: `api.*` imports are repointed on open rather
   than opening as a wall of red.
+- **Upgrading no longer stops half-way because of a file Studio wrote.** The generated files — `Activities`,
+  `ActivityRegistry`, `FlowDriver`, `Templates` — are re-rendered against the new SDK after the version moves,
+  using the same pointers that repair your own code, so a release that renames something they use goes
+  through instead of refusing. Where the move genuinely cannot be expressed, the report says so **at the top,
+  before you start**, rather than failing part-way through.
+- **A new project is never created against an SDK it cannot compile against.** Studio checks the version you
+  picked before it writes a single file, and says which member is missing so you can choose another version —
+  instead of leaving a broken project behind.
+- **Saving the Activity Flow is all-or-nothing.** Every generated file is produced and verified in memory
+  before any of them is written, so a flow edit can no longer leave three files updated and a fourth stale.
+  If it cannot be done at all, nothing on disk changes and the editor tells you which SDK member is the
+  reason. (Reachable only on an SDK newer than your Studio; the fix is to update Studio.)
 - A type the bot only *writes* (a field, a parameter, a cast, a type argument) is now seen by the upgrade
   report, and a defaulted value says what type it is.
 

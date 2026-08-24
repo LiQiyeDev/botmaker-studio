@@ -6,6 +6,24 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-24 — the docs catch up with twelve phases of work (`CLAUDE.md`, `CHANGELOG.md`, this file;
+  umbrella `CLAUDE.md` and `docs/refactor/21-api-compat.md` + `99-progress.md` in the umbrella repo).**
+  Phase 12 of twelve, no code. `CLAUDE.md`'s upgrade section still described a **single-valued** pairing graph
+  and a `redirectFor` that answers once; it now carries the multi-valued graph, `redirectsFor`, the two halves
+  of compile-safety the split forces apart (*shape reconcilable* belongs to the candidate, *fits where the
+  value is used* belongs to the site), the per-call-site choice with its **positional** site key — the report
+  pass and the apply pass parse the sources twice, so the AST node in the report is not the node the rewriter
+  holds — the `whats-new.md` highlights, and the note/`behaviourChanged`/`@Since` readers with the precedence
+  rule. The scaffold got a section of its own it never had: `ScaffoldSurface`'s two origins and why the
+  distinction is not decoration, the both-repositories gate through `scaffolding-surface.txt`,
+  `ScaffoldCheck`/`ScaffoldEmitter`, all-or-nothing creation and regeneration, the two fail-open rules and the
+  baseline gate, and the price the model charges (a user on a newer SDK hitting an unpairable removal cannot
+  edit their flow until Studio updates). The bullet claiming scaffolding is "refused, not rewritten and not
+  regenerated" was the one deliberately-stale paragraph left standing since Phase 11 and is now the record of
+  what changed. `CHANGELOG.md` gained the three user-facing halves of Phases 10–11 in the terms a user has
+  them: an upgrade that no longer stops half-way over a file Studio wrote, a project never created against an
+  SDK it cannot compile against, and a flow save that is all-or-nothing.
+
 - **2026-08-24 — regeneration is all-or-nothing, and the mid-apply refusal narrows to the unsatisfiable case
   (`services/ActivityService`, `project/scaffold/ScaffoldEmitter` + `ScaffoldUnsupported` (new),
   `project/scaffold/ScaffoldCheck`, `services/ScaffoldFacts`, `parser/refactor/SdkMigrationRunner`,
