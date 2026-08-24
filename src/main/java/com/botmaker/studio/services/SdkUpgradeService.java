@@ -24,12 +24,15 @@ import org.eclipse.jdt.core.dom.CompilationUnit;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
@@ -173,6 +176,18 @@ public final class SdkUpgradeService {
     /** @see #REPLACED_BY_LEGACY */
     private static final String REPLACES_LEGACY = "com.botmaker.sdk.api.Replaces";
 
+    /**
+     * The release an element first appeared in, which is what gives "What's new" its eras.
+     *
+     * <p>There is no legacy spelling to read for this one or for {@link #SCAFFOLDING}, and that is a fact
+     * about the SDK rather than an omission: both were introduced in the same unreleased window that moved
+     * the whole surface into {@code api.meta}, so no published jar has ever carried them under {@code api}.
+     */
+    private static final String SINCE = "com.botmaker.sdk.api.meta.Since";
+
+    /** Marks a member Studio's own generated files write — see {@link Report#scaffolding()}. */
+    private static final String SCAFFOLDING = "com.botmaker.sdk.api.meta.Scaffolding";
+
     /** A constructor has no name of its own; this is how the pointer grammar spells one. */
     private static final String CTOR = SdkReferences.CTOR;
 
@@ -279,12 +294,29 @@ public final class SdkUpgradeService {
      * <p>{@code problems} is what the scan could <em>not</em> determine — an unresolvable jar, a file that
      * does not parse, an old spelling two survivors both claim. It is separate from the findings on purpose:
      * an empty {@code breaks} list means something quite different depending on whether this one is empty too.
+     *
+     * <p>{@code addedBySince} is the new API <b>grouped by the release it arrived in</b>, newest first, read
+     * from {@code @Since}. A flat alphabetical list of names is a cost sheet, not a reason to upgrade: what
+     * the user is deciding is whether to move, and "these six things arrived in 1.2.0" is the shape of that
+     * answer. A jar carrying no {@code @Since} at all lands whole in the one unlabelled bucket, which is
+     * exactly today's list — every new reader degrades.
+     *
+     * <p>{@code scaffolding} is the release's contact with the members <em>Studio's own generated files</em>
+     * write. It is stated up front rather than discovered mid-apply, which is where
+     * {@code SdkMigrationRunner.scaffoldingInTheWay} finds it: a refusal that arrives after the user has
+     * committed to the upgrade is the same information delivered at the worst possible moment.
      */
     public record Report(String from, String to,
-                         List<String> added,
+                         Map<String, List<String>> addedBySince,
                          List<Deprecation> deprecated,
                          List<Break> breaks,
+                         List<String> scaffolding,
                          List<String> problems) {
+
+        /** Everything new, as one list — the exhaustive answer, for a reader that does not want the eras. */
+        public List<String> added() {
+            return addedBySince.values().stream().flatMap(List::stream).toList();
+        }
 
         /** The breaks Studio will repair itself — a type rename, or a default value standing in. */
         public List<Break> repairable() {
@@ -334,7 +366,7 @@ public final class SdkUpgradeService {
         }
 
         static Report unavailable(String from, String to, String problem) {
-            return new Report(from, to, List.of(), List.of(), List.of(), List.of(problem));
+            return new Report(from, to, Map.of(), List.of(), List.of(), List.of(), List.of(problem));
         }
     }
 
@@ -442,10 +474,13 @@ public final class SdkUpgradeService {
         // answer, and it is recorded before the list is frozen.
         Pairing pairing = Pairing.of(before, after, from, problems, throughDeprecations);
 
+        List<Deprecation> deprecated = deprecations(before, after, uses.calls(), pairing);
+        List<Break> breaks = breaks(before, after, uses, pairing);
         return new Report(from, to,
                 additions(before, after),
-                deprecations(before, after, uses.calls(), pairing),
-                breaks(before, after, uses, pairing),
+                deprecated,
+                breaks,
+                scaffolding(before, deprecated, breaks),
                 List.copyOf(problems));
     }
 
@@ -673,6 +708,7 @@ public final class SdkUpgradeService {
 
         boolean moved = !owner.name().equals(now.name());
         String oldReturn = returnTypeOf(then, call);
+        Advice advice = adviceFor(then, call, owner, name);
 
         if (call.isField()) {
             if (!owner.declaresField(name)) return null;
@@ -680,7 +716,8 @@ public final class SdkUpgradeService {
             String newReturn = typeOfField(owner, name);
             return new SdkMigrationRunner.Redirect(then.simpleName(), call.member(), call.argCount(),
                     moved ? owner.name() : null, name, List.of(), oldReturn, newReturn,
-                    fits(oldReturn, newReturn, after), returnTypeFqn(oldReturn, after));
+                    fits(oldReturn, newReturn, after), returnTypeFqn(oldReturn, after),
+                    advice.note(), advice.behaviourChanged());
         }
 
         List<ApiMember> overloads = owner.byName().getOrDefault(name, List.of()).stream()
@@ -699,7 +736,43 @@ public final class SdkUpgradeService {
         return new SdkMigrationRunner.Redirect(then.simpleName(), call.member(), call.argCount(),
                 moved ? owner.name() : null, name, argumentsFor(call.argCount(), chosen),
                 oldReturn, chosen.type(), fits(oldReturn, chosen.type(), after),
-                returnTypeFqn(oldReturn, after));
+                returnTypeFqn(oldReturn, after), advice.note(), advice.behaviourChanged());
+    }
+
+    /**
+     * What the SDK's own author said about this move, from whichever end of the pointer pair carries it.
+     *
+     * <p>Both ends are asked because only one of them need exist. The <b>forward</b> half is the
+     * {@code @ReplacedBy} on the element in the <em>old</em> jar — the one the bot still calls — and it wins,
+     * being the author speaking on the member the user actually wrote. The <b>backward</b> half is the
+     * {@code @Replaces} claim on the survivor in the <em>new</em> jar, which is the only place the sentence
+     * survives once the deprecated element is finally deleted, and so is the answer for a bot that skipped
+     * the deprecation release entirely. See {@link Advice}.
+     */
+    private static Advice adviceFor(ApiClass then, Call call, ApiClass owner, String name) {
+        Advice forward = pointerAdvice(overloadOf(then, call));
+        String oldSpelling = then.name() + "#" + call.member();
+        Advice backward = owner.byName().getOrDefault(name, List.of()).stream()
+                .flatMap(m -> m.replaces().stream())
+                .filter(c -> c.name().equals(oldSpelling) && c.covers(call.argCount()))
+                .findFirst()
+                .map(c -> new Advice(c.note(), c.behaviourChanged()))
+                .orElse(Advice.NONE);
+        return forward.over(backward);
+    }
+
+    /** The overload this call reaches, by arity, falling back to any of the name — see {@link #returnTypeOf}. */
+    private static ApiMember overloadOf(ApiClass then, Call call) {
+        List<ApiMember> named = then.byName().getOrDefault(call.member(), List.of());
+        return named.stream()
+                .filter(m -> call.isField() ? m.field() : !m.field() && m.params().size() == call.argCount())
+                .findFirst()
+                .orElseGet(() -> named.stream().findFirst().orElse(null));
+    }
+
+    private static Advice pointerAdvice(ApiMember member) {
+        if (member == null || member.replacedBy() == null) return Advice.NONE;
+        return new Advice(member.replacedBy().note(), member.replacedBy().behaviourChanged());
     }
 
     /**
@@ -793,10 +866,81 @@ public final class SdkUpgradeService {
     // =========================================================================
 
     /**
-     * One old spelling a surviving element claims: the name as it used to be written, and the last version
-     * it was written that way in. Parsed from one {@code @Replaces} entry.
+     * One old spelling a surviving element claims: the name as it used to be written, optionally <em>which</em>
+     * overload of it, and the last version it was written that way in. Parsed from one {@code @Replaces} entry,
+     * and carrying that annotation's {@code note} and {@code behaviourChanged} with it — those describe the
+     * move, and a claim is the only place a move survives once the element it moved from is deleted.
+     *
+     * <p>{@code arity} is null for an entry that names the member and not a signature, which is the ordinary
+     * case: such a claim answers for every overload.
      */
-    private record Claim(String name, String version) {}
+    private record Claim(String name, Integer arity, String version, String note, boolean behaviourChanged) {
+
+        /** Whether this claim speaks for a call of {@code argCount} arguments. */
+        boolean covers(int argCount) {
+            return arity == null || arity == argCount;
+        }
+    }
+
+    /**
+     * One {@code @ReplacedBy}, read whole: where the element went, when each candidate applies, and what its
+     * author said about the move.
+     *
+     * <p>A null {@code Pointer} means <b>no annotation at all</b>; a present one whose {@link #targets()} are
+     * empty is the author saying outright that nothing takes this element's place. The two read alike and are
+     * not alike, which is why the distinction is kept — and it is not a defensive branch: {@code {}} is the
+     * annotation's declared default, so javac emits no value element for a bare {@code @ReplacedBy} and
+     * ClassGraph hands back a null value for a present annotation.
+     *
+     * <p>{@code targets} is a <b>list</b> because one old member may become two — a <em>split</em>, whose
+     * candidates {@link #whens()} distinguishes one sentence each. Reading them all is this phase; offering
+     * the user a choice between them is the next one, and until then the first candidate is the answer, which
+     * is what "ordered, first preferred" means.
+     *
+     * <p>All four annotations are {@code @Retention(CLASS)} rather than {@code RUNTIME} for the same reason
+     * {@code @Deprecated} is read from bytecode here: they are never reflected on at run time, only read off a
+     * jar that is on no classpath, by the ClassGraph scan {@code TypeSummaryManager} already runs.
+     */
+    private record Pointer(List<String> targets, List<String> whens, String note, boolean behaviourChanged) {
+
+        /**
+         * The annotation as read, or null when it is absent. A blank target is dropped rather than kept:
+         * {@code {""}} and {@code {}} are the same statement, and the SDK's own gate says so.
+         */
+        static Pointer of(AnnotationInfo annotation) {
+            if (annotation == null) return null;
+            return new Pointer(strings(annotation, "value").stream().filter(t -> !t.isBlank()).toList(),
+                    strings(annotation, "whens"), text(annotation, "note"),
+                    flag(annotation, "behaviourChanged"));
+        }
+
+        /** Where this element went, or null when it named nowhere — the answer a single-valued reader wants. */
+        String first() {
+            return targets.isEmpty() ? null : targets.getFirst();
+        }
+    }
+
+    /**
+     * What the SDK's own author said about a move, assembled from whichever end of the pointer pair carries it.
+     *
+     * <p>The two ends live in two different jars and only one of them need survive: a bot upgrading
+     * <em>through</em> the deprecation release reads {@code @ReplacedBy} on the element it still calls, and one
+     * that skipped that release finds the element gone and reads {@code @Replaces} on the survivor. So the
+     * forward note <b>wins</b> — it is the author speaking on the element the bot actually names — and the
+     * backward one is the fallback for everyone who arrived late. The flag is a logical <b>OR</b>: either end
+     * asserting that the behaviour changed is enough to mark every redirected call site.
+     */
+    private record Advice(String note, boolean behaviourChanged) {
+
+        static final Advice NONE = new Advice("", false);
+
+        /** This one, taken as the forward half, over {@code back} as the backward half. */
+        Advice over(Advice back) {
+            return new Advice(note.isBlank() ? back.note() : note,
+                    behaviourChanged || back.behaviourChanged());
+        }
+
+    }
 
     /**
      * One public API class, reduced to what a compatibility question can be asked of.
@@ -806,13 +950,13 @@ public final class SdkUpgradeService {
      * old one did. It is read from the same scan, so it covers the SDK's own hierarchy and stops at the edge
      * of the jar, which is all a check between two SDK types needs.
      *
-     * <p>{@code replacedBy} is the {@code @ReplacedBy} target, {@code ""} when the annotation is there with
-     * no target (the author saying outright that nothing takes this type's place) and null when there is no
-     * annotation at all. The two are not the same to read, but they are the same answer here: neither pairs
-     * this type with anything. {@code replaces} is the {@code @Replaces} entries, which point the other way —
-     * these older spellings became <em>this</em> type.
+     * <p>{@code replacedBy} is the {@code @ReplacedBy} read whole (see {@link Pointer}), null when there is no
+     * annotation at all. {@code replaces} is the {@code @Replaces} entries, which point the other way — these
+     * older spellings became <em>this</em> type. {@code since} is the release it first appeared in, {@code ""}
+     * when it does not say, and {@code scaffolding} is true for a type Studio's own generated files write.
      */
-    private record ApiClass(String name, String simpleName, String replacedBy, List<Claim> replaces,
+    private record ApiClass(String name, String simpleName, Pointer replacedBy, List<Claim> replaces,
+                            String since, boolean scaffolding,
                             boolean deprecated, Set<String> supertypes,
                             Map<String, List<ApiMember>> byName, Set<String> deprecatedNames) {
 
@@ -841,12 +985,13 @@ public final class SdkUpgradeService {
      * yields an {@code ImageTemplate}.
      *
      * <p>{@code replacedBy} and {@code replaces} are the two halves of the pointer, read exactly as they are
-     * on a class. They sit on the <em>overload</em>, which is where the author wrote them — the pairing folds
-     * the overloads of one name together, since a call site is attributed by name and arity and there is no
-     * arity in the pointer grammar.
+     * on a class, and {@code since} / {@code scaffolding} likewise. They sit on the <em>overload</em>, which is
+     * where the author wrote them — the pairing folds the overloads of one name together, since a call site is
+     * attributed by name and arity and the forward pointer carries no arity of its own.
      */
     private record ApiMember(String name, String type, List<String> params, boolean field,
-                             String replacedBy, List<Claim> replaces) {
+                             Pointer replacedBy, List<Claim> replaces,
+                             String since, boolean scaffolding) {
         String signature() {
             if (field) return name;
             return (CTOR.equals(name) ? "" : name) + "(" + String.join(", ", params) + ")";
@@ -883,8 +1028,10 @@ public final class SdkUpgradeService {
                     : lastSegment(mi.getTypeSignatureOrTypeDescriptor().getResultType().toString());
             byName.computeIfAbsent(name, k -> new ArrayList<>())
                     .add(new ApiMember(name, type, paramsOf(mi), false,
-                            pointer(either(mi.getAnnotationInfo(), REPLACED_BY, REPLACED_BY_LEGACY)),
-                            claims(either(mi.getAnnotationInfo(), REPLACES, REPLACES_LEGACY))));
+                            Pointer.of(either(mi.getAnnotationInfo(), REPLACED_BY, REPLACED_BY_LEGACY)),
+                            claims(either(mi.getAnnotationInfo(), REPLACES, REPLACES_LEGACY)),
+                            text(either(mi.getAnnotationInfo(), SINCE), "value"),
+                            mi.hasAnnotation(SCAFFOLDING)));
             // A name counts as deprecated only when every overload carrying it is — same rule as
             // SdkSurfaceService, and for the same reason: the user reads a name, not an overload.
             (mi.hasAnnotation(Deprecated.class.getName()) ? deprecatedNames : liveNames).add(name);
@@ -896,8 +1043,10 @@ public final class SdkUpgradeService {
             byName.computeIfAbsent(fi.getName(), k -> new ArrayList<>())
                     .add(new ApiMember(fi.getName(), lastSegment(fi.getTypeDescriptor().toString()),
                             List.of(), true,
-                            pointer(either(fi.getAnnotationInfo(), REPLACED_BY, REPLACED_BY_LEGACY)),
-                            claims(either(fi.getAnnotationInfo(), REPLACES, REPLACES_LEGACY))));
+                            Pointer.of(either(fi.getAnnotationInfo(), REPLACED_BY, REPLACED_BY_LEGACY)),
+                            claims(either(fi.getAnnotationInfo(), REPLACES, REPLACES_LEGACY)),
+                            text(either(fi.getAnnotationInfo(), SINCE), "value"),
+                            fi.hasAnnotation(SCAFFOLDING)));
             (fi.hasAnnotation(Deprecated.class.getName()) ? deprecatedNames : liveNames).add(fi.getName());
         }
         deprecatedNames.removeAll(liveNames);
@@ -905,23 +1054,13 @@ public final class SdkUpgradeService {
         ci.getSuperclasses().forEach(parent -> supertypes.add(parent.getSimpleName()));
         ci.getInterfaces().forEach(parent -> supertypes.add(parent.getSimpleName()));
         return new ApiClass(ci.getName(), ci.getSimpleName(),
-                pointer(either(ci.getAnnotationInfo(), REPLACED_BY, REPLACED_BY_LEGACY)),
+                Pointer.of(either(ci.getAnnotationInfo(), REPLACED_BY, REPLACED_BY_LEGACY)),
                 claims(either(ci.getAnnotationInfo(), REPLACES, REPLACES_LEGACY)),
+                text(either(ci.getAnnotationInfo(), SINCE), "value"), ci.hasAnnotation(SCAFFOLDING),
                 ci.hasAnnotation(Deprecated.class.getName()), Set.copyOf(supertypes),
                 Map.copyOf(byName), Set.copyOf(deprecatedNames));
     }
 
-    /**
-     * The {@code @ReplacedBy} target: null when the annotation is absent, {@code ""} when it is there with no
-     * target, otherwise the spelling it names.
-     *
-     * <p>The empty case is not a defensive branch — {@code ""} is the annotation's declared default, so javac
-     * emits <em>no</em> value element for a bare {@code @ReplacedBy} and ClassGraph hands back a null value
-     * for a present annotation. Reading that as "absent" would lose the one thing the empty form exists to
-     * say. Both pointers are {@code @Retention(CLASS)} rather than {@code RUNTIME} for the same reason
-     * {@code @Deprecated} above is read this way: they are never reflected on at run time, only read off a
-     * jar that is on no classpath, by the ClassGraph scan {@code TypeSummaryManager} already runs.
-     */
     /**
      * The first of {@code names} present on {@code annotations}, or {@code null}. Exists so one element can
      * be asked for a pointer under either its current or its pre-1.1.0 spelling without either read site
@@ -936,29 +1075,62 @@ public final class SdkUpgradeService {
         return null;
     }
 
-    private static String pointer(AnnotationInfo annotation) {
-        if (annotation == null) return null;
-        Object value = annotation.getParameterValues(true).getValue("value");
-        return value == null ? "" : value.toString().trim();
+    /** One annotation element read as a list of strings — {@code String[]} being how all four spell theirs. */
+    private static List<String> strings(AnnotationInfo annotation, String element) {
+        if (annotation == null) return List.of();
+        Object value = annotation.getParameterValues(true).getValue(element);
+        if (value instanceof Object[] array) {
+            return Arrays.stream(array).map(e -> String.valueOf(e).trim()).toList();
+        }
+        return value == null ? List.of() : List.of(String.valueOf(value).trim());
+    }
+
+    /** One annotation element read as a single string, {@code ""} when the author left it at its default. */
+    private static String text(AnnotationInfo annotation, String element) {
+        if (annotation == null) return "";
+        Object value = annotation.getParameterValues(true).getValue(element);
+        return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    /** One annotation element read as a flag, false when the author left it at its default. */
+    private static boolean flag(AnnotationInfo annotation, String element) {
+        if (annotation == null) return false;
+        Object value = annotation.getParameterValues(true).getValue(element);
+        return value instanceof Boolean b && b;
     }
 
     /**
-     * The {@code @Replaces} entries, each {@code fqn[#member]@<version>} split into its two halves.
+     * The {@code @Replaces} entries, each {@code fqn[#member][(arity)]@<version>} split into its parts, plus
+     * the two things the annotation as a whole says about the move.
      *
      * <p>An entry with no {@code @} is dropped rather than guessed at: the version is what says which era it
      * belongs to, and an entry without one could only be applied to every bot or to none. The SDK's own build
      * gate refuses that shape, so this is the reader being closed rather than the writer being distrusted.
+     *
+     * <p>The arity is optional and is dropped the same way when it is not a number — {@code #click(2)} names
+     * <em>which</em> overload this element took over, which is the one thing the forward pointer never has to
+     * spell out (it sits on the overload) and this one cannot read off anything, since by the time it is read
+     * that overload may be gone.
      */
     private static List<Claim> claims(AnnotationInfo annotation) {
         if (annotation == null) return List.of();
-        Object value = annotation.getParameterValues(true).getValue("value");
-        if (!(value instanceof Object[] entries)) return List.of();
-        List<Claim> out = new ArrayList<>(entries.length);
-        for (Object entry : entries) {
-            String text = String.valueOf(entry).trim();
-            int at = text.lastIndexOf('@');
-            if (at <= 0 || at == text.length() - 1) continue;
-            out.add(new Claim(text.substring(0, at), text.substring(at + 1)));
+        String note = text(annotation, "note");
+        boolean behaviourChanged = flag(annotation, "behaviourChanged");
+        List<Claim> out = new ArrayList<>();
+        for (String entry : strings(annotation, "value")) {
+            int at = entry.lastIndexOf('@');
+            if (at <= 0 || at == entry.length() - 1) continue;
+            String name = entry.substring(0, at);
+            Integer arity = null;
+            int open = name.lastIndexOf('(');
+            if (open > 0 && name.endsWith(")")) {
+                String digits = name.substring(open + 1, name.length() - 1);
+                if (!digits.isEmpty() && digits.chars().allMatch(Character::isDigit)) {
+                    arity = Integer.valueOf(digits);
+                    name = name.substring(0, open);
+                }
+            }
+            out.add(new Claim(name, arity, entry.substring(at + 1), note, behaviourChanged));
         }
         return List.copyOf(out);
     }
@@ -1062,16 +1234,23 @@ public final class SdkUpgradeService {
             return new Pairing(Map.copyOf(types), Map.copyOf(members));
         }
 
-        /** What the old jar's own elements say about where they went. Empty target = nothing took my place. */
+        /**
+         * What the old jar's own elements say about where they went. No target = nothing took my place.
+         *
+         * <p>A pointer may now name <b>several</b> candidates, and this graph takes the <b>first</b>: the
+         * targets are declared in preference order, so the first is the answer for every reader that wants
+         * one answer, which is all of them until the per-call-site choice arrives. Nothing here is lost —
+         * the candidates and their {@code whens} are on the {@link Pointer} either way.
+         */
         private static Map<String, String> forwardEdges(Map<String, ApiClass> before) {
             Map<String, String> edges = new LinkedHashMap<>();
             for (ApiClass then : before.values()) {
-                if (then.replacedBy() != null && !then.replacedBy().isEmpty()) {
-                    edges.put(then.name(), then.replacedBy());
+                if (then.replacedBy() != null && then.replacedBy().first() != null) {
+                    edges.put(then.name(), then.replacedBy().first());
                 }
                 then.byName().forEach((member, overloads) -> overloads.stream()
-                        .map(ApiMember::replacedBy)
-                        .filter(target -> target != null && !target.isEmpty())
+                        .map(m -> m.replacedBy() == null ? null : m.replacedBy().first())
+                        .filter(Objects::nonNull)
                         // Overloads share a name and a call site is attributed by name, so the first pointer
                         // any of them carries answers for all of them. Two overloads pointing different ways
                         // is a distinction this cannot act on either way.
@@ -1287,26 +1466,81 @@ public final class SdkUpgradeService {
     // THE DIFF
     // =========================================================================
 
-    /** New classes, and new members on classes that already existed. Display text, sorted. */
-    private static List<String> additions(Map<String, ApiClass> before, Map<String, ApiClass> after) {
-        Set<String> out = new TreeSet<>();
+    /**
+     * New classes, and new members on classes that already existed — display text, sorted, and <b>grouped by
+     * the release each arrived in</b>.
+     *
+     * <p>The era comes from {@code @Since}, asked of the element itself and falling back to its declaring
+     * class (a whole new class carries one annotation, not one per member). Everything that answers nothing
+     * lands in the {@code ""} bucket, which is sorted last and rendered without a heading — a jar predating
+     * {@code @Since} therefore produces exactly the flat alphabetical list this used to return.
+     */
+    private static Map<String, List<String>> additions(Map<String, ApiClass> before,
+                                                       Map<String, ApiClass> after) {
+        Map<String, Set<String>> byEra = new LinkedHashMap<>();
         for (ApiClass now : after.values()) {
             ApiClass then = before.get(now.simpleName());
             if (then == null) {
-                out.add(now.simpleName() + " (new class)");
+                byEra.computeIfAbsent(now.since(), k -> new TreeSet<>())
+                        .add(now.simpleName() + " (new class)");
                 continue;
             }
-            for (String name : now.byName().keySet()) {
-                if (!then.byName().containsKey(name)) {
-                    // A constant is read as a value, so it is shown as one: Key.ENTER, not Key.ENTER(…).
-                    String call = now.declaresCallable(name) ? "(…)" : "";
-                    out.add(CTOR.equals(name)
-                            ? "new " + now.simpleName() + "(…)"
-                            : now.simpleName() + "." + name + call);
-                }
+            for (Map.Entry<String, List<ApiMember>> entry : now.byName().entrySet()) {
+                String name = entry.getKey();
+                if (then.byName().containsKey(name)) continue;
+                // A constant is read as a value, so it is shown as one: Key.ENTER, not Key.ENTER(…).
+                String call = now.declaresCallable(name) ? "(…)" : "";
+                String era = entry.getValue().stream().map(ApiMember::since)
+                        .filter(s -> !s.isBlank()).findFirst().orElse(now.since());
+                byEra.computeIfAbsent(era, k -> new TreeSet<>())
+                        .add(CTOR.equals(name)
+                                ? "new " + now.simpleName() + "(…)"
+                                : now.simpleName() + "." + name + call);
             }
         }
-        return List.copyOf(out);
+        Map<String, List<String>> out = new LinkedHashMap<>();
+        byEra.entrySet().stream()
+                // Newest first, and the era nobody declared last: it is the answer "we do not know", which
+                // belongs after every answer we do have.
+                .sorted((a, b) -> a.getKey().isBlank() ? 1 : b.getKey().isBlank() ? -1
+                        : compareVersions(strip(b.getKey()), strip(a.getKey())))
+                .forEach(e -> out.put(e.getKey(), List.copyOf(e.getValue())));
+        // Not Map.copyOf: that is a hash map, and the sort immediately above is the whole point.
+        return Collections.unmodifiableMap(out);
+    }
+
+    /**
+     * What this release does to the members Studio writes into a bot's <em>generated</em> files, said up front.
+     *
+     * <p>Those files are never migrated — they are rendered from Studio's own templates, so rewriting one
+     * would be overwritten at the next regeneration and regenerating it would reproduce the same old-SDK code.
+     * When a repair touches one, {@code SdkMigrationRunner} refuses the whole upgrade, and until now it did so
+     * <b>mid-apply</b>: the user read a report, pressed the button and only then learned the answer was no.
+     * This is the same fact, stated before they commit to anything.
+     *
+     * <p>It is read from the <b>old</b> jar, which is the one whose spelling the generated files currently
+     * use, and it says nothing about whether the case is repairable — that is a question for the phases that
+     * make regeneration verify-then-emit. Its job is to be honest and to arrive early.
+     */
+    private static List<String> scaffolding(Map<String, ApiClass> before, List<Deprecation> deprecated,
+                                            List<Break> breaks) {
+        Map<String, String> out = new LinkedHashMap<>();
+        for (Break b : breaks) {
+            if (isScaffolding(before, b.type(), b.member())) out.put(b.display(), b.display());
+        }
+        for (Deprecation d : deprecated) {
+            if (isScaffolding(before, d.type(), d.member())) out.put(d.display(), d.display());
+        }
+        return List.copyOf(out.values());
+    }
+
+    /** Whether the old jar marks this element {@code @Scaffolding} — the type itself, or any overload of it. */
+    private static boolean isScaffolding(Map<String, ApiClass> before, String type, String member) {
+        ApiClass klass = before.get(type);
+        if (klass == null) return false;
+        if (member == null || member.isEmpty()) return klass.scaffolding();
+        return klass.scaffolding()
+                || klass.byName().getOrDefault(member, List.of()).stream().anyMatch(ApiMember::scaffolding);
     }
 
     /**
@@ -1489,8 +1723,18 @@ public final class SdkUpgradeService {
      * dialog: a plain rename is complete and says so; a redirect that changed shape is complete but wants
      * looking at; and one that could not be used everywhere says <em>where</em> it could not, since that is
      * the half the user has to finish.
+     *
+     * <p><b>The author's own sentence, where there is one, is appended verbatim and never rewritten.</b>
+     * Everything above it is Studio restating what the diff already showed; the note is the one thing in the
+     * dialog that says <em>why</em>, and it is the only text here Studio did not write.
      */
     private static String repairText(SdkMigrationRunner.Redirect redirect) {
+        String repair = mechanicsOf(redirect);
+        return redirect.note().isBlank() ? repair : repair + " — " + redirect.note();
+    }
+
+    /** The half of {@link #repairText(SdkMigrationRunner.Redirect)} that is Studio's own reading of the jars. */
+    private static String mechanicsOf(SdkMigrationRunner.Redirect redirect) {
         String was = CTOR.equals(redirect.member())
                 ? "new " + redirect.type() : redirect.type() + "." + redirect.member();
         List<String> what = new ArrayList<>();
@@ -1510,7 +1754,7 @@ public final class SdkUpgradeService {
             return head + " where it stands on its own, and becomes " + defaultTextOf(redirect.returnType())
                     + " where its result is used — those functions are marked for your review";
         }
-        return redirect.shapeChanged() ? head + ", and the function is marked for your review" : head;
+        return redirect.needsReview() ? head + ", and the function is marked for your review" : head;
     }
 
     private static String inputs(long count) {

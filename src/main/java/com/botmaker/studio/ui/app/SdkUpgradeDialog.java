@@ -260,6 +260,18 @@ public final class SdkUpgradeDialog {
         if (r.isIncomplete()) {
             reportBox.getChildren().add(section("⚠ What this check could not determine", r.problems()));
         }
+        // Before anything else, including the modernise layout: this is the one thing that can stop the
+        // upgrade for a reason the user cannot act on, and learning it after pressing the button is the
+        // failure this section exists to prevent.
+        if (!r.scaffolding().isEmpty()) {
+            List<String> scaffold = new ArrayList<>();
+            for (String element : r.scaffolding()) {
+                scaffold.add(element + " — Studio writes this into your generated files, which are rendered "
+                        + "from Studio's own templates rather than migrated.");
+            }
+            reportBox.getChildren().add(section("⚠ What this release moves that Studio writes for you",
+                    scaffold));
+        }
         if (modernising) {
             renderModernise(r);
             return;
@@ -299,7 +311,15 @@ public final class SdkUpgradeDialog {
         reportBox.getChildren().add(section("What this bot uses that is now deprecated", deprecated,
                 "Nothing this bot calls is deprecated on " + r.to() + "."));
 
-        reportBox.getChildren().add(section("What's new", r.added(),
+        // Grouped by the release each thing arrived in, newest first — a bot several versions behind is
+        // reading a span, not a single release, and which one a thing came from is most of what makes the
+        // list worth reading. A jar with no @Since has one unlabelled group, which is the old flat list.
+        List<String> added = new ArrayList<>();
+        r.addedBySince().forEach((era, entries) -> {
+            if (!era.isBlank()) added.add("new in " + era);
+            for (String entry : entries) added.add(era.isBlank() ? entry : "        " + entry);
+        });
+        reportBox.getChildren().add(section("What's new", added,
                 "No new public API between " + r.from() + " and " + r.to() + "."));
 
         if (!r.repairable().isEmpty()) {

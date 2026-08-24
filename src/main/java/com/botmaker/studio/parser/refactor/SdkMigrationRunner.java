@@ -127,11 +127,28 @@ public final class SdkMigrationRunner {
      * <p>{@link #shapeChanged()} is derived rather than passed: a redirect that keeps every argument where it
      * was and gives back the same type is a <b>rename</b>, does afterwards exactly what it did before, and is
      * not marked for review. Anything that gains, loses or retypes something is.
+     *
+     * <p>{@code note} and {@code behaviourChanged} are the two things the <b>SDK's own author</b> said about
+     * this move, read off the pointer pair and passed through untouched. They exist because
+     * {@link #shapeChanged()} cannot see the one gap the model admits by construction: a redirect that keeps
+     * every argument and the return type — a click that now targets the match's centre, a wait that counts
+     * from a different instant — is a same-shape redirect, so it lands silently and the bot quietly does
+     * something else. Nothing in the bytecode reveals it, so the author says it, and
+     * {@link #needsReview()} is what {@link #shapeChanged()} alone used to answer.
      */
     public record Redirect(String type, String member, int argCount,
                            String toTypeFqn, String toMember, List<ArgumentEdit> arguments,
                            String returnType, String toReturnType, boolean expressionSafe,
-                           String returnTypeFqn) {
+                           String returnTypeFqn, String note, boolean behaviourChanged) {
+
+        /** The same, with nothing the SDK's author had to add about the move. */
+        public Redirect(String type, String member, int argCount,
+                        String toTypeFqn, String toMember, List<ArgumentEdit> arguments,
+                        String returnType, String toReturnType, boolean expressionSafe,
+                        String returnTypeFqn) {
+            this(type, member, argCount, toTypeFqn, toMember, arguments,
+                    returnType, toReturnType, expressionSafe, returnTypeFqn, "", false);
+        }
 
         /** The same, where the fallback default has nothing to cast to — see {@link Removal#Removal}. */
         public Redirect(String type, String member, int argCount,
@@ -139,6 +156,18 @@ public final class SdkMigrationRunner {
                         String returnType, String toReturnType, boolean expressionSafe) {
             this(type, member, argCount, toTypeFqn, toMember, arguments,
                     returnType, toReturnType, expressionSafe, null);
+        }
+
+        /**
+         * Whether the call sites this redirect touches are marked for the user's review.
+         *
+         * <p>Two quite different reasons, deliberately one question: the shape moved (Studio can see that),
+         * or the author said the behaviour did (only they can). A rename is still not marked — the bot does
+         * afterwards exactly what it did before, and burying the sites that changed meaning under the ones
+         * that did not is how a review list stops being read.
+         */
+        public boolean needsReview() {
+            return shapeChanged() || behaviourChanged;
         }
 
         boolean matches(SdkReferences.Reference reference) {
@@ -326,7 +355,7 @@ public final class SdkMigrationRunner {
             // that did not pass falls back to the same default a removal gets.
             if (reference.site().isStatement() || redirect.expressionSafe()) {
                 changes.add(redirect.changeAt(reference.site()));
-                if (redirect.shapeChanged()) noteRedirect(marks, reference, redirect);
+                if (redirect.needsReview()) noteRedirect(marks, reference, redirect);
             } else {
                 changes.add(new CallChange.ValueDefaulted(reference.site(), redirect.returnType(),
                         redirect.returnTypeFqn()));
@@ -377,9 +406,16 @@ public final class SdkMigrationRunner {
      * The same, for a call that <em>was</em> redirected — so the sentence says where it went and what did not
      * survive the move, rather than that something is gone.
      *
-     * <p>Only ever called for a {@linkplain Redirect#shapeChanged() changed shape}. A redirect that keeps
-     * every argument and gives back the same type leaves the call doing exactly what it did, and a review
-     * list that lists those buries the sites that genuinely changed under the ones that did not.
+     * <p>Only ever called for a redirect that {@linkplain Redirect#needsReview() needs review}. A redirect
+     * that keeps every argument, gives back the same type and carries no behaviour warning leaves the call
+     * doing exactly what it did, and a review list that lists those buries the sites that genuinely changed
+     * under the ones that did not.
+     *
+     * <p>The author's own sentence, where there is one, is written <b>first and verbatim</b>: it is the one
+     * channel through which the person who made the change speaks to the person whose bot it lands on, and
+     * paraphrasing it here would be Studio talking over them. Everything after it is Studio's own reading of
+     * the shape, which may be empty — a same-shape move flagged {@code behaviourChanged} has nothing else to
+     * say, and the note is then the whole entry.
      */
     private static void noteRedirect(Map<MethodDeclaration, Set<String>> marks,
                                      SdkReferences.Reference reference, Redirect redirect) {
@@ -408,10 +444,17 @@ public final class SdkMigrationRunner {
             what.add("it gives back " + describe(redirect.toReturnType()) + " instead of "
                     + describe(redirect.returnType()));
         }
+        String head = redirect.type() + "." + redirect.member() + " is now " + redirect.display()
+                + " in this BotMaker version";
+        if (!redirect.note().isBlank()) {
+            marks.computeIfAbsent(method, m -> new LinkedHashSet<>())
+                    .add(head + " — " + redirect.note()
+                            + (what.isEmpty() ? "" : " Also: " + String.join(", and ", what) + "."));
+            return;
+        }
         if (what.isEmpty()) return;
         marks.computeIfAbsent(method, m -> new LinkedHashSet<>())
-                .add(redirect.type() + "." + redirect.member() + " is now " + redirect.display()
-                        + " in this BotMaker version — " + String.join(", and ", what) + ".");
+                .add(head + " — " + String.join(", and ", what) + ".");
     }
 
     private static String describe(String returnType) {

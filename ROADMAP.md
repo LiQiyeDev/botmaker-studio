@@ -6,6 +6,23 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-24 — the upgrade report reads what the SDK's author actually said about a move
+  (`services/SdkUpgradeService`, `parser/refactor/SdkMigrationRunner`, `ui/app/SdkUpgradeDialog`).** Phase 4
+  of twelve. Four annotations the SDK gained in Phase 3 now have a reader. **`note()` reaches the user word
+  for word** — appended to Studio's own sentence, never paraphrased — with the *old* jar's `@ReplacedBy.note()`
+  winning over the new jar's `@Replaces.note()`, because that is the author speaking at the moment of the
+  change on the element this bot actually calls; the back edge is the fallback for a bot that skipped the
+  deprecation release. **`behaviourChanged` closes the one gap the model cannot see by construction**: a
+  same-shape, same-type redirect is deliberately unmarked, so `click` → `tap` used to ship silently —
+  `Redirect.needsReview()` is now `shapeChanged() || behaviourChanged`, the flag being a logical OR over both
+  ends. **`@Since` gives "What's new" eras** (`Report.addedBySince`, newest first, the undeclared era last)
+  instead of one flat alphabetical list. **`@Scaffolding` turns a mid-apply refusal into an up-front line**:
+  `Report.scaffolding()` names what this release moves that Studio writes into the generated files, at the top
+  of the report, before the user commits to anything. Every reader degrades — a jar carrying none of this
+  produces byte-for-byte the report it did before. `@Replaces` entries also parse an optional arity
+  (`fqn#member(2)@1.2.0`), which is how the surviving side names an overload that no longer exists. Nine new
+  tests over jars compiled on the spot; `ReplacedBy.value()` is read as the `String[]` it now is, taking the
+  first candidate — the multi-valued graph and the per-call-site choice are Phase 4.5.
 - **2026-08-24 — `@Palette` reaches the expression menu, which it had never touched
   (`ui/render/menu/MenuBuilders`, `ui/render/menu/ExpressionMenu`, `blocks/func/MethodInvocationBlock`,
   `services/SdkSurfaceService`, `palette/SdkType`).** Phase 3.12 of twelve. The 3.9 rollout curated the

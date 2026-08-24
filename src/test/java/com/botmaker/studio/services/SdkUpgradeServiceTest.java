@@ -141,7 +141,14 @@ class SdkUpgradeServiceTest {
         Files.createDirectories(src);
         List<String> paths = new java.util.ArrayList<>();
         for (Map.Entry<String, String> e : classes.entrySet()) {
-            Path file = src.resolve(e.getKey() + ".java");
+            // A key may name a sub-package — "meta.Since" — because @Since and @Scaffolding only ever
+            // existed under api.meta, and a fixture that put them in `api` would be testing a jar the SDK
+            // has never published.
+            String key = e.getKey();
+            int dot = key.lastIndexOf('.');
+            Path pkgDir = dot < 0 ? src : src.resolve(key.substring(0, dot).replace('.', '/'));
+            Files.createDirectories(pkgDir);
+            Path file = pkgDir.resolve(key.substring(dot + 1) + ".java");
             Files.writeString(file, e.getValue());
             paths.add(file.toString());
         }
@@ -546,11 +553,30 @@ class SdkUpgradeServiceTest {
         Map<String, String> out = new java.util.HashMap<>(base);
         out.put("ReplacedBy", """
                 package %s;
-                public @interface ReplacedBy { String value() default ""; }
+                public @interface ReplacedBy {
+                    String[] value() default {};
+                    String[] whens() default {};
+                    String note() default "";
+                    boolean behaviourChanged() default false;
+                }
                 """.formatted(PKG));
         out.put("Replaces", """
                 package %s;
-                public @interface Replaces { String[] value(); }
+                public @interface Replaces {
+                    String[] value();
+                    String note() default "";
+                    boolean behaviourChanged() default false;
+                }
+                """.formatted(PKG));
+        // These two have no pre-1.1.0 spelling under `api` to mirror, so the fixture declares them where the
+        // SDK actually has them and every use below writes them fully qualified.
+        out.put("meta.Since", """
+                package %s.meta;
+                public @interface Since { String value(); }
+                """.formatted(PKG));
+        out.put("meta.Scaffolding", """
+                package %s.meta;
+                public @interface Scaffolding {}
                 """.formatted(PKG));
         return out;
     }
@@ -1035,5 +1061,171 @@ class SdkUpgradeServiceTest {
         Deprecation moving = dep(r, "Wait.time").orElseThrow(() -> new AssertionError(r.deprecated().toString()));
         assertEquals("Pause", moving.becomes());
         assertTrue(moving.repair().contains("every use of \"Wait\" becomes \"Pause\""), moving.repair());
+    }
+
+    // -------------------------------------------------------------------------
+    // What the author said about the move: note, behaviourChanged, @Since, @Scaffolding
+    // -------------------------------------------------------------------------
+
+    /**
+     * {@code Mouse.doubleClick} → {@code Mouse.twoClicks}: the same shape, the same type, so nothing Studio
+     * can read off the two jars would ever mark it. Whatever the row says beyond "becomes Mouse.twoClicks"
+     * came from the annotations, which is exactly what these tests are about.
+     */
+    private static Report moveReport(Path tmp, String forward, String backward) throws IOException {
+        Map<String, String> before = withPointers(oldSdk());
+        before.put("Mouse", """
+                package %s;
+                public class Mouse {
+                    public static void click(int x, int y) {}
+                    @Deprecated
+                    %s
+                    public static void doubleClick(int x, int y) {}
+                }
+                """.formatted(PKG, forward));
+        Map<String, String> after = withPointers(newSdk());
+        after.put("Mouse", """
+                package %s;
+                public class Mouse {
+                    public static void click(int x, int y, long delayMs) {}
+                    %s
+                    public static void twoClicks(int x, int y) {}
+                }
+                """.formatted(PKG, backward));
+        return serviceOver(tmp, BOT).compare(jarOf(tmp, "old", before, Map.of()),
+                jarOf(tmp, "new", after, Map.of()), "1.0.0", "2.0.0");
+    }
+
+    @Test
+    void theAuthorsOwnSentenceReachesTheUserWordForWord(@TempDir Path tmp) throws IOException {
+        Report r = moveReport(tmp,
+                "@ReplacedBy(value = \"" + PKG + ".Mouse#twoClicks\", note = \"twoClicks waits between the "
+                        + "two presses, which is what most games expect.\")", "");
+
+        Break moved = brk(r, "Mouse.doubleClick").orElseThrow(() -> new AssertionError(r.breaks().toString()));
+        assertEquals("becomes Mouse.twoClicks — twoClicks waits between the two presses, which is what most "
+                + "games expect.", moved.repair());
+    }
+
+    @Test
+    void theSurvivorsSentenceAnswersForABotThatSkippedTheDeprecationRelease(@TempDir Path tmp)
+            throws IOException {
+        // No forward pointer at all: the deprecated member is simply gone, and the back edge — with its
+        // arity, since by now there is no overload left to sit on — is the only record of what happened.
+        Report r = moveReport(tmp, "",
+                "@Replaces(value = \"" + PKG + ".Mouse#doubleClick(2)@1.5.0\", note = \"Say twoClicks now.\")");
+
+        Break moved = brk(r, "Mouse.doubleClick").orElseThrow(() -> new AssertionError(r.breaks().toString()));
+        assertEquals("becomes Mouse.twoClicks — Say twoClicks now.", moved.repair());
+    }
+
+    @Test
+    void whenBothJarsSpeakTheOldOneWins(@TempDir Path tmp) throws IOException {
+        // The old jar is the author speaking at the moment of the change, on the very element this bot
+        // calls. The new jar's copy is the fallback for the bot that was not there to hear it.
+        Report r = moveReport(tmp,
+                "@ReplacedBy(value = \"" + PKG + ".Mouse#twoClicks\", note = \"Forward.\")",
+                "@Replaces(value = \"" + PKG + ".Mouse#doubleClick(2)@1.5.0\", note = \"Backward.\")");
+
+        Break moved = brk(r, "Mouse.doubleClick").orElseThrow(() -> new AssertionError(r.breaks().toString()));
+        assertEquals("becomes Mouse.twoClicks — Forward.", moved.repair());
+    }
+
+    @Test
+    void aMoveThatChangedNoShapeButChangedBehaviourIsStillMarked(@TempDir Path tmp) throws IOException {
+        // The one gap the model cannot see by construction: same name shape, same arity, same return type,
+        // and a different thing happening at runtime. Only the author can say so, and saying so is enough.
+        Report r = moveReport(tmp,
+                "@ReplacedBy(value = \"" + PKG + ".Mouse#twoClicks\", behaviourChanged = true, "
+                        + "note = \"twoClicks now waits between the presses.\")", "");
+
+        Break moved = brk(r, "Mouse.doubleClick").orElseThrow(() -> new AssertionError(r.breaks().toString()));
+        assertTrue(moved.repair().contains("marked for your review"), moved.repair());
+        assertTrue(moved.repair().endsWith("— twoClicks now waits between the presses."), moved.repair());
+    }
+
+    @Test
+    void eitherEndAssertingBehaviourChangedIsEnough(@TempDir Path tmp) throws IOException {
+        Report r = moveReport(tmp, "@ReplacedBy(\"" + PKG + ".Mouse#twoClicks\")",
+                "@Replaces(value = \"" + PKG + ".Mouse#doubleClick(2)@1.5.0\", behaviourChanged = true, "
+                        + "note = \"It waits now.\")");
+
+        Break moved = brk(r, "Mouse.doubleClick").orElseThrow(() -> new AssertionError(r.breaks().toString()));
+        assertTrue(moved.repair().contains("marked for your review"), moved.repair());
+    }
+
+    @Test
+    void theSameMoveWithNothingSaidAboutItIsUnmarkedAndUnannotated(@TempDir Path tmp) throws IOException {
+        // The control: every sentence above has to be the annotations' doing, not the diff's.
+        Report r = moveReport(tmp, "@ReplacedBy(\"" + PKG + ".Mouse#twoClicks\")", "");
+
+        Break moved = brk(r, "Mouse.doubleClick").orElseThrow(() -> new AssertionError(r.breaks().toString()));
+        assertEquals("becomes Mouse.twoClicks", moved.repair());
+    }
+
+    @Test
+    void additionsAreGroupedByTheReleaseTheyArrivedIn(@TempDir Path tmp) throws IOException {
+        Map<String, String> after = withPointers(newSdk());
+        after.put("Mouse", """
+                package %s;
+                public class Mouse {
+                    public static void click(int x, int y, long delayMs) {}
+                    public static void doubleClick(int x, int y) {}
+                    @com.botmaker.sdk.api.meta.Since("2.0.0")
+                    public static void dragTo(int x, int y) {}
+                }
+                """.formatted(PKG));
+        after.put("Session", """
+                package %s;
+                @com.botmaker.sdk.api.meta.Since("1.5.0")
+                public class Session {
+                    public static void open() {}
+                }
+                """.formatted(PKG));
+        Report r = serviceOver(tmp, BOT).compare(jarOf(tmp, "old", withPointers(oldSdk()), Map.of()),
+                jarOf(tmp, "new", after, Map.of()), "1.0.0", "2.0.0");
+
+        assertEquals(List.of("2.0.0", "1.5.0"), List.copyOf(r.addedBySince().keySet()),
+                "newest era first: " + r.addedBySince());
+        assertEquals(List.of("Mouse.dragTo(…)"), r.addedBySince().get("2.0.0"));
+        assertEquals(List.of("Session (new class)"), r.addedBySince().get("1.5.0"));
+        // And the flat list every other reader already asks for is still the same set.
+        assertEquals(2, r.added().size(), r.added().toString());
+    }
+
+    @Test
+    void additionsFromAJarThatDeclaresNoErasAreOneUnlabelledGroup(@TempDir Path tmp) throws IOException {
+        // The standing rule: a jar with none of this reads exactly as it did before the readers existed.
+        Report r = reportFor(tmp, BOT);
+
+        assertEquals(List.of(""), List.copyOf(r.addedBySince().keySet()), r.addedBySince().toString());
+        assertTrue(r.added().contains("Mouse.dragTo(…)"), r.added().toString());
+    }
+
+    @Test
+    void aBreakOnSomethingStudioItselfWritesIsSaidUpFront(@TempDir Path tmp) throws IOException {
+        // Generated files are rendered from Studio's templates, never migrated, so this upgrade cannot be
+        // completed by a rewrite of the user's code alone. That was a refusal thrown mid-apply; it is now
+        // also a line in the report, before the user commits to anything.
+        Map<String, String> before = withPointers(oldSdk());
+        before.put("Wait", """
+                package %s;
+                public class Wait {
+                    @com.botmaker.sdk.api.meta.Scaffolding
+                    public static void seconds(int s) {}
+                    public static void time(long ms) {}
+                }
+                """.formatted(PKG));
+        Report r = serviceOver(tmp, BOT).compare(jarOf(tmp, "old", before, Map.of()),
+                jarOf(tmp, "new", withPointers(newSdk()), Map.of()), "1.0.0", "2.0.0");
+
+        assertEquals(List.of("Wait.seconds"), r.scaffolding(), "problems=" + r.problems());
+        // And it changes no verdict: the break is still exactly the break it was.
+        assertEquals(BreakKind.MEMBER_REMOVED, brk(r, "Wait.seconds").orElseThrow().kind());
+    }
+
+    @Test
+    void aBreakOnAnOrdinaryMemberSaysNothingAboutScaffolding(@TempDir Path tmp) throws IOException {
+        assertTrue(reportFor(tmp, BOT).scaffolding().isEmpty());
     }
 }
