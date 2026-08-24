@@ -6,6 +6,32 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-24 — the scaffold's SDK surface becomes data, and the build enforces it backwards
+  (`project/scaffold/ScaffoldSurface` (new), `project/scaffold/ScaffoldScan` + `ScaffoldSurfaceTest` (new,
+  test), `services/ActivityService`).** Phase 9 of twelve. Studio's generators are **text blocks**:
+  `ProjectCreator` writes `Bot.start` and `PopupGuard.install`, `ActivityService.generateDriverSource` writes
+  `Watchdog.checkpoint` and `Wait.milliseconds`, the `Activities` variable helpers write `new Point(…)` and
+  `new Precision(…)`. Nothing verified the SDK still *has* any of them, so a rename surfaced as a broken file
+  in somebody's project rather than as a failing build here. A text block cannot be asked what it names; a
+  list can — so the set is declared once, as data, and three assertions keep it honest.
+  **Emitted equals declared** is the load-bearing one: `ScaffoldScan` parses every generated file with JDT
+  (the parser `SdkReferences` already uses) and asserts the SDK symbols it finds are *exactly* the
+  declaration, in both directions — an undeclared call fails, and so does a line no generator backs, which is
+  what stops the second copy from drifting. **Declared resolves** looks each element up in the SDK Studio
+  compiles against, so renaming `Watchdog.checkpoint` and reinstalling breaks *this* build on that member.
+  **The file is current** writes `../botmaker-sdk/scaffolding-surface.txt`, which the SDK's own rule 12 reads
+  as its expected `@Scaffolding` set — the SDK cannot read Studio, the dependency runs the other way.
+  The scan is lexical (no bindings, same constraint as `SdkReferences`) and three shapes needed a dedicated
+  visitor rather than reuse: **method references** (`GoHome.INSTANCE::execute`), **`@Override` declarations**
+  (`isEnabled`/`run` on an `Activity` subclass, which name a member by implementing it) and **instance
+  receivers** (`ActivityRegistry.MINING.execute()`, resolved through one level of corpus indirection —
+  registry → field → declared type → SDK superclass). Two rules make the two repositories comparable: a
+  **type** counts only in a *type position* (an `extends`, a field or parameter type, a type argument), never
+  as the mere qualifier of a static call, which reproduces the SDK's 29 `@Scaffolding` sites exactly; and
+  **arity is the declared parameter count**, so `ImageTemplateGroup.of()` records `of(1)` — a varargs
+  parameter reached with nothing — because the SDK end reads the declaration and has no call site to count.
+  Imports and Javadoc are deliberately not sightings. The declared set came out at **29** elements against
+  the plan's hand-counted 14, and the first run matched the scan exactly, origins included.
 - **2026-08-24 — the upgrade dialog stops opening with a bill (`services/SdkWhatsNew` (new),
   `services/SdkUpgradeService`, `ui/app/SdkUpgradeDialog`).** Phase 6 of twelve. Every list the report
   carried was **derived** — a diff of two jars, stated as API names — and a diff can only ever state a cost.

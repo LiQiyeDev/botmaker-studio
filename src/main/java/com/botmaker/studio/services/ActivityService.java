@@ -199,7 +199,7 @@ public final class ActivityService {
      * <p>Only the helpers a project actually uses are emitted, de-duplicated on their text — {@code Key} and
      * {@code Direction} both want {@code constant(…)}, and a class cannot declare it twice.
      */
-    String generateSource(ActivitiesConfig cfg) {
+    public String generateSource(ActivitiesConfig cfg) {
         StringBuilder fields = new StringBuilder();
         StringBuilder inits = new StringBuilder();
         // Insertion-ordered so the generated file is stable: a set that reordered on rehash would produce a
@@ -298,7 +298,7 @@ public final class ActivityService {
      * <p>Orphans (placed but unreachable) are left out: they don't run. They still get a stub and their
      * {@code Activities.<field>} flags, so the project keeps compiling.
      */
-    String generateRegistrySource(ActivitiesConfig cfg) {
+    public String generateRegistrySource(ActivitiesConfig cfg) {
         List<ActivityDefinition> reachable = cfg.orderedActivities();
         StringBuilder singletons = new StringBuilder();
         StringBuilder all = new StringBuilder();
@@ -372,7 +372,7 @@ public final class ActivityService {
      * stops a flow that loops with no way out. It counts transitions <em>between</em> activities, which nothing
      * previously bounded; {@code Watchdog} covers being stuck inside one.
      */
-    String generateDriverSource(ActivitiesConfig cfg) {
+    public String generateDriverSource(ActivitiesConfig cfg) {
         List<ActivityDefinition> reachable = cfg.orderedActivities();
         ActivityFlow flow = cfg.flow();
         String start = flow.resolvedStart(reachable.stream().map(ActivityDefinition::name).toList());
