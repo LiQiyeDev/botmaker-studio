@@ -1,11 +1,6 @@
 package com.botmaker.studio.services;
 
 import com.botmaker.studio.config.BotMakerDirs;
-import com.botmaker.studio.events.EventBus;
-import com.botmaker.studio.index.TypeSummaryManager;
-import com.botmaker.studio.project.ProjectConfig;
-import com.botmaker.studio.project.ProjectFile;
-import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.services.SdkUpgradeService.Break;
 import com.botmaker.studio.services.SdkUpgradeService.BreakKind;
 import com.botmaker.studio.services.SdkUpgradeService.Deprecation;
@@ -14,18 +9,11 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import javax.tools.JavaCompiler;
-import javax.tools.ToolProvider;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.jar.JarEntry;
-import java.util.jar.JarOutputStream;
-import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -35,20 +23,16 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 /**
  * The upgrade report: given the bot's current SDK jar and the one it might move to, what would break.
  *
- * <p>Two real jars are compiled here rather than mocked, for the reason the whole feature exists: the
+ * <p>Two real jars are compiled per case rather than mocked, for the reason the whole feature exists: the
  * question is about bytecode, and the interesting cases — a method gone, an overload's arity changed, a class
  * that disappeared, a survivor now {@code @Deprecated} — are exactly the ones no pair of published SDK
  * versions exhibits yet. A fixture that only ever encodes what already shipped would pass forever without
- * proving the diff works.
- *
- * <p>The jars get unique names per call: {@link TypeSummaryManager}'s disk cache is keyed by jar
- * <em>filename</em> and settles ties by mtime, so two same-named fixtures written in the same millisecond
- * would have the second one read the first one's scan.
+ * proving the diff works. The machinery that builds them is {@link SdkFixtures}, shared with
+ * {@link SplitPointerTest}; what stays here is the fixture SDK <em>content</em> these cases diff.
  */
 class SdkUpgradeServiceTest {
 
-    private static final String PKG = "com.botmaker.sdk.api";
-    private static final AtomicInteger UNIQUE = new AtomicInteger();
+    private static final String PKG = SdkFixtures.PKG;
 
     @BeforeAll
     static void theCacheDirIsRedirectedIntoTheBuild() {
@@ -134,48 +118,7 @@ class SdkUpgradeServiceTest {
     /** Compiles {@code classes} into a jar, optionally carrying the two {@code META-INF} files. */
     private static Path jarOf(Path dir, String label, Map<String, String> classes,
                               Map<String, String> resources) throws IOException {
-        JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
-        assumeTrue(compiler != null, "no platform compiler on this JRE; the fixture jars cannot be built");
-
-        Path src = dir.resolve("src-" + label).resolve(PKG.replace('.', '/'));
-        Files.createDirectories(src);
-        List<String> paths = new java.util.ArrayList<>();
-        for (Map.Entry<String, String> e : classes.entrySet()) {
-            // A key may name a sub-package — "meta.Since" — because @Since and @Scaffolding only ever
-            // existed under api.meta, and a fixture that put them in `api` would be testing a jar the SDK
-            // has never published.
-            String key = e.getKey();
-            int dot = key.lastIndexOf('.');
-            Path pkgDir = dot < 0 ? src : src.resolve(key.substring(0, dot).replace('.', '/'));
-            Files.createDirectories(pkgDir);
-            Path file = pkgDir.resolve(key.substring(dot + 1) + ".java");
-            Files.writeString(file, e.getValue());
-            paths.add(file.toString());
-        }
-
-        Path out = dir.resolve("classes-" + label);
-        Files.createDirectories(out);
-        List<String> args = new java.util.ArrayList<>(List.of("-d", out.toString()));
-        args.addAll(paths);
-        assertEquals(0, compiler.run(null, null, null, args.toArray(String[]::new)),
-                "the " + label + " fixture sources must compile");
-
-        for (Map.Entry<String, String> e : resources.entrySet()) {
-            Path file = out.resolve(e.getKey());
-            Files.createDirectories(file.getParent());
-            Files.writeString(file, e.getValue());
-        }
-
-        Path jar = dir.resolve("botmaker-sdk-" + label + "-" + UNIQUE.incrementAndGet() + ".jar");
-        try (JarOutputStream jos = new JarOutputStream(Files.newOutputStream(jar));
-             Stream<Path> walk = Files.walk(out)) {
-            for (Path p : walk.filter(Files::isRegularFile).toList()) {
-                jos.putNextEntry(new JarEntry(out.relativize(p).toString().replace('\\', '/')));
-                jos.write(Files.readAllBytes(p));
-                jos.closeEntry();
-            }
-        }
-        return jar;
+        return SdkFixtures.jarOf(dir, label, classes, resources);
     }
 
     // -------------------------------------------------------------------------
@@ -198,22 +141,7 @@ class SdkUpgradeServiceTest {
             """;
 
     private static SdkUpgradeService serviceOver(Path tmp, String... sources) throws IOException {
-        Path project = tmp.resolve("project");
-        Files.createDirectories(project.resolve("src/main/java/com/mybot"));
-
-        ProjectState state = new ProjectState();
-        int n = 0;
-        for (String source : sources) {
-            Path file = project.resolve("src/main/java/com/mybot/Subject" + (n == 0 ? "" : n) + ".java");
-            Files.writeString(file, source);
-            state.addFile(new ProjectFile(file, source));
-            n++;
-        }
-
-        ProjectConfig config = ProjectConfig.forProject("fixture", project);
-        EventBus bus = new EventBus(false);
-        LibraryService libraries = new LibraryService(config, state, new TypeSummaryManager(), bus);
-        return new SdkUpgradeService(config, state, libraries, new JitPackSearch());
+        return SdkFixtures.serviceOver(tmp, sources);
     }
 
     private static Report reportFor(Path tmp, String... sources) throws IOException {
@@ -550,35 +478,7 @@ class SdkUpgradeServiceTest {
      * is the default, which is exactly what the real ones declare — and what makes them readable off a jar.
      */
     private static Map<String, String> withPointers(Map<String, String> base) {
-        Map<String, String> out = new java.util.HashMap<>(base);
-        out.put("ReplacedBy", """
-                package %s;
-                public @interface ReplacedBy {
-                    String[] value() default {};
-                    String[] whens() default {};
-                    String note() default "";
-                    boolean behaviourChanged() default false;
-                }
-                """.formatted(PKG));
-        out.put("Replaces", """
-                package %s;
-                public @interface Replaces {
-                    String[] value();
-                    String note() default "";
-                    boolean behaviourChanged() default false;
-                }
-                """.formatted(PKG));
-        // These two have no pre-1.1.0 spelling under `api` to mirror, so the fixture declares them where the
-        // SDK actually has them and every use below writes them fully qualified.
-        out.put("meta.Since", """
-                package %s.meta;
-                public @interface Since { String value(); }
-                """.formatted(PKG));
-        out.put("meta.Scaffolding", """
-                package %s.meta;
-                public @interface Scaffolding {}
-                """.formatted(PKG));
-        return out;
+        return SdkFixtures.withPointers(base);
     }
 
     /**

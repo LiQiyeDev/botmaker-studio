@@ -6,6 +6,28 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-24 — a member that became two, and the choice that goes with it per call site
+  (`services/SdkUpgradeService` + its four new siblings, `parser/refactor/SdkMigrationRunner`,
+  `ui/app/SdkUpgradeDialog`).** Phase 4.5 of twelve. The pairing graph is **multi-valued**: `SdkPairing`'s
+  edges are `List`s, `follow` expands candidates depth-first in the author's declared order, and a split
+  composes with a chain for free (`a`→`{b,c}` plus `b`→`d` lands on `{d, c}`). `redirectFor` became
+  `redirectsFor`, returning every candidate that survives the checks it already applied; the old single
+  answer is the one-element case, so the almost-always path is byte-for-byte what it was.
+  **Compile-safety is now two-part, and the split is why the distinction matters**: *shape reconcilable* is
+  a property of the candidate, *fits where the value is used* is a property of the **site** — a call standing
+  as a statement discards its result, so every candidate fits there. `Report.splits()` carries one `Choice`
+  per member with a `Site` per call, each holding the menu that fits *there* and preselected to the first;
+  splits sit **beside** `breaks`/`deprecated` rather than inside them, so `canMigrate()` and `canModernise()`
+  keep their meanings. The decision reaches the rewriter as data (`SdkMigrationRunner.Choices`, keyed
+  positionally by `(project-relative path, character offset)` because the report and the apply pass parse the
+  sources twice) — a key that misses degrades to the site's default, which is asserted rather than assumed.
+  **A double `@Replaces` claim on a member is now a split, not an error**: it is the only place a split
+  survives the deletion of what it split from. Passing no choices at all migrates exactly as before, which is
+  what keeps Modernise and every headless path unchanged. Nine new tests (`SplitPointerTest`) over jars
+  compiled on the spot, through a new package-private `migrate(...)` seam; the fixture machinery moved to a
+  shared `SdkFixtures`. **`SdkUpgradeService` was split into five files first** (2,139 lines → 834, beside
+  `SdkApiModel`, `SdkPairing`, `SdkRedirects`, `SdkUpgradeDiff`) — the public report records stay nested, so
+  no caller changed.
 - **2026-08-24 — the upgrade report reads what the SDK's author actually said about a move
   (`services/SdkUpgradeService`, `parser/refactor/SdkMigrationRunner`, `ui/app/SdkUpgradeDialog`).** Phase 4
   of twelve. Four annotations the SDK gained in Phase 3 now have a reader. **`note()` reaches the user word

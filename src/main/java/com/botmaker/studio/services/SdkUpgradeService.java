@@ -620,9 +620,36 @@ public final class SdkUpgradeService {
                     + "before changing anything. Check the report and try once more.");
         }
 
+        SdkMigrationRunner.Outcome outcome = migrate(oldJar.get(), newJar.get(), from, targetVersion,
+                throughDeprecations, allowDefaults, picks);
+        if (outcome == null) return;                        // nothing needed repairing
+        if (outcome.isRefusal()) throw new IllegalStateException(outcome.refusal());
+        try {
+            // The annotation the rewritten files now reference. Written before them, so the project never
+            // exists in a state where a mark names a type that isn't there — and only when the migration has
+            // already agreed to write something, so a refused upgrade adds no file at all.
+            ReviewMarks.ensureFile(config.mainPackageDir(), config.mainPackage());
+            CallMigrator.commit(outcome.files());
+        } catch (IOException e) {
+            throw new RuntimeException("Some files could not be written: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * The rewrite worked out, given the two jars — everything except resolving them and writing the result.
+     * Null means nothing needed repairing, which is not an error: most upgrades break nothing.
+     *
+     * <p>Split out for the same reason {@link #compare(Path, Path, String, String)} is: the cases worth
+     * testing are the ones no published pair of versions exhibits, and they have to be compiled on the spot.
+     * It is also the only seam through which a per-site {@linkplain Choice choice} can be exercised without
+     * a pom, a VCS repository and a network round trip standing between the test and the answer.
+     */
+    SdkMigrationRunner.Outcome migrate(Path oldJar, Path newJar, String from, String targetVersion,
+                                       boolean throughDeprecations, boolean allowDefaults,
+                                       Map<CallSite, Integer> picks) {
         List<String> problems = new ArrayList<>();
-        Map<String, ApiClass> before = SdkApiModel.snapshot(oldJar.get());
-        Map<String, ApiClass> after = SdkApiModel.snapshot(newJar.get());
+        Map<String, ApiClass> before = SdkApiModel.snapshot(oldJar);
+        Map<String, ApiClass> after = SdkApiModel.snapshot(newJar);
         Set<String> known = new LinkedHashSet<>(before.keySet());
         known.addAll(after.keySet());
         Map<String, List<String>> fieldOwners = SdkApiModel.fieldOwners(before, after);
@@ -644,7 +671,7 @@ public final class SdkUpgradeService {
         }
 
         SdkMigrationRunner.Repairs repairs = repairsFor(before, after, uses, pairing, allowDefaults);
-        if (repairs.isEmpty()) return;
+        if (repairs.isEmpty()) return null;
 
         List<ProjectFile> editable = new ArrayList<>();
         List<ProjectFile> generated = new ArrayList<>();
@@ -656,19 +683,8 @@ public final class SdkUpgradeService {
                     .add(file);
         }
 
-        SdkMigrationRunner.Outcome outcome = SdkMigrationRunner.run(repairs,
-                choicesFor(before, after, uses, pairing, picks), editable, generated,
-                known, fieldOwners, config.mainPackage(), null, state);
-        if (outcome.isRefusal()) throw new IllegalStateException(outcome.refusal());
-        try {
-            // The annotation the rewritten files now reference. Written before them, so the project never
-            // exists in a state where a mark names a type that isn't there — and only when the migration has
-            // already agreed to write something, so a refused upgrade adds no file at all.
-            ReviewMarks.ensureFile(config.mainPackageDir(), config.mainPackage());
-            CallMigrator.commit(outcome.files());
-        } catch (IOException e) {
-            throw new RuntimeException("Some files could not be written: " + e.getMessage(), e);
-        }
+        return SdkMigrationRunner.run(repairs, choicesFor(before, after, uses, pairing, picks),
+                editable, generated, known, fieldOwners, config.mainPackage(), null, state);
     }
 
     /**
