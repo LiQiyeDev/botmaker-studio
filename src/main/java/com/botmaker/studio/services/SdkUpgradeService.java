@@ -53,14 +53,15 @@ import static com.botmaker.studio.services.SdkRedirects.returnTypeOf;
  *
  * <p>This class is the service: the public {@linkplain Report report} it hands back, the entry points that
  * build one, and the scan of the bot's own sources — the only part that needs the project. Everything it
- * asks of the two jars lives beside it, package-private, in four files that no caller outside this package
+ * asks of the two jars lives beside it, package-private, in five files that no caller outside this package
  * ever names:
  *
  * <ul>
  *   <li>{@link SdkApiModel} — the two jars reduced to what the questions need, and the pointer grammar;</li>
  *   <li>{@link SdkPairing} — the edges, and the walk that follows them to something the target jar has;</li>
  *   <li>{@link SdkRedirects} — the one place a redirect is decided, and the checks it has to pass;</li>
- *   <li>{@link SdkUpgradeDiff} — the lists a report carries, and the sentences shown beside them.</li>
+ *   <li>{@link SdkUpgradeDiff} — the lists a report carries, and the sentences shown beside them;</li>
+ *   <li>{@link SdkWhatsNew} — the one thing not derived from the bytecode: the release's own changelog.</li>
  * </ul>
  *
  * <h2>A redirect where the jars confirm it, a default where they do not</h2>
@@ -329,11 +330,28 @@ public final class SdkUpgradeService {
     public record Site(CallSite site, List<Candidate> candidates) {}
 
     /**
+     * One release's own account of itself: a section of the target jar's {@code CHANGELOG.md}.
+     *
+     * <p>{@code date} is whatever followed the version in the heading and may be blank — a section is
+     * identified by its version, never by its date. {@code lines} is the section body with the emphasis
+     * markers removed and nothing else touched, so the author's wording reaches the user verbatim.
+     *
+     * @see SdkWhatsNew
+     */
+    public record Highlight(String version, String date, List<String> lines) {}
+
+    /**
      * The whole answer to "what happens if I move to this version".
      *
      * <p>{@code problems} is what the scan could <em>not</em> determine — an unresolvable jar, a file that
      * does not parse, an old spelling two survivors both claim. It is separate from the findings on purpose:
      * an empty {@code breaks} list means something quite different depending on whether this one is empty too.
+     *
+     * <p>{@code highlights} is the only list here the two jars did not produce: it is the target release's
+     * own {@code CHANGELOG.md} sections for the span being crossed, newest first, read out of the target jar
+     * itself. Every other list states a <em>cost</em>; this one is the only thing that can state a reason,
+     * which is why the dialog leads with it. Empty for a jar that carries no changelog — see
+     * {@link SdkWhatsNew}.
      *
      * <p>{@code addedBySince} is the new API <b>grouped by the release it arrived in</b>, newest first, read
      * from {@code @Since}. A flat alphabetical list of names is a cost sheet, not a reason to upgrade: what
@@ -351,6 +369,7 @@ public final class SdkUpgradeService {
      * as a break, and this is the question that goes with it, not a third kind of finding.
      */
     public record Report(String from, String to,
+                         List<Highlight> highlights,
                          Map<String, List<String>> addedBySince,
                          List<Deprecation> deprecated,
                          List<Break> breaks,
@@ -411,7 +430,7 @@ public final class SdkUpgradeService {
         }
 
         static Report unavailable(String from, String to, String problem) {
-            return new Report(from, to, Map.of(), List.of(), List.of(), List.of(), List.of(),
+            return new Report(from, to, List.of(), Map.of(), List.of(), List.of(), List.of(), List.of(),
                     List.of(problem));
         }
     }
@@ -523,6 +542,10 @@ public final class SdkUpgradeService {
         List<Deprecation> deprecated = SdkUpgradeDiff.deprecations(before, after, uses.calls(), pairing);
         List<Break> breaks = SdkUpgradeDiff.breaks(before, after, uses, pairing);
         return new Report(from, to,
+                // Read from the target jar, not diffed out of the two: a release's reason for existing is
+                // not a property of its API surface. A span of (from, from] — which is what modernising
+                // passes — is empty by construction, and correctly so: nothing is being moved to.
+                SdkWhatsNew.between(newJar, from, to),
                 SdkUpgradeDiff.additions(before, after),
                 deprecated,
                 breaks,

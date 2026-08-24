@@ -12,6 +12,9 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+- ***Project ▸ Upgrade SDK…* opens with what the release gives you, not with what it costs.** The SDK ships
+  its own `CHANGELOG.md` inside its jar, so the dialog shows every release you are moving through — newest
+  first, in the author's words — above the cost sections. The exhaustive API diff is still there, below it.
 - ***Project ▸ Upgrade SDK…* leads with what the release costs *your* bot, with file and line** — and now
   also with what the SDK's author said about each move, word for word, out of the `@ReplacedBy` / `@Replaces`
   pointers the SDK carries in its jar. A redirect that keeps its shape but changes what it does is marked for

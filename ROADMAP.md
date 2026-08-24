@@ -6,6 +6,30 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-24 — the upgrade dialog stops opening with a bill (`services/SdkWhatsNew` (new),
+  `services/SdkUpgradeService`, `ui/app/SdkUpgradeDialog`).** Phase 6 of twelve. Every list the report
+  carried was **derived** — a diff of two jars, stated as API names — and a diff can only ever state a cost.
+  "`Mouse.dragTo(…)` is new" says a symbol appeared; it never says why anyone added it. The one thing that
+  can answer that is the author's own sentence, and since phase 5 it ships: the SDK's build copies its whole
+  `CHANGELOG.md` into every jar as `META-INF/botmaker/whats-new.md`. Studio already downloads the target jar
+  to diff it, so `Report.highlights()` costs **no second fetch and works offline** — the sections falling in
+  `(from, to]`, newest first, so a bot three versions behind reads the span as a span. Half-open below
+  because the release you are already on is not news; **whole file in the jar, not one section**, because a
+  jar has to answer every span ending at its own version. The dialog renders it above everything, including
+  the scaffolding warning: it is the only thing there that answers *why would I*, and every section below it
+  answers *what will this take* — a question the user is only asking because they have already decided the
+  first one is worth it. The old flat list is kept, exhaustive, retitled **What's new in the API**, since
+  there are now two answers to "what's new" and they are not the same answer.
+  **The jar-entry reader is back, deliberately**: it was deleted with `migrations.json`, but what it reads
+  now is not a mechanism the SDK asks Studio to *execute* — which is what that file was, and why it went —
+  it is prose the SDK asks Studio to *show*, and the two failure modes are nothing alike. Degradation is the
+  standing rule and it needs no version check: the entry's presence **is** the probe, so every SDK up to
+  v1.0.26 shows the dialog exactly as before. One deliberate asymmetry with the `inRange` it descends from —
+  a bound `SemVer` cannot parse is dropped **on its own** rather than voiding the whole test, so a project
+  pinned to a local `0.0.0-SNAPSHOT` sees every section up to its target instead of every section in the
+  file. Only the emphasis markers are stripped from a line (a `Label` renders `**` literally); the bullet,
+  the wording and the punctuation reach the user verbatim, the same promise `@ReplacedBy.note()` makes.
+  Seven new tests, three of them straight against the parser rather than a jar.
 - **2026-08-24 — the release notes stop being generated commit titles (`CHANGELOG.md`,
   `.github/workflows/ci.yml`, umbrella `release.sh`).** Phase 5 of twelve. Studio is the one module that
   already published a GitHub Release, and its body was a floor sentence plus GitHub's auto-generated commit

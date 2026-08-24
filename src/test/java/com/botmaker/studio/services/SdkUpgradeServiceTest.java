@@ -1128,4 +1128,109 @@ class SdkUpgradeServiceTest {
     void aBreakOnAnOrdinaryMemberSaysNothingAboutScaffolding(@TempDir Path tmp) throws IOException {
         assertTrue(reportFor(tmp, BOT).scaffolding().isEmpty());
     }
+
+    // -------------------------------------------------------------------------
+    // What the release says about itself
+    // -------------------------------------------------------------------------
+
+    /** What the SDK's own build copies into every jar it publishes — see {@code botmaker-sdk/pom.xml}. */
+    private static final String CHANGELOG = """
+            # Changelog
+
+            ## [Unreleased]
+
+            - something not released yet, which no jar may ever show.
+
+            ## [2.0.0] — 2026-08-24
+
+            - `Mouse.dragTo` — drag without holding the button down yourself.
+            - **Session** is new.
+
+            ## [1.5.0] — 2026-08-20
+
+            - the waiter stops spinning the CPU.
+
+            ## [1.0.0] — 2026-08-01
+
+            - the release the bot is already on.
+
+            ## Earlier
+
+            See `ROADMAP.md`.
+            """;
+
+    @Test
+    void theReportCarriesTheReleasesTheBotIsMovingThrough(@TempDir Path tmp) throws IOException {
+        Report r = serviceOver(tmp, BOT).compare(
+                jarOf(tmp, "old", oldSdk(), Map.of()),
+                jarOf(tmp, "new", newSdk(), Map.of(SdkWhatsNew.ENTRY, CHANGELOG)),
+                "1.0.0", "2.0.0");
+
+        assertEquals(List.of("2.0.0", "1.5.0"),
+                r.highlights().stream().map(SdkUpgradeService.Highlight::version).toList(),
+                "the span is (from, to], newest first: " + r.highlights());
+        assertEquals("2026-08-24", r.highlights().get(0).date());
+        // The emphasis markers go because a Label renders them literally; the bullet, the wording and the
+        // author's punctuation all stay, which is the same promise @ReplacedBy.note() makes.
+        assertEquals(List.of("- Mouse.dragTo — drag without holding the button down yourself.",
+                        "- Session is new."),
+                r.highlights().get(0).lines());
+    }
+
+    @Test
+    void aJarThatCarriesNoChangelogReadsExactlyAsItDidBefore(@TempDir Path tmp) throws IOException {
+        // The standing rule. Every SDK up to v1.0.26 is this case, so it is the common one, not the edge.
+        assertTrue(reportFor(tmp, BOT).highlights().isEmpty());
+    }
+
+    @Test
+    void modernisingIsMovingToNothingAndSaysNothing(@TempDir Path tmp) throws IOException {
+        Path jar = jarOf(tmp, "same", newSdk(), Map.of(SdkWhatsNew.ENTRY, CHANGELOG));
+        Report r = serviceOver(tmp, BOT).compare(jar, jar, "2.0.0", "2.0.0", true);
+
+        assertTrue(r.highlights().isEmpty(),
+                "(2.0.0, 2.0.0] is empty: there is no release being moved to: " + r.highlights());
+    }
+
+    @Test
+    void theReleaseTheBotIsAlreadyOnIsNotNews() {
+        assertEquals(List.of("2.0.0"),
+                SdkWhatsNew.parse(CHANGELOG, "1.5.0", "2.0.0").stream()
+                        .map(SdkUpgradeService.Highlight::version).toList());
+    }
+
+    @Test
+    void anUnreleasedSectionIsNeverInRange() {
+        // It has no version, so it cannot be in a span — which is the whole of the special case it needs.
+        assertTrue(SdkWhatsNew.parse(CHANGELOG, "0.0.1", "9.9.9").stream()
+                .noneMatch(h -> h.version().contains("Unrelease")));
+        assertEquals(List.of("2.0.0", "1.5.0", "1.0.0"),
+                SdkWhatsNew.parse(CHANGELOG, "0.0.1", "9.9.9").stream()
+                        .map(SdkUpgradeService.Highlight::version).toList());
+    }
+
+    @Test
+    void aBoundThatIsNotAVersionIsSimplyNotApplied() {
+        // A project pinned to a local 0.0.0-SNAPSHOT build is the case that actually happens. Showing every
+        // section up to the target is a readable failure; showing none looks like a release that did nothing.
+        assertEquals(List.of("2.0.0", "1.5.0", "1.0.0"),
+                SdkWhatsNew.parse(CHANGELOG, "0.0.0-SNAPSHOT", "2.0.0").stream()
+                        .map(SdkUpgradeService.Highlight::version).toList());
+    }
+
+    @Test
+    void aSectionOutOfOrderInTheFileIsStillShownNewestFirst() {
+        String jumbled = """
+                ## [1.5.0] — 2026-08-20
+
+                - older, written first.
+
+                ## [2.0.0] — 2026-08-24
+
+                - newer, written second.
+                """;
+        assertEquals(List.of("2.0.0", "1.5.0"),
+                SdkWhatsNew.parse(jumbled, "1.0.0", "2.0.0").stream()
+                        .map(SdkUpgradeService.Highlight::version).toList());
+    }
 }

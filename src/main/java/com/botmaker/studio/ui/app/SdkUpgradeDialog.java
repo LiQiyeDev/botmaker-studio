@@ -5,6 +5,7 @@ import com.botmaker.studio.services.SdkUpgradeService.Break;
 import com.botmaker.studio.services.SdkUpgradeService.CallSite;
 import com.botmaker.studio.services.SdkUpgradeService.Choice;
 import com.botmaker.studio.services.SdkUpgradeService.Deprecation;
+import com.botmaker.studio.services.SdkUpgradeService.Highlight;
 import com.botmaker.studio.services.SdkUpgradeService.Report;
 import com.botmaker.studio.services.SdkUpgradeService.Site;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
@@ -274,6 +275,11 @@ public final class SdkUpgradeDialog {
         if (r.isIncomplete()) {
             reportBox.getChildren().add(section("⚠ What this check could not determine", r.problems()));
         }
+        // Above every cost section, and above the scaffolding warning, because it is the only thing on this
+        // dialog that answers "why would I". Everything below it answers "what will this take", which is a
+        // question the user is only asking because they have already decided the first one is worth it.
+        Node highlights = highlightsSection(r);
+        if (highlights != null) reportBox.getChildren().add(highlights);
         // Before anything else, including the modernise layout: this is the one thing that can stop the
         // upgrade for a reason the user cannot act on, and learning it after pressing the button is the
         // failure this section exists to prevent.
@@ -333,7 +339,10 @@ public final class SdkUpgradeDialog {
             if (!era.isBlank()) added.add("new in " + era);
             for (String entry : entries) added.add(era.isBlank() ? entry : "        " + entry);
         });
-        reportBox.getChildren().add(section("What's new", added,
+        // Kept, and kept exhaustive — but retitled, because it is no longer the only "what's new" on the
+        // dialog and the two answer different questions: the section above is the release talking, this one
+        // is the diff. Under a jar with no changelog it is still the only answer there is.
+        reportBox.getChildren().add(section("What's new in the API", added,
                 "No new public API between " + r.from() + " and " + r.to() + "."));
 
         // Last before the button, because it is the only thing on this dialog addressed *to* the user.
@@ -579,6 +588,27 @@ public final class SdkUpgradeDialog {
     // -------------------------------------------------------------------------
     // Small helpers
     // -------------------------------------------------------------------------
+
+    /**
+     * The target release's own changelog for the span being crossed, or {@code null} when it carries none.
+     *
+     * <p>{@code null} rather than an empty section, and this is the one place on the dialog where absence
+     * must not be stated: every SDK up to v1.0.26 ships no changelog, so "this release says nothing about
+     * itself" would be the *usual* message and would read as a defect in the release rather than in the
+     * reader. The rest of the dialog says what an empty list means because there an empty list is a finding.
+     *
+     * <p>A bot several versions behind sees each release it is moving through, newest first, so the span is
+     * legible as a span rather than flattened into one undifferentiated list.
+     */
+    private Node highlightsSection(Report r) {
+        if (r.highlights().isEmpty()) return null;
+        List<String> lines = new ArrayList<>();
+        for (Highlight h : r.highlights()) {
+            lines.add(h.version() + (h.date().isBlank() ? "" : "  ·  " + h.date()));
+            for (String line : h.lines()) lines.add("        " + line);
+        }
+        return section("What this release gives you", lines);
+    }
 
     private Node section(String title, List<String> lines) {
         return section(title, lines, "");
