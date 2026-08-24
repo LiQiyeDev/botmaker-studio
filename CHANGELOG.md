@@ -10,7 +10,7 @@ date it.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
-## [Unreleased]
+## [1.0.31] — 2026-08-24
 
 - **The files BotMaker generates for you come from the SDK your project pins, not from Studio.** Studio fills
   in what is true about your project — your activities, your flow, your stored parameters — and the SDK owns
