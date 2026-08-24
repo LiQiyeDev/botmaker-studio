@@ -1,6 +1,5 @@
 package com.botmaker.studio.services;
 
-import com.botmaker.sdk.api.bot.Activity;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityDefinition;
@@ -10,19 +9,9 @@ import com.botmaker.studio.project.activity.FlowNode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import javax.tools.JavaCompiler;
-import javax.tools.ToolProvider;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Stream;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -38,13 +27,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * right start node, the right {@code PopupCheck}, the right {@code Recovery}, a route per wire and no row at
  * all for an activity nothing can reach.
  *
- * <p>{@link #aBranchingFlowGeneratesAProjectThatCompiles} is still the important one, for the same reason as
- * before: string assertions prove the source says what we meant, and only a compiler proves it is valid Java
- * — the failure mode that actually reaches a user. It compiles against the <b>real SDK jar</b> now. It used
- * to supply six hand-written stand-ins, on the grounds that Studio did not depend on the SDK; it has since
- * 2026-08 (for type identity), and the jar is on this module's test classpath — so the stand-ins were a
- * second, hand-maintained copy of signatures the real thing already has, with a comment asking the next
- * reader to keep them in step.
+ * <p>String assertions prove the source says what we meant; only a compiler proves it is valid Java, which is
+ * the failure mode that actually reaches a user. That half used to live here as one more test —
+ * {@code aBranchingFlowGeneratesAProjectThatCompiles}, over this one flow. It moved to
+ * {@code ScaffoldCompileTest}, which compiles this shape and three others as <em>whole projects</em>: the
+ * driver is not the only generated file and its interesting failures are between files, not inside one.
  */
 class FlowDriverGenerationTest {
 
@@ -180,48 +167,4 @@ class FlowDriverGenerationTest {
                 "Mining has no implicit wire, so a disabled Mining ends the run:\n" + source);
     }
 
-    @Test
-    void aBranchingFlowGeneratesAProjectThatCompiles(@TempDir Path root) throws Exception {
-        ActivitiesConfig cfg = branchingFlow();
-        ProjectConfig config = ProjectConfig.forProject("actbot", root);
-        ActivityService service = new ActivityService(config, null, null);
-
-        List<Path> sources = new ArrayList<>();
-        sources.add(write(config.activitiesSourceFile(), service.generateSource(cfg)));
-        sources.add(write(config.activityRegistrySourceFile(), service.generateRegistrySource(cfg)));
-        sources.add(write(config.flowDriverSourceFile(), service.generateDriverSource(cfg)));
-        for (ActivityDefinition a : cfg.activities()) {
-            sources.add(write(config.activitiesPackageDir().resolve(a.name() + ".java"),
-                    service.generateStubSource(a)));
-        }
-        // The driver hands the walker GoHome.INSTANCE::execute. GoHome is scaffolded into the project by
-        // ProjectCreator rather than generated here, so the test supplies it — from the same SDK template,
-        // which is also the cheapest proof that a seed and a regenerated file agree about the package.
-        sources.add(write(config.mainSourceFile().getParent().resolve("GoHome.java"),
-                com.botmaker.studio.project.ProjectCreator
-                        .gameBotSources("Actbot", config.packageName()).get("GoHome.java")));
-
-        assertEquals("", compile(root, sources), "the generated project must compile");
-    }
-
-    /** Compiles {@code sources} against the real SDK; returns the diagnostics, or "" when it succeeded. */
-    private static String compile(Path root, List<Path> sources) throws Exception {
-        Path classes = Files.createDirectories(root.resolve("classes"));
-        Path sdk = Path.of(Activity.class.getProtectionDomain().getCodeSource().getLocation().toURI());
-        ByteArrayOutputStream diagnostics = new ByteArrayOutputStream();
-        JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
-        int rc;
-        try (PrintStream out = new PrintStream(diagnostics, true, StandardCharsets.UTF_8)) {
-            rc = compiler.run(null, null, out, Stream.concat(
-                    Stream.of("-classpath", sdk.toString(), "-d", classes.toString()),
-                    sources.stream().map(Path::toString)).toArray(String[]::new));
-        }
-        return rc == 0 ? "" : diagnostics.toString(StandardCharsets.UTF_8);
-    }
-
-    private static Path write(Path file, String source) throws IOException {
-        Files.createDirectories(file.getParent());
-        Files.writeString(file, source);
-        return file;
-    }
 }

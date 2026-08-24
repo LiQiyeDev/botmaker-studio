@@ -374,15 +374,21 @@ there are three distinct relationships to keep straight:
     `ActivityRegistry`, `FlowDriver`, `Templates`). The distinction is not decoration — a save of the activity
     model asks `ScaffoldCheck.of(facts, REGENERATED)`, because a gone `SEED` element is the *upgrade's*
     business and was reported up front, not this edit's.
-  - **`ScaffoldSurfaceTest` is the backward guarantee.** It JDT-parses the generators' *actual output* (the
-    same parser `SdkReferences` uses) and asserts the symbols they name **equal** the declaration — neither an
-    undeclared symbol nor a stale one — then resolves each against the SDK Studio builds against. An SDK
-    rename therefore breaks **Studio's build on a named element** instead of surfacing as a broken file in
-    someone's project. It writes `botmaker-sdk/scaffolding-surface.txt`, which the SDK's `ApiPointersTest`
-    rule 12 reads back: neither repository can read the other, so the committed file *is* the comparison.
-    Regenerate with `-Dtest=ScaffoldSurfaceTest -Dbotmaker.scaffold.writeSurface=true`. Arity is the
-    **declared** parameter count (what a varargs member has regardless of how few arguments a generator
-    passes), resolved on this side precisely because the SDK end has no call site to count.
+  - **`ScaffoldCompileTest` is the backward guarantee, and it is a real compile.** `ScaffoldCorpus` renders
+    four whole projects — empty project, game bot with no activities, one activity holding a variable of every
+    storable type, and a branching flow (join, loop, unwired outcome, unreachable activity) — and each is
+    written to a temp dir and compiled by `javac` against the **real SDK jar** (located from
+    `Activity.class`'s code source; the SDK is on the test classpath for type identity). An SDK rename
+    therefore breaks **Studio's build**, on the generated line, instead of surfacing as a broken file in
+    someone's project. It replaced `ScaffoldScan` (484 lines of JDT visitor), the committed
+    `botmaker-sdk/scaffolding-surface.txt` and the SDK's rule 12 — all three of which approximated a compile,
+    and none of which could see a wrong argument *type*, a generic that would not unify, or a missing import.
+  - **`ScaffoldSurfaceTest` is now only about the declaration**: every entry resolves in the SDK Studio builds
+    against, and every entry is still something a generator writes (a stale line is not inert — `ScaffoldCheck`
+    would refuse a newer SDK over it). Arity is the **declared** parameter count, not the argument count at a
+    call site: a varargs member reached with no arguments still declares one parameter. The reverse direction
+    — an *injected* element nobody declared — is deliberately no longer checked: a parse cannot tell Studio's
+    fragments from the SDK template frame around them, and the frame is not Studio's to declare.
   - **`ScaffoldCheck` is the forward direction — an SDK newer than Studio, which cannot be tested because it
     does not exist yet.** It resolves every element against the pinned jar and, for each absent one, asks that
     jar's `@Replaces` back edge for a survivor: *satisfied*, *repairable* (with the substitutions), or

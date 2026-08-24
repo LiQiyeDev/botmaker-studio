@@ -1,42 +1,43 @@
 package com.botmaker.studio.project.scaffold;
 
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 
 /**
- * Every SDK element the generated files name — declared once, as data.
+ * Every SDK element <b>Studio injects</b> into a generated file — declared once, as data.
  *
- * <h2>Why this exists</h2>
+ * <h2>What this is a list of, and what it stopped being one of</h2>
  *
- * <p>Studio's generators were text blocks, and a text block cannot be asked what it names. Nothing checked
- * that the SDK a project pins actually <em>had</em> any of the members they wrote, so a renamed SDK member
- * surfaced as a broken file in somebody's project rather than as a failing build here — and an upgrade that
- * touched one was refused mid-apply, after the user had committed to it. A list can be asked, so the set was
- * written down here, and {@code ScaffoldSurfaceTest} keeps it honest in both directions: it parses what the
- * generators actually emit and asserts the symbols it finds <b>equal</b> this declaration — neither an
- * undeclared symbol nor a stale entry survives — and then resolves every entry against the SDK Studio builds
- * against. An SDK rename therefore breaks <em>Studio's</em> build, on a named element.
+ * <p>It used to be every SDK element a generated file <em>named</em>, because Studio wrote the whole file
+ * out of text blocks and a text block cannot be asked what it names. Keeping the list honest took a 484-line
+ * JDT visitor over the generators' output ({@code ScaffoldScan}), a committed {@code scaffolding-surface.txt}
+ * carried to a repository that cannot read this one, and a rule in the SDK's {@code ApiPointersTest} to read
+ * it back — all of it reconstructing, by parsing, an answer a compiler gives away.
  *
- * <p><b>Most of what this list existed for is gone.</b> Since 2026-08-24 the scaffold's <em>frame</em> is the
- * SDK's own: seven compiling templates in {@code botmaker-sdk/src/templates/java}, checked by that module's
- * compiler and its {@code ScaffoldTemplatesTest}. What Studio still writes is the fragments dropped into
- * their tokens — a graph table, a field list, a load expression — and that is what remains declared here.
- * The members that left are the ones that were only ever frame: the walk loop's {@code Bot.stop},
- * {@code Watchdog.checkpoint}, {@code Wait.milliseconds}, {@code Debug.error} and {@code PopupGuard.enabled},
- * and the thirteen parser bodies whose {@code new Point(…)} and {@code new Precision(…)} are now
- * {@code Wire.point} and {@code Wire.precision}.
+ * <p>Since 2026-08-24 the file's <b>frame</b> is the SDK's own: compiling templates in
+ * {@code botmaker-sdk/src/templates/java}, checked by that module's compiler and its
+ * {@code ScaffoldTemplatesTest}, extracted from the jar a project actually pins. A frame element cannot go
+ * missing relative to its own jar, so there is nothing here to declare about it. What is left is the far
+ * smaller set Studio drops <em>between the fences</em>: the flow table's {@code node}/{@code route}, the
+ * field types and {@code Wire} readers of {@code Activities}, and {@code BotMaker.print} — the "Empty"
+ * template being the one generator still written as Java in this repository.
+ *
+ * <p>So the three things that once needed three mechanisms now need one each. {@code ScaffoldCompileTest}
+ * compiles the assembled output of several activity models against the real SDK jar — a stronger answer to
+ * "does what we emit work?" than any declaration was. {@code ScaffoldSurfaceTest} resolves every entry below
+ * against that same jar, so an SDK rename breaks <em>Studio's</em> build on a named element. And this list is
+ * what {@link ScaffoldCheck} asks a <em>newer</em> jar about — the one question a compiler here cannot
+ * answer, because that jar did not exist when it ran.
  *
  * <h2>What counts as an element, and what does not</h2>
  *
- * <p>A <b>type</b> entry means the generated source writes that type's name in a <em>type position</em> —
- * {@code extends Activity<…>}, a field or parameter type, a type argument, a {@code .class} literal. Merely
- * qualifying a static call does not count: {@code Bot.start(…)} names the member, and the type is only how it
- * is spelled. That is why {@code Bot}, {@code Debug} and {@code Wait} appear here only through their members
- * while {@code Point} and {@code Activity} appear as types too — and it is the same line the SDK's
- * {@code @Scaffolding} annotations are drawn on.
+ * <p>A <b>type</b> entry means an injected fragment writes that type's name in a <em>type position</em> — a
+ * field's declared type, a type argument, a {@code .class} literal. Merely qualifying a static call does not
+ * count: {@code Wire.duration(…)} names the member, and the type is only how it is spelled. That is why
+ * {@code Wire} and {@code FlowGraph} appear here only through their members while {@code Point} and
+ * {@code Rect} appear as types — and it is the same line the SDK's {@code @Scaffolding} annotations are
+ * drawn on.
  *
  * <p><b>Constants are not elements.</b> The generated {@code Activities} names an enum constant as its
  * fallback ({@code Key.A}), but which one it names is derived from the enum, not fixed by the generator, so
@@ -44,12 +45,13 @@ import java.util.Set;
  *
  * <h2>Seed versus regenerated</h2>
  *
- * <p>{@link Origin} is carried per element because the two kinds of generated file fail differently, and from
- * phase 10 on they are governed differently. A {@link Origin#SEED} file is written once at creation and is the
- * user's thereafter — it only has to be correct against the jar pinned at that moment. A
- * {@link Origin#REGENERATED} file is rewritten wholesale on every model change and must be correct against
- * whatever SDK the project pins today, including one newer than Studio. An element can be both, and several
- * are: the entry point and the generated driver both call {@code Bot.stop}.
+ * <p>{@link Origin} is carried per element because the two kinds of generated file fail differently, and are
+ * governed differently. A {@link Origin#SEED} file is written once at creation and is the user's thereafter —
+ * it only has to be correct against the jar pinned at that moment. A {@link Origin#REGENERATED} file is
+ * rewritten wholesale on every model change and must be correct against whatever SDK the project pins today,
+ * including one newer than Studio. An element can be both; none currently is, because the seeds are all
+ * templates now and the one that is not — the "Empty" project's single {@code BotMaker.print} — is written
+ * nowhere else.
  */
 public final class ScaffoldSurface {
 
@@ -101,10 +103,9 @@ public final class ScaffoldSurface {
         }
 
         /**
-         * The line this element takes in {@code scaffolding-surface.txt}: {@link #ref()} plus the arity in
-         * parentheses when it has one. The SDK's gate rebuilds exactly this string from its
-         * {@code @Scaffolding} annotations, so the two sets can be compared without either side knowing the
-         * other's vocabulary — which it could not, since the dependency runs one way.
+         * How this element is written where a human has to read it: {@link #ref()} plus the arity in
+         * parentheses when it has one. It is the spelling a refusal names — {@code ScaffoldCheck} lists the
+         * missing elements this way — so it is deliberately the same one the SDK's pointer annotations use.
          */
         public String line() {
             return arity == NO_ARITY ? ref() : ref() + "(" + arity + ")";
@@ -124,9 +125,6 @@ public final class ScaffoldSurface {
         return new Element(fqn, member, arity, EnumSet.copyOf(List.of(origins)));
     }
 
-    private static final String BOT = "com.botmaker.sdk.api.bot.Bot";
-    private static final String ACTIVITY = "com.botmaker.sdk.api.bot.Activity";
-    private static final String POPUP_GUARD = "com.botmaker.sdk.api.bot.PopupGuard";
     private static final String BOTMAKER = "com.botmaker.sdk.api.util.BotMaker";
     private static final String FLOW_GRAPH = "com.botmaker.sdk.api.flow.FlowGraph";
     private static final String WIRE = "com.botmaker.sdk.api.config.Wire";
@@ -136,9 +134,7 @@ public final class ScaffoldSurface {
     private static final String POINT = "com.botmaker.sdk.api.geometry.Point";
     private static final String SIZE = "com.botmaker.sdk.api.geometry.Size";
     private static final String RECT = "com.botmaker.sdk.api.geometry.Rect";
-    private static final String IMAGE_FINDER = "com.botmaker.sdk.api.vision.ImageFinder";
     private static final String IMAGE_TEMPLATE = "com.botmaker.sdk.api.vision.ImageTemplate";
-    private static final String IMAGE_TEMPLATE_GROUP = "com.botmaker.sdk.api.vision.ImageTemplateGroup";
     private static final String PRECISION = "com.botmaker.sdk.api.vision.Precision";
 
     /**
@@ -146,38 +142,19 @@ public final class ScaffoldSurface {
      * change it is holding one generator, not an alphabet.
      */
     private static final List<Element> DECLARED = List.of(
-            // ── the "Empty" template's whole body ──────────────────────────────────────────────────────
+            // ── the "Empty" template's whole body, and the last generator that is still a text block ───
             member(BOTMAKER, "print", 1, Origin.SEED),
 
-            // ── the game-bot entry point ───────────────────────────────────────────────────────────────
-            member(BOT, "start", 2, Origin.SEED),
-            member(POPUP_GUARD, "install", 1, Origin.SEED),
-
-            // ── FlowDriver: the drawn flow as a table. Seeded empty at creation (start null, no nodes),
-            //    regenerated from the canvas thereafter — which is why `of` and `walk` carry both origins
-            //    and `node`/`route` only the second. The loop, the step budget, the popup flag, the
-            //    Watchdog checkpoint and the delay used to be declared here too; they are the walker's now.
-            type(FLOW_GRAPH, Origin.SEED, Origin.REGENERATED),
-            member(FLOW_GRAPH, "of", 2, Origin.SEED, Origin.REGENERATED),
-            member(FLOW_GRAPH, "walk", 4, Origin.SEED, Origin.REGENERATED),
+            // ── FlowDriver's FLOW token: the drawn flow as a table, one node() per reachable activity and
+            //    one route() per wire. `FlowGraph.of(` and the walk around it are the template's own text,
+            //    so they are not declared here — only what Studio drops between the fences is.
             member(FLOW_GRAPH, "node", 6, Origin.REGENERATED),
             member(FLOW_GRAPH, "route", 2, Origin.REGENERATED),
 
-            // ── Activity: extended by GoHome, Popups and every stub; run by the walker ─────────────────
-            type(ACTIVITY, Origin.SEED, Origin.REGENERATED),
-            member(ACTIVITY, "isEnabled", 0, Origin.SEED),
-            member(ACTIVITY, "run", 0, Origin.SEED),
-            member(ACTIVITY, "execute", 0, Origin.SEED, Origin.REGENERATED),
-
-            // ── Popups: the guard body, shipped with an empty group ────────────────────────────────────
-            member(IMAGE_FINDER, "whileFindAny", 2, Origin.SEED),
-            type(IMAGE_TEMPLATE_GROUP, Origin.SEED),
-            // 1, not 0: `of()` passes nothing to a varargs parameter, and the surface records the declaration.
-            member(IMAGE_TEMPLATE_GROUP, "of", 1, Origin.SEED),
-
-            // ── Activities: one field per stored value, and the Wire reader it is read back with. The
-            //    parsers were generated bodies until 2026-08-24 — which is why the constructors of Point,
-            //    Rect and the rest are gone from here while their types stay: a field still has a type.
+            // ── Activities' FIELDS and INITS tokens: one field per stored value, and the Wire reader it is
+            //    read back with. The parsers were generated bodies until 2026-08-24 — which is why the
+            //    constructors of Point, Rect and the rest are gone from here while their types stay: a
+            //    field declaration still writes a type.
             member(WIRE, "one", 1, Origin.REGENERATED),
             member(WIRE, "many", 2, Origin.REGENERATED),
             member(WIRE, "text", 1, Origin.REGENERATED),
@@ -214,18 +191,5 @@ public final class ScaffoldSurface {
     /** The elements {@code origin}'s generators write. */
     public static List<Element> of(Origin origin) {
         return DECLARED.stream().filter(e -> e.origins().contains(origin)).toList();
-    }
-
-    /**
-     * The whole surface as {@code scaffolding-surface.txt} holds it: one {@link Element#line()} per line,
-     * sorted, newline-terminated. Sorted because it is a file two repositories compare — a diff has to mean a
-     * change to the surface, never a change to the order somebody happened to declare it in.
-     */
-    public static String surfaceFile() {
-        List<Element> sorted = new ArrayList<>(DECLARED);
-        sorted.sort(Comparator.naturalOrder());
-        StringBuilder out = new StringBuilder();
-        for (Element e : sorted) out.append(e.line()).append('\n');
-        return out.toString();
     }
 }

@@ -11,12 +11,12 @@ import java.util.List;
  *
  * <h2>The direction this answers</h2>
  *
- * <p>{@code ScaffoldSurfaceTest} guarantees the <b>backward</b> direction: every element of
- * {@link ScaffoldSurface} exists in the SDK <em>Studio was compiled against</em>, so every SDK up to Studio's
- * own is safe by construction and this check will find nothing to do. The direction it cannot guarantee is
- * <b>forward</b>: a project may pin an SDK newer than this Studio, which did not exist when the test ran. That
- * jar cannot be tested, but it can be <em>asked</em> — it is on disk, it carries {@code @Replaces} on every
- * survivor, and that is exactly the question here.
+ * <p>{@code ScaffoldCompileTest} guarantees the <b>backward</b> direction, and does it the strongest way
+ * available: it compiles whole generated projects, for several activity models, against the SDK Studio was
+ * built with. So every SDK up to Studio's own is safe by construction and this check will find nothing to do.
+ * The direction no test can guarantee is <b>forward</b>: a project may pin an SDK newer than this Studio,
+ * which did not exist when that compile ran. That jar cannot be tested, but it can be <em>asked</em> — it is
+ * on disk, it carries {@code @Replaces} on every survivor, and that is exactly the question here.
  *
  * <p>So the three outcomes are the three honest answers: {@link Status#SATISFIED} — write as always;
  * {@link Status#REPAIRABLE} — write, then apply these substitutions; {@link Status#UNSATISFIABLE} — write

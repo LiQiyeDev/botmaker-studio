@@ -6,6 +6,42 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-24 — the scaffold's checks collapse into one compile
+  (`project/scaffold/ScaffoldScan` (deleted), `ScaffoldSurface`, `ScaffoldCheck`, `ScaffoldEmitter`,
+  `test/…/ScaffoldCorpus` (new), `ScaffoldCompileTest` (new), `ScaffoldSurfaceTest` (rewritten)).**
+  Phase 5 of seven. The question the whole apparatus was built to answer — *does the code Studio writes work
+  against the SDK?* — was answered indirectly, because the code was assembled from text blocks and a text
+  block cannot be asked what it names. It took a 484-line JDT visitor (`ScaffoldScan`) to recover the SDK
+  members from the generators' output, a hand-written declaration to compare against, a committed
+  `botmaker-sdk/scaffolding-surface.txt` carried between two repositories that cannot read each other, and a
+  rule in the SDK's `ApiPointersTest` to read it back.
+
+  The output is assembled from the SDK's own templates now, so it is handed to `javac` instead.
+  `ScaffoldCompileTest` writes four whole projects — an empty project, a game bot with no activities, one
+  activity holding a variable of **every** storable type, and a branching flow with a join, a loop, an
+  unwired outcome and an unreachable activity — and compiles each against the real SDK jar. That is strictly
+  stronger than what it replaced: the old scan was blind to a wrong argument *type*, a generic that does not
+  unify, a missing import, or an outcome constant routed from the wrong activity's enum.
+
+  `ScaffoldSurface` is now what Studio **injects**, not what a generated file names: `FlowGraph.node`/`route`,
+  the nineteen `Wire` readers, the eight types a field declaration writes, and `BotMaker.print` for the one
+  generator still written as Java here. Everything that was frame went with the templates — a frame element
+  cannot go missing relative to its own jar. It is still the list `ScaffoldCheck` asks a *newer* jar about,
+  which is the one question a compiler here cannot answer.
+
+  One direction was deliberately dropped and is worth recording: an **undeclared** injected element is no
+  longer detected, because a parse can no longer tell Studio's fragments from the SDK's frame around them.
+  The narrow loss is that such an element going missing in a newer SDK reaches the user as a project that
+  does not compile rather than a clean refusal. What buys it back: the declared set went from everything a
+  generated file names to a handful sitting next to the four methods that emit them, and every entry is now
+  checked to still be emitted (`ScaffoldSurfaceTest`), so a stale line cannot accumulate.
+
+  Also: `scaffolding-surface.txt` deleted; `FlowDriverGenerationTest` lost its single-model compile to
+  `ScaffoldCompileTest` and keeps the table assertions; `ScaffoldCheckTest`'s stand-in moved from
+  `PopupGuard#install` to `FlowGraph#node`/`Wire#duration`, and its repair-refusal case now builds the
+  substitution by hand — **no declared element can reach that path any more**, which is the payoff of
+  designing every injected fragment to be a static call or a type name.
+
 - **2026-08-24 — the generators stop writing Java: the scaffold comes out of the SDK jar
   (`project/scaffold/TemplateStore` (new), `project/ProjectCreator`, `services/ActivityService`,
   `project/activity/VariableWire`, `project/scaffold/ScaffoldSurface`, `ui/app/ProjectRecoveryAction`).**

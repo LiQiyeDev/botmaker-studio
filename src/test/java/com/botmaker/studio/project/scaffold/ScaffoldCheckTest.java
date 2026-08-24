@@ -1,10 +1,12 @@
 package com.botmaker.studio.project.scaffold;
 
+import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectCreator;
 import com.botmaker.studio.project.ProjectTemplate;
 import com.botmaker.studio.project.scaffold.ScaffoldSurface.Element;
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -34,15 +36,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class ScaffoldCheckTest {
 
-    private static final String POPUP_GUARD = "com.botmaker.sdk.api.bot.PopupGuard";
-    private static final String ACTIVITY = "com.botmaker.sdk.api.bot.Activity";
     /**
-     * The stand-in for "a member the generators call". It has to be one the surface actually declares — the
-     * stub is a copy of {@link ScaffoldSurface}, so removing something absent from it changes nothing and
-     * every assertion below would read SATISFIED. It was {@code Wait#milliseconds} until the walk moved into
-     * the SDK and Studio stopped writing it.
+     * The two stand-ins for "a member Studio injects". They have to be members the surface actually declares
+     * — the stub is a copy of {@link ScaffoldSurface}, so removing something absent from it changes nothing
+     * and every assertion below would read SATISFIED. The stand-in has moved twice as the scaffold shrank:
+     * {@code Wait#milliseconds} until the walk became the SDK's, then {@code PopupGuard#install} until the
+     * entry point became a template.
      */
     private static final String WIRE = "com.botmaker.sdk.api.config.Wire";
+
+    private static final String FLOW_GRAPH = "com.botmaker.sdk.api.flow.FlowGraph";
 
     // ------------------------------------------------------------------
     // the check
@@ -66,10 +69,10 @@ class ScaffoldCheckTest {
 
     @Test
     void aRemovedMemberWithNoPointerIsUnsatisfiableAndNamed() {
-        ScaffoldCheck.Result result = ScaffoldCheck.of(new Stub().remove(POPUP_GUARD + "#install"));
+        ScaffoldCheck.Result result = ScaffoldCheck.of(new Stub().remove(FLOW_GRAPH + "#node"));
         assertEquals(ScaffoldCheck.Status.UNSATISFIABLE, result.status());
-        assertEquals(List.of(POPUP_GUARD + "#install(1)"), result.missing());
-        assertTrue(result.refusal().contains("PopupGuard#install"),
+        assertEquals(List.of(FLOW_GRAPH + "#node(6)"), result.missing());
+        assertTrue(result.refusal().contains("FlowGraph#node"),
                 "the refusal must name the element: " + result.refusal());
     }
 
@@ -112,19 +115,19 @@ class ScaffoldCheckTest {
     void aPointerToSomethingTheJarDoesNotHaveIsNotAnAnswer() {
         // A dangling claim is worse than none, so it must not be mistaken for a repair.
         ScaffoldCheck.Result result = ScaffoldCheck.of(new Stub()
-                .remove(POPUP_GUARD + "#install")
-                .claims(POPUP_GUARD + "#install", POPUP_GUARD + "#arm"));
+                .remove(FLOW_GRAPH + "#node")
+                .claims(FLOW_GRAPH + "#node", FLOW_GRAPH + "#step"));
         assertEquals(ScaffoldCheck.Status.UNSATISFIABLE, result.status());
     }
 
     @Test
     void anOverloadOfTheWrongArityIsNotTheMemberTheScaffoldCalls() {
-        // install(1) survives only as install(2): the generators write a fixed argument list, so this is a
-        // removal as far as the scaffold is concerned, and reporting it as present would emit code that does
-        // not compile.
+        // node(6) survives only as node(7): the generators write a fixed argument list, so this is a removal
+        // as far as the scaffold is concerned, and reporting it as present would emit code that does not
+        // compile.
         ScaffoldCheck.Result result = ScaffoldCheck.of(new Stub()
-                .remove(POPUP_GUARD + "#install")
-                .add(POPUP_GUARD, "install", 2));
+                .remove(FLOW_GRAPH + "#node")
+                .add(FLOW_GRAPH, "node", 7));
         assertEquals(ScaffoldCheck.Status.UNSATISFIABLE, result.status());
     }
 
@@ -147,60 +150,67 @@ class ScaffoldCheckTest {
     // ------------------------------------------------------------------
 
     @Test
-    void aStaticCallIsRetargetedInTheEmittedText() {
-        Map<String, String> rendered = ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "Actbot", "actbot");
+    void aStaticCallIsRetargetedInTheEmittedText() throws Exception {
+        Map<String, String> rendered = renderedProject();
         ScaffoldCheck.Result check = ScaffoldCheck.of(new Stub()
-                .remove(POPUP_GUARD + "#install")
-                .add(POPUP_GUARD, "arm", 1)
-                .claims(POPUP_GUARD + "#install", POPUP_GUARD + "#arm"));
+                .remove(WIRE + "#duration")
+                .add(WIRE, "howLong", 1)
+                .claims(WIRE + "#duration", WIRE + "#howLong"));
 
         ScaffoldRepair.Outcome repaired = ScaffoldRepair.apply(rendered, check.substitutions());
         assertTrue(repaired.canEmit(), "unexpressed: " + repaired.unexpressed());
-        String entryPoint = repaired.sources().get("Actbot.java");
-        assertTrue(entryPoint.contains("PopupGuard.arm("), entryPoint);
-        assertFalse(entryPoint.contains("PopupGuard.install("), entryPoint);
+        String activities = repaired.sources().get("Activities.java");
+        assertTrue(activities.contains("Wire.howLong("), activities);
+        assertFalse(activities.contains("Wire.duration("), activities);
         assertEquals(rendered.keySet(), repaired.sources().keySet(), "every file comes back, rewritten or not");
     }
 
     @Test
-    void aTypeThatMovedIsRenamedImportsIncluded() {
-        String moved = "com.botmaker.sdk.api.bot.Guard";
-        Map<String, String> rendered = ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "Actbot", "actbot");
-        ScaffoldCheck.Result check = ScaffoldCheck.of(new Stub()
-                .removeType(POPUP_GUARD)
-                .add(moved, "install", 1)
-                .add(moved, "enabled", 1)
-                .claims(POPUP_GUARD, moved));
+    void aTypeThatMovedIsRenamedImportsIncluded() throws Exception {
+        String moved = "com.botmaker.sdk.api.settings.Reader";
+        Map<String, String> rendered = renderedProject();
+        Stub sdk = new Stub().removeType(WIRE).claims(WIRE, moved);
+        for (Element e : ScaffoldSurface.all()) {
+            if (e.type().equals(WIRE) && !e.isType()) sdk.add(moved, e.member(), e.arity());
+        }
+        ScaffoldCheck.Result check = ScaffoldCheck.of(sdk);
 
         ScaffoldRepair.Outcome repaired = ScaffoldRepair.apply(rendered, check.substitutions());
         assertTrue(repaired.canEmit(), "unexpressed: " + repaired.unexpressed());
-        String entryPoint = repaired.sources().get("Actbot.java");
-        assertTrue(entryPoint.contains("import " + moved + ";"), entryPoint);
-        assertFalse(entryPoint.contains("import " + POPUP_GUARD + ";"), entryPoint);
-        assertTrue(entryPoint.contains("Guard.install("), entryPoint);
+        String activities = repaired.sources().get("Activities.java");
+        assertTrue(activities.contains("import " + moved + ";"), activities);
+        assertFalse(activities.contains("import " + WIRE + ";"), activities);
+        assertTrue(activities.contains("Reader.duration("), activities);
     }
 
     @Test
-    void nothingToDoLeavesEveryFileByteIdentical() {
-        Map<String, String> rendered = ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "Actbot", "actbot");
+    void nothingToDoLeavesEveryFileByteIdentical() throws Exception {
+        Map<String, String> rendered = renderedProject();
         ScaffoldRepair.Outcome repaired = ScaffoldRepair.apply(rendered, List.of());
         assertTrue(repaired.canEmit());
         rendered.forEach((name, source) -> assertSame(source, repaired.sources().get(name),
                 name + " was rewritten although there was nothing to rewrite"));
     }
 
+    /**
+     * The repair's refusal path, which no <em>declared</em> element can reach any more.
+     *
+     * <p>That is the point of the shrunken surface and worth stating: {@link ScaffoldRepair} can rewrite a
+     * static call and a type name, and nothing else, so everything Studio now injects was chosen to be one of
+     * those two. An overridden method — {@code GoHome extends Activity} overriding {@code run()} — is the
+     * shape it cannot express, and it used to be in the surface. The substitution is therefore built by hand
+     * here: the rewriter must still refuse it rather than emit a class that no longer overrides anything, and
+     * the day something like it is declared again this says so instead of shipping a broken file.
+     */
     @Test
-    void anOverriddenMemberIsRefusedRatherThanHalfRewritten() {
-        // `GoHome extends Activity` and overrides `run()`. Renaming a call cannot rename a declaration, so the
-        // repair must come back empty-handed rather than emit a class that no longer overrides anything.
-        Map<String, String> rendered = ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "Actbot", "actbot");
-        ScaffoldCheck.Result check = ScaffoldCheck.of(new Stub()
-                .remove(ACTIVITY + "#run")
-                .add(ACTIVITY, "perform", 0)
-                .claims(ACTIVITY + "#run", ACTIVITY + "#perform"));
+    void anOverriddenMemberIsRefusedRatherThanHalfRewritten() throws Exception {
+        String activity = "com.botmaker.sdk.api.bot.Activity";
+        Element run = new Element(activity, "run", 0, Set.of(ScaffoldSurface.Origin.SEED));
+        Map<String, String> rendered = renderedProject();
 
-        assertEquals(ScaffoldCheck.Status.REPAIRABLE, check.status(), "the pointer does name a survivor");
-        ScaffoldRepair.Outcome repaired = ScaffoldRepair.apply(rendered, check.substitutions());
+        ScaffoldRepair.Outcome repaired = ScaffoldRepair.apply(rendered,
+                List.of(new ScaffoldCheck.Substitution(run, activity, "perform")));
+
         assertFalse(repaired.canEmit(), "the rewriter cannot express this and must say so");
         assertTrue(repaired.sources().isEmpty(), "nothing is emitted when one file cannot be repaired");
         assertTrue(repaired.unexpressed().getFirst().contains("run"), repaired.unexpressed().toString());
@@ -214,18 +224,19 @@ class ScaffoldCheckTest {
     void creationRefusesBeforeItWritesAnything() {
         Map<String, String> rendered = ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "Actbot", "actbot");
         ScaffoldUnsupported refusal = assertThrows(ScaffoldUnsupported.class,
-                () -> ProjectCreator.scaffold("9.9.9", rendered, new Stub().remove(POPUP_GUARD + "#install")));
-        assertTrue(refusal.getMessage().contains("PopupGuard#install"), refusal.getMessage());
+                () -> ProjectCreator.scaffold("9.9.9", rendered, new Stub().remove(FLOW_GRAPH + "#node")));
+        assertTrue(refusal.getMessage().contains("FlowGraph#node"), refusal.getMessage());
     }
 
     @Test
     void creationEmitsTheRepairedSourcesWhenThePointersCover() throws Exception {
-        Map<String, String> rendered = ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "Actbot", "actbot");
+        Map<String, String> rendered = renderedProject();
         Map<String, String> emitted = ProjectCreator.scaffold("9.9.9", rendered, new Stub()
-                .remove(POPUP_GUARD + "#install")
-                .add(POPUP_GUARD, "arm", 1)
-                .claims(POPUP_GUARD + "#install", POPUP_GUARD + "#arm"));
-        assertTrue(emitted.get("Actbot.java").contains("PopupGuard.arm("));
+                .remove(FLOW_GRAPH + "#node")
+                .add(FLOW_GRAPH, "at", 6)
+                .claims(FLOW_GRAPH + "#node", FLOW_GRAPH + "#at"));
+        assertTrue(emitted.get("FlowDriver.java").contains("FlowGraph.at("),
+                emitted.get("FlowDriver.java"));
     }
 
     @Test
@@ -247,6 +258,21 @@ class ScaffoldCheckTest {
     // ------------------------------------------------------------------
     // helpers
     // ------------------------------------------------------------------
+
+    /**
+     * A whole project as Studio would write it, keyed by file name — the text the repair rewrites.
+     *
+     * <p>{@link ScaffoldCorpus#RICHEST} rather than a bare {@code sourcesFor}, because the elements the
+     * surface still declares are the <em>injected</em> ones: they appear in {@code Activities} and
+     * {@code FlowDriver}, which a project with no activities and no variables does not have anything in.
+     */
+    private static Map<String, String> renderedProject() throws ScaffoldUnsupported {
+        ProjectConfig config = ProjectConfig.forProject("actbot", Path.of("target", "scaffold-check"));
+        Map<String, String> sources = new LinkedHashMap<>();
+        ScaffoldCorpus.render(ScaffoldCorpus.named(ScaffoldCorpus.RICHEST), config)
+                .forEach((file, source) -> sources.put(file.getFileName().toString(), source));
+        return sources;
+    }
 
     private static ScaffoldCheck.Substitution substitutionFor(ScaffoldCheck.Result result, String line) {
         ScaffoldCheck.Substitution found = result.substitutions().stream()
