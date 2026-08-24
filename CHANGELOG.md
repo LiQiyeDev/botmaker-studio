@@ -12,6 +12,22 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+- **The files BotMaker generates for you come from the SDK your project pins, not from Studio.** Studio fills
+  in what is true about your project — your activities, your flow, your stored parameters — and the SDK owns
+  everything else. Two things follow for you: a generated file is written in the idiom of *your* SDK rather
+  than of the Studio that happened to create the project, and a Studio older than your SDK still produces
+  files that compile, because anything it does not recognise stays at the SDK's own default.
+- **`FlowDriver` and `Activities` hold your project's data and nothing else.** The walk loop, the step budget
+  and ~150 lines of parameter-parsing code are the SDK's now. Your two knobs, `MAX_STEPS` and
+  `STEP_DELAY_MS`, are still in `FlowDriver` where you left them.
+- **A duration reads the same in the editor and in the bot.** `1h30m` was parsed by two separate
+  implementations — one in Studio, one written into the generated code — that nothing could compare. There is
+  one now, and it is the SDK's.
+- **Studio requires SDK 1.1.0 or newer to write a generated file.** An older bot still opens, and every file
+  in it stays editable, buildable and runnable — but saving the Activity Flow, and *Recover Project Files*,
+  ask you to run *Project ▸ Upgrade SDK…* first, by name and with nothing changed on disk. The upgrade
+  re-renders `FlowDriver` and `Activities` in the new shape and does not touch your stubs, `GoHome` or
+  `Popups`. New projects pin 1.1.0.
 - ***Project ▸ Upgrade SDK…* opens with what the release gives you, not with what it costs.** The SDK ships
   its own `CHANGELOG.md` inside its jar, so the dialog shows every release you are moving through — newest
   first, in the author's words — above the cost sections. The exhaustive API diff is still there, below it.

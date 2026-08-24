@@ -6,6 +6,27 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-24 — the docs catch up with the scaffold's new owner (`CHANGELOG.md`, `ROADMAP.md`,
+  `../docs/refactor/21-api-compat.md`, `../docs/refactor/99-progress.md`, `../CLAUDE.md`).** Phase 7 of
+  seven, the plan closes. `21-api-compat.md` §5.3 is rewritten from *"the scaffold is declared, checked and
+  repaired"* to *"the scaffold is the SDK's, and Studio fills it in"*: the three-layer table (frame / token
+  set / injected fragments, each with its own guard), the token protocol's one rule, the static-call-shape
+  constraint `ScaffoldRepair` imposes on the injection API, the three checks that replaced five mechanisms,
+  and the floor.
+
+  The part worth the most is the §6 paragraph that used to close the section. It **rejected** exactly this
+  design — *a reference bot compiled by the SDK's own build* — on two grounds that are both true: it inverts
+  the dependency, and it makes a comment fix an SDK release. It is not deleted; it now records why the trade
+  was taken the other way on 2026-08-24, so the reversal is not re-litigated from scratch. The deciding
+  argument is the **seeds**: a seed file is correct once, against the jar pinned at creation, and nothing
+  migrates it afterwards — so an old Studio creating a project against a newer SDK had no defence and could
+  not be given one, while text read from that project's own jar needs none.
+
+  Studio's `CHANGELOG.md` gains the four user-facing bullets for this plan (generated files come from your
+  SDK; `FlowDriver`/`Activities` hold data only; one duration grammar; SDK 1.1.0 required to *write* a
+  generated file, everything else unchanged) and stays `## [Unreleased]` — the next Studio version number is
+  the maintainer's to choose, and `check_changelog` only asks at release time.
+
 - **2026-08-24 — the SDK floor moves to 1.1.0, and starts refusing rather than only warning
   (`services/MavenService`, `project/scaffold/TemplateStore#requireFloor` (new), `services/ActivityService`,
   `project/ProjectCreator`, `ui/app/ProjectRecoveryAction`, `ui/app/EditorCanvas`,
