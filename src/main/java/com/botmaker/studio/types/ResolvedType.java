@@ -166,11 +166,20 @@ public sealed interface ResolvedType
         return count;
     }
 
+    /**
+     * The last segment of a name.
+     *
+     * <p>{@code $} counts as a separator, not as part of the name. A nested type reaches us spelled both ways
+     * — {@code FlowGraph.Node} from a generic type signature, {@code FlowGraph$Node} from a plain bytecode
+     * descriptor — and the same type has to answer the same simple name whichever door it came through.
+     * Signature keys are built out of these, and two spellings of one parameter type is an overload that
+     * silently matches nothing.
+     */
     static String simpleOf(String qualifiedName) {
         String dims = "[]".repeat(dimensionsOf(qualifiedName));
         String leaf = stripArray(qualifiedName);
-        int dot = leaf.lastIndexOf('.');
-        return (dot >= 0 ? leaf.substring(dot + 1) : leaf) + dims;
+        int separator = Math.max(leaf.lastIndexOf('.'), leaf.lastIndexOf('$'));
+        return (separator >= 0 ? leaf.substring(separator + 1) : leaf) + dims;
     }
 
     /** Type identity is by qualified name (array suffix included). */

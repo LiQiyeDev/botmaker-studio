@@ -1,5 +1,6 @@
 package com.botmaker.studio.ui.app.params;
 
+import com.botmaker.sdk.api.config.Wire;
 import com.botmaker.studio.palette.BotType;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.activity.Bounds;
@@ -124,7 +125,7 @@ public final class ValueEditors {
             case DURATION -> {
                 // The shared four-field control (ui.render.components.DurationFields) — the same one the
                 // block editor's wait picker opens, so a duration means the same thing on both sides.
-                DurationFields fields = new DurationFields(DurationWire.parse(value, 0L));
+                DurationFields fields = new DurationFields(Wire.duration(value).toMillis());
                 yield new Editor(fields, () -> DurationWire.format(fields.totalMillis()));
             }
             case TIME_OF_DAY -> {
@@ -213,7 +214,7 @@ public final class ValueEditors {
                 yield swatch;
             }
             case DURATION -> {
-                Label spelled = new Label(DurationWire.format(DurationWire.parse(value, 0L)));
+                Label spelled = new Label(DurationWire.format(Wire.duration(value).toMillis()));
                 spelled.getStyleClass().add("dialog-hint-text");
                 yield spelled;
             }

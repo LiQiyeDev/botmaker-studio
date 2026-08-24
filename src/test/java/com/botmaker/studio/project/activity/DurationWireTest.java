@@ -1,5 +1,6 @@
 package com.botmaker.studio.project.activity;
 
+import com.botmaker.sdk.api.config.Wire;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -9,43 +10,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 /**
  * A duration is stored as text, so the two properties that matter are: a person can type it loosely, and what
  * comes back is always spelled one way.
+ *
+ * <p>Only the second half is tested here now. Reading is {@link Wire#duration}'s, in the SDK, because the
+ * generated bot has to read the same text and cannot call into Studio — the grammar's own tests moved there
+ * with it. What is left below is the pair working together, which is the property a user actually sees: type
+ * it any way you like, the file says {@code 1m30s}.
  */
 class DurationWireTest {
-
-    @Test
-    void theUnitsMeanWhatTheySay() {
-        assertEquals(250, DurationWire.parse("250ms", -1));
-        assertEquals(90_000, DurationWire.parse("90s", -1));
-        assertEquals(300_000, DurationWire.parse("5m", -1));
-        assertEquals(3_600_000, DurationWire.parse("1h", -1));
-        assertEquals(5_400_000, DurationWire.parse("1h30m", -1));
-    }
-
-    /** "ms" starts with "m"; reading it as minutes would be a 60,000× error, so it gets its own test. */
-    @Test
-    void msIsNotMinutes() {
-        assertEquals(500, DurationWire.parse("500ms", -1));
-        assertEquals(30_500, DurationWire.parse("500ms30s", -1));
-        assertEquals(30_000_000, DurationWire.parse("500m", -1));   // the same digits, 60,000× apart
-    }
-
-    @Test
-    void spacingAndCaseDoNotMatter() {
-        assertEquals(5_400_000, DurationWire.parse("1H 30M", -1));
-        assertEquals(5_400_000, DurationWire.parse("  1h30m  ", -1));
-    }
-
-    /** A bare number is milliseconds, so a value written before units existed still reads. */
-    @Test
-    void aBareNumberIsMilliseconds() {
-        assertEquals(500, DurationWire.parse("500", -1));
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"", "   ", "abc", "s", "10x", "-5s", "99999999999999s"})
-    void anythingUnusableFallsBack(String text) {
-        assertEquals(-1, DurationWire.parse(text, -1));
-    }
 
     @Test
     void formatEmitsOneCanonicalSpelling() {
@@ -61,6 +32,13 @@ class DurationWireTest {
     @ParameterizedTest
     @ValueSource(strings = {"90s", "1m30s", "  90 S ", "90000ms", "90000"})
     void everySpellingOfNinetySecondsFormatsTheSame(String text) {
-        assertEquals("1m30s", DurationWire.format(DurationWire.parse(text, -1)));
+        assertEquals("1m30s", DurationWire.format(Wire.duration(text).toMillis()));
+    }
+
+    /** Nothing usable spells as {@code 0s} rather than as an exception or an empty field. */
+    @ParameterizedTest
+    @ValueSource(strings = {"", "   ", "abc", "s", "10x", "-5s"})
+    void anythingUnusableSpellsAsZero(String text) {
+        assertEquals("0s", DurationWire.format(Wire.duration(text).toMillis()));
     }
 }

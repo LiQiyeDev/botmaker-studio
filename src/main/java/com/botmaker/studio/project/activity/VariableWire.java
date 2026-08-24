@@ -1,5 +1,6 @@
 package com.botmaker.studio.project.activity;
 
+import com.botmaker.sdk.api.config.Wire;
 import com.botmaker.studio.palette.BotType;
 import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.project.TemplateConstants;
@@ -219,7 +220,7 @@ public final class VariableWire {
             case COLOR -> hex(wire);
             case DATE -> parseDate(wire).toString();
             case TIME_OF_DAY -> parseTime(wire).toString();
-            case DURATION -> DurationWire.format(DurationWire.parse(wire, 0L));
+            case DURATION -> DurationWire.format(Wire.duration(wire).toMillis());
             case POINT, SIZE -> numbers(wire, 2);
             case RECT -> numbers(wire, 4);
             case PRECISION -> precision(wire);
@@ -276,7 +277,7 @@ public final class VariableWire {
                     "java.time.LocalTime");
             // Milliseconds, not the "1h30m" text: the wire grammar is Studio's, and nothing in the bot's own
             // source should have to know it.
-            case DURATION -> new Literal("Duration.ofMillis(" + DurationWire.parse(text, 0) + "L)",
+            case DURATION -> new Literal("Duration.ofMillis(" + Wire.duration(text).toMillis() + "L)",
                     "java.time.Duration");
             case IMAGE_TEMPLATE -> new Literal("new %s(%s)".formatted(SdkType.IMAGE_TEMPLATE.simpleName(),
                     quote(TemplateConstants.IMAGES_PREFIX + text + ".png")),
@@ -496,9 +497,9 @@ public final class VariableWire {
             """;
 
     /**
-     * A port of {@link DurationWire#parse}, because the editor and the bot must read {@code 1h30m} the same
-     * way and the bot cannot call into Studio. Kept line-for-line recognisable against the original so the
-     * two can be diffed by eye; {@code DurationWireTest} pins the behaviour both are held to.
+     * The last hand-kept copy of the {@code 1h30m} grammar. {@link com.botmaker.sdk.api.config.Wire#duration}
+     * is the implementation now — the editor already calls it — and this text block goes when the generated
+     * {@code Activities} starts calling the SDK too.
      */
     private static final String DURATION_HELPER = """
                 private static java.time.Duration duration(String s) {
