@@ -161,10 +161,12 @@ class ProjectCreatorTest {
 
         String driver = sources.get("FlowDriver.java");
         // A brand-new project has no flow yet, so there is no start node to go to. It must still be valid Java
-        // that ends cleanly — this is what GameLoop compiles against before the first activity is added.
-        assertTrue(driver.contains("String node = null;"), driver);
-        assertTrue(driver.contains("Bot.stop();"), driver);
-        assertTrue(driver.contains("import com.botmaker.sdk.api.bot.Bot;"), driver);
+        // that ends cleanly — this is what the entry point compiles against before the first activity is added.
+        assertTrue(driver.contains("FlowGraph.of(\n            null)"),
+                "a start of null is a flow that ends at once:\n" + driver);
+        assertTrue(driver.contains("FlowGraph.walk(FLOW, MAX_STEPS, STEP_DELAY_MS, GoHome.INSTANCE::execute);"),
+                driver);
+        assertTrue(driver.contains("import com.botmaker.sdk.api.flow.FlowGraph;"), driver);
     }
 
     @Test

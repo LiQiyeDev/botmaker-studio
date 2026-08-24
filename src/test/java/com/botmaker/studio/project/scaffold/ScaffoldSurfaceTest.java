@@ -75,7 +75,7 @@ class ScaffoldSurfaceTest {
     // ------------------------------------------------------------------
 
     @Test
-    void theDeclarationIsWhatTheGeneratorsEmit() {
+    void theDeclarationIsWhatTheGeneratorsEmit() throws ScaffoldUnsupported {
         List<Element> emitted = ScaffoldScan.collect(corpus());
         List<Element> declared = ScaffoldSurface.all().stream().sorted().toList();
 
@@ -183,7 +183,7 @@ class ScaffoldSurfaceTest {
      * popups — which is what makes the driver emit {@code GoHome.INSTANCE.execute()},
      * {@code PopupGuard.enabled(…)} and a switch over {@code ActivityRegistry.MINING.execute()}.
      */
-    private static List<ScaffoldScan.Source> corpus() {
+    private static List<ScaffoldScan.Source> corpus() throws ScaffoldUnsupported {
         List<ScaffoldScan.Source> sources = new ArrayList<>();
 
         for (Map.Entry<String, String> file
@@ -201,6 +201,10 @@ class ScaffoldSurfaceTest {
         for (BotType type : BotType.storableTypes()) {
             variables.add(ActivityVariable.create("each" + type.name(), BotType.Choice.of(type)));
         }
+        // One list as well as one of each single value: the two go through different Wire members
+        // (Wire.many plus a method reference, rather than Wire.one), and a corpus with no list at all would
+        // leave the many(…) half of the load expression undeclared and unchecked.
+        variables.add(ActivityVariable.create("someKeys", BotType.Choice.listOf(BotType.KEY)));
         ActivitiesConfig cfg = ActivitiesConfig.of(List.of(mining), variables)
                 .withFlow(new ActivityFlow(List.of(new FlowNode("Mining", 0, 0)),
                         List.of(new FlowEdge("Mining", "Mining", FlowEdge.NEXT_OUTCOME))));

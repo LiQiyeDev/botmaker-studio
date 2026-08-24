@@ -1,5 +1,6 @@
 package com.botmaker.studio.services;
 
+import com.botmaker.sdk.api.bot.Activity;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityDefinition;
@@ -28,53 +29,24 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * The generated {@code FlowDriver} — the thing that makes a drawn branch mean something at runtime.
  *
- * <p>The important test here is {@link #aBranchingFlowGeneratesAProjectThatCompiles}: string assertions on
- * generated source prove it says what we meant, but only a compiler proves it is <em>valid Java</em>, which is
- * the failure mode that actually reaches a user. Studio deliberately does not depend on the SDK
- * (see {@code CLAUDE.md}), so the test emits its own minimal stand-ins for the four SDK types the generated
- * code touches. Those stand-ins mirror real signatures — if {@code Activity} changes shape, update
- * {@link #SDK_STAND_INS} to match or this test quietly stops proving anything.
+ * <h2>What is being asserted, now that the walk is the SDK's</h2>
+ *
+ * <p>Studio no longer generates the state machine: it generates the <b>table</b> the SDK's
+ * {@link com.botmaker.sdk.api.flow.FlowGraph} walks. So the behaviour of a branch, a join, a loop, an unwired
+ * outcome and a disabled fall-through is tested over there, against a compiled walker, once. What is left
+ * here is the half that is genuinely Studio's: <em>does the drawn flow become the right table</em> — the
+ * right start node, the right {@code PopupCheck}, the right {@code Recovery}, a route per wire and no row at
+ * all for an activity nothing can reach.
+ *
+ * <p>{@link #aBranchingFlowGeneratesAProjectThatCompiles} is still the important one, for the same reason as
+ * before: string assertions prove the source says what we meant, and only a compiler proves it is valid Java
+ * — the failure mode that actually reaches a user. It compiles against the <b>real SDK jar</b> now. It used
+ * to supply six hand-written stand-ins, on the grounds that Studio did not depend on the SDK; it has since
+ * 2026-08 (for type identity), and the jar is on this module's test classpath — so the stand-ins were a
+ * second, hand-maintained copy of signatures the real thing already has, with a comment asking the next
+ * reader to keep them in step.
  */
 class FlowDriverGenerationTest {
-
-    /**
-     * Minimal stand-ins for the SDK types generated code binds to. Only the members the generator emits are
-     * present; anything else would be scope this test has no business asserting.
-     */
-    private static final List<String> SDK_STAND_INS = List.of("""
-            package com.botmaker.sdk.api;
-            public final class Debug {
-                public static void error(String message) {}
-            }
-            """, """
-            package com.botmaker.sdk.api.bot;
-            public abstract class Activity<O extends Enum<O>> {
-                public abstract boolean isEnabled();
-                public abstract O run();
-                public final boolean active() { return isEnabled(); }
-                public final O execute() { return run(); }
-            }
-            """, """
-            package com.botmaker.sdk.api.bot;
-            public final class Bot {
-                public static void stop() {}
-            }
-            """, """
-            package com.botmaker.sdk.api.bot;
-            public final class PopupGuard {
-                public static void enabled(boolean on) {}
-            }
-            """, """
-            package com.botmaker.sdk.api.bot;
-            public final class Watchdog {
-                public static void checkpoint() {}
-            }
-            """, """
-            package com.botmaker.sdk.api.interaction;
-            public final class Wait {
-                public static void milliseconds(int milliseconds) {}
-            }
-            """);
 
     private static FlowNode at(String activity) {
         return new FlowNode(activity, 0, 0);
@@ -86,7 +58,7 @@ class FlowDriverGenerationTest {
 
     /**
      * Mining branches on two outcomes; Travel loops back to Mining; Smelt wires nothing, so reaching it ends
-     * the run. Idle is placed but unreachable. That is every shape the driver has to emit, in one flow.
+     * the run. Idle is placed but unreachable. That is every shape the table has to express, in one flow.
      */
     private static ActivitiesConfig branchingFlow() {
         return ActivitiesConfig.of(
@@ -108,36 +80,41 @@ class FlowDriverGenerationTest {
     }
 
     @Test
-    void theDriverStartsAtTheFlowsStartAndCarriesItsStepBudget(@TempDir Path root) {
+    void theDriverStartsAtTheFlowsStartAndCarriesItsStepBudget(@TempDir Path root) throws Exception {
         String source = serviceFor(root).generateDriverSource(branchingFlow());
 
-        assertTrue(source.contains("String node = \"Mining\";"), source);
+        assertTrue(source.contains("FlowGraph.of(\n            \"Mining\","),
+                "the start node is the graph's first argument:\n" + source);
         assertTrue(source.contains("MAX_STEPS = 250;"), "the flow's own budget, not the default:\n" + source);
     }
 
     @Test
-    void eachOutcomeRoutesToItsOwnTarget(@TempDir Path root) {
+    void eachOutcomeRoutesToItsOwnTarget(@TempDir Path root) throws Exception {
         String source = serviceFor(root).generateDriverSource(branchingFlow());
 
-        assertTrue(source.contains("case BAG_FULL: return \"Smelt\";"), source);
-        assertTrue(source.contains("case NO_ORE: return \"Travel\";"), source);
-        assertTrue(source.contains("case NEXT: return \"Mining\";"),
+        // Spelled through the activity's own Outcome enum, which is what makes the route checked: node() is
+        // generic in it, so a constant of another activity's enum would not compile.
+        assertTrue(source.contains("FlowGraph.route(Mining.Outcome.BAG_FULL, \"Smelt\")"), source);
+        assertTrue(source.contains("FlowGraph.route(Mining.Outcome.NO_ORE, \"Travel\")"), source);
+        assertTrue(source.contains("FlowGraph.route(Travel.Outcome.NEXT, \"Mining\")"),
                 "Travel's implicit wire loops back — a cycle is a legal flow:\n" + source);
     }
 
     @Test
-    void anOutcomeWithNoWireEndsTheRun(@TempDir Path root) {
+    void anOutcomeWithNoWireEndsTheRun(@TempDir Path root) throws Exception {
         String source = serviceFor(root).generateDriverSource(branchingFlow());
 
-        // Smelt wires nothing. That is the only way a run ends now — there is no terminal node, so nothing
-        // like "@stop" should ever appear as a node id in generated source.
+        // Smelt wires nothing, so its row carries no route at all — an outcome with nowhere to go *is* the
+        // stop. There is no terminal node, so nothing like "@stop" should ever appear in generated source.
         assertFalse(source.contains("@stop"), "there is no terminal node to visit");
-        assertTrue(source.contains("if (!ActivityRegistry.SMELT.active()) return null;"), source);
-        assertTrue(source.contains("default: return null;   // nothing wired — the run ends here"), source);
+        assertTrue(source.contains(
+                        "FlowGraph.node(\"Smelt\", ActivityRegistry.SMELT, PopupCheck.ON, Recovery.GO_HOME, null)"),
+                source);
+        assertFalse(source.contains("Smelt.Outcome"), "nothing is routed out of Smelt:\n" + source);
     }
 
     @Test
-    void goingHomeIsPerActivityAndOnlyWhenTheActivityWillRun(@TempDir Path root) {
+    void goingHomeIsPerActivityAndOnlyRecordedOnItsOwnRow(@TempDir Path root) throws Exception {
         ActivitiesConfig cfg = branchingFlow();
         ActivitiesConfig mixed = ActivitiesConfig.of(
                 List.of(cfg.activities().getFirst().withGoHome(false), cfg.activities().get(1),
@@ -146,31 +123,20 @@ class FlowDriverGenerationTest {
 
         String source = serviceFor(root).generateDriverSource(mixed);
 
-        // Travel keeps the default tick; Mining has it off. And the call sits after the active() check: there
-        // is nothing to go home for if the activity isn't going to run.
-        assertTrue(source.contains(afterActiveCheck("TRAVEL", "\"Mining\"")), source);
-        assertFalse(source.contains(afterActiveCheck("MINING", "\"Smelt\"")), source);
+        // Travel keeps the default tick; Mining has it off. *When* the SDK runs goHome — after the activity
+        // is known to be active, never before — is the walker's business and is asserted there.
+        assertTrue(source.contains("ActivityRegistry.MINING, PopupCheck.ON, Recovery.NONE,"), source);
+        assertTrue(source.contains("ActivityRegistry.TRAVEL, PopupCheck.ON, Recovery.GO_HOME,"), source);
     }
 
     /**
-     * The generated "skip if disabled, set the popup flag, else go home" run, at the driver's own indentation.
-     * The popup line sits between the two because it is emitted for every activity — the flag is
-     * process-global, so an activity that said nothing would inherit the previous one's setting.
-     */
-    private static String afterActiveCheck(String constant, String fallthrough) {
-        String indent = " ".repeat(16);
-        return indent + "if (!ActivityRegistry." + constant + ".active()) return " + fallthrough + ";\n"
-                + indent + "PopupGuard.enabled(true);\n"
-                + indent + "GoHome.INSTANCE.execute();";
-    }
-
-    /**
-     * The popup flag is written for every activity, not only the ones that opt out. {@code PopupGuard.enabled}
-     * is process-global: an activity that emitted nothing would run under whatever the activity before it left
-     * set, which is the one behaviour a per-activity tick must not have.
+     * The popup setting is written on every row, not only the ones that opt out. {@code PopupGuard}'s flag is
+     * process-global, so an activity whose row said nothing would run under whatever the activity before it
+     * left set — the one behaviour a per-activity tick must not have. Carrying it per node is what lets the
+     * walker set it every time.
      */
     @Test
-    void thePopupFlagIsWrittenForEveryActivityIncludingTheOnesThatKeepIt(@TempDir Path root) {
+    void thePopupSettingIsOnEveryRowIncludingTheOnesThatKeepIt(@TempDir Path root) throws Exception {
         ActivitiesConfig cfg = branchingFlow();
         ActivitiesConfig mixed = ActivitiesConfig.of(
                 List.of(cfg.activities().getFirst().withPopupCheck(false), cfg.activities().get(1),
@@ -179,38 +145,43 @@ class FlowDriverGenerationTest {
 
         String source = serviceFor(root).generateDriverSource(mixed);
 
-        assertTrue(source.contains("PopupGuard.enabled(false);"),
-                "the activity that opted out must switch the guard off:\n" + source);
-        assertTrue(source.contains("PopupGuard.enabled(true);"),
-                "and the next one must switch it back on rather than inherit:\n" + source);
-        assertTrue(source.contains("import com.botmaker.sdk.api.bot.PopupGuard;"), source);
+        assertTrue(source.contains("ActivityRegistry.MINING, PopupCheck.OFF,"),
+                "the activity that opted out must say so:\n" + source);
+        assertTrue(source.contains("ActivityRegistry.TRAVEL, PopupCheck.ON,"),
+                "and the next one must say so too rather than inherit:\n" + source);
+        assertTrue(source.contains("import com.botmaker.sdk.api.flow.PopupCheck;"), source);
     }
 
     @Test
-    void anUnreachableActivityIsNotInTheDriverAtAll(@TempDir Path root) {
+    void anUnreachableActivityIsNotInTheDriverAtAll(@TempDir Path root) throws Exception {
         String source = serviceFor(root).generateDriverSource(branchingFlow());
 
-        assertFalse(source.contains("\"Idle\""), "an orphan can't be routed to, so it has no case:\n" + source);
+        assertFalse(source.contains("\"Idle\""), "an orphan can't be routed to, so it has no row:\n" + source);
     }
 
     @Test
-    void aFlowWithNoActivitiesGeneratesADriverThatSimplyStops(@TempDir Path root) {
+    void aFlowWithNoActivitiesGeneratesAGraphThatEndsAtOnce(@TempDir Path root) throws Exception {
         String source = serviceFor(root).generateDriverSource(ActivitiesConfig.empty());
 
-        assertTrue(source.contains("String node = null;"), source);
-        assertTrue(source.contains("return null;"), source);
+        assertTrue(source.contains("FlowGraph.of(\n            null)"),
+                "a start of null is an empty flow, which ends immediately:\n" + source);
     }
 
     @Test
-    void aDisabledActivityFollowsItsDefaultWireRatherThanStoppingTheFlow(@TempDir Path root) {
+    void aDisabledActivityFollowsItsDefaultWireRatherThanStoppingTheFlow(@TempDir Path root) throws Exception {
         // Turning an activity off must not sever the flow at that card — everything downstream still runs.
+        // That is the fifth argument: where the walker goes when the activity reports nothing because it
+        // never ran. Travel's implicit wire leads to Mining, so that is where a disabled Travel goes.
         String source = serviceFor(root).generateDriverSource(branchingFlow());
 
-        assertTrue(source.contains("if (!ActivityRegistry.TRAVEL.active()) return \"Mining\";"), source);
+        assertTrue(source.contains("ActivityRegistry.TRAVEL, PopupCheck.ON, Recovery.GO_HOME, \"Mining\""),
+                source);
+        assertTrue(source.contains("ActivityRegistry.MINING, PopupCheck.ON, Recovery.GO_HOME, null,"),
+                "Mining has no implicit wire, so a disabled Mining ends the run:\n" + source);
     }
 
     @Test
-    void aBranchingFlowGeneratesAProjectThatCompiles(@TempDir Path root) throws IOException {
+    void aBranchingFlowGeneratesAProjectThatCompiles(@TempDir Path root) throws Exception {
         ActivitiesConfig cfg = branchingFlow();
         ProjectConfig config = ProjectConfig.forProject("actbot", root);
         ActivityService service = new ActivityService(config, null, null);
@@ -223,45 +194,29 @@ class FlowDriverGenerationTest {
             sources.add(write(config.activitiesPackageDir().resolve(a.name() + ".java"),
                     service.generateStubSource(a)));
         }
-        for (String standIn : SDK_STAND_INS) {
-            sources.add(write(config.sourceRoot().resolve(standInPath(standIn)), standIn));
-        }
-        // The driver calls GoHome.INSTANCE.execute() for every activity with the tick on. GoHome is an Activity
-        // subclass scaffolded into the project by ProjectCreator rather than generated here, so the test supplies
-        // the same shape.
+        // The driver hands the walker GoHome.INSTANCE::execute. GoHome is scaffolded into the project by
+        // ProjectCreator rather than generated here, so the test supplies it — from the same SDK template,
+        // which is also the cheapest proof that a seed and a regenerated file agree about the package.
         sources.add(write(config.mainSourceFile().getParent().resolve("GoHome.java"),
-                "package com." + config.packageName() + ";\n"
-                        + "import com.botmaker.sdk.api.bot.Activity;\n"
-                        + "public class GoHome extends Activity<GoHome.Outcome> {\n"
-                        + "    public static final GoHome INSTANCE = new GoHome();\n"
-                        + "    public enum Outcome { NEXT }\n"
-                        + "    public boolean isEnabled() { return true; }\n"
-                        + "    public Outcome run() { return Outcome.NEXT; }\n"
-                        + "}\n"));
+                com.botmaker.studio.project.ProjectCreator
+                        .gameBotSources("Actbot", config.packageName()).get("GoHome.java")));
 
         assertEquals("", compile(root, sources), "the generated project must compile");
     }
 
-    /** Compiles {@code sources}; returns the compiler's diagnostics, or "" when it succeeded. */
-    private static String compile(Path root, List<Path> sources) throws IOException {
+    /** Compiles {@code sources} against the real SDK; returns the diagnostics, or "" when it succeeded. */
+    private static String compile(Path root, List<Path> sources) throws Exception {
         Path classes = Files.createDirectories(root.resolve("classes"));
+        Path sdk = Path.of(Activity.class.getProtectionDomain().getCodeSource().getLocation().toURI());
         ByteArrayOutputStream diagnostics = new ByteArrayOutputStream();
         JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
         int rc;
         try (PrintStream out = new PrintStream(diagnostics, true, StandardCharsets.UTF_8)) {
             rc = compiler.run(null, null, out, Stream.concat(
-                    Stream.of("-d", classes.toString()),
+                    Stream.of("-classpath", sdk.toString(), "-d", classes.toString()),
                     sources.stream().map(Path::toString)).toArray(String[]::new));
         }
         return rc == 0 ? "" : diagnostics.toString(StandardCharsets.UTF_8);
-    }
-
-    /** {@code com/botmaker/sdk/api/bot/Activity.java} from a stand-in's package and public type name. */
-    private static String standInPath(String source) {
-        String pkg = source.substring(source.indexOf("package ") + 8, source.indexOf(';')).replace('.', '/');
-        int nameAt = source.indexOf("class ") + 6;
-        String name = source.substring(nameAt).split("[ <]")[0];
-        return pkg + "/" + name + ".java";
     }
 
     private static Path write(Path file, String source) throws IOException {

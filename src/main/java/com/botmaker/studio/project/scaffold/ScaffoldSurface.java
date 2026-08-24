@@ -11,18 +11,23 @@ import java.util.Set;
  *
  * <h2>Why this exists</h2>
  *
- * <p>Studio's generators are text blocks. {@code ProjectCreator.gameBotSources} writes {@code Bot.start} and
- * {@code PopupGuard.install}; {@code ActivityService.generateDriverSource} writes {@code Watchdog.checkpoint}
- * and {@code Wait.milliseconds}; {@code VariableWire} writes {@code new Point(…)}. Nothing checked that the
- * SDK a project pins actually <em>has</em> any of them, so a renamed SDK member surfaced as a broken file in
- * somebody's project rather than as a failing build here — and an upgrade that touched one was refused
- * mid-apply, after the user had committed to it.
+ * <p>Studio's generators were text blocks, and a text block cannot be asked what it names. Nothing checked
+ * that the SDK a project pins actually <em>had</em> any of the members they wrote, so a renamed SDK member
+ * surfaced as a broken file in somebody's project rather than as a failing build here — and an upgrade that
+ * touched one was refused mid-apply, after the user had committed to it. A list can be asked, so the set was
+ * written down here, and {@code ScaffoldSurfaceTest} keeps it honest in both directions: it parses what the
+ * generators actually emit and asserts the symbols it finds <b>equal</b> this declaration — neither an
+ * undeclared symbol nor a stale entry survives — and then resolves every entry against the SDK Studio builds
+ * against. An SDK rename therefore breaks <em>Studio's</em> build, on a named element.
  *
- * <p>A text block cannot be asked what it names. A list can. So the set is written down here, and
- * {@code ScaffoldSurfaceTest} keeps the list honest in both directions: it parses what the generators actually
- * emit and asserts the symbols it finds <b>equal</b> this declaration — neither an undeclared symbol nor a
- * stale entry survives — and then resolves every entry against the SDK Studio builds against. An SDK rename
- * therefore breaks <em>Studio's</em> build, on a named element.
+ * <p><b>Most of what this list existed for is gone.</b> Since 2026-08-24 the scaffold's <em>frame</em> is the
+ * SDK's own: seven compiling templates in {@code botmaker-sdk/src/templates/java}, checked by that module's
+ * compiler and its {@code ScaffoldTemplatesTest}. What Studio still writes is the fragments dropped into
+ * their tokens — a graph table, a field list, a load expression — and that is what remains declared here.
+ * The members that left are the ones that were only ever frame: the walk loop's {@code Bot.stop},
+ * {@code Watchdog.checkpoint}, {@code Wait.milliseconds}, {@code Debug.error} and {@code PopupGuard.enabled},
+ * and the thirteen parser bodies whose {@code new Point(…)} and {@code new Precision(…)} are now
+ * {@code Wire.point} and {@code Wire.precision}.
  *
  * <h2>What counts as an element, and what does not</h2>
  *
@@ -122,10 +127,9 @@ public final class ScaffoldSurface {
     private static final String BOT = "com.botmaker.sdk.api.bot.Bot";
     private static final String ACTIVITY = "com.botmaker.sdk.api.bot.Activity";
     private static final String POPUP_GUARD = "com.botmaker.sdk.api.bot.PopupGuard";
-    private static final String WATCHDOG = "com.botmaker.sdk.api.bot.Watchdog";
-    private static final String DEBUG = "com.botmaker.sdk.api.util.Debug";
     private static final String BOTMAKER = "com.botmaker.sdk.api.util.BotMaker";
-    private static final String WAIT = "com.botmaker.sdk.api.interaction.Wait";
+    private static final String FLOW_GRAPH = "com.botmaker.sdk.api.flow.FlowGraph";
+    private static final String WIRE = "com.botmaker.sdk.api.config.Wire";
     private static final String KEY = "com.botmaker.sdk.api.interaction.Key";
     private static final String MOUSE_BUTTON = "com.botmaker.sdk.api.interaction.MouseButton";
     private static final String DIRECTION = "com.botmaker.sdk.api.geometry.Direction";
@@ -149,19 +153,21 @@ public final class ScaffoldSurface {
             member(BOT, "start", 2, Origin.SEED),
             member(POPUP_GUARD, "install", 1, Origin.SEED),
 
-            // ── FlowDriver: seeded empty at creation, regenerated from the flow thereafter ─────────────
-            member(BOT, "stop", 0, Origin.SEED, Origin.REGENERATED),
-            member(DEBUG, "error", 1, Origin.SEED, Origin.REGENERATED),
-            member(WATCHDOG, "checkpoint", 0, Origin.SEED, Origin.REGENERATED),
-            member(WAIT, "milliseconds", 1, Origin.REGENERATED),
-            member(POPUP_GUARD, "enabled", 1, Origin.REGENERATED),
+            // ── FlowDriver: the drawn flow as a table. Seeded empty at creation (start null, no nodes),
+            //    regenerated from the canvas thereafter — which is why `of` and `walk` carry both origins
+            //    and `node`/`route` only the second. The loop, the step budget, the popup flag, the
+            //    Watchdog checkpoint and the delay used to be declared here too; they are the walker's now.
+            type(FLOW_GRAPH, Origin.SEED, Origin.REGENERATED),
+            member(FLOW_GRAPH, "of", 2, Origin.SEED, Origin.REGENERATED),
+            member(FLOW_GRAPH, "walk", 4, Origin.SEED, Origin.REGENERATED),
+            member(FLOW_GRAPH, "node", 6, Origin.REGENERATED),
+            member(FLOW_GRAPH, "route", 2, Origin.REGENERATED),
 
-            // ── Activity: extended by GoHome, Popups and every stub; driven by FlowDriver ──────────────
+            // ── Activity: extended by GoHome, Popups and every stub; run by the walker ─────────────────
             type(ACTIVITY, Origin.SEED, Origin.REGENERATED),
             member(ACTIVITY, "isEnabled", 0, Origin.SEED),
             member(ACTIVITY, "run", 0, Origin.SEED),
             member(ACTIVITY, "execute", 0, Origin.SEED, Origin.REGENERATED),
-            member(ACTIVITY, "active", 0, Origin.REGENERATED),
 
             // ── Popups: the guard body, shipped with an empty group ────────────────────────────────────
             member(IMAGE_FINDER, "whileFindAny", 2, Origin.SEED),
@@ -169,17 +175,33 @@ public final class ScaffoldSurface {
             // 1, not 0: `of()` passes nothing to a varargs parameter, and the surface records the declaration.
             member(IMAGE_TEMPLATE_GROUP, "of", 1, Origin.SEED),
 
-            // ── Activities: one field, one parser and one literal per stored variable type ─────────────
+            // ── Activities: one field per stored value, and the Wire reader it is read back with. The
+            //    parsers were generated bodies until 2026-08-24 — which is why the constructors of Point,
+            //    Rect and the rest are gone from here while their types stay: a field still has a type.
+            member(WIRE, "one", 1, Origin.REGENERATED),
+            member(WIRE, "many", 2, Origin.REGENERATED),
+            member(WIRE, "text", 1, Origin.REGENERATED),
+            member(WIRE, "flag", 1, Origin.REGENERATED),
+            member(WIRE, "whole", 1, Origin.REGENERATED),
+            member(WIRE, "decimal", 1, Origin.REGENERATED),
+            member(WIRE, "letter", 1, Origin.REGENERATED),
+            member(WIRE, "date", 1, Origin.REGENERATED),
+            member(WIRE, "time", 1, Origin.REGENERATED),
+            member(WIRE, "duration", 1, Origin.REGENERATED),
+            member(WIRE, "color", 1, Origin.REGENERATED),
+            member(WIRE, "template", 1, Origin.REGENERATED),
+            member(WIRE, "key", 1, Origin.REGENERATED),
+            member(WIRE, "mouseButton", 1, Origin.REGENERATED),
+            member(WIRE, "direction", 1, Origin.REGENERATED),
+            member(WIRE, "precision", 1, Origin.REGENERATED),
+            member(WIRE, "point", 1, Origin.REGENERATED),
+            member(WIRE, "size", 1, Origin.REGENERATED),
+            member(WIRE, "area", 1, Origin.REGENERATED),
             type(IMAGE_TEMPLATE, Origin.REGENERATED),
-            member(IMAGE_TEMPLATE, CTOR, 1, Origin.REGENERATED),
             type(PRECISION, Origin.REGENERATED),
-            member(PRECISION, CTOR, 3, Origin.REGENERATED),
             type(POINT, Origin.REGENERATED),
-            member(POINT, CTOR, 2, Origin.REGENERATED),
             type(SIZE, Origin.REGENERATED),
-            member(SIZE, CTOR, 2, Origin.REGENERATED),
             type(RECT, Origin.REGENERATED),
-            member(RECT, CTOR, 4, Origin.REGENERATED),
             type(KEY, Origin.REGENERATED),
             type(MOUSE_BUTTON, Origin.REGENERATED),
             type(DIRECTION, Origin.REGENERATED));

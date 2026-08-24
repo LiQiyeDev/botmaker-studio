@@ -2,11 +2,13 @@ package com.botmaker.studio.project;
 
 import com.botmaker.shared.config.ProjectProperties;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
+import com.botmaker.studio.project.activity.ActivityFlow;
 import com.botmaker.studio.project.launch.SupportedTargets;
 import com.botmaker.studio.project.scaffold.ScaffoldCheck;
 import com.botmaker.studio.project.scaffold.ScaffoldEmitter;
 import com.botmaker.studio.project.scaffold.ScaffoldSurface;
 import com.botmaker.studio.project.scaffold.ScaffoldUnsupported;
+import com.botmaker.studio.project.scaffold.TemplateStore;
 import com.botmaker.studio.project.vcs.ProjectVcs;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.ImageTemplateLibrary;
@@ -68,8 +70,12 @@ public class ProjectCreator {
         //    the answer may be no: a project pinned to an SDK newer than this Studio may name an element that
         //    release removed, and a half-created project the user has to delete by hand is a worse outcome
         //    than a refusal. Satisfied is the answer in every ordinary case — see ScaffoldCheck.
-        Map<String, String> sources =
-                scaffold(sdkVersion, sourcesFor(template, cfg.className(), cfg.packageName()));
+        //    The scaffold's *frame* comes from that same SDK — the templates it ships — so the file a bot
+        //    gets is the one its own SDK version knows how to be. Resolved before the check, since what is
+        //    checked is what those templates produced.
+        Map<String, String> sources = scaffold(sdkVersion,
+                sourcesFor(template, cfg.className(), cfg.packageName(),
+                        TemplateStore.forVersionNewerThanStudio(null, effectiveSdkVersion(sdkVersion))));
 
         try {
             // 1. Standard Maven directory layout
@@ -135,9 +141,14 @@ public class ProjectCreator {
      */
     private static Map<String, String> scaffold(String sdkVersion, Map<String, String> rendered)
             throws ScaffoldUnsupported {
-        String version = sdkVersion == null || sdkVersion.isBlank()
-                ? MavenService.SDK_FALLBACK_VERSION : sdkVersion.trim();
+        String version = effectiveSdkVersion(sdkVersion);
         return scaffold(version, rendered, ScaffoldFacts.forVersionNewerThanStudio(null, version));
+    }
+
+    /** What a blank pin means — the version {@link MavenService#writePom} would write. */
+    private static String effectiveSdkVersion(String sdkVersion) {
+        return sdkVersion == null || sdkVersion.isBlank()
+                ? MavenService.SDK_FALLBACK_VERSION : sdkVersion.trim();
     }
 
     /**
@@ -482,12 +493,35 @@ public class ProjectCreator {
     }
 
     /**
-     * The starting sources for {@code template} as {@code fileName -> source}. The single source of truth for
-     * both creation and {@link ProjectRepair} — a template's files are defined exactly once, here.
+     * The starting sources for {@code template} as {@code fileName -> source}, built from the scaffold
+     * templates Studio itself ships — the SDK jar it was compiled against.
+     *
+     * <p>The single source of truth for {@link ProjectRepair} and for recovery, which regenerate one missing
+     * scaffold file long after creation and have no reason to re-resolve a jar to do it. Creation uses the
+     * four-argument form, with the templates of the SDK the new project is about to pin.
+     *
+     * <p>It cannot refuse: the bundled templates are the ones the SDK's own build compiled and checked, so a
+     * token missing from them is a broken Studio build rather than anything a user did — hence the
+     * unchecked rethrow instead of a checked signature every caller would have to carry.
      */
     public static Map<String, String> sourcesFor(ProjectTemplate template, String className, String packageName) {
+        try {
+            return sourcesFor(template, className, packageName, TemplateStore.bundled());
+        } catch (ScaffoldUnsupported e) {
+            throw new IllegalStateException("The scaffold templates Studio ships with are unusable: "
+                    + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * The same, from {@code templates} — the scaffold as one particular SDK ships it.
+     *
+     * @throws ScaffoldUnsupported when that SDK's templates cannot carry what Studio has to write into them
+     */
+    public static Map<String, String> sourcesFor(ProjectTemplate template, String className, String packageName,
+                                                 TemplateStore templates) throws ScaffoldUnsupported {
         return template == ProjectTemplate.GAME_BOT
-                ? gameBotSources(className, packageName)
+                ? gameBotSources(className, packageName, templates)
                 : emptySources(className, packageName);
     }
 
@@ -531,213 +565,56 @@ public class ProjectCreator {
      * {@code botmaker-project.properties}, not in that file. The SDK's 2-arg {@code Bot.start} now supplies the
      * launch step, and the entry point binds {@code FlowDriver::run} directly.
      *
-     * <p>Exposed as data rather than written inline so {@link ProjectRepair} can regenerate an individual
-     * missing file from the same source of truth — the templates must not be duplicated. Reached via
-     * {@link #sourcesFor}.
+     * <p><b>None of it is written here any more.</b> Every file below is one of the SDK's own scaffold
+     * templates — compiling Java in {@code botmaker-sdk/src/templates/java}, shipped in the jar as text —
+     * with this project's package, class name and (for the two generated files) an empty model dropped into
+     * its tokens. What used to be five text blocks holding {@code Bot.start}, a hand-written walk loop and a
+     * step budget is now one {@code sources.put} per file: Studio contributes what is true about this
+     * project, and nothing else.
+     *
+     * <p>Exposed as data rather than written to disk here so {@link ProjectRepair} can regenerate an
+     * individual missing file from the same source of truth. Reached via {@link #sourcesFor}.
      */
     public static Map<String, String> gameBotSources(String className, String packageName) {
+        return sourcesFor(ProjectTemplate.GAME_BOT, className, packageName);
+    }
+
+    /** The same, from one particular SDK's templates. */
+    public static Map<String, String> gameBotSources(String className, String packageName,
+                                                     TemplateStore templates) throws ScaffoldUnsupported {
         Map<String, String> sources = new LinkedHashMap<>();
 
-        // Entry point: supervise the game loop, recovering via goHome → startGame on crash/stuck.
-        sources.put(className + ".java", String.format("""
-            package com.%s;
+        // Entry point: supervise the game loop, recovering via goHome → startGame on crash/stuck. The only
+        // thing filled in is the name — the class is called after the project, so the template's own is
+        // rewritten and nothing else about the file is ours.
+        sources.put(className + ".java", render(templates, "ENTRY_POINT", packageName, className, Map.of()));
 
-            import com.botmaker.sdk.api.bot.Bot;
-            import com.botmaker.sdk.api.bot.PopupGuard;
+        // The flow driver, seeded with no flow at all: a new project has no activities, so the graph is
+        // FlowGraph.of(null) and the two tuning numbers are the model's own defaults. It is a REGENERATED
+        // file being written for the first time, not a different file — the same template ActivityService
+        // renders on every save of the canvas.
+        sources.put("FlowDriver.java", render(templates, "FLOW_DRIVER", packageName, null, Map.of(
+                "ACTIVITY_IMPORT", "",
+                "FLOW", "null",
+                "MAX_STEPS", Integer.toString(ActivityFlow.DEFAULT_MAX_STEPS),
+                "STEP_DELAY_MS", Integer.toString(ActivityFlow.DEFAULT_STEP_DELAY_MS))));
 
-            public class %s {
-                public static void main(String[] args) {
-                    // Click delays, match confidence, and whether to drive the real mouse and keyboard (which
-                    // is what a game needs — it ignores the quiet background clicks BotMaker sends by default)
-                    // are project settings, applied by the SDK before the first click. Edit them in the
-                    // Studio's Input & Clicks dialog.
+        // Safe-point navigation and the popup guard's body. Both are SEED files with no tokens at all: what
+        // they hold is a worked example and a TODO, and the moment the project exists they are the user's.
+        sources.put("GoHome.java", render(templates, "GO_HOME", packageName, null, Map.of()));
+        sources.put("Popups.java", render(templates, "POPUPS", packageName, null, Map.of()));
 
-                    // Runs Popups.run() before every vision step, so a daily reward or a mail popup is
-                    // dismissed instead of hiding whatever the next find was looking for. Popups.java is
-                    // yours: it decides which templates mean "a popup is up", and how to close each one.
-                    PopupGuard.install(Popups.INSTANCE::execute);
-
-                    // Walks the Activity Flow forever; on a crash or a stuck screen it runs GoHome and
-                    // restarts the game you picked in the Studio.
-                    Bot.start(FlowDriver::run, GoHome.INSTANCE::execute);
-                }
-            }
-            """, packageName, className));
-
-        // Initial (empty) flow driver so the entry point compiles before any activity is added.
-        sources.put("FlowDriver.java", String.format("""
-            package com.%s;
-
-            import com.botmaker.sdk.api.bot.Bot;
-            import com.botmaker.sdk.api.bot.Watchdog;
-            import com.botmaker.sdk.api.util.Debug;
-
-            /**
-             * Walks the Activity Flow drawn in BotMaker Studio. GENERATED — do not edit by hand; manage via
-             * Project &rarr; Activity Flow.
-             *
-             * <p>Runs the current activity, then picks the next one from the outcome it reported. The run
-             * ends when the reported outcome has no wire leaving it.
-             */
-            public final class FlowDriver {
-
-                /**
-                 * How many activities one run may hand off to before giving up. A flow is allowed to loop —
-                 * that is how a bot repeats — so this is what separates &quot;farming all night&quot; from a
-                 * cycle with no way out. Change it in Project &rarr; Activity Flow.
-                 */
-                private static final int MAX_STEPS = 1000;
-
-                public static void run() {
-                    String node = null;
-                    for (int steps = 0; node != null; steps++) {
-                        if (steps >= MAX_STEPS) {
-                            Debug.error("[Flow] Gave up after " + MAX_STEPS
-                                    + " steps at '" + node + "' — the flow is probably looping with no exit.");
-                            Bot.stop();
-                        }
-                        node = step(node);
-                        Watchdog.checkpoint();
-                    }
-                    Bot.stop();
-                }
-
-                /** The next node after {@code node}, or null to end the run. */
-                private static String step(String node) {
-                    return null;
-                }
-
-                private FlowDriver() {}
-            }
-            """, packageName));
-
-        // Safe-point navigation (last resort before restarting; also a clean start point for activities).
-        // A real Activity like any other — so it self-registers by name and gets the before()/after()/onStuck()
-        // hooks — but a standalone one: it isn't on the flow canvas, it is called directly by the supervisor
-        // (recovery) and by the driver (the per-activity "go home first" tick), both via INSTANCE.execute().
-        sources.put("GoHome.java", String.format("""
-            package com.%s;
-
-            import com.botmaker.sdk.api.bot.Activity;
-
-            /**
-             * Navigate back to a known-good "home" screen. Called by the supervisor before it relaunches the
-             * game during recovery, and before any activity whose "go home first" tick is on. Fill in {@link #run()} for
-             * your game, e.g.:
-             * <pre>
-             *   while (!ImageFinder.find(home)) {
-             *       ImageClicker.click(back);
-             *       Wait.seconds(1);
-             *   }
-             * </pre>
-             */
-            public class GoHome extends Activity<GoHome.Outcome> {
-
-                /** The one instance; referenced by the entry point and FlowDriver. Constructing it registers "GoHome". */
-                public static final GoHome INSTANCE = new GoHome();
-
-                /** GoHome reports nothing to route on — it is called directly, not wired into the flow. */
-                public enum Outcome { NEXT }
-
-                @Override
-                public boolean isEnabled() {
-                    return true;   // recovery hook — always available
-                }
-
-                @Override
-                public Outcome run() {
-                    // TODO: navigate back to your game's home screen.
-                    return Outcome.NEXT;
-                }
-            }
-            """, packageName));
-
-        // The popup guard's body. Like GoHome: a real Activity (so it self-registers and gets the hooks) that
-        // isn't on the canvas — the SDK calls it through INSTANCE::execute, here before every vision step.
-        // Ships the loop but no templates: a scaffold cannot guess this game's popups, so the group is empty
-        // and whileFindAny returns without even taking a capture — the same no-op behaviour (and cost) as an
-        // empty body, except the editor now shows a real "while any of […]" block to drop templates into
-        // instead of a TODO comment. That empty group used to throw in Popups' class initialiser; the SDK
-        // allows it as of the same day's change, so this scaffold cannot ship ahead of that SDK release.
-        sources.put("Popups.java", String.format("""
-            package com.%s;
-
-            import com.botmaker.sdk.api.bot.Activity;
-            import com.botmaker.sdk.api.vision.ImageFinder;
-            import com.botmaker.sdk.api.vision.ImageTemplateGroup;
-
-            /**
-             * Dismiss whatever the game has interrupted us with. BotMaker runs this before every vision step
-             * (see the {@code PopupGuard.install} line in the entry point), so no activity has to open with
-             * its own defensive dismissal code.
-             *
-             * <p>{@link #run()} already has the loop; fill in {@link #POPUPS} and the body for your game. The
-             * shape that works is "which combination is on screen", not "click anything that looks like a
-             * cross": the same close button often belongs to the screen the bot is actually working on, and a
-             * popup's body usually isn't clickable at all.
-             * <pre>
-             *   private static final ImageTemplateGroup POPUPS = ImageTemplateGroup.of(mail, claimAll, tapToClose);
-             *
-             *   ImageFinder.whileFindAny(POPUPS, found -&gt; {
-             *       if (found.has(mail) &amp;&amp; found.has(claimAll)) ImageClicker.click(found.get(claimAll));
-             *       else if (found.has(tapToClose))              ImageClicker.click(found.get(tapToClose));
-             *   });
-             * </pre>
-             * The loop keeps going while any popup is still up, so a reward stacked behind a mail is cleared
-             * too — and the finds inside it are not themselves guarded, so this cannot recurse.
-             *
-             * <p>Each activity has a "check for popups" tick in Project &rarr; Activity Flow; turn it off for
-             * one that works through a popup-shaped screen itself.
-             */
-            public class Popups extends Activity<Popups.Outcome> {
-
-                /** The one instance; the entry point installs it as the popup guard. */
-                public static final Popups INSTANCE = new Popups();
-
-                /** The popups this bot knows how to dismiss. Add your templates here; empty means "no popups". */
-                private static final ImageTemplateGroup POPUPS = ImageTemplateGroup.of();
-
-                /** Popups reports nothing to route on — it is called by the guard, not wired into the flow. */
-                public enum Outcome { NEXT }
-
-                @Override
-                public boolean isEnabled() {
-                    return true;   // guard hook — always available
-                }
-
-                @Override
-                public Outcome run() {
-                    ImageFinder.whileFindAny(POPUPS, found -> {
-                        // TODO: click the popup this frame found — e.g. ImageClicker.click(found.get(closeButton));
-                    });
-                    return Outcome.NEXT;
-                }
-            }
-            """, packageName));
-
-        // Initial (empty) activity registry so the flow driver compiles before any activity is added.
-        sources.put("ActivityRegistry.java", String.format("""
-            package com.%s;
-
-            import com.botmaker.sdk.api.bot.Activity;
-            import java.util.List;
-
-            /**
-             * The activities this bot can run. GENERATED by BotMaker Studio — do not edit by hand; manage via
-             * Project &rarr; Activity Flow. Each is built once here, which is also what registers it by name
-             * for {@code Activity.disable("Name")}. {@link FlowDriver} routes between them using the outcome
-             * each one reports; {@link #ALL} is the flat view for anything that just needs every activity.
-             */
-            public final class ActivityRegistry {
-
-                public static final List<Activity<?>> ALL = List.of(
-                );
-
-                private ActivityRegistry() {}
-            }
-            """, packageName));
+        // The registry, seeded empty so the driver compiles before the first activity exists.
+        sources.put("ActivityRegistry.java", render(templates, "ACTIVITY_REGISTRY", packageName, null,
+                Map.of("ACTIVITY_IMPORT", "", "SINGLETONS", "", "ALL", "")));
 
         return sources;
+    }
+
+    /** One template, required and filled — the shape every {@code sources.put} above takes. */
+    static String render(TemplateStore templates, String id, String packageName, String className,
+                         Map<String, String> tokens) throws ScaffoldUnsupported {
+        return templates.render(templates.require(id), packageName, className, tokens);
     }
 
     /**

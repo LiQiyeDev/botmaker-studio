@@ -10,6 +10,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import javax.tools.JavaCompiler;
 import javax.tools.ToolProvider;
+import java.io.File;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
@@ -17,6 +18,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -45,7 +47,7 @@ class ActivityGenerationTest {
                 variable("giveUpAfter", BotType.DURATION, "0s")));
     }
 
-    private static String source(Path root, ActivitiesConfig cfg) {
+    private static String source(Path root, ActivitiesConfig cfg) throws Exception {
         ProjectConfig config = ProjectConfig.forProject("actbot", root);
         return new ActivityService(config, null, null).generateSource(cfg);
     }
@@ -173,7 +175,7 @@ class ActivityGenerationTest {
 
         assertTrue(generated.contains("public static final boolean Mining;"), generated);
         assertFalse(generated.contains("boolean Mining ="), "an inline initializer folds at every use site");
-        assertTrue(generated.contains("Mining = flag(one(\"Mining\"));"), generated);
+        assertTrue(generated.contains("Mining = Wire.flag(Wire.one(\"Mining\"));"), generated);
 
         String stored = "{ \"activities\": [ { \"name\": \"Mining\", \"enabled\": true } ] }";
         assertTrue(compileAndLoad(root, generated, stored).getField("Mining").getBoolean(null));
@@ -197,8 +199,18 @@ class ActivityGenerationTest {
                 srcFile.toString());
         assertEquals(0, rc, "generated Activities.java should compile:\n" + source);
 
-        URLClassLoader loader = new URLClassLoader(
-                new URL[]{classes.toUri().toURL()}, getClass().getClassLoader());
+        // A loader with NO parent but the bootstrap one, over this project's classes first and everything
+        // else after. Both halves of that matter now that the reading is the SDK's rather than a text block:
+        // the SDK's ConfigStore resolves /activities.json through *its own* loader and caches it in a static,
+        // so an ordinary child loader would delegate ConfigStore to the test classpath — where the fixture
+        // written below is not — and then hold the first test's answer for every test after it. Isolating the
+        // whole SDK per case gives each one its own ConfigStore, reading its own file.
+        List<URL> urls = new ArrayList<>();
+        urls.add(classes.toUri().toURL());
+        for (String entry : System.getProperty("java.class.path").split(File.pathSeparator)) {
+            urls.add(Path.of(entry).toUri().toURL());
+        }
+        URLClassLoader loader = new URLClassLoader(urls.toArray(URL[]::new), null);
         return Class.forName("com.actbot.Activities", true, loader); // triggers static init
     }
 }

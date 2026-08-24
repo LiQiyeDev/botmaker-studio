@@ -234,15 +234,19 @@ public final class VariableWire {
     /**
      * The Java expression the generated {@code Activities} class assigns to a variable named {@code name}.
      *
-     * <p>Every form goes through a generated helper rather than inlining the parse, so the same wire text is
-     * read the same way whether it stands alone or is one item of a list: {@code many(…)} maps the very
-     * method reference {@code one(…)} would have called.
+     * <p>Every form goes through {@link Wire} rather than inlining the parse, so the same wire text is read
+     * the same way whether it stands alone or is one item of a list: {@link Wire#many} maps the very method
+     * reference {@link Wire#one} would have handed to.
+     *
+     * <p>{@code Wire} unqualified, and that is the SDK template's doing — {@code Activities.java} is rendered
+     * from a template that already imports it. It is also the shape that survives an SDK rename: a static
+     * call on a named type is one of the two things Studio can mechanically repair.
      */
     public static String loadExpression(BotType.Choice type, String name) {
         String key = '"' + name + '"';
-        Helper helper = helper(type.type());
-        if (!type.isList()) return helper.name() + "(one(" + key + "))";
-        return "many(" + key + ", Activities::" + helper.name() + ")";
+        String method = wireMethod(type.type());
+        if (!type.isList()) return "Wire." + method + "(Wire.one(" + key + "))";
+        return "Wire.many(" + key + ", Wire::" + method + ")";
     }
 
     /**
@@ -361,235 +365,38 @@ public final class VariableWire {
     }
 
     /**
-     * The runtime parser {@code type}'s values are read with: its method name, and the source of the method
-     * (empty when it shares one already emitted for another type).
+     * The {@link Wire} method a stored value of this type is read back with — {@code Wire.duration},
+     * {@code Wire.area}. It is a name, not a body: the parser lives in the SDK.
      *
-     * <p>The four SDK enums share {@link #ENUM_HELPER} and the three geometry types share {@link #INTS_HELPER},
-     * so what a generated file carries is what it uses and no more.
+     * <p>Until 2026-08-24 this returned a {@code Helper} carrying <b>Java source held in a Java string</b> —
+     * thirteen parser bodies, emitted into the generated {@code Activities} for whichever types a project
+     * happened to use, de-duplicated on their text because two enums both wanted {@code constant(…)}. They
+     * were untestable by construction, and the duration one was a hand-kept copy of {@link Wire#duration}
+     * with a comment asking the next reader to diff the two by eye. One compiled implementation replaced all
+     * of it; what is left here is which of its methods to call.
      */
-    public static Helper helper(BotType type) {
+    public static String wireMethod(BotType type) {
         return switch (type) {
-            case TEXT -> new Helper("text", TEXT_HELPER, List.of());
-            case YES_NO -> new Helper("flag", FLAG_HELPER, List.of());
-            case WHOLE_NUMBER -> new Helper("whole", WHOLE_HELPER, List.of());
-            case DECIMAL_NUMBER -> new Helper("decimal", DECIMAL_HELPER, List.of());
-            case CHARACTER -> new Helper("letter", LETTER_HELPER, List.of());
-            case DATE -> new Helper("date", DATE_HELPER, List.of());
-            case TIME_OF_DAY -> new Helper("time", TIME_HELPER, List.of());
-            case DURATION -> new Helper("duration", DURATION_HELPER, List.of());
-            case IMAGE_TEMPLATE -> new Helper("template", TEMPLATE_HELPER, List.of());
-            case COLOR -> new Helper("color", COLOR_HELPER, List.of());
-            case KEY -> enumHelper("key", SdkType.KEY);
-            case MOUSE_BUTTON -> enumHelper("mouseButton", SdkType.MOUSE_BUTTON);
-            case DIRECTION -> enumHelper("direction", SdkType.DIRECTION);
-            // Not enumHelper: Precision is a record, so `constant(Precision.class, …)` — whose bound is
-            // `E extends Enum<E>` — did not compile in any bot that stored one.
-            case PRECISION -> new Helper("precision", PRECISION_HELPER, List.of(INTS_HELPER));
-            case POINT -> geometryHelper("point", SdkType.POINT, 2);
-            case RECT -> geometryHelper("area", SdkType.RECT, 4);
-            case SIZE -> geometryHelper("size", SdkType.SIZE, 2);
+            case TEXT -> "text";
+            case YES_NO -> "flag";
+            case WHOLE_NUMBER -> "whole";
+            case DECIMAL_NUMBER -> "decimal";
+            case CHARACTER -> "letter";
+            case DATE -> "date";
+            case TIME_OF_DAY -> "time";
+            case DURATION -> "duration";
+            case IMAGE_TEMPLATE -> "template";
+            case COLOR -> "color";
+            case KEY -> "key";
+            case MOUSE_BUTTON -> "mouseButton";
+            case DIRECTION -> "direction";
+            case PRECISION -> "precision";
+            case POINT -> "point";
+            case RECT -> "area";
+            case SIZE -> "size";
             default -> throw new IllegalArgumentException(type + " is not a storable variable type");
         };
     }
-
-    /**
-     * One generated parser: the method a load expression calls, its own source, and the source of anything
-     * shared it depends on. {@code shared} is separate so two types that both need {@code constant(…)} emit
-     * it once — the generator de-duplicates on the text.
-     */
-    public record Helper(String name, String source, List<String> shared) {}
-
-    private static Helper enumHelper(String name, SdkType type) {
-        String fallback = type.qualifiedName() + "." + firstConstantOf(type);
-        return new Helper(name, """
-                    private static %s %s(String s) {
-                        return constant(%s.class, s, %s);
-                    }
-                """.formatted(type.qualifiedName(), name, type.qualifiedName(), fallback),
-                List.of(ENUM_HELPER));
-    }
-
-    private static Helper geometryHelper(String name, SdkType type, int count) {
-        return new Helper(name, """
-                    private static %s %s(String s) {
-                        int[] n = ints(s, %d);
-                        return new %s(%s);
-                    }
-                """.formatted(type.qualifiedName(), name, count, type.qualifiedName(),
-                        String.join(", ", indices(count))),
-                List.of(INTS_HELPER));
-    }
-
-    private static List<String> indices(int count) {
-        List<String> args = new ArrayList<>(count);
-        for (int i = 0; i < count; i++) args.add("n[" + i + "]");
-        return args;
-    }
-
-    // ---- helper sources -------------------------------------------------------------------------------
-
-    private static final String COLOR_HELPER = """
-                private static java.awt.Color color(String s) {
-                    try {
-                        return java.awt.Color.decode(s.trim());
-                    } catch (RuntimeException e) {
-                        return java.awt.Color.WHITE;
-                    }
-                }
-            """;
-
-    private static final String TEXT_HELPER = """
-                private static String text(String s) {
-                    return s;
-                }
-            """;
-
-    private static final String FLAG_HELPER = """
-                private static boolean flag(String s) {
-                    return Boolean.parseBoolean(s.trim());
-                }
-            """;
-
-    private static final String WHOLE_HELPER = """
-                private static int whole(String s) {
-                    try {
-                        return (int) Math.rint(Double.parseDouble(s.trim()));
-                    } catch (RuntimeException e) {
-                        return 0;
-                    }
-                }
-            """;
-
-    private static final String DECIMAL_HELPER = """
-                private static double decimal(String s) {
-                    try {
-                        return Double.parseDouble(s.trim());
-                    } catch (RuntimeException e) {
-                        return 0.0;
-                    }
-                }
-            """;
-
-    private static final String LETTER_HELPER = """
-                private static char letter(String s) {
-                    return s.isEmpty() ? 'a' : s.charAt(0);
-                }
-            """;
-
-    private static final String DATE_HELPER = """
-                private static java.time.LocalDate date(String s) {
-                    try {
-                        return java.time.LocalDate.parse(s.trim());
-                    } catch (RuntimeException e) {
-                        return java.time.LocalDate.of(2000, 1, 1);
-                    }
-                }
-            """;
-
-    private static final String TIME_HELPER = """
-                private static java.time.LocalTime time(String s) {
-                    try {
-                        return java.time.LocalTime.parse(s.trim());
-                    } catch (RuntimeException e) {
-                        return java.time.LocalTime.MIDNIGHT;
-                    }
-                }
-            """;
-
-    /**
-     * The last hand-kept copy of the {@code 1h30m} grammar. {@link com.botmaker.sdk.api.config.Wire#duration}
-     * is the implementation now — the editor already calls it — and this text block goes when the generated
-     * {@code Activities} starts calling the SDK too.
-     */
-    private static final String DURATION_HELPER = """
-                private static java.time.Duration duration(String s) {
-                    String t = s.trim().toLowerCase(java.util.Locale.ROOT).replace(" ", "");
-                    long total = 0;
-                    long digits = 0;
-                    boolean sawDigit = false;
-                    boolean sawAny = false;
-                    for (int i = 0; i < t.length(); i++) {
-                        char c = t.charAt(i);
-                        if (Character.isDigit(c)) {
-                            digits = digits * 10 + (c - '0');
-                            if (digits > Integer.MAX_VALUE) return java.time.Duration.ZERO;
-                            sawDigit = true;
-                            continue;
-                        }
-                        if (!sawDigit) return java.time.Duration.ZERO;
-                        if (c == 'm' && i + 1 < t.length() && t.charAt(i + 1) == 's') {
-                            total += digits;
-                            i++;
-                        } else if (c == 'h') {
-                            total += digits * 3600000L;
-                        } else if (c == 'm') {
-                            total += digits * 60000L;
-                        } else if (c == 's') {
-                            total += digits * 1000L;
-                        } else {
-                            return java.time.Duration.ZERO;
-                        }
-                        digits = 0;
-                        sawDigit = false;
-                        sawAny = true;
-                    }
-                    if (sawDigit) {
-                        total += digits;
-                        sawAny = true;
-                    }
-                    return java.time.Duration.ofMillis(sawAny ? total : 0L);
-                }
-            """;
-
-    private static final String TEMPLATE_HELPER = """
-                private static %s template(String s) {
-                    return new %s("%s" + s + ".png");
-                }
-            """.formatted(SdkType.IMAGE_TEMPLATE.qualifiedName(), SdkType.IMAGE_TEMPLATE.qualifiedName(),
-                    TemplateConstants.IMAGES_PREFIX);
-
-    /**
-     * {@code deltaE,minArea,minCount}. The record's constructor throws on a ΔE below zero or an area below
-     * one, so the clamps are what keep the bot's promise never to fail to start on its own configuration.
-     */
-    private static final String PRECISION_HELPER = """
-                private static %s precision(String s) {
-                    String[] parts = s.trim().split(",");
-                    double deltaE = 12.0;
-                    try {
-                        if (parts.length > 0) deltaE = Double.parseDouble(parts[0].trim());
-                    } catch (RuntimeException e) {
-                        deltaE = 12.0;
-                    }
-                    int[] n = ints(s, 3);
-                    return new %s(Math.max(0.0, deltaE), Math.max(1, n[1]), Math.max(0, n[2]));
-                }
-            """.formatted(SdkType.PRECISION.qualifiedName(), SdkType.PRECISION.qualifiedName());
-
-    private static final String ENUM_HELPER = """
-                private static <E extends Enum<E>> E constant(Class<E> type, String s, E fallback) {
-                    try {
-                        return Enum.valueOf(type, s.trim().toUpperCase(java.util.Locale.ROOT));
-                    } catch (RuntimeException e) {
-                        return fallback;
-                    }
-                }
-            """;
-
-    private static final String INTS_HELPER = """
-                private static int[] ints(String s, int count) {
-                    int[] out = new int[count];
-                    String[] parts = s.split(",");
-                    for (int i = 0; i < count && i < parts.length; i++) {
-                        try {
-                            out[i] = (int) Math.rint(Double.parseDouble(parts[i].trim()));
-                        } catch (RuntimeException e) {
-                            out[i] = 0;
-                        }
-                    }
-                    return out;
-                }
-            """;
 
     // ---- shared parsing -------------------------------------------------------------------------------
 

@@ -38,17 +38,31 @@ public class ActivityServiceTest {
                 VariableWire.javaType(BotType.Choice.listOf(BotType.WHOLE_NUMBER)),
                 "a list of a primitive is a list of its box");
 
-        assertEquals("whole(one(\"n\"))", VariableWire.loadExpression(BotType.Choice.of(BotType.WHOLE_NUMBER), "n"));
-        assertEquals("flag(one(\"n\"))", VariableWire.loadExpression(BotType.Choice.of(BotType.YES_NO), "n"));
-        assertEquals("many(\"n\", Activities::whole)",
+        // Wire.<type>(Wire.one(name)), never a helper generated into the bot: the parsers are compiled SDK
+        // methods, and the list form maps the very method reference the single-valued form would have called.
+        assertEquals("Wire.whole(Wire.one(\"n\"))",
+                VariableWire.loadExpression(BotType.Choice.of(BotType.WHOLE_NUMBER), "n"));
+        assertEquals("Wire.flag(Wire.one(\"n\"))",
+                VariableWire.loadExpression(BotType.Choice.of(BotType.YES_NO), "n"));
+        assertEquals("Wire.many(\"n\", Wire::whole)",
                 VariableWire.loadExpression(BotType.Choice.listOf(BotType.WHOLE_NUMBER), "n"));
 
         assertTrue(VariableWire.resolvedType(BotType.Choice.of(BotType.WHOLE_NUMBER)).isNumeric());
         assertTrue(VariableWire.resolvedType(BotType.Choice.of(BotType.YES_NO)).isBoolean());
         for (BotType type : BotType.storableTypes()) {
             assertNotNull(VariableWire.defaultWire(BotType.Choice.of(type)), type.toString());
-            assertNotNull(VariableWire.helper(type), type.toString());
+            // Every storable type names a Wire method — and the SDK really has it, checked below rather
+            // than taken on trust, since the name is now a string crossing a module boundary.
+            assertTrue(hasWireMethod(VariableWire.wireMethod(type)), type + " → Wire." + type);
         }
+    }
+
+    /** Whether the SDK's {@code Wire} declares a one-argument reader of that name. */
+    private static boolean hasWireMethod(String name) {
+        for (var m : com.botmaker.sdk.api.config.Wire.class.getMethods()) {
+            if (m.getName().equals(name) && m.getParameterCount() == 1) return true;
+        }
+        return false;
     }
 
     @Test
@@ -96,7 +110,7 @@ public class ActivityServiceTest {
     }
 
     @Test
-    void generatedSourceDeclaresAndLoadsFields(@TempDir Path dir) {
+    void generatedSourceDeclaresAndLoadsFields(@TempDir Path dir) throws Exception {
         ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
         ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
 
@@ -108,14 +122,17 @@ public class ActivityServiceTest {
         assertTrue(src.contains("package com.mybot;"), src);
         assertTrue(src.contains("public static final int maxRetries;"), src);
         assertTrue(src.contains("public static final java.time.LocalTime startTime;"), src);
-        assertTrue(src.contains("maxRetries = whole(one(\"maxRetries\"));"), src);
-        assertTrue(src.contains("startTime = time(one(\"startTime\"));"), src);
-        assertTrue(src.contains("private static java.time.LocalTime time(String s)"), src);
-        assertTrue(src.contains("getResourceAsStream(\"/activities.json\")"), src);
+        assertTrue(src.contains("maxRetries = Wire.whole(Wire.one(\"maxRetries\"));"), src);
+        assertTrue(src.contains("startTime = Wire.time(Wire.one(\"startTime\"));"), src);
+        // The parsers and the loader are the SDK's now. A generated file that still declared one would be
+        // carrying an implementation nobody could test — which is exactly what this used to assert.
+        assertFalse(src.contains("private static java.time.LocalTime time(String s)"), src);
+        assertFalse(src.contains("getResourceAsStream"), src);
+        assertTrue(src.contains("import com.botmaker.sdk.api.config.Wire;"), src);
     }
 
     @Test
-    void generatedRegistryListsActivitySubclasses(@TempDir Path dir) {
+    void generatedRegistryListsActivitySubclasses(@TempDir Path dir) throws Exception {
         ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
         ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
 
@@ -139,7 +156,7 @@ public class ActivityServiceTest {
     }
 
     @Test
-    void generatedRegistryFollowsTheFlowChainAndDropsOrphans(@TempDir Path dir) {
+    void generatedRegistryFollowsTheFlowChainAndDropsOrphans(@TempDir Path dir) throws Exception {
         ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
         ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
 
@@ -307,7 +324,7 @@ public class ActivityServiceTest {
     }
 
     @Test
-    void emptyRegistryHasNoActivitiesImport(@TempDir Path dir) {
+    void emptyRegistryHasNoActivitiesImport(@TempDir Path dir) throws Exception {
         ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
         ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
         String reg = service.generateRegistrySource(ActivitiesConfig.empty());

@@ -97,8 +97,11 @@ class ActivityStubWriteThroughTest {
         ProjectConfig config = ProjectConfig.forProject("actbot", root);
         save(serviceFor(config), configOf(ActivityDefinition.create("Mining", "")));
 
-        assertTrue(Files.readString(config.flowDriverSourceFile()).contains("case \"Mining\":"));
+        assertTrue(Files.readString(config.flowDriverSourceFile())
+                .contains("FlowGraph.node(\"Mining\", ActivityRegistry.MINING,"));
+        // The declaration itself, spelled out to the semicolon: the template's javadoc uses the very same
+        // phrase as its worked example, so a looser match counts the prose too.
         assertEquals(1, Files.readString(config.activityRegistrySourceFile())
-                .split("public static final Mining MINING", -1).length - 1);
+                .split("public static final Mining MINING = new Mining\\(\\);", -1).length - 1);
     }
 }

@@ -6,6 +6,43 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-24 — the generators stop writing Java: the scaffold comes out of the SDK jar
+  (`project/scaffold/TemplateStore` (new), `project/ProjectCreator`, `services/ActivityService`,
+  `project/activity/VariableWire`, `project/scaffold/ScaffoldSurface`, `ui/app/ProjectRecoveryAction`).**
+  Phase 4 of seven. Studio held the bot scaffold as five text blocks in `ProjectCreator` and four `String
+  .format` templates in `ActivityService` — around 400 lines of Java written inside Java strings. It now reads
+  seven compiling templates out of `botmaker-templates/` in the SDK jar the project pins and fills their
+  tokens.
+
+  `TemplateStore` is the whole of Studio's side: read the manifest, hand back a template by id, replace each
+  `/*<STUDIO:NAME>*/ default /*</STUDIO:NAME>*/` region with what this project says, rewrite the package and
+  the class name. **Fill known, ignore unknown, refuse needed-but-absent** — an unfilled token keeps its
+  compiling default (which is what lets a *newer* SDK add tokens this Studio has never heard of), and a
+  fragment with nowhere to go is a refusal naming the token, because that direction would silently drop the
+  user's own flow or parameters. The fences are stripped either way: a template is valid Java in the SDK *and*
+  the file a bot gets carries no markers.
+
+  What left the generated files, rather than just moving: the flow driver's state machine — a switch over node
+  names inside a loop with its own step budget, `Watchdog.checkpoint()`, the popup flag and an
+  after-not-before delay — is now `FlowGraph.of/node/route` plus `FlowGraph.walk`, so Studio emits the
+  **table** and the SDK walks it. And `VariableWire`'s **thirteen `*_HELPER` parser bodies** are gone with the
+  Jackson loader beside them; a load expression is `Wire.duration(Wire.one("REST"))`. That ends the
+  duplicated `1h30m` grammar the old `DURATION_HELPER` javadoc admitted to and asked the next reader to check
+  by eye.
+
+  `ScaffoldSurface` shrank to what Studio still writes: `FlowGraph`'s four members, `Wire`'s nineteen, and the
+  types a field declaration still names. The eleven that were only ever *frame* — `Bot.stop`,
+  `Watchdog.checkpoint`, `Wait.milliseconds`, `Debug.error`, `PopupGuard.enabled`, and the constructors of
+  `Point`/`Size`/`Rect`/`Precision`/`ImageTemplate` — are the SDK's own problem now, checked by its compiler.
+  (The class itself goes in Phase 5.)
+
+  Tests: `TemplateStoreTest` (new, 6) covers both unknown-token directions and the old-jar fallback.
+  `FlowDriverGenerationTest` asserts the table rather than the switch, and compiles the generated project
+  against the **real SDK jar** — the six hand-written stand-ins it used to carry are gone, along with the
+  stale comment saying Studio does not depend on the SDK. `ActivityGenerationTest` now loads each case under a
+  bootstrap-parented classloader, because the SDK's `ConfigStore` caches its read in a static and would
+  otherwise hand every test the first one's answer.
+
 - **2026-08-24 — the docs catch up with twelve phases of work (`CLAUDE.md`, `CHANGELOG.md`, this file;
   umbrella `CLAUDE.md` and `docs/refactor/21-api-compat.md` + `99-progress.md` in the umbrella repo).**
   Phase 12 of twelve, no code. `CLAUDE.md`'s upgrade section still described a **single-valued** pairing graph

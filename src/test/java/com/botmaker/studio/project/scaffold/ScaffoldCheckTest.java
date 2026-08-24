@@ -35,8 +35,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ScaffoldCheckTest {
 
     private static final String POPUP_GUARD = "com.botmaker.sdk.api.bot.PopupGuard";
-    private static final String WAIT = "com.botmaker.sdk.api.interaction.Wait";
     private static final String ACTIVITY = "com.botmaker.sdk.api.bot.Activity";
+    /**
+     * The stand-in for "a member the generators call". It has to be one the surface actually declares — the
+     * stub is a copy of {@link ScaffoldSurface}, so removing something absent from it changes nothing and
+     * every assertion below would read SATISFIED. It was {@code Wait#milliseconds} until the walk moved into
+     * the SDK and Studio stopped writing it.
+     */
+    private static final String WIRE = "com.botmaker.sdk.api.config.Wire";
 
     // ------------------------------------------------------------------
     // the check
@@ -70,14 +76,14 @@ class ScaffoldCheckTest {
     @Test
     void aRenamedMemberWithABackEdgeIsRepairable() {
         ScaffoldCheck.Result result = ScaffoldCheck.of(new Stub()
-                .remove(WAIT + "#milliseconds")
-                .add(WAIT, "millis", 1)
-                .claims(WAIT + "#milliseconds", WAIT + "#millis"));
+                .remove(WIRE + "#duration")
+                .add(WIRE, "howLong", 1)
+                .claims(WIRE + "#duration", WIRE + "#howLong"));
 
         assertEquals(ScaffoldCheck.Status.REPAIRABLE, result.status());
         assertEquals(1, result.substitutions().size());
         ScaffoldCheck.Substitution only = result.substitutions().getFirst();
-        assertEquals(WAIT + "#millis", only.ref());
+        assertEquals(WIRE + "#howLong", only.ref());
         assertTrue(only.memberMoved());
         assertFalse(only.typeMoved());
     }
@@ -86,15 +92,18 @@ class ScaffoldCheckTest {
     void aTypeThatMovedCarriesItsMembersWithoutAPointerEach() {
         // The case that makes annotating a package move bearable: the SDK author writes one @Replaces on the
         // type, and every member the scaffold calls on it resolves through that one edge.
-        String moved = "com.botmaker.sdk.api.timing.Wait";
-        ScaffoldCheck.Result result = ScaffoldCheck.of(new Stub()
-                .removeType(WAIT)
-                .add(moved, "milliseconds", 1)
-                .claims(WAIT, moved));
+        String moved = "com.botmaker.sdk.api.settings.Wire";
+        Stub sdk = new Stub().removeType(WIRE).claims(WIRE, moved);
+        // The move takes every member with it, unrenamed — that is what a package move is. Read off the
+        // surface rather than listed, so a Wire reader added later is part of this case automatically.
+        for (Element e : ScaffoldSurface.all()) {
+            if (e.type().equals(WIRE) && !e.isType()) sdk.add(moved, e.member(), e.arity());
+        }
+        ScaffoldCheck.Result result = ScaffoldCheck.of(sdk);
 
         assertEquals(ScaffoldCheck.Status.REPAIRABLE, result.status());
-        ScaffoldCheck.Substitution member = substitutionFor(result, WAIT + "#milliseconds(1)");
-        assertEquals(moved + "#milliseconds", member.ref());
+        ScaffoldCheck.Substitution member = substitutionFor(result, WIRE + "#duration(1)");
+        assertEquals(moved + "#duration", member.ref());
         assertTrue(member.typeMoved());
         assertFalse(member.memberMoved());
     }
@@ -121,16 +130,16 @@ class ScaffoldCheckTest {
 
     @Test
     void aChainOfClaimsComposes() {
-        // milliseconds → millis in one release, millis → pause in the next. Only the second claim survives on
+        // duration → howLong in one release, howLong → span in the next. Only the second claim survives on
         // an element this jar still has, so the walk has to go through the spelling that is gone.
         ScaffoldCheck.Result result = ScaffoldCheck.of(new Stub()
-                .remove(WAIT + "#milliseconds")
-                .add(WAIT, "pause", 1)
-                .claims(WAIT + "#milliseconds", WAIT + "#millis")
-                .claims(WAIT + "#millis", WAIT + "#pause"));
+                .remove(WIRE + "#duration")
+                .add(WIRE, "span", 1)
+                .claims(WIRE + "#duration", WIRE + "#howLong")
+                .claims(WIRE + "#howLong", WIRE + "#span"));
 
         assertEquals(ScaffoldCheck.Status.REPAIRABLE, result.status());
-        assertEquals(WAIT + "#pause", result.substitutions().getFirst().ref());
+        assertEquals(WIRE + "#span", result.substitutions().getFirst().ref());
     }
 
     // ------------------------------------------------------------------

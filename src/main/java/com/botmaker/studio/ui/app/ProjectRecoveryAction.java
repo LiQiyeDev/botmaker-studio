@@ -8,6 +8,7 @@ import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.project.ProjectTemplate;
 import com.botmaker.studio.project.StudioContext;
 import com.botmaker.studio.project.activity.ActivityDefinition;
+import com.botmaker.studio.project.scaffold.ScaffoldUnsupported;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
@@ -53,10 +54,25 @@ final class ProjectRecoveryAction {
         ProjectState state = ctx.state();
         ActivityService activityService = ctx.activityService();
 
+        // Rendered once, up front, and reused below: it is the same answer both times, and producing it can
+        // now refuse — the scaffold comes from the SDK's own templates, and an SDK that cannot carry what
+        // this project needs written is something to say plainly rather than half-recover around.
+        Map<Path, String> canonical;
+        try {
+            canonical = canonicalScaffold(ctx);
+        } catch (ScaffoldUnsupported ex) {
+            Alert err = ThemedWindows.alert(Alert.AlertType.ERROR);
+            err.setTitle("Recover Project Files");
+            err.setHeaderText("Could not work out what this project's files should look like.");
+            err.setContentText(ex.getMessage());
+            err.showAndWait();
+            return;
+        }
+
         List<ProjectRepair.Missing> missing =
                 ProjectRepair.findMissing(config, state.getTemplate(), activityService.current());
         List<ProjectRepair.Damage> damaged =
-                ProjectRepair.findDamaged(config, state.getTemplate(), canonicalScaffold(ctx));
+                ProjectRepair.findDamaged(config, state.getTemplate(), canonical);
 
         if (missing.isEmpty() && damaged.isEmpty()) {
             Alert ok = ThemedWindows.alert(Alert.AlertType.INFORMATION);
@@ -79,7 +95,7 @@ final class ProjectRecoveryAction {
         try {
             ProjectRepair.recover(config, missing);
             List<Path> repaired =
-                    ProjectRepair.repairDamaged(config, state.getTemplate(), canonicalScaffold(ctx), damaged);
+                    ProjectRepair.repairDamaged(config, state.getTemplate(), canonical, damaged);
 
             // Activity stubs, activities.json and the generated Activities/ActivityRegistry are
             // ActivityService's to write: re-running update() with the current config restores them all. It
@@ -109,7 +125,7 @@ final class ProjectRecoveryAction {
     }
 
     /** What the generators would produce for this project's scaffold today, keyed by path. */
-    private static Map<Path, String> canonicalScaffold(StudioContext ctx) {
+    private static Map<Path, String> canonicalScaffold(StudioContext ctx) throws ScaffoldUnsupported {
         ProjectConfig config = ctx.config();
         ProjectState state = ctx.state();
         ActivityService activityService = ctx.activityService();
