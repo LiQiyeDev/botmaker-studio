@@ -11,12 +11,18 @@ import com.botmaker.studio.project.activity.FlowEdge;
 import com.botmaker.studio.project.activity.ActivityPreset;
 import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.project.activity.VariableWire;
+import com.botmaker.studio.project.scaffold.ScaffoldCheck;
+import com.botmaker.studio.project.scaffold.ScaffoldEmitter;
+import com.botmaker.studio.project.scaffold.ScaffoldSurface;
+import com.botmaker.studio.project.scaffold.ScaffoldUnsupported;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.concurrent.CompletableFuture;
@@ -48,6 +54,8 @@ public final class ActivityService {
     private final ProjectConfig config;
     private final ProjectState state;
     private final EventBus eventBus;
+    /** The pinned SDK's scaffold facts, resolved at most once per service — see {@link #facts(String)}. */
+    private ScaffoldCheck.SdkFacts facts;
 
     public ActivityService(ProjectConfig config, ProjectState state, EventBus eventBus) {
         this.config = config;
@@ -87,13 +95,19 @@ public final class ActivityService {
         ActivitiesConfig previous = current();
         return CompletableFuture.runAsync(() -> {
             try {
+                // Rendered and verified before a byte is written — activities.json included. A regenerated
+                // file the pinned SDK cannot carry is a refusal, and a refusal must leave the project exactly
+                // as it was: writing the model first and discovering the refusal second would save a flow
+                // whose generated driver does not exist for it.
+                Emission emission = render(newConfig, true);
                 newConfig.write(config.resourcesRoot());
-                writeActivitiesClass(newConfig);
-                writeRegistryClass(newConfig);
-                writeDriverClass(newConfig);
-                ensureStubs(newConfig);
+                write(emission);
                 deleteRemovedStubs(previous, newConfig);
                 ActivityStubSync.sync(config, newConfig);
+            } catch (ScaffoldUnsupported e) {
+                // Shown as it stands: it is not a failure, and the sentence already names the element and the
+                // way out. ActivityFlowDialog surfaces the root cause's message on its error line.
+                throw new RuntimeException(e.getMessage(), e);
             } catch (IOException e) {
                 throw new RuntimeException("Failed to save activities: " + e.getMessage(), e);
             }
@@ -121,31 +135,108 @@ public final class ActivityService {
     }
 
     /**
-     * Writes the generated {@code Activities.java}.
+     * Everything one save will write, rendered but not yet on disk: {@code name -> (where, what)}.
      *
-     * <p>Written even when it would hold no fields at all. It used to be <em>deleted</em> in that case, which
-     * is fine for a project that has never had an activity and wrong for one that has just deleted its last:
-     * anything still saying {@code import com.<pkg>.Activities;} — a scaffold file, a hand-written helper —
-     * stops compiling the moment the class evaporates. An empty class costs nothing and cannot break a build.
+     * <p>Two maps rather than one keyed by {@link Path} because {@link ScaffoldEmitter} names files in the
+     * sentence it refuses with, and a project-relative name is what the user recognises where an absolute
+     * path is noise.
      */
-    private void writeActivitiesClass(ActivitiesConfig cfg) throws IOException {
-        Path file = config.activitiesSourceFile();
-        Files.createDirectories(file.getParent());
-        Files.writeString(file, generateSource(cfg));
+    private record Emission(Map<String, String> sources, Map<String, Path> destinations) {}
+
+    /**
+     * Renders every file this save generates and checks it against the SDK the project pins — all of it, in
+     * memory, before any of it is written.
+     *
+     * <p><b>Why the whole batch and not file by file.</b> A regenerated file holds no user code and has a
+     * shape entirely of our making, so the bar is higher than for the user's own source: it must compile and
+     * it must not lose anything the model says. There is therefore no half-correct outcome worth keeping —
+     * three files written and the fourth refused would leave a project that does not build, whereas leaving
+     * all four alone leaves one that does (against the jar they were written for). That is what "all or
+     * nothing" buys, and it is why the check runs here rather than inside each writer.
+     *
+     * <p>Only {@link ScaffoldSurface.Origin#REGENERATED} is asked about: these are the files this method
+     * writes. A seed element that has gone — {@code ImageFinder.whileFindAny}, which only the once-written
+     * {@code Popups} names — is the upgrade's business, not this save's, and blocking a flow edit on it would
+     * be a refusal the user could do nothing about.
+     *
+     * @param includeStubs whether to render the per-activity stubs that do not exist yet. They are
+     *                     {@code SEED} files — written once and the user's thereafter — so they are not part
+     *                     of the question above, but they <em>are</em> part of the batch, and a substitution
+     *                     the check did produce (a moved {@code Activity}, say) has to reach them too.
+     */
+    private Emission render(ActivitiesConfig cfg, boolean includeStubs) throws ScaffoldUnsupported {
+        Map<String, String> sources = new LinkedHashMap<>();
+        Map<String, Path> destinations = new LinkedHashMap<>();
+        // Written even when it would hold no fields at all. Activities used to be *deleted* in that case,
+        // which is fine for a project that has never had an activity and wrong for one that has just deleted
+        // its last: anything still saying `import com.<pkg>.Activities;` — a scaffold file, a hand-written
+        // helper — stops compiling the moment the class evaporates. An empty class cannot break a build.
+        put(sources, destinations, config.activitiesSourceFile(), generateSource(cfg));
+        put(sources, destinations, config.activityRegistrySourceFile(), generateRegistrySource(cfg));
+        put(sources, destinations, config.flowDriverSourceFile(), generateDriverSource(cfg));
+        if (includeStubs) {
+            for (ActivityDefinition a : cfg.activities()) {
+                Path stub = config.activitiesPackageDir().resolve(a.name() + ".java");
+                if (Files.exists(stub)) continue;           // never overwrites what the user has edited
+                put(sources, destinations, stub, generateStubSource(a));
+            }
+        }
+        String version = MavenService.readSdkVersion(config.projectPath());
+        Map<String, String> emitted =
+                ScaffoldEmitter.emit(sources, facts(version), ScaffoldSurface.Origin.REGENERATED, version);
+        return new Emission(emitted, destinations);
     }
 
-    /** Writes the generated {@code ActivityRegistry.java} (empty {@code ALL} when there are no activities). */
-    private void writeRegistryClass(ActivitiesConfig cfg) throws IOException {
-        Path file = config.activityRegistrySourceFile();
-        Files.createDirectories(file.getParent());
-        Files.writeString(file, generateRegistrySource(cfg));
+    /**
+     * Adds one rendered file to the batch, keyed on its path relative to the project.
+     *
+     * <p>Relative to the project rather than by file name, because a name is not unique: nothing stops an
+     * activity being called {@code FlowDriver}, and keying on the name would have its stub quietly displace
+     * the driver in the batch. Relative rather than absolute because the key is also what a refusal names.
+     */
+    private void put(Map<String, String> sources, Map<String, Path> destinations, Path file, String source) {
+        String key;
+        try {
+            key = config.projectPath().relativize(file).toString();
+        } catch (IllegalArgumentException e) {
+            key = file.toString();                          // different root: unusual, but never a collision
+        }
+        sources.put(key, source);
+        destinations.put(key, file);
     }
 
-    /** Writes the generated {@code FlowDriver.java} — the walk over the drawn flow. */
-    private void writeDriverClass(ActivitiesConfig cfg) throws IOException {
-        Path file = config.flowDriverSourceFile();
-        Files.createDirectories(file.getParent());
-        Files.writeString(file, generateDriverSource(cfg));
+    /** Writes a verified {@link Emission}, and only ever a verified one. */
+    private static void write(Emission emission) throws IOException {
+        for (Map.Entry<String, String> file : emission.sources().entrySet()) {
+            Path to = emission.destinations().get(file.getKey());
+            Files.createDirectories(to.getParent());
+            Files.writeString(to, file.getValue());
+        }
+    }
+
+    /**
+     * Re-renders the generated files against the SDK the project pins <em>now</em> — what an SDK upgrade calls
+     * once the pom has moved.
+     *
+     * <p>It is the other half of {@code SdkMigrationRunner} no longer refusing an upgrade that touches a
+     * generated file: the user's source is rewritten by the migrator, and these files, which the migrator
+     * must not rewrite, are simply produced again from the model against the new jar. No stubs — a stub is
+     * the user's file and the migrator has already been over it.
+     */
+    public void regenerate() throws IOException {
+        write(render(current(), false));
+    }
+
+    /**
+     * The SDK's own facts, resolved once. Memoised because every save would otherwise ask again, and the
+     * answer only changes when the pom does — at which point {@link #regenerate()} is what runs, from a
+     * service built after the change.
+     */
+    private synchronized ScaffoldCheck.SdkFacts facts(String version) {
+        if (facts == null) {
+            facts = ScaffoldFacts.forVersionNewerThanStudio(config.projectPath(), version);
+        }
+        return facts;
     }
 
     /**
@@ -165,21 +256,6 @@ public final class ActivityService {
         for (ActivityDefinition gone : previous.activities()) {
             if (kept.contains(gone.name())) continue;
             Files.deleteIfExists(config.activitiesPackageDir().resolve(gone.name() + ".java"));
-        }
-    }
-
-    /**
-     * Creates a subclass stub for each activity if it does not already exist (never overwrites user edits).
-     */
-    private void ensureStubs(ActivitiesConfig cfg) throws IOException {
-        if (cfg.activities().isEmpty()) return;
-        Path dir = config.activitiesPackageDir();
-        Files.createDirectories(dir);
-        for (ActivityDefinition a : cfg.activities()) {
-            Path stub = dir.resolve(a.name() + ".java");
-            if (!Files.exists(stub)) {
-                Files.writeString(stub, generateStubSource(a));
-            }
         }
     }
 

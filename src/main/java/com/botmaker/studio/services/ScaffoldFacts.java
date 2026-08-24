@@ -1,9 +1,11 @@
 package com.botmaker.studio.services;
 
 import com.botmaker.studio.project.scaffold.ScaffoldCheck;
+import com.botmaker.studio.project.scaffold.ScaffoldSurface;
 import com.botmaker.studio.services.SdkApiModel.ApiClass;
 import com.botmaker.studio.services.SdkApiModel.ApiMember;
 import com.botmaker.studio.services.SdkApiModel.Claim;
+import com.botmaker.studio.sharing.SemVer;
 
 import java.nio.file.Path;
 import java.util.ArrayDeque;
@@ -68,10 +70,40 @@ public final class ScaffoldFacts implements ScaffoldCheck.SdkFacts {
         return jar.map(ScaffoldFacts::forJar).orElseGet(ScaffoldFacts::unindexed);
     }
 
+    /**
+     * The same, but only when {@code version} is <b>newer than Studio's own baseline</b> — otherwise
+     * {@link #unindexed()}, which fails open and costs nothing.
+     *
+     * <p>This gate is why the ordinary path is free. {@code ScaffoldSurfaceTest} already proves that every
+     * element of {@code ScaffoldSurface} exists in the SDK Studio was built against, so an equal or older
+     * version <em>cannot</em> fail the check and asking would only buy a jar resolve — possibly a download —
+     * on every project creation and every save of the activity flow. Studio's baseline is
+     * {@link MavenService#SDK_FALLBACK_VERSION}: it is what a fresh project pins, it moves on every SDK
+     * release, and {@code release.sh check_sdk_floor} keeps it in step. A version {@link SemVer} cannot read
+     * ({@code 0.0.0-SNAPSHOT}, a local dev build) is not probed either — a reactor build <em>is</em> the SDK
+     * the test ran against.
+     */
+    public static ScaffoldCheck.SdkFacts forVersionNewerThanStudio(Path projectDir, String version) {
+        if (version == null || version.isBlank()) return unindexed();
+        String v = version.trim();
+        if (!SemVer.isValid(v) || !SemVer.isValid(MavenService.SDK_FALLBACK_VERSION)
+                || SemVer.compare(v, MavenService.SDK_FALLBACK_VERSION) <= 0) {
+            return unindexed();
+        }
+        return forVersion(projectDir, v);
+    }
+
     /** Facts read straight out of {@code jar} — the seam the tests build against jars made on the spot. */
     public static ScaffoldCheck.SdkFacts forJar(Path jar) {
         Map<String, ApiClass> classes = SdkApiModel.snapshot(jar);
         if (classes.isEmpty()) return unindexed();
+        // A jar that declares not one scaffold type is not the SDK: a fixture built on the spot for some
+        // other question, a stub, the wrong artifact off a repository. Answering "everything Studio writes is
+        // gone" about it would be technically true of the bytes and useless as a statement about the project
+        // — so it takes the same fail-open path an unresolvable jar takes. One is enough: the surface spans
+        // bot, vision, geometry and interaction, and a real SDK missing *all* of them is not a release this
+        // Studio could repair its way onto anyway.
+        if (ScaffoldSurface.all().stream().noneMatch(e -> classes.containsKey(e.type()))) return unindexed();
 
         Map<String, ApiClass> byFqn = new LinkedHashMap<>();
         Map<String, List<String>> claimants = new LinkedHashMap<>();

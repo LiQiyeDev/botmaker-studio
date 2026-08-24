@@ -639,7 +639,7 @@ public class ProjectSelectionScreen implements ProjectWindow {
         try {
             projectCreator.createProject(projectName, sdkVersion, resolution, template);
             onProjectSelected.open(projectName, false, true);
-        } catch (com.botmaker.studio.project.ProjectCreator.ScaffoldUnsupported e) {
+        } catch (com.botmaker.studio.project.scaffold.ScaffoldUnsupported e) {
             // Not a failure: the check ran, the answer was no, and nothing was written. Saying "failed to
             // create" would send the user looking for a half-made project that does not exist — the message
             // already names the element and the way out, so it is shown as it is.

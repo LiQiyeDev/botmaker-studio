@@ -144,11 +144,30 @@ public final class ScaffoldCheck {
      * having had to write a pointer per member — which is what makes annotating a package move bearable.
      */
     public static Result of(SdkFacts facts) {
+        return of(facts, ScaffoldSurface.all());
+    }
+
+    /**
+     * The same over the elements one generator writes.
+     *
+     * <p>Which matters because the two kinds of generated file are written at different moments by different
+     * code. Project creation writes the lot and asks about the lot; a regeneration writes
+     * {@code Activities}, {@code ActivityRegistry}, {@code FlowDriver} and {@code Templates} and must ask
+     * about <em>those</em> — refusing to let a user redraw their flow because the SDK moved
+     * {@code ImageFinder.whileFindAny}, which only the once-written {@code Popups} seed names, would be a
+     * block with no cause the user could act on. A {@link Origin#SEED} element that has gone is the
+     * <em>upgrade's</em> business, and the upgrade reports it up front.
+     */
+    public static Result of(SdkFacts facts, ScaffoldSurface.Origin origin) {
+        return of(facts, ScaffoldSurface.of(origin));
+    }
+
+    private static Result of(SdkFacts facts, List<Element> elements) {
         if (!facts.indexed()) return Result.SATISFIED;
 
         List<Substitution> substitutions = new ArrayList<>();
         List<String> missing = new ArrayList<>();
-        for (Element element : ScaffoldSurface.all()) {
+        for (Element element : elements) {
             if (present(facts, element)) continue;
             Substitution repair = repairFor(facts, element);
             if (repair != null) {

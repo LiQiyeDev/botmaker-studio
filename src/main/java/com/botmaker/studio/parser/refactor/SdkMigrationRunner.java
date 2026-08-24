@@ -7,6 +7,7 @@ import com.botmaker.studio.parser.refactor.SignatureMigration.CallChange;
 import com.botmaker.studio.parser.refactor.SignatureMigration.ReturnFate;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
+import com.botmaker.studio.project.scaffold.ScaffoldCheck;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jdt.core.dom.MethodDeclaration;
@@ -309,7 +310,7 @@ public final class SdkMigrationRunner {
                               Set<String> sdkTypes, Map<String, List<String>> fieldOwners,
                               String markerPackage, ProjectAnalyzer analyzer, ProjectState state) {
         return run(repairs, Choices.NONE, editable, generated, sdkTypes, fieldOwners, markerPackage,
-                analyzer, state);
+                analyzer, state, null);
     }
 
     /** As above, with the per-site decisions a split asked the user for. See {@link Choices}. */
@@ -317,7 +318,23 @@ public final class SdkMigrationRunner {
                               List<ProjectFile> generated, Set<String> sdkTypes,
                               Map<String, List<String>> fieldOwners, String markerPackage,
                               ProjectAnalyzer analyzer, ProjectState state) {
-        String blocked = scaffoldingInTheWay(generated, repairs, sdkTypes, fieldOwners);
+        return run(repairs, choices, editable, generated, sdkTypes, fieldOwners, markerPackage, analyzer,
+                state, null);
+    }
+
+    /**
+     * As above, told what the <b>target</b> SDK can carry — which is what decides whether a generated file
+     * standing in the way is a refusal or a non-event.
+     *
+     * @param scaffold the target jar's verdict over {@code ScaffoldSurface.Origin.REGENERATED}, or null when
+     *                 the caller could not ask. Null keeps the old conservative behaviour, which is what
+     *                 every headless test wants and what an unresolvable jar deserves.
+     */
+    public static Outcome run(Repairs repairs, Choices choices, List<ProjectFile> editable,
+                              List<ProjectFile> generated, Set<String> sdkTypes,
+                              Map<String, List<String>> fieldOwners, String markerPackage,
+                              ProjectAnalyzer analyzer, ProjectState state, ScaffoldCheck.Result scaffold) {
+        String blocked = scaffoldingInTheWay(generated, repairs, sdkTypes, fieldOwners, scaffold);
         if (blocked != null) return Outcome.refused(blocked);
 
         List<CallMigrator.Rewritten> changed = new ArrayList<>();
@@ -550,12 +567,31 @@ public final class SdkMigrationRunner {
     }
 
     /**
-     * The reason a scaffold file blocks this migration, or null when none does. See the class Javadoc for why
-     * a generated file is neither rewritten nor regenerated: the code in it is written by Studio's own
-     * templates, so only a newer Studio can make it speak the new SDK.
+     * The reason a scaffold file blocks this migration, or null when none does.
+     *
+     * <p>A generated file is never <em>rewritten</em> by an upgrade — the code in it is written by Studio's
+     * own templates, and a rewritten copy would be overwritten by the next regeneration anyway. What changed
+     * is what follows from that. It used to mean "any repair that touches one stops the upgrade", which
+     * refused a great many upgrades that were perfectly safe: a member the target merely <em>renamed</em>,
+     * with the pointer pair to say so, is one the generated file can simply be produced again against. So the
+     * question asked here is no longer "does a repair touch a generated file?" but "can the target carry what
+     * the generators write?" — {@code ScaffoldCheck}'s question, asked of the target jar before the upgrade
+     * starts, and answered up front in the report rather than discovered mid-apply.
+     *
+     * <ul>
+     *   <li>{@code scaffold} satisfiable — nothing blocks. The caller re-renders the generated files once the
+     *       pom has moved ({@code ActivityService.regenerate}).</li>
+     *   <li>{@code scaffold} unsatisfiable — the refusal stands, and it is the check's own sentence, which
+     *       names the element rather than the file that happens to mention it.</li>
+     *   <li>{@code scaffold} null — the caller could not ask, so the old scan runs: conservative, and the
+     *       only honest answer with no facts about the target.</li>
+     * </ul>
      */
     private static String scaffoldingInTheWay(List<ProjectFile> generated, Repairs repairs,
-                                              Set<String> sdkTypes, Map<String, List<String>> fieldOwners) {
+                                              Set<String> sdkTypes, Map<String, List<String>> fieldOwners,
+                                              ScaffoldCheck.Result scaffold) {
+        if (scaffold != null) return scaffold.canEmit() ? null : scaffold.refusal();
+
         for (ProjectFile file : generated) {
             String text = file.getContent();
             if (text == null) continue;

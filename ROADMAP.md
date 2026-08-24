@@ -6,6 +6,37 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-24 — regeneration is all-or-nothing, and the mid-apply refusal narrows to the unsatisfiable case
+  (`services/ActivityService`, `project/scaffold/ScaffoldEmitter` + `ScaffoldUnsupported` (new),
+  `project/scaffold/ScaffoldCheck`, `services/ScaffoldFacts`, `parser/refactor/SdkMigrationRunner`,
+  `services/SdkUpgradeService`, `project/ProjectCreator`).** Phase 11 of twelve, the regenerated half of
+  Phase 10's guarantee. A regenerated file holds no user code and its shape is entirely ours, so there is no
+  half-correct outcome worth keeping: three files written and the fourth refused leaves a project that does not
+  build, where leaving all four alone leaves one that does. **`ActivityService.update` therefore renders every
+  file into memory, verifies and repairs the rendered text against the pinned jar, and only then writes — all
+  files or none**, `activities.json` included, so the model is never saved for a flow whose driver could not be
+  produced. The refusal reaches the user as the check's own sentence on the Activity Flow editor's error line.
+  **The verify-then-emit sequence is stated once, in `ScaffoldEmitter`**, because it now has two callers
+  (`ProjectCreator` at creation, `ActivityService` on every save) and a sequence duplicated is a sequence that
+  drifts. `ScaffoldUnsupported` left its nesting in `ProjectCreator` for the same reason.
+  **The check is origin-scoped.** `ScaffoldCheck.of(facts, Origin.REGENERATED)` asks only about the elements
+  *this* writer emits: refusing a flow edit because a symbol named by the once-written `Popups` seed has vanished
+  would be a block the user can do nothing about, and a gone seed element is the *upgrade's* business, which
+  Phase 4 already reports up front. Stubs about to be created join the batch for **repair** — a moved `Activity`
+  type has to reach them — but not for the check.
+  **`SdkMigrationRunner.scaffoldingInTheWay` narrows.** It used to ask *"does a repair touch a generated file?"*,
+  which refused a great many perfectly safe upgrades; it now asks `ScaffoldCheck`'s question of the **target**
+  jar before the upgrade starts, and refuses only where the answer is unsatisfiable. When the target's pointers
+  cover the scaffold, the generated files are **re-rendered after the bump** instead — the migrator still never
+  rewrites one, and does not have to, because they are derived from the model and can simply be produced again.
+  A re-render that fails logs and moves on rather than failing the upgrade: the sources are already repaired and
+  the pom already moved, so undoing is the destructive answer and the pre-upgrade snapshot is the way back.
+  **`Templates.java` needs no check, and that is a fact about the file rather than an omission** — it emits
+  `public static final String` paths and names no SDK element, which is why `ScaffoldSurface` has no entry for
+  it; should it ever emit a type it joins the same path, and `ScaffoldSurfaceTest` is what will say so.
+  One rule learned from the tests: **a jar that declares not one scaffold type is not the SDK** — a fixture, a
+  stub, the wrong artifact — so `ScaffoldFacts.forJar` fails it open exactly as an unresolvable jar. Answering
+  "everything Studio writes is gone" about such a jar is true of the bytes and useless about the project.
 - **2026-08-24 — verify-then-emit at project creation: an SDK newer than Studio is asked, not assumed
   (`project/scaffold/ScaffoldCheck` + `ScaffoldRepair` (new), `services/ScaffoldFacts` (new),
   `services/MavenService`, `project/ProjectCreator`, `ui/app/ProjectSelectionScreen`, new

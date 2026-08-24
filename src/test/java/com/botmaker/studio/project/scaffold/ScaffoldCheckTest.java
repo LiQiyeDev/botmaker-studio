@@ -204,7 +204,7 @@ class ScaffoldCheckTest {
     @Test
     void creationRefusesBeforeItWritesAnything() {
         Map<String, String> rendered = ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "Actbot", "actbot");
-        ProjectCreator.ScaffoldUnsupported refusal = assertThrows(ProjectCreator.ScaffoldUnsupported.class,
+        ScaffoldUnsupported refusal = assertThrows(ScaffoldUnsupported.class,
                 () -> ProjectCreator.scaffold("9.9.9", rendered, new Stub().remove(POPUP_GUARD + "#install")));
         assertTrue(refusal.getMessage().contains("PopupGuard#install"), refusal.getMessage());
     }
@@ -230,7 +230,7 @@ class ScaffoldCheckTest {
     private static void assertDoesNotRewrite(Map<String, String> rendered, ScaffoldCheck.SdkFacts facts) {
         try {
             assertSame(rendered, ProjectCreator.scaffold("9.9.9", rendered, facts));
-        } catch (ProjectCreator.ScaffoldUnsupported e) {
+        } catch (ScaffoldUnsupported e) {
             throw new AssertionError("refused an SDK that has everything: " + e.getMessage(), e);
         }
     }

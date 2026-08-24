@@ -9,6 +9,8 @@ import com.botmaker.studio.project.FileRole;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
+import com.botmaker.studio.project.scaffold.ScaffoldCheck;
+import com.botmaker.studio.project.scaffold.ScaffoldSurface;
 import com.botmaker.studio.project.vcs.ProjectVcs;
 import com.botmaker.studio.services.SdkApiModel.ApiClass;
 import org.eclipse.jdt.core.dom.CompilationUnit;
@@ -598,7 +600,32 @@ public final class SdkUpgradeService {
                     }
                 })
                 .thenCompose(v -> libraryService.updateLibraries(libraryService.currentLibraries(),
-                        targetVersion));
+                        targetVersion))
+                .thenRun(this::regenerateScaffolding);
+    }
+
+    /**
+     * Produces the generated files again, now that the pom names the new SDK.
+     *
+     * <p>This is the other half of the mid-apply refusal narrowing (see
+     * {@code SdkMigrationRunner.scaffoldingInTheWay}). The migrator deliberately never rewrites a generated
+     * file; it does not have to, because these files are derived from the activity model and can simply be
+     * produced again — against the new jar, through the same verify-then-emit path a save takes. After the
+     * pom has moved, not before: the check has to see the SDK the project actually pins now.
+     *
+     * <p>An {@code IOException} here is worth a sentence and not worth failing the upgrade over: the sources
+     * are already repaired and the pom is already moved, so undoing it would be the destructive answer. The
+     * next save of the activity flow writes these files anyway — and the snapshot taken before the upgrade is
+     * the way back.
+     */
+    private void regenerateScaffolding() {
+        try {
+            new ActivityService(config, state, null).regenerate();
+            ImageTemplateLibrary.regenerateTemplatesClass(config);
+        } catch (IOException | RuntimeException e) {
+            System.err.println("SDK upgrade: the generated files could not be re-rendered against the new "
+                    + "SDK (" + e.getMessage() + "). Open Project ▸ Activity Flow and save to redo them.");
+        }
     }
 
     /**
@@ -706,8 +733,14 @@ public final class SdkUpgradeService {
                     .add(file);
         }
 
+        // What the *target* can carry, asked of the target jar. A generated file the new SDK can still carry
+        // no longer blocks anything: it is re-rendered after the bump (see regenerateScaffolding). Only an
+        // element the target has dropped with no survivor still refuses — and the report said so up front.
+        ScaffoldCheck.Result scaffold =
+                ScaffoldCheck.of(ScaffoldFacts.forJar(newJar), ScaffoldSurface.Origin.REGENERATED);
+
         return SdkMigrationRunner.run(repairs, choicesFor(before, after, uses, pairing, picks),
-                editable, generated, known, fieldOwners, config.mainPackage(), null, state);
+                editable, generated, known, fieldOwners, config.mainPackage(), null, state, scaffold);
     }
 
     /**
