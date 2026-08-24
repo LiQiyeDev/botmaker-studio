@@ -241,6 +241,45 @@ public final class SdkMigrationRunner {
     }
 
     /**
+     * One call in the bot's own source, identified by <b>position</b> rather than by node.
+     *
+     * <p>The report pass and this one parse the sources twice, so the AST node the dialog was built from is
+     * not the node held here and node identity would silently pair nothing. Nothing edits the files between
+     * the two passes, so a character offset is stable — and a key that misses is not a failure: the site
+     * simply takes the default, which is what every headless caller gets anyway.
+     *
+     * @param file   the file's path as {@code ProjectFile.getPath().toString()} gives it, on both sides
+     * @param offset the call expression's start offset in that file
+     */
+    public record SiteKey(String file, int offset) {}
+
+    /**
+     * Which candidate the user picked, per call site — the only thing in the upgrade that is a decision
+     * rather than a fact.
+     *
+     * <p>It exists because a <b>split</b> is a property of the call, not of the member: {@code scroll(3)} and
+     * {@code scroll(-3)} in one bot want different answers, so no project-wide pick can be right in both.
+     * Every site absent from the map takes {@link Repairs}' own redirect, which is the author's first
+     * candidate — so {@link #NONE} reproduces the behaviour of every caller that never asks: Modernise, the
+     * tests, and any headless path.
+     */
+    public record Choices(Map<SiteKey, Redirect> bySite) {
+
+        /** Ask nobody: every site takes the preferred candidate. */
+        public static final Choices NONE = new Choices(Map.of());
+
+        public Choices(Map<SiteKey, Redirect> bySite) {
+            this.bySite = Map.copyOf(bySite);
+        }
+
+        /** The redirect chosen at this reference, or null when the user was never asked about it. */
+        Redirect at(ProjectFile file, SdkReferences.Reference reference) {
+            return bySite.get(new SiteKey(file.getPath().toString(),
+                    reference.site().node().getStartPosition()));
+        }
+    }
+
+    /**
      * What the run produced: the files to write, or the reason nothing will be. Never both — a refusal carries
      * an empty file list precisely so a caller that ignores {@link #isRefusal()} writes nothing rather than
      * half of it.
@@ -269,6 +308,15 @@ public final class SdkMigrationRunner {
     public static Outcome run(Repairs repairs, List<ProjectFile> editable, List<ProjectFile> generated,
                               Set<String> sdkTypes, Map<String, List<String>> fieldOwners,
                               String markerPackage, ProjectAnalyzer analyzer, ProjectState state) {
+        return run(repairs, Choices.NONE, editable, generated, sdkTypes, fieldOwners, markerPackage,
+                analyzer, state);
+    }
+
+    /** As above, with the per-site decisions a split asked the user for. See {@link Choices}. */
+    public static Outcome run(Repairs repairs, Choices choices, List<ProjectFile> editable,
+                              List<ProjectFile> generated, Set<String> sdkTypes,
+                              Map<String, List<String>> fieldOwners, String markerPackage,
+                              ProjectAnalyzer analyzer, ProjectState state) {
         String blocked = scaffoldingInTheWay(generated, repairs, sdkTypes, fieldOwners);
         if (blocked != null) return Outcome.refused(blocked);
 
@@ -277,7 +325,7 @@ public final class SdkMigrationRunner {
             String original = file.getContent();
             if (original == null) continue;
 
-            Applied members = rewriteMembers(file, original, repairs, sdkTypes, fieldOwners,
+            Applied members = rewriteMembers(file, original, repairs, choices, sdkTypes, fieldOwners,
                     markerPackage, analyzer, state);
             if (members.refusal() != null) return Outcome.refused(members.refusal());
             String afterMembers = members.text() == null ? original : members.text();
@@ -309,7 +357,7 @@ public final class SdkMigrationRunner {
      * Sweep one: the members. Renames what kept its role, and stands a default value in — or deletes the
      * statement — for what did not.
      */
-    private static Applied rewriteMembers(ProjectFile file, String text, Repairs repairs,
+    private static Applied rewriteMembers(ProjectFile file, String text, Repairs repairs, Choices choices,
                                           Set<String> sdkTypes, Map<String, List<String>> fieldOwners,
                                           String markerPackage, ProjectAnalyzer analyzer, ProjectState state) {
         CompilationUnit unit = SourceParser.parse(text);
@@ -347,8 +395,15 @@ public final class SdkMigrationRunner {
                 }
                 continue;
             }
-            Redirect redirect = repairs.redirects().stream().filter(r -> r.matches(reference))
-                    .findFirst().orElse(null);
+            // What the user chose here, if they were asked; otherwise the author's preferred candidate. The
+            // chosen one is re-checked against this reference so a key that landed on the wrong call — which
+            // nothing edits the files to allow, but which no assertion here could rule out — degrades to the
+            // default rather than rewriting a site into something it never offered.
+            Redirect chosen = choices.at(file, reference);
+            Redirect redirect = chosen != null && chosen.matches(reference)
+                    ? chosen
+                    : repairs.redirects().stream().filter(r -> r.matches(reference))
+                            .findFirst().orElse(null);
             if (redirect == null) continue;
             // The position decides. A statement discards the value, so nothing the target gives back can be
             // wrong there; anywhere else the fit had to be checked against the target jar, and a redirect

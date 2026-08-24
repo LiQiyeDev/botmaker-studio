@@ -2,8 +2,11 @@ package com.botmaker.studio.ui.app;
 
 import com.botmaker.studio.services.SdkUpgradeService;
 import com.botmaker.studio.services.SdkUpgradeService.Break;
+import com.botmaker.studio.services.SdkUpgradeService.CallSite;
+import com.botmaker.studio.services.SdkUpgradeService.Choice;
 import com.botmaker.studio.services.SdkUpgradeService.Deprecation;
 import com.botmaker.studio.services.SdkUpgradeService.Report;
+import com.botmaker.studio.services.SdkUpgradeService.Site;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -25,7 +28,9 @@ import javafx.stage.Stage;
 import javafx.stage.Window;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 
 /**
@@ -64,6 +69,14 @@ public final class SdkUpgradeDialog {
     private final ProgressIndicator progress = new ProgressIndicator();
     private final Label statusLabel = new Label();
     private final VBox reportBox = new VBox(14);
+
+    /**
+     * The one thing this dialog collects rather than displays: which candidate of a split each call site
+     * meant, as an index into <em>that site's</em> own list. Every entry is filled in as the card is built,
+     * so the map is complete before the user has touched anything and closing the dialog without a click
+     * produces exactly the upgrade an empty map would.
+     */
+    private final Map<CallSite, Integer> picks = new LinkedHashMap<>();
 
     private Stage stage;
     private Report report;
@@ -256,6 +269,7 @@ public final class SdkUpgradeDialog {
 
     private void render(Report r) {
         reportBox.getChildren().clear();
+        picks.clear();
 
         if (r.isIncomplete()) {
             reportBox.getChildren().add(section("⚠ What this check could not determine", r.problems()));
@@ -322,9 +336,75 @@ public final class SdkUpgradeDialog {
         reportBox.getChildren().add(section("What's new", added,
                 "No new public API between " + r.from() + " and " + r.to() + "."));
 
+        // Last before the button, because it is the only thing on this dialog addressed *to* the user.
+        for (Choice choice : r.splits()) reportBox.getChildren().add(splitCard(choice));
+
         if (!r.repairable().isEmpty()) {
             reportBox.getChildren().add(repairCard(r));
         }
+    }
+
+    /**
+     * One member that became two, and a row per call of it — the only question this dialog asks.
+     *
+     * <p>Which candidate a call meant is a property of the call, not of the member, so there is no
+     * project-wide answer to offer: {@code scroll(3)} and {@code scroll(-3)} want different ones and a single
+     * pick would be wrong in half of them by construction. Hence a row per site, each showing the call
+     * <em>as written</em> — the line number alone cannot tell those two apart, which is exactly the
+     * distinction being asked about.
+     *
+     * <p><b>Nothing is required.</b> Every combo arrives on the author's preferred candidate, and a site
+     * where none of the candidates fits gets no combo at all: that is today's default value and review mark,
+     * and offering an empty menu would imply a choice that does not exist.
+     *
+     * <p>Modernise does not render these — it takes the preferred candidate everywhere. Moving off a
+     * deprecation is not a change the user came here to make, and it is the one path where declining to
+     * answer must not cost anything.
+     */
+    private Node splitCard(Choice choice) {
+        Label heading = new Label(choice.display() + " became " + choice.candidates().size()
+                + " members — pick one per call");
+        heading.setStyle("-fx-font-weight: bold;");
+
+        VBox card = new VBox(6, heading);
+        if (!choice.note().isBlank()) {
+            // The SDK author's own sentence, verbatim. Nobody here is entitled to paraphrase it.
+            Label note = new Label(choice.note());
+            note.setWrapText(true);
+            card.getChildren().add(note);
+        }
+        Label why = new Label("Each call is already answered with the first choice. Change one only where "
+                + "that is not what the call meant.");
+        why.setWrapText(true);
+        why.getStyleClass().add("sdk-upgrade-empty");
+        card.getChildren().add(why);
+
+        for (Site site : choice.sites()) {
+            HBox row = new HBox(8);
+            row.setAlignment(Pos.CENTER_LEFT);
+            Label where = new Label(site.site() + "   " + site.site().text());
+            where.getStyleClass().add("sdk-upgrade-detail");
+            row.getChildren().add(where);
+
+            if (site.candidates().isEmpty()) {
+                Label none = new Label("— nothing that fits here, so a default value is written and the "
+                        + "function is marked for review");
+                none.setWrapText(true);
+                none.getStyleClass().add("sdk-upgrade-empty");
+                row.getChildren().add(none);
+            } else {
+                ComboBox<String> combo = new ComboBox<>();
+                site.candidates().forEach(c -> combo.getItems().add(c.display()));
+                combo.getSelectionModel().select(0);
+                picks.put(site.site(), 0);
+                combo.getSelectionModel().selectedIndexProperty().addListener(
+                        (o, was, now) -> picks.put(site.site(), now.intValue()));
+                row.getChildren().add(combo);
+            }
+            card.getChildren().add(row);
+        }
+        card.getStyleClass().add("sdk-upgrade-card");
+        return card;
     }
 
     /**
@@ -460,7 +540,7 @@ public final class SdkUpgradeDialog {
                 : "Committing a snapshot and switching to " + target + "…");
         applyButton.setDisable(true);
 
-        upgrades.apply(target, repair, alsoModernise).whenComplete((ignored, error) ->
+        upgrades.apply(target, repair, alsoModernise, Map.copyOf(picks)).whenComplete((ignored, error) ->
                 Platform.runLater(() -> {
                     if (error != null) {
                         failed("Could not switch to SDK " + target, error);

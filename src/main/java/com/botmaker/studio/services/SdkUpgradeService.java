@@ -1,42 +1,37 @@
 package com.botmaker.studio.services;
 
-import com.botmaker.studio.index.TypeSummaryManager;
 import com.botmaker.studio.parser.helpers.SourceParser;
 import com.botmaker.studio.parser.refactor.CallMigrator;
 import com.botmaker.studio.parser.refactor.SdkMigrationRunner;
 import com.botmaker.studio.parser.refactor.ReviewMarks;
 import com.botmaker.studio.parser.refactor.SdkReferences;
-import com.botmaker.studio.parser.refactor.SignatureMigration.ArgumentEdit;
 import com.botmaker.studio.project.FileRole;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.project.vcs.ProjectVcs;
-import com.botmaker.studio.sharing.SemVer;
-import io.github.classgraph.AnnotationInfo;
-import io.github.classgraph.AnnotationInfoList;
-import io.github.classgraph.ClassInfo;
-import io.github.classgraph.FieldInfo;
-import io.github.classgraph.MethodInfo;
-import io.github.classgraph.MethodParameterInfo;
+import com.botmaker.studio.services.SdkApiModel.ApiClass;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
+
+import static com.botmaker.studio.services.SdkApiModel.CTOR;
+import static com.botmaker.studio.services.SdkApiModel.declares;
+import static com.botmaker.studio.services.SdkApiModel.offers;
+import static com.botmaker.studio.services.SdkRedirects.fittingAt;
+import static com.botmaker.studio.services.SdkRedirects.redirectFor;
+import static com.botmaker.studio.services.SdkRedirects.redirectsFor;
+import static com.botmaker.studio.services.SdkRedirects.returnTypeFqn;
+import static com.botmaker.studio.services.SdkRedirects.returnTypeOf;
 
 /**
  * What changing this bot's SDK version would actually do to <em>this bot</em>.
@@ -53,6 +48,20 @@ import java.util.concurrent.CompletableFuture;
  * source. The result is a {@link Report}: what is new, what the bot calls that is now deprecated, what the
  * bot calls that is <em>gone</em> (with file and line), and what the SDK itself says cannot be migrated
  * automatically.
+ *
+ * <h2>Where the work lives</h2>
+ *
+ * <p>This class is the service: the public {@linkplain Report report} it hands back, the entry points that
+ * build one, and the scan of the bot's own sources — the only part that needs the project. Everything it
+ * asks of the two jars lives beside it, package-private, in four files that no caller outside this package
+ * ever names:
+ *
+ * <ul>
+ *   <li>{@link SdkApiModel} — the two jars reduced to what the questions need, and the pointer grammar;</li>
+ *   <li>{@link SdkPairing} — the edges, and the walk that follows them to something the target jar has;</li>
+ *   <li>{@link SdkRedirects} — the one place a redirect is decided, and the checks it has to pass;</li>
+ *   <li>{@link SdkUpgradeDiff} — the lists a report carries, and the sentences shown beside them.</li>
+ * </ul>
  *
  * <h2>A redirect where the jars confirm it, a default where they do not</h2>
  *
@@ -158,39 +167,6 @@ import java.util.concurrent.CompletableFuture;
  */
 public final class SdkUpgradeService {
 
-    /** The forward pointer, on the deprecated element. Class-retained, so it survives into the jar. */
-    private static final String REPLACED_BY = "com.botmaker.sdk.api.meta.ReplacedBy";
-
-    /** The backward pointer, on the survivor. Same retention, same reason. */
-    private static final String REPLACES = "com.botmaker.sdk.api.meta.Replaces";
-
-    /**
-     * Where the pointers lived before SDK 1.1.0 moved them into {@code api.meta}. Both spellings are read,
-     * and the legacy one is not a courtesy: the jar being upgraded <em>from</em> is by definition the older
-     * of the two, and for a bot coming off 1.0.x it is the only jar carrying the forward pointer on the
-     * element that bot still calls. Reading only the new name would silently turn every pre-1.1.0 redirect
-     * into an unpaired break — the exact failure the pointer pair exists to prevent.
-     */
-    private static final String REPLACED_BY_LEGACY = "com.botmaker.sdk.api.ReplacedBy";
-
-    /** @see #REPLACED_BY_LEGACY */
-    private static final String REPLACES_LEGACY = "com.botmaker.sdk.api.Replaces";
-
-    /**
-     * The release an element first appeared in, which is what gives "What's new" its eras.
-     *
-     * <p>There is no legacy spelling to read for this one or for {@link #SCAFFOLDING}, and that is a fact
-     * about the SDK rather than an omission: both were introduced in the same unreleased window that moved
-     * the whole surface into {@code api.meta}, so no published jar has ever carried them under {@code api}.
-     */
-    private static final String SINCE = "com.botmaker.sdk.api.meta.Since";
-
-    /** Marks a member Studio's own generated files write — see {@link Report#scaffolding()}. */
-    private static final String SCAFFOLDING = "com.botmaker.sdk.api.meta.Scaffolding";
-
-    /** A constructor has no name of its own; this is how the pointer grammar spells one. */
-    private static final String CTOR = SdkReferences.CTOR;
-
     private final ProjectConfig config;
     private final ProjectState state;
     private final LibraryService libraryService;
@@ -208,8 +184,27 @@ public final class SdkUpgradeService {
     // THE REPORT
     // =========================================================================
 
-    /** One place in the bot's own source, as the user would find it: project-relative path and 1-based line. */
-    public record CallSite(String file, int line) {
+    /**
+     * One place in the bot's own source, as the user would find it: project-relative path and 1-based line.
+     *
+     * <p>{@code text} is the call as the user wrote it, elided if long. A line number cannot tell
+     * {@code scroll(3)} from {@code scroll(-3)}, and those are exactly the two calls a
+     * {@linkplain Choice split} asks the user to answer differently.
+     *
+     * <p>{@code offset} is not for display. It is the <b>key</b> a per-site decision travels under: the
+     * report pass and the apply pass parse the sources twice, so the AST node the dialog was built from is
+     * not the node the rewriter holds, and node identity would silently pair nothing. Nothing edits the
+     * files between the two passes, so a character offset is stable — and a key that misses simply falls
+     * back to that site's own default, which is the correct degradation.
+     */
+    public record CallSite(String file, int line, String text, int offset) {
+
+        /** The call as written, cut to something a dialog row can hold. */
+        static String elide(String source) {
+            String one = source.replaceAll("\\s+", " ").trim();
+            return one.length() <= 40 ? one : one.substring(0, 39) + "…";
+        }
+
         @Override
         public String toString() {
             return file + ":" + line;
@@ -289,6 +284,51 @@ public final class SdkUpgradeService {
     }
 
     /**
+     * One place a redirect could go, and the sentence the SDK's author wrote to distinguish it from the
+     * others. {@code when} is blank for a candidate read only off the back edge, where the survivor knows
+     * what it replaced but not why one call meant it rather than the other.
+     */
+    public record Candidate(SdkMigrationRunner.Redirect redirect, String when) {
+
+        /** How the user reads it in the menu: {@code Mouse.scrollUp — when notches is positive}. */
+        public String display() {
+            return when.isBlank() ? redirect.display() : redirect.display() + " — " + when;
+        }
+    }
+
+    /**
+     * A member that became <b>two</b>, and the question that puts to each call of it.
+     *
+     * <p>Which candidate a call meant is a property of <em>that call</em>, not of the member — the sign of
+     * the argument, the thing the surrounding code does with the result — so this is the one thing in the
+     * whole upgrade that is a decision rather than a fact, and the only place the user is asked one. It is
+     * surfaced beside {@link Report#breaks()} and {@link Report#deprecated()} rather than inside them: a
+     * split is not a new <em>verdict</em> about the member (it is still deprecated, or still gone), so
+     * folding it in would change what {@link Report#canMigrate()} and {@link Report#canModernise()} mean.
+     *
+     * <p>Nothing is required of the user: every site arrives answered with the author's preferred candidate,
+     * so a dialog closed without a click migrates exactly as it would have before splits existed.
+     */
+    public record Choice(String type, String member, int argCount, List<Candidate> candidates,
+                         String note, List<Site> sites) {
+
+        public String display() {
+            return CTOR.equals(member) ? "new " + type : type + "." + member;
+        }
+    }
+
+    /**
+     * One call of a split member, with the candidates that fit <em>there</em>.
+     *
+     * <p>The list is filtered per site because {@code expressionSafe} is a property of the position, not of
+     * the candidate: a call standing as a statement discards its result, so every candidate fits, while one
+     * whose value is used admits only those whose return type still sits where the old one did. The
+     * <b>first</b> is the preselection. An <b>empty</b> list is not a new outcome — it is today's default
+     * value plus {@code @NeedsReview}, and the dialog says so rather than offering an empty menu.
+     */
+    public record Site(CallSite site, List<Candidate> candidates) {}
+
+    /**
      * The whole answer to "what happens if I move to this version".
      *
      * <p>{@code problems} is what the scan could <em>not</em> determine — an unresolvable jar, a file that
@@ -305,11 +345,16 @@ public final class SdkUpgradeService {
      * write. It is stated up front rather than discovered mid-apply, which is where
      * {@code SdkMigrationRunner.scaffoldingInTheWay} finds it: a refusal that arrives after the user has
      * committed to the upgrade is the same information delivered at the worst possible moment.
+     *
+     * <p>{@code splits} are the members that became two — see {@link Choice}. They sit beside the two verdict
+     * lists rather than inside them, deliberately: a split member is already reported there as deprecated or
+     * as a break, and this is the question that goes with it, not a third kind of finding.
      */
     public record Report(String from, String to,
                          Map<String, List<String>> addedBySince,
                          List<Deprecation> deprecated,
                          List<Break> breaks,
+                         List<Choice> splits,
                          List<String> scaffolding,
                          List<String> problems) {
 
@@ -366,7 +411,8 @@ public final class SdkUpgradeService {
         }
 
         static Report unavailable(String from, String to, String problem) {
-            return new Report(from, to, Map.of(), List.of(), List.of(), List.of(), List.of(problem));
+            return new Report(from, to, Map.of(), List.of(), List.of(), List.of(), List.of(),
+                    List.of(problem));
         }
     }
 
@@ -458,8 +504,8 @@ public final class SdkUpgradeService {
     }
 
     Report compare(Path oldJar, Path newJar, String from, String to, boolean throughDeprecations) {
-        Map<String, ApiClass> before = snapshot(oldJar);
-        Map<String, ApiClass> after = snapshot(newJar);
+        Map<String, ApiClass> before = SdkApiModel.snapshot(oldJar);
+        Map<String, ApiClass> after = SdkApiModel.snapshot(newJar);
         if (before.isEmpty() || after.isEmpty()) {
             return Report.unavailable(from, to,
                     "One of the two SDK jars scanned to no public API at all, which means the comparison "
@@ -469,18 +515,19 @@ public final class SdkUpgradeService {
         List<String> problems = new ArrayList<>();
         Set<String> known = new LinkedHashSet<>(before.keySet());
         known.addAll(after.keySet());
-        Uses uses = usesIn(known, fieldOwners(before, after), problems);
+        Uses uses = usesIn(known, SdkApiModel.fieldOwners(before, after), problems);
         // Writes into problems too — an old spelling two survivors both claim is a question this cannot
         // answer, and it is recorded before the list is frozen.
-        Pairing pairing = Pairing.of(before, after, from, problems, throughDeprecations);
+        SdkPairing pairing = SdkPairing.of(before, after, from, problems, throughDeprecations);
 
-        List<Deprecation> deprecated = deprecations(before, after, uses.calls(), pairing);
-        List<Break> breaks = breaks(before, after, uses, pairing);
+        List<Deprecation> deprecated = SdkUpgradeDiff.deprecations(before, after, uses.calls(), pairing);
+        List<Break> breaks = SdkUpgradeDiff.breaks(before, after, uses, pairing);
         return new Report(from, to,
-                additions(before, after),
+                SdkUpgradeDiff.additions(before, after),
                 deprecated,
                 breaks,
-                scaffolding(before, deprecated, breaks),
+                SdkUpgradeDiff.splits(before, after, uses, pairing),
+                SdkUpgradeDiff.scaffolding(before, deprecated, breaks),
                 List.copyOf(problems));
     }
 
@@ -506,11 +553,25 @@ public final class SdkUpgradeService {
      * break.
      */
     public CompletableFuture<Void> apply(String targetVersion, boolean repairSources, boolean alsoModernise) {
+        return apply(targetVersion, repairSources, alsoModernise, Map.of());
+    }
+
+    /**
+     * The same, carrying the per-site answers a {@link Choice} asked for: the report's own {@link CallSite}
+     * mapped to the index the user picked in <em>that site's</em> candidate list. An empty map — every
+     * headless caller, and a dialog the user simply accepted — takes the preferred candidate everywhere.
+     *
+     * <p>The indices are all that crosses the dialog boundary. What each one <em>means</em> is worked out
+     * again from the two jars at the moment of writing, for the same reason the rest of the repair is: a
+     * value that crossed an FX thread is not evidence about the files on disk right now.
+     */
+    public CompletableFuture<Void> apply(String targetVersion, boolean repairSources, boolean alsoModernise,
+                                         Map<CallSite, Integer> picks) {
         return CompletableFuture
                 .runAsync(() -> {
                     snapshot("Before SDK upgrade to " + targetVersion);
                     if (repairSources || alsoModernise) {
-                        migrateSources(targetVersion, alsoModernise, true);
+                        migrateSources(targetVersion, alsoModernise, true, picks);
                     }
                 })
                 .thenCompose(v -> libraryService.updateLibraries(libraryService.currentLibraries(),
@@ -529,7 +590,7 @@ public final class SdkUpgradeService {
     public CompletableFuture<Void> modernise() {
         return CompletableFuture.runAsync(() -> {
             snapshot("Before modernising");
-            migrateSources(currentVersion(), true, false);
+            migrateSources(currentVersion(), true, false, Map.of());
         });
     }
 
@@ -549,7 +610,8 @@ public final class SdkUpgradeService {
      * <p>Everything it needs it works out again from the two jars: the report the user read is a value, and a
      * value that crossed a dialog and an FX thread is not evidence about the files on disk right now.
      */
-    private void migrateSources(String targetVersion, boolean throughDeprecations, boolean allowDefaults) {
+    private void migrateSources(String targetVersion, boolean throughDeprecations, boolean allowDefaults,
+                                Map<CallSite, Integer> picks) {
         String from = currentVersion();
         Optional<Path> oldJar = MavenService.resolveSdkJar(config.projectPath(), from);
         Optional<Path> newJar = MavenService.resolveSdkJar(config.projectPath(), targetVersion);
@@ -559,19 +621,19 @@ public final class SdkUpgradeService {
         }
 
         List<String> problems = new ArrayList<>();
-        Map<String, ApiClass> before = snapshot(oldJar.get());
-        Map<String, ApiClass> after = snapshot(newJar.get());
+        Map<String, ApiClass> before = SdkApiModel.snapshot(oldJar.get());
+        Map<String, ApiClass> after = SdkApiModel.snapshot(newJar.get());
         Set<String> known = new LinkedHashSet<>(before.keySet());
         known.addAll(after.keySet());
-        Map<String, List<String>> fieldOwners = fieldOwners(before, after);
-        Pairing pairing = Pairing.of(before, after, from, problems, throughDeprecations);
+        Map<String, List<String>> fieldOwners = SdkApiModel.fieldOwners(before, after);
+        SdkPairing pairing = SdkPairing.of(before, after, from, problems, throughDeprecations);
 
         Uses uses = usesIn(known, fieldOwners, problems);
         // The same all-or-nothing rule the report states: anything the scan could not answer — a file that
         // does not parse, an old name two survivors both claim — stops the rewrite before it writes.
         if (!problems.isEmpty()) throw new IllegalStateException(problems.getFirst());
 
-        List<Break> breaks = breaks(before, after, uses, pairing);
+        List<Break> breaks = SdkUpgradeDiff.breaks(before, after, uses, pairing);
         Break refused = breaks.stream().filter(b -> !b.isRepairable()).findFirst().orElse(null);
         if (refused != null) {
             throw new IllegalStateException("\"" + refused.type() + "\" is gone from SDK " + targetVersion
@@ -594,7 +656,8 @@ public final class SdkUpgradeService {
                     .add(file);
         }
 
-        SdkMigrationRunner.Outcome outcome = SdkMigrationRunner.run(repairs, editable, generated,
+        SdkMigrationRunner.Outcome outcome = SdkMigrationRunner.run(repairs,
+                choicesFor(before, after, uses, pairing, picks), editable, generated,
                 known, fieldOwners, config.mainPackage(), null, state);
         if (outcome.isRefusal()) throw new IllegalStateException(outcome.refusal());
         try {
@@ -621,7 +684,7 @@ public final class SdkUpgradeService {
      */
     private static SdkMigrationRunner.Repairs repairsFor(Map<String, ApiClass> before,
                                                          Map<String, ApiClass> after,
-                                                         Uses uses, Pairing pairing,
+                                                         Uses uses, SdkPairing pairing,
                                                          boolean allowDefaults) {
         Map<String, SdkMigrationRunner.TypeRename> types = new LinkedHashMap<>();
         Map<String, SdkMigrationRunner.Redirect> redirects = new LinkedHashMap<>();
@@ -642,7 +705,7 @@ public final class SdkUpgradeService {
 
         for (Call call : uses.calls()) {
             ApiClass then = before.get(call.type());
-            if (then == null || !declares(then, call)) continue;
+            if (then == null || !declares(then, call.isField(), call.member())) continue;
 
             ApiClass now = pairing.pairedTo(then, after);
             if (now == null) continue;                      // refused above; nothing to write
@@ -669,737 +732,34 @@ public final class SdkUpgradeService {
                 List.copyOf(removals.values()));
     }
 
-    // =========================================================================
-    // THE CHECKED REDIRECT
-    // =========================================================================
-
     /**
-     * Where this call should point instead, or null when nothing in the target jar can take it.
+     * Turns the dialog's per-site picks into the redirects the runner will apply — see {@link Choice}.
      *
-     * <p>This is the one place that decides a redirect, and both readers go through it — {@link #breaks} for
-     * the sentence the dialog shows, {@link #repairsFor} for the edit. Two answers to one question would
-     * eventually be a dialog promising a rewrite the rewriter does not make.
-     *
-     * <p>It answers null for three quite different things, all of which end the same way (a default value and
-     * a review mark): the call already resolves and needs nothing; nothing pairs with it; or something does
-     * but the shapes cannot be reconciled. The last group is where the refusals live, and each is deliberate:
-     *
-     * <ul>
-     *   <li><b>a field paired with a method, or a constructor with a method</b> — the source shapes differ,
-     *       and rewriting one into the other is not a redirect but a rewrite of the surrounding code;</li>
-     *   <li><b>several candidate overloads and none of this call's arity</b> — which one the author meant is
-     *       exactly what an arity was going to tell us, so a guess between two is a guess.</li>
-     * </ul>
-     *
-     * <p>Where a single overload of another arity is the only candidate, the arguments this call already
-     * passes are kept in order and the difference is made up: a {@link ArgumentEdit.Literal} per input the
-     * target gained, and trailing arguments simply dropped for one it lost. That is
-     * {@code SignatureMigration}'s own machinery, doing here what it does for a hand-edited signature.
+     * <p>An index is looked up in the same list {@link SdkUpgradeDiff#splits} built for that site, worked out
+     * here from the jars rather than carried over from the report. Anything that does not line up — a site
+     * nobody was asked about, a member that no longer splits, an index past the end — is simply left out, and
+     * the site takes the preferred candidate that {@link #repairsFor} already recorded. A key that misses is
+     * the correct degradation, not a failure: it produces the upgrade the user would have got by not choosing.
      */
-    private static SdkMigrationRunner.Redirect redirectFor(ApiClass then, ApiClass now, Call call,
-                                                           Map<String, ApiClass> after, Pairing pairing) {
-        Pairing.Member target = pairing.targetOf(then, call.member());
-        ApiClass owner = target == null ? now : after.get(target.type());
-        String name = target == null ? call.member() : target.name();
-        if (owner == null) return null;
-        // A constructor is not a method with a funny name: `new Point(…)` and `Point.of(…)` are different
-        // source shapes, and one is not rewritten into the other by renaming anything.
-        if (CTOR.equals(call.member()) != CTOR.equals(name)) return null;
+    private static SdkMigrationRunner.Choices choicesFor(Map<String, ApiClass> before,
+                                                         Map<String, ApiClass> after, Uses uses,
+                                                         SdkPairing pairing, Map<CallSite, Integer> picks) {
+        if (picks.isEmpty()) return SdkMigrationRunner.Choices.NONE;
 
-        boolean moved = !owner.name().equals(now.name());
-        String oldReturn = returnTypeOf(then, call);
-        Advice advice = adviceFor(then, call, owner, name);
+        Map<SdkMigrationRunner.SiteKey, SdkMigrationRunner.Redirect> out = new LinkedHashMap<>();
+        for (Call call : uses.calls()) {
+            Integer pick = picks.get(call.site());
+            if (pick == null || pick == 0) continue;        // 0 is the default the repairs already carry
+            ApiClass then = before.get(call.type());
+            if (then == null || !declares(then, call.isField(), call.member())) continue;
+            ApiClass now = pairing.pairedTo(then, after);
+            if (now == null) continue;
 
-        if (call.isField()) {
-            if (!owner.declaresField(name)) return null;
-            if (!moved && name.equals(call.member())) return null;      // still there, still spelled the same
-            String newReturn = typeOfField(owner, name);
-            return new SdkMigrationRunner.Redirect(then.simpleName(), call.member(), call.argCount(),
-                    moved ? owner.name() : null, name, List.of(), oldReturn, newReturn,
-                    fits(oldReturn, newReturn, after), returnTypeFqn(oldReturn, after),
-                    advice.note(), advice.behaviourChanged());
+            List<Candidate> fitting = fittingAt(redirectsFor(then, now, call, after, pairing), call);
+            if (pick < 0 || pick >= fitting.size()) continue;
+            out.put(call.key(), fitting.get(pick).redirect());
         }
-
-        List<ApiMember> overloads = owner.byName().getOrDefault(name, List.of()).stream()
-                .filter(m -> !m.field()).toList();
-        if (overloads.isEmpty()) return null;
-
-        ApiMember exact = overloads.stream()
-                .filter(m -> m.params().size() == call.argCount()).findFirst().orElse(null);
-        if (exact != null && !moved && name.equals(call.member())) return null;   // the call already compiles
-
-        ApiMember chosen = exact;
-        if (chosen == null) {
-            if (overloads.size() != 1) return null;
-            chosen = overloads.getFirst();
-        }
-        return new SdkMigrationRunner.Redirect(then.simpleName(), call.member(), call.argCount(),
-                moved ? owner.name() : null, name, argumentsFor(call.argCount(), chosen),
-                oldReturn, chosen.type(), fits(oldReturn, chosen.type(), after),
-                returnTypeFqn(oldReturn, after), advice.note(), advice.behaviourChanged());
-    }
-
-    /**
-     * What the SDK's own author said about this move, from whichever end of the pointer pair carries it.
-     *
-     * <p>Both ends are asked because only one of them need exist. The <b>forward</b> half is the
-     * {@code @ReplacedBy} on the element in the <em>old</em> jar — the one the bot still calls — and it wins,
-     * being the author speaking on the member the user actually wrote. The <b>backward</b> half is the
-     * {@code @Replaces} claim on the survivor in the <em>new</em> jar, which is the only place the sentence
-     * survives once the deprecated element is finally deleted, and so is the answer for a bot that skipped
-     * the deprecation release entirely. See {@link Advice}.
-     */
-    private static Advice adviceFor(ApiClass then, Call call, ApiClass owner, String name) {
-        Advice forward = pointerAdvice(overloadOf(then, call));
-        String oldSpelling = then.name() + "#" + call.member();
-        Advice backward = owner.byName().getOrDefault(name, List.of()).stream()
-                .flatMap(m -> m.replaces().stream())
-                .filter(c -> c.name().equals(oldSpelling) && c.covers(call.argCount()))
-                .findFirst()
-                .map(c -> new Advice(c.note(), c.behaviourChanged()))
-                .orElse(Advice.NONE);
-        return forward.over(backward);
-    }
-
-    /** The overload this call reaches, by arity, falling back to any of the name — see {@link #returnTypeOf}. */
-    private static ApiMember overloadOf(ApiClass then, Call call) {
-        List<ApiMember> named = then.byName().getOrDefault(call.member(), List.of());
-        return named.stream()
-                .filter(m -> call.isField() ? m.field() : !m.field() && m.params().size() == call.argCount())
-                .findFirst()
-                .orElseGet(() -> named.stream().findFirst().orElse(null));
-    }
-
-    private static Advice pointerAdvice(ApiMember member) {
-        if (member == null || member.replacedBy() == null) return Advice.NONE;
-        return new Advice(member.replacedBy().note(), member.replacedBy().behaviourChanged());
-    }
-
-    /**
-     * How the call's arguments become the target's: kept in order for as far as both go, then filled or
-     * dropped. Filled with a <em>literal</em> default rather than the palette's, since the parameter's type
-     * is whatever the target jar calls it and may be something this file cannot name.
-     */
-    private static List<ArgumentEdit> argumentsFor(int argCount, ApiMember target) {
-        List<ArgumentEdit> edits = new ArrayList<>();
-        for (int i = 0; i < target.params().size(); i++) {
-            edits.add(i < argCount
-                    ? new ArgumentEdit.Keep(i)
-                    : new ArgumentEdit.Literal(target.params().get(i)));
-        }
-        return List.copyOf(edits);
-    }
-
-    /** What one field gives back — its own declared type, which is what a read of it is worth. */
-    private static String typeOfField(ApiClass klass, String name) {
-        return klass.byName().getOrDefault(name, List.of()).stream()
-                .filter(ApiMember::field).map(ApiMember::type).findFirst().orElse("");
-    }
-
-    /** Every primitive a value of this type may stand in for without a cast. */
-    private static final Map<String, Set<String>> WIDENS = Map.of(
-            "byte", Set.of("short", "int", "long", "float", "double"),
-            "short", Set.of("int", "long", "float", "double"),
-            "char", Set.of("int", "long", "float", "double"),
-            "int", Set.of("long", "float", "double"),
-            "long", Set.of("float", "double"),
-            "float", Set.of("double"));
-
-    /**
-     * Whether a value of {@code now} may stand where one of {@code was} was expected — the check that makes a
-     * redirect in expression position safe rather than hopeful.
-     *
-     * <p>Four ways it can: the same type; a subtype of it in the target jar's own hierarchy; a widening
-     * primitive conversion, which the compiler does silently; or {@code Object}, which takes anything. A
-     * {@code void} <em>old</em> type accepts anything because nothing consumed it in the first place, and a
-     * {@code void} new one fits nowhere, since there is no value to write.
-     *
-     * <p>Everything outside that list answers no — including a type the target jar does not declare at all,
-     * which is where a {@code java.util.List} or a JDK type ends up. That falls the safe way: the site gets a
-     * default and a review row instead of source that may not compile, and the user is told where the member
-     * went in the same sentence.
-     */
-    private static boolean fits(String was, String now, Map<String, ApiClass> after) {
-        if (was == null || now == null) return false;
-        if (was.equals(now)) return true;
-        if ("void".equals(was)) return true;
-        if ("void".equals(now)) return false;
-        if ("Object".equals(was)) return true;
-        if (WIDENS.getOrDefault(now, Set.of()).contains(was)) return true;
-        ApiClass target = after.get(now);
-        return target != null && target.supertypes().contains(was);
-    }
-
-    /**
-     * The type the old jar said this call gives back — the value the code around it was written for, and so
-     * the type whose default stands in when the member is gone. {@code void} for a call made for its effect,
-     * which is deleted rather than defaulted.
-     */
-    private static String returnTypeOf(ApiClass then, Call call) {
-        return then.byName().getOrDefault(call.member(), List.of()).stream()
-                .filter(m -> call.isField() ? m.field() : !m.field() && m.params().size() == call.argCount())
-                .map(ApiMember::type)
-                .findFirst()
-                // An arity nothing matched is a SIGNATURE_CHANGED break: any overload's type is a better
-                // guess than none, and they are usually the same.
-                .orElseGet(() -> then.byName().getOrDefault(call.member(), List.of()).stream()
-                        .map(ApiMember::type).findFirst().orElse("void"));
-    }
-
-    /**
-     * That same type spelled fully, <em>as the target jar has it</em> — null when the target has no such
-     * class, which includes every primitive, {@code void} and {@code String}.
-     *
-     * <p>It is asked of the target and not of the old jar on purpose: this is what a cast in the repaired
-     * source will name, and naming a class the release just dropped would trade one compile error for
-     * another. Where it answers null the repair writes the bare literal, exactly as it did before — and the
-     * one case that would leave uncompilable ({@code ImageTemplate t;} against a jar without it) is a
-     * {@link BreakKind#TYPE_REMOVED} break, which has already refused the upgrade.
-     */
-    private static String returnTypeFqn(String returnType, Map<String, ApiClass> after) {
-        ApiClass klass = after.get(returnType);
-        return klass == null ? null : klass.name();
-    }
-
-    // =========================================================================
-    // THE TWO JARS
-    // =========================================================================
-
-    /**
-     * One old spelling a surviving element claims: the name as it used to be written, optionally <em>which</em>
-     * overload of it, and the last version it was written that way in. Parsed from one {@code @Replaces} entry,
-     * and carrying that annotation's {@code note} and {@code behaviourChanged} with it — those describe the
-     * move, and a claim is the only place a move survives once the element it moved from is deleted.
-     *
-     * <p>{@code arity} is null for an entry that names the member and not a signature, which is the ordinary
-     * case: such a claim answers for every overload.
-     */
-    private record Claim(String name, Integer arity, String version, String note, boolean behaviourChanged) {
-
-        /** Whether this claim speaks for a call of {@code argCount} arguments. */
-        boolean covers(int argCount) {
-            return arity == null || arity == argCount;
-        }
-    }
-
-    /**
-     * One {@code @ReplacedBy}, read whole: where the element went, when each candidate applies, and what its
-     * author said about the move.
-     *
-     * <p>A null {@code Pointer} means <b>no annotation at all</b>; a present one whose {@link #targets()} are
-     * empty is the author saying outright that nothing takes this element's place. The two read alike and are
-     * not alike, which is why the distinction is kept — and it is not a defensive branch: {@code {}} is the
-     * annotation's declared default, so javac emits no value element for a bare {@code @ReplacedBy} and
-     * ClassGraph hands back a null value for a present annotation.
-     *
-     * <p>{@code targets} is a <b>list</b> because one old member may become two — a <em>split</em>, whose
-     * candidates {@link #whens()} distinguishes one sentence each. Reading them all is this phase; offering
-     * the user a choice between them is the next one, and until then the first candidate is the answer, which
-     * is what "ordered, first preferred" means.
-     *
-     * <p>All four annotations are {@code @Retention(CLASS)} rather than {@code RUNTIME} for the same reason
-     * {@code @Deprecated} is read from bytecode here: they are never reflected on at run time, only read off a
-     * jar that is on no classpath, by the ClassGraph scan {@code TypeSummaryManager} already runs.
-     */
-    private record Pointer(List<String> targets, List<String> whens, String note, boolean behaviourChanged) {
-
-        /**
-         * The annotation as read, or null when it is absent. A blank target is dropped rather than kept:
-         * {@code {""}} and {@code {}} are the same statement, and the SDK's own gate says so.
-         */
-        static Pointer of(AnnotationInfo annotation) {
-            if (annotation == null) return null;
-            return new Pointer(strings(annotation, "value").stream().filter(t -> !t.isBlank()).toList(),
-                    strings(annotation, "whens"), text(annotation, "note"),
-                    flag(annotation, "behaviourChanged"));
-        }
-
-        /** Where this element went, or null when it named nowhere — the answer a single-valued reader wants. */
-        String first() {
-            return targets.isEmpty() ? null : targets.getFirst();
-        }
-    }
-
-    /**
-     * What the SDK's own author said about a move, assembled from whichever end of the pointer pair carries it.
-     *
-     * <p>The two ends live in two different jars and only one of them need survive: a bot upgrading
-     * <em>through</em> the deprecation release reads {@code @ReplacedBy} on the element it still calls, and one
-     * that skipped that release finds the element gone and reads {@code @Replaces} on the survivor. So the
-     * forward note <b>wins</b> — it is the author speaking on the element the bot actually names — and the
-     * backward one is the fallback for everyone who arrived late. The flag is a logical <b>OR</b>: either end
-     * asserting that the behaviour changed is enough to mark every redirected call site.
-     */
-    private record Advice(String note, boolean behaviourChanged) {
-
-        static final Advice NONE = new Advice("", false);
-
-        /** This one, taken as the forward half, over {@code back} as the backward half. */
-        Advice over(Advice back) {
-            return new Advice(note.isBlank() ? back.note() : note,
-                    behaviourChanged || back.behaviourChanged());
-        }
-
-    }
-
-    /**
-     * One public API class, reduced to what a compatibility question can be asked of.
-     *
-     * <p>{@code supertypes} is every class and interface above it, by simple name — the one question the diff
-     * asks that a member cannot answer for itself: whether a redirect's new return value may stand where the
-     * old one did. It is read from the same scan, so it covers the SDK's own hierarchy and stops at the edge
-     * of the jar, which is all a check between two SDK types needs.
-     *
-     * <p>{@code replacedBy} is the {@code @ReplacedBy} read whole (see {@link Pointer}), null when there is no
-     * annotation at all. {@code replaces} is the {@code @Replaces} entries, which point the other way — these
-     * older spellings became <em>this</em> type. {@code since} is the release it first appeared in, {@code ""}
-     * when it does not say, and {@code scaffolding} is true for a type Studio's own generated files write.
-     */
-    private record ApiClass(String name, String simpleName, Pointer replacedBy, List<Claim> replaces,
-                            String since, boolean scaffolding,
-                            boolean deprecated, Set<String> supertypes,
-                            Map<String, List<ApiMember>> byName, Set<String> deprecatedNames) {
-
-        /** Whether this class offers {@code name} as a field — an enum constant included. */
-        boolean declaresField(String name) {
-            return byName.getOrDefault(name, List.of()).stream().anyMatch(ApiMember::field);
-        }
-
-        /** Whether this class offers {@code name} as something callable: a method or a constructor. */
-        boolean declaresCallable(String name) {
-            return byName.getOrDefault(name, List.of()).stream().anyMatch(m -> !m.field());
-        }
-    }
-
-    /**
-     * One public member: a method or constructor with its parameter types, or a field with none.
-     *
-     * <p>Fields share {@code byName} with methods rather than living in a set of their own, so the
-     * deprecation rule, the additions diff and the break diff each have one thing to consult. {@code field}
-     * is what keeps a constant from being mistaken for a no-argument method — a distinction that matters
-     * both ways round, since turning one into the other is itself a break.
-     *
-     * <p>{@code type} is what it gives back, written as source names it — the <b>old</b> jar's answer, since
-     * that is what the code around the call site was written for, and so what a default value standing in for
-     * a removed member has to be a default of. A constructor's is its own class: {@code new ImageTemplate(…)}
-     * yields an {@code ImageTemplate}.
-     *
-     * <p>{@code replacedBy} and {@code replaces} are the two halves of the pointer, read exactly as they are
-     * on a class, and {@code since} / {@code scaffolding} likewise. They sit on the <em>overload</em>, which is
-     * where the author wrote them — the pairing folds the overloads of one name together, since a call site is
-     * attributed by name and arity and the forward pointer carries no arity of its own.
-     */
-    private record ApiMember(String name, String type, List<String> params, boolean field,
-                             Pointer replacedBy, List<Claim> replaces,
-                             String since, boolean scaffolding) {
-        String signature() {
-            if (field) return name;
-            return (CTOR.equals(name) ? "" : name) + "(" + String.join(", ", params) + ")";
-        }
-    }
-
-    /**
-     * Scans one SDK jar down to its {@code com.botmaker.sdk.api} classes. Goes through
-     * {@link TypeSummaryManager} rather than ClassGraph directly so the scan lands in the same per-jar disk
-     * cache everything else uses — comparing against a given target version is fast the second time.
-     */
-    private static Map<String, ApiClass> snapshot(Path jar) {
-        TypeSummaryManager index = new TypeSummaryManager();
-        index.refresh(List.of(jar.toString()));
-        Map<String, ApiClass> out = new LinkedHashMap<>();
-        for (ClassInfo ci : index.getAllTypes()) {
-            out.put(ci.getSimpleName(), apiClassOf(ci));
-        }
-        return out;
-    }
-
-    private static ApiClass apiClassOf(ClassInfo ci) {
-        Map<String, List<ApiMember>> byName = new LinkedHashMap<>();
-        Set<String> deprecatedNames = new LinkedHashSet<>();
-        Set<String> liveNames = new LinkedHashSet<>();
-
-        List<MethodInfo> all = new ArrayList<>(ci.getMethodInfo());
-        all.addAll(ci.getConstructorInfo());
-        for (MethodInfo mi : all) {
-            if (!mi.isPublic() || mi.isSynthetic()) continue;
-            String name = mi.isConstructor() ? CTOR : mi.getName();
-            String type = mi.isConstructor()
-                    ? ci.getSimpleName()
-                    : lastSegment(mi.getTypeSignatureOrTypeDescriptor().getResultType().toString());
-            byName.computeIfAbsent(name, k -> new ArrayList<>())
-                    .add(new ApiMember(name, type, paramsOf(mi), false,
-                            Pointer.of(either(mi.getAnnotationInfo(), REPLACED_BY, REPLACED_BY_LEGACY)),
-                            claims(either(mi.getAnnotationInfo(), REPLACES, REPLACES_LEGACY)),
-                            text(either(mi.getAnnotationInfo(), SINCE), "value"),
-                            mi.hasAnnotation(SCAFFOLDING)));
-            // A name counts as deprecated only when every overload carrying it is — same rule as
-            // SdkSurfaceService, and for the same reason: the user reads a name, not an overload.
-            (mi.hasAnnotation(Deprecated.class.getName()) ? deprecatedNames : liveNames).add(name);
-        }
-        // Fields go through the same map and the same deprecation rule. Enum constants need no special
-        // case: the compiler emits each one as a public static field of the enum type.
-        for (FieldInfo fi : ci.getFieldInfo()) {
-            if (!fi.isPublic() || fi.isSynthetic()) continue;
-            byName.computeIfAbsent(fi.getName(), k -> new ArrayList<>())
-                    .add(new ApiMember(fi.getName(), lastSegment(fi.getTypeDescriptor().toString()),
-                            List.of(), true,
-                            Pointer.of(either(fi.getAnnotationInfo(), REPLACED_BY, REPLACED_BY_LEGACY)),
-                            claims(either(fi.getAnnotationInfo(), REPLACES, REPLACES_LEGACY)),
-                            text(either(fi.getAnnotationInfo(), SINCE), "value"),
-                            fi.hasAnnotation(SCAFFOLDING)));
-            (fi.hasAnnotation(Deprecated.class.getName()) ? deprecatedNames : liveNames).add(fi.getName());
-        }
-        deprecatedNames.removeAll(liveNames);
-        Set<String> supertypes = new LinkedHashSet<>();
-        ci.getSuperclasses().forEach(parent -> supertypes.add(parent.getSimpleName()));
-        ci.getInterfaces().forEach(parent -> supertypes.add(parent.getSimpleName()));
-        return new ApiClass(ci.getName(), ci.getSimpleName(),
-                Pointer.of(either(ci.getAnnotationInfo(), REPLACED_BY, REPLACED_BY_LEGACY)),
-                claims(either(ci.getAnnotationInfo(), REPLACES, REPLACES_LEGACY)),
-                text(either(ci.getAnnotationInfo(), SINCE), "value"), ci.hasAnnotation(SCAFFOLDING),
-                ci.hasAnnotation(Deprecated.class.getName()), Set.copyOf(supertypes),
-                Map.copyOf(byName), Set.copyOf(deprecatedNames));
-    }
-
-    /**
-     * The first of {@code names} present on {@code annotations}, or {@code null}. Exists so one element can
-     * be asked for a pointer under either its current or its pre-1.1.0 spelling without either read site
-     * having to know there are two.
-     */
-    private static AnnotationInfo either(AnnotationInfoList annotations, String... names) {
-        if (annotations == null) return null;
-        for (String name : names) {
-            AnnotationInfo found = annotations.get(name);
-            if (found != null) return found;
-        }
-        return null;
-    }
-
-    /** One annotation element read as a list of strings — {@code String[]} being how all four spell theirs. */
-    private static List<String> strings(AnnotationInfo annotation, String element) {
-        if (annotation == null) return List.of();
-        Object value = annotation.getParameterValues(true).getValue(element);
-        if (value instanceof Object[] array) {
-            return Arrays.stream(array).map(e -> String.valueOf(e).trim()).toList();
-        }
-        return value == null ? List.of() : List.of(String.valueOf(value).trim());
-    }
-
-    /** One annotation element read as a single string, {@code ""} when the author left it at its default. */
-    private static String text(AnnotationInfo annotation, String element) {
-        if (annotation == null) return "";
-        Object value = annotation.getParameterValues(true).getValue(element);
-        return value == null ? "" : String.valueOf(value).trim();
-    }
-
-    /** One annotation element read as a flag, false when the author left it at its default. */
-    private static boolean flag(AnnotationInfo annotation, String element) {
-        if (annotation == null) return false;
-        Object value = annotation.getParameterValues(true).getValue(element);
-        return value instanceof Boolean b && b;
-    }
-
-    /**
-     * The {@code @Replaces} entries, each {@code fqn[#member][(arity)]@<version>} split into its parts, plus
-     * the two things the annotation as a whole says about the move.
-     *
-     * <p>An entry with no {@code @} is dropped rather than guessed at: the version is what says which era it
-     * belongs to, and an entry without one could only be applied to every bot or to none. The SDK's own build
-     * gate refuses that shape, so this is the reader being closed rather than the writer being distrusted.
-     *
-     * <p>The arity is optional and is dropped the same way when it is not a number — {@code #click(2)} names
-     * <em>which</em> overload this element took over, which is the one thing the forward pointer never has to
-     * spell out (it sits on the overload) and this one cannot read off anything, since by the time it is read
-     * that overload may be gone.
-     */
-    private static List<Claim> claims(AnnotationInfo annotation) {
-        if (annotation == null) return List.of();
-        String note = text(annotation, "note");
-        boolean behaviourChanged = flag(annotation, "behaviourChanged");
-        List<Claim> out = new ArrayList<>();
-        for (String entry : strings(annotation, "value")) {
-            int at = entry.lastIndexOf('@');
-            if (at <= 0 || at == entry.length() - 1) continue;
-            String name = entry.substring(0, at);
-            Integer arity = null;
-            int open = name.lastIndexOf('(');
-            if (open > 0 && name.endsWith(")")) {
-                String digits = name.substring(open + 1, name.length() - 1);
-                if (!digits.isEmpty() && digits.chars().allMatch(Character::isDigit)) {
-                    arity = Integer.valueOf(digits);
-                    name = name.substring(0, open);
-                }
-            }
-            out.add(new Claim(name, arity, entry.substring(at + 1), note, behaviourChanged));
-        }
-        return List.copyOf(out);
-    }
-
-    /**
-     * Constant name → the SDK types declaring it, across <em>both</em> jars. The union is deliberate: an
-     * unqualified use of a constant the target removed still has to be recognised, and only the old jar
-     * knows it ever existed.
-     */
-    private static Map<String, List<String>> fieldOwners(Map<String, ApiClass> before,
-                                                         Map<String, ApiClass> after) {
-        Map<String, Set<String>> owners = new LinkedHashMap<>();
-        for (Map<String, ApiClass> jar : List.of(before, after)) {
-            for (ApiClass klass : jar.values()) {
-                for (Map.Entry<String, List<ApiMember>> entry : klass.byName().entrySet()) {
-                    if (entry.getValue().stream().anyMatch(ApiMember::field)) {
-                        owners.computeIfAbsent(entry.getKey(), k -> new TreeSet<>()).add(klass.simpleName());
-                    }
-                }
-            }
-        }
-        Map<String, List<String>> out = new LinkedHashMap<>();
-        owners.forEach((name, types) -> out.put(name, List.copyOf(types)));
-        return Map.copyOf(out);
-    }
-
-    // =========================================================================
-    // PAIRING: WHICH TYPE IN THE NEW JAR IS THIS OLD ONE?
-    // =========================================================================
-
-    /**
-     * Which type in the target jar takes each old type's place, and what each member is now called.
-     *
-     * <p>It is a walk over a tiny graph of <b>old spelling → newer spelling</b>, built once from both jars.
-     * A node is a spelling in the grammar the pointers use: {@code fqn} for a type, {@code fqn#member} for a
-     * member. Two things put edges in it:
-     *
-     * <ul>
-     *   <li>the <b>old</b> jar's {@code @ReplacedBy}, which is the author of the element the bot actually
-     *       calls saying where it went;</li>
-     *   <li>the <b>new</b> jar's {@code @Replaces}, read backwards — each entry is an edge from the old
-     *       spelling it names to the element carrying it — and <b>filtered by era</b>: an entry is consulted
-     *       only for a bot pinned at or below the version the entry records, since a bot already past that
-     *       release cannot still be spelling it the old way.</li>
-     * </ul>
-     *
-     * <p>The walk follows edges until it reaches a spelling the target jar actually has, which is what makes
-     * a <b>chain</b> resolve: {@code a}→{@code b} announced in 2.0 and {@code b}→{@code c} in 3.0 lands a bot
-     * still spelling it {@code a} on {@code c}, with the 2.0 jar never fetched. A visited set bounds it — a
-     * rename undone by a later release is a cycle, and a cycle that reaches nothing live is simply unpaired.
-     *
-     * <p>Three things it deliberately does not do. It does not follow a pointer for a spelling the target
-     * <em>still has</em>: the live element wins, which is why an accumulated entry can never go stale into a
-     * wrong answer. It does not resolve an ambiguous claim — two survivors claiming one old spelling at one
-     * version leave it unpaired, with a line in {@link Report#problems()}. And it never invents a pairing:
-     * unpaired is an answer, and a wrongly paired element is a bot that compiles and does something else.
-     *
-     * <p><b>Members are paired independently of types</b>, and a member pointer may cross types. Two readers
-     * ask for different halves of that, deliberately: {@link #memberName} answers "what is this called on the
-     * type this one paired with", so nothing but the type pairing decides which type a site writes, while
-     * {@link #targetOf} hands back the endpoint whole — for {@link #redirectFor}, which is about to move the
-     * receiver as well and is the only caller entitled to see a member that left.
-     */
-    private record Pairing(Map<String, String> types, Map<String, Member> members) {
-
-        /** Where a member pointer ended up: the simple name of the owning type, and the member's own name. */
-        record Member(String type, String name) {}
-
-        static Pairing of(Map<String, ApiClass> before, Map<String, ApiClass> after, String botVersion,
-                          List<String> problems, boolean throughDeprecations) {
-            Map<String, String> edges = forwardEdges(before);
-            backwardEdges(after, botVersion, problems).forEach(edges::putIfAbsent);
-            // Modernising walks one hop further than an upgrade does, so it needs the pointers the *target*
-            // jar's own deprecated elements carry. They are the same shape of edge; only the stopping rule
-            // below differs, which is the whole of what "also move off deprecated members" means.
-            if (throughDeprecations) forwardEdges(after).forEach(edges::putIfAbsent);
-
-            Map<String, String> types = new LinkedHashMap<>();
-            Map<String, Member> members = new LinkedHashMap<>();
-            for (ApiClass then : before.values()) {
-                String typeEnd = follow(then.name(), edges, after, throughDeprecations);
-                ApiClass target = typeEnd.contains("#") ? null : resolveType(typeEnd, after);
-                if (target != null) {
-                    types.put(then.simpleName(), target.simpleName());
-                } else if (after.containsKey(then.simpleName())) {
-                    // The name survives even if the package moved under it. Nothing pointed anywhere, so the
-                    // same spelling is the answer — this is the short-circuit an upgrade takes almost always.
-                    types.put(then.simpleName(), then.simpleName());
-                }
-                for (String member : then.byName().keySet()) {
-                    String key = then.name() + "#" + member;
-                    String end = follow(key, edges, after, throughDeprecations);
-                    if (end.equals(key)) continue;                  // nothing pointed anywhere
-                    ApiClass owner = resolveType(typePart(end), after);
-                    if (owner != null && owner.byName().containsKey(memberPart(end))) {
-                        members.put(then.simpleName() + "#" + member,
-                                new Member(owner.simpleName(), memberPart(end)));
-                    }
-                }
-            }
-            return new Pairing(Map.copyOf(types), Map.copyOf(members));
-        }
-
-        /**
-         * What the old jar's own elements say about where they went. No target = nothing took my place.
-         *
-         * <p>A pointer may now name <b>several</b> candidates, and this graph takes the <b>first</b>: the
-         * targets are declared in preference order, so the first is the answer for every reader that wants
-         * one answer, which is all of them until the per-call-site choice arrives. Nothing here is lost —
-         * the candidates and their {@code whens} are on the {@link Pointer} either way.
-         */
-        private static Map<String, String> forwardEdges(Map<String, ApiClass> before) {
-            Map<String, String> edges = new LinkedHashMap<>();
-            for (ApiClass then : before.values()) {
-                if (then.replacedBy() != null && then.replacedBy().first() != null) {
-                    edges.put(then.name(), then.replacedBy().first());
-                }
-                then.byName().forEach((member, overloads) -> overloads.stream()
-                        .map(m -> m.replacedBy() == null ? null : m.replacedBy().first())
-                        .filter(Objects::nonNull)
-                        // Overloads share a name and a call site is attributed by name, so the first pointer
-                        // any of them carries answers for all of them. Two overloads pointing different ways
-                        // is a distinction this cannot act on either way.
-                        .findFirst()
-                        .ifPresent(target -> edges.putIfAbsent(then.name() + "#" + member, target)));
-            }
-            return edges;
-        }
-
-        /**
-         * What the target jar's survivors claim, read as edges pointing forward in time. Entries are grouped
-         * by the old spelling they name; only those from the bot's own era or later can apply to it, and of
-         * those the <b>earliest</b> is the next hop — a later one describes a rename this bot has not reached.
-         */
-        private static Map<String, String> backwardEdges(Map<String, ApiClass> after, String botVersion,
-                                                         List<String> problems) {
-            Map<String, Map<String, Set<String>>> claims = new LinkedHashMap<>();
-            for (ApiClass now : after.values()) {
-                for (Claim claim : now.replaces()) claim(claims, claim, now.name());
-                now.byName().forEach((member, overloads) -> {
-                    for (ApiMember overload : overloads) {
-                        for (Claim claim : overload.replaces()) {
-                            claim(claims, claim, now.name() + "#" + member);
-                        }
-                    }
-                });
-            }
-
-            Map<String, String> edges = new LinkedHashMap<>();
-            claims.forEach((oldSpelling, byVersion) -> byVersion.entrySet().stream()
-                    .filter(e -> appliesTo(botVersion, e.getKey()))
-                    .min(Map.Entry.comparingByKey(SdkUpgradeService::compareVersions))
-                    .ifPresent(e -> {
-                        if (e.getValue().size() > 1) {
-                            problems.add("\"" + oldSpelling + "\" is claimed by more than one element of the "
-                                    + "target SDK (" + String.join(", ", e.getValue()) + "), so there is no "
-                                    + "one answer to what it became. Uses of it are left for you to change.");
-                            return;
-                        }
-                        edges.put(oldSpelling, e.getValue().iterator().next());
-                    }));
-            return edges;
-        }
-
-        private static void claim(Map<String, Map<String, Set<String>>> claims, Claim claim, String claimant) {
-            claims.computeIfAbsent(claim.name(), k -> new LinkedHashMap<>())
-                    .computeIfAbsent(strip(claim.version()), k -> new LinkedHashSet<>())
-                    .add(claimant);
-        }
-
-        /**
-         * Whether an entry recorded as last existing in {@code entryVersion} can still describe a bot pinned
-         * at {@code botVersion}. When either is not a version {@link SemVer} understands —
-         * {@code 0.0.0-SNAPSHOT}, most often — the entry is consulted rather than dropped: a pointer for a
-         * rename the bot has already had applied costs nothing, since the old name appears nowhere in it.
-         */
-        private static boolean appliesTo(String botVersion, String entryVersion) {
-            String bot = strip(botVersion);
-            if (!SemVer.isValid(bot) || !SemVer.isValid(entryVersion)) return true;
-            return SemVer.compare(bot, entryVersion) <= 0;
-        }
-
-        /**
-         * Walks the edges until the spelling is one the target jar has, or until there is nowhere to go.
-         *
-         * <p>{@code throughDeprecations} moves the finish line by one condition: a spelling the target does
-         * have, but has marked {@code @Deprecated} <em>and</em> pointed somewhere, is walked past rather
-         * than accepted. That is the only difference between an upgrade and a modernisation — the same
-         * graph, read one hop further — and it is why a bot can move off a deprecated member with no version
-         * change at all. A deprecated element with no pointer stops the walk like any other: there is
-         * nothing to say about it.
-         */
-        private static String follow(String start, Map<String, String> edges, Map<String, ApiClass> after,
-                                     boolean throughDeprecations) {
-            Set<String> seen = new LinkedHashSet<>();
-            String at = start;
-            while (seen.add(at) && (!exists(at, after) || (throughDeprecations && edges.containsKey(at)
-                    && isDeprecated(at, after)))) {
-                String next = edges.get(at);
-                if (next == null) return at;
-                at = next;
-            }
-            return at;
-        }
-
-        /** Whether the target jar marks this exact spelling {@code @Deprecated}. False for one it lacks. */
-        private static boolean isDeprecated(String spelling, Map<String, ApiClass> after) {
-            ApiClass owner = resolveType(typePart(spelling), after);
-            if (owner == null) return false;
-            return spelling.contains("#")
-                    ? owner.deprecatedNames().contains(memberPart(spelling))
-                    : owner.deprecated();
-        }
-
-        /** Whether the target jar declares this exact spelling — the same fully-qualified type, at that. */
-        private static boolean exists(String spelling, Map<String, ApiClass> after) {
-            ApiClass owner = resolveType(typePart(spelling), after);
-            if (owner == null) return false;
-            return !spelling.contains("#") || owner.byName().containsKey(memberPart(spelling));
-        }
-
-        /**
-         * The target's class of that fully-qualified name, or null. The FQN is compared, not just the simple
-         * name: a pointer that names a package the target does not have is a pointer to nothing, and pairing
-         * it with a same-named class elsewhere would be the invented answer this refuses to give.
-         */
-        private static ApiClass resolveType(String fqn, Map<String, ApiClass> after) {
-            ApiClass candidate = after.get(lastSegment(fqn));
-            return candidate != null && candidate.name().equals(fqn) ? candidate : null;
-        }
-
-        /** The old type's counterpart in {@code after}, or null when nothing takes its place. */
-        ApiClass pairedTo(ApiClass then, Map<String, ApiClass> after) {
-            String name = types.get(then.simpleName());
-            return name == null ? null : after.get(name);
-        }
-
-        /**
-         * What {@code member} of {@code then} is called in the target — itself, unless a pointer says
-         * otherwise <em>and</em> lands on the type this one paired with.
-         *
-         * <p>Which type the site now writes is the type pairing's answer, and having two sources for it is
-         * how they come to disagree. A member sent somewhere else therefore reads as unpaired here.
-         */
-        String memberName(ApiClass then, ApiClass now, String member) {
-            Member paired = members.get(then.simpleName() + "#" + member);
-            return paired != null && paired.type().equals(now.simpleName()) ? paired.name() : member;
-        }
-
-        /**
-         * The endpoint itself, type and all — null when no pointer led anywhere the target jar has.
-         *
-         * <p>{@link #memberName} answers the narrower question and keeps the type pairing as the single
-         * source of which type a site writes; this one is for the caller that is <em>about to move the
-         * receiver too</em>, which is the only thing entitled to see an endpoint on another type.
-         */
-        Member targetOf(ApiClass then, String member) {
-            return members.get(then.simpleName() + "#" + member);
-        }
-    }
-
-    private static List<String> paramsOf(MethodInfo mi) {
-        List<String> out = new ArrayList<>();
-        for (MethodParameterInfo pi : mi.getParameterInfo()) {
-            String type = pi.getTypeSignatureOrTypeDescriptor().toString();
-            int dot = type.lastIndexOf('.');
-            out.add(dot < 0 ? type : type.substring(dot + 1));
-        }
-        return out;
+        return new SdkMigrationRunner.Choices(out);
     }
 
     // =========================================================================
@@ -1414,9 +774,15 @@ public final class SdkUpgradeService {
      * That sharing is the point: two scans would eventually disagree, and the shape of the disagreement would
      * be a dialog listing three call sites next to a button that repairs two.
      */
-    private record Call(String type, String member, int argCount, CallSite site) {
+    record Call(String type, String member, int argCount, CallSite site, Path file,
+                boolean statement) {
         boolean isField() {
             return argCount == SdkReferences.FIELD_READ;
+        }
+
+        /** The key a per-site decision is looked up under — see {@link CallSite#offset()}. */
+        SdkMigrationRunner.SiteKey key() {
+            return new SdkMigrationRunner.SiteKey(file.toString(), site.offset());
         }
     }
 
@@ -1428,10 +794,10 @@ public final class SdkUpgradeService {
      * That is why it is here at all — a removed type is the one break with no repair, and a report built only
      * from calls said nothing about a bot that merely holds one.
      */
-    private record TypeUse(String type, CallSite site) {}
+    record TypeUse(String type, CallSite site) {}
 
     /** Everything one pass over the bot's sources found, which is what every reader downstream needs. */
-    private record Uses(List<Call> calls, List<TypeUse> types) {}
+    record Uses(List<Call> calls, List<TypeUse> types) {}
 
     private Uses usesIn(Set<String> sdkTypes, Map<String, List<String>> fieldOwners, List<String> problems) {
         List<Call> calls = new ArrayList<>();
@@ -1446,12 +812,16 @@ public final class SdkUpgradeService {
             SdkReferences.Scan scan = SdkReferences.in(file, cu, path, sdkTypes, fieldOwners);
             problems.addAll(scan.problems());
             for (SdkReferences.Reference reference : scan.references()) {
+                int offset = reference.site().node().getStartPosition();
                 calls.add(new Call(reference.type(), reference.member(), reference.argCount(),
-                        new CallSite(path, cu.getLineNumber(reference.site().node().getStartPosition()))));
+                        new CallSite(path, cu.getLineNumber(offset),
+                                CallSite.elide(reference.site().node().toString()), offset),
+                        file.getPath(), reference.site().isStatement()));
             }
             for (SdkReferences.TypeUse use : SdkReferences.typeUses(file, cu, sdkTypes)) {
-                types.add(new TypeUse(use.type(),
-                        new CallSite(path, cu.getLineNumber(use.site().node().getStartPosition()))));
+                int offset = use.site().node().getStartPosition();
+                types.add(new TypeUse(use.type(), new CallSite(path, cu.getLineNumber(offset),
+                        CallSite.elide(use.site().node().toString()), offset)));
             }
         }
         return new Uses(List.copyOf(calls), List.copyOf(types));
@@ -1460,388 +830,5 @@ public final class SdkUpgradeService {
     private String relativePath(Path path) {
         Path root = config.projectPath();
         return path.startsWith(root) ? root.relativize(path).toString() : path.getFileName().toString();
-    }
-
-    // =========================================================================
-    // THE DIFF
-    // =========================================================================
-
-    /**
-     * New classes, and new members on classes that already existed — display text, sorted, and <b>grouped by
-     * the release each arrived in</b>.
-     *
-     * <p>The era comes from {@code @Since}, asked of the element itself and falling back to its declaring
-     * class (a whole new class carries one annotation, not one per member). Everything that answers nothing
-     * lands in the {@code ""} bucket, which is sorted last and rendered without a heading — a jar predating
-     * {@code @Since} therefore produces exactly the flat alphabetical list this used to return.
-     */
-    private static Map<String, List<String>> additions(Map<String, ApiClass> before,
-                                                       Map<String, ApiClass> after) {
-        Map<String, Set<String>> byEra = new LinkedHashMap<>();
-        for (ApiClass now : after.values()) {
-            ApiClass then = before.get(now.simpleName());
-            if (then == null) {
-                byEra.computeIfAbsent(now.since(), k -> new TreeSet<>())
-                        .add(now.simpleName() + " (new class)");
-                continue;
-            }
-            for (Map.Entry<String, List<ApiMember>> entry : now.byName().entrySet()) {
-                String name = entry.getKey();
-                if (then.byName().containsKey(name)) continue;
-                // A constant is read as a value, so it is shown as one: Key.ENTER, not Key.ENTER(…).
-                String call = now.declaresCallable(name) ? "(…)" : "";
-                String era = entry.getValue().stream().map(ApiMember::since)
-                        .filter(s -> !s.isBlank()).findFirst().orElse(now.since());
-                byEra.computeIfAbsent(era, k -> new TreeSet<>())
-                        .add(CTOR.equals(name)
-                                ? "new " + now.simpleName() + "(…)"
-                                : now.simpleName() + "." + name + call);
-            }
-        }
-        Map<String, List<String>> out = new LinkedHashMap<>();
-        byEra.entrySet().stream()
-                // Newest first, and the era nobody declared last: it is the answer "we do not know", which
-                // belongs after every answer we do have.
-                .sorted((a, b) -> a.getKey().isBlank() ? 1 : b.getKey().isBlank() ? -1
-                        : compareVersions(strip(b.getKey()), strip(a.getKey())))
-                .forEach(e -> out.put(e.getKey(), List.copyOf(e.getValue())));
-        // Not Map.copyOf: that is a hash map, and the sort immediately above is the whole point.
-        return Collections.unmodifiableMap(out);
-    }
-
-    /**
-     * What this release does to the members Studio writes into a bot's <em>generated</em> files, said up front.
-     *
-     * <p>Those files are never migrated — they are rendered from Studio's own templates, so rewriting one
-     * would be overwritten at the next regeneration and regenerating it would reproduce the same old-SDK code.
-     * When a repair touches one, {@code SdkMigrationRunner} refuses the whole upgrade, and until now it did so
-     * <b>mid-apply</b>: the user read a report, pressed the button and only then learned the answer was no.
-     * This is the same fact, stated before they commit to anything.
-     *
-     * <p>It is read from the <b>old</b> jar, which is the one whose spelling the generated files currently
-     * use, and it says nothing about whether the case is repairable — that is a question for the phases that
-     * make regeneration verify-then-emit. Its job is to be honest and to arrive early.
-     */
-    private static List<String> scaffolding(Map<String, ApiClass> before, List<Deprecation> deprecated,
-                                            List<Break> breaks) {
-        Map<String, String> out = new LinkedHashMap<>();
-        for (Break b : breaks) {
-            if (isScaffolding(before, b.type(), b.member())) out.put(b.display(), b.display());
-        }
-        for (Deprecation d : deprecated) {
-            if (isScaffolding(before, d.type(), d.member())) out.put(d.display(), d.display());
-        }
-        return List.copyOf(out.values());
-    }
-
-    /** Whether the old jar marks this element {@code @Scaffolding} — the type itself, or any overload of it. */
-    private static boolean isScaffolding(Map<String, ApiClass> before, String type, String member) {
-        ApiClass klass = before.get(type);
-        if (klass == null) return false;
-        if (member == null || member.isEmpty()) return klass.scaffolding();
-        return klass.scaffolding()
-                || klass.byName().getOrDefault(member, List.of()).stream().anyMatch(ApiMember::scaffolding);
-    }
-
-    /**
-     * Members this bot calls that the target marks {@code @Deprecated}, each with what the SDK itself says
-     * to use instead.
-     *
-     * <p>The replacement is read the same way every other answer here is — through {@link #redirectFor},
-     * against the same jar — so a row that promises a move is a row the repair pass will actually make.
-     * It is empty in two cases that read alike and are not alike: the member points nowhere, or it points
-     * somewhere the shapes refuse. Both leave the user to it, which is what a deprecation is for.
-     */
-    private static List<Deprecation> deprecations(Map<String, ApiClass> before, Map<String, ApiClass> after,
-                                                  List<Call> calls, Pairing pairing) {
-        Map<String, List<CallSite>> sites = new LinkedHashMap<>();
-        Map<String, String[]> moves = new LinkedHashMap<>();
-        for (Call call : calls) {
-            ApiClass then = before.get(call.type());
-            // Through the pairing, so a renamed-but-deprecated type is still reported: the bot writes the old
-            // name, and looking that up in the new jar would find nothing and say nothing.
-            ApiClass now = then == null ? after.get(call.type()) : pairing.pairedTo(then, after);
-            if (now == null) continue;
-            String member = then == null ? call.member() : pairing.memberName(then, now, call.member());
-            // Both ends of the pairing are asked, and the origin has to be, because modernising follows the
-            // pointer *past* the deprecated element: what the bot writes is the deprecated half, and what it
-            // is paired with is precisely the half that is not. Asking only the destination would report
-            // nothing at all in the one case this list exists for.
-            ApiClass origin = after.get(call.type());
-            boolean deprecated = now.deprecated() || now.deprecatedNames().contains(member)
-                    || (origin != null
-                    && (origin.deprecated() || origin.deprecatedNames().contains(call.member())));
-            if (!deprecated) continue;
-            String key = call.type() + "#" + call.member();
-            sites.computeIfAbsent(key, k -> new ArrayList<>()).add(call.site());
-            if (then != null) moves.computeIfAbsent(key, k -> moveText(then, now, call, after, pairing));
-        }
-        return sites.entrySet().stream()
-                .map(e -> {
-                    String[] parts = e.getKey().split("#", 2);
-                    String[] move = moves.getOrDefault(e.getKey(), new String[]{"", ""});
-                    return new Deprecation(parts[0], parts[1], move[0], move[1], sorted(e.getValue()));
-                })
-                .sorted(Comparator.comparing(Deprecation::display))
-                .toList();
-    }
-
-    /**
-     * Where a deprecated call would go and what that would cost, as {@code {becomes, repair}} — both empty
-     * when the answer is "nowhere".
-     *
-     * <p>A deprecated <em>type</em> that was replaced has no redirect of its own: nothing about the call
-     * changes but the name it is reached through, and that is the file-wide rename's job. It is still an
-     * answer the user wants to read, so it is written here in the type sweep's own words.
-     */
-    private static String[] moveText(ApiClass then, ApiClass now, Call call,
-                                     Map<String, ApiClass> after, Pairing pairing) {
-        SdkMigrationRunner.Redirect redirect = redirectFor(then, now, call, after, pairing);
-        if (redirect != null) return new String[]{redirect.display(), repairText(redirect)};
-        if (!now.simpleName().equals(then.simpleName())) {
-            return new String[]{now.simpleName(),
-                    "every use of \"" + then.simpleName() + "\" becomes \"" + now.simpleName() + "\""};
-        }
-        return new String[]{"", ""};
-    }
-
-    /**
-     * Calls that would stop compiling, and what Studio will write in their place. Only members the
-     * <em>old</em> jar actually had are judged: a call to something neither jar declares is the bot's own code
-     * (or an unindexed library), not a break this upgrade causes.
-     *
-     * <p>A renamed type yields <b>two</b> findings where both apply — one {@link BreakKind#TYPE_RENAMED} for
-     * the type, and, for a member that also went, its own finding under the new type. That is the pairing
-     * rule made visible: a pointer pairs the element it is written on, and the members of a paired type are
-     * still resolved one at a time.
-     *
-     * <p>A member the target still offers <em>somewhere</em> is listed too, with the redirect as its repair.
-     * It is a break — the bot does not compile until the call moves — and one Studio makes itself, which is
-     * exactly what the {@code repair} sentence is for.
-     */
-    private static List<Break> breaks(Map<String, ApiClass> before, Map<String, ApiClass> after,
-                                      Uses uses, Pairing pairing) {
-        Map<String, Break> found = new LinkedHashMap<>();
-        Map<String, List<CallSite>> sites = new LinkedHashMap<>();
-
-        // The type verdict first, and from the places the bot writes the type *name* — which a call scan
-        // never sees. Without this a bot whose only contact with a removed class is `ImageTemplate t;` got no
-        // finding at all and was upgraded into something that does not compile.
-        for (TypeUse use : uses.types()) {
-            ApiClass then = before.get(use.type());
-            if (then != null) typeVerdict(found, sites, then, after, pairing, use.site());
-        }
-
-        for (Call call : uses.calls()) {
-            ApiClass then = before.get(call.type());
-            // In the shape the bot uses it: a name the old jar had only as a method is not evidence that
-            // this file's `Foo.NAME` was ever SDK, and vice versa.
-            if (then == null || !declares(then, call)) continue;
-
-            if (typeVerdict(found, sites, then, after, pairing, call.site())) continue;
-            ApiClass now = pairing.pairedTo(then, after);
-
-            // A call that still resolves under the same spelling is no break at all — deprecated or not,
-            // pointed somewhere or not, it compiles, and a deprecation is not a break. One that resolves
-            // only somewhere else is a break with a redirect for a repair, and is still listed, because the
-            // bot does not compile until the redirect is made.
-            if (offers(now, call.member(), call.argCount())) continue;
-            SdkMigrationRunner.Redirect redirect = redirectFor(then, now, call, after, pairing);
-
-            BreakKind kind;
-            String detail = "";
-            if (redirect != null
-                    && (!call.member().equals(redirect.toMember()) || redirect.toTypeFqn() != null)) {
-                // The old spelling is gone; the redirect says where it went, which is what the user needs
-                // to read even though nothing here has to be changed by hand.
-                kind = call.isField() ? BreakKind.FIELD_REMOVED : BreakKind.MEMBER_REMOVED;
-                detail = "now " + redirect.display();
-            } else if (declares(now, call.isField(), call.member())) {
-                kind = BreakKind.SIGNATURE_CHANGED;
-                detail = "was " + signatures(then, call.member()) + " — now "
-                        + signatures(now, call.member());
-            } else {
-                // Covers a field turned into a method (and the reverse) as well as an outright removal —
-                // every one of them stops this call site compiling.
-                kind = call.isField() ? BreakKind.FIELD_REMOVED : BreakKind.MEMBER_REMOVED;
-            }
-            record(found, sites, new Break(call.type(), call.member(), kind, detail,
-                    redirect == null ? repairText(returnTypeOf(then, call)) : repairText(redirect),
-                    List.of()), call.site());
-        }
-
-        return found.entrySet().stream()
-                .map(e -> {
-                    Break b = e.getValue();
-                    return new Break(b.type(), b.member(), b.kind(), b.detail(), b.repair(),
-                            sorted(sites.get(e.getKey())));
-                })
-                .sorted(Comparator.comparing(Break::display))
-                .toList();
-    }
-
-    /**
-     * Records what became of {@code then} as a type, at one site — true when it is <b>gone</b>, which is the
-     * caller's cue that there is nothing further to say about that site.
-     *
-     * <p>One place builds the two type findings because two loops now reach them: a call written on the type,
-     * and a place the type is written on its own. Both are the same fact about the same class, so both file
-     * into the same finding and the sites simply accumulate.
-     */
-    private static boolean typeVerdict(Map<String, Break> found, Map<String, List<CallSite>> sites,
-                                       ApiClass then, Map<String, ApiClass> after, Pairing pairing,
-                                       CallSite site) {
-        ApiClass now = pairing.pairedTo(then, after);
-        if (now == null) {
-            record(found, sites, new Break(then.simpleName(), "", BreakKind.TYPE_REMOVED, "",
-                    "nothing — this one has to be changed by hand", List.of()), site);
-            return true;
-        }
-        // A type paired elsewhere while its own name survives in the target is not a break — the bot goes on
-        // compiling. That is a modernisation (a deprecated class pointed at its successor), and it belongs on
-        // the deprecation list, where the rename is offered rather than announced.
-        if (!now.simpleName().equals(then.simpleName()) && !after.containsKey(then.simpleName())) {
-            record(found, sites, new Break(then.simpleName(), "", BreakKind.TYPE_RENAMED,
-                    "now " + now.simpleName(),
-                    "every use of \"" + then.simpleName() + "\" becomes \"" + now.simpleName() + "\"",
-                    List.of()), site);
-        }
-        return false;
-    }
-
-    private static void record(Map<String, Break> found, Map<String, List<CallSite>> sites,
-                               Break unsited, CallSite site) {
-        String key = unsited.type() + "#" + unsited.member() + "#" + unsited.kind();
-        found.putIfAbsent(key, unsited);
-        sites.computeIfAbsent(key, k -> new ArrayList<>()).add(site);
-    }
-
-    /**
-     * What the user is told a redirected call becomes.
-     *
-     * <p>Three sentences, because there are three outcomes and the difference matters to whoever reads the
-     * dialog: a plain rename is complete and says so; a redirect that changed shape is complete but wants
-     * looking at; and one that could not be used everywhere says <em>where</em> it could not, since that is
-     * the half the user has to finish.
-     *
-     * <p><b>The author's own sentence, where there is one, is appended verbatim and never rewritten.</b>
-     * Everything above it is Studio restating what the diff already showed; the note is the one thing in the
-     * dialog that says <em>why</em>, and it is the only text here Studio did not write.
-     */
-    private static String repairText(SdkMigrationRunner.Redirect redirect) {
-        String repair = mechanicsOf(redirect);
-        return redirect.note().isBlank() ? repair : repair + " — " + redirect.note();
-    }
-
-    /** The half of {@link #repairText(SdkMigrationRunner.Redirect)} that is Studio's own reading of the jars. */
-    private static String mechanicsOf(SdkMigrationRunner.Redirect redirect) {
-        String was = CTOR.equals(redirect.member())
-                ? "new " + redirect.type() : redirect.type() + "." + redirect.member();
-        List<String> what = new ArrayList<>();
-        if (!redirect.display().equals(was)) what.add("becomes " + redirect.display());
-
-        long gained = redirect.arguments().stream().filter(ArgumentEdit.Literal.class::isInstance).count();
-        long dropped = Math.max(0, redirect.argCount())
-                - redirect.arguments().stream().filter(ArgumentEdit.Keep.class::isInstance).count();
-        if (gained > 0) what.add("gains " + inputs(gained) + ", filled in with a default value");
-        if (dropped > 0) what.add("loses " + inputs(dropped) + " this call passes");
-        // Nothing about the call changes but the type it is reached through, which the file-wide type
-        // rename is already doing — so there is nothing more to promise here.
-        if (what.isEmpty()) what.add("is carried across as it is");
-
-        String head = String.join(" and ", what);
-        if (!redirect.expressionSafe()) {
-            return head + " where it stands on its own, and becomes " + defaultTextOf(redirect.returnType())
-                    + " where its result is used — those functions are marked for your review";
-        }
-        return redirect.needsReview() ? head + ", and the function is marked for your review" : head;
-    }
-
-    private static String inputs(long count) {
-        return count + (count == 1 ? " input" : " inputs");
-    }
-
-    /** What the user is told will stand in — the one sentence that says the model out loud. */
-    private static String repairText(String returnType) {
-        return "void".equals(returnType)
-                ? "the call is removed, and the function is marked for your review"
-                : "replaced with " + defaultTextOf(returnType) + ", and the function is marked for your review";
-    }
-
-    /** The default this type gets, spelled as the rewrite will spell it — the rewriter's own switch. */
-    private static String defaultTextOf(String type) {
-        return CallMigrator.literalDefaultText(type);
-    }
-
-    /** Whether {@code klass} offers this call's member in the shape the call site uses it. */
-    private static boolean declares(ApiClass klass, Call call) {
-        return declares(klass, call.isField(), call.member());
-    }
-
-    private static boolean declares(ApiClass klass, boolean field, String member) {
-        return field ? klass.declaresField(member) : klass.declaresCallable(member);
-    }
-
-    /**
-     * Whether {@code klass} offers {@code member} in the exact shape a call site uses it — a field, or a
-     * callable taking that many arguments.
-     *
-     * <p>Arity, not types: without bindings the argument <em>types</em> at the call site are unknown, and
-     * claiming a break that isn't one is worse than missing one — the user can always compile. A field shares
-     * the map but has no parameter list at all, so it must not answer for arity 0.
-     */
-    private static boolean offers(ApiClass klass, String member, int argCount) {
-        if (argCount == SdkReferences.FIELD_READ) return klass.declaresField(member);
-        return klass.byName().getOrDefault(member, List.of()).stream()
-                .anyMatch(m -> !m.field() && m.params().size() == argCount);
-    }
-
-    private static String signatures(ApiClass klass, String member) {
-        List<ApiMember> overloads = klass.byName().getOrDefault(member, List.of()).stream()
-                .filter(m -> !m.field()).toList();
-        if (overloads.isEmpty()) return "(nothing)";
-        return overloads.stream().map(ApiMember::signature).sorted().distinct()
-                .reduce((a, b) -> a + " / " + b).orElse("");
-    }
-
-    private static List<CallSite> sorted(Collection<CallSite> sites) {
-        return sites.stream()
-                .distinct()
-                .sorted(Comparator.comparing(CallSite::file).thenComparingInt(CallSite::line))
-                .toList();
-    }
-
-    // =========================================================================
-    // THE POINTER GRAMMAR
-    // =========================================================================
-
-    /** {@code com.botmaker.sdk.api.Key#ENTER} → {@code ENTER}; a name with no {@code #} is its own answer. */
-    private static String memberPart(String key) {
-        int hash = key.indexOf('#');
-        return hash < 0 ? key : key.substring(hash + 1);
-    }
-
-    /** The other half: {@code …Key#ENTER} → {@code …Key}, and a bare type name is its own answer. */
-    private static String typePart(String key) {
-        int hash = key.indexOf('#');
-        return hash < 0 ? key : key.substring(0, hash);
-    }
-
-    private static String lastSegment(String name) {
-        int dot = name.lastIndexOf('.');
-        return dot < 0 ? name : name.substring(dot + 1);
-    }
-
-    /** Ascending semver where both sides parse, falling back to text so the sort stays total. */
-    private static int compareVersions(String a, String b) {
-        if (SemVer.isValid(a) && SemVer.isValid(b)) return SemVer.compare(a, b);
-        return a.compareTo(b);
-    }
-
-    /** Release tags are cut as {@code v1.0.26}; {@code SemVer} wants {@code 1.0.26}. */
-    private static String strip(String version) {
-        if (version == null) return "";
-        String t = version.trim();
-        return (t.startsWith("v") || t.startsWith("V")) ? t.substring(1) : t;
     }
 }
