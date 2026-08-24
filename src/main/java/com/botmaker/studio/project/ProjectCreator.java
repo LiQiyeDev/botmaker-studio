@@ -3,10 +3,15 @@ package com.botmaker.studio.project;
 import com.botmaker.shared.config.ProjectProperties;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.launch.SupportedTargets;
+import com.botmaker.studio.project.scaffold.ScaffoldCheck;
+import com.botmaker.studio.project.scaffold.ScaffoldRepair;
+import com.botmaker.studio.project.scaffold.ScaffoldSurface;
 import com.botmaker.studio.project.vcs.ProjectVcs;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.MavenService;
+import com.botmaker.studio.services.ScaffoldFacts;
+import com.botmaker.studio.sharing.SemVer;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -59,6 +64,13 @@ public class ProjectCreator {
         System.out.println("Location: " + projectPath);
         System.out.println("------------------------------------------------");
 
+        // 0. Can this SDK carry what we are about to write? Asked before a single directory exists, because
+        //    the answer may be no: a project pinned to an SDK newer than this Studio may name an element that
+        //    release removed, and a half-created project the user has to delete by hand is a worse outcome
+        //    than a refusal. Satisfied is the answer in every ordinary case — see ScaffoldCheck.
+        Map<String, String> sources =
+                scaffold(sdkVersion, sourcesFor(template, cfg.className(), cfg.packageName()));
+
         try {
             // 1. Standard Maven directory layout
             Files.createDirectories(projectPath.resolve("src/main/java"));
@@ -74,7 +86,7 @@ public class ProjectCreator {
             System.out.println("2. Creating source files...");
             Path srcPath = projectPath.resolve("src/main/java/com/" + cfg.packageName());
             Files.createDirectories(srcPath);
-            writeSources(srcPath, sourcesFor(template, cfg.className(), cfg.packageName()));
+            writeSources(srcPath, sources);
 
             // 4. Built-in default image template so freshly-dropped vision blocks reference a real file,
             //    and the Templates class that names it — generated here rather than on first capture so a
@@ -108,6 +120,68 @@ public class ProjectCreator {
             System.err.println("!!! ERROR during project creation !!!");
             e.printStackTrace();
             throw new IOException("Failed to create project: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * The sources to write, checked — and if need be repaired — against the SDK this project is about to pin.
+     *
+     * <p><b>Only a <em>newer</em> SDK is probed</b>, and that is the whole of the ordinary path being free.
+     * {@code ScaffoldSurfaceTest} already proves that every element of {@link ScaffoldSurface} exists in the
+     * SDK Studio was built against, so an equal or older version cannot fail this check and asking would only
+     * cost a jar resolve — possibly a download — on every project creation. Studio's own baseline is
+     * {@link MavenService#SDK_FALLBACK_VERSION}: it is what a fresh project pins, it moves on every SDK
+     * release, and {@code release.sh check_sdk_floor} keeps it in step. A version {@link SemVer} cannot read
+     * ({@code 0.0.0-SNAPSHOT}, a local dev build) is not probed either — a reactor build <em>is</em> the SDK
+     * the test ran against.
+     *
+     * @throws ScaffoldUnsupported when the SDK has dropped something the generators write and says nothing
+     *                             about what replaced it. Thrown before anything is on disk.
+     */
+    private static Map<String, String> scaffold(String sdkVersion, Map<String, String> rendered)
+            throws ScaffoldUnsupported {
+        String version = sdkVersion == null || sdkVersion.isBlank()
+                ? MavenService.SDK_FALLBACK_VERSION : sdkVersion.trim();
+        if (!SemVer.isValid(version) || !SemVer.isValid(MavenService.SDK_FALLBACK_VERSION)
+                || SemVer.compare(version, MavenService.SDK_FALLBACK_VERSION) <= 0) {
+            return rendered;
+        }
+
+        return scaffold(version, rendered, ScaffoldFacts.forVersion(null, version));
+    }
+
+    /**
+     * The decision itself, given the facts — split out so it can be tested against a stub SDK rather than
+     * against a jar built and published on the spot.
+     */
+    public static Map<String, String> scaffold(String version, Map<String, String> rendered,
+                                               ScaffoldCheck.SdkFacts facts) throws ScaffoldUnsupported {
+        ScaffoldCheck.Result check = ScaffoldCheck.of(facts);
+        if (!check.canEmit()) throw new ScaffoldUnsupported(check.refusal());
+        if (check.substitutions().isEmpty()) return rendered;
+
+        ScaffoldRepair.Outcome repaired = ScaffoldRepair.apply(rendered, check.substitutions());
+        if (!repaired.canEmit()) {
+            throw new ScaffoldUnsupported("SDK " + version + " has moved something Studio writes into the "
+                    + "files it generates, and the move is not one Studio can apply on its own: "
+                    + String.join("; ", repaired.unexpressed())
+                    + ". Update Studio (Help ▸ Check for updates), or pick an SDK version this Studio knows.");
+        }
+        System.out.println("   (repaired " + check.substitutions().size()
+                + " scaffold element(s) against SDK " + version + ")");
+        return repaired.sources();
+    }
+
+    /**
+     * Refusal to create a project whose SDK cannot carry the generated files.
+     *
+     * <p>Its own type rather than a plain {@link IOException} because it is not a failure — nothing went
+     * wrong, the answer is simply no, and the caller shows the message as it is rather than wrapping it in
+     * "failed to create project".
+     */
+    public static final class ScaffoldUnsupported extends IOException {
+        public ScaffoldUnsupported(String message) {
+            super(message);
         }
     }
 

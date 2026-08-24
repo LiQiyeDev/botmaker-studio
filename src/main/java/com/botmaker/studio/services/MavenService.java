@@ -429,6 +429,19 @@ public final class MavenService {
     }
 
     /**
+     * The same, for a caller that has <b>no project</b> — {@code ProjectCreator}, which must know what the
+     * chosen SDK contains <em>before</em> a pom exists to read repositories from.
+     *
+     * <p>Resolving against an empty model is not a compromise here: {@link #buildRemoteRepositories} starts
+     * from {@link #DEFAULT_REPOSITORIES}, and those are exactly the repositories {@link #writePom} is about to
+     * declare. The only thing a project pom adds is a repository the <em>user</em> put there, which by
+     * definition a project that does not exist yet has none of.
+     */
+    public static Optional<Path> resolveSdkJar(String version) {
+        return resolveSdkArtifact(new Model(), version, "");
+    }
+
+    /**
      * Resolves one BotMaker SDK artifact from the local repo, downloading it via the project pom's
      * repositories if absent. {@code classifier} is {@code ""} for the jar itself, {@code "sources"} for the
      * sources jar. Best-effort: empty when the pom is missing, the artifact cannot be resolved, or offline.
@@ -436,7 +449,12 @@ public final class MavenService {
      */
     public static Optional<Path> resolveSdkArtifact(Path projectDir, String version, String classifier) {
         Model model = readModel(projectDir);
-        if (model == null || version == null || version.isBlank()) {
+        if (model == null) return Optional.empty();
+        return resolveSdkArtifact(model, version, classifier);
+    }
+
+    private static Optional<Path> resolveSdkArtifact(Model model, String version, String classifier) {
+        if (version == null || version.isBlank()) {
             return Optional.empty();
         }
         Artifact artifact = new DefaultArtifact(

@@ -6,6 +6,40 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-24 — verify-then-emit at project creation: an SDK newer than Studio is asked, not assumed
+  (`project/scaffold/ScaffoldCheck` + `ScaffoldRepair` (new), `services/ScaffoldFacts` (new),
+  `services/MavenService`, `project/ProjectCreator`, `ui/app/ProjectSelectionScreen`, new
+  `ScaffoldCheckTest`).** Phase 10 of twelve, and the forward half of Phase 9's guarantee. `ScaffoldSurfaceTest`
+  proves every declared element exists in the SDK Studio *compiled against*, so every SDK up to Studio's own is
+  safe by construction; a **newer** one cannot be tested — it did not exist when the test ran — but it can be
+  **asked**, because it is on disk and carries `@Replaces` on every survivor. So `ScaffoldCheck` resolves the
+  declared set against the chosen jar and answers *satisfied*, *repairable* (with the substitutions) or
+  *unsatisfiable* (naming the elements), and `ProjectCreator` runs it **before it creates a single directory** —
+  a refusal the user reads is better than a half-made project they have to delete by hand.
+  **Only the back edge exists here.** An upgrade holds two jars and reads both halves of the pointer pair; the
+  scaffold holds one, and the only half living on it is `@Replaces` on the survivor — the forward half would sit
+  on an element this jar no longer has. Hence no eras, no bot version, no modernisation hop. A missing element is
+  chased twice: its own back edge (`A#m` claimed by `B#n`, the only shape that can express a *member* rename),
+  then failing that its **type's** (`A`→`B`, then look for `B#m`), so a package move carries every member with it
+  and the SDK author needn't write a pointer per member. Claims compose transitively, so a chain still lands.
+  **`ScaffoldRepair` expresses two shapes and refuses the rest**, honestly: a type move goes file-wide through
+  `CallMigrator.renameTypeIn` (extends clause, field types, `new T(…)`, imports), a member move is expressed only
+  as a static call `Type.member(…)`, and everything else — an `@Override` of an SDK method, `GoHome.INSTANCE::execute`,
+  an instance receiver — is caught by a **post-rewrite leftover scan** and refuses the whole emit. Retargeting a
+  *declaration* is not a call rewrite, and its correctness depends on the new supertype's shape; scaffolding is
+  all-or-nothing, so a coincidence reads as a refusal. Member renames are recorded before type renames inside the
+  one `ASTRewrite`, because the call visitor matches the receiver as the *old* type still spells it.
+  **Fail-open, and cheap.** An unscanned jar answers *satisfied* — the rule `SdkSurfaceService` already applies —
+  and the probe runs **only** when the chosen version is valid SemVer and strictly newer than
+  `MavenService.SDK_FALLBACK_VERSION` (Studio's baseline: what a fresh project pins, moved on every SDK release
+  and kept in step by `release.sh check_sdk_floor`). Everything at or below it is the direction the test already
+  covers, so ordinary creation adds no jar resolve and no network call. A new project-less
+  `MavenService.resolveSdkJar(String)` answers the chicken-and-egg — the check must run before the pom that
+  declares repositories exists — and loses nothing: `buildRemoteRepositories` already seeds central/jitpack/google,
+  which is exactly what `writePom` is about to declare, and the only thing a project pom adds is a repository the
+  *user* put there, which a project that does not exist yet has none of. **A refusal is not a failure**:
+  `ScaffoldUnsupported` is thrown outside `createProject`'s `try`, so it is never rewrapped as *"Failed to create
+  project"*, and the dialog shows it under its own header naming the element and the update route.
 - **2026-08-24 — the scaffold's SDK surface becomes data, and the build enforces it backwards
   (`project/scaffold/ScaffoldSurface` (new), `project/scaffold/ScaffoldScan` + `ScaffoldSurfaceTest` (new,
   test), `services/ActivityService`).** Phase 9 of twelve. Studio's generators are **text blocks**:
