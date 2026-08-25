@@ -289,13 +289,12 @@ class LockedBlockRenderingTest extends FxHeadlessTest {
 
     @Test
     void theRealGeneratedFlowDriverRendersInertEndToEnd() {
-        // Not a synthetic snippet: the exact source ProjectCreator writes, rendered whole-file. This is the
-        // page the bug reports keep coming from — an unguarded null button in any block it contains aborts
-        // the entire render pass ("no blocks visible"), and any surviving control is an edit leak.
-        String source = com.botmaker.studio.project.ProjectCreator
-                .sourcesFor(com.botmaker.studio.project.ProjectTemplate.GAME_BOT,
-                        CONFIG.projectName(), CONFIG.packageName())
-                .get("FlowDriver.java");
+        // Not a synthetic snippet: the exact source the SDK's generator writes, rendered whole-file. This is
+        // the page the bug reports keep coming from — an unguarded null button in any block it contains
+        // aborts the entire render pass ("no blocks visible"), and any surviving control is an edit leak.
+        String source = com.botmaker.studio.project.ProjectSpecs.generatedSource(CONFIG,
+                com.botmaker.studio.project.ProjectTemplate.GAME_BOT,
+                com.botmaker.studio.services.MavenService.SDK_FALLBACK_VERSION, "FlowDriver.java");
         assertNotNull(source, "precondition: the game-bot template generates FlowDriver.java");
 
         Rendered r = render(CONFIG.flowDriverSourceFile(), source);

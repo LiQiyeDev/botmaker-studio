@@ -75,7 +75,7 @@ class ProjectRepairTest {
         MavenService.writePom(config.projectPath(), config, MavenService.SDK_FALLBACK_VERSION);
         BotSettings.write(config.resourcesRoot(), BotSettings.GAME_DEFAULTS);
         StudioProjectSettings.empty().withTemplate(ProjectTemplate.GAME_BOT).write(config.resourcesRoot());
-        ProjectCreator.createDefaultTemplateAt(
+        ImageTemplateLibrary.writePlaceholderAt(
                 config.imagesRoot().resolve(ImageTemplateLibrary.DEFAULT_TEMPLATE_FILE));
     }
 
@@ -222,7 +222,9 @@ class ProjectRepairTest {
         Files.delete(mainDir.resolve("ActivityRegistry.java"));
 
         List<ProjectRepair.Missing> missing = ProjectRepair.findMissing(config, ProjectTemplate.GAME_BOT, ActivitiesConfig.empty());
-        assertEquals(List.of("FlowDriver.java", "GoHome.java", "ActivityRegistry.java"),
+        // The order is the generator's emission order, not a list written here — since 2026-08-25 the file
+        // set comes from the SDK, so what this asserts is that all three are found, in one stable order.
+        assertEquals(List.of("GoHome.java", "ActivityRegistry.java", "FlowDriver.java"),
                 missing.stream().map(ProjectRepair.Missing::fileName).toList());
     }
 

@@ -44,9 +44,11 @@ import java.util.Map;
  *       own methods are never touched at all.</li>
  * </ul>
  *
- * <p>Sources come from {@link ProjectCreator#sourcesFor} and {@code ActivityService}'s generators — this class
- * holds no templates of its own. (It briefly held a copy of the empty-project entry point, which promptly
- * drifted from the real one and lost an import, so a "recovered" project didn't compile. Hence the rule.)
+ * <p>Sources come from the project's own SDK ({@code Authoring}) and {@code ActivityService}'s generators —
+ * this class holds no templates of its own. (It briefly held a copy of the empty-project entry point, which
+ * promptly drifted from the real one and lost an import, so a "recovered" project didn't compile. Hence the
+ * rule.) The version asked is the one the <b>pom pins</b>, not Studio's newest: a restored file has to compile
+ * against the jar this bot actually resolves.
  */
 public final class ProjectRepair {
 
@@ -59,6 +61,20 @@ public final class ProjectRepair {
      */
     private static final String REGISTRY_FILE = "ActivityRegistry.java";
     private static final String DRIVER_FILE = "FlowDriver.java";
+
+    /**
+     * Generated files the scaffold pass does <b>not</b> report, because a later pass in {@link #findMissing}
+     * owns them and reports them on better evidence.
+     *
+     * <p>It exists because the file list is the generator's now (2026-08-25) rather than a hand-written five:
+     * the SDK writes {@code Activities.java} and {@code Parameters.java} too, and a scaffold pass that
+     * reported everything the generator emits would list them a second time — once with no evidence, once
+     * with the right evidence — and would demand them from a project that has never had an activity to put in
+     * them. {@code Templates.java} is the same shape of answer with a different owner: it is a function of the
+     * project's images, and {@code ImageTemplateLibrary} is what regenerates it.
+     */
+    private static final java.util.Set<String> OWNED_BY_A_LATER_PASS =
+            java.util.Set.of("Activities.java", "Parameters.java", "Templates.java");
 
     /**
      * A file that should exist but doesn't, plus what would restore it — or a {@code null} restorer for the
@@ -141,24 +157,32 @@ public final class ProjectRepair {
         // activities. Once it has some, only ActivityService can rebuild it, so leave it to the pass below.
         boolean hasActivities = activities != null && !activities.activities().isEmpty();
 
+        String sdkPin = MavenService.readSdkVersion(config.projectPath());
         if (resolved == ProjectTemplate.GAME_BOT) {
-            // Reported by name, restored by nobody (2026-08-25, temporarily). The scaffold's *text* left with
-            // the SDK's templates and its emitters are not written yet (inversion phase 2), so every entry
-            // here carries a null restorer — the same shape this class already uses for the files only
-            // ActivityService can produce. Saying nothing is missing would be the worse answer: a project
-            // that does not compile, reported as healthy.
-            for (String name : ProjectCreator.gameBotFileNames(config.className())) {
+            // Reported by name, restored by nobody (2026-08-25, temporarily). *Which* files a game bot must
+            // have is knowable from the generator's own file list; what it cannot yet do from outside a
+            // creation is render one of them in isolation (inversion phase 4), so every entry here carries a
+            // null restorer — the same shape this class already uses for the files only ActivityService can
+            // produce. Saying nothing is missing would be the worse answer: a project that does not compile,
+            // reported as healthy.
+            for (String name : ProjectSpecs.generatedFileNames(config, resolved, sdkPin)) {
+                if (OWNED_BY_A_LATER_PASS.contains(name)) continue;
                 if (hasActivities && (REGISTRY_FILE.equals(name) || DRIVER_FILE.equals(name))) continue;
                 Path path = mainDir.resolve(name);
                 if (!Files.exists(path)) missing.add(new Missing(path, null, "game-bot scaffold"));
             }
         } else {
-            for (Map.Entry<String, String> e :
-                    ProjectCreator.sourcesFor(resolved, config.className(), config.packageName()).entrySet()) {
-                Path path = mainDir.resolve(e.getKey());
-                if (!Files.exists(path)) {
-                    missing.add(Missing.ofSource(path, e.getValue(), "entry point"));
-                }
+            // An empty project's entry point *can* be restored: it says nothing about the flow, so the
+            // generator renders it from an empty model. Only that one file — `Templates.java` is a function
+            // of the images actually in the project and belongs to ImageTemplateLibrary, not to a repair
+            // that has not looked at them.
+            String entryFile = config.className() + ".java";
+            Path path = mainDir.resolve(entryFile);
+            if (!Files.exists(path)) {
+                String source = ProjectSpecs.generatedSource(config, resolved, sdkPin, entryFile);
+                missing.add(source == null
+                        ? new Missing(path, null, "entry point")
+                        : Missing.ofSource(path, source, "entry point"));
             }
         }
 
@@ -255,7 +279,7 @@ public final class ProjectRepair {
 
         Path placeholder = config.imagesRoot().resolve(ImageTemplateLibrary.DEFAULT_TEMPLATE_FILE);
         if (!Files.exists(placeholder)) {
-            missing.add(new Missing(placeholder, ProjectCreator::createDefaultTemplateAt, "image templates"));
+            missing.add(new Missing(placeholder, ImageTemplateLibrary::writePlaceholderAt, "image templates"));
         }
         return missing;
     }
@@ -330,8 +354,8 @@ public final class ProjectRepair {
      * Every locked method that no longer matches the generator's version.
      *
      * <p>{@code canonicalByPath} maps each scaffold file to the source the generator would produce for it
-     * today; the caller supplies it ({@link ProjectCreator#sourcesFor}, {@code ActivityService}'s stub
-     * generator) so this class keeps holding no templates of its own. Files not in the map, and methods
+     * today; the caller supplies it ({@code Authoring}, {@code ActivityService}'s stub generator) so this
+     * class keeps holding no templates of its own. Files not in the map, and methods
      * {@link MethodLock} doesn't lock, are never looked at.
      */
     public static List<Damage> findDamaged(ProjectConfig config, ProjectTemplate template,

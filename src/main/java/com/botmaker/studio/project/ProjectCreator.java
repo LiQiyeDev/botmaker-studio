@@ -1,28 +1,32 @@
 package com.botmaker.studio.project;
 
+import com.botmaker.sdk.api.authoring.Authoring;
+import com.botmaker.sdk.api.authoring.AuthoringUnsupported;
+import com.botmaker.sdk.api.authoring.SdkVersion;
 import com.botmaker.shared.config.ProjectProperties;
-import com.botmaker.studio.project.activity.ActivitiesConfig;
-import com.botmaker.studio.project.activity.ActivityFlow;
 import com.botmaker.studio.project.launch.SupportedTargets;
 import com.botmaker.studio.project.migration.SchemaFile;
 import com.botmaker.studio.project.vcs.ProjectVcs;
-import com.botmaker.studio.services.ActivityService;
-import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.MavenService;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
 
 import static com.botmaker.studio.config.Constants.PROJECTS_ROOT;
 
 /**
- * Scaffolds a new user project as a standard Maven project.
- * The {@code pom.xml} is generated programmatically via {@link MavenService#writePom}
- * (Maven Model API), not from a build-file string.
+ * Creates a new user project — the part of it that is about <em>Studio</em>.
+ *
+ * <p>Since 2026-08-25 the bot's own files are not written here. {@code Authoring.createProject} writes the
+ * pom, the {@code src/} layout, every {@code .java}, {@code activities.json},
+ * {@code botmaker-project.properties} and the placeholder image, because each of those is a statement about
+ * the SDK the bot compiles against and only that SDK can make it (the inversion, phase 3). Studio keeps the
+ * four things that are genuinely its own: <b>where</b> projects live, <b>whether the name is one a user may
+ * pick</b>, the editor's {@code settings.json}, and project history.
+ *
+ * <p>That is also why the all-or-none rule moved rather than being reimplemented: the refusal has to happen
+ * where the files are rendered. What is left here is ordered so nothing Studio writes can precede it.
  */
 public class ProjectCreator {
 
@@ -62,52 +66,33 @@ public class ProjectCreator {
         System.out.println("Location: " + projectPath);
         System.out.println("------------------------------------------------");
 
-        // 0. Render the scaffold before a single directory exists, because the answer may be a refusal and a
-        //    half-created project the user has to delete by hand is a worse outcome.
-        //
-        //    Since 2026-08-25 the game-bot scaffold *is* that refusal, and temporarily. Its five files were
-        //    the SDK's own templates with this project's name dropped into them; the templates left the SDK
-        //    and its emitters do not exist yet (inversion phase 2), so there is nothing to render. The empty
-        //    template is unaffected — it was never a template at all, only a text block written here — so
-        //    "New Project" still works for it, which is the whole reason to refuse per template rather than
-        //    outright.
-        Map<String, String> sources;
+        // 0. The version the *bot* will be generated against — its own pin, never Studio's idea of newest.
+        //    It refuses here, before anything exists, because a pin this build has never heard of is
+        //    something the user just chose and can choose differently.
+        SdkVersion sdk;
         try {
-            sources = sourcesFor(template, cfg.className(), cfg.packageName());
-        } catch (IllegalStateException refused) {
+            sdk = ProjectSpecs.versionFor(effectiveSdkVersion(sdkVersion));
+        } catch (AuthoringUnsupported unsupported) {
             // Checked on the way out, because creation is a user action with a dialog to show it in.
-            throw new IOException(refused.getMessage(), refused);
+            throw new IOException(unsupported.getMessage(), unsupported);
         }
 
         try {
-            // 1. Standard Maven directory layout
-            Files.createDirectories(projectPath.resolve("src/main/java"));
-            Files.createDirectories(projectPath.resolve("src/main/resources"));
-            Files.createDirectories(projectPath.resolve("src/test/java"));
-            Files.createDirectories(projectPath.resolve("src/test/resources"));
+            // 1. Everything the bot is made of, written by the SDK that wrote its API: the pom, the src/
+            //    layout, every .java, activities.json, botmaker-project.properties and the placeholder
+            //    image. All of it or none of it — the refusal lands before a single directory exists, so a
+            //    project that cannot be created never has to be deleted by hand.
+            System.out.println("1. Generating the project...");
+            Authoring.createProject(sdk,
+                    ProjectSpecs.of(cfg, template, effectiveSdkVersion(sdkVersion), referenceResolution),
+                    projectPath, SchemaFile.ACTIVITIES.current());
 
-            // 2. pom.xml via the Maven Model API
-            System.out.println("1. Generating pom.xml...");
-            MavenService.writePom(projectPath, cfg, sdkVersion);
-
-            // 3. Package + source files (per template)
-            System.out.println("2. Creating source files...");
-            Path srcPath = projectPath.resolve("src/main/java/com/" + cfg.packageName());
-            Files.createDirectories(srcPath);
-            writeSources(srcPath, sources);
-
-            // 4. Built-in default image template so freshly-dropped vision blocks reference a real file,
-            //    and the Templates class that names it — generated here rather than on first capture so a
-            //    brand-new project's `new ImageTemplate(Templates.DEFAULT_TEMPLATE)` compiles at once.
-            createDefaultTemplate(cfg.imagesRoot());
-            ImageTemplateLibrary.regenerateTemplatesClass(cfg);
-
-            System.out.println("3. Generating settings...");
-            seedActivitiesFile(cfg, template);
-
-            // 5. Seed settings.json (the chosen template + the standard capture resolution) and mirror the
-            //    resolution into botmaker-project.properties, so the editor snaps captures to it and the
-            //    generated bot's runtime scaling defaults to it.
+            // 2. Seed settings.json (the chosen template + the standard capture resolution). Studio's own
+            //    file: no bot reads it, and it records what the editor chose rather than what the bot needs.
+            //    It also stamps the capture resolution into botmaker-project.properties — a merge into the
+            //    file the SDK just wrote, which is why it goes through writeProjectKeys rather than a
+            //    second store().
+            System.out.println("2. Generating settings...");
             seedSettings(cfg, referenceResolution, template);
 
             // 5b. Seed the runtime tuning — delays, confidence, real input, and background isolation (a private
@@ -131,29 +116,10 @@ public class ProjectCreator {
         }
     }
 
-    /** What a blank pin means — the version {@link MavenService#writePom} would write. */
+    /** What a blank pin means — the version a new pom is written with. */
     private static String effectiveSdkVersion(String sdkVersion) {
         return sdkVersion == null || sdkVersion.isBlank()
                 ? MavenService.SDK_FALLBACK_VERSION : sdkVersion.trim();
-    }
-
-    /**
-     * Declares where a new project keeps the values its bot reads, and writes the files that hold them.
-     *
-     * <p>A game bot keeps them in Java: {@code activities.json} records {@link SettingsModel#JAVA}, and both
-     * generated files are written straight away — empty, but present, so {@code Settings.<field>} and the
-     * {@code @Setting} annotation compile before the first setting exists.
-     *
-     * <p>The model is recorded here and never inferred afterwards. Every load, save and dialog branches on it,
-     * and a project that didn't declare it at birth could only be guessed at — so this is the one moment it
-     * can be set, which is why it is a named step and not a line inside the creation sequence.
-     *
-     * <p>Any other template writes nothing at all: an empty project has no activities and no settings, and an
-     * {@code activities.json} it never asked for is a file it would carry forever.
-     */
-    static void seedActivitiesFile(ProjectConfig cfg, ProjectTemplate template) throws IOException {
-        if (template != ProjectTemplate.GAME_BOT) return;
-        ActivitiesConfig.empty().write(cfg.resourcesRoot());
     }
 
     /**
@@ -425,125 +391,6 @@ public class ProjectCreator {
             case "false", "0", "no", "off" -> false;
             default -> true;
         };
-    }
-
-    /**
-     * The starting sources for {@code template} as {@code fileName -> source}.
-     *
-     * <p>The single source of truth for {@link ProjectRepair} and for recovery, which regenerate one missing
-     * scaffold file long after creation.
-     *
-     * <p><b>{@link ProjectTemplate#GAME_BOT} refuses, and temporarily (2026-08-25).</b> Its five files were
-     * the SDK's own scaffold templates with this project's name and model dropped into their tokens; the
-     * templates left the SDK and its emitters do not exist yet (inversion phase 2), so nothing here can say
-     * what those files should contain. Refusing is the only honest answer — writing a guess would produce a
-     * bot that does not compile, and returning the empty scaffold instead would silently create a different
-     * project than the one asked for. {@link ProjectTemplate#EMPTY} never used a template and is unaffected.
-     *
-     * <p>Unchecked, because every caller of this three-argument form treats a failure here as a broken
-     * Studio rather than as something a user did, and adding a checked signature to all of them for one
-     * interim release would be undone again in phase 2.
-     */
-    public static Map<String, String> sourcesFor(ProjectTemplate template, String className, String packageName) {
-        if (template == ProjectTemplate.GAME_BOT) {
-            throw new IllegalStateException("The game-bot files (the entry point, FlowDriver, GoHome, Popups "
-                    + "and ActivityRegistry) are generated by the SDK, and this build of BotMaker does not "
-                    + "have that generator yet. Create an empty project for now.");
-        }
-        return emptySources(className, packageName);
-    }
-
-    /** Writes each {@code fileName -> source} of a template into {@code srcPath}. */
-    private static void writeSources(Path srcPath, Map<String, String> sources) throws IOException {
-        for (Map.Entry<String, String> e : sources.entrySet()) {
-            Files.writeString(srcPath.resolve(e.getKey()), e.getValue());
-        }
-    }
-
-    /**
-     * The {@link ProjectTemplate#EMPTY} scaffold: a bare {@code main} that prints a greeting.
-     *
-     * <p>It used to carry a generated {@code BotSettings.java} too, whose {@code apply()} was the first
-     * statement of {@code main}. The tuning now lives in {@code botmaker-project.properties} and the SDK reads
-     * it on first use, so there is nothing to generate and nothing to call — see {@link BotSettings}.
-     */
-    public static Map<String, String> emptySources(String className, String packageName) {
-        Map<String, String> sources = new LinkedHashMap<>();
-        sources.put(className + ".java", String.format("""
-            package com.%s;
-            import com.botmaker.sdk.api.util.BotMaker;
-
-            public class %s {
-                public static void main(String[] args) {
-                    BotMaker.print("Hello from %s!");
-                }
-            }
-            """, packageName, className, className));
-        return sources;
-    }
-
-    /**
-     * The full "Game bot" scaffold as {@code fileName -> source}: a supervised entry point, the generated
-     * {@code FlowDriver} that walks the drawn Activity Flow, an editable {@code GoHome} recovery hook, and an
-     * initial empty {@code ActivityRegistry}.
-     *
-     * <p>Two files the scaffold used to write are gone, because neither held anything about <em>this</em>
-     * project: {@code GameLoop.java} was a one-line {@code FlowDriver.run()} hop, and {@code Startup.java} was a
-     * two-branch switch over {@link com.botmaker.sdk.api.launch.Target} — the launch target itself lives in
-     * {@code botmaker-project.properties}, not in that file. The SDK's 2-arg {@code Bot.start} now supplies the
-     * launch step, and the entry point binds {@code FlowDriver::run} directly.
-     *
-     * <p><b>It refuses, and temporarily.</b> Every file it produced was one of the SDK's own scaffold
-     * templates with this project's package, class name and (for the two generated files) an empty model
-     * dropped into its tokens. The templates are gone from the SDK and its own emitters are not written yet
-     * (inversion phase 2), so there is nothing to fill and nothing to render. See {@link #sourcesFor}.
-     *
-     * <p>Kept as a method rather than deleted because {@link ProjectRepair} and recovery name it as the
-     * single source of truth for an individual missing scaffold file, and that is still true — it is the
-     * source of truth that currently has no answer.
-     */
-    public static Map<String, String> gameBotSources(String className, String packageName) {
-        return sourcesFor(ProjectTemplate.GAME_BOT, className, packageName);
-    }
-
-    /**
-     * The file names of the game-bot scaffold — which survive {@link #sourcesFor}'s refusal, because what was
-     * lost with the templates is what those files <em>contain</em>, never what they are called.
-     *
-     * <p>That distinction is the whole reason this exists (2026-08-25): {@link ProjectRepair} asks two
-     * separate questions of the scaffold, and only one of them needs the text. <em>Is this file gone?</em> is
-     * answerable from the names alone, so a game bot whose {@code GoHome.java} was deleted outside the Studio
-     * is still <b>told</b> so — it is only the restoring that has to wait for inversion phase 2. Answering
-     * "nothing is missing" would be the worse failure of the two: a project that does not compile, reported
-     * as healthy.
-     */
-    public static List<String> gameBotFileNames(String className) {
-        return List.of(className + ".java", "FlowDriver.java", "GoHome.java", "Popups.java",
-                "ActivityRegistry.java");
-    }
-
-    /**
-     * Writes a small placeholder PNG at {@code <imagesRoot>/default_template.png}. It is intentionally a
-     * generated checker pattern (not a bundled asset) so there's nothing to ship; the Resource Manager marks
-     * it undeletable and new vision blocks default to it, guaranteeing a fresh project compiles.
-     */
-    private void createDefaultTemplate(Path imagesRoot) throws IOException {
-        Files.createDirectories(imagesRoot);
-        createDefaultTemplateAt(imagesRoot.resolve(ImageTemplateLibrary.DEFAULT_TEMPLATE_FILE));
-    }
-
-    /**
-     * Writes the placeholder at exactly {@code target}, if it is not already there. Split out from
-     * {@link #createDefaultTemplate} so {@link ProjectRepair} can restore a deleted one: recovery knows the
-     * path it found missing, and inventing a second copy of the "which file is the placeholder" rule is how
-     * the two would drift.
-     */
-    static void createDefaultTemplateAt(Path target) throws IOException {
-        if (Files.exists(target)) return;
-        Files.createDirectories(target.getParent());
-        // The pattern itself lives in the library, so "is this still the placeholder?" (asked by export) has
-        // one answer rather than a second copy of the checker to drift from.
-        javax.imageio.ImageIO.write(ImageTemplateLibrary.defaultTemplateImage(), "png", target.toFile());
     }
 
     public boolean projectExists(String projectName) {

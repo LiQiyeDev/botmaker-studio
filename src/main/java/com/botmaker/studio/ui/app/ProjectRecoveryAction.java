@@ -2,12 +2,13 @@ package com.botmaker.studio.ui.app;
 
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.project.ProjectConfig;
-import com.botmaker.studio.project.ProjectCreator;
 import com.botmaker.studio.project.ProjectRepair;
+import com.botmaker.studio.project.ProjectSpecs;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.project.ProjectTemplate;
 import com.botmaker.studio.project.StudioContext;
 import com.botmaker.studio.services.ActivityService;
+import com.botmaker.studio.services.MavenService;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.scene.control.Alert;
@@ -114,12 +115,12 @@ final class ProjectRecoveryAction {
     /**
      * What the generators would produce for this project's scaffold today, keyed by path.
      *
-     * <p><b>Empty for a game bot since 2026-08-25, and temporarily.</b> Both halves of this map came out of
-     * the SDK's scaffold templates — the five whole files from {@link ProjectCreator#sourcesFor} and one
-     * per-activity stub from {@code ActivityService} — and the SDK ships neither any more (inversion phase
-     * 2). {@code sourcesFor} refuses for {@code GAME_BOT} and there is no stub generator at all, so recovery
-     * narrows to what it can still do honestly: the {@link ProjectRepair} passes that need no canonical text.
-     * A damaged file whose repair needs one is reported as unrecoverable rather than rewritten from a guess.
+     * <p><b>Empty for a game bot, and temporarily.</b> A game bot's generated files are a function of its
+     * Activity Flow, and Studio does not yet build the SDK's {@code ProjectModel} to render them from
+     * (inversion phase 4) — nor is there a per-activity stub generator here any more. So recovery narrows to
+     * what it can still do honestly: an empty project's entry point, which says nothing about a flow, plus
+     * the {@link ProjectRepair} passes that need no canonical text. A damaged file whose repair needs one is
+     * reported as unrecoverable rather than rewritten from a guess.
      */
     private static Map<Path, String> canonicalScaffold(StudioContext ctx) {
         ProjectConfig config = ctx.config();
@@ -132,8 +133,10 @@ final class ProjectRecoveryAction {
         ProjectTemplate template = state.getTemplate() != null ? state.getTemplate() : ProjectTemplate.EMPTY;
         if (template == ProjectTemplate.GAME_BOT) return byPath;
 
-        ProjectCreator.sourcesFor(template, config.className(), config.packageName())
-                .forEach((name, source) -> byPath.put(mainDir.resolve(name), source));
+        String entryFile = config.className() + ".java";
+        String source = ProjectSpecs.generatedSource(config, template,
+                MavenService.readSdkVersion(config.projectPath()), entryFile);
+        if (source != null) byPath.put(mainDir.resolve(entryFile), source);
         return byPath;
     }
 

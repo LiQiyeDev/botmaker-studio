@@ -1,5 +1,6 @@
 package com.botmaker.studio.services;
 
+import com.botmaker.sdk.api.authoring.TemplateNames;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.project.TemplateConstants;
@@ -53,8 +54,14 @@ public final class ImageTemplateLibrary {
     public record TemplateMetadata(int width, int height, int captureWidth, int captureHeight,
                                    String target, String createdAt) {}
 
-    /** File name of the built-in default template shipped in every new project (see {@code ProjectCreator}). */
-    public static final String DEFAULT_TEMPLATE_FILE = "default_template.png";
+    /**
+     * File name of the built-in default template shipped in every new project.
+     *
+     * <p>The SDK's, since it is the SDK that writes the file at creation (the inversion, phase 3). Studio asks
+     * two further questions about it — <em>is this the placeholder?</em> (rename/delete protection) and
+     * <em>is it still untouched?</em> (export) — and both have to be asking about the same file.
+     */
+    public static final String DEFAULT_TEMPLATE_FILE = TemplateNames.DEFAULT_TEMPLATE_FILE;
 
     /**
      * Project-root-relative path a fresh {@code new ImageTemplate(...)} references so a newly-dropped vision
@@ -71,16 +78,27 @@ public final class ImageTemplateLibrary {
         return file != null && file.getFileName().toString().equalsIgnoreCase(DEFAULT_TEMPLATE_FILE);
     }
 
-    /** The placeholder every new project's default template starts as: a 32px teal/white checker. */
+    /**
+     * The placeholder every new project's default template starts as: a 32px teal/white checker.
+     *
+     * <p>The pattern is the SDK's, for the same reason the file name is: creation writes it there. A second
+     * checker here would answer {@link #isUnmodifiedDefaultTemplate} wrongly the day either was adjusted.
+     */
     public static BufferedImage defaultTemplateImage() {
-        int size = 32;
-        BufferedImage img = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
-        for (int y = 0; y < size; y++) {
-            for (int x = 0; x < size; x++) {
-                img.setRGB(x, y, ((x / 8) + (y / 8)) % 2 == 0 ? 0xFF1ABC9C : 0xFFECF0F1);
-            }
-        }
-        return img;
+        return TemplateNames.defaultTemplateImage();
+    }
+
+    /**
+     * Writes the placeholder at exactly {@code target}, if it is not already there.
+     *
+     * <p>Creation does not go through this — the SDK writes the placeholder with the rest of the project —
+     * but <em>recovery</em> does: it knows the path it found missing, and the alternative is a second copy of
+     * the "which file is the placeholder" rule for the two to drift apart on.
+     */
+    public static void writePlaceholderAt(Path target) throws IOException {
+        if (Files.exists(target)) return;
+        Files.createDirectories(target.getParent());
+        ImageIO.write(defaultTemplateImage(), "png", target.toFile());
     }
 
     /**

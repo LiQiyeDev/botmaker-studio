@@ -6,6 +6,20 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-26 — project creation moves to the SDK (inversion, phase 3).** `ProjectCreator` narrows to what is
+  genuinely Studio's — name validation, resolving under `PROJECTS_ROOT`, refusing an existing `pom.xml`,
+  `settings.json`, `ProjectVcs.init()` — and calls `Authoring.createProject` for everything bot-facing.
+  **Deleted:** `sourcesFor`, `writeSources`, `emptySources`, `gameBotSources`, `gameBotFileNames`,
+  `createDefaultTemplate(At)`, and `MavenService`'s `Dep`/`DEFAULT_DEPENDENCIES`/`DEFAULT_REPOSITORIES`/
+  `DEFAULT_GROUP_ARTIFACTS` plus its Maven-Model pom body — `writePom` now writes what the SDK renders.
+  **New:** `project/ProjectSpecs`, the one place a `ProjectConfig` becomes an SDK `ProjectSpec` (and the one
+  place `packageName()`'s half-name gains its `com.` prefix), plus `versionFor` (writing bot code: an unknown
+  pin **refuses**) and `readerVersionFor` (reading names: an unknown pin degrades to `latest()`, because there
+  is no version floor any more). `ProjectRepair` and `ProjectRecoveryAction` ask the generator which files a
+  project has and what the empty template's entry point says, at the **project's own pinned** SDK version.
+  `MavenService.SDK_FALLBACK_VERSION` stays a hand-typed literal on purpose — `release.sh` bumps it with a
+  `sed`. *New Project* works again for both templates; **Save Activity Flow and re-render stay refused until
+  phase 4**, and the five red tests are unchanged from phase 0b, not new.
 - **2026-08-25 — Studio comes off `Wire`, and the duration grammar leaves with it (inversion, phase 2).** The
   SDK deleted `api.config.Wire` this phase (its 17 readers survive as `api.authoring.WireText`), so five files
   here were repointed and two were deleted. **Gone:** `project/activity/DurationWire` and its test — 49 lines
