@@ -1,6 +1,6 @@
 package com.botmaker.studio.ui.render.components;
 
-import com.botmaker.studio.project.activity.DurationWire;
+import com.botmaker.sdk.api.authoring.WireText;
 import javafx.geometry.Pos;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextField;
@@ -17,7 +17,7 @@ import java.util.List;
  * evenly came back as a raw millisecond count. Four boxes cost three more widgets and remove the arithmetic.
  *
  * <p>It lives here, in the shared widget package, because both duration editors want it: the parameters /
- * user-view editor (`ValueEditors`, which stores the result as {@link DurationWire} text) and the block
+ * user-view editor (`ValueEditors`, which stores the result as {@link WireText#spellDuration} text) and the block
  * editor's wait picker (`DurationPicker`, which commits it as a {@code Duration.ofX(…)} call). They had two
  * separate controls with two different capabilities, which is how the block editor came to be the one place
  * in Studio where a wait could not be four and a half minutes.
@@ -54,7 +54,7 @@ public final class DurationFields extends HBox {
     }
 
     private void refresh() {
-        preview.setText("= " + DurationWire.format(totalMillis()));
+        preview.setText("= " + WireText.spellDuration(totalMillis()));
     }
 
     private static long whole(TextField field) {

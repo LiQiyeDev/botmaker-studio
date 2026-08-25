@@ -6,6 +6,21 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-25 — Studio comes off `Wire`, and the duration grammar leaves with it (inversion, phase 2).** The
+  SDK deleted `api.config.Wire` this phase (its 17 readers survive as `api.authoring.WireText`), so five files
+  here were repointed and two were deleted. **Gone:** `project/activity/DurationWire` and its test — 49 lines
+  whose only export was `format(millis)`, the *writer* of the grammar `WireText.duration` reads. It is now
+  `WireText.spellDuration`, beside its reader, because the SDK's generator reads stored durations too and one
+  grammar implemented in two repositories is one that drifts. **Also gone:** `VariableWire.loadExpression` and
+  `VariableWire.wireMethod`, which composed the parser call a generated field used to be initialised from —
+  there is no such call any more, the SDK bakes the literal in. `ActivityServiceTest` loses the assertions
+  over both, including a reflective check that the SDK really declared each reader being named; what a
+  generated line says is `ScaffoldEmitTest`'s to assert now, against a file it compiles.
+  **`VariableWire.literalSource` deliberately stayed** — it is the editor's own need (the value a user drops
+  into their own source from the Variables screen), not the bot's. What is left in this repo is the
+  **coercion** half — clamping, pruning options to what is still on offer, resetting a value when a variable
+  is retyped — which is here only because a user is watching it happen; it goes with `ValueEditors` when the
+  SDK ships the per-type pickers. The six knowingly-red tests from phase 0b are unchanged in number.
 - **2026-08-25 — demolition, part two: Studio stops generating Java at all (inversion, phase 0b).** Phase 0
   (below) deliberately kept the templates so Studio could go on generating for one more phase; that
   half-measure is **reversed the same day** — maintaining a two-repository protocol whose only consumer is

@@ -1,9 +1,9 @@
 package com.botmaker.studio.ui.render.components.pickers;
 
+import com.botmaker.sdk.api.authoring.WireText;
 import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.parser.helpers.SdkNodes;
-import com.botmaker.studio.project.activity.DurationWire;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.ui.render.components.DurationFields;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
@@ -124,7 +124,7 @@ public final class DurationPicker {
          * and the two are deliberately separate now that a length can span several units.
          */
         String label() {
-            return DurationWire.format(millis());
+            return WireText.spellDuration(millis());
         }
 
         private static String factory(Unit unit, long amount) {

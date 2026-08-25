@@ -1,6 +1,6 @@
 package com.botmaker.studio.project.activity;
 
-import com.botmaker.sdk.api.config.Wire;
+import com.botmaker.sdk.api.authoring.WireText;
 import com.botmaker.studio.palette.BotType;
 import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.project.TemplateConstants;
@@ -220,7 +220,7 @@ public final class VariableWire {
             case COLOR -> hex(wire);
             case DATE -> parseDate(wire).toString();
             case TIME_OF_DAY -> parseTime(wire).toString();
-            case DURATION -> DurationWire.format(Wire.duration(wire).toMillis());
+            case DURATION -> WireText.spellDuration(WireText.duration(wire).toMillis());
             case POINT, SIZE -> numbers(wire, 2);
             case RECT -> numbers(wire, 4);
             case PRECISION -> precision(wire);
@@ -232,36 +232,18 @@ public final class VariableWire {
     // ---- generated source -----------------------------------------------------------------------------
 
     /**
-     * The Java expression the generated {@code Activities} class assigns to a variable named {@code name}.
+     * The Java source of a single wire value, written out as a literal.
      *
-     * <p>Every form goes through {@link Wire} rather than inlining the parse, so the same wire text is read
-     * the same way whether it stands alone or is one item of a list: {@link Wire#many} maps the very method
-     * reference {@link Wire#one} would have handed to.
+     * <p>There used to be a second answer beside this one. A generated field read its value back at startup —
+     * {@code Wire.duration(Wire.one("wait"))} — so this method existed to say the same thing a second way, as
+     * the literal that call would have produced, for the one place a call into a generated class would have
+     * been nonsense: dropping a value into the <em>user's own</em> source from the Variables screen. The two
+     * had to agree, and each case here was written against the parser it mirrored.
      *
-     * <p>{@code Wire} unqualified, and that is the SDK template's doing — {@code Activities.java} is rendered
-     * from a template that already imports it. It is also the shape that survives an SDK rename: a static
-     * call on a named type is one of the two things Studio can mechanically repair.
-     */
-    public static String loadExpression(BotType.Choice type, String name) {
-        String key = '"' + name + '"';
-        String method = wireMethod(type.type());
-        if (!type.isList()) return "Wire." + method + "(Wire.one(" + key + "))";
-        return "Wire.many(" + key + ", Wire::" + method + ")";
-    }
-
-    /**
-     * The Java source of a single wire value, written out as a literal instead of as a call to a parser.
-     *
-     * <p>{@link #loadExpression} is the <em>bot's</em> answer to "what does this wire text mean": the value is
-     * not known until the bot runs, so the generated code says {@code duration(one("wait"))} and the helper
-     * reads the string at startup. The Variables screen asks the same question at <em>edit</em> time, about a
-     * value it already has, and has to write it into the user's own source — where a call to a private helper
-     * of a generated class would be nonsense. So the same wire grammar is emitted a second way, as the literal
-     * the helper would have produced.
-     *
-     * <p>The two must agree, which is why every case below is written against the helper it mirrors:
-     * {@code 1h30m} through {@link DurationWire}, a colour through {@code Color.decode}'s {@code #RRGGBB}, a
-     * template through the same {@code images/…png} path {@code TEMPLATE_HELPER} builds.
+     * <p>Both the parser call and the runtime read are gone: the SDK's generator bakes the literal in, and
+     * {@code LiteralWriter} is where that is decided. What is left here is the editor's own need — the value
+     * a user drops into their code — which is why this stayed behind while {@code loadExpression} and
+     * {@code wireMethod} were deleted with {@code Wire}.
      *
      * @return the literal and the one import it needs (null when it needs none), or {@code null} for a type
      *         with no written form — the non-{@linkplain BotType#storable() storable} ones.
@@ -281,7 +263,7 @@ public final class VariableWire {
                     "java.time.LocalTime");
             // Milliseconds, not the "1h30m" text: the wire grammar is Studio's, and nothing in the bot's own
             // source should have to know it.
-            case DURATION -> new Literal("Duration.ofMillis(" + Wire.duration(text).toMillis() + "L)",
+            case DURATION -> new Literal("Duration.ofMillis(" + WireText.duration(text).toMillis() + "L)",
                     "java.time.Duration");
             case IMAGE_TEMPLATE -> new Literal("new %s(%s)".formatted(SdkType.IMAGE_TEMPLATE.simpleName(),
                     quote(TemplateConstants.IMAGES_PREFIX + text + ".png")),
@@ -364,39 +346,12 @@ public final class VariableWire {
         };
     }
 
-    /**
-     * The {@link Wire} method a stored value of this type is read back with — {@code Wire.duration},
-     * {@code Wire.area}. It is a name, not a body: the parser lives in the SDK.
-     *
-     * <p>Until 2026-08-24 this returned a {@code Helper} carrying <b>Java source held in a Java string</b> —
-     * thirteen parser bodies, emitted into the generated {@code Activities} for whichever types a project
-     * happened to use, de-duplicated on their text because two enums both wanted {@code constant(…)}. They
-     * were untestable by construction, and the duration one was a hand-kept copy of {@link Wire#duration}
-     * with a comment asking the next reader to diff the two by eye. One compiled implementation replaced all
-     * of it; what is left here is which of its methods to call.
-     */
-    public static String wireMethod(BotType type) {
-        return switch (type) {
-            case TEXT -> "text";
-            case YES_NO -> "flag";
-            case WHOLE_NUMBER -> "whole";
-            case DECIMAL_NUMBER -> "decimal";
-            case CHARACTER -> "letter";
-            case DATE -> "date";
-            case TIME_OF_DAY -> "time";
-            case DURATION -> "duration";
-            case IMAGE_TEMPLATE -> "template";
-            case COLOR -> "color";
-            case KEY -> "key";
-            case MOUSE_BUTTON -> "mouseButton";
-            case DIRECTION -> "direction";
-            case PRECISION -> "precision";
-            case POINT -> "point";
-            case RECT -> "area";
-            case SIZE -> "size";
-            default -> throw new IllegalArgumentException(type + " is not a storable variable type");
-        };
-    }
+    // A `wireMethod(BotType)` used to live here: the name of the parser a generated field called at startup,
+    // one per storable type. It went with `Wire` itself. Its own history is worth one line, because it is the
+    // same lesson twice — until 2026-08-24 it returned Java parser *bodies held in Java strings*, thirteen of
+    // them, emitted into `Activities` for whichever types a project used and untestable by construction. They
+    // were replaced by a name pointing at one compiled implementation, and that implementation is now called
+    // at generation time instead, by `LiteralWriter`, which writes the value it produced.
 
     // ---- shared parsing -------------------------------------------------------------------------------
 

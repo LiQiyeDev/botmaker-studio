@@ -39,31 +39,16 @@ public class ActivityServiceTest {
                 VariableWire.javaType(BotType.Choice.listOf(BotType.WHOLE_NUMBER)),
                 "a list of a primitive is a list of its box");
 
-        // Wire.<type>(Wire.one(name)), never a helper generated into the bot: the parsers are compiled SDK
-        // methods, and the list form maps the very method reference the single-valued form would have called.
-        assertEquals("Wire.whole(Wire.one(\"n\"))",
-                VariableWire.loadExpression(BotType.Choice.of(BotType.WHOLE_NUMBER), "n"));
-        assertEquals("Wire.flag(Wire.one(\"n\"))",
-                VariableWire.loadExpression(BotType.Choice.of(BotType.YES_NO), "n"));
-        assertEquals("Wire.many(\"n\", Wire::whole)",
-                VariableWire.loadExpression(BotType.Choice.listOf(BotType.WHOLE_NUMBER), "n"));
+        // A generated field's *initialiser* used to be asserted here — `Wire.whole(Wire.one("n"))`, and one
+        // reflective check per storable type that the SDK really declared the reader being named. Both are
+        // gone with `Wire`: a value is now baked in as a literal by the SDK's own generator, so what that
+        // line says is `ScaffoldEmitTest`'s to assert, against a file it compiles.
 
         assertTrue(VariableWire.resolvedType(BotType.Choice.of(BotType.WHOLE_NUMBER)).isNumeric());
         assertTrue(VariableWire.resolvedType(BotType.Choice.of(BotType.YES_NO)).isBoolean());
         for (BotType type : BotType.storableTypes()) {
             assertNotNull(VariableWire.defaultWire(BotType.Choice.of(type)), type.toString());
-            // Every storable type names a Wire method — and the SDK really has it, checked below rather
-            // than taken on trust, since the name is now a string crossing a module boundary.
-            assertTrue(hasWireMethod(VariableWire.wireMethod(type)), type + " → Wire." + type);
         }
-    }
-
-    /** Whether the SDK's {@code Wire} declares a one-argument reader of that name. */
-    private static boolean hasWireMethod(String name) {
-        for (var m : com.botmaker.sdk.api.config.Wire.class.getMethods()) {
-            if (m.getName().equals(name) && m.getParameterCount() == 1) return true;
-        }
-        return false;
     }
 
     @Test
