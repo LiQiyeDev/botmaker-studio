@@ -1,11 +1,7 @@
 package com.botmaker.studio.services;
 
-import com.botmaker.sdk.api.authoring.Authoring;
-import com.botmaker.sdk.api.authoring.SdkVersion;
 import com.botmaker.studio.config.AppVersion;
 import com.botmaker.studio.project.ProjectConfig;
-import com.botmaker.studio.project.ProjectSpecs;
-import com.botmaker.studio.project.ProjectTemplate;
 import com.botmaker.studio.project.UserLibrary;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
@@ -35,6 +31,8 @@ import org.eclipse.aether.transfer.TransferResource;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.StringWriter;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -43,6 +41,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Properties;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -56,24 +56,25 @@ public final class MavenService {
 
     private MavenService() {}
 
-    /**
-     * Default remote repositories used both in generated POMs and during resolution — <b>the SDK's list</b>,
-     * because the SDK is what writes the pom (inversion phase 3). Resolution reads it too so a jar Studio
-     * fetches can never come from a different set of repositories than the pom names.
-     */
-    private static Map<String, String> defaultRepositories() {
-        return Authoring.defaultRepositories(SdkVersion.latest());
+    // The pom is Studio's again (2026-08-26), one day after phase 3 moved it to the SDK. The reversal is
+    // recorded rather than tidied away because the argument that moved it was not wrong, only incomplete:
+    // the pom is not a file *about* the SDK, it is the file that *declares which* SDK — and, once there is
+    // ever a second plugin, which plugins. The SDK is the editor's default plugin, not the editor; a plugin
+    // cannot enumerate its siblings, so a pom it wrote would silently omit theirs. Only the composer can
+    // write the manifest of what it composed. Creation still lands in one pass: ProjectCreator hands this
+    // text to Authoring.createProject as a caller file.
+
+    /** Default remote repositories used both in generated POMs and during resolution. */
+    private static final Map<String, String> DEFAULT_REPOSITORIES = new LinkedHashMap<>();
+    static {
+        DEFAULT_REPOSITORIES.put("central", "https://repo.maven.apache.org/maven2/");
+        DEFAULT_REPOSITORIES.put("jitpack", "https://jitpack.io");
+        DEFAULT_REPOSITORIES.put("google", "https://dl.google.com/dl/android/maven2/");
     }
 
-    /**
-     * Maven coordinate of the BotMaker SDK (published from GitHub tags via JitPack).
-     *
-     * <p>Constants here, values from the SDK: every caller in Studio already spells them
-     * {@code MavenService.SDK_GROUP_ID}, and the coordinate a generated pom pins is a fact the generator
-     * owns. Two hand-typed copies of one string is how a rename lands in the pom and not in the resolver.
-     */
-    public static final String SDK_GROUP_ID = Authoring.SDK_GROUP_ID;
-    public static final String SDK_ARTIFACT_ID = Authoring.SDK_ARTIFACT_ID;
+    /** Maven coordinate of the BotMaker SDK (published from GitHub tags via JitPack). */
+    public static final String SDK_GROUP_ID = "com.github.LiQiyeDev";
+    public static final String SDK_ARTIFACT_ID = "botmaker-sdk";
     /**
      * Version used for the SDK when none is supplied / JitPack is unreachable.
      *
@@ -139,20 +140,37 @@ public final class MavenService {
         }
     }
 
+    /** Dependencies every generated project gets (mirrors the old build.gradle). */
+    private record Dep(String groupId, String artifactId, String version, String scope) {}
+
+    private static final List<Dep> DEFAULT_DEPENDENCIES = List.of(
+            new Dep(SDK_GROUP_ID, SDK_ARTIFACT_ID, SDK_FALLBACK_VERSION, null),
+            new Dep("net.java.dev.jna", "jna", "5.13.0", null),
+            new Dep("net.java.dev.jna", "jna-platform", "5.13.0", null),
+            // Jackson stays even though nothing generated needs it any more: a java-model project's settings
+            // are Java literals, not a JSON read at startup. It is on the list for what the user might write,
+            // and taking it away would break a bot that imports it for a gain nobody would notice.
+            new Dep("com.fasterxml.jackson.core", "jackson-databind", "2.15.2", null),
+            new Dep("org.junit.jupiter", "junit-jupiter", "5.9.3", "test")
+    );
+
     /**
-     * Whether {@code d} is one of the dependencies every generated project is born with — asked of the SDK,
-     * which is the thing that put them there.
+     * {@code groupId:artifactId} of the built-in dependencies — these are never treated as user libraries.
      *
-     * <p>A "user library" is defined as *anything in the pom that is not a default*, so this predicate and
-     * the pom writer must be the same list or the dialog offers to delete a dependency it cannot re-add.
-     * Studio kept its own copy until 2026-08-25; it was already the second one.
+     * <p>A "user library" is anything in the pom that is not on this list, so this set and
+     * {@link #writePom} must stay one list or the dialog offers to delete a dependency it cannot re-add.
+     * That is an argument for one owner, and the owner is whoever writes the pom — Studio, again.
      */
+    private static final Set<String> DEFAULT_GROUP_ARTIFACTS = DEFAULT_DEPENDENCIES.stream()
+            .map(d -> d.groupId() + ":" + d.artifactId())
+            .collect(Collectors.toUnmodifiableSet());
+
     private static boolean isDefaultDependency(Dependency d) {
-        return Authoring.isDefaultDependency(SdkVersion.latest(), d.getGroupId(), d.getArtifactId());
+        return DEFAULT_GROUP_ARTIFACTS.contains(d.getGroupId() + ":" + d.getArtifactId());
     }
 
     // =========================================================================
-    // POM GENERATION (the SDK's, written here)
+    // POM GENERATION (Maven Model API)
     // =========================================================================
 
     /**
@@ -165,25 +183,71 @@ public final class MavenService {
     }
 
     /**
-     * Writes {@code projectDir/pom.xml} for the given project, pinning the BotMaker SDK to
-     * {@code sdkVersion} (blank → {@link #SDK_FALLBACK_VERSION}).
+     * Builds a {@code pom.xml} for the given project using the Maven Model API and returns it as text. The
+     * model is assembled as an object graph and serialized with {@link MavenXpp3Writer} — no XML string
+     * templating, so a project name with an {@code &} in it cannot produce a pom that does not parse. The
+     * BotMaker SDK is pinned to {@code sdkVersion} (blank → {@link #SDK_FALLBACK_VERSION}); all other
+     * defaults use their built-in versions.
      *
-     * <p><b>The text is the SDK's</b> ({@code Authoring.pomXml}) since 2026-08-25: which dependencies a bot
-     * is born with, and at which versions, is a statement about the SDK it compiles against. This method
-     * survives as the *placement* — Studio knows where a project lives — and as the one entry point
-     * {@code ProjectRepair} uses to restore a pom somebody deleted out of an otherwise intact project, where
-     * {@code Authoring.createProject} would (correctly) refuse.
-     *
-     * <p>It reads {@link ProjectTemplate#EMPTY} for the spec's kind because nothing in a pom depends on the
-     * kind; a repair must not have to know which template the project came from to restore its build file.
+     * <p>Text rather than a write, because project <em>creation</em> does not write this file itself: it
+     * hands the text to {@code Authoring.createProject}, which commits it in the same all-or-none pass as
+     * the files the SDK owns. Composing it here and committing it there is what keeps both halves — Studio
+     * knows the whole dependency set (the SDK is only its default plugin), and a failed creation still
+     * leaves nothing behind.
      */
-    public static void writePom(Path projectDir, ProjectConfig cfg, String sdkVersion) throws IOException {
+    public static String pomXml(ProjectConfig cfg, String sdkVersion) {
         String resolvedSdkVersion = (sdkVersion == null || sdkVersion.isBlank())
                 ? SDK_FALLBACK_VERSION : sdkVersion.trim();
+        Model model = new Model();
+        model.setModelVersion("4.0.0");
+        model.setGroupId("com." + cfg.packageName());
+        model.setArtifactId(cfg.projectName());
+        model.setVersion("0.0.1-SNAPSHOT");
+        model.setPackaging("jar");
+
+        Properties props = new Properties();
+        props.setProperty("maven.compiler.release", String.valueOf(Runtime.version().feature()));
+        props.setProperty("project.build.sourceEncoding", "UTF-8");
+        model.setProperties(props);
+
+        DEFAULT_REPOSITORIES.forEach((id, url) -> {
+            Repository repo = new Repository();
+            repo.setId(id);
+            repo.setUrl(url);
+            model.addRepository(repo);
+        });
+
+        for (Dep d : DEFAULT_DEPENDENCIES) {
+            Dependency dep = new Dependency();
+            dep.setGroupId(d.groupId());
+            dep.setArtifactId(d.artifactId());
+            boolean isSdk = SDK_GROUP_ID.equals(d.groupId()) && SDK_ARTIFACT_ID.equals(d.artifactId());
+            dep.setVersion(isSdk ? resolvedSdkVersion : d.version());
+            if (d.scope() != null) dep.setScope(d.scope());
+            model.addDependency(dep);
+        }
+
+        StringWriter out = new StringWriter();
+        try {
+            new MavenXpp3Writer().write(out, model);
+        } catch (IOException impossible) {
+            // A StringWriter does not fail. Wrapping rather than declaring keeps every caller's throws
+            // clause about the filesystem, which is the only IO any of them can do anything about.
+            throw new UncheckedIOException(impossible);
+        }
+        return out.toString();
+    }
+
+    /**
+     * Writes {@link #pomXml} to {@code projectDir/pom.xml}.
+     *
+     * <p>This is the <em>repair</em> path — restoring a build file somebody deleted out of an otherwise
+     * intact project, where re-creating the project would (correctly) refuse. Creation goes through
+     * {@code pomXml} instead, so that its write is part of one atomic commit.
+     */
+    public static void writePom(Path projectDir, ProjectConfig cfg, String sdkVersion) throws IOException {
         Files.createDirectories(projectDir);
-        Files.writeString(projectDir.resolve("pom.xml"),
-                Authoring.pomXml(ProjectSpecs.readerVersionFor(resolvedSdkVersion),
-                        ProjectSpecs.of(cfg, ProjectTemplate.EMPTY, resolvedSdkVersion, null)));
+        Files.writeString(projectDir.resolve("pom.xml"), pomXml(cfg, sdkVersion));
     }
 
     // =========================================================================
@@ -335,7 +399,7 @@ public final class MavenService {
     }
 
     private static List<RemoteRepository> buildRemoteRepositories(Model model) {
-        Map<String, String> repos = new LinkedHashMap<>(defaultRepositories());
+        Map<String, String> repos = new LinkedHashMap<>(DEFAULT_REPOSITORIES);
         for (Repository r : model.getRepositories()) {
             if (r.getUrl() != null) repos.put(r.getId(), r.getUrl());
         }
@@ -415,7 +479,7 @@ public final class MavenService {
      * chosen SDK contains <em>before</em> a pom exists to read repositories from.
      *
      * <p>Resolving against an empty model is not a compromise here: {@link #buildRemoteRepositories} starts
-     * from the SDK's own default repositories, and those are exactly the ones {@link #writePom} is about to
+     * from {@link #DEFAULT_REPOSITORIES}, and those are exactly the repositories {@link #pomXml} is about to
      * declare. The only thing a project pom adds is a repository the <em>user</em> put there, which by
      * definition a project that does not exist yet has none of.
      */

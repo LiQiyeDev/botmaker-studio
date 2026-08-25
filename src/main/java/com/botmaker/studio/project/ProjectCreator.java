@@ -12,6 +12,7 @@ import com.botmaker.studio.services.MavenService;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 
 import static com.botmaker.studio.config.Constants.PROJECTS_ROOT;
 
@@ -19,14 +20,21 @@ import static com.botmaker.studio.config.Constants.PROJECTS_ROOT;
  * Creates a new user project — the part of it that is about <em>Studio</em>.
  *
  * <p>Since 2026-08-25 the bot's own files are not written here. {@code Authoring.createProject} writes the
- * pom, the {@code src/} layout, every {@code .java}, {@code activities.json},
- * {@code botmaker-project.properties} and the placeholder image, because each of those is a statement about
- * the SDK the bot compiles against and only that SDK can make it (the inversion, phase 3). Studio keeps the
- * four things that are genuinely its own: <b>where</b> projects live, <b>whether the name is one a user may
- * pick</b>, the editor's {@code settings.json}, and project history.
+ * {@code src/} layout, every {@code .java}, {@code activities.json}, {@code botmaker-project.properties} and
+ * the placeholder image, because each of those is a statement about the SDK the bot compiles against and
+ * only that SDK can make it (the inversion, phase 3). Studio keeps the things that are genuinely its own:
+ * <b>where</b> projects live, <b>whether the name is one a user may pick</b>, the editor's
+ * {@code settings.json}, project history — and <b>the pom</b>.
  *
- * <p>That is also why the all-or-none rule moved rather than being reimplemented: the refusal has to happen
- * where the files are rendered. What is left here is ordered so nothing Studio writes can precede it.
+ * <p>The pom is the interesting one, and it came back here on 2026-08-26 after one day in the SDK. It is not
+ * a file about the SDK, it is the file that declares <em>which</em> SDK the project has — and the SDK is the
+ * editor's default plugin, not the editor. A second plugin would be invisible to it, so a pom it wrote would
+ * silently omit that plugin's dependency. Studio composes it ({@code MavenService.pomXml}) and hands the
+ * <em>text</em> to {@code createProject}, which commits it beside the files it owns.
+ *
+ * <p>That handing-in is what preserves the all-or-none rule rather than trading it away: the refusal still
+ * happens where the files are rendered, and one pass writes every byte of the project. What is left here is
+ * ordered so nothing Studio writes can precede it.
  */
 public class ProjectCreator {
 
@@ -78,14 +86,16 @@ public class ProjectCreator {
         }
 
         try {
-            // 1. Everything the bot is made of, written by the SDK that wrote its API: the pom, the src/
-            //    layout, every .java, activities.json, botmaker-project.properties and the placeholder
-            //    image. All of it or none of it — the refusal lands before a single directory exists, so a
-            //    project that cannot be created never has to be deleted by hand.
+            // 1. Everything the bot is made of. The SDK that wrote its API writes the src/ layout, every
+            //    .java, activities.json, botmaker-project.properties and the placeholder image; the pom is
+            //    ours, composed here and handed in so the two land together. All of it or none of it — the
+            //    refusal lands before a single directory exists, so a project that cannot be created never
+            //    has to be deleted by hand.
             System.out.println("1. Generating the project...");
             Authoring.createProject(sdk,
                     ProjectSpecs.of(cfg, template, effectiveSdkVersion(sdkVersion), referenceResolution),
-                    projectPath, SchemaFile.ACTIVITIES.current());
+                    projectPath, SchemaFile.ACTIVITIES.current(),
+                    Map.of("pom.xml", MavenService.pomXml(cfg, effectiveSdkVersion(sdkVersion))));
 
             // 2. Seed settings.json (the chosen template + the standard capture resolution). Studio's own
             //    file: no bot reads it, and it records what the editor chose rather than what the bot needs.

@@ -6,12 +6,25 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
-- **2026-08-26 — project creation moves to the SDK (inversion, phase 3).** `ProjectCreator` narrows to what is
+- **2026-08-26 — the pom comes back to Studio (a one-day reversal).** The entry below moved `pom.xml` to the
+  SDK; this undoes that half of it and nothing else. **Why, recorded rather than edited away:** a pom is not
+  a file *about* the SDK, it is the file that declares **which** SDK — and the SDK is Studio's *default
+  plugin*, not Studio. A hypothetical second plugin would be invisible to it, so a pom the SDK wrote would
+  silently omit that plugin's dependency. The composer writes the manifest of what it composed.
+  **Restored:** `MavenService`'s `Dep`, `DEFAULT_DEPENDENCIES`, `DEFAULT_REPOSITORIES`,
+  `DEFAULT_GROUP_ARTIFACTS`, `isDefaultDependency` and the Maven-Model pom body — now split into
+  `pomXml(cfg, sdkVersion)` (the text) and `writePom` (the repair path that writes it).
+  **All-or-none is kept, not traded:** creation does not write the pom before or after
+  `Authoring.createProject` — it passes the text in as a **caller file**, committed in the SDK's same atomic
+  pass. Writing it first would trip the "already a project here" guard; writing it after would leave a
+  source tree with no build file if it failed.
+- **2026-08-26 — project creation moves to the SDK (inversion, phase 3).** *Its pom half is superseded by the
+  entry above, the same day.* `ProjectCreator` narrows to what is
   genuinely Studio's — name validation, resolving under `PROJECTS_ROOT`, refusing an existing `pom.xml`,
-  `settings.json`, `ProjectVcs.init()` — and calls `Authoring.createProject` for everything bot-facing.
+  the pom itself, `settings.json`, `ProjectVcs.init()` — and calls `Authoring.createProject` for everything
+  else bot-facing.
   **Deleted:** `sourcesFor`, `writeSources`, `emptySources`, `gameBotSources`, `gameBotFileNames`,
-  `createDefaultTemplate(At)`, and `MavenService`'s `Dep`/`DEFAULT_DEPENDENCIES`/`DEFAULT_REPOSITORIES`/
-  `DEFAULT_GROUP_ARTIFACTS` plus its Maven-Model pom body — `writePom` now writes what the SDK renders.
+  `createDefaultTemplate(At)`.
   **New:** `project/ProjectSpecs`, the one place a `ProjectConfig` becomes an SDK `ProjectSpec` (and the one
   place `packageName()`'s half-name gains its `com.` prefix), plus `versionFor` (writing bot code: an unknown
   pin **refuses**) and `readerVersionFor` (reading names: an unknown pin degrades to `latest()`, because there

@@ -11,6 +11,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -58,7 +59,8 @@ class ProjectCreatorTest {
         ProjectConfig config = ProjectConfig.forProject("MyBot", root);
         Authoring.createProject(SdkVersion.latest(),
                 ProjectSpecs.of(config, ProjectTemplate.GAME_BOT, MavenService.SDK_FALLBACK_VERSION, null),
-                config.projectPath(), SchemaFile.ACTIVITIES.current());
+                config.projectPath(), SchemaFile.ACTIVITIES.current(),
+                Map.of("pom.xml", MavenService.pomXml(config, MavenService.SDK_FALLBACK_VERSION)));
 
         assertTrue(Files.exists(config.resourcesRoot().resolve(ActivitiesConfig.FILE_NAME)));
         assertTrue(ActivitiesConfig.read(config.resourcesRoot()).isEmpty());
@@ -69,7 +71,8 @@ class ProjectCreatorTest {
         ProjectConfig config = ProjectConfig.forProject("Plain", root);
         Authoring.createProject(SdkVersion.latest(),
                 ProjectSpecs.of(config, ProjectTemplate.EMPTY, MavenService.SDK_FALLBACK_VERSION, null),
-                config.projectPath(), SchemaFile.ACTIVITIES.current());
+                config.projectPath(), SchemaFile.ACTIVITIES.current(),
+                Map.of("pom.xml", MavenService.pomXml(config, MavenService.SDK_FALLBACK_VERSION)));
 
         assertFalse(Files.exists(config.resourcesRoot().resolve(ActivitiesConfig.FILE_NAME)));
     }
