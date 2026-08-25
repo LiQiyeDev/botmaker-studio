@@ -2,19 +2,11 @@ package com.botmaker.studio.project.scaffold;
 
 import com.botmaker.studio.services.MavenService;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.OptionalInt;
 import java.util.Set;
-import java.util.TreeSet;
-import java.util.jar.JarOutputStream;
-import java.util.zip.ZipEntry;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -23,12 +15,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Reading the scaffold out of the SDK jar, and the two directions a token can be unknown.
+ * Reading the templates out of the SDK jar, and the two directions a hole can be unknown.
  *
  * <p>The templates themselves are the SDK's to check — its build compiles them and its
- * {@code ScaffoldTemplatesTest} asserts every declared token is one matched pair of fences. What is Studio's
- * is this: that it finds them, that the manifest it reads agrees with the files that came with it, and that
- * filling a token replaces exactly the fenced region and nothing else.
+ * {@code ScaffoldTemplatesTest} asserts every fence is one matched pair. What is Studio's is this: that it
+ * finds them, that the manifest it reads agrees with the files that came with it, and that filling a hole
+ * replaces exactly the fenced region and nothing else.
  */
 class TemplateStoreTest {
 
@@ -48,25 +40,25 @@ class TemplateStoreTest {
 
     @Test
     void aTemplateThisSdkDoesNotShipIsRefusedByName() {
-        ScaffoldUnsupported refusal = assertThrows(ScaffoldUnsupported.class,
+        IOException refusal = assertThrows(IOException.class,
                 () -> TemplateStore.bundled().require("NO_SUCH_TEMPLATE"));
         assertTrue(refusal.getMessage().contains("NO_SUCH_TEMPLATE"), refusal.getMessage());
     }
 
     /**
-     * The forward-compatibility rule, from Studio's side: a token it does not fill keeps its default, and the
-     * file still compiles. That is what lets a <em>newer</em> SDK add tokens this Studio has never heard of.
+     * The forward-compatibility rule, from Studio's side: a hole it does not fill keeps its default, and the
+     * file still compiles. That is what lets a <em>newer</em> SDK add holes this Studio has never heard of.
      */
     @Test
-    void aTokenLeftAloneKeepsItsDefault() throws Exception {
+    void aHoleLeftAloneKeepsItsDefault() throws Exception {
         TemplateStore store = TemplateStore.bundled();
         TemplateStore.Template driver = store.require("FLOW_DRIVER");
 
-        String rendered = store.render(driver, "mybot", null, Map.of(ScaffoldToken.MAX_STEPS, "42"));
+        String rendered = store.render(driver, "mybot", null, Map.of("MAX_STEPS", "42"));
 
         assertTrue(rendered.contains("MAX_STEPS = 42;"), rendered);
         assertTrue(rendered.contains("STEP_DELAY_MS = 0;"),
-                "an unfilled token keeps the SDK's own default:\n" + rendered);
+                "an unfilled hole keeps the SDK's own default:\n" + rendered);
         assertTrue(rendered.contains("FlowGraph.node(\"Example\""),
                 "and so does an unfilled multi-line one:\n" + rendered);
         assertTrue(TemplateStore.unfilledTokens(rendered).isEmpty(),
@@ -78,89 +70,24 @@ class TemplateStoreTest {
      * nowhere to put means part of the user's project would be silently dropped.
      */
     @Test
-    void aTokenTheTemplateDoesNotDeclareIsRefusedByName() throws Exception {
+    void aHoleTheTemplateDoesNotDeclareIsRefusedByName() throws Exception {
         TemplateStore store = TemplateStore.bundled();
         TemplateStore.Template goHome = store.require("GO_HOME");
 
         // GO_HOME is a seed file with no holes at all, so any fragment offered to it has nowhere to go.
-        ScaffoldUnsupported refusal = assertThrows(ScaffoldUnsupported.class,
-                () -> store.render(goHome, "mybot", null, Map.of(ScaffoldToken.FLOW, "x")));
+        IOException refusal = assertThrows(IOException.class,
+                () -> store.render(goHome, "mybot", null, Map.of("FLOW", "x")));
         assertTrue(refusal.getMessage().contains("FLOW"), refusal.getMessage());
-    }
-
-    /**
-     * The third direction, and the one this whole generation business exists for: the hole is <em>there</em>,
-     * spelled the way Studio spells it, and its shape has moved on.
-     *
-     * <p>Every name-based check passes here — {@code FLOW} is declared, {@code FLOW} is fenced, and the text
-     * Studio holds names only members that still resolve. Written in, it would compile and route the bot
-     * somewhere else. So the generation is what makes it a refusal, and the refusal has to name the hole and
-     * the shape rather than talk about tokens.
-     */
-    @Test
-    void aHoleWhoseShapeMovedOnIsRefusedByName(@TempDir Path dir) throws Exception {
-        TemplateStore store = TemplateStore.forJar(jarWithFlowAtGeneration(dir, 99));
-        TemplateStore.Template driver = store.require("FLOW_DRIVER");
-
-        assertEquals(OptionalInt.of(99), driver.generationOf(ScaffoldToken.FLOW));
-        ScaffoldUnsupported refusal = assertThrows(ScaffoldUnsupported.class,
-                () -> store.render(driver, "mybot", null, Map.of(ScaffoldToken.FLOW, "\"Start\"")));
-        assertTrue(refusal.getMessage().contains("FLOW:99"), refusal.getMessage());
-        assertTrue(refusal.getMessage().contains("Update Studio"),
-                "and the way out: " + refusal.getMessage());
-    }
-
-    /** A hole Studio never offers a fragment for is not affected — its default stands, whatever generation. */
-    @Test
-    void aMovedHoleNobodyFillsStillRendersItsDefault(@TempDir Path dir) throws Exception {
-        TemplateStore store = TemplateStore.forJar(jarWithFlowAtGeneration(dir, 99));
-        TemplateStore.Template driver = store.require("FLOW_DRIVER");
-
-        String rendered = store.render(driver, "mybot", null, Map.of(ScaffoldToken.MAX_STEPS, "42"));
-
-        assertTrue(rendered.contains("MAX_STEPS = 42;"), rendered);
-        assertTrue(TemplateStore.unfilledTokens(rendered).isEmpty(),
-                "the fences go either way — an unfilled hole is not a marker left in a bot's source");
-    }
-
-    /**
-     * An SDK jar carrying the real templates, with {@code FLOW}'s generation moved to {@code generation} in
-     * both the manifest and the fences — the future SDK that does not exist yet, built on the spot.
-     */
-    private static Path jarWithFlowAtGeneration(Path dir, int generation) throws Exception {
-        TemplateStore bundled = TemplateStore.bundled();
-        Path jar = dir.resolve("sdk-future.jar");
-        StringBuilder manifest = new StringBuilder("format 2\npackage com.botmaker.sdk.templates\n");
-        try (JarOutputStream out = new JarOutputStream(Files.newOutputStream(jar))) {
-            for (TemplateStore.Template t : bundled.templates()) {
-                String path = "com/botmaker/sdk/templates/"
-                        + (t.id().equals("ACTIVITY_STUB") ? "activities/" : "") + t.className() + ".java";
-                write(out, TemplateStore.ROOT + "/" + path,
-                        t.source().replace("STUDIO:FLOW:1>", "STUDIO:FLOW:" + generation + ">"));
-                String holes = t.holes().isEmpty() ? "-"
-                        : String.join(",", new TreeSet<>(t.holes())).replace("FLOW:1", "FLOW:" + generation);
-                manifest.append("template ").append(t.id()).append(' ').append(t.kind()).append(' ')
-                        .append(path).append(' ').append(t.target()).append(' ').append(holes).append('\n');
-            }
-            write(out, TemplateStore.ROOT + "/manifest.txt", manifest.toString());
-        }
-        return jar;
-    }
-
-    private static void write(JarOutputStream out, String path, String content) throws IOException {
-        out.putNextEntry(new ZipEntry(path));
-        out.write(content.getBytes(StandardCharsets.UTF_8));
-        out.closeEntry();
     }
 
     @Test
     void renderingRewritesThePackageAndTheClassName() throws Exception {
         TemplateStore store = TemplateStore.bundled();
-        Map<ScaffoldToken, String> tokens = new LinkedHashMap<>();
-        tokens.put(ScaffoldToken.OUTCOMES, "NEXT, BAG_FULL");
-        tokens.put(ScaffoldToken.ENABLED, "Activities.Mining");
+        Map<String, String> fills = new LinkedHashMap<>();
+        fills.put("OUTCOMES", "NEXT, BAG_FULL");
+        fills.put("ENABLED", "Activities.Mining");
 
-        String rendered = store.render(store.require("ACTIVITY_STUB"), "mybot", "Mining", tokens);
+        String rendered = store.render(store.require("ACTIVITY_STUB"), "mybot", "Mining", fills);
 
         assertTrue(rendered.startsWith("package com.mybot.activities;"), rendered);
         assertTrue(rendered.contains("public class Mining extends Activity<Mining.Outcome>"), rendered);
@@ -173,8 +100,7 @@ class TemplateStoreTest {
 
     /**
      * A jar with no {@code botmaker-templates/} in it is an SDK from before they existed. It falls back to the
-     * ones Studio ships rather than failing — the same fail-open rule {@code ScaffoldCheck} follows, and the
-     * reason a project pinned to an old SDK still opens.
+     * ones Studio ships rather than failing, which is the reason a project pinned to an old SDK still opens.
      */
     @Test
     void aJarWithNoTemplatesFallsBackToTheBundledOnes() throws Exception {
@@ -190,8 +116,8 @@ class TemplateStoreTest {
      */
     @Test
     void anSdkOlderThanTheScaffoldIsRefusedByVersion() {
-        ScaffoldUnsupported refusal =
-                assertThrows(ScaffoldUnsupported.class, () -> TemplateStore.requireFloor("1.0.26"));
+        IOException refusal =
+                assertThrows(IOException.class, () -> TemplateStore.requireFloor("1.0.26"));
         assertTrue(refusal.getMessage().contains("1.0.26"),
                 "the sentence has to name the version the user actually pins: " + refusal.getMessage());
         assertTrue(refusal.getMessage().contains(MavenService.MIN_SDK_VERSION), refusal.getMessage());

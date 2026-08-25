@@ -9,7 +9,6 @@ import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.project.activity.VariableHolder;
 import com.botmaker.studio.project.activity.VariableWire;
-import com.botmaker.studio.project.scaffold.ScaffoldUnsupported;
 import com.botmaker.studio.services.ActivityService;
 
 import java.io.IOException;
@@ -69,16 +68,10 @@ final class ParametersSplit {
         List<ActivityVariable> values = model.variables();
 
         // Rendered before anything is written, and both of them: a refusal here (an SDK below the template
-        // floor, a scaffold element the pinned jar has lost) must leave the project exactly as it was.
-        String activitiesSource;
-        String parametersSource;
-        try {
-            ActivityService service = new ActivityService(config, null, null);
-            activitiesSource = service.generateActivitiesSource(model);
-            parametersSource = service.generateParametersSource(model);
-        } catch (ScaffoldUnsupported e) {
-            throw new IOException(e.getMessage(), e);
-        }
+        // floor) must leave the project exactly as it was.
+        ActivityService service = new ActivityService(config, null, null);
+        String activitiesSource = service.generateActivitiesSource(model);
+        String parametersSource = service.generateParametersSource(model);
 
         List<Rewrite> rewrites = values.isEmpty() ? List.of() : repointValues(config, values);
 

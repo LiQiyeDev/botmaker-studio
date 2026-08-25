@@ -8,7 +8,6 @@ import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.project.ProjectTemplate;
 import com.botmaker.studio.project.StudioContext;
 import com.botmaker.studio.project.activity.ActivityDefinition;
-import com.botmaker.studio.project.scaffold.ScaffoldUnsupported;
 import com.botmaker.studio.project.scaffold.TemplateStore;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.MavenService;
@@ -57,12 +56,12 @@ final class ProjectRecoveryAction {
         ActivityService activityService = ctx.activityService();
 
         // Rendered once, up front, and reused below: it is the same answer both times, and producing it can
-        // now refuse — the scaffold comes from the SDK's own templates, and an SDK that cannot carry what
-        // this project needs written is something to say plainly rather than half-recover around.
+        // refuse — the templates come from the SDK, and an SDK too old to carry them is something to say
+        // plainly rather than half-recover around.
         Map<Path, String> canonical;
         try {
             canonical = canonicalScaffold(ctx);
-        } catch (ScaffoldUnsupported ex) {
+        } catch (IOException ex) {
             Alert err = ThemedWindows.alert(Alert.AlertType.ERROR);
             err.setTitle("Recover Project Files");
             err.setHeaderText("Could not work out what this project's files should look like.");
@@ -133,7 +132,7 @@ final class ProjectRecoveryAction {
      * would never reach {@code generateStubSource}, and recovery would then happily write the seeds — which
      * are templates too, and call the same injection API — into a bot whose SDK predates all of it.
      */
-    private static Map<Path, String> canonicalScaffold(StudioContext ctx) throws ScaffoldUnsupported {
+    private static Map<Path, String> canonicalScaffold(StudioContext ctx) throws IOException {
         ProjectConfig config = ctx.config();
         ProjectState state = ctx.state();
         ActivityService activityService = ctx.activityService();

@@ -13,6 +13,7 @@ import com.botmaker.studio.project.activity.FlowEdge;
 import com.botmaker.studio.project.activity.FlowNode;
 import com.botmaker.studio.services.ActivityService;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -20,8 +21,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Whole projects, as Studio would write them — the corpus {@link ScaffoldCompileTest} compiles and
- * {@link ScaffoldSurfaceTest} reads.
+ * Whole projects, as Studio would write them — the corpus {@link ScaffoldCompileTest} compiles.
  *
  * <h2>Whole projects, and more than one</h2>
  *
@@ -118,7 +118,7 @@ final class ScaffoldCorpus {
      * file: the seeds from {@link ProjectCreator}, the generated ones from {@link ActivityService}, and a
      * stub per activity. Nothing is written to disk here — that is the compiling test's business.
      */
-    static Map<Path, String> render(Model model, ProjectConfig config) throws ScaffoldUnsupported {
+    static Map<Path, String> render(Model model, ProjectConfig config) throws IOException {
         Map<Path, String> files = new LinkedHashMap<>();
         for (Map.Entry<String, String> seed
                 : ProjectCreator.sourcesFor(model.template(), config.className(), config.packageName())

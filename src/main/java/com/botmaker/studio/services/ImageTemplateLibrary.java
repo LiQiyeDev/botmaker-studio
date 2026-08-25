@@ -137,13 +137,12 @@ public final class ImageTemplateLibrary {
      * class is only correct relative to the folder — a stale constant is a use site that compiles and finds
      * nothing, which is the exact failure the constants exist to turn into a compile error.
      *
-     * <p><b>No scaffold check, and that is a fact about the file rather than an omission.</b> The other
-     * regenerated files go through {@code ScaffoldEmitter} because they name SDK members; this one names
-     * <em>none</em> — it declares {@code public static final String} paths and nothing else, which is why
-     * {@code ScaffoldSurface} has no entry for it. There is no question to ask an SDK about a file that does
-     * not mention it, so this stays a plain write. Should it ever emit a type — an {@code ImageTemplate}
-     * constant, say — it joins the same path {@code ActivityService.render} takes, and
-     * {@code ScaffoldSurfaceTest} is what will say so, since it parses what the generators emit.
+     * <p><b>No template involved, and that is a fact about the file rather than an omission.</b> The other
+     * regenerated files are rendered from the SDK's own templates because they name SDK members; this one
+     * names <em>none</em> — it declares {@code public static final String} paths and nothing else. There is
+     * nothing to ask an SDK about a file that does not mention it, so this stays a plain write. Should it
+     * ever emit a type — an {@code ImageTemplate} constant, say — it joins the same path
+     * {@code ActivityService.render} takes.
      */
     public static void regenerateTemplatesClass(ProjectConfig config) {
         try {

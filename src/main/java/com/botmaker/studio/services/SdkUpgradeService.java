@@ -9,8 +9,6 @@ import com.botmaker.studio.project.FileRole;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
-import com.botmaker.studio.project.scaffold.ScaffoldCheck;
-import com.botmaker.studio.project.scaffold.ScaffoldSurface;
 import com.botmaker.studio.project.vcs.ProjectVcs;
 import com.botmaker.studio.services.SdkApiModel.ApiClass;
 import org.eclipse.jdt.core.dom.CompilationUnit;
@@ -745,14 +743,8 @@ public final class SdkUpgradeService {
                     .add(file);
         }
 
-        // What the *target* can carry, asked of the target jar. A generated file the new SDK can still carry
-        // no longer blocks anything: it is re-rendered after the bump (see regenerateScaffolding). Only an
-        // element the target has dropped with no survivor still refuses — and the report said so up front.
-        ScaffoldCheck.Result scaffold =
-                ScaffoldCheck.of(ScaffoldFacts.forJar(newJar), ScaffoldSurface.Origin.REGENERATED);
-
         return SdkMigrationRunner.run(repairs, choicesFor(before, after, uses, pairing, picks),
-                editable, generated, known, fieldOwners, config.mainPackage(), null, state, scaffold);
+                editable, generated, known, fieldOwners, config.mainPackage(), null, state);
     }
 
     /**

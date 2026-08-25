@@ -639,23 +639,21 @@ public class ProjectSelectionScreen implements ProjectWindow {
         try {
             projectCreator.createProject(projectName, sdkVersion, resolution, template);
             onProjectSelected.open(projectName, false, true);
-        } catch (com.botmaker.studio.project.scaffold.ScaffoldUnsupported e) {
-            // Not a failure: the check ran, the answer was no, and nothing was written. Saying "failed to
-            // create" would send the user looking for a half-made project that does not exist — the message
-            // already names the element and the way out, so it is shown as it is.
-            //
-            // The header names which end of the range the chosen version fell off, because they ask for
-            // opposite things. Too new: this Studio does not know an element that release removed, and the
-            // answer is a newer Studio. Too old (below MavenService.MIN_SDK_VERSION): that SDK predates the
-            // scaffold templates altogether, and the answer is a newer SDK — the very next line of the combo.
-            error(com.botmaker.studio.sharing.SemVer.isValid(sdkVersion)
-                            && com.botmaker.studio.sharing.SemVer.compare(
-                                    sdkVersion, MavenService.MIN_SDK_VERSION) < 0
-                            ? "This SDK version is too old for the files BotMaker generates"
-                            : "This SDK version needs a newer Studio",
-                    e.getMessage());
         } catch (Exception e) {
-            error("Failed to create project", e.getMessage());
+            // A version below MavenService.MIN_SDK_VERSION is not a failure: the floor was asked, the answer
+            // was no, and nothing was written. Saying "failed to create" would send the user looking for a
+            // half-made project that does not exist — the message already names the version and the way out,
+            // so it is shown as it is.
+            //
+            // Only one end of the range is left to report. Too new was the other, and it went with the
+            // scaffold contract on 2026-08-25: Studio no longer probes the pinned jar before writing, so an
+            // SDK ahead of this Studio is not something creation can detect any more.
+            boolean tooOld = com.botmaker.studio.sharing.SemVer.isValid(sdkVersion)
+                    && com.botmaker.studio.sharing.SemVer.compare(
+                            sdkVersion, MavenService.MIN_SDK_VERSION) < 0;
+            error(tooOld ? "This SDK version is too old for the files BotMaker generates"
+                            : "Failed to create project",
+                    e.getMessage());
         }
     }
 

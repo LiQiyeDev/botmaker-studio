@@ -282,8 +282,7 @@ public class BotMakerStudio extends Application {
             });
         } catch (ProjectSchemaTooNew ex) {
             // Not a failure, so it is not dressed as one: the message is a whole explanation with the way out
-            // in it, and prefixing "Error opening project:" would bury that. Same treatment as
-            // ScaffoldUnsupported.
+            // in it, and prefixing "Error opening project:" would bury that.
             showErrorDialog(ex.getMessage());
             showProjectSelection(primaryStage);
         } catch (Exception e) {

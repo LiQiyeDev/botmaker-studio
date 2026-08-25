@@ -14,10 +14,10 @@ import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.project.activity.FlowEdge;
 import com.botmaker.studio.project.activity.FlowNode;
 import com.botmaker.studio.project.activity.VariableWire;
-import com.botmaker.studio.project.scaffold.ScaffoldUnsupported;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 
@@ -349,7 +349,7 @@ public class ActivityServiceTest {
         MavenService.writePom(config.projectPath(), config, "1.0.26");
         ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
 
-        ScaffoldUnsupported refusal = assertThrows(ScaffoldUnsupported.class,
+        IOException refusal = assertThrows(IOException.class,
                 () -> service.generateActivitiesSource(ActivitiesConfig.empty()));
 
         assertTrue(refusal.getMessage().contains("1.0.26"), refusal.getMessage());

@@ -6,6 +6,30 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-25 — demolition: the scaffold contract apparatus is removed (inversion, phase 0).** The
+  negotiation between two repositories about a file they co-author is gone, because the disagreement is being
+  removed rather than managed: the SDK becomes the generator (`~/.claude/plans/for-the-past-few-stateless-abelson.md`),
+  so there is no scaffold on Studio's side to negotiate about. Deleted: `project/scaffold/ScaffoldCheck`,
+  `ScaffoldRepair`, `ScaffoldEmitter`, `ScaffoldSurface`, `ScaffoldToken`, `ScaffoldUnsupported`,
+  `services/ScaffoldFacts`, the committed `scaffold-holes.txt` ledger and its `-Dbotmaker.scaffold.writeHoles`
+  path, plus `ScaffoldCheckTest`, `ScaffoldSurfaceTest` and `ScaffoldHolesTest`. `TemplateStore` survives
+  **reduced** — read the manifest (now **format 3**, four columns, no `holes`), read the text, replace each
+  `/*<STUDIO:NAME>*/ … /*</STUDIO:NAME>*/` span by name, strip every remaining fence; the per-hole generation
+  number, `generationOf`, `holesOf` and the `fillObserver` test seam are gone with it. Fills are a plain
+  `Map<String,String>` keyed by hole name, and the refusal type is `IOException` — `requireFloor` and
+  `require(id)` keep their sentences verbatim. **Four costs, stated rather than discovered:** (1) forward
+  detection is gone until the inversion's phase 2 — an SDK newer than Studio that moved a scaffold element now
+  produces a compile error in a generated file instead of a pre-write refusal, and `ProjectSelectionScreen`
+  no longer has a "needs a newer Studio" header to show; (2) `SdkUpgradeService` lost its pre-flight verdict,
+  so `SdkMigrationRunner.scaffoldingInTheWay` is conservative again — an upgrade whose only obstacle is a
+  generated file naming a renamed member is refused rather than re-rendered (recorded in that method's
+  javadoc); (3) Studio's menus widen, since `@Palette` is gone from the SDK and a jar with no `Palette` class
+  is treated as uncurated (closed by the inversion's phase 6); (4) the floor refusal now reaches the user
+  prefixed with "Failed to save activities: ", the sentence itself unchanged. **Kept deliberately:**
+  `ScaffoldCompileTest` and `ScaffoldCorpus` — they compile four whole generated projects against the real
+  SDK jar and are the only thing proving a generated project builds; they retire in phase 2 when the SDK's own
+  emit test replaces them.
+
 - **2026-08-25 — the values leave `Activities` for `Parameters`, and existing bots split themselves on open
   (`project/activity/VariableHolder`, `ActivitiesConfig`, `services/ActivityService`,
   `project/ProjectConfig`, `project/migration/ParametersSplit`, `ui/render/components/pickers/VariablePicker`,

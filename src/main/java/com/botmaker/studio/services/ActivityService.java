@@ -11,11 +11,6 @@ import com.botmaker.studio.project.activity.FlowEdge;
 import com.botmaker.studio.project.activity.ActivityPreset;
 import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.project.activity.VariableWire;
-import com.botmaker.studio.project.scaffold.ScaffoldCheck;
-import com.botmaker.studio.project.scaffold.ScaffoldEmitter;
-import com.botmaker.studio.project.scaffold.ScaffoldSurface;
-import com.botmaker.studio.project.scaffold.ScaffoldToken;
-import com.botmaker.studio.project.scaffold.ScaffoldUnsupported;
 import com.botmaker.studio.project.scaffold.TemplateStore;
 
 import java.io.IOException;
@@ -58,8 +53,6 @@ public final class ActivityService {
     private final ProjectConfig config;
     private final ProjectState state;
     private final EventBus eventBus;
-    /** The pinned SDK's scaffold facts, resolved at most once per service — see {@link #facts(String)}. */
-    private ScaffoldCheck.SdkFacts facts;
     /** The pinned SDK's scaffold templates, resolved at most once — see {@link #templates()}. */
     private TemplateStore templates;
 
@@ -110,10 +103,6 @@ public final class ActivityService {
                 write(emission);
                 deleteRemovedStubs(previous, newConfig);
                 ActivityStubSync.sync(config, newConfig);
-            } catch (ScaffoldUnsupported e) {
-                // Shown as it stands: it is not a failure, and the sentence already names the element and the
-                // way out. ActivityFlowDialog surfaces the root cause's message on its error line.
-                throw new RuntimeException(e.getMessage(), e);
             } catch (IOException e) {
                 throw new RuntimeException("Failed to save activities: " + e.getMessage(), e);
             }
@@ -143,34 +132,26 @@ public final class ActivityService {
     /**
      * Everything one save will write, rendered but not yet on disk: {@code name -> (where, what)}.
      *
-     * <p>Two maps rather than one keyed by {@link Path} because {@link ScaffoldEmitter} names files in the
-     * sentence it refuses with, and a project-relative name is what the user recognises where an absolute
-     * path is noise.
+     * <p>Two maps rather than one keyed by {@link Path} because a refusal names files in the sentence it
+     * shows, and a project-relative name is what the user recognises where an absolute path is noise.
      */
     private record Emission(Map<String, String> sources, Map<String, Path> destinations) {}
 
     /**
-     * Renders every file this save generates and checks it against the SDK the project pins — all of it, in
-     * memory, before any of it is written.
+     * Renders every file this save generates — all of it, in memory, before any of it is written.
      *
      * <p><b>Why the whole batch and not file by file.</b> A regenerated file holds no user code and has a
      * shape entirely of our making, so the bar is higher than for the user's own source: it must compile and
      * it must not lose anything the model says. There is therefore no half-correct outcome worth keeping —
      * three files written and the fourth refused would leave a project that does not build, whereas leaving
      * all four alone leaves one that does (against the jar they were written for). That is what "all or
-     * nothing" buys, and it is why the check runs here rather than inside each writer.
-     *
-     * <p>Only {@link ScaffoldSurface.Origin#REGENERATED} is asked about: these are the files this method
-     * writes. A seed element that has gone — {@code ImageFinder.whileFindAny}, which only the once-written
-     * {@code Popups} names — is the upgrade's business, not this save's, and blocking a flow edit on it would
-     * be a refusal the user could do nothing about.
+     * nothing" buys, and it is why rendering happens here rather than inside each writer.
      *
      * @param includeStubs whether to render the per-activity stubs that do not exist yet. They are
-     *                     {@code SEED} files — written once and the user's thereafter — so they are not part
-     *                     of the question above, but they <em>are</em> part of the batch, and a substitution
-     *                     the check did produce (a moved {@code Activity}, say) has to reach them too.
+     *                     {@code SEED} files — written once and the user's thereafter — but they are part of
+     *                     the batch all the same.
      */
-    private Emission render(ActivitiesConfig cfg, boolean includeStubs) throws ScaffoldUnsupported {
+    private Emission render(ActivitiesConfig cfg, boolean includeStubs) throws IOException {
         Map<String, String> sources = new LinkedHashMap<>();
         Map<String, Path> destinations = new LinkedHashMap<>();
         // Both written even when they would hold no fields at all. Activities used to be *deleted* in that case,
@@ -188,10 +169,7 @@ public final class ActivityService {
                 put(sources, destinations, stub, generateStubSource(a));
             }
         }
-        String version = MavenService.readSdkVersion(config.projectPath());
-        Map<String, String> emitted =
-                ScaffoldEmitter.emit(sources, facts(version), ScaffoldSurface.Origin.REGENERATED, version);
-        return new Emission(emitted, destinations);
+        return new Emission(sources, destinations);
     }
 
     /**
@@ -235,21 +213,9 @@ public final class ActivityService {
     }
 
     /**
-     * The SDK's own facts, resolved once. Memoised because every save would otherwise ask again, and the
-     * answer only changes when the pom does — at which point {@link #regenerate()} is what runs, from a
-     * service built after the change.
-     */
-    private synchronized ScaffoldCheck.SdkFacts facts(String version) {
-        if (facts == null) {
-            facts = ScaffoldFacts.forVersionNewerThanStudio(config.projectPath(), version);
-        }
-        return facts;
-    }
-
-    /**
-     * The scaffold templates of the SDK this project pins, resolved once for the same reason {@link #facts}
-     * is: the frame of a generated file belongs to the SDK the bot compiles against, and asking again on
-     * every save would buy a jar resolve for an answer that only changes when the pom does.
+     * The scaffold templates of the SDK this project pins, resolved once: the frame of a generated file
+     * belongs to the SDK the bot compiles against, and asking again on every save would buy a jar resolve for
+     * an answer that only changes when the pom does.
      *
      * <p>Memoised on the service, so the generators below can be called with nothing but a model — which is
      * what lets them be exercised against a project directory that does not exist yet.
@@ -259,7 +225,7 @@ public final class ActivityService {
      * templates. It is checked before the memo is set, so a project sitting below the floor refuses each time
      * it is asked rather than caching a store it was never allowed to use.
      */
-    private synchronized TemplateStore templates() throws ScaffoldUnsupported {
+    private synchronized TemplateStore templates() throws IOException {
         if (templates == null) {
             Path project = config == null ? null : config.projectPath();
             String version = project == null ? null : MavenService.readSdkVersion(project);
@@ -270,8 +236,7 @@ public final class ActivityService {
     }
 
     /** One template of that SDK, required and filled. */
-    private String render(String id, String className, Map<ScaffoldToken, String> fills)
-            throws ScaffoldUnsupported {
+    private String render(String id, String className, Map<String, String> fills) throws IOException {
         TemplateStore store = templates();
         return store.render(store.require(id), config.packageName(), className, fills);
     }
@@ -309,10 +274,9 @@ public final class ActivityService {
      * methods now, and the editor calls the same ones — which is what ended the {@code 1h30m} grammar
      * existing twice with a comment asking the next reader to diff them by eye.
      *
-     * <p>The tokens are at <b>generation 2</b> because this file used to hold the values as well; see
-     * {@link #generateParametersSource}, and {@code ScaffoldToken.FIELDS} for what the number buys.
+     * <p>This file used to hold the values as well; see {@link #generateParametersSource}.
      */
-    public String generateActivitiesSource(ActivitiesConfig cfg) throws ScaffoldUnsupported {
+    public String generateActivitiesSource(ActivitiesConfig cfg) throws IOException {
         return render("ACTIVITIES", null, fieldsAndInits(cfg.activityFlags(), Map.of()));
     }
 
@@ -329,25 +293,24 @@ public final class ActivityService {
      *
      * <p>{@code IMPORTS} is filled with nothing, always. {@link VariableWire#javaType} names every type in
      * full, so the file needs no import for a variable's type — which is the cheapest way to guarantee it
-     * never needs one that was forgotten. The token exists because the template's own defaults use short
+     * never needs one that was forgotten. The hole exists because the template's own defaults use short
      * names, and because a future Studio may have something to put there.
      */
-    public String generateParametersSource(ActivitiesConfig cfg) throws ScaffoldUnsupported {
-        return render("PARAMETERS", null, fieldsAndInits(cfg.variables(), Map.of(ScaffoldToken.IMPORTS, "")));
+    public String generateParametersSource(ActivitiesConfig cfg) throws IOException {
+        return render("PARAMETERS", null, fieldsAndInits(cfg.variables(), Map.of("IMPORTS", "")));
     }
 
     /**
-     * The two tokens both holder classes are made of: a declaration per field, and the {@code Wire} read that
+     * The two holes both holder classes are made of: a declaration per field, and the {@code Wire} read that
      * assigns it.
      *
-     * <p>One routine for both, because the fields are the same shape wherever they are declared — which is the
-     * reason {@code FIELDS} and {@code INITS} are one {@link ScaffoldToken} each with two generations rather
-     * than two tokens. What differs between the two files is only which variables are passed in.
+     * <p>One routine for both, because the fields are the same shape wherever they are declared. What differs
+     * between the two files is only which variables are passed in.
      *
-     * @param extra tokens this template has and the other does not, merged in ({@code IMPORTS})
+     * @param extra holes this template has and the other does not, merged in ({@code IMPORTS})
      */
-    private static Map<ScaffoldToken, String> fieldsAndInits(List<ActivityVariable> variables,
-                                                             Map<ScaffoldToken, String> extra) {
+    private static Map<String, String> fieldsAndInits(List<ActivityVariable> variables,
+                                                      Map<String, String> extra) {
         StringBuilder fields = new StringBuilder();
         StringBuilder inits = new StringBuilder();
         for (ActivityVariable v : variables) {
@@ -359,9 +322,9 @@ public final class ActivityService {
             inits.append("        ").append(v.name()).append(" = ")
                     .append(VariableWire.loadExpression(v.type(), v.name())).append(";\n");
         }
-        Map<ScaffoldToken, String> fills = new LinkedHashMap<>(extra);
-        fills.put(ScaffoldToken.FIELDS, fields.toString().strip());
-        fills.put(ScaffoldToken.INITS, inits.toString().strip());
+        Map<String, String> fills = new LinkedHashMap<>(extra);
+        fills.put("FIELDS", fields.toString().strip());
+        fills.put("INITS", inits.toString().strip());
         return fills;
     }
 
@@ -377,7 +340,7 @@ public final class ActivityService {
      * <p>Orphans (placed but unreachable) are left out: they don't run. They still get a stub and their
      * {@code Activities.<field>} flags, so the project keeps compiling.
      */
-    public String generateRegistrySource(ActivitiesConfig cfg) throws ScaffoldUnsupported {
+    public String generateRegistrySource(ActivitiesConfig cfg) throws IOException {
         List<ActivityDefinition> reachable = cfg.orderedActivities();
         StringBuilder singletons = new StringBuilder();
         StringBuilder all = new StringBuilder();
@@ -388,9 +351,9 @@ public final class ActivityService {
             all.append("            ").append(constantName(name)).append(i < reachable.size() - 1 ? ",\n" : "");
         }
         return render("ACTIVITY_REGISTRY", null, Map.of(
-                ScaffoldToken.ACTIVITY_IMPORT, activitiesImportFor(cfg),
-                ScaffoldToken.SINGLETONS, singletons.toString().strip(),
-                ScaffoldToken.ALL, all.toString().strip()));
+                "ACTIVITY_IMPORT", activitiesImportFor(cfg),
+                "SINGLETONS", singletons.toString().strip(),
+                "ALL", all.toString().strip()));
     }
 
     /**
@@ -438,7 +401,7 @@ public final class ActivityService {
      * stop, cycles are legal because that is how a bot repeats, and the step budget is what stops one that
      * loops with no way out.
      */
-    public String generateDriverSource(ActivitiesConfig cfg) throws ScaffoldUnsupported {
+    public String generateDriverSource(ActivitiesConfig cfg) throws IOException {
         List<ActivityDefinition> reachable = cfg.orderedActivities();
         ActivityFlow flow = cfg.flow();
         String start = flow.resolvedStart(reachable.stream().map(ActivityDefinition::name).toList());
@@ -448,10 +411,10 @@ public final class ActivityService {
             table.append(",\n").append(driverNode(a, flow));
         }
         return render("FLOW_DRIVER", null, Map.of(
-                ScaffoldToken.ACTIVITY_IMPORT, activitiesImportFor(cfg),
-                ScaffoldToken.FLOW, table.toString(),
-                ScaffoldToken.MAX_STEPS, Integer.toString(flow.maxSteps()),
-                ScaffoldToken.STEP_DELAY_MS, Integer.toString(flow.stepDelayMs())));
+                "ACTIVITY_IMPORT", activitiesImportFor(cfg),
+                "FLOW", table.toString(),
+                "MAX_STEPS", Integer.toString(flow.maxSteps()),
+                "STEP_DELAY_MS", Integer.toString(flow.stepDelayMs())));
     }
 
     /** The indent a node sits at inside {@code FlowGraph.of(…)}, and its routes one level further in. */
@@ -511,9 +474,9 @@ public final class ActivityService {
      */
     // Public because recovery needs it too: an activity's isEnabled() is generated against that activity's own
     // flag, so this is the only thing that can say what the stub *should* look like when repairing a mangled one.
-    public String generateStubSource(ActivityDefinition a) throws ScaffoldUnsupported {
+    public String generateStubSource(ActivityDefinition a) throws IOException {
         return render("ACTIVITY_STUB", a.name(), Map.of(
-                ScaffoldToken.OUTCOMES, String.join(", ", a.allOutcomes()),
-                ScaffoldToken.ENABLED, "Activities." + a.name()));
+                "OUTCOMES", String.join(", ", a.allOutcomes()),
+                "ENABLED", "Activities." + a.name()));
     }
 }

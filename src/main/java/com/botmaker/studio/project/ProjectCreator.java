@@ -5,17 +5,11 @@ import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityFlow;
 import com.botmaker.studio.project.launch.SupportedTargets;
 import com.botmaker.studio.project.migration.SchemaFile;
-import com.botmaker.studio.project.scaffold.ScaffoldCheck;
-import com.botmaker.studio.project.scaffold.ScaffoldEmitter;
-import com.botmaker.studio.project.scaffold.ScaffoldSurface;
-import com.botmaker.studio.project.scaffold.ScaffoldToken;
-import com.botmaker.studio.project.scaffold.ScaffoldUnsupported;
 import com.botmaker.studio.project.scaffold.TemplateStore;
 import com.botmaker.studio.project.vcs.ProjectVcs;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.MavenService;
-import com.botmaker.studio.services.ScaffoldFacts;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -68,14 +62,10 @@ public class ProjectCreator {
         System.out.println("Location: " + projectPath);
         System.out.println("------------------------------------------------");
 
-        // 0. Can this SDK carry what we are about to write? Asked before a single directory exists, because
-        //    the answer may be no: a project pinned to an SDK newer than this Studio may name an element that
-        //    release removed, and a half-created project the user has to delete by hand is a worse outcome
-        //    than a refusal. Satisfied is the answer in every ordinary case — see ScaffoldCheck.
-        //    The scaffold's *frame* comes from that same SDK — the templates it ships — so the file a bot
-        //    gets is the one its own SDK version knows how to be. Resolved before the check, since what is
-        //    checked is what those templates produced. An SDK too old to have templates at all is refused by
-        //    the same call, from the other direction — see TemplateStore.requireFloor.
+        // 0. Render the scaffold before a single directory exists, because the answer may be a refusal — an
+        //    SDK too old to ship templates at all — and a half-created project the user has to delete by hand
+        //    is a worse outcome. The scaffold's *frame* comes from that same SDK — the templates it ships —
+        //    so the file a bot gets is the one its own SDK version knows how to be.
         Map<String, String> sources = scaffold(sdkVersion,
                 sourcesFor(template, cfg.className(), cfg.packageName(),
                         TemplateStore.forVersionNewerThanStudio(null, effectiveSdkVersion(sdkVersion))));
@@ -133,44 +123,25 @@ public class ProjectCreator {
     }
 
     /**
-     * The sources to write, checked — and if need be repaired — against the SDK this project is about to pin.
+     * The sources to write, once the SDK this project is about to pin has been checked for a floor.
      *
-     * <p><b>Only a <em>newer</em> SDK is probed</b> — see
-     * {@link ScaffoldFacts#forVersionNewerThanStudio}, which is where that gate and its reasoning live, since
-     * the regeneration path needs exactly the same one.
+     * <p>The floor is the one question here whose answer can be yes for a version the user chose freely: the
+     * New Project dialog lists every SDK tag JitPack has, so a project can be pinned to one that predates the
+     * scaffold entirely. That is a refusal before the directory exists, not a bot created and then found to
+     * be uncompilable.
      *
-     * <p>The floor is asked about first, and it is the only question here whose answer can be yes for a
-     * version the user chose freely: the New Project dialog lists every SDK tag JitPack has, so a project can
-     * be pinned to one that predates the scaffold entirely. That is a refusal before the directory exists,
-     * not a bot created and then found to be uncompilable.
-     *
-     * @throws ScaffoldUnsupported when the SDK predates the scaffold, or has dropped something the generators
-     *                             write and says nothing about what replaced it. Thrown before anything is
-     *                             on disk.
+     * @throws IOException when the SDK predates the scaffold. Thrown before anything is on disk.
      */
     private static Map<String, String> scaffold(String sdkVersion, Map<String, String> rendered)
-            throws ScaffoldUnsupported {
-        String version = effectiveSdkVersion(sdkVersion);
-        TemplateStore.requireFloor(version);
-        return scaffold(version, rendered, ScaffoldFacts.forVersionNewerThanStudio(null, version));
+            throws IOException {
+        TemplateStore.requireFloor(effectiveSdkVersion(sdkVersion));
+        return rendered;
     }
 
     /** What a blank pin means — the version {@link MavenService#writePom} would write. */
     private static String effectiveSdkVersion(String sdkVersion) {
         return sdkVersion == null || sdkVersion.isBlank()
                 ? MavenService.SDK_FALLBACK_VERSION : sdkVersion.trim();
-    }
-
-    /**
-     * The decision itself, given the facts — split out so it can be tested against a stub SDK rather than
-     * against a jar built and published on the spot.
-     *
-     * <p>The whole surface is asked about here, not one {@link ScaffoldSurface.Origin}: creation writes the
-     * seeds <em>and</em> the regenerated files, so every declared element is one this moment depends on.
-     */
-    public static Map<String, String> scaffold(String version, Map<String, String> rendered,
-                                               ScaffoldCheck.SdkFacts facts) throws ScaffoldUnsupported {
-        return ScaffoldEmitter.emit(rendered, facts, null, version);
     }
 
     /**
@@ -472,13 +443,13 @@ public class ProjectCreator {
      * four-argument form, with the templates of the SDK the new project is about to pin.
      *
      * <p>It cannot refuse: the bundled templates are the ones the SDK's own build compiled and checked, so a
-     * token missing from them is a broken Studio build rather than anything a user did — hence the
+     * hole missing from them is a broken Studio build rather than anything a user did — hence the
      * unchecked rethrow instead of a checked signature every caller would have to carry.
      */
     public static Map<String, String> sourcesFor(ProjectTemplate template, String className, String packageName) {
         try {
             return sourcesFor(template, className, packageName, TemplateStore.bundled());
-        } catch (ScaffoldUnsupported e) {
+        } catch (IOException e) {
             throw new IllegalStateException("The scaffold templates Studio ships with are unusable: "
                     + e.getMessage(), e);
         }
@@ -487,10 +458,10 @@ public class ProjectCreator {
     /**
      * The same, from {@code templates} — the scaffold as one particular SDK ships it.
      *
-     * @throws ScaffoldUnsupported when that SDK's templates cannot carry what Studio has to write into them
+     * @throws IOException when that SDK's templates cannot carry what Studio has to write into them
      */
     public static Map<String, String> sourcesFor(ProjectTemplate template, String className, String packageName,
-                                                 TemplateStore templates) throws ScaffoldUnsupported {
+                                                 TemplateStore templates) throws IOException {
         return template == ProjectTemplate.GAME_BOT
                 ? gameBotSources(className, packageName, templates)
                 : emptySources(className, packageName);
@@ -552,7 +523,7 @@ public class ProjectCreator {
 
     /** The same, from one particular SDK's templates. */
     public static Map<String, String> gameBotSources(String className, String packageName,
-                                                     TemplateStore templates) throws ScaffoldUnsupported {
+                                                     TemplateStore templates) throws IOException {
         Map<String, String> sources = new LinkedHashMap<>();
 
         // Entry point: supervise the game loop, recovering via goHome → startGame on crash/stuck. The only
@@ -565,10 +536,10 @@ public class ProjectCreator {
         // file being written for the first time, not a different file — the same template ActivityService
         // renders on every save of the canvas.
         sources.put("FlowDriver.java", render(templates, "FLOW_DRIVER", packageName, null, Map.of(
-                ScaffoldToken.ACTIVITY_IMPORT, "",
-                ScaffoldToken.FLOW, "null",
-                ScaffoldToken.MAX_STEPS, Integer.toString(ActivityFlow.DEFAULT_MAX_STEPS),
-                ScaffoldToken.STEP_DELAY_MS, Integer.toString(ActivityFlow.DEFAULT_STEP_DELAY_MS))));
+                "ACTIVITY_IMPORT", "",
+                "FLOW", "null",
+                "MAX_STEPS", Integer.toString(ActivityFlow.DEFAULT_MAX_STEPS),
+                "STEP_DELAY_MS", Integer.toString(ActivityFlow.DEFAULT_STEP_DELAY_MS))));
 
         // Safe-point navigation and the popup guard's body. Both are SEED files with no tokens at all: what
         // they hold is a worked example and a TODO, and the moment the project exists they are the user's.
@@ -577,15 +548,14 @@ public class ProjectCreator {
 
         // The registry, seeded empty so the driver compiles before the first activity exists.
         sources.put("ActivityRegistry.java", render(templates, "ACTIVITY_REGISTRY", packageName, null,
-                Map.of(ScaffoldToken.ACTIVITY_IMPORT, "", ScaffoldToken.SINGLETONS, "",
-                        ScaffoldToken.ALL, "")));
+                Map.of("ACTIVITY_IMPORT", "", "SINGLETONS", "", "ALL", "")));
 
         return sources;
     }
 
     /** One template, required and filled — the shape every {@code sources.put} above takes. */
     static String render(TemplateStore templates, String id, String packageName, String className,
-                         Map<ScaffoldToken, String> fills) throws ScaffoldUnsupported {
+                         Map<String, String> fills) throws IOException {
         return templates.render(templates.require(id), packageName, className, fills);
     }
 
