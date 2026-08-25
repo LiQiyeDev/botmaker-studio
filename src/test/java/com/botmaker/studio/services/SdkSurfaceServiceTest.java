@@ -192,14 +192,12 @@ class SdkSurfaceServiceTest {
     // --- The version floor ---
 
     @Test
-    void theVersionFloorIgnoresWhatItCannotParse(@TempDir Path tmp) {
+    void anUnreadablePomAnswersTheFallbackVersion(@TempDir Path tmp) {
         SdkSurfaceService surface = serviceOver(tmp, null);
 
-        // No pom → the fallback version, which is at the floor by construction (MIN_SDK_VERSION is kept <=
-        // SDK_FALLBACK_VERSION). The case this really guards is 0.0.0-SNAPSHOT, the local dev build a
-        // maintainer pins deliberately: SemVer sorts anything unparseable below everything, so a naive
-        // comparison would nag on every single dev-run.
+        // No pom → the fallback version, never null and never blank. This test used to close on
+        // isBelowMinimum(); the version floor went on 2026-08-25 with Studio's generation, so what is left to
+        // assert is the answer every other reader of this class depends on.
         assertEquals(MavenService.SDK_FALLBACK_VERSION, surface.sdkVersion());
-        assertFalse(surface.isBelowMinimum());
     }
 }

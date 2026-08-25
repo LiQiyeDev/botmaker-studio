@@ -9,7 +9,6 @@ import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.project.activity.VariableHolder;
 import com.botmaker.studio.project.activity.VariableWire;
-import com.botmaker.studio.services.ActivityService;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -64,29 +63,17 @@ final class ParametersSplit {
         Path activitiesFile = config.activitiesSourceFile();
         if (!Files.isRegularFile(activitiesFile)) return null;   // never generated one; nothing to move
 
-        ActivitiesConfig model = ActivitiesConfig.read(config.resourcesRoot());
-        List<ActivityVariable> values = model.variables();
-
-        // Rendered before anything is written, and both of them: a refusal here (an SDK below the template
-        // floor) must leave the project exactly as it was.
-        ActivityService service = new ActivityService(config, null, null);
-        String activitiesSource = service.generateActivitiesSource(model);
-        String parametersSource = service.generateParametersSource(model);
-
-        List<Rewrite> rewrites = values.isEmpty() ? List.of() : repointValues(config, values);
-
-        ReviewMarker.snapshot(config, "Before splitting Parameters out of Activities");
-        Files.writeString(activitiesFile, activitiesSource);
-        Files.writeString(config.parametersSourceFile(), parametersSource);
-        for (Rewrite rewrite : rewrites) Files.writeString(rewrite.file(), rewrite.source());
-
-        if (values.isEmpty()) {
-            return "Split this project's Activities class into Activities and Parameters.";
-        }
-        return "Moved " + values.size() + " project value" + (values.size() == 1 ? "" : "s")
-               + " from Activities into Parameters"
-               + (rewrites.isEmpty() ? "." : ", and repointed " + rewrites.size() + " source file"
-                                             + (rewrites.size() == 1 ? "." : "s."));
+        // 2026-08-25, and temporary: the split needs both classes *written*, and nothing in this build can
+        // write them — the scaffold templates left the SDK and its own emitters do not exist yet (inversion
+        // phase 2). Refusing is the only safe answer of the three available. Doing nothing would stamp the
+        // file at version 2 and the split would never be offered again; repointing the bot's source without
+        // writing Parameters would point it at a class nobody has written. Throwing is caught by
+        // ProjectSchema.migrate, logged, and leaves the version unstamped — so the step is simply retried on
+        // the next open, which is exactly what a project needs once phase 2 lands. Everything below is the
+        // repair itself, kept intact for that turn.
+        throw new IOException("this project still declares its values in Activities, and splitting them into "
+                              + "Parameters needs the SDK's own file generator, which this build does not "
+                              + "have yet");
     }
 
     /** One of the bot's own files and what it should say afterwards. */

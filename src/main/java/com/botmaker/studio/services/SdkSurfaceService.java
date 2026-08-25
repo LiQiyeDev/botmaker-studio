@@ -324,17 +324,10 @@ public final class SdkSurfaceService {
         return sdkVersion;
     }
 
-    /**
-     * True when the pinned SDK is older than {@link MavenService#MIN_SDK_VERSION}.
-     *
-     * <p>Anything {@link SemVer} cannot parse is <b>not</b> below the floor. That is not laxity: the one
-     * unparseable version that occurs in practice is {@code 0.0.0-SNAPSHOT}, the local dev build a maintainer
-     * pins deliberately (see {@code MavenService.localSdkVersions}), and {@code SemVer} sorts unparseable
-     * below everything — so the naive comparison would nag on every single dev-run.
-     */
-    public boolean isBelowMinimum() {
-        return SemVer.isValid(sdkVersion) && SemVer.compare(sdkVersion, MavenService.MIN_SDK_VERSION) < 0;
-    }
+    // isBelowMinimum() is gone (2026-08-25), with MavenService.MIN_SDK_VERSION and the banner it drew. See
+    // the note where that constant used to be: with no generation in Studio there is nothing for a version
+    // floor to protect, and per-element presence — which this class answers from the project's own jar — is
+    // the better question anyway.
 
     /**
      * The facades Studio knows about that this project's SDK does not have — what the upgrade banner names.

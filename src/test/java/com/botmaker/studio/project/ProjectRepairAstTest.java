@@ -34,25 +34,57 @@ class ProjectRepairAstTest {
     private Path mainDir;
     private Path goHome;
 
+    /**
+     * The canonical {@code GoHome.java} — the {@code Bot.start} recovery hook, verbatim as the SDK's
+     * {@code GO_HOME} template rendered it, minus the template annotation.
+     *
+     * <p>A fixture constant since 2026-08-25 rather than a call to {@code ProjectCreator.sourcesFor}, which
+     * refuses for {@code GAME_BOT} until the SDK's generator lands (inversion phase 2). It costs nothing here:
+     * {@code findDamaged}/{@code repairDamaged} take the canonical text as a <em>parameter</em>, so this class
+     * has always been testing the comparison rather than the generator. GoHome alone is enough — it is the one
+     * scaffold file carrying both lock kinds, a {@code SIGNATURE} {@code run()} beside a {@code FULL}
+     * {@code isEnabled()}.
+     */
+    private static final String CANONICAL_GO_HOME = """
+            package com.mybot;
+
+            import com.botmaker.sdk.api.bot.Activity;
+            import com.botmaker.sdk.api.util.BotMaker;
+
+            public class GoHome extends Activity<GoHome.Outcome> {
+
+                /** The one instance; referenced by the entry point and FlowDriver. */
+                public static final GoHome INSTANCE = new GoHome();
+
+                /** GoHome reports nothing to route on — it is called directly, not wired into the flow. */
+                public enum Outcome { NEXT }
+
+                @Override
+                public boolean isEnabled() {
+                    return true;   // recovery hook — always available
+                }
+
+                @Override
+                public Outcome run() {
+                    // TODO: navigate back to your game's home screen.
+                    return Outcome.NEXT;
+                }
+            }
+            """;
+
     @BeforeEach
     void setUp() throws IOException {
         config = ProjectConfig.forProject("MyBot", projectsRoot);
         mainDir = config.mainSourceFile().getParent();
         Files.createDirectories(mainDir);
-        for (Map.Entry<String, String> e :
-                ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, config.projectName(), config.packageName()).entrySet()) {
-            Files.writeString(mainDir.resolve(e.getKey()), e.getValue());
-        }
         goHome = mainDir.resolve("GoHome.java");
+        Files.writeString(goHome, CANONICAL_GO_HOME);
     }
 
     /** The generator's view of the scaffold — what the caller passes to findDamaged/repairDamaged. */
     private Map<Path, String> canonical() {
         Map<Path, String> byPath = new LinkedHashMap<>();
-        for (Map.Entry<String, String> e :
-                ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, config.projectName(), config.packageName()).entrySet()) {
-            byPath.put(mainDir.resolve(e.getKey()), e.getValue());
-        }
+        byPath.put(goHome, CANONICAL_GO_HOME);
         return byPath;
     }
 

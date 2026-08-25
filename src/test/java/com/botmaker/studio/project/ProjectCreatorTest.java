@@ -88,97 +88,28 @@ class ProjectCreatorTest {
         assertTrue(ProjectCreator.readSessionIsolated(resources), "toggling back on reads as on");
     }
 
-    @Test
-    void theGameBotTemplateScaffoldsTheSuperviseContract() {
-        Map<String, String> sources = ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "MyBot", "mybot");
-
-        assertEquals(java.util.List.of("MyBot.java", "FlowDriver.java", "GoHome.java", "Popups.java",
-                        "ActivityRegistry.java"),
-                java.util.List.copyOf(sources.keySet()));
-        // The click/vision tuning is a project setting the SDK reads before the first click, so there is no
-        // generated BotSettings.java and nothing for main to call. See BotSettingsTest.
-        assertFalse(sources.containsKey("BotSettings.java"), sources.keySet().toString());
-        assertFalse(sources.get("MyBot.java").contains("BotSettings.apply()"), sources.get("MyBot.java"));
-        assertTrue(sources.get("MyBot.java")
-                .contains("Bot.start(FlowDriver::run, GoHome.INSTANCE::execute)"));
-        // FlowDriver::run binds as a Runnable (static, no-arg, void); GoHome is an Activity so its instance
-        // execute() binds as a Runnable too (a value-returning method ref is void-compatible).
-        assertTrue(sources.get("GoHome.java").contains("extends Activity<GoHome.Outcome>"));
-        assertTrue(sources.get("GoHome.java").contains("public Outcome run()"));
-    }
-
     /**
-     * The popup check is the same shape as GoHome — an Activity the entry point binds by method reference, not
-     * a flow node — and it ships <em>empty</em>: a scaffold cannot know this game's popups, and a guard that
-     * dismissed something the user never configured would be worse than none.
+     * The game-bot scaffold refuses, and says why (2026-08-25, temporarily).
+     *
+     * <p>Five tests stood here asserting what those files contain — the supervise contract, the editable popup
+     * check, the two retired files staying retired, the seeded {@code FlowGraph.of(null)} driver, and the
+     * absence of the old auto-disable loop. Every one of them was really a test of the <b>SDK's</b> scaffold
+     * templates, read through Studio; the templates left the SDK on 2026-08-25 and the generator that replaces
+     * them arrives in inversion phase 2. Re-asserting the content here would mean Studio holding a second copy
+     * of the very thing the inversion exists to stop it holding, so the assertions travel with the generator
+     * instead of being kept warm in the wrong repository.
+     *
+     * <p>What is worth testing in the meantime is that the refusal is a refusal: named, unmistakable, and not
+     * a quietly empty project.
      */
     @Test
-    void theGameBotTemplateScaffoldsAnEditablePopupCheck() {
-        Map<String, String> sources = ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "MyBot", "mybot");
+    void theGameBotTemplateRefusesByNameUntilTheSdkGeneratorLands() {
+        IllegalStateException refused = assertThrows(IllegalStateException.class,
+                () -> ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "MyBot", "mybot"));
 
-        String popups = sources.get("Popups.java");
-        assertTrue(popups.contains("class Popups extends Activity<Popups.Outcome>"), popups);
-        assertTrue(popups.contains("public Outcome run()"), popups);
-        assertTrue(popups.contains("TODO"), "what to click is still the user's to write: " + popups);
-        // The scaffold ships the loop, so the editor has a real "while any of […]" block to drop templates
-        // into. This declares an empty group, which used to throw in Popups' class initialiser — the SDK now
-        // allows one and treats it as "matches nothing" (ImageFinderEmptyGroupTest). A generated project
-        // pins SDK_FALLBACK_VERSION, so this scaffold cannot ship ahead of an SDK release carrying that.
-        assertTrue(popups.contains("ImageTemplateGroup POPUPS = ImageTemplateGroup.of();"), popups);
-        assertTrue(popups.contains("ImageFinder.whileFindAny(POPUPS, found -> {"), popups);
-        assertTrue(popups.contains("import com.botmaker.sdk.api.vision.ImageFinder;"), popups);
-        assertTrue(popups.contains("import com.botmaker.sdk.api.vision.ImageTemplateGroup;"), popups);
-        assertTrue(sources.get("MyBot.java").contains("PopupGuard.install(Popups.INSTANCE::execute);"),
-                sources.get("MyBot.java"));
-        assertTrue(sources.get("MyBot.java").contains("import com.botmaker.sdk.api.bot.PopupGuard;"),
-                sources.get("MyBot.java"));
-    }
-
-    @Test
-    void theTwoFilesThatHeldNoProjectDataAreNotGeneratedAtAll() {
-        Map<String, String> sources = ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "MyBot", "mybot");
-
-        // GameLoop.java was `FlowDriver.run();` and Startup.java was a two-branch switch over Target — neither
-        // held anything about *this* project (the launch target lives in botmaker-project.properties, not in
-        // Startup), so both were per-project copies of SDK behaviour. The entry point binds FlowDriver directly
-        // and the SDK's 2-arg Bot.start supplies the launch step.
-        assertFalse(sources.containsKey("GameLoop.java"), sources.keySet().toString());
-        assertFalse(sources.containsKey("Startup.java"), sources.keySet().toString());
-        String main = sources.get("MyBot.java");
-        assertFalse(main.contains("GameLoop"), main);
-        assertFalse(main.contains("Startup"), main);
-        // Nothing else may name them either — a scaffold file referring to a class that is never written is a
-        // project that doesn't compile.
-        sources.forEach((name, src) -> {
-            assertFalse(src.contains("GameLoop"), name + " still names GameLoop:\n" + src);
-            assertFalse(src.contains("Startup"), name + " still names Startup:\n" + src);
-        });
-    }
-
-    @Test
-    void theSeededFlowDriverStopsImmediatelyAndCompilesWithNoActivities() {
-        Map<String, String> sources = ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "MyBot", "mybot");
-
-        String driver = sources.get("FlowDriver.java");
-        // A brand-new project has no flow yet, so there is no start node to go to. It must still be valid Java
-        // that ends cleanly — this is what the entry point compiles against before the first activity is added.
-        assertTrue(driver.contains("FlowGraph.of(\n            null)"),
-                "a start of null is a flow that ends at once:\n" + driver);
-        assertTrue(driver.contains("FlowGraph.walk(FLOW, MAX_STEPS, STEP_DELAY_MS, GoHome.INSTANCE::execute);"),
-                driver);
-        assertTrue(driver.contains("import com.botmaker.sdk.api.flow.FlowGraph;"), driver);
-    }
-
-    @Test
-    void nothingAutoDisablesAnActivityAnyMore() {
-        // Deliberate behaviour change. The old loop ran every enabled activity once and disable()d it right
-        // after, so the bot stopped when all of them had run. That makes a cycle impossible — an activity wired
-        // back to itself would be dead on its second visit — so the one-shot rule had to go. A run now ends by
-        // reaching Stop or an outcome with no wire, and MAX_STEPS is what bounds a loop with no exit.
-        Map<String, String> sources = ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, "MyBot", "mybot");
-
-        assertFalse(sources.get("FlowDriver.java").contains("disable()"), sources.get("FlowDriver.java"));
-        assertTrue(sources.get("FlowDriver.java").contains("MAX_STEPS"), sources.get("FlowDriver.java"));
+        assertTrue(refused.getMessage().contains("generated by the SDK"), refused.getMessage());
+        assertTrue(refused.getMessage().contains("empty project"),
+                "the message must name the way forward, not only the obstacle: " + refused.getMessage());
     }
 
     @Test

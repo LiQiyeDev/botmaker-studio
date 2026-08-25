@@ -35,12 +35,32 @@ class ProjectRepairTest {
         config = ProjectConfig.forProject("MyBot", projectsRoot);
         mainDir = config.mainSourceFile().getParent();
         Files.createDirectories(mainDir);
-        // Lay down a full game-bot scaffold, the way ProjectCreator would.
-        for (Map.Entry<String, String> e :
-                ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, config.projectName(), config.packageName()).entrySet()) {
-            Files.writeString(mainDir.resolve(e.getKey()), e.getValue());
-        }
+        layDownScaffold();
         layDownResources();
+    }
+
+    /**
+     * A full game-bot scaffold, the way {@code ProjectCreator} used to lay one down.
+     *
+     * <p>Written here as fixture text since 2026-08-25, because {@code ProjectCreator.sourcesFor} refuses for
+     * {@code GAME_BOT} until the SDK's generator lands (inversion phase 2). What this class is about is
+     * <em>presence</em> — which files a project must have and what happens when one is gone — and that is not
+     * a question about the text, so a stand-in serves it exactly as well as the real thing. The one place the
+     * text mattered was an assertion that a restored {@code FlowDriver} contained {@code MAX_STEPS}, and there
+     * is no restoring to assert on any more.
+     */
+    private void layDownScaffold() throws IOException {
+        Files.writeString(config.mainSourceFile(), """
+                package com.mybot;
+                public class MyBot {
+                    public static void main(String[] args) { Bot.start(FlowDriver::run, GoHome.INSTANCE); }
+                }
+                """);
+        for (String name : List.of("FlowDriver.java", "GoHome.java", "Popups.java", "ActivityRegistry.java")) {
+            String type = name.substring(0, name.length() - ".java".length());
+            Files.writeString(mainDir.resolve(name),
+                    "package com.mybot;\npublic class " + type + " {\n}\n");
+        }
     }
 
     /**
@@ -107,7 +127,7 @@ class ProjectRepairTest {
     }
 
     @Test
-    void aFileDeletedOutsideStudioIsFoundAndRestored() throws IOException {
+    void aFileDeletedOutsideStudioIsFoundButCannotYetBeRestored() throws IOException {
         Path driver = mainDir.resolve("FlowDriver.java");
         Files.delete(driver);   // e.g. an `rm` outside the Studio
 
@@ -115,11 +135,12 @@ class ProjectRepairTest {
         assertEquals(1, missing.size());
         assertEquals("FlowDriver.java", missing.get(0).fileName());
 
-        List<Path> written = ProjectRepair.recover(config, missing);
-        assertEquals(List.of(driver), written);
-        assertTrue(Files.exists(driver));
-        assertTrue(Files.readString(driver).contains("class FlowDriver"));
-        assertTrue(Files.readString(driver).contains("MAX_STEPS"));
+        // Finding it is still the point, and it is the half that matters: a project that will not compile must
+        // never be reported healthy. Putting it back is the SDK generator's job and that does not exist yet
+        // (2026-08-25, inversion phase 2), so the entry carries no restorer and recover() writes nothing.
+        assertNull(missing.getFirst().restorer());
+        assertTrue(ProjectRepair.recover(config, missing).isEmpty());
+        assertFalse(Files.exists(driver));
     }
 
     @Test
@@ -195,18 +216,14 @@ class ProjectRepairTest {
     }
 
     @Test
-    void severalMissingFilesAreAllRestored() throws IOException {
+    void severalMissingFilesAreAllFound() throws IOException {
         Files.delete(mainDir.resolve("FlowDriver.java"));
         Files.delete(mainDir.resolve("GoHome.java"));
         Files.delete(mainDir.resolve("ActivityRegistry.java"));
 
         List<ProjectRepair.Missing> missing = ProjectRepair.findMissing(config, ProjectTemplate.GAME_BOT, ActivitiesConfig.empty());
-        assertEquals(3, missing.size());
-
-        ProjectRepair.recover(config, missing);
-        assertTrue(Files.exists(mainDir.resolve("FlowDriver.java")));
-        assertTrue(Files.exists(mainDir.resolve("GoHome.java")));
-        assertTrue(Files.exists(mainDir.resolve("ActivityRegistry.java")));
+        assertEquals(List.of("FlowDriver.java", "GoHome.java", "ActivityRegistry.java"),
+                missing.stream().map(ProjectRepair.Missing::fileName).toList());
     }
 
     @Test

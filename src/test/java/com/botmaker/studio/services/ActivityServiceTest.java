@@ -110,59 +110,17 @@ public class ActivityServiceTest {
         assertTrue(ActivitiesConfig.read(dir).isEmpty());
     }
 
+    /**
+     * The flow's reachability rule, which used to be asserted through the generated registry it fed.
+     *
+     * <p>Definition order is Resources, Alchemy, Idle — the canvas wires Alchemy → Resources and leaves Idle
+     * unwired, so the run order is Alchemy then Resources and Idle does not run at all. The three tests that
+     * read this off {@code generateRegistrySource}, {@code generateParametersSource} and
+     * {@code generateStubSource} went on 2026-08-25 with those generators; the model's own answer is the half
+     * that was ever Studio's, and it is the half that survives the inversion.
+     */
     @Test
-    void generatedSourceDeclaresAndLoadsFields(@TempDir Path dir) throws Exception {
-        ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
-        ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
-
-        ActivitiesConfig cfg = ActivitiesConfig.of(List.of(), List.of(
-                variable("maxRetries", BotType.WHOLE_NUMBER),
-                variable("startTime", BotType.TIME_OF_DAY)));
-        String src = service.generateParametersSource(cfg);
-
-        assertTrue(src.contains("package com.mybot;"), src);
-        assertTrue(src.contains("public static final int maxRetries;"), src);
-        assertTrue(src.contains("public static final java.time.LocalTime startTime;"), src);
-        assertTrue(src.contains("maxRetries = Wire.whole(Wire.one(\"maxRetries\"));"), src);
-        assertTrue(src.contains("startTime = Wire.time(Wire.one(\"startTime\"));"), src);
-        // The parsers and the loader are the SDK's now. A generated file that still declared one would be
-        // carrying an implementation nobody could test — which is exactly what this used to assert.
-        assertFalse(src.contains("private static java.time.LocalTime time(String s)"), src);
-        assertFalse(src.contains("getResourceAsStream"), src);
-        assertTrue(src.contains("import com.botmaker.sdk.api.config.Wire;"), src);
-    }
-
-    @Test
-    void generatedRegistryListsActivitySubclasses(@TempDir Path dir) throws Exception {
-        ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
-        ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
-
-        ActivitiesConfig cfg = ActivitiesConfig.of(List.of(
-                ActivityDefinition.create("Resources", ""),
-                ActivityDefinition.create("Alchemy", "")), List.of());
-        String reg = service.generateRegistrySource(cfg);
-
-        assertTrue(reg.contains("import com.mybot.activities.*;"), reg);
-        assertTrue(reg.contains("new Resources()"), reg);
-        assertTrue(reg.contains("new Alchemy()"), reg);
-
-        String stub = service.generateStubSource(ActivityDefinition.create("Resources", ""));
-        assertTrue(stub.contains("public class Resources extends Activity"), stub);
-        assertTrue(stub.contains("return Activities.Resources;"), stub);
-
-        // No constructor: Activity's no-arg ctor names the activity after its class, so the stub asks the user
-        // for nothing but run(). `new Resources()` in the registry above binds that inherited constructor.
-        assertFalse(stub.contains("public Resources()"), stub);
-        assertFalse(stub.contains("super("), stub);
-    }
-
-    @Test
-    void generatedRegistryFollowsTheFlowChainAndDropsOrphans(@TempDir Path dir) throws Exception {
-        ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
-        ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
-
-        // Definition order is Resources, Alchemy, Idle — the canvas wires Alchemy → Resources and leaves
-        // Idle unwired, so the registry must read Alchemy, Resources and Idle must not run at all.
+    void theFlowChainDecidesWhatRunsAndDropsOrphans() {
         ActivityFlow flow = new ActivityFlow(
                 List.of(new FlowNode("Alchemy", 0, 0), new FlowNode("Resources", 200, 0),
                         new FlowNode("Idle", 0, 200)),
@@ -174,10 +132,6 @@ public class ActivityServiceTest {
 
         assertEquals(List.of("Alchemy", "Resources"),
                 cfg.orderedActivities().stream().map(ActivityDefinition::name).toList());
-
-        String reg = service.generateRegistrySource(cfg);
-        assertTrue(reg.indexOf("new Alchemy()") < reg.indexOf("new Resources()"), reg);
-        assertFalse(reg.contains("new Idle()"), reg);
     }
 
     /**
@@ -309,50 +263,29 @@ public class ActivityServiceTest {
         assertTrue(read.presets().isEmpty());
     }
 
-    @Test
-    void theActivitiesClassIsWrittenEvenWhenItHoldsNothing(@TempDir Path dir) throws Exception {
-        ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
-        ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
-
-        // A project with no activities and no variables generates no fields at all. The class used to be
-        // deleted at that point, which compile-errors anything still saying `import com.mybot.Activities;`.
-        service.update(ActivitiesConfig.empty()).join();
-
-        assertTrue(java.nio.file.Files.exists(config.activitiesSourceFile()),
-                "an empty Activities class costs nothing and cannot break a build");
-        assertTrue(java.nio.file.Files.readString(config.activitiesSourceFile())
-                .contains("public final class Activities"));
-    }
-
-    @Test
-    void emptyRegistryHasNoActivitiesImport(@TempDir Path dir) throws Exception {
-        ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
-        ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
-        String reg = service.generateRegistrySource(ActivitiesConfig.empty());
-        assertTrue(reg.contains("List.of("), reg);
-        assertTrue(!reg.contains("import com.mybot.activities.*;"), reg);
-    }
-
     /**
-     * A bot pinned below {@link MavenService#MIN_SDK_VERSION} is refused a generated file, by name — the floor
-     * reaching the one place that matters, which is a real project on disk rather than a version string.
+     * A save writes {@code activities.json} and no Java at all (2026-08-25).
      *
-     * <p>Its jar has neither the templates every generated file is rendered from nor the {@code FlowGraph} /
-     * {@code Wire} API those templates call, and Studio keeps one generation path on purpose. So the honest
-     * outcome is this sentence; the dishonest one would be a bot that does not compile, written silently.
-     * Everything else about the project stays open and editable — see {@code EditorCanvas.sdkFloorBanner}.
+     * <p>The two tests that stood here asserted the opposite — that an empty model still wrote an
+     * {@code Activities} class, and that a project below the SDK floor was refused one by name. Both were
+     * about generation, and Studio does not generate: the templates left the SDK and its own emitters are
+     * not written yet (inversion phase 2). What has to keep holding through that interim is that the model
+     * itself is still persisted, because phase 2 restores emission on top of this path rather than rebuilding
+     * it.
      */
     @Test
-    void aProjectPinnedBelowTheFloorIsRefusedAGeneratedFile(@TempDir Path dir) throws Exception {
+    void aSaveWritesTheModelAndNoJava(@TempDir Path dir) throws Exception {
         ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
-        java.nio.file.Files.createDirectories(config.projectPath());
-        MavenService.writePom(config.projectPath(), config, "1.0.26");
         ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
 
-        IOException refusal = assertThrows(IOException.class,
-                () -> service.generateActivitiesSource(ActivitiesConfig.empty()));
+        service.update(ActivitiesConfig.of(
+                List.of(ActivityDefinition.create("Mining", "")), List.of())).join();
 
-        assertTrue(refusal.getMessage().contains("1.0.26"), refusal.getMessage());
-        assertTrue(refusal.getMessage().contains(MavenService.MIN_SDK_VERSION), refusal.getMessage());
+        assertTrue(java.nio.file.Files.exists(config.resourcesRoot().resolve(ActivitiesConfig.FILE_NAME)),
+                "the model is still saved");
+        assertFalse(java.nio.file.Files.exists(config.activitiesSourceFile()),
+                "no generated Java: there is nothing in this build that can write it");
+        assertFalse(java.nio.file.Files.exists(config.flowDriverSourceFile()),
+                "no generated Java: there is nothing in this build that can write it");
     }
 }

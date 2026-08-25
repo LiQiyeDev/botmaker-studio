@@ -152,18 +152,15 @@ there are three distinct relationships to keep straight:
   signatures and `signatureKeyOf(MethodInfo)` from the raw index — and a mismatch has **no symptom**, just an
   annotated overload that never appears; `SignatureKeyAgreementTest` compares both for every method in the
   real SDK jar and is the reason to keep the derivation in one place.
-  `MavenService.MIN_SDK_VERSION` is the floor: below it the project **still opens**, under one amber banner
-  offering *Upgrade SDK…*. An old bot that runs is not a broken bot.
-  **The floor is `1.1.0` since 2026-08-24, and it now refuses something as well as warning about something.**
-  1.1.0 is the first SDK carrying the scaffold — `botmaker-templates/` and the `FlowGraph`/`Wire` API those
-  templates call — and Studio has one generation path, no legacy text-block fallback. So below the floor a
-  *generated* file cannot be written at all: `TemplateStore.requireFloor` refuses at the three sites that
-  write one (creation, `ActivityService.templates()`, *Recover Project Files*), naming the version and the way
-  out. Falling open there would emit `FlowGraph.of(…)` into a project whose jar has never heard of it — a bot
-  that does not compile, produced silently, which is the outcome the verify-then-emit path exists to prevent.
-  It is stated as a version comparison and not discovered by looking in the jar on purpose: an absent template
-  directory is also what a fixture or the wrong artifact looks like, and `TemplateStore.forJar` must go on
-  failing open for those. The banner says both halves; the refusal's sentence is the one the user acts on.
+  **There is no version floor — `MIN_SDK_VERSION`, the amber banner, `SdkSurfaceService.isBelowMinimum`,
+  `EditorCanvas.sdkFloorBanner` and `TemplateStore.requireFloor` were all deleted on 2026-08-25**, reversing
+  the `1.1.0` floor set the day before. The floor existed to stop Studio emitting `FlowGraph.of(…)` into a
+  project whose jar had never heard of it; Studio now emits **no generated Java at all** (see the demolition
+  below), so the floor guarded nothing while still costing every pre-1.1.0 project a banner. Any pinned SDK
+  opens, reads, builds and runs, and an incompatibility surfaces at compile time. `SDK_FALLBACK_VERSION`
+  stays — what a *newly created* pom pins is a separate question. When the SDK's own generator lands
+  (inversion phase 2), whether it can serve a given pinned version is the **generator's** answer to give,
+  from its per-version catalog, not a constant here.
 - **Changing the SDK version is a report, not a cell edit — `services/SdkUpgradeService`** (*Project ▸ Upgrade
   SDK…*, and where the floor banner's button goes). It resolves the **target** version's jar
   (`MavenService.resolveSdkJar`, any version — the project pom's JitPack repo means it need never have been on
@@ -360,17 +357,17 @@ there are three distinct relationships to keep straight:
     file is worth renaming were blind to it. `mentions` is now the same walk asking a narrower question —
     the three positions `renameTypeIn` actually rewrites, plus a static import's qualifier — rather than
     "any name anywhere", which matched a local variable that happened to share a class's name.
-  - **Studio's own scaffolding is never *rewritten*; it is *re-rendered*.** Only `FileRole.EDITABLE` files are
-    migrated. A generated file (the entry point, `FlowDriver`, `ActivityRegistry`, `Activities`, `Parameters`,
-    `Templates`) is rendered from the SDK's templates, so rewriting it would be overwritten at the next
-    regeneration. `SdkUpgradeService.regenerateScaffolding` runs **after** the pom bump and re-renders against
-    the new jar's own templates. A failed re-render **logs**: the pom moved, the user files are migrated, and
-    the way back is the pre-upgrade snapshot, so failing the upgrade over a regeneration would be the worse of
-    the two states.
-    **Since 2026-08-25 `SdkMigrationRunner.scaffoldingInTheWay` is conservative again** — the pre-flight
-    verdict that used to let an upgrade through went with the scaffold contract, so an upgrade whose only
-    obstacle is a generated file naming a renamed member is *refused* rather than re-rendered. That is the
-    interim state until the inversion's phase 2 puts generation behind a boundary that cannot disagree.
+  - **Studio's own scaffolding is not rewritten and, since 2026-08-25, not re-rendered either.** Only
+    `FileRole.EDITABLE` files are migrated; a generated file (the entry point, `FlowDriver`,
+    `ActivityRegistry`, `Activities`, `Parameters`) was rendered from the SDK's templates, so rewriting it
+    would have been overwritten at the next regeneration. **The templates are gone and so is the
+    re-render**: `SdkUpgradeService.regenerateScaffolding` is narrowed to
+    `ImageTemplateLibrary.regenerateTemplatesClass` — `Templates.java` names no SDK element, so it is the one
+    generated file Studio can still write by itself. Everything else waits for inversion phase 2, which means
+    **an upgrade leaves the generated Java pinned to the old SDK's spelling**; a rename it would have absorbed
+    now surfaces as a compile error. `SdkMigrationRunner.scaffoldingInTheWay` stays conservative for the same
+    reason: an upgrade whose only obstacle is a generated file naming a renamed member is *refused* rather
+    than papered over.
   - **`apply(target, repairSources)` is snapshot → migrate → bump, and `repairSources` gates only the middle.**
     A span carrying a removed type nothing pairs with must still be *switchable* — the user reads which type
     it is and where they use it, makes those edits, moves — because the target jar goes on lacking that type
@@ -378,46 +375,41 @@ there are three distinct relationships to keep straight:
     span, which is why the flag is per-upgrade, not per break. `migrateSources` re-derives everything from the
     two jars rather than trusting the `Report` the dialog holds: a value that crossed a dialog and an FX
     thread is not evidence about the files on disk right now.
-- **Generated files are rendered from the SDK's own templates, and nothing negotiates about them any more
-  (`project/scaffold/TemplateStore`).** `TemplateStore` reads `botmaker-templates/manifest.txt` out of the
-  project's SDK jar (**format 3**: `template <ROLE> <KIND> <path> <target>`), reads each template's text, and
-  fills it: a hole is `/*<STUDIO:NAME>*/ default /*</STUDIO:NAME>*/`, filling replaces fence to fence, an
-  unfilled hole keeps the SDK's default, and **the fences are stripped either way** so nothing survives into a
-  bot's source. Fills are a plain `Map<String,String>` keyed by hole name; a fill the template has no hole for
-  is refused by name (part of the user's project would otherwise be silently dropped), as is a template id the
-  jar does not ship. `requireFloor` refuses an SDK below `MavenService.MIN_SDK_VERSION` at the three sites that
-  write a generated file (creation, `ActivityService.templates()`, *Recover Project Files*), naming the version
-  and the way out. Every refusal is an `IOException`.
-  - **What went on 2026-08-25, and why:** `ScaffoldCheck`, `ScaffoldRepair`, `ScaffoldEmitter`,
-    `ScaffoldSurface`, `ScaffoldToken`, `ScaffoldUnsupported`, `services/ScaffoldFacts`, the per-hole
-    generation number and the committed `scaffold-holes.txt` ledger. All of it existed so that **two
-    repositories could agree about a file they co-author** — Studio rendering fragments into a frame the SDK
-    ships. The inversion removes the disagreement instead of managing it: the SDK becomes the generator, so
-    there is nothing for Studio to negotiate. This is phase 0 of that plan and the apparatus is gone; phase 2
-    moves the generation itself, and `TemplateStore` retires with it. **The interim cost is real and named**:
-    forward detection is gone, so an SDK *newer* than Studio that moved a scaffold element now produces a
-    compile error in a generated file rather than an honest refusal before anything is written.
-  - **`ScaffoldCompileTest` is the backward guarantee, and it is a real compile.** `ScaffoldCorpus` renders
-    four whole projects — empty project, game bot with no activities, one activity holding a variable of every
-    storable type, and a branching flow (join, loop, unwired outcome, unreachable activity) — and each is
-    written to a temp dir and compiled by `javac` against the **real SDK jar** (located from
-    `Activity.class`'s code source; the SDK is on the test classpath for type identity). An SDK rename
-    therefore breaks **Studio's build**, on the generated line, instead of surfacing as a broken file in
-    someone's project. It replaced `ScaffoldScan` (484 lines of JDT visitor), the committed
-    `botmaker-sdk/scaffolding-surface.txt` and the SDK's rule 12 — all three of which approximated a compile,
-    and none of which could see a wrong argument *type*, a generic that would not unify, or a missing import.
-    It is **kept through phase 0** for exactly that reason: it is now the only thing proving a generated
-    project builds. It retires in phase 2, when the SDK's own emit test replaces it with a stronger version
-    (javac against reactor `target/classes`, no jar resolution at all).
-  - **A batch of generated files is written all-or-none**, and keyed on **project-relative paths** rather than
-    file names (nothing stops an activity being called `FlowDriver`). `ActivityService` renders every file
-    into memory and only then writes, with `activities.json` written last. The bar is higher than for user
-    code because these files hold none: three written and the fourth refused leaves a project that does not
-    build, where leaving all four alone leaves one that does.
-  - **A jar with no `botmaker-templates/` falls back to the templates Studio itself ships** — an SDK from
-    before they existed, a fixture, or a jar that has not downloaded must never block project creation. The
-    floor is what keeps that fallback honest: falling open lands on templates calling `FlowGraph` and `Wire`,
-    so the *version* refuses before the jar's contents are consulted.
+- **Studio generates no Java. `project/scaffold/` is empty and `TemplateStore` is deleted (2026-08-25,
+  inversion phase 0b).** It read `botmaker-templates/manifest.txt` out of the project's SDK jar and filled
+  each template's `/*<STUDIO:NAME>*/ default /*</STUDIO:NAME>*/` holes. **The templates left the SDK the same
+  day**, so it had nothing to read. Deleted with it: `ScaffoldCheck`, `ScaffoldRepair`, `ScaffoldEmitter`,
+  `ScaffoldSurface`, `ScaffoldToken`, `ScaffoldUnsupported`, `services/ScaffoldFacts`, the per-hole generation
+  number, `scaffold-holes.txt`, `ScaffoldCompileTest` and `ScaffoldCorpus`, plus `ActivityService`'s whole
+  generation half (the five `generate*Source` methods, `render`, `templates`, `Emission`, `write`).
+  - **Why the deeper cut, one day after phase 0 deliberately kept the templates:** the apparatus existed so
+    **two repositories could agree about a file they co-author**. The inversion removes the disagreement
+    instead of managing it — the SDK becomes the generator, the data owner and the palette. Keeping the
+    templates alive through the interim meant maintaining a protocol whose only consumer is deleted at phase
+    2, and threading the `Wire` redesign through it.
+  - **What this costs, and it is the point rather than a bug:** *New Project (game bot)* and *Save Activity
+    Flow* **refuse by name** — `ProjectCreator.sourcesFor` throws for `GAME_BOT`, wrapped as an `IOException`
+    at the creation call site, and the message names the SDK generator and offers the empty project.
+    `ParametersSplit` refuses for the same reason (its private helpers are kept for phase 2), and because
+    `ProjectSchema.migrate` catches, logs and leaves the file **unstamped**, a refusal is a *retry* at the
+    next open, never a loss. `ScaffoldMigration`'s popup-guard half **skips** instead of throwing — it is
+    content-gated rather than schema-stamped, so it too self-retries — while its retired-files half still
+    runs.
+  - **What survives, deliberately: detection.** `ProjectRepair.findMissing` still reports a game bot's absent
+    scaffold files, from `ProjectCreator.gameBotFileNames` — *which* files a game bot must have is knowable
+    from names alone; only *restoring* them needs the generator. Each entry carries a **null restorer**, the
+    shape this class already used for files only `ActivityService` could write, so *Recover Project Files*
+    lists them and restores nothing. Reporting "nothing is missing" would be the worse failure: a project
+    that does not compile, called healthy. `needsActivityRegeneration` now checks the *reason* as well as the
+    null restorer, so a bot missing only `GoHome.java` no longer kicks off a save that cannot help it.
+  - **`ActivityService` survives as persistence only** — it still writes `activities.json`, so the Activity
+    Flow and Parameters dialogs save the model and phase 2 has only to re-add emission, not rebuild the data
+    path.
+  - **The all-or-none write rule outlives the code that obeyed it**, and is the rule phase 2 inherits: a batch
+    of generated files is written all-or-none, keyed on **project-relative paths** rather than file names
+    (nothing stops an activity being called `FlowDriver`), rendered into memory first, with `activities.json`
+    written last. These files hold no user code, so three written and the fourth refused leaves a project that
+    does not build, where leaving all four alone leaves one that does.
   - **`Templates.java` needs no template, and that is a fact about the file rather than an omission** — it
     names no SDK element, only `public static final String` paths. Recorded in `ImageTemplateLibrary`'s
     Javadoc so the next reader does not wire one up.

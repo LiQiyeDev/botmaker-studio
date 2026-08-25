@@ -54,11 +54,12 @@ class ProjectNamingTest {
 
     @Test
     void theGameBotScaffoldAlsoUsesTheClassName() {
+        // Asked of the file *names* since 2026-08-25: the scaffold's text went with the SDK's templates and
+        // its generator is not written yet (inversion phase 2), but the naming rule this test is about was
+        // never in the text. It is the same rule and the same failure it guards against — a project whose
+        // entry point is called `myBot.java` and declares `class MyBot`.
         ProjectConfig config = ProjectConfig.forProject("myBot", ROOT);
-        Map<String, String> sources =
-                ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, config.className(), config.packageName());
-        assertTrue(sources.containsKey("MyBot.java"), "" + sources.keySet());
-        assertTrue(sources.get("MyBot.java").contains("class MyBot"));
+        assertEquals("MyBot.java", ProjectCreator.gameBotFileNames(config.className()).getFirst());
     }
 
     @Test

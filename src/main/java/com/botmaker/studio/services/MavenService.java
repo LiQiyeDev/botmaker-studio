@@ -68,39 +68,18 @@ public final class MavenService {
     /** Version used for the SDK when none is supplied / JitPack is unreachable. */
     public static final String SDK_FALLBACK_VERSION = "1.1.0";
 
-    /**
-     * Oldest SDK this Studio is built to edit. Below it the project still <em>opens</em> — a banner offers the
-     * upgrade, nothing is refused: an old bot that runs is not a broken bot, and a Studio that won't open one
-     * is worse than a Studio that warns about it.
-     *
-     * <p><b>What the floor means changed in 1.1.0, and it now bites rather than nags.</b> It used to be a
-     * statement about the <em>palette</em>: {@code 1.0.26} was the last release cut before {@code api.*} came
-     * under contract, so below it Studio could not say which blocks would compile, and the banner said so.
-     * {@code 1.1.0} is the first SDK that ships the scaffold itself — the templates every generated file is
-     * rendered from, and the {@code FlowGraph}/{@code Wire} injection API those templates call. An older jar
-     * has neither, and Studio keeps <b>one</b> generation path deliberately (no legacy text-block fallback to
-     * maintain in parallel), so a generated file simply cannot be written against an SDK below this line.
-     * {@link com.botmaker.studio.project.scaffold.TemplateStore#requireFloor} is where that refusal lives,
-     * and it names the version rather than producing a bot that does not compile.
-     *
-     * <p>Everything else about an older project is unchanged: it opens, its files are read and edited, it
-     * builds and runs. What it cannot do until <em>Project ▸ Upgrade SDK…</em> is have its Activity Flow
-     * saved, since that is the moment Studio would have to write those files.
-     *
-     * <p>Kept {@code <=} {@link #SDK_FALLBACK_VERSION} by {@code release.sh}, so a fresh project can never be
-     * created below the floor Studio itself imposes. The two moved to {@code 1.1.0} together for exactly
-     * that reason.
-     *
-     * <p><b>Owed, on the next SDK release: both constants move to it together.</b> That release is the first
-     * to carry the {@code PARAMETERS} template and the {@code FIELDS:2}/{@code INITS:2} generation of
-     * {@code ACTIVITIES} (the 2026-08-25 split — see {@code docs/refactor/23-scaffold-contract.md}), and
-     * neither exists in {@code 1.1.0}. They are deliberately still {@code 1.1.0} here because a fallback
-     * naming an unpublished version would leave every freshly created bot unable to resolve its own SDK.
-     * Until they move, a bot pinned to a released {@code 1.1.0} is refused by
-     * {@link com.botmaker.studio.project.scaffold.TemplateStore#require} — honestly, by template name, before
-     * a file is written — rather than by the floor's own sentence, which is the better one to read.
-     */
-    public static final String MIN_SDK_VERSION = "1.1.0";
+    // There is no MIN_SDK_VERSION any more, and its absence is deliberate (2026-08-25).
+    //
+    // The floor was a statement about generation: below it Studio could not render a generated file, because
+    // the templates and the FlowGraph/Wire API they call arrived in 1.1.0. Studio does not generate at all
+    // now — the templates left the SDK and its own emitters are not written yet (inversion phase 2) — so a
+    // floor would be a comparison with nothing behind it: a banner and a refusal about a capability neither
+    // side has. Every pinned SDK therefore opens with no warning, and an incompatibility surfaces where it
+    // always could, at compile time, naming the element.
+    //
+    // Do not reinstate it as a palette floor either. The palette question is answered per element by
+    // SdkSurfaceService against the project's own jar, which is strictly better than a version comparison.
+    // release.sh's check_sdk_floor went with it.
 
     /**
      * Locally-installed SDK dev builds found in {@code ~/.m2} (typically {@code 0.0.0-SNAPSHOT}, produced by

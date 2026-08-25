@@ -141,13 +141,24 @@ public final class ProjectRepair {
         // activities. Once it has some, only ActivityService can rebuild it, so leave it to the pass below.
         boolean hasActivities = activities != null && !activities.activities().isEmpty();
 
-        String reason = resolved == ProjectTemplate.GAME_BOT ? "game-bot scaffold" : "entry point";
-        for (Map.Entry<String, String> e :
-                ProjectCreator.sourcesFor(resolved, config.className(), config.packageName()).entrySet()) {
-            if (hasActivities && (REGISTRY_FILE.equals(e.getKey()) || DRIVER_FILE.equals(e.getKey()))) continue;
-            Path path = mainDir.resolve(e.getKey());
-            if (!Files.exists(path)) {
-                missing.add(Missing.ofSource(path, e.getValue(), reason));
+        if (resolved == ProjectTemplate.GAME_BOT) {
+            // Reported by name, restored by nobody (2026-08-25, temporarily). The scaffold's *text* left with
+            // the SDK's templates and its emitters are not written yet (inversion phase 2), so every entry
+            // here carries a null restorer — the same shape this class already uses for the files only
+            // ActivityService can produce. Saying nothing is missing would be the worse answer: a project
+            // that does not compile, reported as healthy.
+            for (String name : ProjectCreator.gameBotFileNames(config.className())) {
+                if (hasActivities && (REGISTRY_FILE.equals(name) || DRIVER_FILE.equals(name))) continue;
+                Path path = mainDir.resolve(name);
+                if (!Files.exists(path)) missing.add(new Missing(path, null, "game-bot scaffold"));
+            }
+        } else {
+            for (Map.Entry<String, String> e :
+                    ProjectCreator.sourcesFor(resolved, config.className(), config.packageName()).entrySet()) {
+                Path path = mainDir.resolve(e.getKey());
+                if (!Files.exists(path)) {
+                    missing.add(Missing.ofSource(path, e.getValue(), "entry point"));
+                }
             }
         }
 
@@ -267,9 +278,17 @@ public final class ProjectRepair {
         return written;
     }
 
-    /** True when {@code missing} contains activity stubs, which only {@code ActivityService} can regenerate. */
+    /**
+     * True when {@code missing} contains activity stubs, which only {@code ActivityService} can regenerate.
+     *
+     * <p>A null restorer used to mean exactly that. Since 2026-08-25 the game-bot scaffold has one too (its
+     * text went with the SDK's templates), and that is <em>not</em> ActivityService's to write, so the reason
+     * is checked as well — otherwise a project missing only {@code GoHome.java} would kick off a save that
+     * cannot possibly restore it.
+     */
     public static boolean needsActivityRegeneration(List<Missing> missing) {
-        return missing.stream().anyMatch(m -> m.restorer() == null);
+        return missing.stream()
+                .anyMatch(m -> m.restorer() == null && !"game-bot scaffold".equals(m.reason()));
     }
 
     /** Groups {@code missing} by reason, for a readable confirmation dialog. */

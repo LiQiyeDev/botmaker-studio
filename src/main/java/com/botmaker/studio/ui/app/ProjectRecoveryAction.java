@@ -7,10 +7,7 @@ import com.botmaker.studio.project.ProjectRepair;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.project.ProjectTemplate;
 import com.botmaker.studio.project.StudioContext;
-import com.botmaker.studio.project.activity.ActivityDefinition;
-import com.botmaker.studio.project.scaffold.TemplateStore;
 import com.botmaker.studio.services.ActivityService;
-import com.botmaker.studio.services.MavenService;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.scene.control.Alert;
@@ -55,20 +52,9 @@ final class ProjectRecoveryAction {
         ProjectState state = ctx.state();
         ActivityService activityService = ctx.activityService();
 
-        // Rendered once, up front, and reused below: it is the same answer both times, and producing it can
-        // refuse — the templates come from the SDK, and an SDK too old to carry them is something to say
-        // plainly rather than half-recover around.
-        Map<Path, String> canonical;
-        try {
-            canonical = canonicalScaffold(ctx);
-        } catch (IOException ex) {
-            Alert err = ThemedWindows.alert(Alert.AlertType.ERROR);
-            err.setTitle("Recover Project Files");
-            err.setHeaderText("Could not work out what this project's files should look like.");
-            err.setContentText(ex.getMessage());
-            err.showAndWait();
-            return;
-        }
+        // Worked out once, up front, and reused below: it is the same answer both times. It can be empty —
+        // see canonicalScaffold — and an empty answer simply narrows what recovery attempts.
+        Map<Path, String> canonical = canonicalScaffold(ctx);
 
         List<ProjectRepair.Missing> missing =
                 ProjectRepair.findMissing(config, state.getTemplate(), activityService.current());
@@ -128,31 +114,26 @@ final class ProjectRecoveryAction {
     /**
      * What the generators would produce for this project's scaffold today, keyed by path.
      *
-     * <p>The floor is asked first and not left to the stub loop below it. A project with no activities yet
-     * would never reach {@code generateStubSource}, and recovery would then happily write the seeds — which
-     * are templates too, and call the same injection API — into a bot whose SDK predates all of it.
+     * <p><b>Empty for a game bot since 2026-08-25, and temporarily.</b> Both halves of this map came out of
+     * the SDK's scaffold templates — the five whole files from {@link ProjectCreator#sourcesFor} and one
+     * per-activity stub from {@code ActivityService} — and the SDK ships neither any more (inversion phase
+     * 2). {@code sourcesFor} refuses for {@code GAME_BOT} and there is no stub generator at all, so recovery
+     * narrows to what it can still do honestly: the {@link ProjectRepair} passes that need no canonical text.
+     * A damaged file whose repair needs one is reported as unrecoverable rather than rewritten from a guess.
      */
-    private static Map<Path, String> canonicalScaffold(StudioContext ctx) throws IOException {
+    private static Map<Path, String> canonicalScaffold(StudioContext ctx) {
         ProjectConfig config = ctx.config();
         ProjectState state = ctx.state();
-        ActivityService activityService = ctx.activityService();
-
-        TemplateStore.requireFloor(MavenService.readSdkVersion(config.projectPath()));
 
         Map<Path, String> byPath = new LinkedHashMap<>();
         Path mainDir = config.mainSourceFile().getParent();
         if (mainDir == null) return byPath;
 
         ProjectTemplate template = state.getTemplate() != null ? state.getTemplate() : ProjectTemplate.EMPTY;
+        if (template == ProjectTemplate.GAME_BOT) return byPath;
+
         ProjectCreator.sourcesFor(template, config.className(), config.packageName())
                 .forEach((name, source) -> byPath.put(mainDir.resolve(name), source));
-
-        // Each activity stub's isEnabled() is generated against that activity's own flag, so the canonical
-        // source is per-file — only ActivityService can say what it should be.
-        for (ActivityDefinition activity : activityService.current().activities()) {
-            byPath.put(config.activitiesPackageDir().resolve(activity.name() + ".java"),
-                    activityService.generateStubSource(activity));
-        }
         return byPath;
     }
 

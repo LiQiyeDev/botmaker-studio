@@ -14,9 +14,11 @@ import java.util.regex.Pattern;
  *   <li><b>The retired files.</b> The entry point binds {@code FlowDriver::run} directly and the launch step
  *       comes from the SDK, so {@code GameLoop.java} and {@code Startup.java} are no longer generated — and a
  *       project still carrying them keeps compiling against a 3-arg {@code Bot.start} that no longer exists.</li>
- *   <li><b>The popup guard.</b> {@link #installPopupGuard} adds the {@code PopupGuard.install(...)} line and
- *       restores {@code Popups.java}, so an older project gets the before-every-vision-step popup check
- *       instead of being the one project where the feature quietly doesn't exist.</li>
+ *   <li><b>The popup guard.</b> {@link #installPopupGuard} adds the {@code PopupGuard.install(...)} line, so an
+ *       older project gets the before-every-vision-step popup check instead of being the one project where the
+ *       feature quietly doesn't exist. It used to restore a missing {@code Popups.java} as well; since
+ *       2026-08-25 it cannot (the scaffold's text left with the SDK's templates), so a project without that
+ *       file is skipped whole and picks the guard up at the first open after inversion phase 2.</li>
  * </ul>
  *
  * <p>Run at project open, next to {@link BotSettings#migrate}, for the same reason: it is the one moment we
@@ -64,11 +66,13 @@ public final class ScaffoldMigration {
             deleteIfRetired(dir.resolve(STARTUP_FILE), updated, "Startup");
         }
 
-        String guarded = installPopupGuard(updated);
+        // The guard names Popups.INSTANCE, so it can only be installed where that file exists or can be
+        // written — and since 2026-08-25 nothing here can write it (its text left with the SDK's scaffold
+        // templates; inversion phase 2 restores the generator). Skipping is right rather than merely
+        // tolerable: this whole step is content-gated, not schema-stamped, so a project that misses the guard
+        // today simply gets it at the first open after phase 2. The retired-files half above still runs.
+        String guarded = Files.exists(dir.resolve(POPUPS_FILE)) ? installPopupGuard(updated) : updated;
         if (!guarded.equals(updated)) {
-            // The file first, then the line that names it: a failure between the two leaves a project with an
-            // unused Popups.java, not one that doesn't compile.
-            writePopupsIfAbsent(config, dir);
             Files.writeString(main, guarded);
         }
         return guarded.equals(source) ? null : guarded;   // null: nothing needed doing
@@ -99,14 +103,6 @@ public final class ScaffoldMigration {
                 + indent + "// Dismiss popups before every vision step; Popups.java is yours to fill in.\n"
                 + indent + "PopupGuard.install(Popups.INSTANCE::execute);\n\n"
                 + withImport.substring(insertAt);
-    }
-
-    /** Restores the scaffold's {@code Popups.java} when the project predates it. Never overwrites. */
-    private static void writePopupsIfAbsent(ProjectConfig config, Path dir) throws IOException {
-        Path file = dir.resolve(POPUPS_FILE);
-        if (Files.exists(file)) return;
-        String source = ProjectCreator.gameBotSources(config.className(), config.packageName()).get(POPUPS_FILE);
-        if (source != null) Files.writeString(file, source);
     }
 
     private static final String POPUPS_FILE = "Popups.java";

@@ -5,7 +5,6 @@ import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityFlow;
 import com.botmaker.studio.project.launch.SupportedTargets;
 import com.botmaker.studio.project.migration.SchemaFile;
-import com.botmaker.studio.project.scaffold.TemplateStore;
 import com.botmaker.studio.project.vcs.ProjectVcs;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.ImageTemplateLibrary;
@@ -15,6 +14,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import static com.botmaker.studio.config.Constants.PROJECTS_ROOT;
@@ -62,13 +62,22 @@ public class ProjectCreator {
         System.out.println("Location: " + projectPath);
         System.out.println("------------------------------------------------");
 
-        // 0. Render the scaffold before a single directory exists, because the answer may be a refusal — an
-        //    SDK too old to ship templates at all — and a half-created project the user has to delete by hand
-        //    is a worse outcome. The scaffold's *frame* comes from that same SDK — the templates it ships —
-        //    so the file a bot gets is the one its own SDK version knows how to be.
-        Map<String, String> sources = scaffold(sdkVersion,
-                sourcesFor(template, cfg.className(), cfg.packageName(),
-                        TemplateStore.forVersionNewerThanStudio(null, effectiveSdkVersion(sdkVersion))));
+        // 0. Render the scaffold before a single directory exists, because the answer may be a refusal and a
+        //    half-created project the user has to delete by hand is a worse outcome.
+        //
+        //    Since 2026-08-25 the game-bot scaffold *is* that refusal, and temporarily. Its five files were
+        //    the SDK's own templates with this project's name dropped into them; the templates left the SDK
+        //    and its emitters do not exist yet (inversion phase 2), so there is nothing to render. The empty
+        //    template is unaffected — it was never a template at all, only a text block written here — so
+        //    "New Project" still works for it, which is the whole reason to refuse per template rather than
+        //    outright.
+        Map<String, String> sources;
+        try {
+            sources = sourcesFor(template, cfg.className(), cfg.packageName());
+        } catch (IllegalStateException refused) {
+            // Checked on the way out, because creation is a user action with a dialog to show it in.
+            throw new IOException(refused.getMessage(), refused);
+        }
 
         try {
             // 1. Standard Maven directory layout
@@ -120,22 +129,6 @@ public class ProjectCreator {
             e.printStackTrace();
             throw new IOException("Failed to create project: " + e.getMessage(), e);
         }
-    }
-
-    /**
-     * The sources to write, once the SDK this project is about to pin has been checked for a floor.
-     *
-     * <p>The floor is the one question here whose answer can be yes for a version the user chose freely: the
-     * New Project dialog lists every SDK tag JitPack has, so a project can be pinned to one that predates the
-     * scaffold entirely. That is a refusal before the directory exists, not a bot created and then found to
-     * be uncompilable.
-     *
-     * @throws IOException when the SDK predates the scaffold. Thrown before anything is on disk.
-     */
-    private static Map<String, String> scaffold(String sdkVersion, Map<String, String> rendered)
-            throws IOException {
-        TemplateStore.requireFloor(effectiveSdkVersion(sdkVersion));
-        return rendered;
     }
 
     /** What a blank pin means — the version {@link MavenService#writePom} would write. */
@@ -435,36 +428,29 @@ public class ProjectCreator {
     }
 
     /**
-     * The starting sources for {@code template} as {@code fileName -> source}, built from the scaffold
-     * templates Studio itself ships — the SDK jar it was compiled against.
+     * The starting sources for {@code template} as {@code fileName -> source}.
      *
      * <p>The single source of truth for {@link ProjectRepair} and for recovery, which regenerate one missing
-     * scaffold file long after creation and have no reason to re-resolve a jar to do it. Creation uses the
-     * four-argument form, with the templates of the SDK the new project is about to pin.
+     * scaffold file long after creation.
      *
-     * <p>It cannot refuse: the bundled templates are the ones the SDK's own build compiled and checked, so a
-     * hole missing from them is a broken Studio build rather than anything a user did — hence the
-     * unchecked rethrow instead of a checked signature every caller would have to carry.
+     * <p><b>{@link ProjectTemplate#GAME_BOT} refuses, and temporarily (2026-08-25).</b> Its five files were
+     * the SDK's own scaffold templates with this project's name and model dropped into their tokens; the
+     * templates left the SDK and its emitters do not exist yet (inversion phase 2), so nothing here can say
+     * what those files should contain. Refusing is the only honest answer — writing a guess would produce a
+     * bot that does not compile, and returning the empty scaffold instead would silently create a different
+     * project than the one asked for. {@link ProjectTemplate#EMPTY} never used a template and is unaffected.
+     *
+     * <p>Unchecked, because every caller of this three-argument form treats a failure here as a broken
+     * Studio rather than as something a user did, and adding a checked signature to all of them for one
+     * interim release would be undone again in phase 2.
      */
     public static Map<String, String> sourcesFor(ProjectTemplate template, String className, String packageName) {
-        try {
-            return sourcesFor(template, className, packageName, TemplateStore.bundled());
-        } catch (IOException e) {
-            throw new IllegalStateException("The scaffold templates Studio ships with are unusable: "
-                    + e.getMessage(), e);
+        if (template == ProjectTemplate.GAME_BOT) {
+            throw new IllegalStateException("The game-bot files (the entry point, FlowDriver, GoHome, Popups "
+                    + "and ActivityRegistry) are generated by the SDK, and this build of BotMaker does not "
+                    + "have that generator yet. Create an empty project for now.");
         }
-    }
-
-    /**
-     * The same, from {@code templates} — the scaffold as one particular SDK ships it.
-     *
-     * @throws IOException when that SDK's templates cannot carry what Studio has to write into them
-     */
-    public static Map<String, String> sourcesFor(ProjectTemplate template, String className, String packageName,
-                                                 TemplateStore templates) throws IOException {
-        return template == ProjectTemplate.GAME_BOT
-                ? gameBotSources(className, packageName, templates)
-                : emptySources(className, packageName);
+        return emptySources(className, packageName);
     }
 
     /** Writes each {@code fileName -> source} of a template into {@code srcPath}. */
@@ -507,56 +493,33 @@ public class ProjectCreator {
      * {@code botmaker-project.properties}, not in that file. The SDK's 2-arg {@code Bot.start} now supplies the
      * launch step, and the entry point binds {@code FlowDriver::run} directly.
      *
-     * <p><b>None of it is written here any more.</b> Every file below is one of the SDK's own scaffold
-     * templates — compiling Java in {@code botmaker-sdk/src/templates/java}, shipped in the jar as text —
-     * with this project's package, class name and (for the two generated files) an empty model dropped into
-     * its tokens. What used to be five text blocks holding {@code Bot.start}, a hand-written walk loop and a
-     * step budget is now one {@code sources.put} per file: Studio contributes what is true about this
-     * project, and nothing else.
+     * <p><b>It refuses, and temporarily.</b> Every file it produced was one of the SDK's own scaffold
+     * templates with this project's package, class name and (for the two generated files) an empty model
+     * dropped into its tokens. The templates are gone from the SDK and its own emitters are not written yet
+     * (inversion phase 2), so there is nothing to fill and nothing to render. See {@link #sourcesFor}.
      *
-     * <p>Exposed as data rather than written to disk here so {@link ProjectRepair} can regenerate an
-     * individual missing file from the same source of truth. Reached via {@link #sourcesFor}.
+     * <p>Kept as a method rather than deleted because {@link ProjectRepair} and recovery name it as the
+     * single source of truth for an individual missing scaffold file, and that is still true — it is the
+     * source of truth that currently has no answer.
      */
     public static Map<String, String> gameBotSources(String className, String packageName) {
         return sourcesFor(ProjectTemplate.GAME_BOT, className, packageName);
     }
 
-    /** The same, from one particular SDK's templates. */
-    public static Map<String, String> gameBotSources(String className, String packageName,
-                                                     TemplateStore templates) throws IOException {
-        Map<String, String> sources = new LinkedHashMap<>();
-
-        // Entry point: supervise the game loop, recovering via goHome → startGame on crash/stuck. The only
-        // thing filled in is the name — the class is called after the project, so the template's own is
-        // rewritten and nothing else about the file is ours.
-        sources.put(className + ".java", render(templates, "ENTRY_POINT", packageName, className, Map.of()));
-
-        // The flow driver, seeded with no flow at all: a new project has no activities, so the graph is
-        // FlowGraph.of(null) and the two tuning numbers are the model's own defaults. It is a REGENERATED
-        // file being written for the first time, not a different file — the same template ActivityService
-        // renders on every save of the canvas.
-        sources.put("FlowDriver.java", render(templates, "FLOW_DRIVER", packageName, null, Map.of(
-                "ACTIVITY_IMPORT", "",
-                "FLOW", "null",
-                "MAX_STEPS", Integer.toString(ActivityFlow.DEFAULT_MAX_STEPS),
-                "STEP_DELAY_MS", Integer.toString(ActivityFlow.DEFAULT_STEP_DELAY_MS))));
-
-        // Safe-point navigation and the popup guard's body. Both are SEED files with no tokens at all: what
-        // they hold is a worked example and a TODO, and the moment the project exists they are the user's.
-        sources.put("GoHome.java", render(templates, "GO_HOME", packageName, null, Map.of()));
-        sources.put("Popups.java", render(templates, "POPUPS", packageName, null, Map.of()));
-
-        // The registry, seeded empty so the driver compiles before the first activity exists.
-        sources.put("ActivityRegistry.java", render(templates, "ACTIVITY_REGISTRY", packageName, null,
-                Map.of("ACTIVITY_IMPORT", "", "SINGLETONS", "", "ALL", "")));
-
-        return sources;
-    }
-
-    /** One template, required and filled — the shape every {@code sources.put} above takes. */
-    static String render(TemplateStore templates, String id, String packageName, String className,
-                         Map<String, String> fills) throws IOException {
-        return templates.render(templates.require(id), packageName, className, fills);
+    /**
+     * The file names of the game-bot scaffold — which survive {@link #sourcesFor}'s refusal, because what was
+     * lost with the templates is what those files <em>contain</em>, never what they are called.
+     *
+     * <p>That distinction is the whole reason this exists (2026-08-25): {@link ProjectRepair} asks two
+     * separate questions of the scaffold, and only one of them needs the text. <em>Is this file gone?</em> is
+     * answerable from the names alone, so a game bot whose {@code GoHome.java} was deleted outside the Studio
+     * is still <b>told</b> so — it is only the restoring that has to wait for inversion phase 2. Answering
+     * "nothing is missing" would be the worse failure of the two: a project that does not compile, reported
+     * as healthy.
+     */
+    public static List<String> gameBotFileNames(String className) {
+        return List.of(className + ".java", "FlowDriver.java", "GoHome.java", "Popups.java",
+                "ActivityRegistry.java");
     }
 
     /**

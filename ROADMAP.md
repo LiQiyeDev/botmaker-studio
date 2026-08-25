@@ -6,6 +6,32 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-25 — demolition, part two: Studio stops generating Java at all (inversion, phase 0b).** Phase 0
+  (below) deliberately kept the templates so Studio could go on generating for one more phase; that
+  half-measure is **reversed the same day** — maintaining a two-repository protocol whose only consumer is
+  deleted at phase 2, and threading the `Wire` redesign through it, costs more than the regression. Deleted
+  here: `project/scaffold/TemplateStore` (the last file in that package), `ScaffoldCompileTest`,
+  `ScaffoldCorpus`, `TemplateStoreTest`, `ActivityService`'s whole generation half (five `generate*Source`
+  methods, `render`, `templates`, `Emission`, `write`) with `ActivityGenerationTest`,
+  `FlowDriverGenerationTest` and `ActivityStubWriteThroughTest`, `ProjectCreator`'s source rendering for
+  `GAME_BOT`, and the SDK-version floor entire — `MavenService.MIN_SDK_VERSION`,
+  `SdkSurfaceService.isBelowMinimum`, `EditorCanvas.sdkFloorBanner` and `TemplateStore.requireFloor`.
+  `SDK_FALLBACK_VERSION` and its ~14 pom-pinning call sites are untouched.
+  **Four costs, stated rather than discovered:** (1) *New Project (game bot)* and *Save Activity Flow* refuse
+  by name until phase 2 — `sourcesFor` throws for `GAME_BOT` and the message offers the empty project;
+  (2) `ParametersSplit` refuses too, but `ProjectSchema.migrate` catches, logs and leaves the file
+  **unstamped**, so it is a retry at the next open rather than a loss, and `ScaffoldMigration`'s popup-guard
+  half skips (content-gated, self-retrying) while its retired-files half still runs; (3) no too-old-SDK
+  banner — any pinned SDK opens and breakage surfaces at compile time; (4) an *Upgrade SDK…* no longer
+  re-renders the generated files, so a rename it would have absorbed becomes a compile error.
+  **Kept deliberately:** `ActivityService` as persistence only (`activities.json` still written, so phase 2
+  re-adds emission rather than rebuilding the data path), and *detection* in `ProjectRepair` — a game bot's
+  missing scaffold files are still reported, by name, from the new `ProjectCreator.gameBotFileNames`, each
+  with a **null restorer**; `needsActivityRegeneration` now checks the reason too. Saying "nothing is
+  missing" would be the worse failure: a project that does not compile, reported healthy.
+  **The tests under `project/` and `services/` are knowingly left red** where they asserted generated text —
+  they are rewritten with the generator in phase 2, not kept warm in the wrong repository.
+
 - **2026-08-25 — demolition: the scaffold contract apparatus is removed (inversion, phase 0).** The
   negotiation between two repositories about a file they co-author is gone, because the disagreement is being
   removed rather than managed: the SDK becomes the generator (`~/.claude/plans/for-the-past-few-stateless-abelson.md`),
@@ -28,7 +54,8 @@ whenever work lands here (see CLAUDE.md → Roadmap).
   prefixed with "Failed to save activities: ", the sentence itself unchanged. **Kept deliberately:**
   `ScaffoldCompileTest` and `ScaffoldCorpus` — they compile four whole generated projects against the real
   SDK jar and are the only thing proving a generated project builds; they retire in phase 2 when the SDK's own
-  emit test replaces them.
+  emit test replaces them. *(Amended hours later by phase 0b above: they retired immediately instead, with
+  `TemplateStore` and the templates. A test has to have a subject.)*
 
 - **2026-08-25 — the values leave `Activities` for `Parameters`, and existing bots split themselves on open
   (`project/activity/VariableHolder`, `ActivitiesConfig`, `services/ActivityService`,

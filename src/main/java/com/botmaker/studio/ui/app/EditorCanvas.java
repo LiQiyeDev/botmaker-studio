@@ -81,11 +81,9 @@ final class EditorCanvas {
             blocksContainer.getStyleClass().add("reader-mode");
             column.getChildren().addFirst(readerBanner(projectName, onSwitchToEditor));
         }
-        // Below the floor: say so once, above everything, and let the project open anyway. Added last so it
-        // lands above the Reader banner when a project is both — the SDK is the more actionable of the two.
-        if (sdkSurface != null && sdkSurface.isBelowMinimum()) {
-            column.getChildren().addFirst(sdkFloorBanner(sdkSurface.sdkVersion(), onUpgradeSdk));
-        }
+        // The too-old-SDK banner that used to be added here went on 2026-08-25 with the version floor
+        // itself: with no generation left in Studio there is nothing a version comparison protects, and the
+        // palette's answer is per element, from the project's own jar. See MavenService.
     }
 
     VBox node() {
@@ -166,32 +164,4 @@ final class EditorCanvas {
         return banner;
     }
 
-    /**
-     * The "this bot pins an SDK older than Studio supports" banner.
-     *
-     * <p>Deliberately <em>not</em> a modal and not a red error. The bot compiles and runs exactly as it did
-     * yesterday, and every file in it stays open and editable — a Studio that won't open an old project is
-     * strictly worse than one that mentions it.
-     *
-     * <p>What the banner has to say changed with the floor at {@code 1.1.0}, and understating it would be the
-     * unkind version. Below the floor the palette is still a superset of what the jar has, as before; but the
-     * generated files are rendered from templates the SDK itself ships, so <b>saving the Activity Flow is
-     * refused</b> until the bot is upgraded. Better to read that here, before drawing a flow, than in a
-     * refusal after. The refusal's own sentence is {@code TemplateStore.requireFloor}'s.
-     */
-    private static HBox sdkFloorBanner(String version, Runnable onUpgradeSdk) {
-        Label msg = new Label("This bot uses SDK " + version + ", older than the "
-                + MavenService.MIN_SDK_VERSION + " this Studio is built for. It still runs, and everything"
-                + " here stays open — but some blocks in the palette may not compile against it, and the"
-                + " Activity Flow cannot be saved until you upgrade.");
-        msg.setWrapText(true);
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
-        Button upgrade = new Button("Upgrade SDK…");
-        upgrade.setOnAction(e -> onUpgradeSdk.run());
-        HBox banner = new HBox(10, msg, spacer, upgrade);
-        banner.setAlignment(Pos.CENTER_LEFT);
-        banner.getStyleClass().add("sdk-floor-banner");
-        return banner;
-    }
 }
