@@ -159,9 +159,10 @@ class ScaffoldCheckTest {
 
         ScaffoldRepair.Outcome repaired = ScaffoldRepair.apply(rendered, check.substitutions());
         assertTrue(repaired.canEmit(), "unexpressed: " + repaired.unexpressed());
-        String activities = repaired.sources().get("Activities.java");
-        assertTrue(activities.contains("Wire.howLong("), activities);
-        assertFalse(activities.contains("Wire.duration("), activities);
+        // Parameters.java, not Activities.java: a Duration is a value, and values moved out on 2026-08-25.
+        String parameters = repaired.sources().get("Parameters.java");
+        assertTrue(parameters.contains("Wire.howLong("), parameters);
+        assertFalse(parameters.contains("Wire.duration("), parameters);
         assertEquals(rendered.keySet(), repaired.sources().keySet(), "every file comes back, rewritten or not");
     }
 
@@ -177,10 +178,10 @@ class ScaffoldCheckTest {
 
         ScaffoldRepair.Outcome repaired = ScaffoldRepair.apply(rendered, check.substitutions());
         assertTrue(repaired.canEmit(), "unexpressed: " + repaired.unexpressed());
-        String activities = repaired.sources().get("Activities.java");
-        assertTrue(activities.contains("import " + moved + ";"), activities);
-        assertFalse(activities.contains("import " + WIRE + ";"), activities);
-        assertTrue(activities.contains("Reader.duration("), activities);
+        String parameters = repaired.sources().get("Parameters.java");
+        assertTrue(parameters.contains("import " + moved + ";"), parameters);
+        assertFalse(parameters.contains("import " + WIRE + ";"), parameters);
+        assertTrue(parameters.contains("Reader.duration("), parameters);
     }
 
     @Test

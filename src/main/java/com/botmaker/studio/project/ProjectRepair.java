@@ -167,13 +167,21 @@ public final class ProjectRepair {
                 missing.add(new Missing(json, null, "activity settings"));
             }
 
-            // Activities.java exists as soon as the project has any activity at all, because ActivityService
-            // writes the class even when it would be empty rather than deleting it (something may still be
-            // importing it). Only a project that has never had an activity or a global is entitled not to
-            // have the file.
-            if ((hasActivities || !activities.allVariables().isEmpty())
-                    && !Files.exists(config.activitiesSourceFile())) {
-                missing.add(new Missing(config.activitiesSourceFile(), null, "generated activity code"));
+            // Activities.java and Parameters.java exist as soon as the project has any activity or variable at
+            // all, because ActivityService writes both even when they would be empty rather than deleting
+            // them (something may still be importing them). Only a project that has never had an activity or
+            // a variable is entitled not to have them.
+            //
+            // The pair is asked about together, on the same evidence, even though one holds the flags and the
+            // other the values: they are written by one save and the file that has no fields of its own is
+            // the one nothing would otherwise notice was gone.
+            if (hasActivities || !activities.allVariables().isEmpty()) {
+                if (!Files.exists(config.activitiesSourceFile())) {
+                    missing.add(new Missing(config.activitiesSourceFile(), null, "generated activity code"));
+                }
+                if (!Files.exists(config.parametersSourceFile())) {
+                    missing.add(new Missing(config.parametersSourceFile(), null, "generated activity code"));
+                }
             }
             if (hasActivities && !Files.exists(config.activityRegistrySourceFile())) {
                 missing.add(new Missing(config.activityRegistrySourceFile(), null, "generated activity code"));

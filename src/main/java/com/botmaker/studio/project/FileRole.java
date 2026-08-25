@@ -127,6 +127,7 @@ public enum FileRole {
         return isReviewMarker(config, abs)
                 || sameFile(abs, config.mainSourceFile())
                 || sameFile(abs, config.activitiesSourceFile())
+                || sameFile(abs, config.parametersSourceFile())
                 || sameFile(abs, config.activityRegistrySourceFile())
                 || sameFile(abs, config.flowDriverSourceFile())
                 || sameFile(abs, config.templatesSourceFile());

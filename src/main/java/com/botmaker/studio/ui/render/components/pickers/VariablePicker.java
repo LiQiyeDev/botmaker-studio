@@ -2,6 +2,7 @@ package com.botmaker.studio.ui.render.components.pickers;
 
 import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.project.activity.ActivityVariable;
+import com.botmaker.studio.project.activity.VariableHolder;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.types.ResolvedType;
 import javafx.scene.Node;
@@ -14,7 +15,7 @@ import org.eclipse.jdt.core.dom.QualifiedName;
 
 /**
  * A dropdown over the project's variables, shown inline on a slot that already holds one
- * ({@code Activities.RETRIES}). Swapping one variable for another was a walk down Change ▸ Activities ▸ tag ▸
+ * ({@code Parameters.RETRIES}). Swapping one variable for another was a walk down Change ▸ Activities ▸ tag ▸
  * name to reach a list the slot could have been showing all along — the same picker the expression submenu
  * offers, one click away instead of four.
  *
@@ -28,21 +29,30 @@ import org.eclipse.jdt.core.dom.QualifiedName;
  */
 public final class VariablePicker {
 
-    /** The generated holder class every project variable is a static field of. */
-    private static final String HOLDER = "Activities";
-
     private VariablePicker() {}
 
-    /** The field name this slot references, or null when it isn't a variable reference at all. */
+    /**
+     * The field name this slot references, or null when it isn't a variable reference at all.
+     *
+     * <p>Either holder counts: {@code Activities.MINING} is a flag and {@code Parameters.REST} is a value, and
+     * a slot holding one of them is a slot the user may want to point at the other. Which class the
+     * <em>replacement</em> is written on is asked of the model, not copied from what is there — see
+     * {@link #create}.
+     */
     static String referencedVariable(ValueSlot arg) {
         ASTNode node = arg == null ? null : arg.node();
         if (node instanceof QualifiedName qualified) {
-            return HOLDER.equals(qualified.getQualifier().toString()) ? qualified.getName().getIdentifier() : null;
+            return isHolder(qualified.getQualifier().toString())
+                    ? qualified.getName().getIdentifier() : null;
         }
         if (node instanceof FieldAccess access) {
-            return HOLDER.equals(access.getExpression().toString()) ? access.getName().getIdentifier() : null;
+            return isHolder(access.getExpression().toString()) ? access.getName().getIdentifier() : null;
         }
         return null;
+    }
+
+    private static boolean isHolder(String qualifier) {
+        return VariableHolder.ofClassName(qualifier) != null;
     }
 
     public static Node create(CodeEditorService context, ValueSlot arg, ResolvedType slotType) {
@@ -58,13 +68,19 @@ public final class VariablePicker {
         combo.setOnAction(e -> {
             String picked = combo.getValue();
             if (picked == null || picked.equals(current)) return;
+            // The class the picked name is declared on, asked of the model rather than taken from the
+            // qualifier already in the slot: swapping a flag for a value moves the reference between the two
+            // generated classes, and keeping the old qualifier would write Activities.REST.
             context.getCodeEditor().replaceWithFieldReference(
-                    arg.node(), HOLDER, picked);
+                    arg.node(), context.getProjectAnalyzer().variableHolder(picked).className(), picked);
         });
         return combo;
     }
 
-    /** The {@link SpecialTypePicker} entry: matches a slot already holding {@code Activities.<name>}. */
+    /**
+     * The {@link SpecialTypePicker} entry: matches a slot already holding {@code Parameters.<name>} or
+     * {@code Activities.<name>}.
+     */
     public static SpecialTypePicker asSpecialType() {
         return new SpecialTypePicker() {
             @Override public boolean matches(PickerContext ctx) {

@@ -115,7 +115,7 @@ final class ScaffoldCorpus {
 
     /**
      * Renders {@code model} as {@code absolute file -> source}, exactly where a real project would hold each
-     * file: the seeds from {@link ProjectCreator}, the generated four from {@link ActivityService}, and a
+     * file: the seeds from {@link ProjectCreator}, the generated ones from {@link ActivityService}, and a
      * stub per activity. Nothing is written to disk here — that is the compiling test's business.
      */
     static Map<Path, String> render(Model model, ProjectConfig config) throws ScaffoldUnsupported {
@@ -129,7 +129,8 @@ final class ScaffoldCorpus {
 
         ActivitiesConfig cfg = model.activities();
         ActivityService service = new ActivityService(config, null, null);
-        files.put(config.activitiesSourceFile(), service.generateSource(cfg));
+        files.put(config.activitiesSourceFile(), service.generateActivitiesSource(cfg));
+        files.put(config.parametersSourceFile(), service.generateParametersSource(cfg));
         files.put(config.activityRegistrySourceFile(), service.generateRegistrySource(cfg));
         files.put(config.flowDriverSourceFile(), service.generateDriverSource(cfg));
         for (ActivityDefinition activity : cfg.activities()) {

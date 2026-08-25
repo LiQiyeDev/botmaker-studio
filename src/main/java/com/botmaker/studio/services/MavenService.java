@@ -90,6 +90,15 @@ public final class MavenService {
      * <p>Kept {@code <=} {@link #SDK_FALLBACK_VERSION} by {@code release.sh}, so a fresh project can never be
      * created below the floor Studio itself imposes. The two moved to {@code 1.1.0} together for exactly
      * that reason.
+     *
+     * <p><b>Owed, on the next SDK release: both constants move to it together.</b> That release is the first
+     * to carry the {@code PARAMETERS} template and the {@code FIELDS:2}/{@code INITS:2} generation of
+     * {@code ACTIVITIES} (the 2026-08-25 split — see {@code docs/refactor/23-scaffold-contract.md}), and
+     * neither exists in {@code 1.1.0}. They are deliberately still {@code 1.1.0} here because a fallback
+     * naming an unpublished version would leave every freshly created bot unable to resolve its own SDK.
+     * Until they move, a bot pinned to a released {@code 1.1.0} is refused by
+     * {@link com.botmaker.studio.project.scaffold.TemplateStore#require} — honestly, by template name, before
+     * a file is written — rather than by the floor's own sentence, which is the better one to read.
      */
     public static final String MIN_SDK_VERSION = "1.1.0";
 

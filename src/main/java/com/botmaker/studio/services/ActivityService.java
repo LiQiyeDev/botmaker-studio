@@ -33,8 +33,11 @@ import java.util.concurrent.CompletableFuture;
  * {@link ActivityVariable variables} they read. Persistence + generation:
  * <ul>
  *   <li>{@code src/main/resources/activities.json} — the whole model, values included, read at runtime</li>
- *   <li>generated {@code Activities.java} — {@code public static final} typed fields (each live activity's
- *       enable flag, then every variable) loaded from that JSON at startup</li>
+ *   <li>generated {@code Activities.java} — one {@code public static final boolean} per activity, its enable
+ *       flag, loaded from that JSON at startup</li>
+ *   <li>generated {@code Parameters.java} — one typed {@code public static final} per project variable, from
+ *       the same JSON. One class held both until 2026-08-25; {@link #generateParametersSource} says why they
+ *       are two</li>
  *   <li>generated {@code ActivityRegistry.java} — {@code List<Activity> ALL} of the per-activity subclass
  *       instances the macro loop iterates (replaces a hand-maintained if-chain)</li>
  *   <li>generated {@code FlowDriver.java} — the walk over the drawn flow</li>
@@ -170,11 +173,12 @@ public final class ActivityService {
     private Emission render(ActivitiesConfig cfg, boolean includeStubs) throws ScaffoldUnsupported {
         Map<String, String> sources = new LinkedHashMap<>();
         Map<String, Path> destinations = new LinkedHashMap<>();
-        // Written even when it would hold no fields at all. Activities used to be *deleted* in that case,
+        // Both written even when they would hold no fields at all. Activities used to be *deleted* in that case,
         // which is fine for a project that has never had an activity and wrong for one that has just deleted
         // its last: anything still saying `import com.<pkg>.Activities;` — a scaffold file, a hand-written
         // helper — stops compiling the moment the class evaporates. An empty class cannot break a build.
-        put(sources, destinations, config.activitiesSourceFile(), generateSource(cfg));
+        put(sources, destinations, config.activitiesSourceFile(), generateActivitiesSource(cfg));
+        put(sources, destinations, config.parametersSourceFile(), generateParametersSource(cfg));
         put(sources, destinations, config.activityRegistrySourceFile(), generateRegistrySource(cfg));
         put(sources, destinations, config.flowDriverSourceFile(), generateDriverSource(cfg));
         if (includeStubs) {
@@ -293,28 +297,60 @@ public final class ActivityService {
     }
 
     /**
-     * The generated {@code Activities} class: one {@code public static final} field per
-     * {@link ActivitiesConfig#allVariables() referenceable value}, read from {@code activities.json} at
-     * startup.
+     * The generated {@code Activities} class: one {@code public static final boolean} per activity the project
+     * defines, read from {@code activities.json} at startup.
      *
-     * <p><b>Two of the three tokens carry everything this project says.</b> {@code FIELDS} is the
-     * declarations, {@code INITS} the reads. The frame around them — the class, the javadoc explaining why
-     * these are blank finals assigned in a static block, the {@code Wire} import — is the SDK's template, and
-     * so is the loader: {@code Wire.one} / {@code Wire.many} over a {@code ConfigStore} that reads the JSON.
-     * What used to sit between those two halves was a Jackson loader and up to thirteen parser bodies
-     * <em>written as Java strings</em>, emitted per project for whichever types it happened to use. They are
-     * compiled SDK methods now, and the editor calls the same ones — which is what ended the {@code 1h30m}
-     * grammar existing twice with a comment asking the next reader to diff them by eye.
+     * <p><b>Both tokens carry everything this project says.</b> {@code FIELDS} is the declarations,
+     * {@code INITS} the reads. The frame around them — the class, the javadoc explaining why these are blank
+     * finals assigned in a static block, the {@code Wire} import — is the SDK's template, and so is the
+     * loader: {@code Wire.one} / {@code Wire.many} over a {@code ConfigStore} that reads the JSON. What used
+     * to sit between those two halves was a Jackson loader and up to thirteen parser bodies <em>written as
+     * Java strings</em>, emitted per project for whichever types it happened to use. They are compiled SDK
+     * methods now, and the editor calls the same ones — which is what ended the {@code 1h30m} grammar
+     * existing twice with a comment asking the next reader to diff them by eye.
+     *
+     * <p>The tokens are at <b>generation 2</b> because this file used to hold the values as well; see
+     * {@link #generateParametersSource}, and {@code ScaffoldToken.FIELDS} for what the number buys.
+     */
+    public String generateActivitiesSource(ActivitiesConfig cfg) throws ScaffoldUnsupported {
+        return render("ACTIVITIES", null, fieldsAndInits(cfg.activityFlags(), Map.of()));
+    }
+
+    /**
+     * The generated {@code Parameters} class: one {@code public static final} field per project variable, of
+     * the variable's own type.
+     *
+     * <p>Its own file since 2026-08-25. The two halves were one class holding one flat namespace, in which an
+     * activity's on/off tick and the delay it waits for were spelled the same way and neither name said which
+     * was which — while they are governed differently at every level above the field: a flag is written by the
+     * Activity Flow and read by a stub, a value is the user's and is what the Runner offers. Splitting them is
+     * also what lets a variable be renamed, retyped or deleted without the enable flags being in the blast
+     * radius.
      *
      * <p>{@code IMPORTS} is filled with nothing, always. {@link VariableWire#javaType} names every type in
      * full, so the file needs no import for a variable's type — which is the cheapest way to guarantee it
      * never needs one that was forgotten. The token exists because the template's own defaults use short
      * names, and because a future Studio may have something to put there.
      */
-    public String generateSource(ActivitiesConfig cfg) throws ScaffoldUnsupported {
+    public String generateParametersSource(ActivitiesConfig cfg) throws ScaffoldUnsupported {
+        return render("PARAMETERS", null, fieldsAndInits(cfg.variables(), Map.of(ScaffoldToken.IMPORTS, "")));
+    }
+
+    /**
+     * The two tokens both holder classes are made of: a declaration per field, and the {@code Wire} read that
+     * assigns it.
+     *
+     * <p>One routine for both, because the fields are the same shape wherever they are declared — which is the
+     * reason {@code FIELDS} and {@code INITS} are one {@link ScaffoldToken} each with two generations rather
+     * than two tokens. What differs between the two files is only which variables are passed in.
+     *
+     * @param extra tokens this template has and the other does not, merged in ({@code IMPORTS})
+     */
+    private static Map<ScaffoldToken, String> fieldsAndInits(List<ActivityVariable> variables,
+                                                             Map<ScaffoldToken, String> extra) {
         StringBuilder fields = new StringBuilder();
         StringBuilder inits = new StringBuilder();
-        for (ActivityVariable v : cfg.allVariables()) {
+        for (ActivityVariable v : variables) {
             if (!v.description().isBlank()) {
                 fields.append("    /** ").append(v.description().replace("*/", "*\\/")).append(" */\n");
             }
@@ -323,10 +359,10 @@ public final class ActivityService {
             inits.append("        ").append(v.name()).append(" = ")
                     .append(VariableWire.loadExpression(v.type(), v.name())).append(";\n");
         }
-        return render("ACTIVITIES", null, Map.of(
-                ScaffoldToken.IMPORTS, "",
-                ScaffoldToken.FIELDS, fields.toString().strip(),
-                ScaffoldToken.INITS, inits.toString().strip()));
+        Map<ScaffoldToken, String> fills = new LinkedHashMap<>(extra);
+        fills.put(ScaffoldToken.FIELDS, fields.toString().strip());
+        fills.put(ScaffoldToken.INITS, inits.toString().strip());
+        return fills;
     }
 
     /**

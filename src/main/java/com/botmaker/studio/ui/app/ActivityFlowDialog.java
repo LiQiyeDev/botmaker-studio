@@ -835,7 +835,10 @@ public class ActivityFlowDialog {
                 }
             }
         }
-        // Every generated Activities.<field> name must be a unique valid identifier.
+        // Every generated field name must be a unique valid identifier. The fields are declared on two
+        // classes since the 2026-08-25 split — the flags on Activities, the values on Parameters — but they
+        // are validated as one namespace, for the reason ActivitiesConfig.nameClash records: which class a
+        // name belongs to is answered by the name alone, so a name on both has no answer.
         Set<String> fields = new HashSet<>();
         for (ActivityVariable v : cfg.allVariables()) {
             if (!FlowNames.isValidIdentifier(v.name())) return "Invalid generated field name: '" + v.name() + "'.";

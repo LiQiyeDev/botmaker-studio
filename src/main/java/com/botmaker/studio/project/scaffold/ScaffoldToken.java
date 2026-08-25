@@ -41,22 +41,38 @@ import java.util.TreeSet;
  * generations, which is what has to be checkable in one place. When a second generation of a hole arrives, the
  * call site branches on the generation {@link TemplateStore.Template#generationOf} reports for the template it
  * is filling.
+ *
+ * <p>The first real one, {@link #FIELDS}/{@link #INITS} at 2, needed no branch at all: the two generations
+ * belong to two different templates ({@code Activities} and {@code Parameters}), so the call site that renders
+ * each already knows which text it is producing and {@code render} resolves the number from the template. A
+ * branch is only needed when one template's own hole moves on.
  */
 public enum ScaffoldToken {
 
     /**
-     * {@code Activities}: extra imports. <b>Filled with nothing, always</b> — {@code VariableWire.javaType}
+     * {@code Parameters}: extra imports. <b>Filled with nothing, always</b> — {@code VariableWire.javaType}
      * names every type in full, which is the cheapest way to guarantee the file never wants an import that
      * was forgotten. Studio claims the hole so that a template declaring it is not an unknown, and produces
-     * no text for it; see {@code ActivityService.generateSource}.
+     * no text for it; see {@code ActivityService.generateParametersSource}.
      */
     IMPORTS(Fill.RESERVED, 1),
 
-    /** {@code Activities}: one {@code public static final} per stored value. */
-    FIELDS(1),
+    /**
+     * One {@code public static final} per generated field — {@code Parameters} at generation 1,
+     * {@code Activities} at generation 2.
+     *
+     * <p>The two are one constant because they are one shape: a list of field declarations, and the same
+     * code writes both. What changed at 2 is <em>which</em> fields belong there. Until the split
+     * {@code Activities} carried each activity's enable flag <em>and</em> every configured value; it carries
+     * only the flags now, and the values moved to {@code Parameters} — which declares the shape the old
+     * {@code Activities} had, and so keeps generation 1. An older Studio meeting the new
+     * {@code Activities} finds {@code FIELDS:2}, cannot produce it, and refuses by name rather than writing
+     * the values back into a file whose {@code Parameters} sibling it has never heard of.
+     */
+    FIELDS(1, 2),
 
-    /** {@code Activities}: the static block that loads each of them through {@code Wire}. */
-    INITS(1),
+    /** The static block that loads each of those fields through {@code Wire}. Generations as {@link #FIELDS}. */
+    INITS(1, 2),
 
     /** {@code ActivityRegistry} / {@code FlowDriver}: the import of the bot's own {@code activities} package. */
     ACTIVITY_IMPORT(1),

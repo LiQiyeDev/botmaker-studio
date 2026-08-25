@@ -6,6 +6,26 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-25 — the values leave `Activities` for `Parameters`, and existing bots split themselves on open
+  (`project/activity/VariableHolder`, `ActivitiesConfig`, `services/ActivityService`,
+  `project/ProjectConfig`, `project/migration/ParametersSplit`, `ui/render/components/pickers/VariablePicker`,
+  `ui/render/menu/ExpressionMenu`, `project/ProjectRepair`).** Phase 4 of six, and the first real exercise of
+  Phase 3's machinery. One generated class held two unrelated things in one flat namespace — an activity's
+  enable flag and every configured value — so `Activities.restDelay` sat beside `Activities.Mining` with
+  nothing in the name saying which was which. The SDK now ships a `Parameters` template; `Activities` keeps
+  the flags, and because its `FIELDS`/`INITS` fills no longer carry values **their generation bumps to `:2`**
+  — the exact case Phase 3 exists for, proven rather than argued, and the proof that two generations of one
+  hole can belong to two different templates with no call site branching on it. `VariableHolder` is the closed
+  set of the two classes and `ActivitiesConfig.holderOf` the total answer to *which class is this name a field
+  of*, so `VariablePicker.HOLDER` stops being a constant. `nameClash` deliberately stays **one** namespace: the
+  javac reason (two fields on one class) is gone, but `holderOf` answers from the name alone, so a name on both
+  has no answer and the picker would qualify a value with `Activities.`. **Existing bots migrate on open** as
+  the `activities.json` **1 → 2** step: both files rendered before a byte is written, a Project History
+  snapshot, then every `Activities.<value>` across the bot's own source repointed through `SdkMigrationRunner`
+  — same name, same type, no arguments moved, so `shapeChanged()` is false and **no `@NeedsReview` mark**. A
+  qualifier the source does not name (a bare `import static`, a `case` label) refuses the whole run and leaves
+  the file unstamped, so the next open retries it. `MIN_SDK_VERSION`/`SDK_FALLBACK_VERSION` are owed a move to
+  the SDK release that ships the template, and say so at the constant.
 - **2026-08-25 — a hole is `NAME:generation`, the producers are a closed set, and both are gated
   (`project/scaffold/ScaffoldToken`, `TemplateStore`, `ScaffoldHolesTest`, `scaffold-holes.txt`,
   `ProjectCreator`, `services/ActivityService`).** Phase 3 of six; **no generated file changes byte for

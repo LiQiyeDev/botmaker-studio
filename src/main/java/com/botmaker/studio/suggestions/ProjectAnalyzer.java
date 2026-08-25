@@ -7,6 +7,7 @@ import io.github.classgraph.FieldInfo;
 import io.github.classgraph.MethodInfo;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.activity.ActivityVariable;
+import com.botmaker.studio.project.activity.VariableHolder;
 import com.botmaker.studio.project.activity.VariableWire;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.types.JdkType;
@@ -621,6 +622,18 @@ public class ProjectAnalyzer {
         return state.getActivities().allVariables().stream()
                 .filter(a -> isCompatible(VariableWire.resolvedType(a.type()), requiredType))
                 .toList();
+    }
+
+    /**
+     * Which generated class {@code name} is declared on — what a menu or a picker has to write in front of it.
+     *
+     * <p>Asked of the model rather than derived from the type, because the two classes do not divide by type:
+     * a flag is a {@code boolean} and so are plenty of variables. Sourced from project state for the same
+     * reason {@link #getActivityVariables} is — the answer must not depend on what is in scope where the user
+     * clicked.
+     */
+    public VariableHolder variableHolder(String name) {
+        return state.getActivities().holderOf(name);
     }
 
     /**

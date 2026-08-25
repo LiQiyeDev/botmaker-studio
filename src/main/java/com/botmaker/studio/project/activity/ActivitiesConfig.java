@@ -153,16 +153,50 @@ public record ActivitiesConfig(List<ActivityDefinition> activities, List<Activit
     // ---- variables --------------------------------------------------------------------------------------
 
     /**
-     * Every referenceable {@code Activities.<field>}, in generation order: each activity's enable flag, then
-     * the project's variables. Names here are exactly the generated field names, and what the expression menu
-     * inserts.
+     * Every referenceable generated field, in generation order: each activity's enable flag, then the
+     * project's variables. Names here are exactly the generated field names, and what the expression menu
+     * inserts — but <b>not</b> the class they are written on, which since the two files split is
+     * {@link #holderOf} 's answer and no longer one constant.
      */
     @JsonIgnore
     public List<ActivityVariable> allVariables() {
-        List<ActivityVariable> all = new ArrayList<>();
-        for (ActivityDefinition a : activities) all.add(a.enabledVariable());
+        List<ActivityVariable> all = new ArrayList<>(activityFlags());
         all.addAll(variables);
         return all;
+    }
+
+    /**
+     * One {@code boolean} per activity — the fields the generated {@code Activities} holds, and the whole of
+     * what it holds since 2026-08-25.
+     *
+     * <p>Every activity, not only the reachable ones: an orphan keeps its flag, because wiring it up is one
+     * drag away and its stub's {@code isEnabled()} names the field either way.
+     */
+    @JsonIgnore
+    public List<ActivityVariable> activityFlags() {
+        List<ActivityVariable> flags = new ArrayList<>(activities.size());
+        for (ActivityDefinition a : activities) flags.add(a.enabledVariable());
+        return flags;
+    }
+
+    /**
+     * Which generated class {@code name} is a field of: {@link VariableHolder#ACTIVITIES} for an activity's
+     * enable flag, {@link VariableHolder#PARAMETERS} for anything else.
+     *
+     * <p>Total by design — an unknown name answers {@code PARAMETERS} rather than null, because the callers
+     * are a picker and a menu writing a qualifier into source, and a name they cannot place is one the model
+     * has just lost (a variable deleted while a slot still holds it). {@code Parameters.X} on a field that is
+     * gone is a compile error naming the field; a null qualifier is a crash on the way to rendering a
+     * dropdown.
+     *
+     * <p>It is only unambiguous because {@link #nameClash} keeps the two sets disjoint — see there.
+     */
+    public VariableHolder holderOf(String name) {
+        if (name == null) return VariableHolder.PARAMETERS;
+        for (ActivityDefinition a : activities) {
+            if (a.name().equals(name)) return VariableHolder.ACTIVITIES;
+        }
+        return VariableHolder.PARAMETERS;
     }
 
     /**
@@ -181,9 +215,16 @@ public record ActivitiesConfig(List<ActivityDefinition> activities, List<Activit
     /**
      * Whether {@code name} is already taken, ignoring {@code except} (the variable being renamed, or null).
      *
-     * <p>One namespace, one check. Activity names and variable names both become fields on the same generated
-     * class, so an activity called {@code Mining} and a variable called {@code Mining} are the same field
-     * declared twice — a project that saves and then will not compile. Case-insensitive, because the
+     * <p>One namespace, one check — <b>still one, now that the fields are declared on two classes</b>. The
+     * original reason was javac's: both became fields of {@code Activities}, so an activity called
+     * {@code Mining} and a variable called {@code Mining} were the same field declared twice. Split across
+     * {@code Activities} and {@code Parameters} that particular collision compiles, and the check stays
+     * anyway, because a second reason took over: {@link #holderOf} answers which class a <em>name</em> belongs
+     * to, and a name belonging to both has no answer. Relaxing it would make the picker and the expression
+     * menu qualify a value with {@code Activities.} and generate a bot that does not compile — a worse failure
+     * than the one being permitted, and reachable from the UI rather than only from a hand-edited file.
+     *
+     * <p>Case-insensitive, because the
      * generated stub files are named after activities and a case-insensitive filesystem cannot tell
      * {@code Mining.java} from {@code mining.java}.
      */

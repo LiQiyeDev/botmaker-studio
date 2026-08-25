@@ -26,7 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The generated {@code Activities} class, compiled and run for real.
+ * The generated {@code Parameters} and {@code Activities} classes, compiled and run for real.
  *
  * <p>Asserting on the source text would pass on source that does not compile, and the whole risk of a code
  * generator is source that does not compile. So each case writes the class out, runs {@code javac} over it,
@@ -47,9 +47,16 @@ class ActivityGenerationTest {
                 variable("giveUpAfter", BotType.DURATION, "0s")));
     }
 
+    /** The generated {@code Parameters} class — every configured value lives there since 2026-08-25. */
     private static String source(Path root, ActivitiesConfig cfg) throws Exception {
         ProjectConfig config = ProjectConfig.forProject("actbot", root);
-        return new ActivityService(config, null, null).generateSource(cfg);
+        return new ActivityService(config, null, null).generateParametersSource(cfg);
+    }
+
+    /** The generated {@code Activities} class — the enable flags, and nothing else. */
+    private static String flagSource(Path root, ActivitiesConfig cfg) throws Exception {
+        ProjectConfig config = ProjectConfig.forProject("actbot", root);
+        return new ActivityService(config, null, null).generateActivitiesSource(cfg);
     }
 
     /** The stored value of a variable, in the shape {@code activities.json} holds it. */
@@ -75,15 +82,15 @@ class ActivityGenerationTest {
                 variable("giveUpAfter", BotType.DURATION, "1m30s"),
                 variable("ratio", BotType.DECIMAL_NUMBER, "0.75"),
                 variable("busy", BotType.YES_NO, "true")));
-        Class<?> activities = compileAndLoad(root, source(root, cfg), json(cfg));
+        Class<?> params = compileAndLoad(root, "Parameters", source(root,cfg), json(cfg));
 
-        assertEquals(7, activities.getField("count").getInt(null));
-        assertEquals("hello", activities.getField("label").get(null));
-        assertEquals(LocalTime.of(7, 30), activities.getField("startTime").get(null));
-        assertEquals(LocalDate.of(2021, 6, 1), activities.getField("startDate").get(null));
-        assertEquals(Duration.ofSeconds(90), activities.getField("giveUpAfter").get(null));
-        assertEquals(0.75, activities.getField("ratio").getDouble(null), 1e-9);
-        assertTrue(activities.getField("busy").getBoolean(null));
+        assertEquals(7, params.getField("count").getInt(null));
+        assertEquals("hello", params.getField("label").get(null));
+        assertEquals(LocalTime.of(7, 30), params.getField("startTime").get(null));
+        assertEquals(LocalDate.of(2021, 6, 1), params.getField("startDate").get(null));
+        assertEquals(Duration.ofSeconds(90), params.getField("giveUpAfter").get(null));
+        assertEquals(0.75, params.getField("ratio").getDouble(null), 1e-9);
+        assertTrue(params.getField("busy").getBoolean(null));
     }
 
     @Test
@@ -92,13 +99,13 @@ class ActivityGenerationTest {
         String stored = """
                 { "variables": [ { "name": "label", "value": ["hello"] } ] }
                 """;
-        Class<?> activities = compileAndLoad(root, source(root, sample()), stored);
+        Class<?> params = compileAndLoad(root, "Parameters", source(root,sample()), stored);
 
-        assertEquals(0, activities.getField("count").getInt(null));
-        assertEquals("hello", activities.getField("label").get(null));
-        assertEquals(LocalTime.MIDNIGHT, activities.getField("startTime").get(null));
-        assertEquals(LocalDate.of(2000, 1, 1), activities.getField("startDate").get(null));
-        assertEquals(Duration.ZERO, activities.getField("giveUpAfter").get(null));
+        assertEquals(0, params.getField("count").getInt(null));
+        assertEquals("hello", params.getField("label").get(null));
+        assertEquals(LocalTime.MIDNIGHT, params.getField("startTime").get(null));
+        assertEquals(LocalDate.of(2000, 1, 1), params.getField("startDate").get(null));
+        assertEquals(Duration.ZERO, params.getField("giveUpAfter").get(null));
     }
 
     @Test
@@ -111,28 +118,28 @@ class ActivityGenerationTest {
                     { "name": "startTime", "value": ["not a time"] }
                 ] }
                 """;
-        Class<?> activities = compileAndLoad(root, source(root, sample()), stored);
+        Class<?> params = compileAndLoad(root, "Parameters", source(root,sample()), stored);
 
-        assertEquals(0, activities.getField("count").getInt(null), "a bare value is not the stored shape");
-        assertEquals(LocalTime.MIDNIGHT, activities.getField("startTime").get(null));
+        assertEquals(0, params.getField("count").getInt(null), "a bare value is not the stored shape");
+        assertEquals(LocalTime.MIDNIGHT, params.getField("startTime").get(null));
     }
 
     @Test
     void malformedJsonFallsBackToDefaults(@TempDir Path root) throws Exception {
-        Class<?> activities = compileAndLoad(root, source(root, sample()), "this is not valid json {{{");
+        Class<?> params = compileAndLoad(root, "Parameters", source(root,sample()), "this is not valid json {{{");
 
-        assertEquals(0, activities.getField("count").getInt(null));
-        assertEquals("", activities.getField("label").get(null));
-        assertEquals(LocalTime.MIDNIGHT, activities.getField("startTime").get(null));
+        assertEquals(0, params.getField("count").getInt(null));
+        assertEquals("", params.getField("label").get(null));
+        assertEquals(LocalTime.MIDNIGHT, params.getField("startTime").get(null));
     }
 
     @Test
     void aMissingFileFallsBackToDefaults(@TempDir Path root) throws Exception {
-        Class<?> activities = compileAndLoad(root, source(root, sample()), null);
+        Class<?> params = compileAndLoad(root, "Parameters", source(root,sample()), null);
 
-        assertEquals(0, activities.getField("count").getInt(null));
-        assertEquals("", activities.getField("label").get(null));
-        assertEquals(LocalDate.of(2000, 1, 1), activities.getField("startDate").get(null));
+        assertEquals(0, params.getField("count").getInt(null));
+        assertEquals("", params.getField("label").get(null));
+        assertEquals(LocalDate.of(2000, 1, 1), params.getField("startDate").get(null));
     }
 
     @Test
@@ -142,10 +149,10 @@ class ActivityGenerationTest {
                         .withValue(List.of("mine", "cook")),
                 ActivityVariable.create("counts", BotType.Choice.listOf(BotType.WHOLE_NUMBER))
                         .withValue(List.of("1", "2", "3"))));
-        Class<?> activities = compileAndLoad(root, source(root, cfg), json(cfg));
+        Class<?> params = compileAndLoad(root, "Parameters", source(root,cfg), json(cfg));
 
-        assertEquals(List.of("mine", "cook"), activities.getField("skills").get(null));
-        assertEquals(List.of(1, 2, 3), activities.getField("counts").get(null),
+        assertEquals(List.of("mine", "cook"), params.getField("skills").get(null));
+        assertEquals(List.of(1, 2, 3), params.getField("counts").get(null),
                 "a list of a primitive comes back boxed, which is the only thing a List can hold");
     }
 
@@ -158,7 +165,8 @@ class ActivityGenerationTest {
 
         assertTrue(generated.contains("public static final String mode;"), generated);
         assertFalse(generated.contains("\"fast\""), "the option list is the editor's, and never reaches the bot");
-        assertEquals("safe", compileAndLoad(root, generated, json(cfg)).getField("mode").get(null));
+        assertEquals("safe",
+                compileAndLoad(root, "Parameters", generated, json(cfg)).getField("mode").get(null));
     }
 
     /**
@@ -171,24 +179,27 @@ class ActivityGenerationTest {
     void anEnableFlagIsABlankFinalAssignedInTheStaticBlock(@TempDir Path root) throws Exception {
         ActivitiesConfig cfg = ActivitiesConfig.of(
                 List.of(ActivityDefinition.create("Mining", "").withEnabled(true)), List.of());
-        String generated = source(root, cfg);
+        String generated = flagSource(root, cfg);
 
         assertTrue(generated.contains("public static final boolean Mining;"), generated);
         assertFalse(generated.contains("boolean Mining ="), "an inline initializer folds at every use site");
         assertTrue(generated.contains("Mining = Wire.flag(Wire.one(\"Mining\"));"), generated);
 
         String stored = "{ \"activities\": [ { \"name\": \"Mining\", \"enabled\": true } ] }";
-        assertTrue(compileAndLoad(root, generated, stored).getField("Mining").getBoolean(null));
+        assertTrue(compileAndLoad(root, "Activities", generated, stored).getField("Mining").getBoolean(null));
     }
 
     /**
      * Compiles {@code source} (package {@code com.actbot}) into a fresh classpath dir with {@code stored}
-     * (when non-null) as {@code /activities.json}, then loads and initializes {@code com.actbot.Activities}.
+     * (when non-null) as {@code /activities.json}, then loads and initializes {@code com.actbot.<className>}.
+     *
+     * <p>The class name is a parameter because the generated pair split in 2026-08-25: the values are
+     * {@code Parameters} and the enable flags stayed on {@code Activities}. Both read the same stored file.
      */
-    private Class<?> compileAndLoad(Path root, String source, String stored) throws Exception {
+    private Class<?> compileAndLoad(Path root, String className, String source, String stored) throws Exception {
         Path classes = Files.createDirectories(root.resolve("classes-" + Math.abs(source.hashCode())));
         Path srcDir = Files.createDirectories(root.resolve("src-" + Math.abs(source.hashCode()) + "/com/actbot"));
-        Path srcFile = srcDir.resolve("Activities.java");
+        Path srcFile = srcDir.resolve(className + ".java");
         Files.writeString(srcFile, source);
         if (stored != null) Files.writeString(classes.resolve(ActivitiesConfig.FILE_NAME), stored);
 
@@ -197,7 +208,7 @@ class ActivityGenerationTest {
                 "-classpath", System.getProperty("java.class.path"),
                 "-d", classes.toString(),
                 srcFile.toString());
-        assertEquals(0, rc, "generated Activities.java should compile:\n" + source);
+        assertEquals(0, rc, "generated " + className + ".java should compile:\n" + source);
 
         // A loader with NO parent but the bootstrap one, over this project's classes first and everything
         // else after. Both halves of that matter now that the reading is the SDK's rather than a text block:
@@ -211,6 +222,6 @@ class ActivityGenerationTest {
             urls.add(Path.of(entry).toUri().toURL());
         }
         URLClassLoader loader = new URLClassLoader(urls.toArray(URL[]::new), null);
-        return Class.forName("com.actbot.Activities", true, loader); // triggers static init
+        return Class.forName("com.actbot." + className, true, loader); // triggers static init
     }
 }

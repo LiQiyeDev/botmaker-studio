@@ -118,7 +118,7 @@ public class ActivityServiceTest {
         ActivitiesConfig cfg = ActivitiesConfig.of(List.of(), List.of(
                 variable("maxRetries", BotType.WHOLE_NUMBER),
                 variable("startTime", BotType.TIME_OF_DAY)));
-        String src = service.generateSource(cfg);
+        String src = service.generateParametersSource(cfg);
 
         assertTrue(src.contains("package com.mybot;"), src);
         assertTrue(src.contains("public static final int maxRetries;"), src);
@@ -350,7 +350,7 @@ public class ActivityServiceTest {
         ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
 
         ScaffoldUnsupported refusal = assertThrows(ScaffoldUnsupported.class,
-                () -> service.generateSource(ActivitiesConfig.empty()));
+                () -> service.generateActivitiesSource(ActivitiesConfig.empty()));
 
         assertTrue(refusal.getMessage().contains("1.0.26"), refusal.getMessage());
         assertTrue(refusal.getMessage().contains(MavenService.MIN_SDK_VERSION), refusal.getMessage());

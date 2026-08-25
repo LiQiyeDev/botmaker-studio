@@ -490,9 +490,9 @@ public final class ExpressionMenu {
      */
     private static Menu activitiesSubmenu(ResolvedType expectedType, CodeEditorService context,
                                           Consumer<Object> onSelect) {
-        // "Parameters", not "Activities": the class the fields live in is called Activities, but what this
-        // menu offers is the project's parameters, and naming it after the generated class asked the reader
-        // to know that. The neighbouring "Activity name" menu is a different thing and keeps its name.
+        // "Parameters" — which since the split is also the class most of these fields live on, though not
+        // all: the activity enable flags are listed here too and are fields of Activities. The neighbouring
+        // "Activity name" menu is a different thing and keeps its name.
         Menu menu = MenuIcons.decorate(new Menu("Parameters"), MenuIcons.ACTIVITIES);
         List<ActivityVariable> variables = context.getProjectAnalyzer().getActivityVariables(expectedType);
         if (variables.isEmpty()) {
@@ -517,7 +517,10 @@ public final class ExpressionMenu {
                 MenuItem item = new MenuItem(v.name().equals(v.displayLabel())
                         ? v.name() + " (" + v.type().label() + ")"
                         : v.displayLabel() + " — " + v.name());
-                item.setOnAction(e -> onSelect.accept(new ExpressionChoice.Field("Activities", v.name())));
+                // The holder per entry, not per menu: this list mixes the project's values with the activity
+                // enable flags, and since the split they are fields of two different generated classes.
+                String holder = context.getProjectAnalyzer().variableHolder(v.name()).className();
+                item.setOnAction(e -> onSelect.accept(new ExpressionChoice.Field(holder, v.name())));
                 into.add(item);
             }
         });

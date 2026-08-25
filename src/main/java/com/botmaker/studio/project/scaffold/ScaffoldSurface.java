@@ -20,7 +20,7 @@ import java.util.Set;
  * {@code ScaffoldTemplatesTest}, extracted from the jar a project actually pins. A frame element cannot go
  * missing relative to its own jar, so there is nothing here to declare about it. What is left is the far
  * smaller set Studio drops <em>between the fences</em>: the flow table's {@code node}/{@code route}, the
- * field types and {@code Wire} readers of {@code Activities}, and {@code BotMaker.print} — the "Empty"
+ * field types and {@code Wire} readers of {@code Parameters} and {@code Activities}, and {@code BotMaker.print} — the "Empty"
  * template being the one generator still written as Java in this repository.
  *
  * <p>So the three things that once needed three mechanisms now need one each. {@code ScaffoldCompileTest}
@@ -39,7 +39,7 @@ import java.util.Set;
  * {@code Rect} appear as types — and it is the same line the SDK's {@code @Scaffolding} annotations are
  * drawn on.
  *
- * <p><b>Constants are not elements.</b> The generated {@code Activities} names an enum constant as its
+ * <p><b>Constants are not elements.</b> The generated {@code Parameters} names an enum constant as its
  * fallback ({@code Key.A}), but which one it names is derived from the enum, not fixed by the generator, so
  * there is nothing stable to declare. The <em>type</em> is declared and that is what has to keep resolving.
  *
@@ -70,7 +70,7 @@ public final class ScaffoldSurface {
     public enum Origin {
         /** Written once at project creation and the user's thereafter: the entry point, GoHome, Popups, the stubs. */
         SEED,
-        /** Rewritten wholesale on every model change: Activities, ActivityRegistry, FlowDriver, Templates. */
+        /** Rewritten wholesale on every model change: Activities, Parameters, ActivityRegistry, FlowDriver, Templates. */
         REGENERATED
     }
 
@@ -151,8 +151,11 @@ public final class ScaffoldSurface {
             member(FLOW_GRAPH, "node", 6, Origin.REGENERATED),
             member(FLOW_GRAPH, "route", 2, Origin.REGENERATED),
 
-            // ── Activities' FIELDS and INITS tokens: one field per stored value, and the Wire reader it is
-            //    read back with. The parsers were generated bodies until 2026-08-24 — which is why the
+            // ── The FIELDS and INITS tokens of Parameters (values) and Activities (enable flags): one field
+            //    per stored thing, and the Wire reader it is read back with. One list covers both files
+            //    because the elements are the same — the split of 2026-08-25 moved which fields land where,
+            //    not what a field is written with.
+            //    The parsers were generated bodies until 2026-08-24 — which is why the
             //    constructors of Point, Rect and the rest are gone from here while their types stay: a
             //    field declaration still writes a type.
             member(WIRE, "one", 1, Origin.REGENERATED),

@@ -76,9 +76,19 @@ public record ProjectConfig(
         return resourcesRoot().resolve("images");
     }
 
-    /** The generated {@code Activities.java} sidecar (sibling of the main class). */
+    /** The generated {@code Activities.java} sidecar (sibling of the main class): the enable flags. */
     public Path activitiesSourceFile() {
         return sourceRoot.resolve("com").resolve(packageName).resolve("Activities.java");
+    }
+
+    /**
+     * The generated {@code Parameters.java} sidecar: every configured value the bot reads.
+     *
+     * <p>Its own file since 2026-08-25 — the flags and the values used to be one class, which is why a project
+     * created before then has none until it is opened and migrated.
+     */
+    public Path parametersSourceFile() {
+        return sourceRoot.resolve("com").resolve(packageName).resolve("Parameters.java");
     }
 
     /** The generated {@code Templates.java} sidecar — one String constant per image template. */

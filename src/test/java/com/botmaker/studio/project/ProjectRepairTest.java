@@ -217,8 +217,10 @@ class ProjectRepairTest {
         List<ProjectRepair.Missing> missing = ProjectRepair.findMissing(config, ProjectTemplate.GAME_BOT, activities);
 
         // Everything ActivityService owns for this activity is absent here: its settings, the generated
-        // Activities class holding the enable flag, and the subclass stub.
-        assertEquals(List.of("activities.json", "Activities.java", "Mining.java"),
+        // Activities class holding the enable flag, its Parameters twin, and the subclass stub. Parameters
+        // is listed even with no variables to put in it — the pair is written by one save, and a project
+        // holding one of the two is not a state the emitter can produce.
+        assertEquals(List.of("activities.json", "Activities.java", "Parameters.java", "Mining.java"),
                 missing.stream().map(ProjectRepair.Missing::fileName).toList());
         // None of them carry a restorer: ActivityService owns generating them, not ProjectRepair.
         assertTrue(missing.stream().allMatch(m -> m.restorer() == null));

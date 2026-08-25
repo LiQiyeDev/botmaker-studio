@@ -33,6 +33,10 @@ public final class SchemaMigrations {
      * {@code activities.json} carrying {@code archived: true}. That flag is no longer read, so the activity is
      * simply live again on the next open — and its stub has to be live with it, or the project has an activity
      * whose class does not exist. Dropping the flag from the model is the shape change; this is its fallout.
+     *
+     * <p><b>1 → 2: the values leave {@code Activities} for {@code Parameters}.</b> Two generated classes where
+     * there was one, and every {@code Activities.<value>} in the bot's own source repointed — a complete
+     * repair, so nothing is marked for review. See {@link ParametersSplit}.
      */
     private static final List<SchemaMigration> ACTIVITIES_STEPS = List.of(
             ctx -> {
@@ -40,7 +44,8 @@ public final class SchemaMigrations {
                 return restored == 0 ? null
                         : "Restored " + restored + " archived activity stub" + (restored == 1 ? "" : "s")
                           + " into the project.";
-            });
+            },
+            ctx -> ParametersSplit.apply(ctx.config()));
 
     /**
      * No steps yet — {@code settings.json} is still at version 0. Listed explicitly rather than left to a
