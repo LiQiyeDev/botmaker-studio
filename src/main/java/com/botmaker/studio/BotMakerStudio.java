@@ -6,6 +6,8 @@ import com.botmaker.session.impl.NestedSession;
 import com.botmaker.studio.project.BotProject;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectPreferences;
+import com.botmaker.studio.project.migration.ProjectSchema;
+import com.botmaker.studio.project.migration.ProjectSchemaTooNew;
 import com.botmaker.studio.ui.app.ForceX11Notice;
 import com.botmaker.studio.ui.app.ProjectSelectionScreen;
 import com.botmaker.studio.ui.app.ProjectWindow;
@@ -217,6 +219,13 @@ public class BotMakerStudio extends Application {
     private void finishOpen(Stage primaryStage, String projectName, boolean freshlyCreated,
                             java.util.List<ProjectFile> sources) {
         try {
+            // A project saved by a newer Studio is refused here and not in ProjectOpenMigrations, because it
+            // has to be refused for *both* audiences: a file shape this build cannot read is no more readable
+            // to the Runner than to the editor, and the Runner never reaches the migrations at all. Before the
+            // close hook and the reload subscription, so a refusal leaves nothing wired to a project we are
+            // about to abandon.
+            ProjectSchema.check(currentProject.getConfig());
+
             primaryStage.setOnCloseRequest(e -> {
                 e.consume();
                 shutdown();
@@ -271,6 +280,12 @@ public class BotMakerStudio extends Application {
                     showProjectSelection(primaryStage);
                 }
             });
+        } catch (ProjectSchemaTooNew ex) {
+            // Not a failure, so it is not dressed as one: the message is a whole explanation with the way out
+            // in it, and prefixing "Error opening project:" would bury that. Same treatment as
+            // ScaffoldUnsupported.
+            showErrorDialog(ex.getMessage());
+            showProjectSelection(primaryStage);
         } catch (Exception e) {
             e.printStackTrace();
             showErrorDialog("Error opening project: " + e.getMessage());

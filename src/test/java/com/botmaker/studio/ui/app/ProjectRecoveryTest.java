@@ -19,7 +19,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ProjectRecoveryTest {
 
     private static ProjectRepair.Missing missing(String name) {
-        return new ProjectRepair.Missing(Path.of("/p/src", name), "// source", "files BotMaker generates");
+        return ProjectRepair.Missing.ofSource(Path.of("/p/src", name), "// source",
+                "files BotMaker generates");
     }
 
     private static ProjectRepair.Damage damage(String method) {

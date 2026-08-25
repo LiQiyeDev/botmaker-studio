@@ -72,6 +72,27 @@ class ProjectArchiveTest {
                 "nothing to strip must mean nothing rewritten — no reordering, no new comment header");
     }
 
+    @Test
+    void everyFilesSchemaVersionTravelsWithTheBot(@TempDir Path project) throws Exception {
+        write(project.resolve("src/main/resources/botmaker-project.properties"),
+                "project.schemaVersion=1\nlaunch.target=steam:570\n");
+        write(project.resolve("src/main/resources/activities.json"),
+                "{\"schemaVersion\":1,\"activities\":[]}");
+
+        Map<String, byte[]> files = ProjectArchive.collect(project);
+
+        // The archive is what an imported gallery bot is rebuilt from, so the number has to survive the round
+        // trip or every import would look like a version-0 project and be migrated a second time. Nothing here
+        // knows about the marker — the guarantee is that collect() copies verbatim and the publish strip is a
+        // named deny-list, not an allow-list — which is exactly why it is worth a test rather than a comment.
+        Properties published = new Properties();
+        published.load(new ByteArrayInputStream(files.get("src/main/resources/botmaker-project.properties")));
+        assertEquals("1", published.getProperty("project.schemaVersion"));
+
+        assertTrue(new String(files.get("src/main/resources/activities.json"), StandardCharsets.UTF_8)
+                        .contains("\"schemaVersion\":1"));
+    }
+
     private static void write(Path file, String content) throws Exception {
         Files.createDirectories(file.getParent());
         Files.writeString(file, content);

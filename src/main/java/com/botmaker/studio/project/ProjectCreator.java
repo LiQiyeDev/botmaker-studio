@@ -4,6 +4,7 @@ import com.botmaker.shared.config.ProjectProperties;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityFlow;
 import com.botmaker.studio.project.launch.SupportedTargets;
+import com.botmaker.studio.project.migration.SchemaFile;
 import com.botmaker.studio.project.scaffold.ScaffoldCheck;
 import com.botmaker.studio.project.scaffold.ScaffoldEmitter;
 import com.botmaker.studio.project.scaffold.ScaffoldSurface;
@@ -214,17 +215,9 @@ public class ProjectCreator {
     /** Writes/updates {@code capture.width}/{@code capture.height} in {@code botmaker-project.properties}. */
     public static void writeCaptureProperties(Path resourcesDir, StudioProjectSettings.Resolution resolution)
             throws IOException {
-        Files.createDirectories(resourcesDir);
-        Path file = resourcesDir.resolve(ProjectProperties.FILE_NAME);
-        java.util.Properties props = new java.util.Properties();
-        if (Files.exists(file)) {
-            try (var in = Files.newInputStream(file)) { props.load(in); }
-        }
-        props.setProperty(ProjectProperties.KEY_CAPTURE_WIDTH, Integer.toString(resolution.width()));
-        props.setProperty(ProjectProperties.KEY_CAPTURE_HEIGHT, Integer.toString(resolution.height()));
-        try (var out = Files.newOutputStream(file)) {
-            props.store(out, "BotMaker project defaults (standard capture resolution)");
-        }
+        writeProjectKeys(resourcesDir, new java.util.LinkedHashMap<>(java.util.Map.of(
+                ProjectProperties.KEY_CAPTURE_WIDTH, Integer.toString(resolution.width()),
+                ProjectProperties.KEY_CAPTURE_HEIGHT, Integer.toString(resolution.height()))));
     }
 
     /**
@@ -235,20 +228,8 @@ public class ProjectCreator {
      * Preserves the other properties (capture resolution/source) already in the file.
      */
     public static void writeLaunchTarget(Path resourcesDir, String spec) throws IOException {
-        Files.createDirectories(resourcesDir);
-        Path file = resourcesDir.resolve(ProjectProperties.FILE_NAME);
-        java.util.Properties props = new java.util.Properties();
-        if (Files.exists(file)) {
-            try (var in = Files.newInputStream(file)) { props.load(in); }
-        }
-        if (spec == null || spec.isBlank()) {
-            props.remove(ProjectProperties.KEY_LAUNCH_TARGET);
-        } else {
-            props.setProperty(ProjectProperties.KEY_LAUNCH_TARGET, spec.trim());
-        }
-        try (var out = Files.newOutputStream(file)) {
-            props.store(out, "BotMaker project defaults");
-        }
+        writeProjectKey(resourcesDir, ProjectProperties.KEY_LAUNCH_TARGET,
+                spec == null || spec.isBlank() ? null : spec.trim());
     }
 
     /**
@@ -319,20 +300,8 @@ public class ProjectCreator {
      * properties (capture resolution / launch target) already in the file.
      */
     public static void writeCaptureSource(Path resourcesDir, String spec) throws IOException {
-        Files.createDirectories(resourcesDir);
-        Path file = resourcesDir.resolve(ProjectProperties.FILE_NAME);
-        java.util.Properties props = new java.util.Properties();
-        if (Files.exists(file)) {
-            try (var in = Files.newInputStream(file)) { props.load(in); }
-        }
-        if (spec == null || spec.isBlank()) {
-            props.remove(ProjectProperties.KEY_CAPTURE_SOURCE);
-        } else {
-            props.setProperty(ProjectProperties.KEY_CAPTURE_SOURCE, spec.trim());
-        }
-        try (var out = Files.newOutputStream(file)) {
-            props.store(out, "BotMaker project defaults");
-        }
+        writeProjectKey(resourcesDir, ProjectProperties.KEY_CAPTURE_SOURCE,
+                spec == null || spec.isBlank() ? null : spec.trim());
     }
 
     /**
@@ -342,20 +311,8 @@ public class ProjectCreator {
      * a {@code null} removes the key (bot falls back to its default, on). Preserves the other properties.
      */
     public static void writeDebug(Path resourcesDir, Boolean enabled) throws IOException {
-        Files.createDirectories(resourcesDir);
-        Path file = resourcesDir.resolve(ProjectProperties.FILE_NAME);
-        java.util.Properties props = new java.util.Properties();
-        if (Files.exists(file)) {
-            try (var in = Files.newInputStream(file)) { props.load(in); }
-        }
-        if (enabled == null) {
-            props.remove(ProjectProperties.KEY_DEBUG);
-        } else {
-            props.setProperty(ProjectProperties.KEY_DEBUG, Boolean.toString(enabled));
-        }
-        try (var out = Files.newOutputStream(file)) {
-            props.store(out, "BotMaker project defaults");
-        }
+        writeProjectKey(resourcesDir, ProjectProperties.KEY_DEBUG,
+                enabled == null ? null : Boolean.toString(enabled));
     }
 
     /**
@@ -447,6 +404,10 @@ public class ProjectCreator {
      * Sets (or, for a {@code null} value, removes) several keys at once, preserving every other key. One
      * load-modify-store for the lot — {@link BotSettings#write} sets nine of them, and writing them one at a
      * time would reparse and rewrite the file nine times.
+     *
+     * <p><b>Every write of this file goes through here</b>, which is what lets it be the one place that
+     * records {@link SchemaFile#PROPERTIES}'s version. Four callers used to keep their own copy of the
+     * load-modify-store, and a stamp in one copy is a stamp three writes can silently drop.
      */
     static void writeProjectKeys(Path resourcesDir, java.util.Map<String, String> values) throws IOException {
         Files.createDirectories(resourcesDir);
@@ -459,6 +420,7 @@ public class ProjectCreator {
                 props.setProperty(e.getKey(), e.getValue());
             }
         }
+        SchemaFile.PROPERTIES.stamp(props);
         try (var out = Files.newOutputStream(file)) {
             props.store(out, "BotMaker project defaults");
         }
@@ -632,8 +594,18 @@ public class ProjectCreator {
      */
     private void createDefaultTemplate(Path imagesRoot) throws IOException {
         Files.createDirectories(imagesRoot);
-        Path target = imagesRoot.resolve(ImageTemplateLibrary.DEFAULT_TEMPLATE_FILE);
+        createDefaultTemplateAt(imagesRoot.resolve(ImageTemplateLibrary.DEFAULT_TEMPLATE_FILE));
+    }
+
+    /**
+     * Writes the placeholder at exactly {@code target}, if it is not already there. Split out from
+     * {@link #createDefaultTemplate} so {@link ProjectRepair} can restore a deleted one: recovery knows the
+     * path it found missing, and inventing a second copy of the "which file is the placeholder" rule is how
+     * the two would drift.
+     */
+    static void createDefaultTemplateAt(Path target) throws IOException {
         if (Files.exists(target)) return;
+        Files.createDirectories(target.getParent());
         // The pattern itself lives in the library, so "is this still the placeholder?" (asked by export) has
         // one answer rather than a second copy of the checker to drift from.
         javax.imageio.ImageIO.write(ImageTemplateLibrary.defaultTemplateImage(), "png", target.toFile());

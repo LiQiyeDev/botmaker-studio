@@ -41,6 +41,7 @@ import javafx.stage.Stage;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.function.Consumer;
 
 /**
@@ -110,6 +111,15 @@ public class UIManager implements ProjectWindow {
     private WorkspaceLayoutStore workspaceLayout;
 
     private Label statusLabel;
+    /**
+     * What the open-time migrations and the restore pass did, waiting for a status bar to say it in.
+     *
+     * <p>They run in the constructor — before the file explorer, since a step can delete a file the tree would
+     * otherwise list — and {@code statusLabel} does not exist until {@link #createScene()}. Publishing a
+     * {@code StatusMessageEvent} from there would be published into nothing: the subscription is made in
+     * {@code setupEventHandlers()}, later in this same constructor. So the report is carried, not sent.
+     */
+    private final List<String> openReport;
     private TextArea outputArea;
     private TabPane bottomTabPane;
     private Consumer<Void> onSelectProject;
@@ -150,7 +160,7 @@ public class UIManager implements ProjectWindow {
 
         // Before the file explorer exists, which is the point: a migration can delete a file the tree would
         // otherwise go on listing.
-        ProjectOpenMigrations.run(config, state, eventBus);
+        this.openReport = ProjectOpenMigrations.run(config, state, eventBus);
 
         this.fileExplorerManager = new FileExplorerManager(ctx);
 
@@ -431,7 +441,11 @@ public class UIManager implements ProjectWindow {
                 projectSettingsService, mainSplit, verticalSplit, bottomTabPane, bottomTabs);
         workspaceLayout.restore();
 
-        statusLabel = new Label("Ready");
+        // "Ready" unless the open had something to report — the migrations and the restore pass changed the
+        // project on disk, and a change made on the user's behalf that nobody is told about is indistinguishable
+        // from corruption. The tooltip carries the rest when there was more than one line.
+        statusLabel = new Label(openReport.isEmpty() ? "Ready" : openReport.getFirst());
+        if (openReport.size() > 1) statusLabel.setTooltip(new Tooltip(String.join("\n", openReport)));
         statusLabel.setId("status-label");
         // Fill, hairline and padding come from blocks.css: unstyled, the last row of the window was the one
         // place Modena's own background showed through a dark theme.

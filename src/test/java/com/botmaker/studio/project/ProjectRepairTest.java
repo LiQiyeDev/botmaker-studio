@@ -1,8 +1,11 @@
 package com.botmaker.studio.project;
 
+import com.botmaker.shared.config.ProjectProperties;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityDefinition;
 import com.botmaker.studio.services.ActivityService;
+import com.botmaker.studio.services.ImageTemplateLibrary;
+import com.botmaker.studio.services.MavenService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -37,6 +40,23 @@ class ProjectRepairTest {
                 ProjectCreator.sourcesFor(ProjectTemplate.GAME_BOT, config.projectName(), config.packageName()).entrySet()) {
             Files.writeString(mainDir.resolve(e.getKey()), e.getValue());
         }
+        layDownResources();
+    }
+
+    /**
+     * The non-Java half of a project: the build file, the two data files and the placeholder image.
+     *
+     * <p>Written here rather than left out because recovery covers them too — a project missing its
+     * {@code pom.xml} is as broken as one missing {@code FlowDriver.java}, and rather more confusingly. A
+     * fixture that omits them would make every other assertion in this class count four extra findings.
+     */
+    private void layDownResources() throws IOException {
+        Files.createDirectories(config.resourcesRoot());
+        MavenService.writePom(config.projectPath(), config, MavenService.SDK_FALLBACK_VERSION);
+        BotSettings.write(config.resourcesRoot(), BotSettings.GAME_DEFAULTS);
+        StudioProjectSettings.empty().withTemplate(ProjectTemplate.GAME_BOT).write(config.resourcesRoot());
+        ProjectCreator.createDefaultTemplateAt(
+                config.imagesRoot().resolve(ImageTemplateLibrary.DEFAULT_TEMPLATE_FILE));
     }
 
     @Test
@@ -103,6 +123,57 @@ class ProjectRepairTest {
     }
 
     @Test
+    void aDeletedBuildFileIsFoundAndRestored() throws IOException {
+        Path pom = config.projectPath().resolve("pom.xml");
+        Files.delete(pom);
+
+        List<ProjectRepair.Missing> missing =
+                ProjectRepair.findMissing(config, ProjectTemplate.GAME_BOT, ActivitiesConfig.empty());
+        assertEquals(List.of("pom.xml"), missing.stream().map(ProjectRepair.Missing::fileName).toList());
+        // The SDK pin is the one thing a rewritten pom cannot recover — it was only ever written down here —
+        // so the reason says out loud which version the project is about to be put on.
+        assertTrue(missing.getFirst().reason().contains(MavenService.SDK_FALLBACK_VERSION));
+
+        assertEquals(List.of(pom), ProjectRepair.recover(config, missing));
+        assertTrue(Files.readString(pom).contains("botmaker-sdk"));
+    }
+
+    @Test
+    void deletedResourceFilesAreFoundAndRestored() throws IOException {
+        Path properties = config.resourcesRoot().resolve(ProjectProperties.FILE_NAME);
+        Path settings = config.resourcesRoot().resolve(StudioProjectSettings.FILE_NAME);
+        Path placeholder = config.imagesRoot().resolve(ImageTemplateLibrary.DEFAULT_TEMPLATE_FILE);
+        Files.delete(properties);
+        Files.delete(settings);
+        Files.delete(placeholder);
+
+        List<ProjectRepair.Missing> missing =
+                ProjectRepair.findMissing(config, ProjectTemplate.GAME_BOT, ActivitiesConfig.empty());
+        assertEquals(List.of("botmaker-project.properties", "settings.json", "default_template.png"),
+                missing.stream().map(ProjectRepair.Missing::fileName).toList());
+
+        assertEquals(3, ProjectRepair.recover(config, missing).size());
+        assertTrue(Files.exists(properties));
+        assertTrue(Files.exists(placeholder));
+        // The template is the one thing settings.json holds that cannot be re-derived, so it is restored only
+        // with the recorded one written back into it — never guessed at from what the source files look like.
+        assertEquals(ProjectTemplate.GAME_BOT,
+                StudioProjectSettings.read(config.resourcesRoot()).template());
+    }
+
+    @Test
+    void editorSettingsAreNotInventedForAProjectWhoseTemplateIsUnknown() throws IOException {
+        Files.delete(config.resourcesRoot().resolve(StudioProjectSettings.FILE_NAME));
+
+        List<ProjectRepair.Missing> missing =
+                ProjectRepair.findMissing(config, null, ActivitiesConfig.empty());
+
+        // Writing a template guessed from `looksLikeGameBot` would turn a guess into a recorded fact, which is
+        // worse than the absent file: nothing downstream could tell the two apart afterwards.
+        assertTrue(missing.stream().noneMatch(m -> m.fileName().equals("settings.json")));
+    }
+
+    @Test
     void recoveryNeverOverwritesAnExistingFile() throws IOException {
         // The user's own edits to an editable scaffold file must survive a recovery run.
         Path goHome = mainDir.resolve("GoHome.java");
@@ -149,8 +220,8 @@ class ProjectRepairTest {
         // Activities class holding the enable flag, and the subclass stub.
         assertEquals(List.of("activities.json", "Activities.java", "Mining.java"),
                 missing.stream().map(ProjectRepair.Missing::fileName).toList());
-        // None of them carry a source: ActivityService owns generating them, not ProjectRepair.
-        assertTrue(missing.stream().allMatch(m -> m.source() == null));
+        // None of them carry a restorer: ActivityService owns generating them, not ProjectRepair.
+        assertTrue(missing.stream().allMatch(m -> m.restorer() == null));
         assertTrue(ProjectRepair.needsActivityRegeneration(missing));
     }
 

@@ -6,6 +6,27 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-25 — the project's data files carry a version, and a deleted one comes back on open
+  (`project/migration/`, `ProjectOpenMigrations`, `ProjectRepair`, `ProjectCreator`, `BotMakerStudio`,
+  `UIManager`).** Phase 2 of six. `activities.json` and `settings.json` gain a `schemaVersion` member and
+  `botmaker-project.properties` a `project.schemaVersion` key (declared in **shared** — it owns that file).
+  **Absent means 0**, so every project that exists today is simply the oldest shape. `SchemaFile` reads and
+  stamps the three; `SchemaMigrations` holds each file's numbered steps and **its length is the current
+  version**, so there is no constant to forget beside it; `ProjectSchema.migrate` runs what each file still
+  owes and stamps what succeeded. The two migrations that used to *sniff* at a project on every open — the
+  archived-activity attic, and `BotSettings.migrate` moving the tuning into the properties file — are
+  re-expressed as those files' 0 → 1 steps, so first-open behaviour is unchanged and **the second open does
+  nothing**. `ProjectSchema.check` refuses a project from the future by name, before the audience branch in
+  `finishOpen` so the Runner is refused too, with its message shown unwrapped (`ProjectSchemaTooNew`, the
+  opposite-direction twin of `TemplateStore.requireFloor`). `ProjectRepair.findMissing` widens past the
+  generated Java to `pom.xml`, `botmaker-project.properties`, `settings.json` and the placeholder image —
+  `Missing` now carries a `Restorer` rather than a `String source`, because a pom goes through the Maven Model
+  API and the placeholder is a generated PNG — and `ProjectOpenMigrations` runs it quietly on open, restoring
+  only what is **absent** and reporting it in the status bar; the menu action stays the loud, confirming path.
+  `ProjectCreator`'s four bespoke properties writes collapse into the one central helper, which is what lets
+  the stamp live in a single place instead of three copies that can drop it. `settings.json` is deliberately
+  *not* restored for a project whose template is unknown: rebuilding it from a `looksLikeGameBot` guess would
+  write the guess down as a recorded fact.
 - **2026-08-24 — the docs catch up with the scaffold's new owner (`CHANGELOG.md`, `ROADMAP.md`,
   `../docs/refactor/21-api-compat.md`, `../docs/refactor/99-progress.md`, `../CLAUDE.md`).** Phase 7 of
   seven, the plan closes. `21-api-compat.md` §5.3 is rewritten from *"the scaffold is declared, checked and

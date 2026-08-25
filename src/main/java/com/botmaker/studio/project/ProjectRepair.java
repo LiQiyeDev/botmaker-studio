@@ -1,8 +1,11 @@
 package com.botmaker.studio.project;
 
+import com.botmaker.shared.config.ProjectProperties;
 import com.botmaker.studio.parser.helpers.SourceParser;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityDefinition;
+import com.botmaker.studio.services.ImageTemplateLibrary;
+import com.botmaker.studio.services.MavenService;
 import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.jdt.core.dom.ASTParser;
@@ -58,11 +61,26 @@ public final class ProjectRepair {
     private static final String DRIVER_FILE = "FlowDriver.java";
 
     /**
-     * A file that should exist but doesn't, plus the source that would restore it — or a {@code null} source for
-     * the files only {@code ActivityService} can regenerate (see {@link #needsActivityRegeneration}).
+     * A file that should exist but doesn't, plus what would restore it — or a {@code null} restorer for the
+     * files only {@code ActivityService} can regenerate (see {@link #needsActivityRegeneration}).
+     *
+     * <p>A {@link Restorer} rather than the source text it used to be, because not everything recoverable is a
+     * string: {@code pom.xml} is built through the Maven Model API and the placeholder template is a generated
+     * PNG. {@link #ofSource} keeps the common case a one-liner.
      */
-    public record Missing(Path path, String source, String reason) {
+    public record Missing(Path path, Restorer restorer, String reason) {
         public String fileName() { return path.getFileName().toString(); }
+
+        /** The common case: a file whose whole content is known text. */
+        public static Missing ofSource(Path path, String source, String reason) {
+            return new Missing(path, target -> Files.writeString(target, source), reason);
+        }
+    }
+
+    /** Writes one missing file. Called only after a re-check that it is still absent. */
+    @FunctionalInterface
+    public interface Restorer {
+        void restore(Path target) throws IOException;
     }
 
     /**
@@ -129,9 +147,11 @@ public final class ProjectRepair {
             if (hasActivities && (REGISTRY_FILE.equals(e.getKey()) || DRIVER_FILE.equals(e.getKey()))) continue;
             Path path = mainDir.resolve(e.getKey());
             if (!Files.exists(path)) {
-                missing.add(new Missing(path, e.getValue(), reason));
+                missing.add(Missing.ofSource(path, e.getValue(), reason));
             }
         }
+
+        missing.addAll(missingResources(config, template, resolved));
 
         if (activities != null) {
             // activities.json holds every activity's configured value; losing it silently resets them all to
@@ -174,6 +194,54 @@ public final class ProjectRepair {
     }
 
     /**
+     * The non-source files a project cannot do without, when they are gone.
+     *
+     * <p>These were unchecked until 2026-08-25, and each fails in its own quiet way: no {@code pom.xml} and
+     * nothing builds; no {@code botmaker-project.properties} and the bot silently reverts to SDK defaults —
+     * a game bot stops driving real input and nothing says so; no {@code settings.json} and the editor forgets
+     * which template the project is, which is what {@link #looksLikeGameBot} then has to guess; no
+     * {@code default_template.png} and every {@code new ImageTemplate(Templates.DEFAULT_TEMPLATE)} points at a
+     * file that isn't there.
+     *
+     * <p><b>Only what can be restored honestly is listed.</b> A user's own captured template PNG is not here:
+     * the pixels are gone and nothing can invent them — that case is the Resource Manager's, which offers to
+     * forget the reference instead. And {@code settings.json} is restored <em>only when the template is
+     * known</em> ({@code recorded} non-null): rebuilding it from a {@link #looksLikeGameBot} guess would write
+     * that guess down as a recorded fact, which is worse than leaving the file absent and guessing again.
+     */
+    private static List<Missing> missingResources(ProjectConfig config, ProjectTemplate recorded,
+                                                  ProjectTemplate resolved) {
+        List<Missing> missing = new ArrayList<>();
+        Path pom = config.projectPath().resolve("pom.xml");
+        if (!Files.exists(pom)) {
+            missing.add(new Missing(pom, target -> MavenService.writePom(config.projectPath(), config,
+                    MavenService.SDK_FALLBACK_VERSION),
+                    "build file (SDK pin reset to " + MavenService.SDK_FALLBACK_VERSION + ")"));
+        }
+
+        Path properties = config.resourcesRoot().resolve(ProjectProperties.FILE_NAME);
+        if (!Files.exists(properties)) {
+            BotSettings defaults = resolved == ProjectTemplate.GAME_BOT
+                    ? BotSettings.GAME_DEFAULTS : BotSettings.DEFAULTS;
+            missing.add(new Missing(properties, target -> BotSettings.write(config.resourcesRoot(), defaults),
+                    "project properties"));
+        }
+
+        Path settings = config.resourcesRoot().resolve(StudioProjectSettings.FILE_NAME);
+        if (recorded != null && !Files.exists(settings)) {
+            missing.add(new Missing(settings,
+                    target -> StudioProjectSettings.empty().withTemplate(recorded).write(config.resourcesRoot()),
+                    "editor settings"));
+        }
+
+        Path placeholder = config.imagesRoot().resolve(ImageTemplateLibrary.DEFAULT_TEMPLATE_FILE);
+        if (!Files.exists(placeholder)) {
+            missing.add(new Missing(placeholder, ProjectCreator::createDefaultTemplateAt, "image templates"));
+        }
+        return missing;
+    }
+
+    /**
      * Creates every file reported by {@link #findMissing}, and returns what was actually written.
      *
      * <p>Entries with a {@code null} source are activity stubs: they are left to {@code ActivityService}, whose
@@ -182,10 +250,10 @@ public final class ProjectRepair {
     public static List<Path> recover(ProjectConfig config, List<Missing> missing) throws IOException {
         List<Path> written = new ArrayList<>();
         for (Missing m : missing) {
-            if (m.source() == null) continue;
+            if (m.restorer() == null) continue;
             if (Files.exists(m.path())) continue;      // re-check: never clobber
             Files.createDirectories(m.path().getParent());
-            Files.writeString(m.path(), m.source());
+            m.restorer().restore(m.path());
             written.add(m.path());
         }
         return written;
@@ -193,7 +261,7 @@ public final class ProjectRepair {
 
     /** True when {@code missing} contains activity stubs, which only {@code ActivityService} can regenerate. */
     public static boolean needsActivityRegeneration(List<Missing> missing) {
-        return missing.stream().anyMatch(m -> m.source() == null);
+        return missing.stream().anyMatch(m -> m.restorer() == null);
     }
 
     /** Groups {@code missing} by reason, for a readable confirmation dialog. */

@@ -1,11 +1,13 @@
 package com.botmaker.studio.project;
 
 import com.botmaker.studio.project.capture.CaptureTarget;
+import com.botmaker.studio.project.migration.SchemaFile;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -304,9 +306,14 @@ public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer 
         }
     }
 
-    /** Writes (overwrites) {@code settings.json} into {@code resourcesDir}, creating it if needed. */
+    /**
+     * Writes (overwrites) {@code settings.json} into {@code resourcesDir}, creating it if needed, stamped with
+     * the file's {@code schemaVersion} — see {@link SchemaFile#stamped} and the same note on
+     * {@link com.botmaker.studio.project.activity.ActivitiesConfig#write}.
+     */
     public void write(Path resourcesDir) throws IOException {
         Files.createDirectories(resourcesDir);
-        MAPPER.writeValue(resourcesDir.resolve(FILE_NAME).toFile(), this);
+        ObjectNode body = MAPPER.valueToTree(this);
+        MAPPER.writeValue(resourcesDir.resolve(FILE_NAME).toFile(), SchemaFile.SETTINGS.stamped(body));
     }
 }

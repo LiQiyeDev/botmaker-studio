@@ -1,10 +1,12 @@
 package com.botmaker.studio.project.activity;
 
+import com.botmaker.studio.project.migration.SchemaFile;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -209,9 +211,18 @@ public record ActivitiesConfig(List<ActivityDefinition> activities, List<Activit
         }
     }
 
-    /** Writes (overwrites) {@code activities.json} into {@code resourcesDir}, creating it if needed. */
+    /**
+     * Writes (overwrites) {@code activities.json} into {@code resourcesDir}, creating it if needed.
+     *
+     * <p>Every write carries the file's {@code schemaVersion} — see {@link SchemaFile#stamped}. A record
+     * serializes to exactly its components, so writing {@code this} directly would drop the number and return
+     * the file to version 0, and the next open would re-run every migration step against an already-migrated
+     * file. The version is a fact about the file rather than about the model, which is why it is stamped on
+     * the way out instead of being a component nine {@code with…} methods would have to remember to carry.
+     */
     public void write(Path resourcesDir) throws IOException {
         Files.createDirectories(resourcesDir);
-        MAPPER.writeValue(resourcesDir.resolve(FILE_NAME).toFile(), this);
+        ObjectNode body = MAPPER.valueToTree(this);
+        MAPPER.writeValue(resourcesDir.resolve(FILE_NAME).toFile(), SchemaFile.ACTIVITIES.stamped(body));
     }
 }
