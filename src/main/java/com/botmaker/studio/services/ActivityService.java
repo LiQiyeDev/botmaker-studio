@@ -14,6 +14,7 @@ import com.botmaker.studio.project.activity.VariableWire;
 import com.botmaker.studio.project.scaffold.ScaffoldCheck;
 import com.botmaker.studio.project.scaffold.ScaffoldEmitter;
 import com.botmaker.studio.project.scaffold.ScaffoldSurface;
+import com.botmaker.studio.project.scaffold.ScaffoldToken;
 import com.botmaker.studio.project.scaffold.ScaffoldUnsupported;
 import com.botmaker.studio.project.scaffold.TemplateStore;
 
@@ -265,9 +266,10 @@ public final class ActivityService {
     }
 
     /** One template of that SDK, required and filled. */
-    private String render(String id, String className, Map<String, String> tokens) throws ScaffoldUnsupported {
+    private String render(String id, String className, Map<ScaffoldToken, String> fills)
+            throws ScaffoldUnsupported {
         TemplateStore store = templates();
-        return store.render(store.require(id), config.packageName(), className, tokens);
+        return store.render(store.require(id), config.packageName(), className, fills);
     }
 
     /**
@@ -322,9 +324,9 @@ public final class ActivityService {
                     .append(VariableWire.loadExpression(v.type(), v.name())).append(";\n");
         }
         return render("ACTIVITIES", null, Map.of(
-                "IMPORTS", "",
-                "FIELDS", fields.toString().strip(),
-                "INITS", inits.toString().strip()));
+                ScaffoldToken.IMPORTS, "",
+                ScaffoldToken.FIELDS, fields.toString().strip(),
+                ScaffoldToken.INITS, inits.toString().strip()));
     }
 
     /**
@@ -350,9 +352,9 @@ public final class ActivityService {
             all.append("            ").append(constantName(name)).append(i < reachable.size() - 1 ? ",\n" : "");
         }
         return render("ACTIVITY_REGISTRY", null, Map.of(
-                "ACTIVITY_IMPORT", activitiesImportFor(cfg),
-                "SINGLETONS", singletons.toString().strip(),
-                "ALL", all.toString().strip()));
+                ScaffoldToken.ACTIVITY_IMPORT, activitiesImportFor(cfg),
+                ScaffoldToken.SINGLETONS, singletons.toString().strip(),
+                ScaffoldToken.ALL, all.toString().strip()));
     }
 
     /**
@@ -410,10 +412,10 @@ public final class ActivityService {
             table.append(",\n").append(driverNode(a, flow));
         }
         return render("FLOW_DRIVER", null, Map.of(
-                "ACTIVITY_IMPORT", activitiesImportFor(cfg),
-                "FLOW", table.toString(),
-                "MAX_STEPS", Integer.toString(flow.maxSteps()),
-                "STEP_DELAY_MS", Integer.toString(flow.stepDelayMs())));
+                ScaffoldToken.ACTIVITY_IMPORT, activitiesImportFor(cfg),
+                ScaffoldToken.FLOW, table.toString(),
+                ScaffoldToken.MAX_STEPS, Integer.toString(flow.maxSteps()),
+                ScaffoldToken.STEP_DELAY_MS, Integer.toString(flow.stepDelayMs())));
     }
 
     /** The indent a node sits at inside {@code FlowGraph.of(…)}, and its routes one level further in. */
@@ -475,7 +477,7 @@ public final class ActivityService {
     // flag, so this is the only thing that can say what the stub *should* look like when repairing a mangled one.
     public String generateStubSource(ActivityDefinition a) throws ScaffoldUnsupported {
         return render("ACTIVITY_STUB", a.name(), Map.of(
-                "OUTCOMES", String.join(", ", a.allOutcomes()),
-                "ENABLED", "Activities." + a.name()));
+                ScaffoldToken.OUTCOMES, String.join(", ", a.allOutcomes()),
+                ScaffoldToken.ENABLED, "Activities." + a.name()));
     }
 }

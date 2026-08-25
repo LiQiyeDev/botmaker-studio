@@ -8,6 +8,7 @@ import com.botmaker.studio.project.migration.SchemaFile;
 import com.botmaker.studio.project.scaffold.ScaffoldCheck;
 import com.botmaker.studio.project.scaffold.ScaffoldEmitter;
 import com.botmaker.studio.project.scaffold.ScaffoldSurface;
+import com.botmaker.studio.project.scaffold.ScaffoldToken;
 import com.botmaker.studio.project.scaffold.ScaffoldUnsupported;
 import com.botmaker.studio.project.scaffold.TemplateStore;
 import com.botmaker.studio.project.vcs.ProjectVcs;
@@ -564,10 +565,10 @@ public class ProjectCreator {
         // file being written for the first time, not a different file — the same template ActivityService
         // renders on every save of the canvas.
         sources.put("FlowDriver.java", render(templates, "FLOW_DRIVER", packageName, null, Map.of(
-                "ACTIVITY_IMPORT", "",
-                "FLOW", "null",
-                "MAX_STEPS", Integer.toString(ActivityFlow.DEFAULT_MAX_STEPS),
-                "STEP_DELAY_MS", Integer.toString(ActivityFlow.DEFAULT_STEP_DELAY_MS))));
+                ScaffoldToken.ACTIVITY_IMPORT, "",
+                ScaffoldToken.FLOW, "null",
+                ScaffoldToken.MAX_STEPS, Integer.toString(ActivityFlow.DEFAULT_MAX_STEPS),
+                ScaffoldToken.STEP_DELAY_MS, Integer.toString(ActivityFlow.DEFAULT_STEP_DELAY_MS))));
 
         // Safe-point navigation and the popup guard's body. Both are SEED files with no tokens at all: what
         // they hold is a worked example and a TODO, and the moment the project exists they are the user's.
@@ -576,15 +577,16 @@ public class ProjectCreator {
 
         // The registry, seeded empty so the driver compiles before the first activity exists.
         sources.put("ActivityRegistry.java", render(templates, "ACTIVITY_REGISTRY", packageName, null,
-                Map.of("ACTIVITY_IMPORT", "", "SINGLETONS", "", "ALL", "")));
+                Map.of(ScaffoldToken.ACTIVITY_IMPORT, "", ScaffoldToken.SINGLETONS, "",
+                        ScaffoldToken.ALL, "")));
 
         return sources;
     }
 
     /** One template, required and filled — the shape every {@code sources.put} above takes. */
     static String render(TemplateStore templates, String id, String packageName, String className,
-                         Map<String, String> tokens) throws ScaffoldUnsupported {
-        return templates.render(templates.require(id), packageName, className, tokens);
+                         Map<ScaffoldToken, String> fills) throws ScaffoldUnsupported {
+        return templates.render(templates.require(id), packageName, className, fills);
     }
 
     /**

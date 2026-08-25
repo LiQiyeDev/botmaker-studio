@@ -6,6 +6,23 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-25 — a hole is `NAME:generation`, the producers are a closed set, and both are gated
+  (`project/scaffold/ScaffoldToken`, `TemplateStore`, `ScaffoldHolesTest`, `scaffold-holes.txt`,
+  `ProjectCreator`, `services/ActivityService`).** Phase 3 of six; **no generated file changes byte for
+  byte** — every hole is `:1` and every producer has one generation. `ScaffoldToken` is one constant per
+  hole, carrying the *set* of shapes this Studio can write, and replaces the hand-typed
+  `Map.of("MAX_STEPS", …)` at five call sites in two classes, so a misspelled hole is now a compile error.
+  `TemplateStore.render` matches `name:generation` **exactly**: a hole whose shape has moved on in a newer
+  SDK is refused by name through the existing "a fragment with nowhere to go" path, saying *Update Studio* —
+  the case that was silent before, because `@Replaces` has nothing to say when every member survives and only
+  the arrangement moved. A *set* and not a number because a newer Studio keeps `:1` beside `:2` and so still
+  edits bots on older SDKs; `scaffold-holes.txt` is the committed ledger of every key ever shipped and
+  `ScaffoldHolesTest` refuses dropping one, which is the only thing that can cover published SDKs nobody can
+  resolve offline. That test also asserts every declared hole is **compiled** by a `ScaffoldCorpus` model —
+  `TemplateStore.fillObserver` is the seam, since `stripUnfilled` makes a fill and its default
+  indistinguishable in the output — with `Fill.RESERVED` recording the one hole (`IMPORTS`) Studio claims and
+  deliberately never fills. `release.sh` gains `check_scaffold_studio` (`-pl botmaker-studio -am`, offline),
+  the first release gate the Studio half of the scaffold has ever had.
 - **2026-08-25 — the project's data files carry a version, and a deleted one comes back on open
   (`project/migration/`, `ProjectOpenMigrations`, `ProjectRepair`, `ProjectCreator`, `BotMakerStudio`,
   `UIManager`).** Phase 2 of six. `activities.json` and `settings.json` gain a `schemaVersion` member and

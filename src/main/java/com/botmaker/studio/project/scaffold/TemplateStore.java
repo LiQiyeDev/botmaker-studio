@@ -9,12 +9,15 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
+import java.util.function.BiConsumer;
 import java.util.jar.JarFile;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -34,17 +37,28 @@ import java.util.zip.ZipEntry;
  *
  * <h2>Fill known, ignore unknown</h2>
  *
- * <p>A token is a pair of fenced comments with a compiling default between them:
+ * <p>A hole is a pair of fenced comments with a compiling default between them, carrying the generation of
+ * that hole's shape:
  *
  * <pre>{@code
- * private static final int MAX_STEPS = /*<STUDIO:MAX_STEPS>*&#47; 1000 /*</STUDIO:MAX_STEPS>*&#47;;
+ * private static final int MAX_STEPS = /*<STUDIO:MAX_STEPS:1>*&#47; 1000 /*</STUDIO:MAX_STEPS:1>*&#47;;
  * }</pre>
  *
  * <p>Filling one replaces the whole region, fences included. Leaving one alone leaves the default, and the
- * file still compiles — which is the entire forward-compatibility rule: a <em>newer</em> SDK may add tokens
- * this Studio has never heard of, and this Studio simply does not fill them. The reverse is a refusal:
- * {@link #render} names the token when the manifest does not declare one Studio needs, because a fragment
- * with nowhere to go is data silently dropped from the user's project.
+ * file still compiles — which is the entire forward-compatibility rule in the additive direction: a
+ * <em>newer</em> SDK may add holes this Studio has never heard of, and this Studio simply does not fill them.
+ * The reverse is a refusal: {@link #render} names the hole when the manifest does not declare one Studio
+ * needs, because a fragment with nowhere to go is data silently dropped from the user's project.
+ *
+ * <h2>The generation, and why the match is exact</h2>
+ *
+ * <p>The number covers the direction that is not additive. A hole whose <em>shape</em> changed — different
+ * arguments, a different arrangement — keeps its name and takes the next generation. Every name in a fragment
+ * still resolving is exactly what made that change invisible: the API pointer pair covers a member being
+ * renamed and says nothing about an arrangement moving, so an older Studio wrote last year's text into this
+ * year's frame and it compiled. {@link ScaffoldToken} carries the generations this Studio can produce and the
+ * lookup is an exact {@code name:generation} match — never a range, never a nearest-older fallback, whose
+ * gaps are precisely what would fill silently wrong.
  *
  * <h2>Which jar</h2>
  *
@@ -69,13 +83,13 @@ public final class TemplateStore {
     private static final String MANIFEST = "manifest.txt";
 
     /** The manifest shape this Studio can read. A higher one means the columns changed. */
-    private static final int FORMAT = 1;
+    private static final int FORMAT = 2;
 
-    private static final Pattern OPEN = Pattern.compile("/\\*<STUDIO:([A-Z_]+)>\\*/");
+    private static final Pattern OPEN = Pattern.compile("/\\*<STUDIO:([A-Z_]+:\\d+)>\\*/");
 
-    /** A whole fenced region with its default still in it: {@code /*<X>*}{@code / … /*</X>*}{@code /}. */
+    /** A whole fenced region with its default still in it: {@code /*<X:1>*}{@code / … /*</X:1>*}{@code /}. */
     private static final Pattern FENCED =
-            Pattern.compile("/\\*<STUDIO:([A-Z_]+)>\\*/(.*?)/\\*</STUDIO:\\1>\\*/", Pattern.DOTALL);
+            Pattern.compile("/\\*<STUDIO:([A-Z_]+:\\d+)>\\*/(.*?)/\\*</STUDIO:\\1>\\*/", Pattern.DOTALL);
 
     /** A line of nothing but spaces — what the indent in front of an emptied token's fences leaves. */
     private static final Pattern BLANK_LINE = Pattern.compile("(?m)^[ \t]+$");
@@ -99,16 +113,50 @@ public final class TemplateStore {
      * @param target    the file name in the bot, with {@code ${CLASS}} / {@code ${ACTIVITY}} still in it
      * @param className the template's own class, taken from its file name — the name {@link #render}
      *                  rewrites when the target says the bot calls it something else
-     * @param tokens    every token the template declares; a fill of anything else is a refusal
+     * @param holes     every hole the template declares, as {@code NAME:generation}; a fill of anything else
+     *                  is a refusal
      * @param source    the template's Java, verbatim
      */
     public record Template(String id, Kind kind, String target, String className,
-                           Set<String> tokens, String source) {
+                           Set<String> holes, String source) {
 
         public Template {
-            tokens = Set.copyOf(tokens);
+            holes = Set.copyOf(holes);
+        }
+
+        /**
+         * Which generation of {@code token}'s shape this template wants, or empty when it has no such hole.
+         *
+         * <p>One generation per hole, never a range: a project pins one SDK, so this template is the only
+         * frame that answers, and there is nothing to choose between.
+         */
+        public OptionalInt generationOf(ScaffoldToken token) {
+            String prefix = token.name() + ":";
+            for (String hole : holes) {
+                if (hole.startsWith(prefix)) {
+                    try {
+                        return OptionalInt.of(Integer.parseInt(hole.substring(prefix.length())));
+                    } catch (NumberFormatException ignored) {
+                        return OptionalInt.empty();
+                    }
+                }
+            }
+            return OptionalInt.empty();
         }
     }
+
+    /**
+     * A test seam: every fill that actually reached a template, as {@code NAME:generation → text}.
+     *
+     * <p>{@code ScaffoldHolesTest} has to answer "is every hole the SDK declares ever <em>compiled</em>, or
+     * merely produced" — and it cannot get that from the rendered files. {@link #stripUnfilled} drops the
+     * fences whether the hole was filled or not, precisely so a bot's source carries none of our machinery,
+     * so a filled hole and its untouched default are indistinguishable in the output. The only place the
+     * answer exists is here, between the two.
+     *
+     * <p>Null in every real run, and never read by anything under {@code main}.
+     */
+    static volatile BiConsumer<Template, Map<String, String>> fillObserver;
 
     private final String templatePackage;
     private final Map<String, Template> byId;
@@ -260,7 +308,7 @@ public final class TemplateStore {
                     String file = parts[3].substring(parts[3].lastIndexOf('/') + 1);
                     byId.put(parts[1], new Template(parts[1], Kind.valueOf(parts[2]), parts[4],
                             file.substring(0, file.length() - ".java".length()),
-                            tokensOf(parts[5]), java.get()));
+                            holesOf(parts[5]), java.get()));
                 }
                 default -> { /* a record a newer SDK added: ignored, exactly as an unknown token is */ }
             }
@@ -269,8 +317,8 @@ public final class TemplateStore {
                 : Optional.of(new TemplateStore(templatePackage, Map.copyOf(byId)));
     }
 
-    /** The manifest's token column: {@code -} for none, otherwise comma-separated names. */
-    private static Set<String> tokensOf(String column) {
+    /** The manifest's hole column: {@code -} for none, otherwise comma-separated {@code NAME:generation}. */
+    private static Set<String> holesOf(String column) {
         if (column.equals("-")) return Set.of();
         return new LinkedHashSet<>(List.of(column.split(",")));
     }
@@ -286,6 +334,11 @@ public final class TemplateStore {
     /** Whether any templates were found at all — false only for an SDK jar that predates them. */
     public boolean isEmpty() {
         return byId.isEmpty();
+    }
+
+    /** Every template this SDK declares — what {@code ScaffoldHolesTest} walks to collect the hole keys. */
+    public Collection<Template> templates() {
+        return byId.values();
     }
 
     /**
@@ -317,17 +370,29 @@ public final class TemplateStore {
      * are the same template under the name the user chose.
      *
      * @param className the class the bot calls it, or null to keep the template's own
-     * @param tokens    token name → the text to put between (and instead of) its fences
-     * @throws ScaffoldUnsupported when a token Studio needs is not one this template declares. Not ignorable
-     *                             in the direction an <em>unknown</em> token is: an unfilled token leaves a
-     *                             compiling default, whereas a fragment with nowhere to go is the user's own
-     *                             flow or parameters silently dropped
+     * @param fills     hole → the text to put between (and instead of) its fences
+     * @throws ScaffoldUnsupported when a hole Studio needs is not one this template declares, or declares at
+     *                             a <em>generation</em> Studio cannot produce. Neither is ignorable in the
+     *                             direction an <em>unknown</em> hole is: an unfilled hole leaves a compiling
+     *                             default, whereas a fragment with nowhere to go is the user's own flow or
+     *                             parameters silently dropped — and a fragment written into a shape it no
+     *                             longer fits is worse still, because it compiles
      */
-    public String render(Template template, String packageName, String className, Map<String, String> tokens)
-            throws ScaffoldUnsupported {
+    public String render(Template template, String packageName, String className,
+                         Map<ScaffoldToken, String> fills) throws ScaffoldUnsupported {
         List<String> missing = new ArrayList<>();
-        for (String token : tokens.keySet()) {
-            if (!template.tokens().contains(token)) missing.add(token);
+        List<String> unknownShape = new ArrayList<>();
+        Map<String, String> keyed = new LinkedHashMap<>();
+        for (Map.Entry<ScaffoldToken, String> fill : fills.entrySet()) {
+            ScaffoldToken token = fill.getKey();
+            OptionalInt generation = template.generationOf(token);
+            if (generation.isEmpty()) {
+                missing.add(token.name());
+            } else if (!token.canFill(generation.getAsInt())) {
+                unknownShape.add(token.key(generation.getAsInt()));
+            } else {
+                keyed.put(token.key(generation.getAsInt()), fill.getValue());
+            }
         }
         if (!missing.isEmpty()) {
             throw new ScaffoldUnsupported("The SDK this project pins ships a \"" + template.id()
@@ -335,9 +400,19 @@ public final class TemplateStore {
                     + ", so part of your project could not be written into it. Pick an SDK version this "
                     + "Studio knows, or update Studio (Help ▸ Check for updates).");
         }
+        if (!unknownShape.isEmpty()) {
+            throw new ScaffoldUnsupported("The SDK this project pins has changed the shape of "
+                    + String.join(", ", unknownShape) + " in its \"" + template.id() + "\" scaffold template,"
+                    + " and this Studio only knows how to write the older one. Nothing has been changed —"
+                    + " writing what this Studio produces would fit the frame and mean something else."
+                    + " Update Studio (Help ▸ Check for updates), or pin an SDK version this Studio knows.");
+        }
+
+        BiConsumer<Template, Map<String, String>> observer = fillObserver;
+        if (observer != null) observer.accept(template, keyed);
 
         String source = template.source();
-        for (Map.Entry<String, String> token : tokens.entrySet()) {
+        for (Map.Entry<String, String> token : keyed.entrySet()) {
             source = fill(source, token.getKey(), token.getValue());
         }
         source = stripUnfilled(source);
@@ -369,10 +444,14 @@ public final class TemplateStore {
         });
     }
 
-    /** Replaces one token's whole region, fences included, leaving a token that is not {@code name} alone. */
-    private static String fill(String source, String name, String value) {
-        String open = "/*<STUDIO:" + name + ">*/";
-        String close = "/*</STUDIO:" + name + ">*/";
+    /**
+     * Replaces one hole's whole region, fences included, leaving a hole that is not {@code key} alone.
+     *
+     * @param key {@code NAME:generation} — the exact spelling in the fences, never a name on its own
+     */
+    private static String fill(String source, String key, String value) {
+        String open = "/*<STUDIO:" + key + ">*/";
+        String close = "/*</STUDIO:" + key + ">*/";
         int from = source.indexOf(open);
         int to = source.indexOf(close);
         // Neither can be absent: the manifest declared the token, and the SDK's own build fails when a
@@ -382,12 +461,7 @@ public final class TemplateStore {
         return source.substring(0, from) + value + source.substring(to + close.length());
     }
 
-    /** Whether {@code template} declares {@code token} — what an emitter asks before offering a fragment. */
-    public static boolean declares(Template template, String token) {
-        return template.tokens().contains(token);
-    }
-
-    /** Everything {@code OPEN} finds in {@code source}: the tokens still unfilled, for the tests to assert on. */
+    /** Everything {@code OPEN} finds in {@code source}: the holes still unfilled, for the tests to assert on. */
     static Set<String> unfilledTokens(String source) {
         Set<String> out = new LinkedHashSet<>();
         Matcher m = OPEN.matcher(source);

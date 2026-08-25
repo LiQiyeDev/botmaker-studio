@@ -2,10 +2,19 @@ package com.botmaker.studio.project.scaffold;
 
 import com.botmaker.studio.services.MavenService;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.OptionalInt;
 import java.util.Set;
+import java.util.TreeSet;
+import java.util.jar.JarOutputStream;
+import java.util.zip.ZipEntry;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -53,7 +62,7 @@ class TemplateStoreTest {
         TemplateStore store = TemplateStore.bundled();
         TemplateStore.Template driver = store.require("FLOW_DRIVER");
 
-        String rendered = store.render(driver, "mybot", null, Map.of("MAX_STEPS", "42"));
+        String rendered = store.render(driver, "mybot", null, Map.of(ScaffoldToken.MAX_STEPS, "42"));
 
         assertTrue(rendered.contains("MAX_STEPS = 42;"), rendered);
         assertTrue(rendered.contains("STEP_DELAY_MS = 0;"),
@@ -73,17 +82,83 @@ class TemplateStoreTest {
         TemplateStore store = TemplateStore.bundled();
         TemplateStore.Template goHome = store.require("GO_HOME");
 
+        // GO_HOME is a seed file with no holes at all, so any fragment offered to it has nowhere to go.
         ScaffoldUnsupported refusal = assertThrows(ScaffoldUnsupported.class,
-                () -> store.render(goHome, "mybot", null, Map.of("WHAT_IS_THIS", "x")));
-        assertTrue(refusal.getMessage().contains("WHAT_IS_THIS"), refusal.getMessage());
+                () -> store.render(goHome, "mybot", null, Map.of(ScaffoldToken.FLOW, "x")));
+        assertTrue(refusal.getMessage().contains("FLOW"), refusal.getMessage());
+    }
+
+    /**
+     * The third direction, and the one this whole generation business exists for: the hole is <em>there</em>,
+     * spelled the way Studio spells it, and its shape has moved on.
+     *
+     * <p>Every name-based check passes here — {@code FLOW} is declared, {@code FLOW} is fenced, and the text
+     * Studio holds names only members that still resolve. Written in, it would compile and route the bot
+     * somewhere else. So the generation is what makes it a refusal, and the refusal has to name the hole and
+     * the shape rather than talk about tokens.
+     */
+    @Test
+    void aHoleWhoseShapeMovedOnIsRefusedByName(@TempDir Path dir) throws Exception {
+        TemplateStore store = TemplateStore.forJar(jarWithFlowAtGeneration(dir, 99));
+        TemplateStore.Template driver = store.require("FLOW_DRIVER");
+
+        assertEquals(OptionalInt.of(99), driver.generationOf(ScaffoldToken.FLOW));
+        ScaffoldUnsupported refusal = assertThrows(ScaffoldUnsupported.class,
+                () -> store.render(driver, "mybot", null, Map.of(ScaffoldToken.FLOW, "\"Start\"")));
+        assertTrue(refusal.getMessage().contains("FLOW:99"), refusal.getMessage());
+        assertTrue(refusal.getMessage().contains("Update Studio"),
+                "and the way out: " + refusal.getMessage());
+    }
+
+    /** A hole Studio never offers a fragment for is not affected — its default stands, whatever generation. */
+    @Test
+    void aMovedHoleNobodyFillsStillRendersItsDefault(@TempDir Path dir) throws Exception {
+        TemplateStore store = TemplateStore.forJar(jarWithFlowAtGeneration(dir, 99));
+        TemplateStore.Template driver = store.require("FLOW_DRIVER");
+
+        String rendered = store.render(driver, "mybot", null, Map.of(ScaffoldToken.MAX_STEPS, "42"));
+
+        assertTrue(rendered.contains("MAX_STEPS = 42;"), rendered);
+        assertTrue(TemplateStore.unfilledTokens(rendered).isEmpty(),
+                "the fences go either way — an unfilled hole is not a marker left in a bot's source");
+    }
+
+    /**
+     * An SDK jar carrying the real templates, with {@code FLOW}'s generation moved to {@code generation} in
+     * both the manifest and the fences — the future SDK that does not exist yet, built on the spot.
+     */
+    private static Path jarWithFlowAtGeneration(Path dir, int generation) throws Exception {
+        TemplateStore bundled = TemplateStore.bundled();
+        Path jar = dir.resolve("sdk-future.jar");
+        StringBuilder manifest = new StringBuilder("format 2\npackage com.botmaker.sdk.templates\n");
+        try (JarOutputStream out = new JarOutputStream(Files.newOutputStream(jar))) {
+            for (TemplateStore.Template t : bundled.templates()) {
+                String path = "com/botmaker/sdk/templates/"
+                        + (t.id().equals("ACTIVITY_STUB") ? "activities/" : "") + t.className() + ".java";
+                write(out, TemplateStore.ROOT + "/" + path,
+                        t.source().replace("STUDIO:FLOW:1>", "STUDIO:FLOW:" + generation + ">"));
+                String holes = t.holes().isEmpty() ? "-"
+                        : String.join(",", new TreeSet<>(t.holes())).replace("FLOW:1", "FLOW:" + generation);
+                manifest.append("template ").append(t.id()).append(' ').append(t.kind()).append(' ')
+                        .append(path).append(' ').append(t.target()).append(' ').append(holes).append('\n');
+            }
+            write(out, TemplateStore.ROOT + "/manifest.txt", manifest.toString());
+        }
+        return jar;
+    }
+
+    private static void write(JarOutputStream out, String path, String content) throws IOException {
+        out.putNextEntry(new ZipEntry(path));
+        out.write(content.getBytes(StandardCharsets.UTF_8));
+        out.closeEntry();
     }
 
     @Test
     void renderingRewritesThePackageAndTheClassName() throws Exception {
         TemplateStore store = TemplateStore.bundled();
-        Map<String, String> tokens = new LinkedHashMap<>();
-        tokens.put("OUTCOMES", "NEXT, BAG_FULL");
-        tokens.put("ENABLED", "Activities.Mining");
+        Map<ScaffoldToken, String> tokens = new LinkedHashMap<>();
+        tokens.put(ScaffoldToken.OUTCOMES, "NEXT, BAG_FULL");
+        tokens.put(ScaffoldToken.ENABLED, "Activities.Mining");
 
         String rendered = store.render(store.require("ACTIVITY_STUB"), "mybot", "Mining", tokens);
 
