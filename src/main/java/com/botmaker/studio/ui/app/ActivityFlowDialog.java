@@ -714,6 +714,12 @@ public class ActivityFlowDialog {
         if (!orphans.isEmpty()) {
             summary.append("    ⚠ not in the flow (won't run): ").append(String.join(", ", orphans));
         }
+        // Also not a warning, but worth saying out loud: an unwired DISABLED port is a silent stop, and it is
+        // silent precisely where the drawing shows the flow carrying on.
+        List<String> stopsWhenOff = canvas.unwiredWhenDisabled();
+        if (!stopsWhenOff.isEmpty()) {
+            summary.append("    ·  stops the run if switched off: ").append(String.join(", ", stopsWhenOff));
+        }
         orderLabel.setText(summary.toString());
     }
 
@@ -824,14 +830,20 @@ public class ActivityFlowDialog {
             // clash as clean and leave the user with an outcome that silently has no port.
             Set<String> outcomeNames = new HashSet<>();
             outcomeNames.add(FlowEdge.NEXT_OUTCOME);
+            outcomeNames.add(FlowEdge.DISABLED_OUTCOME);
             for (String outcome : a.outcomes()) {
                 if (!FlowNames.isValidIdentifier(outcome)) {
                     return "Invalid outcome in " + a.name() + ": '" + outcome + "'.";
                 }
                 if (!outcomeNames.add(outcome)) {
-                    return FlowEdge.NEXT_OUTCOME.equals(outcome)
-                            ? a.name() + " already has a NEXT outcome — every activity does."
-                            : "Duplicate outcome '" + outcome + "' in " + a.name() + ".";
+                    if (FlowEdge.NEXT_OUTCOME.equals(outcome)) {
+                        return a.name() + " already has a NEXT outcome — every activity does.";
+                    }
+                    if (FlowEdge.DISABLED_OUTCOME.equals(outcome)) {
+                        return a.name() + " can't declare a DISABLED outcome — that port is always there, "
+                                + "and an activity can't report it because it didn't run.";
+                    }
+                    return "Duplicate outcome '" + outcome + "' in " + a.name() + ".";
                 }
             }
         }

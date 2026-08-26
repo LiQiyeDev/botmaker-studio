@@ -52,6 +52,18 @@ class ActivityFlowValidationTest {
     }
 
     @Test
+    void anOutcomeCannotRedeclareTheImplicitDisabled() {
+        // Same reasoning as NEXT, one step further: an activity can't report being switched off, because it
+        // didn't run. Declaring it would ask for an enum constant nothing could ever return.
+        String problem = ActivityFlowDialog.validate(of(activity("Mining", "DISABLED")));
+        assertNotNull(problem);
+        assertTrue(problem.contains("DISABLED"), problem);
+        assertNull(FlowNames.outcomeProblem(List.of(), "Mining", "BAG_FULL", null));
+        assertNotNull(FlowNames.outcomeProblem(List.of(), "Mining", "DISABLED", null),
+                "the dialog must refuse the name while it is being typed, not only on save");
+    }
+
+    @Test
     void anOutcomeTypedWithSpacesIsNormalisedRatherThanRejected() {
         // "bag full" is a perfectly clear thing to type; turning it into the enum constant is our job.
         assertEquals("BAG_FULL", FlowNames.normalizeOutcome("bag full"));

@@ -419,6 +419,29 @@ public final class FlowCanvas extends StackPane {
         return unwired;
     }
 
+    /**
+     * The activities the flow continues past but whose {@code DISABLED} port is unwired — so switching one of
+     * them off stops the run where the drawing says it should carry on.
+     *
+     * <p>Only nodes with at least one outgoing wire qualify. A leaf ends the run whether it is switched on or
+     * off, so its unwired {@code DISABLED} says nothing; reporting it would flood every existing project,
+     * none of which has a {@code DISABLED} wire at all.
+     */
+    public List<String> unwiredWhenDisabled() {
+        List<String> stopping = new ArrayList<>();
+        for (String name : chain()) {
+            boolean continues = false;
+            boolean disabledWired = false;
+            for (FlowEdge e : edges) {
+                if (!e.from().equals(name)) continue;
+                if (e.isDisabled()) disabledWired = true;
+                else continues = true;
+            }
+            if (continues && !disabledWired) stopping.add(name);
+        }
+        return stopping;
+    }
+
     /** The activity the run begins at, resolved against what is placed (blank when nothing is). */
     public String resolvedStart() {
         List<String> placed = placedNames();
@@ -1137,12 +1160,20 @@ public final class FlowCanvas extends StackPane {
             return new ContextMenu(startHere);
         }
 
-        /** One labelled port per outcome, in the order the enum will declare them. */
+        /**
+         * One labelled port per outcome, in the order the enum will declare them, with the {@code DISABLED}
+         * port last — see {@link ActivityDraft#flowPorts()}.
+         */
         private void rebuildPorts() {
             ports.getChildren().clear();
             outPorts.clear();
-            for (String outcome : draft.allOutcomes()) {
+            for (String outcome : draft.flowPorts()) {
                 Circle circle = port("flow-port-out");
+                // A modifier, not a replacement: the base class carries the stroke that punches the dot out
+                // of the card's edge, and DISABLED only recolours the fill.
+                if (FlowEdge.DISABLED_OUTCOME.equals(outcome)) {
+                    circle.getStyleClass().add("flow-port-out-disabled");
+                }
                 installPortHandlers(circle, outcome);
                 outPorts.put(outcome, circle);
                 Label label = new Label(FlowEdge.outcomeLabel(outcome));
@@ -1155,7 +1186,9 @@ public final class FlowCanvas extends StackPane {
 
         /** Drops any wire whose outcome the activity no longer declares — its port has just disappeared. */
         private void dropWiresForRemovedOutcomes() {
-            Set<String> live = new LinkedHashSet<>(draft.allOutcomes());
+            // flowPorts(), not allOutcomes(): DISABLED is a port with no declared outcome behind it, so
+            // pruning against the enum list would delete every DISABLED wire the moment it was drawn.
+            Set<String> live = new LinkedHashSet<>(draft.flowPorts());
             edges.removeIf(e -> e.from().equals(draft.name()) && !live.contains(e.outcomeOrNext()));
         }
 
@@ -1227,10 +1260,20 @@ public final class FlowCanvas extends StackPane {
             e.consume();
         }
 
+        /** What one output port promises, in the user's terms rather than the enum's. */
+        private String portTooltip(String outcome) {
+            if (FlowEdge.NEXT_OUTCOME.equals(outcome)) {
+                return "Drag to the activity that runs next when there's nothing special to report";
+            }
+            if (FlowEdge.DISABLED_OUTCOME.equals(outcome)) {
+                return "Drag to the activity that runs next when " + draft.name() + " is switched off. "
+                        + "Leave it unwired and the run stops there.";
+            }
+            return "Drag to the activity that runs next when " + draft.name() + " reports " + outcome;
+        }
+
         private void installPortHandlers(Circle circle, String outcome) {
-            Tooltip.install(circle, new Tooltip(FlowEdge.NEXT_OUTCOME.equals(outcome)
-                    ? "Drag to the activity that runs next when there's nothing special to report"
-                    : "Drag to the activity that runs next when " + draft.name() + " reports " + outcome));
+            Tooltip.install(circle, new Tooltip(portTooltip(outcome)));
             circle.setOnMousePressed(e -> {
                 startPendingWire(draft, outcome, outPortCenter(outcome));
                 e.consume();

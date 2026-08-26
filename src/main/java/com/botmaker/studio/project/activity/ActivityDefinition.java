@@ -83,16 +83,34 @@ public record ActivityDefinition(String name, boolean enabled, String descriptio
 
     /**
      * Every constant of this activity's generated {@code Outcome} enum, in generated order: the implicit
-     * {@link FlowEdge#NEXT_OUTCOME} first, then the declared {@link #outcomes()}. This is the single
-     * source of both the enum body and the card's output ports, so the two can't drift.
+     * {@link FlowEdge#NEXT_OUTCOME} first, then the declared {@link #outcomes()}. This is the source of the
+     * enum body, and — through {@link #flowPorts()} — of the card's output ports, so the two can't drift.
+     *
+     * <p>{@link FlowEdge#DISABLED_OUTCOME} is filtered out here for the same reason a stored {@code NEXT} is:
+     * both are outcomes every activity has already, so a file naming one must not emit it twice. Only
+     * {@code NEXT} is re-added, because only {@code NEXT} is an enum constant.
      */
     public List<String> allOutcomes() {
         List<String> all = new ArrayList<>(outcomes.size() + 1);
         all.add(FlowEdge.NEXT_OUTCOME);
         for (String o : outcomes) {
+            if (FlowEdge.DISABLED_OUTCOME.equals(o)) continue; // a port, never an Outcome constant
             if (!all.contains(o)) all.add(o); // a stored NEXT would otherwise duplicate the implicit one
         }
         return all;
+    }
+
+    /**
+     * Every port the flow can be wired from: {@link #allOutcomes()}, then {@link FlowEdge#DISABLED_OUTCOME}
+     * last.
+     *
+     * <p>Last rather than first because it is the exceptional one — every other port is a way the activity
+     * <em>finished</em>, and this is the one for it never having run.
+     */
+    public List<String> flowPorts() {
+        List<String> ports = new ArrayList<>(allOutcomes());
+        ports.add(FlowEdge.DISABLED_OUTCOME);
+        return ports;
     }
 
     public ActivityDefinition withEnabled(boolean newEnabled) {

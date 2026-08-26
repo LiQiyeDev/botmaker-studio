@@ -525,6 +525,14 @@
 }
 
 /*
+ * The DISABLED port. Muted rather than coloured: it is the wire taken when the activity does not run, so it
+ * should read as the quiet one on a card whose other ports are all ways of having finished.
+ */
+.flow-port-out-disabled {
+    -fx-fill: -bm-muted;
+}
+
+/*
  * A wire: the visible curve, its arrow head, and — behind both — a transparent curve of the same geometry at
  * six times the width. That last one is the whole hitbox. Picking on a 2.5px curve meant hunting for the
  * pixel; picking on this means aiming at the wire.

@@ -35,10 +35,11 @@ import java.util.Optional;
  * <p>Opened from the "Add activity" button and from a double-click on empty canvas; the caller supplies the
  * point the card should land on, so a double-click drops it under the cursor.
  *
- * <p>The implicit {@link FlowEdge#NEXT_OUTCOME} is shown as a fixed first row that can't be edited or removed.
- * It is not part of the declared outcome list ({@link ActivityDraft#outcomes()} excludes it, and
- * {@link ActivityDraft#allOutcomes()} puts it back), so showing it as an ordinary row would either lose it on
- * save or duplicate it — but hiding it entirely makes the card grow a port the dialog never mentioned.
+ * <p>The two implicit outcomes — {@link FlowEdge#NEXT_OUTCOME} first and {@link FlowEdge#DISABLED_OUTCOME}
+ * last, the order their ports appear in — are shown as fixed rows that can't be edited or removed. Neither is
+ * part of the declared outcome list ({@link ActivityDraft#outcomes()} excludes them and
+ * {@link ActivityDraft#flowPorts()} puts them back), so showing either as an ordinary row would lose it on
+ * save or duplicate it — but hiding them makes the card grow ports the dialog never mentioned.
  */
 public final class NewActivityDialog {
 
@@ -154,17 +155,10 @@ public final class NewActivityDialog {
         return new VBox(6, explain, outcomeRows, addRow);
     }
 
-    /** The fixed NEXT row plus one removable row per declared outcome. */
+    /** The fixed NEXT row, one removable row per declared outcome, then the fixed DISABLED row. */
     private void rebuildOutcomeRows() {
         outcomeRows.getChildren().clear();
-
-        Label next = new Label(FlowEdge.outcomeLabel(FlowEdge.NEXT_OUTCOME));
-        next.getStyleClass().add("dialog-hint-text");
-        Label always = new Label("always present");
-        always.getStyleClass().add("dialog-hint-text");
-        HBox nextRow = new HBox(8, next, always);
-        nextRow.setAlignment(Pos.CENTER_LEFT);
-        outcomeRows.getChildren().add(nextRow);
+        outcomeRows.getChildren().add(fixedRow(FlowEdge.NEXT_OUTCOME, "always present"));
 
         for (String outcome : List.copyOf(outcomes)) {
             Label label = new Label(outcome);
@@ -179,6 +173,20 @@ public final class NewActivityDialog {
             row.setAlignment(Pos.CENTER_LEFT);
             outcomeRows.getChildren().add(row);
         }
+
+        outcomeRows.getChildren().add(
+                fixedRow(FlowEdge.DISABLED_OUTCOME, "always present — where to go when it's switched off"));
+    }
+
+    /** A row for an outcome the user neither adds nor removes, in the order its port appears on the card. */
+    private static HBox fixedRow(String outcome, String note) {
+        Label label = new Label(FlowEdge.outcomeLabel(outcome));
+        label.getStyleClass().add("dialog-hint-text");
+        Label hint = new Label(note);
+        hint.getStyleClass().add("dialog-hint-text");
+        HBox row = new HBox(8, label, hint);
+        row.setAlignment(Pos.CENTER_LEFT);
+        return row;
     }
 
     private void commit(double x, double y) {

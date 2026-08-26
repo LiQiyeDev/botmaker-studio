@@ -52,6 +52,10 @@ public final class FlowNames {
         if (FlowEdge.NEXT_OUTCOME.equals(candidate)) {
             return "Every activity already has a NEXT outcome — it is always there.";
         }
+        if (FlowEdge.DISABLED_OUTCOME.equals(candidate)) {
+            return "DISABLED is the port for this activity being switched off — it is always there, "
+                    + "and an activity can't report it because it didn't run.";
+        }
         for (String existing : outcomes) {
             if (existing.equals(candidate) && !existing.equals(replacing)) {
                 return "'" + candidate + "' is already an outcome of " + owner + ".";

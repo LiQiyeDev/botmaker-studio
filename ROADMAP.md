@@ -6,6 +6,22 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-26 — the flow editor gets a `DISABLED` port (plugin platform, phase 9).** Every activity card
+  now grows one more output port, last after its outcomes: where the run goes when that activity is
+  **switched off**. The destination was always there in the generated `FlowGraph.node` — but the emitter
+  *inferred* it from the activity's `NEXT` wire, so it could not be seen and could not be chosen. It is now
+  an ordinary wire the user draws, stored under its own outcome name.
+  `ActivityDefinition.flowPorts()`/`ActivityDraft.flowPorts()` are the port list, kept separate from
+  `allOutcomes()` (the generated enum) because an activity can never *report* being disabled — it didn't run.
+  `FlowCanvas` draws from and prunes against `flowPorts()`; pruning against the enum list would have deleted
+  each `DISABLED` wire the moment it was drawn. `DISABLED` is refused as a declared outcome name both while
+  it is typed (`FlowNames`) and on save (`ActivityFlowDialog.validate`), `NewActivityDialog` shows it as a
+  fixed last row beside `NEXT`'s fixed first one, and the flow summary names every activity the flow
+  continues past whose `DISABLED` is unwired ("stops the run if switched off: …"). **No migration:** an
+  existing project has no such wire, so switching an activity off now ends the run where it used to carry
+  on — deliberate, since the inferred `NEXT` was the wrong answer often enough that keeping it would keep
+  the bug.
+
 - **2026-08-26 — Studio reads the palette from the plugin, and `palette/SdkType` retires (plugin platform,
   phase 7).** The hand-mirrored enum of the SDK's class list is **deleted**, with `SdkTypeTest` and
   `SdkTypeUseTest`. Its three jobs went three different ways, and the split is the point: **FQNs and import

@@ -69,16 +69,30 @@ public final class ActivityDraft {
     }
 
     /**
-     * Every outcome this activity's card has a port for: the implicit default first, then the declared ones.
-     * Mirrors {@link ActivityDefinition#allOutcomes()} — the ports and the generated enum are the same list.
+     * Every constant of this activity's generated {@code Outcome} enum: the implicit default first, then the
+     * declared ones. Mirrors {@link ActivityDefinition#allOutcomes()}.
      */
     public List<String> allOutcomes() {
         List<String> all = new ArrayList<>(outcomes.size() + 1);
         all.add(FlowEdge.NEXT_OUTCOME);
         for (String o : outcomes) {
+            if (FlowEdge.DISABLED_OUTCOME.equals(o)) continue; // a port, never an Outcome constant
             if (!all.contains(o)) all.add(o);
         }
         return all;
+    }
+
+    /**
+     * Every outcome this activity's card has a port for: {@link #allOutcomes()}, then
+     * {@link FlowEdge#DISABLED_OUTCOME} last. Mirrors {@link ActivityDefinition#flowPorts()}.
+     *
+     * <p>This is the list the canvas draws ports from <em>and</em> the list it prunes wires against, which is
+     * what stops a {@code DISABLED} wire from being deleted the moment it is drawn.
+     */
+    public List<String> flowPorts() {
+        List<String> ports = new ArrayList<>(allOutcomes());
+        ports.add(FlowEdge.DISABLED_OUTCOME);
+        return ports;
     }
 
     public StringProperty nameProperty() { return name; }

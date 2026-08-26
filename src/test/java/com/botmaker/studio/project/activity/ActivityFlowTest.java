@@ -170,4 +170,38 @@ class ActivityFlowTest {
         assertEquals(List.of(FlowEdge.NEXT_OUTCOME, "BAG_FULL"), a.allOutcomes(),
                 "the generated enum must not declare NEXT twice — that would not compile");
     }
+
+    /**
+     * The enum list and the port list differ in exactly one place. {@code DISABLED} is a port the flow wires
+     * from — where to go when the activity is switched off — never a constant {@code run()} could return,
+     * because an activity that did not run reported nothing.
+     */
+    @Test
+    void disabledIsAPortButNotAnOutcome() {
+        ActivityDefinition a = ActivityDefinition.create("Mining", "").withOutcomes(List.of("BAG_FULL"));
+
+        assertEquals(List.of(FlowEdge.NEXT_OUTCOME, "BAG_FULL"), a.allOutcomes());
+        assertEquals(List.of(FlowEdge.NEXT_OUTCOME, "BAG_FULL", FlowEdge.DISABLED_OUTCOME), a.flowPorts(),
+                "DISABLED comes last — every other port is a way the activity finished");
+    }
+
+    @Test
+    void aStoredDisabledOutcomeNeverReachesTheEnum() {
+        ActivityDefinition a = ActivityDefinition.create("Mining", "")
+                .withOutcomes(List.of(FlowEdge.DISABLED_OUTCOME, "BAG_FULL"));
+
+        assertEquals(List.of(FlowEdge.NEXT_OUTCOME, "BAG_FULL"), a.allOutcomes(),
+                "a hand-edited file naming DISABLED must not emit a constant no run() could return");
+        assertEquals(List.of(FlowEdge.NEXT_OUTCOME, "BAG_FULL", FlowEdge.DISABLED_OUTCOME), a.flowPorts(),
+                "and it must not gain a second DISABLED port either");
+    }
+
+    @Test
+    void aDisabledWireIsNotTheImplicitWire() {
+        FlowEdge disabled = new FlowEdge("Mining", "Selling", FlowEdge.DISABLED_OUTCOME);
+
+        assertTrue(disabled.isDisabled());
+        assertFalse(disabled.isNext(), "blank means NEXT; DISABLED is stored under its own name");
+        assertFalse(new FlowEdge("Mining", "Selling").isDisabled());
+    }
 }
