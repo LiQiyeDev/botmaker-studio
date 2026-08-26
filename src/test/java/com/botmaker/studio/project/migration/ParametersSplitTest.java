@@ -73,12 +73,21 @@ class ParametersSplitTest {
 
         ProjectSchema.migrate(config, ignored -> { });
 
+        // Both classes now exist, which is the half of the split this side owns: before it there was one
+        // file, after it there are two, each rendered by the project's own SDK from the stored model.
+        assertTrue(Files.exists(config.activitiesSourceFile()));
+        assertTrue(Files.exists(config.parametersSourceFile()));
+
+        // Which field landed where is asserted through the *names* the two classes declare, not through the
+        // spelling of a field's initialiser. What a value's Java looks like is the generator's to decide and
+        // the SDK's to test (ScaffoldEmitTest); this test would otherwise fail every time it changed its
+        // mind — as it did when the literal writers replaced Wire.
         String activities = Files.readString(config.activitiesSourceFile());
         String parameters = Files.readString(config.parametersSourceFile());
 
-        assertTrue(activities.contains("boolean Mining;"), activities);
+        assertTrue(activities.contains("Mining"), activities);
         assertFalse(activities.contains("rest"), "a value has no business in Activities any more:\n" + activities);
-        assertTrue(parameters.contains("rest = Wire.duration("), parameters);
+        assertTrue(parameters.contains("rest"), parameters);
         assertFalse(parameters.contains("Mining"), "a flag has no business in Parameters:\n" + parameters);
     }
 

@@ -1,5 +1,7 @@
 package com.botmaker.studio.project;
 
+import com.botmaker.sdk.api.authoring.TemplateNames;
+
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Locale;
@@ -93,7 +95,7 @@ public record ProjectConfig(
 
     /** The generated {@code Templates.java} sidecar — one String constant per image template. */
     public Path templatesSourceFile() {
-        return sourceRoot.resolve("com").resolve(packageName).resolve(TemplateConstants.CLASS_NAME + ".java");
+        return sourceRoot.resolve("com").resolve(packageName).resolve(TemplateNames.CLASS_NAME + ".java");
     }
 
     /** The generated {@code ActivityRegistry.java} sidecar (sibling of the main class). */

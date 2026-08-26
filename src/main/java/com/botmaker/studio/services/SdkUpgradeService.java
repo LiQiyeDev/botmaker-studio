@@ -9,6 +9,7 @@ import com.botmaker.studio.project.FileRole;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
+import com.botmaker.studio.project.Regeneration;
 import com.botmaker.studio.project.vcs.ProjectVcs;
 import com.botmaker.studio.services.SdkApiModel.ApiClass;
 import org.eclipse.jdt.core.dom.CompilationUnit;
@@ -611,13 +612,11 @@ public final class SdkUpgradeService {
      * produced again — against the new jar. After the pom has moved, not before: the render has to see the
      * SDK the project actually pins now.
      *
-     * <p><b>Since 2026-08-25 it re-renders only {@code Templates.java}</b>, and the four files that mattered
-     * most here — {@code Activities}, {@code Parameters}, {@code ActivityRegistry}, {@code FlowDriver} — are
-     * left exactly as the upgrade found them. Studio has no generator: the scaffold templates left the SDK
-     * and its own emitters do not exist yet (inversion phase 2). So an upgrade repairs the user's own source
-     * and moves the pom, and a bot whose generated files name something the new SDK renamed does not compile
-     * until phase 2 lands. That is why {@code SdkMigrationRunner.scaffoldingInTheWay} went back to refusing
-     * such an upgrade outright rather than letting it through on the promise of a re-render.
+     * <p>All five again since 2026-08-26 — {@code Activities}, {@code Parameters}, {@code ActivityRegistry},
+     * {@code FlowDriver} and {@code Templates}. For one day (phase 0b) it re-rendered only the last of them,
+     * because Studio had no generator at all, and a bot whose generated files named something the new SDK
+     * renamed simply did not compile. {@link Regeneration#write} reads the pom for the pin, which is why this
+     * runs <em>after</em> the pom has moved and not before.
      *
      * <p>An {@code IOException} here is worth a sentence and not worth failing the upgrade over: the sources
      * are already repaired and the pom is already moved, so undoing it would be the destructive answer, and
@@ -625,8 +624,10 @@ public final class SdkUpgradeService {
      */
     private void regenerateScaffolding() {
         try {
-            ImageTemplateLibrary.regenerateTemplatesClass(config);
-        } catch (RuntimeException e) {
+            // An empty project has no model-derived file, so `write` has nothing to do — but it still has a
+            // Templates class, and an upgrade is not followed by the project open that would refresh it.
+            if (Regeneration.write(config).isEmpty()) Regeneration.writeTemplatesClass(config);
+        } catch (IOException | RuntimeException e) {
             System.err.println("SDK upgrade: the generated files could not be re-rendered against the new "
                     + "SDK (" + e.getMessage() + "). Open Project ▸ Activity Flow and save to redo them.");
         }

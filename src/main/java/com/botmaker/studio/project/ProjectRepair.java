@@ -44,20 +44,29 @@ import java.util.Map;
  *       own methods are never touched at all.</li>
  * </ul>
  *
- * <p>Sources come from the project's own SDK ({@code Authoring}) and {@code ActivityService}'s generators —
- * this class holds no templates of its own. (It briefly held a copy of the empty-project entry point, which
- * promptly drifted from the real one and lost an import, so a "recovered" project didn't compile. Hence the
- * rule.) The version asked is the one the <b>pom pins</b>, not Studio's newest: a restored file has to compile
- * against the jar this bot actually resolves.
+ * <p>Sources come from the project's own SDK, through {@link Regeneration} — this class holds no templates of
+ * its own. (It briefly held a copy of the empty-project entry point, which promptly drifted from the real one
+ * and lost an import, so a "recovered" project didn't compile. Hence the rule.) The version asked is the one
+ * the <b>pom pins</b>, not Studio's newest: a restored file has to compile against the jar this bot actually
+ * resolves.
+ *
+ * <p><b>Every entry can be restored again, as of 2026-08-26.</b> For one day (phase 0b) this class reported
+ * a game bot's missing scaffold and could write none of it, because the generator had left Studio and had not
+ * yet arrived in the SDK; reporting without restoring was chosen over the alternative of calling a project
+ * that does not compile healthy. The generator has landed, and the restorers are real.
  */
 public final class ProjectRepair {
 
     private ProjectRepair() {}
 
     /**
-     * The generated files both the game-bot scaffold and {@code ActivityService} can produce. When the project
-     * has activities, {@code ActivityService} is the authority (it knows the flow), so the scaffold's empty
-     * template must not be used to "restore" them over the top.
+     * The two generated files that both passes in {@link #findMissing} would report — the scaffold pass by
+     * name, the activity pass on the project's actual flow. Reported once, by whichever pass has evidence:
+     * the activity pass when there are activities, the scaffold pass otherwise.
+     *
+     * <p>They used to be skipped for a stronger reason — the scaffold's registry source was an <em>empty</em>
+     * {@code List.of()}, so restoring from it would have quietly emptied a real flow. That hazard is gone
+     * (both passes now render from the stored model), leaving only the duplicate row.
      */
     private static final String REGISTRY_FILE = "ActivityRegistry.java";
     private static final String DRIVER_FILE = "FlowDriver.java";
@@ -77,8 +86,12 @@ public final class ProjectRepair {
             java.util.Set.of("Activities.java", "Parameters.java", "Templates.java");
 
     /**
-     * A file that should exist but doesn't, plus what would restore it — or a {@code null} restorer for the
-     * files only {@code ActivityService} can regenerate (see {@link #needsActivityRegeneration}).
+     * A file that should exist but doesn't, plus what would restore it.
+     *
+     * <p>The restorer is nullable and, since 2026-08-26, is never actually null: every file this class
+     * reports can be produced again. It stays nullable because {@link #recover} skipping a null is the
+     * behaviour that made phase 0b's "report it, cannot restore it" state expressible at all, and the next
+     * unrestorable file — a user's captured PNG, say — would want the same shape.
      *
      * <p>A {@link Restorer} rather than the source text it used to be, because not everything recoverable is a
      * string: {@code pom.xml} is built through the Maven Model API and the placeholder template is a generated
@@ -153,23 +166,21 @@ public final class ProjectRepair {
                 ? template
                 : (looksLikeGameBot(config) ? ProjectTemplate.GAME_BOT : ProjectTemplate.EMPTY);
 
-        // The registry's scaffold source is an *empty* List.of() — correct only while the project has no
-        // activities. Once it has some, only ActivityService can rebuild it, so leave it to the pass below.
+        // Decides which of the two passes reports the registry and the driver — see REGISTRY_FILE.
         boolean hasActivities = activities != null && !activities.activities().isEmpty();
 
         String sdkPin = MavenService.readSdkVersion(config.projectPath());
         if (resolved == ProjectTemplate.GAME_BOT) {
-            // Reported by name, restored by nobody (2026-08-25, temporarily). *Which* files a game bot must
-            // have is knowable from the generator's own file list; what it cannot yet do from outside a
-            // creation is render one of them in isolation (inversion phase 4), so every entry here carries a
-            // null restorer — the same shape this class already uses for the files only ActivityService can
-            // produce. Saying nothing is missing would be the worse answer: a project that does not compile,
-            // reported as healthy.
+            // Reported by name *and* restored, since 2026-08-26: which files a game bot must have comes from
+            // the generator's own file list, and rendering one of them in isolation is what
+            // Regeneration.restore does. For one day (phase 0b) every entry here carried a null restorer,
+            // because nothing in Studio could produce the text — reporting without restoring being the least
+            // bad of the three answers available then.
             for (String name : ProjectSpecs.generatedFileNames(config, resolved, sdkPin)) {
                 if (OWNED_BY_A_LATER_PASS.contains(name)) continue;
                 if (hasActivities && (REGISTRY_FILE.equals(name) || DRIVER_FILE.equals(name))) continue;
                 Path path = mainDir.resolve(name);
-                if (!Files.exists(path)) missing.add(new Missing(path, null, "game-bot scaffold"));
+                if (!Files.exists(path)) missing.add(regenerated(config, path, "game-bot scaffold"));
             }
         } else {
             // An empty project's entry point *can* be restored: it says nothing about the flow, so the
@@ -199,7 +210,10 @@ public final class ProjectRepair {
             //
             Path json = config.resourcesRoot().resolve(ActivitiesConfig.FILE_NAME);
             if (!activities.allVariables().isEmpty() && !Files.exists(json)) {
-                missing.add(new Missing(json, null, "activity settings"));
+                // Restored from the model already in memory — the only copy left, per the note above.
+                ActivitiesConfig held = activities;
+                missing.add(new Missing(json, target -> held.write(config.resourcesRoot()),
+                        "activity settings"));
             }
 
             // Activities.java and Parameters.java exist as soon as the project has any activity or variable at
@@ -212,28 +226,47 @@ public final class ProjectRepair {
             // the one nothing would otherwise notice was gone.
             if (hasActivities || !activities.allVariables().isEmpty()) {
                 if (!Files.exists(config.activitiesSourceFile())) {
-                    missing.add(new Missing(config.activitiesSourceFile(), null, "generated activity code"));
+                    missing.add(regenerated(config, config.activitiesSourceFile(),
+                            "generated activity code"));
                 }
                 if (!Files.exists(config.parametersSourceFile())) {
-                    missing.add(new Missing(config.parametersSourceFile(), null, "generated activity code"));
+                    missing.add(regenerated(config, config.parametersSourceFile(),
+                            "generated activity code"));
                 }
             }
             if (hasActivities && !Files.exists(config.activityRegistrySourceFile())) {
-                missing.add(new Missing(config.activityRegistrySourceFile(), null, "generated activity code"));
+                missing.add(regenerated(config, config.activityRegistrySourceFile(),
+                        "generated activity code"));
             }
             if (hasActivities && !Files.exists(config.flowDriverSourceFile())) {
-                missing.add(new Missing(config.flowDriverSourceFile(), null, "generated activity code"));
+                missing.add(regenerated(config, config.flowDriverSourceFile(),
+                        "generated activity code"));
             }
 
             // Per-activity subclass stubs (the same set ActivityService.ensureStubs would create).
             for (ActivityDefinition a : activities.activities()) {
                 Path stub = config.activitiesPackageDir().resolve(a.name() + ".java");
                 if (!Files.exists(stub)) {
-                    missing.add(new Missing(stub, null, "activity stub"));
+                    missing.add(regenerated(config, stub, "activity stub"));
                 }
             }
         }
         return missing;
+    }
+
+    /**
+     * A generated file, restored by asking the project's <b>own</b> SDK to emit it again.
+     *
+     * <p>The text is not computed here and not cached in the {@link Missing}: {@link Regeneration#restore}
+     * renders the whole set and picks this one out, so a file is only ever restored to something the
+     * generator would produce for the model as it stands at the moment the user presses the button. A
+     * {@code Missing} built at open and acted on ten minutes later is therefore still correct.
+     *
+     * <p>It throws when this project's SDK does not generate that name, which is the honest answer for a file
+     * Studio has no way to write — and the reason this is a restorer rather than a pre-rendered string.
+     */
+    private static Missing regenerated(ProjectConfig config, Path path, String reason) {
+        return new Missing(path, target -> Regeneration.restore(config, target), reason);
     }
 
     /**
@@ -287,8 +320,8 @@ public final class ProjectRepair {
     /**
      * Creates every file reported by {@link #findMissing}, and returns what was actually written.
      *
-     * <p>Entries with a {@code null} source are activity stubs: they are left to {@code ActivityService}, whose
-     * {@code update(...)} regenerates the registry as well — see {@code needsActivityRegeneration}.
+     * <p>An entry with no restorer is skipped silently, and so is one whose file has reappeared since the
+     * scan: this pass never clobbers.
      */
     public static List<Path> recover(ProjectConfig config, List<Missing> missing) throws IOException {
         List<Path> written = new ArrayList<>();
@@ -302,18 +335,11 @@ public final class ProjectRepair {
         return written;
     }
 
-    /**
-     * True when {@code missing} contains activity stubs, which only {@code ActivityService} can regenerate.
-     *
-     * <p>A null restorer used to mean exactly that. Since 2026-08-25 the game-bot scaffold has one too (its
-     * text went with the SDK's templates), and that is <em>not</em> ActivityService's to write, so the reason
-     * is checked as well — otherwise a project missing only {@code GoHome.java} would kick off a save that
-     * cannot possibly restore it.
-     */
-    public static boolean needsActivityRegeneration(List<Missing> missing) {
-        return missing.stream()
-                .anyMatch(m -> m.restorer() == null && !"game-bot scaffold".equals(m.reason()));
-    }
+    // `needsActivityRegeneration` was here, and is deliberately gone (2026-08-26). It answered "are any of
+    // these files something only ActivityService can write?", and after phase 4 the answer is no for every
+    // shape of entry: recovery restores each file directly from the generator. A predicate that is now
+    // always false is not a cheap thing to keep — its callers each printed a line telling the user to run a
+    // recovery that had, by then, already restored everything.
 
     /** Groups {@code missing} by reason, for a readable confirmation dialog. */
     public static Map<String, List<String>> summarise(List<Missing> missing) {

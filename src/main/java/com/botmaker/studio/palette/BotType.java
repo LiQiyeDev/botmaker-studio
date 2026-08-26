@@ -1,5 +1,6 @@
 package com.botmaker.studio.palette;
 
+import com.botmaker.sdk.api.authoring.TemplateNames;
 import com.botmaker.studio.palette.Initializer.BoolLit;
 import com.botmaker.studio.palette.Initializer.CharLit;
 import com.botmaker.studio.palette.Initializer.DoubleLit;
@@ -8,7 +9,6 @@ import com.botmaker.studio.palette.Initializer.IntLit;
 import com.botmaker.studio.palette.Initializer.NewInstance;
 import com.botmaker.studio.palette.Initializer.StaticCall;
 import com.botmaker.studio.palette.Initializer.StrLit;
-import com.botmaker.studio.project.TemplateConstants;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.types.JdkType;
 import com.botmaker.studio.types.PrimitiveKind;
@@ -102,8 +102,8 @@ public enum BotType {
      */
     IMAGE_TEMPLATE(Group.VISION, SdkType.IMAGE_TEMPLATE, "template",
             new NewInstance(SdkType.IMAGE_TEMPLATE.simpleName(),
-                    List.of(new EnumConst(TemplateConstants.CLASS_NAME,
-                            TemplateConstants.constantForPath(ImageTemplateLibrary.DEFAULT_TEMPLATE_PATH))))),
+                    List.of(new EnumConst(TemplateNames.CLASS_NAME,
+                            TemplateNames.constantForPath(ImageTemplateLibrary.DEFAULT_TEMPLATE_PATH))))),
     /** An empty group is legal and means "nothing to look for" — the SDK is explicit about it. */
     IMAGE_TEMPLATE_GROUP(Group.VISION, SdkType.IMAGE_TEMPLATE_GROUP, "group",
             new StaticCall(SdkType.IMAGE_TEMPLATE_GROUP.simpleName(), "of", List.of())),

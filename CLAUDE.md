@@ -357,17 +357,18 @@ there are three distinct relationships to keep straight:
     file is worth renaming were blind to it. `mentions` is now the same walk asking a narrower question —
     the three positions `renameTypeIn` actually rewrites, plus a static import's qualifier — rather than
     "any name anywhere", which matched a local variable that happened to share a class's name.
-  - **Studio's own scaffolding is not rewritten and, since 2026-08-25, not re-rendered either.** Only
-    `FileRole.EDITABLE` files are migrated; a generated file (the entry point, `FlowDriver`,
-    `ActivityRegistry`, `Activities`, `Parameters`) was rendered from the SDK's templates, so rewriting it
-    would have been overwritten at the next regeneration. **The templates are gone and so is the
-    re-render**: `SdkUpgradeService.regenerateScaffolding` is narrowed to
-    `ImageTemplateLibrary.regenerateTemplatesClass` — `Templates.java` names no SDK element, so it is the one
-    generated file Studio can still write by itself. Everything else waits for inversion phase 2, which means
-    **an upgrade leaves the generated Java pinned to the old SDK's spelling**; a rename it would have absorbed
-    now surfaces as a compile error. `SdkMigrationRunner.scaffoldingInTheWay` stays conservative for the same
-    reason: an upgrade whose only obstacle is a generated file naming a renamed member is *refused* rather
-    than papered over.
+  - **Studio's own scaffolding is not rewritten, it is re-rendered — all five files again since 2026-08-26.**
+    Only `FileRole.EDITABLE` files are migrated; a generated file (the entry point, `FlowDriver`,
+    `ActivityRegistry`, `Activities`, `Parameters`) is *derived*, so rewriting it would be overwritten at the
+    next regeneration and does not have to be attempted. `SdkUpgradeService.regenerateScaffolding` calls
+    `Regeneration.write` **after the pom has moved** — the render has to see the SDK the project actually
+    pins now — falling back to `Regeneration.writeTemplatesClass` for an empty project, which has no
+    model-derived file but does have a `Templates` class. For one day (phase 0b) it re-rendered only that
+    last file, because Studio had no generator at all and **an upgrade left the generated Java pinned to the
+    old SDK's spelling**; that cost is paid off. An `IOException` here is a printed sentence and not a failed
+    upgrade: the sources are repaired and the pom is moved, so undoing it is the destructive answer and the
+    pre-upgrade snapshot is the way back. `SdkMigrationRunner.scaffoldingInTheWay` deliberately stays
+    conservative even so — relaxing it wants the per-version catalog, not just a working re-render.
   - **`apply(target, repairSources)` is snapshot → migrate → bump, and `repairSources` gates only the middle.**
     A span carrying a removed type nothing pairs with must still be *switchable* — the user reads which type
     it is and where they use it, makes those edits, moves — because the target jar goes on lacking that type
@@ -375,10 +376,11 @@ there are three distinct relationships to keep straight:
     span, which is why the flag is per-upgrade, not per break. `migrateSources` re-derives everything from the
     two jars rather than trusting the `Report` the dialog holds: a value that crossed a dialog and an FX
     thread is not evidence about the files on disk right now.
-- **Studio generates no Java. `project/scaffold/` is empty and `TemplateStore` is deleted (2026-08-25,
-  inversion phase 0b).** It read `botmaker-templates/manifest.txt` out of the project's SDK jar and filled
-  each template's `/*<STUDIO:NAME>*/ default /*</STUDIO:NAME>*/` holes. **The templates left the SDK the same
-  day**, so it had nothing to read. Deleted with it: `ScaffoldCheck`, `ScaffoldRepair`, `ScaffoldEmitter`,
+- **Studio generates no Java itself; it asks the project's own SDK to, through `project/Regeneration`
+  (2026-08-26, inversion phase 4).** `project/scaffold/` is empty and `TemplateStore` is deleted — it read
+  `botmaker-templates/manifest.txt` out of the project's SDK jar and filled each template's
+  `/*<STUDIO:NAME>*/ default /*</STUDIO:NAME>*/` holes, and the templates left the SDK on 2026-08-25 (phase
+  0b), so it had nothing to read. Deleted with it: `ScaffoldCheck`, `ScaffoldRepair`, `ScaffoldEmitter`,
   `ScaffoldSurface`, `ScaffoldToken`, `ScaffoldUnsupported`, `services/ScaffoldFacts`, the per-hole generation
   number, `scaffold-holes.txt`, `ScaffoldCompileTest` and `ScaffoldCorpus`, plus `ActivityService`'s whole
   generation half (the five `generate*Source` methods, `render`, `templates`, `Emission`, `write`).
@@ -387,32 +389,50 @@ there are three distinct relationships to keep straight:
     instead of managing it — the SDK becomes the generator, the data owner and the palette. Keeping the
     templates alive through the interim meant maintaining a protocol whose only consumer is deleted at phase
     2, and threading the `Wire` redesign through it.
-  - **What this costs, and it is the point rather than a bug:** *New Project (game bot)* and *Save Activity
-    Flow* **refuse by name** — `ProjectCreator.sourcesFor` throws for `GAME_BOT`, wrapped as an `IOException`
-    at the creation call site, and the message names the SDK generator and offers the empty project.
-    `ParametersSplit` refuses for the same reason (its private helpers are kept for phase 2), and because
-    `ProjectSchema.migrate` catches, logs and leaves the file **unstamped**, a refusal is a *retry* at the
-    next open, never a loss. `ScaffoldMigration`'s popup-guard half **skips** instead of throwing — it is
-    content-gated rather than schema-stamped, so it too self-retries — while its retired-files half still
-    runs.
-  - **What survives, deliberately: detection.** `ProjectRepair.findMissing` still reports a game bot's absent
-    scaffold files, from `ProjectCreator.gameBotFileNames` — *which* files a game bot must have is knowable
-    from names alone; only *restoring* them needs the generator. Each entry carries a **null restorer**, the
-    shape this class already used for files only `ActivityService` could write, so *Recover Project Files*
-    lists them and restores nothing. Reporting "nothing is missing" would be the worse failure: a project
-    that does not compile, called healthy. `needsActivityRegeneration` now checks the *reason* as well as the
-    null restorer, so a bot missing only `GoHome.java` no longer kicks off a save that cannot help it.
-  - **`ActivityService` survives as persistence only** — it still writes `activities.json`, so the Activity
-    Flow and Parameters dialogs save the model and phase 2 has only to re-add emission, not rebuild the data
-    path.
-  - **The all-or-none write rule outlives the code that obeyed it**, and is the rule phase 2 inherits: a batch
-    of generated files is written all-or-none, keyed on **project-relative paths** rather than file names
-    (nothing stops an activity being called `FlowDriver`), rendered into memory first, with `activities.json`
-    written last. These files hold no user code, so three written and the fourth refused leaves a project that
-    does not build, where leaving all four alone leaves one that does.
+  - **`project/Regeneration` is the only place Studio asks for generated Java, and it is the whole of the
+    reconnection.** Five callers — Save Activity Flow, `ParametersSplit`, a recovery, an SDK upgrade, a
+    template capture — wanted the same three steps in the same order (resolve the pin, read the model,
+    render, commit) and none of them should have been deciding those steps for itself. Its surface:
+    `render`/`write` (the model-derived set), `writeTemplatesClass` (a function of the images folder, not of
+    the model, so it is on its own path here because it is on its own path in the SDK — regenerating the
+    whole set after a capture would rewrite four files that did not change), `ensureStubs` (creates, never
+    overwrites — `run()`'s body is the whole point of a stub; keeping the BotMaker-owned parts of an existing
+    one in step is `ActivityStubSync`'s AST edit), `restore(config, file)` (one file back, by path), and
+    `renderEverything` (public, because it is also the *canonical* text `ProjectRepair.findDamaged` compares
+    against — a second renderer answering "what would the generator write here" would be a second generator).
+  - **The model is read back off disk, never converted.** `Authoring.readModel` parses the same
+    `activities.json` that Studio's own `ActivitiesConfig` has just written, so the two record sets never meet
+    in memory; the in-memory adapter was written once in phase 1 and rejected the same day. The rule that
+    falls out of it is **persist first, then regenerate** — the generator emits what was actually *stored*,
+    never what a caller believed it had stored — and it is why the ~94-file switchover onto the SDK's records
+    is not a prerequisite for any of this.
+  - **All-or-none lives in `render` → `commit`, once, not at five call sites**: a batch is rendered into
+    memory before a single file is opened for writing, keyed on **project-relative paths** rather than file
+    names (nothing stops an activity being called `FlowDriver`). These files hold no user code, so three
+    written and the fourth refused leaves a project that does not build, where leaving all four alone leaves
+    one that does.
+  - **`templateOf` consults the stored model before the scaffold heuristic, and the order is load-bearing.**
+    `ProjectRepair.looksLikeGameBot` asks whether the generated files are *there*, which is exactly the
+    question a regeneration cannot rely on — the first save of an Activity Flow, and every recovery of a
+    deleted scaffold file, run on a project where they are not. A project whose `activities.json` names an
+    activity is a game bot whatever is or is not on disk beside it.
+  - **Detection and restoration are one thing again.** `ProjectRepair.findMissing` reports a game bot's
+    absent files from `ProjectSpecs.generatedFileNames` (the generator's own list, so a file that stops being
+    emitted stops being looked for on the same day) and **every entry now carries a real restorer** that
+    calls `Regeneration.restore`, so *Recover Project Files* restores instead of listing. The restorer holds
+    no pre-rendered text: a `Missing` built at open and acted on ten minutes later still writes what the
+    generator would produce for the model as it stands *now*. `needsActivityRegeneration` is **deleted** — a
+    predicate that is now always false, whose callers each printed a line telling the user to run a recovery
+    that had by then already finished — and `ProjectRecoveryAction`'s second off-thread save pass with it, so
+    a recovery no longer finishes after it says it has.
+  - **`ActivityService` is persistence *and* regeneration, in that order:** JSON, then stubs
+    (`Regeneration.ensureStubs`, so a new activity's file exists before `ActivityRegistry` names it), then
+    the regenerated set (so a removed one's file is gone before the registry stops naming it).
   - **`Templates.java` needs no template, and that is a fact about the file rather than an omission** — it
-    names no SDK element, only `public static final String` paths. Recorded in `ImageTemplateLibrary`'s
-    Javadoc so the next reader does not wire one up.
+    names no SDK element, only `public static final String` paths. `project/TemplateConstants` retired into
+    the SDK's `api.authoring.TemplateNames` (`CLASS_NAME`, `constantFor`, `constantForPath`, `pathForConstant`)
+    and `WireText.IMAGE_PREFIX` on 2026-08-26; the name↔constant round trip that lets a block read
+    `Templates.YTUJ` back to a file is the SDK's answer now, because the SDK is what writes the constant.
 - **Studio generates bot projects that depend on the SDK.** `services/MavenService` writes each user
   project's `pom.xml` pinning `com.github.LiQiyeDev:botmaker-sdk` (default `SDK_FALLBACK_VERSION`;
   user-selectable in the project screen from JitPack's version list). That pin is independent of the version

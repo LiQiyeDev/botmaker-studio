@@ -1,7 +1,7 @@
 package com.botmaker.studio.parser.helpers;
 
+import com.botmaker.sdk.api.authoring.TemplateNames;
 import com.botmaker.studio.palette.SdkType;
-import com.botmaker.studio.project.TemplateConstants;
 import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.ClassInstanceCreation;
 import org.eclipse.jdt.core.dom.Expression;
@@ -101,8 +101,8 @@ public final class SdkNodes {
             return Optional.of(literal.getLiteralValue());
         }
         if (argument instanceof QualifiedName qualified
-                && TemplateConstants.CLASS_NAME.equals(qualified.getQualifier().toString())) {
-            return Optional.ofNullable(TemplateConstants.pathForConstant(qualified.getName().getIdentifier()));
+                && TemplateNames.CLASS_NAME.equals(qualified.getQualifier().toString())) {
+            return Optional.ofNullable(TemplateNames.pathForConstant(qualified.getName().getIdentifier()));
         }
         return Optional.empty();
     }
@@ -123,9 +123,9 @@ public final class SdkNodes {
      * the lowercase-identifier rule editable — it has no constant to name it by, so it keeps its literal.
      */
     public static Expression templateArgument(AST ast, String path) {
-        String constant = TemplateConstants.constantForPath(path);
+        String constant = TemplateNames.constantForPath(path);
         if (constant != null) {
-            return ast.newQualifiedName(ast.newSimpleName(TemplateConstants.CLASS_NAME),
+            return ast.newQualifiedName(ast.newSimpleName(TemplateNames.CLASS_NAME),
                     ast.newSimpleName(constant));
         }
         StringLiteral literal = ast.newStringLiteral();

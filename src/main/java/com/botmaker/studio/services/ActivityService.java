@@ -4,6 +4,7 @@ import com.botmaker.studio.events.CoreApplicationEvents.ActivitiesChangedEvent;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
+import com.botmaker.studio.project.Regeneration;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityDefinition;
 import com.botmaker.studio.project.activity.ActivityFlow;
@@ -22,17 +23,17 @@ import java.util.concurrent.CompletableFuture;
  * {@link ActivityVariable variables} they read. It owns exactly one file:
  * {@code src/main/resources/activities.json}, the whole model, values included, read at runtime by the bot.
  *
- * <p><b>It no longer generates Java (2026-08-25).</b> Five generators lived here — {@code Activities.java},
- * {@code Parameters.java}, {@code ActivityRegistry.java}, {@code FlowDriver.java} and the per-activity stub —
- * each of them a scaffold template from the pinned SDK jar with Studio's fills spliced into its fences. The
- * templates are gone from the SDK and the emitters are moving into it (inversion Phase 2), where a generated
- * file can be compiled against the API it calls in the same build. Until then <b>saving the model does not
- * rewrite any source</b>: the JSON is written, stubs are reconciled, and the generated files already in the
- * project are left exactly as they are.
+ * <p><b>It does not generate Java itself, and since 2026-08-26 it does ask for it again.</b> Five generators
+ * lived here — {@code Activities.java}, {@code Parameters.java}, {@code ActivityRegistry.java},
+ * {@code FlowDriver.java} and the per-activity stub — each of them a scaffold template from the pinned SDK
+ * jar with Studio's fills spliced into its fences. They left with the templates on 2026-08-25, and for one
+ * day a save rewrote no source at all. The emitters now live in the SDK, where a generated file is compiled
+ * against the API it calls in the same build, and {@link #update} reaches them through
+ * {@link Regeneration#write}.
  *
- * <p>That is deliberate and it is visible to the user — an Activity Flow saved now has a
- * {@code FlowDriver.java} that still describes the <em>previous</em> flow. The dialogs that save the model
- * say so; this class is only the reason they have to.
+ * <p><b>The JSON is written first and the generator reads it back</b>, rather than being handed the config in
+ * memory. That is what makes the two agree by construction: the source describes what is stored, never what
+ * a caller believed it was about to store.
  *
  * <p>One model, one store. Studio briefly generated a {@code Settings.java} holding every value as a compiled
  * Java literal instead; it is gone, along with the discriminator that chose between the two. What that
@@ -80,9 +81,13 @@ public final class ActivityService {
      * {@link ActivitiesChangedEvent}. Runs asynchronously; the returned future completes exceptionally if
      * writing fails.
      *
-     * <p><b>No Java is generated.</b> Until the SDK ships its own emitters, the model is saved and the
-     * generated files are not rewritten. The all-or-nothing render that used to run before the first byte was
-     * written went with them: there is nothing left that can be refused halfway.
+     * <p><b>The generated Java is rewritten too</b>, by the project's own SDK, from the JSON this method has
+     * just written. {@link Regeneration#write} renders every file before it writes any, so a save never
+     * leaves a new {@code Activities} beside a {@code FlowDriver} describing the previous flow.
+     *
+     * <p>Ordering: JSON, then stubs ({@link Regeneration#ensureStubs}, which creates and never overwrites),
+     * then the regenerated set. The stubs go in the middle because a newly added activity's file must exist
+     * before {@code ActivityRegistry} names it, and a removed one's must be gone before the registry stops.
      */
     public CompletableFuture<Void> update(ActivitiesConfig newConfig) {
         // Read on the caller's thread, before the async body: deleteRemovedStubs needs to know which
@@ -92,7 +97,9 @@ public final class ActivityService {
             try {
                 newConfig.write(config.resourcesRoot());
                 deleteRemovedStubs(previous, newConfig);
+                Regeneration.ensureStubs(config);
                 ActivityStubSync.sync(config, newConfig);
+                Regeneration.write(config);
             } catch (IOException e) {
                 throw new RuntimeException("Failed to save activities: " + e.getMessage(), e);
             }
@@ -112,8 +119,7 @@ public final class ActivityService {
 
     /**
      * Persists a new canvas {@link ActivityFlow} (node placements + wires) — the drawn order, saved to the
-     * model. The generated {@code FlowDriver} that used to be rewritten from it is not; see the class
-     * javadoc.
+     * model, and the generated {@code FlowDriver} rewritten from it by {@link #update}.
      */
     public CompletableFuture<Void> updateFlow(ActivityFlow flow) {
         return update(current().withFlow(flow));

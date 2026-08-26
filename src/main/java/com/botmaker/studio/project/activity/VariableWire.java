@@ -3,7 +3,6 @@ package com.botmaker.studio.project.activity;
 import com.botmaker.sdk.api.authoring.WireText;
 import com.botmaker.studio.palette.BotType;
 import com.botmaker.studio.palette.SdkType;
-import com.botmaker.studio.project.TemplateConstants;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.types.JdkType;
 import com.botmaker.studio.types.ResolvedType;
@@ -266,7 +265,7 @@ public final class VariableWire {
             case DURATION -> new Literal("Duration.ofMillis(" + WireText.duration(text).toMillis() + "L)",
                     "java.time.Duration");
             case IMAGE_TEMPLATE -> new Literal("new %s(%s)".formatted(SdkType.IMAGE_TEMPLATE.simpleName(),
-                    quote(TemplateConstants.IMAGES_PREFIX + text + ".png")),
+                    quote(WireText.IMAGE_PREFIX + text + ".png")),
                     SdkType.IMAGE_TEMPLATE.qualifiedName());
             case KEY -> enumLiteral(SdkType.KEY, text);
             case MOUSE_BUTTON -> enumLiteral(SdkType.MOUSE_BUTTON, text);

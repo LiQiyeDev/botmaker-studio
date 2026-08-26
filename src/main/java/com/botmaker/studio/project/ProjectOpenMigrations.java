@@ -80,9 +80,11 @@ public final class ProjectOpenMigrations {
      * is <b>absent</b>, where there is no edit to judge and nothing to overwrite: {@link ProjectRepair#recover}
      * re-checks each path and never clobbers a file that exists.
      *
-     * <p>Stubs and the generated activity classes are skipped here (they have a {@code null} restorer — only
-     * {@code ActivityService} can rebuild them, and it is not wired yet at this point in the open). The menu
-     * action remains the way to get those back, and the report says so when there were any.
+     * <p><b>Stubs and the generated activity classes come back here too, since 2026-08-26.</b> They used to
+     * be skipped, because rebuilding them meant an {@code ActivityService} that is not wired yet at this
+     * point in the open; {@link Regeneration} needs no service — it reads the pom for the pin and
+     * {@code activities.json} for the model, both of which are files — so the open path can restore
+     * everything the menu action can.
      */
     private static List<String> restoreMissingFiles(ProjectConfig config, ProjectState state) {
         List<String> report = new ArrayList<>();
@@ -99,10 +101,8 @@ public final class ProjectOpenMigrations {
                         + restored.stream().map(p -> p.getFileName().toString()).sorted()
                                   .reduce((a, b) -> a + ", " + b).orElse(""));
             }
-            if (ProjectRepair.needsActivityRegeneration(missing)) {
-                report.add("Some generated activity files are still missing — "
-                        + "use Project ▸ Recover Project Files to rebuild them.");
-            }
+            // No "…and these could not be restored" line any more: since 2026-08-26 every file this pass
+            // reports has a restorer, so anything still absent afterwards failed loudly and is in the catch.
         } catch (Exception ex) {
             System.err.println("Could not restore this project's missing files: " + ex.getMessage());
         }

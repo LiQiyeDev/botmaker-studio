@@ -1,9 +1,10 @@
 package com.botmaker.studio.services;
 
+import com.botmaker.sdk.api.authoring.TemplateNames;
+import com.botmaker.sdk.api.authoring.WireText;
 import com.botmaker.studio.parser.refactor.ReviewMarker;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
-import com.botmaker.studio.project.TemplateConstants;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -111,10 +112,10 @@ public final class TemplateReferences {
                                       String markerPackage, String reviewEntry) {
         Pattern constant = constantReferenceTo(oldName);
         Pattern literal = literalReferenceTo(oldName);
-        String newConstant = TemplateConstants.constantFor(newName);
-        String newLiteral = '"' + TemplateConstants.IMAGES_PREFIX + newName + ".png\"";
+        String newConstant = TemplateNames.constantFor(newName);
+        String newLiteral = '"' + WireText.IMAGE_PREFIX + newName + ".png\"";
         String constantReplacement = Matcher.quoteReplacement(
-                newConstant == null ? newLiteral : TemplateConstants.CLASS_NAME + "." + newConstant);
+                newConstant == null ? newLiteral : TemplateNames.CLASS_NAME + "." + newConstant);
         String literalReplacement = Matcher.quoteReplacement(newLiteral);
 
         List<Path> changed = new ArrayList<>();
@@ -143,17 +144,17 @@ public final class TemplateReferences {
     /**
      * {@code Templates.OLD}, allowing a package qualifier in front and whitespace around the dot — only the
      * {@code Templates.OLD} part is matched, so a qualified use keeps its qualifier. Null when the name has no
-     * constant (see {@link TemplateConstants}), in which case there is nothing of this shape to find.
+     * constant (see {@link TemplateNames}), in which case there is nothing of this shape to find.
      */
     private static Pattern constantReferenceTo(String baseName) {
-        String constant = TemplateConstants.constantFor(baseName);
+        String constant = TemplateNames.constantFor(baseName);
         return constant == null ? null
-                : Pattern.compile("\\b" + TemplateConstants.CLASS_NAME + "\\s*\\.\\s*" + constant + "\\b");
+                : Pattern.compile("\\b" + TemplateNames.CLASS_NAME + "\\s*\\.\\s*" + constant + "\\b");
     }
 
     /** The project-relative path as a whole string literal — how a template with no constant is written. */
     private static Pattern literalReferenceTo(String baseName) {
-        return Pattern.compile(Pattern.quote('"' + TemplateConstants.IMAGES_PREFIX + baseName + ".png\""));
+        return Pattern.compile(Pattern.quote('"' + WireText.IMAGE_PREFIX + baseName + ".png\""));
     }
 
     /** Either spelling, for the read-only scan. */

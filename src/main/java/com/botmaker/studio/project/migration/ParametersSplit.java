@@ -5,6 +5,7 @@ import com.botmaker.studio.parser.refactor.SdkMigrationRunner;
 import com.botmaker.studio.parser.refactor.SdkReferences;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectFile;
+import com.botmaker.studio.project.Regeneration;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.project.activity.VariableHolder;
@@ -28,8 +29,8 @@ import java.util.stream.Stream;
  * <p>Two files used to be one. An activity's on/off tick and the delay it waits for were declared side by
  * side in one flat namespace, spelled identically, and nothing in the name said which was which — while the
  * two are governed differently at every level above the field: a flag is written by the Activity Flow and
- * read by a stub, a value is the user's and is what the Runner offers. The 2026-08-25 SDK splits the frame
- * into two templates; this step is what an existing bot needs so that the split is not a break.
+ * read by a stub, a value is the user's and is what the Runner offers. The SDK's generator emits the two
+ * separately; this step is what an existing bot needs so that the split is not a break.
  *
  * <h2>Why this is a complete repair</h2>
  *
@@ -63,17 +64,40 @@ final class ParametersSplit {
         Path activitiesFile = config.activitiesSourceFile();
         if (!Files.isRegularFile(activitiesFile)) return null;   // never generated one; nothing to move
 
-        // 2026-08-25, and temporary: the split needs both classes *written*, and nothing in this build can
-        // write them — the scaffold templates left the SDK and its own emitters do not exist yet (inversion
-        // phase 2). Refusing is the only safe answer of the three available. Doing nothing would stamp the
-        // file at version 2 and the split would never be offered again; repointing the bot's source without
-        // writing Parameters would point it at a class nobody has written. Throwing is caught by
-        // ProjectSchema.migrate, logged, and leaves the version unstamped — so the step is simply retried on
-        // the next open, which is exactly what a project needs once phase 2 lands. Everything below is the
-        // repair itself, kept intact for that turn.
-        throw new IOException("this project still declares its values in Activities, and splitting them into "
-                              + "Parameters needs the SDK's own file generator, which this build does not "
-                              + "have yet");
+        ActivitiesConfig model = ActivitiesConfig.read(config.resourcesRoot());
+        List<ActivityVariable> values = model.variables();
+
+        // Rendered before anything is written, and the whole set at once: a refusal here must leave the
+        // project exactly as it was. The generator reads the JSON, which this step does not touch — the
+        // split moves fields between two *generated* classes, and the model that decides which field goes
+        // where is already stored in the shape the SDK reads.
+        Map<Path, String> generated = Regeneration.render(config);
+        String activitiesSource = generated.get(canonical(activitiesFile));
+        String parametersSource = generated.get(canonical(config.parametersSourceFile()));
+        if (activitiesSource == null || parametersSource == null) {
+            throw new IOException("this project's SDK does not generate the two classes the split moves "
+                                  + "fields between");
+        }
+
+        List<Rewrite> rewrites = values.isEmpty() ? List.of() : repointValues(config, values);
+
+        ReviewMarker.snapshot(config, "Before splitting Parameters out of Activities");
+        Files.writeString(activitiesFile, activitiesSource);
+        Files.writeString(config.parametersSourceFile(), parametersSource);
+        for (Rewrite rewrite : rewrites) Files.writeString(rewrite.file(), rewrite.source());
+
+        if (values.isEmpty()) {
+            return "Split this project's Activities class into Activities and Parameters.";
+        }
+        return "Moved " + values.size() + " project value" + (values.size() == 1 ? "" : "s")
+               + " from Activities into Parameters"
+               + (rewrites.isEmpty() ? "." : ", and repointed " + rewrites.size() + " source file"
+                                             + (rewrites.size() == 1 ? "." : "s."));
+    }
+
+    /** {@link Regeneration} keys its answer by absolute, normalised path; so must a lookup into it. */
+    private static Path canonical(Path file) {
+        return file.toAbsolutePath().normalize();
     }
 
     /** One of the bot's own files and what it should say afterwards. */

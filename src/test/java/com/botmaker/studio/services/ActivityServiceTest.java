@@ -249,17 +249,19 @@ public class ActivityServiceTest {
     }
 
     /**
-     * A save writes {@code activities.json} and no Java at all (2026-08-25).
+     * A save writes {@code activities.json} <em>and</em> the Java that describes it (2026-08-26).
      *
-     * <p>The two tests that stood here asserted the opposite — that an empty model still wrote an
-     * {@code Activities} class, and that a project below the SDK floor was refused one by name. Both were
-     * about generation, and Studio does not generate: the templates left the SDK and its own emitters are
-     * not written yet (inversion phase 2). What has to keep holding through that interim is that the model
-     * itself is still persisted, because phase 2 restores emission on top of this path rather than rebuilding
-     * it.
+     * <p>This test has now said three different things, and the middle one is worth remembering. It asserted
+     * generation, then — for one day, deliberately — that there was <b>none</b>, because the templates had
+     * left the SDK (phase 0b) and Studio's own emitters were gone with them. Phase 4 reconnects the path, so
+     * it asserts generation again, from the other side of the inversion: the files appear because the
+     * project's own SDK produced them from the JSON this save had just written.
+     *
+     * <p>What is asserted is the files' <em>appearance</em>, never a byte of what they say. The emitted text
+     * belongs to the generator and is tested where the generator lives, in the SDK's {@code ScaffoldEmitTest}.
      */
     @Test
-    void aSaveWritesTheModelAndNoJava(@TempDir Path dir) throws Exception {
+    void aSaveWritesTheModelAndTheJavaThatDescribesIt(@TempDir Path dir) throws Exception {
         ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
         ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
 
@@ -268,9 +270,9 @@ public class ActivityServiceTest {
 
         assertTrue(java.nio.file.Files.exists(config.resourcesRoot().resolve(ActivitiesConfig.FILE_NAME)),
                 "the model is still saved");
-        assertFalse(java.nio.file.Files.exists(config.activitiesSourceFile()),
-                "no generated Java: there is nothing in this build that can write it");
-        assertFalse(java.nio.file.Files.exists(config.flowDriverSourceFile()),
-                "no generated Java: there is nothing in this build that can write it");
+        assertTrue(java.nio.file.Files.exists(config.activitiesSourceFile()));
+        assertTrue(java.nio.file.Files.exists(config.flowDriverSourceFile()));
+        assertTrue(java.nio.file.Files.exists(config.activitiesPackageDir().resolve("Mining.java")),
+                "and the new activity's stub with them");
     }
 }

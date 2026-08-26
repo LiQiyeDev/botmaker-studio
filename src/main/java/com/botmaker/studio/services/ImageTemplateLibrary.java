@@ -3,7 +3,7 @@ package com.botmaker.studio.services;
 import com.botmaker.sdk.api.authoring.TemplateNames;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
-import com.botmaker.studio.project.TemplateConstants;
+import com.botmaker.studio.project.Regeneration;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -140,7 +140,7 @@ public final class ImageTemplateLibrary {
      * <p><b>Lowercase, and no {@code -}, because the name is also a Java constant.</b> Every template is
      * declared in the generated {@code Templates} class as {@code YTUJ = "…/ytuj.png"}, and Studio reads that
      * constant back to know which file a block refers to. Restricting the name to a lowercase identifier makes
-     * the two exactly reversible — see {@link com.botmaker.studio.project.TemplateConstants}. Names captured
+     * the two exactly reversible — see {@link TemplateNames}. Names captured
      * before this rule keep working; they simply get no constant.
      */
     public static String sanitizeName(String raw) {
@@ -155,21 +155,19 @@ public final class ImageTemplateLibrary {
      * class is only correct relative to the folder — a stale constant is a use site that compiles and finds
      * nothing, which is the exact failure the constants exist to turn into a compile error.
      *
-     * <p><b>No template involved, and that is a fact about the file rather than an omission.</b> The other
-     * regenerated files are rendered from the SDK's own templates because they name SDK members; this one
-     * names <em>none</em> — it declares {@code public static final String} paths and nothing else. There is
-     * nothing to ask an SDK about a file that does not mention it, so this stays a plain write. Should it
-     * ever emit a type — an {@code ImageTemplate} constant, say — it joins the same path
-     * {@code ActivityService.render} takes.
+     * <p><b>The SDK writes it, like every other generated file</b> (2026-08-26). Studio held its own emitter
+     * for this one on the argument that the file names no SDK member — it declares {@code public static final
+     * String} paths and nothing else — so there was nothing to ask an SDK about. That argument was true and
+     * beside the point: the file is <em>created</em> by the SDK with the rest of the project, so a second
+     * emitter here is a second author of one file, which is the shape this whole inversion removes. It goes
+     * through {@link Regeneration#writeTemplatesClass}, which asks for this file alone rather than the whole
+     * model-derived set — a capture changes the images folder and nothing about the flow.
      */
     public static void regenerateTemplatesClass(ProjectConfig config) {
         try {
-            Path file = config.templatesSourceFile();
-            Files.createDirectories(file.getParent());
-            List<String> names = list(config).stream().map(ImageTemplateLibrary::baseName).toList();
-            Files.writeString(file, TemplateConstants.generateSource(config.packageName(), names));
+            Regeneration.writeTemplatesClass(config);
         } catch (IOException e) {
-            System.err.println("Failed to regenerate " + TemplateConstants.CLASS_NAME + ": " + e.getMessage());
+            System.err.println("Failed to regenerate " + TemplateNames.CLASS_NAME + ": " + e.getMessage());
         }
     }
 

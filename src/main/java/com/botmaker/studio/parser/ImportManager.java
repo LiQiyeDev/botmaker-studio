@@ -1,6 +1,6 @@
 package com.botmaker.studio.parser;
 
-import com.botmaker.studio.project.TemplateConstants;
+import com.botmaker.sdk.api.authoring.TemplateNames;
 import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
@@ -157,7 +157,7 @@ public class ImportManager {
         String pkg = cu.getPackage().getName().getFullyQualifiedName();
         String base = pkg.endsWith(".activities") ? pkg.substring(0, pkg.length() - ".activities".length()) : pkg;
         if (base.equals(pkg)) return;   // same package — the class is already visible
-        addImport(cu, rewriter, base + "." + TemplateConstants.CLASS_NAME);
+        addImport(cu, rewriter, base + "." + TemplateNames.CLASS_NAME);
     }
 
     /**

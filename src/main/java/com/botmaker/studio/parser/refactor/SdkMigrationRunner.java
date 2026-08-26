@@ -552,16 +552,22 @@ public final class SdkMigrationRunner {
     /**
      * The reason a scaffold file blocks this migration, or null when none does.
      *
-     * <p>A generated file is never <em>rewritten</em> by an upgrade — the code in it is written by Studio's
-     * own templates, and a rewritten copy would be overwritten by the next regeneration anyway. So a repair
-     * that would have touched one stops the upgrade, and the sentence says which file and which element.
+     * <p>A generated file is never <em>rewritten</em> by an upgrade — it is emitted, and a rewritten copy
+     * would be overwritten by the next regeneration anyway. So a repair that would have touched one stops the
+     * upgrade, and the sentence says which file and which element.
      *
      * <p>This is deliberately conservative, and it is conservative again: for two days it was preceded by a
      * pre-flight verdict from the target jar ({@code ScaffoldCheck}), which let an upgrade through whenever
      * the target could still carry what the generators write. That verdict was part of the two-author
-     * scaffold contract and went with it (2026-08-25). The cost is that an upgrade whose only obstacle is a
-     * generated file mentioning a renamed member is refused rather than re-rendered; the way out is the same
-     * sentence it has always shown — update Studio.
+     * scaffold contract and went with it (2026-08-25).
+     *
+     * <p><b>The refusal is now stricter than the facts require, and that is knowingly left standing.</b>
+     * Since the generator became the <em>bot's own</em> SDK (inversion phase 2), {@code SdkUpgradeService}
+     * does re-render all five files after the pom has moved — against the new jar — so an upgrade blocked
+     * here would in fact have healed itself. Lifting the block needs the thing that was deleted: a way to ask
+     * the <em>target</em> jar, before the upgrade starts, whether it can still emit what it is about to be
+     * asked for. Letting it through without that trades a refusal for a project that does not compile, so it
+     * waits for the per-version catalog. Until then the sentence shown is the one it has always shown.
      */
     private static String scaffoldingInTheWay(List<ProjectFile> generated, Repairs repairs,
                                               Set<String> sdkTypes, Map<String, List<String>> fieldOwners) {

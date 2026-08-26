@@ -18,8 +18,8 @@ import java.util.List;
  *
  * <p><b>What is deliberately not here.</b> {@code ScaffoldMigration} — retiring {@code GameLoop.java} and
  * {@code Startup.java}, installing the popup guard — is not a step, because the thing it versions is the
- * generated <em>scaffold</em>, which is not one of these three files and is versioned per hole by the SDK's
- * own templates. It stays an unconditional, self-gated pass in {@code ProjectOpenMigrations}. So does
+ * generated <em>scaffold</em>, which is not one of these three files and is the SDK generator's to version.
+ * It stays an unconditional, self-gated pass in {@code ProjectOpenMigrations}. So does
  * {@code ImageTemplateLibrary.regenerateTemplatesClass}, which is not a migration at all: it is idempotent
  * regeneration that also happens to repair a hand-deleted copy, and it must run on every open, not once.
  */

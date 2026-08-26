@@ -6,6 +6,38 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-26 — regeneration is rewired; the four phase-0b costs are cleared (inversion, phase 4).** Every
+  path left refusing by name on 2026-08-25 works again, against the SDK's generator instead of Studio's
+  deleted templates: **Save Activity Flow** (and the Runner's save-then-run), **`ParametersSplit`**,
+  **Recover Project Files**, and the **SDK upgrade**'s re-render — which is back to all five generated files
+  rather than only `Templates.java`.
+  **The one new class is `project/Regeneration`**, and it is the only place Studio asks a project's own SDK
+  to produce that project's Java again. Five callers wanted the same three steps and none of them should
+  have been deciding those steps for itself: resolve the pin, read the model, render, commit.
+  **The model is read back off disk, never converted.** `Authoring.readModel` parses the same
+  `activities.json` Studio's `ActivitiesConfig` had just written, so the two record sets never meet in
+  memory — the in-memory adapter was written once in phase 1 and rejected the same day. That makes the
+  ordering rule explicit rather than incidental: **persist first, then regenerate**, so the generator emits
+  what was actually stored and not what a caller believed it had stored. It also keeps the ~94-file
+  switchover onto the SDK's records out of this phase; it is not a prerequisite for any of it.
+  **All-or-none lives in one place** — `render` → `commit` — rather than at five call sites.
+  **Restorers are real again:** every `ProjectRepair.Missing` carries one, so *Recover Project Files*
+  restores instead of listing, and `needsActivityRegeneration` is deleted (a predicate that is now always
+  false, whose callers each printed a line telling the user to run a recovery that had already finished).
+  `ProjectRecoveryAction`'s second off-thread save pass goes with it — a recovery no longer finishes after
+  it says it has.
+  **`project/TemplateConstants` retires** into the SDK's `TemplateNames`/`WireText.IMAGE_PREFIX`; seven
+  callers repointed.
+  **Two tests changed their minds on purpose**, and the third did not have to:
+  `ActivityServiceTest.aSaveWritesTheModelAndNoJava` becomes `…AndTheJavaThatDescribesIt`, `ParametersSplitTest`
+  stops asserting `Wire.duration(` — both now assert the *files that appear* and the *names they declare*,
+  never a byte of emitted text, which is the generator's to test in the SDK's own build. `LockedBlockRenderingTest`
+  went green with **no edit at all**, which is the strongest evidence the rewiring is right.
+  **One thing had to be taught, not just reconnected:** `Regeneration.templateOf` consults the **stored
+  model** before the scaffold heuristic. `looksLikeGameBot` asks whether the generated files are *there*,
+  which is exactly the question a regeneration cannot rely on — the first save of a flow, and every recovery
+  of a deleted file, run on a project where they are not.
+
 - **2026-08-26 — the pom comes back to Studio (a one-day reversal).** The entry below moved `pom.xml` to the
   SDK; this undoes that half of it and nothing else. **Why, recorded rather than edited away:** a pom is not
   a file *about* the SDK, it is the file that declares **which** SDK — and the SDK is Studio's *default

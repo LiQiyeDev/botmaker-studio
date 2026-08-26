@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * constant in the generated {@code Templates} class ({@code YTUJ = "…/ytuj.png"}). Restricting the name to a
  * lowercase identifier makes name↔constant an exact round trip, which is what lets a block read
  * {@code Templates.YTUJ} back to the file it stands for. See
- * {@link com.botmaker.studio.project.TemplateConstants}.
+ * {@link com.botmaker.sdk.api.authoring.TemplateNames}, which is the SDK's since the generator moved there.
  */
 public class ImageTemplateLibraryNameTest {
 

@@ -127,7 +127,7 @@ class ProjectRepairTest {
     }
 
     @Test
-    void aFileDeletedOutsideStudioIsFoundButCannotYetBeRestored() throws IOException {
+    void aFileDeletedOutsideStudioIsFoundAndPutBack() throws IOException {
         Path driver = mainDir.resolve("FlowDriver.java");
         Files.delete(driver);   // e.g. an `rm` outside the Studio
 
@@ -135,12 +135,12 @@ class ProjectRepairTest {
         assertEquals(1, missing.size());
         assertEquals("FlowDriver.java", missing.get(0).fileName());
 
-        // Finding it is still the point, and it is the half that matters: a project that will not compile must
-        // never be reported healthy. Putting it back is the SDK generator's job and that does not exist yet
-        // (2026-08-25, inversion phase 2), so the entry carries no restorer and recover() writes nothing.
-        assertNull(missing.getFirst().restorer());
-        assertTrue(ProjectRepair.recover(config, missing).isEmpty());
-        assertFalse(Files.exists(driver));
+        // Finding it is half the point; writing it back is the other half, and it came back on 2026-08-26
+        // when the generator landed in the SDK. What is asserted here is the file's *reappearance*, not a
+        // byte of its text: what a FlowDriver says is the SDK's to test, in its own build.
+        assertEquals(List.of(driver), ProjectRepair.recover(config, missing));
+        assertTrue(Files.exists(driver));
+        assertTrue(Files.readString(driver).contains("class FlowDriver"));
     }
 
     @Test
@@ -229,21 +229,21 @@ class ProjectRepairTest {
     }
 
     @Test
-    void missingActivityStubsAreReportedAndDelegated() {
+    void missingActivityStubsAreReportedAndRestorable() {
         ActivitiesConfig activities = ActivitiesConfig.of(
                 List.of(new ActivityDefinition("Mining", true, "", List.of(), true, true)), List.of());
 
         List<ProjectRepair.Missing> missing = ProjectRepair.findMissing(config, ProjectTemplate.GAME_BOT, activities);
 
-        // Everything ActivityService owns for this activity is absent here: its settings, the generated
-        // Activities class holding the enable flag, its Parameters twin, and the subclass stub. Parameters
-        // is listed even with no variables to put in it — the pair is written by one save, and a project
-        // holding one of the two is not a state the emitter can produce.
+        // Everything this activity implies is absent here: its settings, the generated Activities class
+        // holding the enable flag, its Parameters twin, and the subclass stub. Parameters is listed even
+        // with no variables to put in it — the pair is written by one save, and a project holding one of the
+        // two is not a state the emitter can produce.
         assertEquals(List.of("activities.json", "Activities.java", "Parameters.java", "Mining.java"),
                 missing.stream().map(ProjectRepair.Missing::fileName).toList());
-        // None of them carry a restorer: ActivityService owns generating them, not ProjectRepair.
-        assertTrue(missing.stream().allMatch(m -> m.restorer() == null));
-        assertTrue(ProjectRepair.needsActivityRegeneration(missing));
+        // Every one of them can be written back (2026-08-26): the settings from the model in hand, the three
+        // .java files from the project's own SDK. For one day they all carried a null restorer.
+        assertTrue(missing.stream().allMatch(m -> m.restorer() != null));
     }
 
     @Test
@@ -269,13 +269,18 @@ class ProjectRepairTest {
     }
 
     @Test
-    void recoverSkipsStubsItDoesNotOwn() throws IOException {
+    void recoverWritesTheStubAndTheHolderClassesBack() throws IOException {
         ActivitiesConfig activities = ActivitiesConfig.of(
                 List.of(new ActivityDefinition("Mining", true, "", List.of(), true, true)), List.of());
         List<ProjectRepair.Missing> missing = ProjectRepair.findMissing(config, ProjectTemplate.GAME_BOT, activities);
 
         List<Path> written = ProjectRepair.recover(config, missing);
-        assertTrue(written.isEmpty(), "the stub is ActivityService's to write, not ProjectRepair's");
+        // The stub used to be skipped here — only ActivityService could write one, and this pass had no
+        // access to it. Since 2026-08-26 every entry is restorable, so a recovery finishes on its own rather
+        // than handing the rest to a save the user has to remember to make.
+        assertEquals(List.of("activities.json", "Activities.java", "Parameters.java", "Mining.java"),
+                written.stream().map(p -> p.getFileName().toString()).toList());
+        assertTrue(written.stream().allMatch(Files::exists));
     }
 
     @Test

@@ -99,8 +99,10 @@ public final class ProjectSpecs {
      *
      * <p>The empty model is what bounds this to honest callers: it is the right answer for a file that says
      * nothing about the project's activities — an empty project's entry point — and the wrong one for every
-     * file that does. Restoring those is inversion phase 4's job, once Studio builds a {@link ProjectModel}
-     * of its own; until then a caller that needs one gets a null restorer and a report rather than a guess.
+     * file that does. <b>Do not reach for it to restore a game bot's file:</b> {@link Regeneration} reads the
+     * project's stored model and is the one that renders against what the project actually contains. This
+     * stays because an empty project has no {@code activities.json} to read, so there is nothing for the
+     * model-driven path to be more accurate about.
      */
     public static String generatedSource(ProjectConfig cfg, ProjectTemplate template, String sdkPin,
                                          String fileName) {
