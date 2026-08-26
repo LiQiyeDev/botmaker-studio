@@ -322,7 +322,8 @@ public class ImportManager {
      * carries the old import lines, and a stale import is a hard compile error on a line the user never
      * wrote: it would open every existing project with a wall of red for a rename nobody asked for. This is
      * the repair, and it costs nothing because the bundled catalog already holds the current FQN for every
-     * simple name the SDK owns.
+     * simple name the SDK owns. SDK 1.2.0 added one more source of stale lines — {@code shared.ocr} moved
+     * into {@code api.vision} — handled by the same lookup; see {@link #SHARED_OCR_PREFIX}.
      *
      * <p><b>An unrecognised name is left alone, deliberately.</b> A simple name the catalog does not know
      * is either a class that left the public API (the {@code CaptureSource} implementations, the observation
@@ -341,7 +342,7 @@ public class ImportManager {
             ImportDeclaration imp = (ImportDeclaration) o;
             if (imp.isOnDemand() || imp.isStatic()) continue;
             String stale = imp.getName().getFullyQualifiedName();
-            if (!stale.startsWith(SDK_API_PREFIX)) continue;
+            if (!stale.startsWith(SDK_API_PREFIX) && !stale.startsWith(SHARED_OCR_PREFIX)) continue;
 
             String simpleName = stale.substring(stale.lastIndexOf('.') + 1);
             String current = PluginHost.qualifiedName(simpleName);
@@ -357,6 +358,16 @@ public class ImportManager {
 
     /** Package prefix every SDK API class shares — the scope {@link #repairSdkImports} is allowed to touch. */
     private static final String SDK_API_PREFIX = "com.botmaker.sdk.api.";
+
+    /**
+     * The second scope, and the only non-SDK one: SDK 1.2.0 moved {@code com.botmaker.shared.ocr} into the
+     * SDK, so a bot that tuned OCR carries {@code import com.botmaker.shared.ocr.OcrOptions;} and would open
+     * with a compile error on a line it never wrote. The three names a bot could have written down —
+     * {@code OcrOptions}, {@code OcrLanguage}, {@code TextResult} — are all in the catalog now, so the same
+     * simple-name lookup below answers them; the engine classes are internal and were never importable.
+     * This is a fixed, closed list of one dead package, not an invitation to repair arbitrary imports.
+     */
+    private static final String SHARED_OCR_PREFIX = "com.botmaker.shared.ocr.";
 
     /** The fully-qualified names of the current file's import declarations, in source order. */
     public static List<String> listImports(CompilationUnit cu) {
