@@ -71,32 +71,41 @@ Studio's BotMaker Maven dependencies are **`botmaker-shared`** (editor-time nati
 **`botmaker-session`** (private displays) and **`botmaker-sdk`**. The SDK dep is narrow and deliberate, and
 there are three distinct relationships to keep straight:
 
-- **Studio compiles against the SDK for _type identity only_.** `palette/SdkType` is an enum over every class
-  under `com.botmaker.sdk.api`, each constant holding a real `Class<?>` literal. That makes the facade set,
-  the menu order, the menu icons and — crucially — the **fully-qualified names** compiler-checked. The FQNs
-  matter because facades live in *sub-packages* (`api.vision.ImageFinder`, `api.interaction.Mouse`,
-  `api.capture.Window`), so no import path can derive them from the simple name. It replaced `palette/SdkApi`,
-  a hand-maintained `List<String>` that nothing verified, plus a second hand-maintained icon map in
-  `MenuIcons`. **A new SDK class now needs a constant here or the surrounding code won't see it — but the
-  compiler tells you when an existing one moves or is renamed.**
+- **Studio compiles against the SDK for _type identity only_, and since 2026-08-26 it asks the SDK rather
+  than mirroring it.** `palette/SdkType` — an enum over every class under `com.botmaker.sdk.api`, each
+  constant holding a real `Class<?>` literal — is **deleted** (plugin platform, phase 7), and so are
+  `SdkTypeTest` and `SdkTypeUseTest`. What it was *right* about survives whole: the facade set, the menu
+  order, the icons and the **fully-qualified names** are still compiler-checked real `Class<?>` identities,
+  because the SDK's own per-version catalog (`internal/plugin/catalog`) names its members with **method
+  references**. What it was wrong about is that Studio was the author: a class renamed in the SDK broke a
+  menu at runtime, and a class *added* to the SDK was invisible until somebody typed a constant here.
+  It replaced `palette/SdkApi`, a hand-maintained `List<String>` nothing verified, plus a second
+  hand-maintained icon map in `MenuIcons`; the catalog replaced it in turn.
 
-  **`SdkType` mirrors the SDK's `api`/`internal` boundary; it does not draw a second one.** The SDK's rule is
-  *"can a bot write the name down?"* — a type it can only ever *receive* lives in `internal`. When 1.1.0
+  **`plugin/PluginHost` is where a name is now resolved, and it serves two different catalogs on purpose.**
+  `bundled()` is "which names does a plugin own?" — the newest surface this build knows — and backs
+  `ownerOf` / `qualifiedName` / `isFacadeClass` / `menuFacades` / `facadeNames`, every one of which is a
+  question asked with **no project in hand**. `catalogFor(pin)` is "what should we offer *this* bot?" and is
+  the only one curation may read. Using the first for curation would offer a bot on an older SDK members its
+  jar has never had — the bug the pinned catalog exists to prevent.
+
+  **The catalog mirrors the SDK's `api`/`internal` boundary; it does not draw a second one.** The SDK's rule
+  is *"can a bot write the name down?"* — a type it can only ever *receive* lives in `internal`. When 1.1.0
   applied that rule, the `CaptureSource` implementations (`Desktop`, `Monitor`, `NamedWindow`,
   `SessionSource`) and the observation stack (`Bots`, `BotObserver`, `Surface`, `ClickEvent`, `MatchEvent`,
-  `SwipeEvent`) left `api` and left this enum with them, and `Screen` was deleted. Don't add a constant back
-  for a type only a factory returns. The same release sub-packaged the whole surface — `api.geometry.Point`,
-  `api.util.Debug`, `api.bot.Session`, `api.meta.ReplacedBy` — which is why **`ImportManager.repairSdkImports`
-  exists**: an existing bot's `import com.botmaker.sdk.api.Point;` no longer resolves, so it is repointed on
-  open by asking `SdkType` for the simple name's current FQN. A name `SdkType` does not know is left
-  untouched, never guessed — a wrong import compiles into a different type, an untouched one fails where the
-  user can read why.
+  `SwipeEvent`) left `api`, and `Screen` was deleted. A type only a factory returns is not catalogued.
+  The same release sub-packaged the whole surface — `api.geometry.Point`, `api.util.Debug`,
+  `api.bot.Session`, `api.meta.ReplacedBy` — which is why **`ImportManager.repairSdkImports` exists**: an
+  existing bot's `import com.botmaker.sdk.api.Point;` no longer resolves, so it is repointed on open by
+  asking `PluginHost.qualifiedName` for the simple name's current FQN, guarded by the
+  `com.botmaker.sdk.api.` prefix. A name no plugin owns is left untouched, never guessed — a wrong import
+  compiles into a different type, an untouched one fails where the user can read why.
 - **Method knowledge does _not_ come from that jar, on purpose.** A generated bot compiles against the SDK
   version *it* pins, which may be older than Studio's. So methods still come from `ProjectAnalyzer` scanning
   the bot's **resolved** SDK jar with ClassGraph, and Javadoc from `SdkDocsService` parsing the bot's
   `botmaker-sdk:<version>:sources` jar. Adding a *method* to an existing facade needs no Studio change.
-- **`SdkType` is the superset; `services/SdkSurfaceService` is what the bot actually has, and the palette is
-  the intersection.** Those two drifting apart is the normal case, not the exception — a bot pins one SDK,
+- **The served catalog is the superset; `services/SdkSurfaceService` is what the bot actually has, and the
+  palette is the intersection.** Those two drifting apart is the normal case, not the exception — a bot pins one SDK,
   Studio ships on its own train — and until 2026-08 nothing noticed: an older bot was offered blocks its jar
   could not compile, and the only feedback was a javac line *after* the block was built. The service parses
   nothing; it reads the `ClassInfo` `TypeSummaryManager` already holds, including `@Deprecated` (bytecode, a
@@ -110,14 +119,16 @@ there are three distinct relationships to keep straight:
   first — the `OverlayPalette` chips, the class dropdowns on `MethodInvocationBlock`/`LambdaCallBlock`, and
   `ProjectSettingsDialog`'s favourites.
   **That rule is about *presence*. Curation is a second question and does need an explicit filter** (2026-08-23):
-  since the SDK's `@Palette`, "is this method here?" and "should we lead with it?" are different, and nothing
-  enumerable answers the second.
-  **Read the rest of this bullet in the past tense until the inversion's phase 6.** `@Palette` was deleted from
-  the SDK on 2026-08-25 with the rest of the scaffold contract apparatus, so **every** jar now takes the
-  no-`Palette`-class path and every menu offers everything. Studio's filtering machinery is untouched and
-  still correct — what it consults is simply never present — and phase 6 has the SDK serve the palette itself
-  rather than annotate it. The invariant that keeps it safe: **filter what is *offered*, never what is
-  *resolved*.** `MethodInvocationBlock.findSignatures` stays unfiltered (it backs argument typing and the
+  "is this method here?" and "should we lead with it?" are different, and nothing enumerable answers the second.
+  **Since 2026-08-26 the answer comes from the SDK's per-version catalog, served through
+  `PluginHost.catalogFor(the project's pin)`** — the third mechanism to hold this job, after an `@Palette`
+  annotation probed out of the bot's jar (2026-08-23 → 2026-08-25) and nothing at all for the day between.
+  Read `isCurated` as *"a plugin catalogues this type"* and `isPaletteAware` as *"a catalog was served"*.
+  **The fail-open is at the version level and only there:** a pin with no catalog — released before catalogs
+  existed, *or newer than this editor* — is uncurated, so the menus widen rather than empty. Curation touches
+  the **index** not at all; presence and curation are two questions with two sources, which is why
+  `SdkSurfacePaletteTest` builds no fixture jar and drives everything from one line in a pom.
+  The invariant that keeps it safe: **filter what is *offered*, never what is *resolved*.** `MethodInvocationBlock.findSignatures` stays unfiltered (it backs argument typing and the
   current-overload lookup), and the picker shows *offered ∪ the overload this call is already on*, so a block
   sitting on a hidden overload keeps rendering, keeps compiling and can still see where it is.
   **Every surface that *proposes* a member consults it, and getting that list wrong is the mistake this
@@ -131,27 +142,32 @@ there are three distinct relationships to keep straight:
   `retainOffered` is `SdkSurfaceService.retainOfferedNames`, which deliberately has **no** never-hand-back-
   nothing guard: an empty ⚙ picker on a block that plainly has overloads reads as breakage, an absent submenu
   does not.
-  **Curation is about members; `SdkType.Role` is about types, and the two are separate on purpose.** Whether a
-  type gets a submenu at all (`FACADE`), is recognised for chrome but never offered (`FACADE_HIDDEN` —
-  `Window`, `Debug`, `Watchdog`, `PopupGuard`, `Session`) or is an import target only (`VALUE` — `Rect`,
-  `Point`, the result types) is Studio's editorial call, travelling with an icon and a display order the SDK
-  knows nothing about; folding it into `@Palette` as a `menu =` attribute was considered and rejected. The
-  corollary that reads as a contradiction from the wrong end: a `FACADE_HIDDEN` or `VALUE` type is still worth
-  curating, because its members are reached through a variable's member submenu and a placed block's ⚙ picker.
-  **Constants are never curated** — the fields half of a member submenu is always offered whole (`@Palette` has
-  no `FIELD` target, and enum constants reach the activity pickers through `SdkType.enumConstantNames()`, which
-  never consults the index).
-  One collision to know about: the index is keyed by **simple name**, so `SdkSurfaceService.paletteKey` admits
-  a *qualified* name only under `com.botmaker.sdk.api` — a user's own `com.mybot.Window` is nobody's to curate
-  (`PaletteKeyResolutionTest`). A **bare** simple name is still trusted, so a user class named exactly `Window`
+  **Curation is about members; `FacadeRole` is about types, and the two are separate on purpose.** Whether a
+  type gets a submenu at all (`MENU`), is recognised for chrome but never offered (`HIDDEN` — `Window`,
+  `Debug`, `Watchdog`, `PopupGuard`, `Session`) or is an import target only (`VALUE` — `Rect`, `Point`, the
+  result types) travels with an icon and a display order, and since phase 7 all three are the **catalog's**
+  to declare rather than Studio's — which is what retired `SdkType.Role`. The corollary that reads as a
+  contradiction from the wrong end: a `HIDDEN` or `VALUE` type is still worth curating, because its members
+  are reached through a variable's member submenu and a placed block's ⚙ picker.
+  **Constants are never curated** — the fields half of a member submenu is always offered whole (a catalog
+  names methods and constructors; enum constants reach the activity pickers through `VariableWire`'s own
+  `enumConstantNames`, which never consults the index or the catalog).
+  One collision to know about: the index is keyed by **simple name**, so a *qualified* name reaches
+  `SdkSurfaceService` only as an exact match against a catalogued class — a user's own `com.mybot.Mouse` is
+  nobody's to curate (`PaletteKeyResolutionTest`), and since the catalog holds the real `Class<?>` that is
+  now an identity check rather than a package-prefix guess. A **bare** simple name is still trusted, so a
+  user class named exactly `Window`
   reaching `MethodInvocationBlock`'s class scope would be curated by the SDK's answer; that hole predates the
   change, costs a couple of missing dropdown entries and never a wrong edit, and is left open rather than
-  guessed at. An SDK with no `@Palette` class in its index predates curation and every menu
-  is byte-for-byte unchanged; so is a facade whose own type is unannotated. One trap worth knowing: the
-  signature key is derived in two vocabularies — `MethodSignature.signatureKey()` from the analyzer's
-  signatures and `signatureKeyOf(MethodInfo)` from the raw index — and a mismatch has **no symptom**, just an
-  annotated overload that never appears; `SignatureKeyAgreementTest` compares both for every method in the
-  real SDK jar and is the reason to keep the derivation in one place.
+  guessed at. A pin no catalog names leaves every menu byte-for-byte unchanged; so does a class no catalog
+  names inside a catalogued pin — which is what lets a catalog be written one facade at a time. One trap
+  worth knowing: the signature key is derived in **three** vocabularies — `MethodSignature.signatureKey()`
+  from the analyzer's signatures, `signatureKeyOf(MethodInfo)` from the raw index, and
+  `signatureKeyOf(MemberId)` from the descriptor a catalog's method reference carried — and a mismatch has
+  **no symptom**, just a catalogued overload that never appears. `SignatureKeyAgreementTest` holds all three
+  against the real SDK jar and is the reason to keep the derivation in one place. Varargs is the case that
+  bites: a descriptor cannot say varargs, so the third derivation reads the flag back off the declaring
+  `Class`, because the key spells a varargs tail as its **element** type.
   **There is no version floor — `MIN_SDK_VERSION`, the amber banner, `SdkSurfaceService.isBelowMinimum`,
   `EditorCanvas.sdkFloorBanner` and `TemplateStore.requireFloor` were all deleted on 2026-08-25**, reversing
   the `1.1.0` floor set the day before. The floor existed to stop Studio emitting `FlowGraph.of(…)` into a

@@ -1,6 +1,5 @@
 package com.botmaker.studio.parser;
 
-import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.services.SdkSurfaceService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
@@ -67,8 +66,8 @@ public record EditContext(AST ast, CompilationUnit cu, ASTRewrite rewriter,
         ImportManager.addTemplatesImport(cu, rewriter);
     }
 
-    /** Imports an SDK type by identity — cannot fail to resolve. See {@link ImportManager#addImport}. */
-    public void addImport(SdkType type) {
+    /** Imports a type by identity — cannot fail to resolve. See {@link ImportManager#addImport}. */
+    public void addImport(Class<?> type) {
         ImportManager.addImport(cu, rewriter, type);
     }
 

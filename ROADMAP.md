@@ -6,6 +6,32 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-26 — Studio reads the palette from the plugin, and `palette/SdkType` retires (plugin platform,
+  phase 7).** The hand-mirrored enum of the SDK's class list is **deleted**, with `SdkTypeTest` and
+  `SdkTypeUseTest`. Its three jobs went three different ways, and the split is the point: **FQNs and import
+  ownership** to the served catalog (which holds real `Class<?>` identities, so `ImportManager`'s
+  JDK-collision deduction survives intact — `repairSdkImports` now asks `PluginHost.qualifiedName`), **menu
+  order** to the catalog's declaration order, and **`MENU_FACADES`/`FACADE_NAMES`** to `PluginHost.menuFacades()`
+  / `facadeNames()`. Every remaining use site names the SDK class outright (`Mouse.class`, `Wait.class`), which
+  is what `ResolvedType.is`, `SdkNodes`, `BlockType.LibraryCall.facade()` and `EditContext.addImport` already
+  took — so the sweep was a token swap, not a redesign, across `MacroTranslator`, the overlay
+  (`OverlayPalette`, `ProgramShapeOverlay`) and the nine pickers.
+  **`services/SdkSurfaceService`'s curation half now reads the catalog** — `isCurated`, `offeredSignatures`,
+  `isOffered`, `retainOffered`, `retainOfferedNames` — served by `PluginHost.catalogFor(pin)`, so the answer
+  is for **the version the project pins**, not the one Studio bundles. `isPaletteAware()` becomes "a catalog
+  was served"; a pin with no catalog widens the menus rather than emptying them, in both directions (too old
+  *and* newer than this editor). The **presence and `@Deprecated` queries are untouched**: they read the bot's
+  own jar, and are the half a catalog deliberately cannot answer — a frozen catalog can only name members that
+  still compile. Curation no longer touches the index at all, which is why the two rewritten tests
+  (`SdkSurfacePaletteTest`, `PaletteKeyResolutionTest`) build **no fixture jar**: what decides these answers is
+  one line in a pom. The qualified spelling is now matched **exactly** rather than by package prefix, so a
+  user's own `com.mybot.Mouse` cannot collide with the SDK's.
+  **A third signature-key vocabulary joined the two `SignatureKeyAgreementTest` already held:**
+  `signatureKeyOf(MemberId)`, over the descriptor a catalog's method reference carried. It is the one curation
+  actually flows through, and a member the catalog names that no `MethodSignature` spells the same way is
+  offered by nobody, with no error anywhere — so every member of the bundled catalog is now held against the
+  real SDK jar.
+
 - **2026-08-26 — regeneration is rewired; the four phase-0b costs are cleared (inversion, phase 4).** Every
   path left refusing by name on 2026-08-25 works again, against the SDK's generator instead of Studio's
   deleted templates: **Save Activity Flow** (and the Runner's save-then-run), **`ParametersSplit`**,

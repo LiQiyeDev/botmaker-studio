@@ -775,7 +775,7 @@ public class BlockConverter {
     // =========================================================================
 
     private static boolean isLibraryClass(String name) {
-        return com.botmaker.studio.palette.SdkType.isFacadeClass(name);
+        return com.botmaker.studio.plugin.PluginHost.isFacadeClass(name);
     }
 
     private static boolean isComparisonOperator(InfixExpression.Operator op) {

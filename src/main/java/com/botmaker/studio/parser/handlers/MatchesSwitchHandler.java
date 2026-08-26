@@ -1,6 +1,7 @@
 package com.botmaker.studio.parser.handlers;
 
-import com.botmaker.studio.palette.SdkType;
+import com.botmaker.sdk.api.vision.ImageTemplate;
+import com.botmaker.sdk.api.vision.Matches;
 import com.botmaker.studio.parser.helpers.AstRewriteHelper;
 import com.botmaker.studio.parser.helpers.SdkNodes;
 import org.eclipse.jdt.core.dom.AST;
@@ -215,7 +216,7 @@ public final class MatchesSwitchHandler {
 
     /** The type text names {@code Matches}, whether the file imported it or qualified it. */
     private static boolean namesMatches(String written) {
-        String simple = SdkType.MATCHES.simpleName();
+        String simple = Matches.class.getSimpleName();
         return written.equals(simple) || written.endsWith("." + simple);
     }
 
@@ -422,7 +423,7 @@ public final class MatchesSwitchHandler {
     /** {@code case Matches m when m.hasAny(new ImageTemplate("…"), …) ->} */
     private static SwitchCase newGuardedCase(AST ast, MatchesCheck check, List<String> paths) {
         SingleVariableDeclaration variable = ast.newSingleVariableDeclaration();
-        variable.setType(SdkNodes.type(ast, SdkType.MATCHES));
+        variable.setType(SdkNodes.type(ast, Matches.class));
         variable.setName(ast.newSimpleName(PATTERN_VAR));
 
         TypePattern pattern = ast.newTypePattern();
@@ -451,7 +452,7 @@ public final class MatchesSwitchHandler {
 
     private static ClassInstanceCreation newTemplate(AST ast, String path) {
         ClassInstanceCreation cic = ast.newClassInstanceCreation();
-        cic.setType(SdkNodes.type(ast, SdkType.IMAGE_TEMPLATE));
+        cic.setType(SdkNodes.type(ast, ImageTemplate.class));
         cic.arguments().add(SdkNodes.templateArgument(ast, path));
         return cic;
     }

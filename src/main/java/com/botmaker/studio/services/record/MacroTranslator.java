@@ -1,5 +1,10 @@
 package com.botmaker.studio.services.record;
 
+import com.botmaker.sdk.api.capture.CaptureSource;
+import com.botmaker.sdk.api.interaction.Key;
+import com.botmaker.sdk.api.interaction.Keyboard;
+import com.botmaker.sdk.api.interaction.Mouse;
+import com.botmaker.sdk.api.interaction.Wait;
 import com.botmaker.shared.input.InputEvent;
 import com.botmaker.studio.palette.BlockType.LibraryCall;
 import com.botmaker.studio.palette.BlockType;
@@ -7,7 +12,6 @@ import com.botmaker.studio.palette.Initializer.EnumConst;
 import com.botmaker.studio.palette.Initializer.IntLit;
 import com.botmaker.studio.palette.Initializer.StaticCall;
 import com.botmaker.studio.palette.Initializer.StrLit;
-import com.botmaker.studio.palette.SdkType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -180,27 +184,27 @@ public final class MacroTranslator {
     // ── Block builders (ad-hoc LibraryCalls; not BlockCatalog entries) ───────────────────────────────────
 
     private static BlockType click(String title, int relX, int relY) {
-        return new LibraryCall("REC_CLICK", "Mouse Click", INPUT, SdkType.MOUSE, "click",
-                List.of(new StaticCall(SdkType.CAPTURE_SOURCE.simpleName(), "window", List.of(new StrLit(title))),
+        return new LibraryCall("REC_CLICK", "Mouse Click", INPUT, Mouse.class, "click",
+                List.of(new StaticCall(CaptureSource.class.getSimpleName(), "window", List.of(new StrLit(title))),
                         new IntLit(Integer.toString(relX)), new IntLit(Integer.toString(relY))));
     }
 
     private static BlockType type(String text) {
-        return new LibraryCall("REC_TYPE", "Type Text", INPUT, SdkType.KEYBOARD, "type", List.of(new StrLit(text)));
+        return new LibraryCall("REC_TYPE", "Type Text", INPUT, Keyboard.class, "type", List.of(new StrLit(text)));
     }
 
     private static BlockType tap(String keyName) {
-        return new LibraryCall("REC_TAP", "Press Key", INPUT, SdkType.KEYBOARD, "tap",
-                List.of(new EnumConst(SdkType.KEY.simpleName(), keyName)));
+        return new LibraryCall("REC_TAP", "Press Key", INPUT, Keyboard.class, "tap",
+                List.of(new EnumConst(Key.class.getSimpleName(), keyName)));
     }
 
     private static BlockType scroll(int notches) {
-        return new LibraryCall("REC_SCROLL", "Scroll", INPUT, SdkType.MOUSE, "scroll",
+        return new LibraryCall("REC_SCROLL", "Scroll", INPUT, Mouse.class, "scroll",
                 List.of(new IntLit(Integer.toString(notches))));
     }
 
     private static BlockType waitMs(long ms) {
-        return new LibraryCall("REC_WAIT", "Wait", CONTROL, SdkType.WAIT, "milliseconds",
+        return new LibraryCall("REC_WAIT", "Wait", CONTROL, Wait.class, "milliseconds",
                 List.of(new IntLit(Long.toString(ms))));
     }
 

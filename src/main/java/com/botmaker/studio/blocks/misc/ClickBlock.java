@@ -1,9 +1,9 @@
 package com.botmaker.studio.blocks.misc;
 
+import com.botmaker.sdk.api.geometry.Point;
 import com.botmaker.studio.core.AbstractStatementBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.palette.BlockCategory;
-import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.ui.render.layout.BlockLayout;
@@ -30,7 +30,7 @@ public class ClickBlock extends AbstractStatementBlock {
 
     @Override
     protected Node createUINode(CodeEditorService context) {
-        ResolvedType pointType = ResolvedType.of(SdkType.POINT);
+        ResolvedType pointType = ResolvedType.of(Point.class);
 
         var sentence = BlockLayout.sentence()
                 .addLabel("Mouse Click")

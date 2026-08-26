@@ -1,7 +1,9 @@
 package com.botmaker.studio.parser.handlers;
 
+import com.botmaker.sdk.api.vision.ImageTemplate;
+import com.botmaker.sdk.api.vision.ImageTemplateGroup;
+import com.botmaker.sdk.api.vision.Matches;
 import com.botmaker.studio.blocks.flow.MatchesGroupScope;
-import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.parser.EditContext;
 import com.botmaker.studio.parser.helpers.SdkNodes;
 import org.eclipse.jdt.core.dom.*;
@@ -30,7 +32,7 @@ public final class LambdaCallHandler {
      * which the round-trip ({@code BlockConverter}) turns into a droppable body — the same {@code newBlock()}
      * while/if loops use. The {@code className} import is added via {@link ImportManager}.
      */
-    public static MethodInvocation buildLambdaCall(EditContext ctx, SdkType facade, String method,
+    public static MethodInvocation buildLambdaCall(EditContext ctx, Class<?> facade, String method,
                                                    List<Expression> leadingArgs, String lambdaParam) {
         AST ast = ctx.ast();
         MethodInvocation mi = ast.newMethodInvocation();
@@ -95,7 +97,7 @@ public final class LambdaCallHandler {
             if (converted != null) {
                 rewriter.replace(leading, converted, null);
                 if (group) {
-                    ctx.addImport(SdkType.IMAGE_TEMPLATE_GROUP);
+                    ctx.addImport(ImageTemplateGroup.class);
                 }
             }
         }
@@ -154,8 +156,8 @@ public final class LambdaCallHandler {
         if (!(lambda.getBody() instanceof Block body) || !body.statements().isEmpty()) return null;
         if (templatePath == null) return null;
 
-        ctx.addImport(SdkType.MATCHES);
-        ctx.addImport(SdkType.IMAGE_TEMPLATE);
+        ctx.addImport(Matches.class);
+        ctx.addImport(ImageTemplate.class);
         ctx.addTemplatesImport();
         return MatchesSwitchHandler.newSeededBody(ctx.ast(), lambdaParam, templatePath);
     }
@@ -174,12 +176,12 @@ public final class LambdaCallHandler {
     /** Wrap a single image into {@code ImageTemplateGroup.of(...)} or unwrap the group's first element; null = leave as-is. */
     private static Expression convertLeading(AST ast, Expression leading, boolean group) {
         boolean isGroupCall = leading instanceof MethodInvocation gm
-                && SdkNodes.isCallOn(gm, SdkType.IMAGE_TEMPLATE_GROUP)
+                && SdkNodes.isCallOn(gm, ImageTemplateGroup.class)
                 && "of".equals(gm.getName().getIdentifier());
         if (group) {
             if (isGroupCall) return null; // already a group — nothing to convert
             MethodInvocation of = ast.newMethodInvocation();
-            of.setExpression(SdkNodes.name(ast, SdkType.IMAGE_TEMPLATE_GROUP));
+            of.setExpression(SdkNodes.name(ast, ImageTemplateGroup.class));
             of.setName(ast.newSimpleName("of"));
             of.arguments().add(ASTNode.copySubtree(ast, leading));
             return of;

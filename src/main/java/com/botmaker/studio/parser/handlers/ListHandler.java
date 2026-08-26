@@ -1,7 +1,7 @@
 package com.botmaker.studio.parser.handlers;
 
+import com.botmaker.sdk.api.vision.ImageTemplate;
 import com.botmaker.studio.palette.ExpressionType;
-import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.parser.EditContext;
 import com.botmaker.studio.parser.NodeCreator;
 import com.botmaker.studio.parser.helpers.AstRewriteHelper;
@@ -40,9 +40,9 @@ public class ListHandler {
         AST ast = ctx.ast();
 
         ClassInstanceCreation cic = ast.newClassInstanceCreation();
-        cic.setType(SdkNodes.type(ast, SdkType.IMAGE_TEMPLATE));
+        cic.setType(SdkNodes.type(ast, ImageTemplate.class));
         cic.arguments().add(SdkNodes.templateArgument(ast, ""));
-        ctx.addImport(SdkType.IMAGE_TEMPLATE);
+        ctx.addImport(ImageTemplate.class);
         ctx.addTemplatesImport();
 
         insertElement(ctx.rewriter(), listNode, cic, insertIndex);

@@ -1,6 +1,6 @@
 package com.botmaker.studio.ui.app;
 
-import com.botmaker.studio.palette.SdkType;
+import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.studio.project.StudioProjectSettings;
 import com.botmaker.studio.project.StudioProjectSettings.Resolution;
 import com.botmaker.studio.services.ProjectSettingsService;
@@ -316,15 +316,15 @@ public class ProjectSettingsDialog {
     }
 
     /**
-     * The facades <em>this project's</em> SDK actually has, in {@link SdkType} order — a facade that resolves
+     * The facades <em>this project's</em> SDK actually has, in the bundled catalog's order — a facade that resolves
      * no static methods is not in the bot's jar (the analyzer reads that jar, not the one Studio compiled
      * against), and favouriting a method on a class the bot doesn't have would store a setting that can only
      * ever fail. Falls back to the full list while the jar is still being indexed, so the dropdown is never
      * mysteriously empty — {@link #sdkIndexed()} is what gates the controls until then.
      */
     private List<String> availableFacades() {
-        if (!sdkIndexed()) return SdkType.FACADE_NAMES;
-        return SdkType.FACADE_NAMES.stream()
+        if (!sdkIndexed()) return PluginHost.facadeNames();
+        return PluginHost.facadeNames().stream()
                 .filter(c -> !projectAnalyzer.getMethods(c, true).isEmpty())
                 .collect(Collectors.toList());
     }
@@ -332,7 +332,7 @@ public class ProjectSettingsDialog {
     /** True once the SDK jar is indexed so the facades resolve to methods (else the dropdowns stay disabled). */
     private boolean sdkIndexed() {
         if (projectAnalyzer == null) return false;
-        return SdkType.FACADE_NAMES.stream().anyMatch(c -> !projectAnalyzer.getMethods(c, true).isEmpty());
+        return PluginHost.facadeNames().stream().anyMatch(c -> !projectAnalyzer.getMethods(c, true).isEmpty());
     }
 
     /** Splits a stored comma-separated method list back into a set (order-insensitive membership test). */

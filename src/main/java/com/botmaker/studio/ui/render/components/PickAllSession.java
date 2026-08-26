@@ -1,8 +1,9 @@
 package com.botmaker.studio.ui.render.components;
 
+import com.botmaker.sdk.api.geometry.Point;
+import com.botmaker.sdk.api.geometry.Rect;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.events.CoreApplicationEvents.ResourcesChangedEvent;
-import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.parser.CodeEditor;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.ImageTemplateLibrary;
@@ -47,10 +48,10 @@ public final class PickAllSession {
     /** True when {@code type} is one this session can pick on screen ({@code ImageTemplate}/{@code Rect}/{@code Point}). */
     private static boolean isPickable(ResolvedType type) {
         return ImageTemplatePicker.isImageTemplateType(type)
-                || isType(type, SdkType.RECT) || isType(type, SdkType.POINT);
+                || isType(type, Rect.class) || isType(type, Point.class);
     }
 
-    private static boolean isType(ResolvedType type, SdkType sdkType) {
+    private static boolean isType(ResolvedType type, Class<?> sdkType) {
         return type != null && type.is(sdkType);
     }
 
@@ -86,10 +87,10 @@ public final class PickAllSession {
 
             if (ImageTemplatePicker.isImageTemplateType(type)) {
                 steps.add(new PickStep.ImageStep(label, crop -> pending.add(new PendingImage(idx, crop))));
-            } else if (isType(type, SdkType.RECT)) {
+            } else if (isType(type, Rect.class)) {
                 steps.add(new PickStep.RegionStep(label,
                         r -> values.put(idx, new CodeEditor.ArgValue.RectVal(r[0], r[1], r[2], r[3]))));
-            } else if (isType(type, SdkType.POINT)) {
+            } else if (isType(type, Point.class)) {
                 steps.add(new PickStep.PointStep(label,
                         p -> values.put(idx, new CodeEditor.ArgValue.PointVal(p[0], p[1]))));
             }

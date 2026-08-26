@@ -1,8 +1,8 @@
 package com.botmaker.studio.ui.render.components;
 
+import com.botmaker.sdk.api.vision.ImageTemplate;
 import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.events.CoreApplicationEvents;
-import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.services.CodeEditorService;
@@ -58,7 +58,7 @@ public final class ImageTemplatePicker {
 
     /** True when {@code type} is the SDK {@code ImageTemplate} (by simple or qualified name). */
     public static boolean isImageTemplateType(ResolvedType type) {
-        return type != null && type.is(SdkType.IMAGE_TEMPLATE);
+        return type != null && type.is(ImageTemplate.class);
     }
 
     /** Builds the picker control bound to {@code templateArg} (a {@code new ImageTemplate("…")} expression). */

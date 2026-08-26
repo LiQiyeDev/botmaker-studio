@@ -1,8 +1,8 @@
 package com.botmaker.studio.ui.render.components.pickers;
 
 import com.botmaker.sdk.api.authoring.WireText;
+import com.botmaker.sdk.api.interaction.Wait;
 import com.botmaker.studio.core.ValueSlot;
-import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.parser.helpers.SdkNodes;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.ui.render.components.DurationFields;
@@ -185,7 +185,7 @@ public final class DurationPicker {
      */
     static MethodInvocation editableWaitCall(Expression slot) {
         if (!(slot.getParent() instanceof MethodInvocation call)) return null;
-        if (!SdkNodes.isCallOn(call, SdkType.WAIT)) return null;
+        if (!SdkNodes.isCallOn(call, Wait.class)) return null;
         if (!call.arguments().contains(slot)) return null;
         String name = call.getName().getIdentifier();
         int arity = call.arguments().size();

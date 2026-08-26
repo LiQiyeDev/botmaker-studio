@@ -462,7 +462,7 @@ public final class ValueEditors {
      * dropdown over the tolerance plus two fields.
      *
      * <p>This slot used to render as an empty dropdown, and the reason is worth recording: the generic enum
-     * branch asked {@code SdkType.PRECISION.enumConstantNames()}, and {@code Precision} is a <em>record</em>,
+     * branch read {@code Precision}'s enum constants, and {@code Precision} is a <em>record</em>,
      * so it has no constants and the list came back empty. A record's fields are what it needs edited, and
      * they are what this shows.
      *

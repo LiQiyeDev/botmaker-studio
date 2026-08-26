@@ -20,9 +20,9 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * The JDK types the editor names, each holding a real {@link Class} literal — the same trick
- * {@code palette.SdkType} plays for the SDK surface, for the same reason: a name spelled as a string is
- * checked by nothing.
+ * The JDK types the editor names, each holding a real {@link Class} literal — the same trick the SDK's own
+ * palette catalog plays for its surface, for the same reason: a name spelled as a string is checked by
+ * nothing.
  *
  * <p>Four files had each re-listed a slice of this: {@code ProjectAnalyzer}'s "common {@code java.util}
  * fallback" (which then built its answer as {@code "java.util." + simpleName}, so a type that moved package

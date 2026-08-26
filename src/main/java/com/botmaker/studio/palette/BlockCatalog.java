@@ -1,5 +1,16 @@
 package com.botmaker.studio.palette;
 
+import com.botmaker.sdk.api.emulator.Emulator;
+import com.botmaker.sdk.api.emulator.Emulators;
+import com.botmaker.sdk.api.geometry.Point;
+import com.botmaker.sdk.api.interaction.Key;
+import com.botmaker.sdk.api.interaction.Keyboard;
+import com.botmaker.sdk.api.interaction.Mouse;
+import com.botmaker.sdk.api.interaction.Wait;
+import com.botmaker.sdk.api.launch.Game;
+import com.botmaker.sdk.api.vision.ImageClicker;
+import com.botmaker.sdk.api.vision.ImageFinder;
+import com.botmaker.sdk.api.vision.ImageWaiter;
 import com.botmaker.studio.palette.BlockType.ControlFlow;
 import com.botmaker.studio.palette.BlockType.ControlFlow.Kind;
 import com.botmaker.studio.palette.BlockType.EnumDecl;
@@ -67,7 +78,7 @@ public final class BlockCatalog {
     // what the menu inserts.) It inserts the Duration overload rather than milliseconds(int) because that is
     // the one the Studio gives a real editor to — a unit dropdown and the random-range toggle — where a bare
     // int is only ever a text pill whose unit lives in the method name.
-    public static final BlockType WAIT = new LibraryCall("WAIT", "Wait", CONTROL, SdkType.WAIT, "time",
+    public static final BlockType WAIT = new LibraryCall("WAIT", "Wait", CONTROL, Wait.class, "time",
             List.of(new StaticCall("Duration", "ofSeconds", List.of(new IntLit("1")))));
 
     // --- Variables ---
@@ -83,12 +94,12 @@ public final class BlockCatalog {
     public static final BlockType ASSIGNMENT = cf("ASSIGNMENT", "Set Variable", VARIABLES, Kind.ASSIGNMENT);
 
     // --- Input & interaction ---
-    public static final BlockType CLICK = new LibraryCall("CLICK", "Mouse Click", INPUT, SdkType.MOUSE, "click",
-            List.of(new NewInstance(SdkType.POINT.simpleName(), List.of(new IntLit("0"), new IntLit("0")))));
-    public static final BlockType TYPE_TEXT = new LibraryCall("TYPE_TEXT", "Type Text", INPUT, SdkType.KEYBOARD, "type",
+    public static final BlockType CLICK = new LibraryCall("CLICK", "Mouse Click", INPUT, Mouse.class, "click",
+            List.of(new NewInstance(Point.class.getSimpleName(), List.of(new IntLit("0"), new IntLit("0")))));
+    public static final BlockType TYPE_TEXT = new LibraryCall("TYPE_TEXT", "Type Text", INPUT, Keyboard.class, "type",
             List.of(new StrLit("")));
-    public static final BlockType PRESS_KEY = new LibraryCall("PRESS_KEY", "Press Key", INPUT, SdkType.KEYBOARD, "tap",
-            List.of(new EnumConst(SdkType.KEY.simpleName(), "ENTER")));
+    public static final BlockType PRESS_KEY = new LibraryCall("PRESS_KEY", "Press Key", INPUT, Keyboard.class, "tap",
+            List.of(new EnumConst(Key.class.getSimpleName(), "ENTER")));
     public static final BlockType READ_LINE =
             new ScannerRead("READ_LINE", "Read Text", INPUT, InputKind.LINE, "input");
     public static final BlockType READ_INT =
@@ -104,18 +115,18 @@ public final class BlockCatalog {
 
     // --- Vision (find/click/wait promoted as bot actions; no dedicated "Vision" submenu) ---
     public static final BlockType FIND_IMAGE =
-            new LibraryCall("FIND_IMAGE", "Find Image", INPUT, SdkType.IMAGE_FINDER, "find", List.of());
+            new LibraryCall("FIND_IMAGE", "Find Image", INPUT, ImageFinder.class, "find", List.of());
     public static final BlockType CLICK_IMAGE =
-            new LibraryCall("CLICK_IMAGE", "Click Image", INPUT, SdkType.IMAGE_CLICKER, "click", List.of());
+            new LibraryCall("CLICK_IMAGE", "Click Image", INPUT, ImageClicker.class, "click", List.of());
     public static final BlockType WAIT_FOR_IMAGE =
-            new LibraryCall("WAIT_FOR_IMAGE", "Wait For Image", INPUT, SdkType.IMAGE_WAITER, "waitFor", List.of());
+            new LibraryCall("WAIT_FOR_IMAGE", "Wait For Image", INPUT, ImageWaiter.class, "waitFor", List.of());
     // A single body-carrying find block: renders like an SDK ImageFinder call with a method dropdown
     // (ifFind/whileFind/untilFind × single/any/all) plus a droppable action body — see LambdaCallBlock. The
     // block implementation is retained (round-trips existing ImageFinder.ifFind lambdas, and is reused by the
     // Phase 2 overlay method palette), but it is intentionally NOT listed in the statement menu — hence it is
     // excluded from ALL below.
     public static final BlockType FIND_IMAGE_ACTIONS = new LambdaCall("FIND_IMAGE_ACTIONS", "Find Image → Do Actions",
-            INPUT, SdkType.IMAGE_FINDER, VisionLoop.IF_FIND.methodName(), List.of(), VisionLoop.IF_FIND.defaultParamName());
+            INPUT, ImageFinder.class, VisionLoop.IF_FIND.methodName(), List.of(), VisionLoop.IF_FIND.defaultParamName());
     // The "Declare Bot Variable" submenu is generated from BotType — the same curated list the Add Function
     // dialog picks a return type and parameter types from. It was five hand-written entries (Point, Rect,
     // Size, MatchResult, ImageTemplate) while the dialog knew a different set again, so a type you could take
@@ -140,22 +151,23 @@ public final class BlockCatalog {
 
     // --- Game ---
     public static final BlockType LAUNCH_GAME = new LibraryCall("LAUNCH_GAME", "Launch Program", GAME,
-            SdkType.GAME, "launch", List.of(new StrLit("")));
+            Game.class, "launch", List.of(new StrLit("")));
     public static final BlockType LAUNCH_STEAM_GAME = new LibraryCall("LAUNCH_STEAM_GAME", "Launch Steam Game", GAME,
-            SdkType.GAME, "launchSteam", List.of(new StrLit("")));
+            Game.class, "launchSteam", List.of(new StrLit("")));
     public static final BlockType LAUNCH_EPIC_GAME = new LibraryCall("LAUNCH_EPIC_GAME", "Launch Epic Game", GAME,
-            SdkType.GAME, "launchEpic", List.of(new StrLit("")));
+            Game.class, "launchEpic", List.of(new StrLit("")));
 
     // --- Emulator (Android) ---
     // "Use Emulator As Source" is the common one-block flow: Emulators.use("<instance>") connects to the
     // running emulator and points the whole bot at it (Source.set), so every no-source vision/click/OCR call
     // then targets the emulator. The instance-name arg gets the EmulatorArgPicker (discovered-instance dropdown).
     public static final BlockType USE_EMULATOR = new LibraryCall("USE_EMULATOR", "Use Emulator As Source", GAME,
-            SdkType.EMULATORS, "use", List.of(new StrLit("")));
+            Emulators.class, "use", List.of(new StrLit("")));
     // "Connect Emulator" keeps a handle: Emulator emulator = Emulators.named("<instance>"); — for bots that
     // want to call emulator-native verbs (tap/swipe/startApp) or pass it as an explicit CaptureSource.
     public static final BlockType CONNECT_EMULATOR = new VarDecl("CONNECT_EMULATOR", "Connect Emulator", GAME,
-            SdkType.EMULATOR.simpleName(), false, "emulator", new StaticCall(SdkType.EMULATORS.simpleName(), "named", List.of(new StrLit(""))));
+            Emulator.class.getSimpleName(), false, "emulator",
+            new StaticCall(Emulators.class.getSimpleName(), "named", List.of(new StrLit(""))));
 
     // --- Utility ---
     public static final BlockType COMMENT = cf("COMMENT", "Comment", UTILITY, Kind.COMMENT);

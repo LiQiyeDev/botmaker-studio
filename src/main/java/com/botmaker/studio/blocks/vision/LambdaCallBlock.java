@@ -6,7 +6,9 @@ import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.CodeBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.palette.SdkDocs;
-import com.botmaker.studio.palette.SdkType;
+import com.botmaker.sdk.api.vision.ImageFinder;
+import com.botmaker.sdk.api.vision.ImageTemplate;
+import com.botmaker.sdk.api.vision.ImageTemplateGroup;
 import com.botmaker.studio.palette.VisionLoop;
 import com.botmaker.studio.parser.ExpressionChoice;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
@@ -133,7 +135,7 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
     }
 
     /**
-     * The facade dropdown — the same {@code SdkType.FACADE_NAMES} selector every other SDK call block carries.
+     * The facade dropdown — the same served-facade selector every other SDK call block carries.
      * It was a plain {@link Label} until now, which made this block a one-way door: a call that became a vision
      * loop could never be pointed anywhere else, because nothing else on the block names the class.
      *
@@ -142,7 +144,7 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
      * so it goes, and a body with statements in it is confirmed away first rather than deleted silently.
      */
     private Node createClassSelector(CodeEditorService context) {
-        String facade = SdkType.IMAGE_FINDER.simpleName();
+        String facade = ImageFinder.class.getSimpleName();
         if (isReadOnly()) {
             Label chip = new Label(facade);
             chip.getStyleClass().add("sdk-class-selector");
@@ -291,10 +293,10 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
      * (sources unresolved / offline).
      */
     private void addInfoButton(SentenceLayoutBuilder sentence, CodeEditorService context) {
-        String slot = slotType(current()).simpleName();
+        String slot = slotType(current()).getSimpleName();
         String action = current().hasParam() ? "Consumer" : "Runnable";
         var overload = context.getSdkDocs()
-                .lookup(SdkType.IMAGE_FINDER.simpleName(), method, List.of(slot, action));
+                .lookup(ImageFinder.class.getSimpleName(), method, List.of(slot, action));
         if (overload.isEmpty()) return;
         SdkDocs.Overload o = overload.get();
 
@@ -315,8 +317,8 @@ public class LambdaCallBlock extends AbstractStatementBlock implements BlockWith
     }
 
     /** The image argument a form takes: a whole group for the {@code …Any}/{@code …All} forms, else one template. */
-    private static SdkType slotType(VisionLoop loop) {
-        return loop.group() ? SdkType.IMAGE_TEMPLATE_GROUP : SdkType.IMAGE_TEMPLATE;
+    private static Class<?> slotType(VisionLoop loop) {
+        return loop.group() ? ImageTemplateGroup.class : ImageTemplate.class;
     }
 
     /**

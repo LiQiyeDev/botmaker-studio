@@ -4,7 +4,9 @@ import com.botmaker.studio.palette.BotType;
 import com.botmaker.studio.palette.ExpressionCatalog;
 import com.botmaker.studio.palette.ExpressionCategory;
 import com.botmaker.studio.palette.ExpressionType;
-import com.botmaker.studio.palette.SdkType;
+import com.botmaker.sdk.api.capture.CaptureSource;
+import com.botmaker.sdk.api.capture.Window;
+import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.studio.parser.ExpressionChoice;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.project.activity.ActivityVariable;
@@ -285,7 +287,7 @@ public final class ExpressionMenu {
         if (activitySlot) menu.getItems().add(activityNameSubmenu(context, onSelect));
         if (captureSlot) menu.getItems().add(captureSourceItem(onSelect));
 
-        // Parity with the statement menu: lead with a submenu per SDK facade (in SdkType order), each listing
+        // Parity with the statement menu: lead with a submenu per SDK facade (in catalog order), each listing
         // that facade's static members whose return type fits this slot (buildScopeMenu drops empty facades).
         MenuBuilders.appendSdkFacadeExpressionSubmenus(menu, expectedType, context, onSelect);
 
@@ -683,7 +685,7 @@ public final class ExpressionMenu {
         for (ClassInfo ci : analyzer.getLibraryIndex().getStaticUtilityTypes()) {
             // SDK facades are intentionally omitted — they're reached only through the curated Vision
             // palette blocks, so there's a single access path (see BlockCatalog / MethodInvocationBlock).
-            if (com.botmaker.studio.palette.SdkType.isFacadeClass(ci.getSimpleName())) continue;
+            if (PluginHost.isFacadeClass(ci.getSimpleName())) continue;
             byPackage.computeIfAbsent(ci.getPackageName() == null ? "" : ci.getPackageName(),
                     k -> new ArrayList<>()).add(ci);
         }
@@ -702,8 +704,8 @@ public final class ExpressionMenu {
     /** True when a slot expects the SDK's {@code CaptureSource} (or a {@code Window} used as one). */
     private static boolean isCaptureSourceType(ResolvedType expectedType) {
         if (expectedType == null || expectedType.isUnknown()) return false;
-        return expectedType.leafType().is(SdkType.CAPTURE_SOURCE)
-                || expectedType.leafType().is(SdkType.WINDOW);
+        return expectedType.leafType().is(CaptureSource.class)
+                || expectedType.leafType().is(Window.class);
     }
 
     /** The "Choose capture source…" entry: opens the visual picker and emits the helper-call snippet. */

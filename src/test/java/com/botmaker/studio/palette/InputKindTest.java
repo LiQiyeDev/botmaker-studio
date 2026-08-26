@@ -1,5 +1,6 @@
 package com.botmaker.studio.palette;
 
+import com.botmaker.sdk.api.util.BotMaker;
 import com.botmaker.studio.types.PrimitiveKind;
 import org.junit.jupiter.api.Test;
 
@@ -15,11 +16,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class InputKindTest {
 
     @Test
-    void everyReadNamesAMethodThatExistsOnTheSdkFacade() throws ClassNotFoundException {
+    void everyReadNamesAMethodThatExistsOnTheSdkFacade() {
         // Studio does not read *methods* off the SDK jar to work (a bot pins its own SDK version) — but these
         // four names are written into generated source and matched when parsing it back, so a rename in the
-        // SDK silently breaks the round trip. The Class literal on SdkType makes that checkable here.
-        Class<?> botMaker = Class.forName(SdkType.BOT_MAKER.qualifiedName());
+        // SDK silently breaks the round trip. Studio compiles against the SDK, so the class literal checks it.
+        Class<?> botMaker = BotMaker.class;
         for (InputKind kind : InputKind.values()) {
             boolean found = Arrays.stream(botMaker.getMethods())
                     .map(Method::getName)

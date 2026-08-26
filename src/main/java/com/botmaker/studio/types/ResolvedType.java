@@ -1,6 +1,5 @@
 package com.botmaker.studio.types;
 
-import com.botmaker.studio.palette.SdkType;
 import io.github.classgraph.ClassInfo;
 import io.github.classgraph.FieldInfo;
 import org.eclipse.jdt.core.dom.ITypeBinding;
@@ -82,7 +81,7 @@ public sealed interface ResolvedType
     default boolean is(PrimitiveKind kind) { return kind.keyword().equals(qualifiedName()); }
 
     /**
-     * Whether this type <em>is</em> {@code sdkType} — the single owner of a test four pickers each spelled out
+     * Whether this type <em>is</em> {@code type} — the single owner of a test four pickers each spelled out
      * ({@code PickerContext.isType}, {@code PickAllSession.isType}, {@code ImageTemplatePicker}'s and
      * {@code ImageTemplateGroupPicker}'s own), always against a string literal.
      *
@@ -91,9 +90,9 @@ public sealed interface ResolvedType
      * the index hasn't seen arrives as the bare identifier the source wrote. Accepting both is why the picker
      * still appears on a file that hasn't resolved yet.
      */
-    default boolean is(SdkType sdkType) {
-        return simpleName().equals(sdkType.simpleName())
-                || qualifiedName().endsWith("." + sdkType.simpleName());
+    default boolean is(Class<?> type) {
+        return simpleName().equals(type.getSimpleName())
+                || qualifiedName().endsWith("." + type.getSimpleName());
     }
 
     // --- Array structure ---
@@ -133,13 +132,15 @@ public sealed interface ResolvedType
     }
 
     /**
-     * An SDK type by identity — {@code ResolvedType.of(SdkType.IMAGE_TEMPLATE)} rather than
+     * A type by class identity — {@code ResolvedType.of(ImageTemplate.class)} rather than
      * {@code ResolvedType.named("ImageTemplate")}. Carries the <em>qualified</em> name, which the simple-name
-     * spelling never could: the facades and value types live in sub-packages, so nothing could derive
+     * spelling never could: the SDK's facades and value types live in sub-packages, so nothing could derive
      * {@code com.botmaker.sdk.api.vision.ImageTemplate} from the string a slot was declared with.
+     *
+     * <p>The class literal is the point: a type renamed in the SDK breaks this build rather than a menu.
      */
-    static ResolvedType of(SdkType type) {
-        return new Named(type.qualifiedName());
+    static ResolvedType of(Class<?> type) {
+        return new Named(type.getName());
     }
 
     /** Routes primitive names to {@link Primitive}, blanks to {@link #UNKNOWN}, else {@link Named}. */

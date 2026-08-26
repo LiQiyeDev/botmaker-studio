@@ -1,7 +1,7 @@
 package com.botmaker.studio.ui.render.menu;
 
 import com.botmaker.studio.parser.ExpressionChoice;
-import com.botmaker.studio.palette.SdkType;
+import com.botmaker.plugin.api.catalog.FacadeEntry;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.SdkSurfaceService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
@@ -82,8 +82,9 @@ final class MenuBuilders {
     }
 
     /**
-     * Appends, at the top level of the expression menu, one submenu per {@link SdkType#MENU_FACADES}
-     * facade listing its static members whose return type is compatible with {@code expectedType} — the
+     * Appends, at the top level of the expression menu, one submenu per {@linkplain
+     * CodeEditorService#sdkMenuFacades() served menu facade} listing its static members whose return type is
+     * compatible with {@code expectedType} — the
      * expression-slot analogue of the statement menu's per-facade submenus. Void-only methods naturally drop
      * out (no return value fits an expression slot), and {@link #buildScopeMenu} returns {@code null} for a
      * facade with nothing compatible, so empty submenus are skipped.
@@ -107,7 +108,7 @@ final class MenuBuilders {
         if (context == null) return;
         ProjectAnalyzer analyzer = context.getProjectAnalyzer();
         if (analyzer == null) return;
-        for (SdkType facade : SdkType.MENU_FACADES) {
+        for (FacadeEntry facade : context.sdkMenuFacades()) {
             String name = facade.simpleName();
             Menu sub = buildScopeMenu(name, name, name, true, expectedType, analyzer,
                     context.getSdkSurface(), onSelect);
@@ -121,7 +122,7 @@ final class MenuBuilders {
         if (context == null) return;
         ProjectAnalyzer analyzer = context.getProjectAnalyzer();
         if (analyzer == null) return;
-        for (SdkType facade : SdkType.MENU_FACADES) {
+        for (FacadeEntry facade : context.sdkMenuFacades()) {
             String name = facade.simpleName();
             Menu sub = buildScopeMenu(name, name, name, true, expectedType, analyzer,
                     context.getSdkSurface(), onSelect);
@@ -143,18 +144,18 @@ final class MenuBuilders {
      * a bare receiver-less field isn't offered here). Returns {@code null} when nothing is compatible, so the
      * caller can drop the whole scope/jar entry rather than show an empty submenu.
      *
-     * <p>{@code surface} curates the <b>methods</b> half: on an SDK type in strict mode, only the
-     * {@code @Palette} overloads are listed, and a name whose every overload is hidden drops out entirely.
-     * {@code null} — a headless edit, an uncurated jar, a type that isn't the SDK's — offers everything, which
-     * is what every SDK released so far answers. This is the one place the expression menu and its search view
-     * both go through, so filtering here covers both.
+     * <p>{@code surface} curates the <b>methods</b> half: on a catalogued SDK type, only the overloads the
+     * served catalog names are listed, and a name whose every overload is hidden drops out entirely.
+     * {@code null} — a headless edit, an uncurated pin, a type that isn't the SDK's — offers everything, which
+     * is what every SDK released before 1.2.0 answers. This is the one place the expression menu and its
+     * search view both go through, so filtering here covers both.
      *
-     * <p>The <b>fields</b> half is deliberately never curated. {@code @Palette} has no {@code FIELD} target
-     * and gains none: the constant sets are small and closed ({@code BotSettings} 7, {@code Precision} 4,
-     * {@code Text} 2, {@code Direction} 4) and each entry is a named anchor a user reaches for —
-     * {@code Precision.TIGHT} is the whole point of {@code Precision} having constants. Enum constants also
-     * reach the activity-variable pickers through {@code SdkType.enumConstantNames()}, which reads the
-     * {@code Class<?>} directly and never consults the index, so curating them here would be half an answer.
+     * <p>The <b>fields</b> half is deliberately never curated. A catalog names methods and constructors and
+     * gains no field entries: the constant sets are small and closed ({@code BotSettings} 7,
+     * {@code Precision} 4, {@code Text} 2, {@code Direction} 4) and each entry is a named anchor a user
+     * reaches for — {@code Precision.TIGHT} is the whole point of {@code Precision} having constants. Enum
+     * constants also reach the activity-variable pickers by reading the {@code Class<?>} directly (see
+     * {@code VariableWire}), never through the index, so curating them here would be half an answer.
      */
     static Menu buildScopeMenu(String label, String scope, String typeName, boolean isStatic,
                                ResolvedType expectedType, ProjectAnalyzer analyzer,

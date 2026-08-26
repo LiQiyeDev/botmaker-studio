@@ -1,6 +1,22 @@
 package com.botmaker.studio.palette;
 
 import com.botmaker.sdk.api.authoring.TemplateNames;
+import com.botmaker.sdk.api.capture.CaptureSource;
+import com.botmaker.sdk.api.capture.Source;
+import com.botmaker.sdk.api.geometry.Direction;
+import com.botmaker.sdk.api.geometry.Point;
+import com.botmaker.sdk.api.geometry.Rect;
+import com.botmaker.sdk.api.geometry.Size;
+import com.botmaker.sdk.api.interaction.Key;
+import com.botmaker.sdk.api.interaction.MouseButton;
+import com.botmaker.sdk.api.vision.ColorMatch;
+import com.botmaker.sdk.api.vision.ImageTemplate;
+import com.botmaker.sdk.api.vision.ImageTemplateGroup;
+import com.botmaker.sdk.api.vision.MatchResult;
+import com.botmaker.sdk.api.vision.Matches;
+import com.botmaker.sdk.api.vision.Precision;
+import com.botmaker.sdk.api.vision.TextMatch;
+import com.botmaker.sdk.api.vision.Vision;
 import com.botmaker.studio.palette.Initializer.BoolLit;
 import com.botmaker.studio.palette.Initializer.CharLit;
 import com.botmaker.studio.palette.Initializer.DoubleLit;
@@ -25,11 +41,11 @@ import java.util.Optional;
  *
  * <h2>An allow-list, not a filter</h2>
  *
- * <p>Every SDK entry names a {@link SdkType} constant, so the set is checked by the compiler at both ends: a
- * type that leaves the SDK breaks {@code SdkType} and then this file, and a type that <em>joins</em> the SDK
- * appears here only when someone adds it. That direction matters more than it sounds — deriving the list by
- * filtering {@code SdkType.values()} would have put every new class in front of the user automatically, and
- * most of what the SDK ships is not something a bot author should be declaring a variable of.
+ * <p>Every SDK entry names a real class literal, so the set is checked by the compiler: a type that leaves
+ * the SDK breaks this file, and a type that <em>joins</em> the SDK appears here only when someone adds it.
+ * That direction matters more than it sounds — deriving the list from the plugin catalog would have put
+ * every new class in front of the user automatically, and most of what the SDK ships is not something a bot
+ * author should be declaring a variable of.
  *
  * <p><b>What is deliberately absent.</b> {@code BotMaker}, {@code BotStuckException} and {@code StartMode} are
  * plumbing; {@code EmulatorSource} is chosen through the capture-target dialog and never named by type —
@@ -41,8 +57,8 @@ import java.util.Optional;
  * ({@code Desktop}, {@code Monitor}, {@code NamedWindow}, {@code SessionSource}) and the observation stack
  * ({@code Bots}, {@code BotObserver}, {@code Surface} and the event records) into
  * {@code com.botmaker.sdk.internal}, on the rule that a type a bot can only ever <em>receive</em> is not
- * public API. They left {@link SdkType} with that move, so this file no longer has to exclude by hand what
- * the SDK's own package boundary now excludes.
+ * public API. They stopped being nameable here with that move, so this file no longer has to exclude by hand
+ * what the SDK's own package boundary now excludes.
  *
  * <p>{@link #COLOR} is the JDK's {@code java.awt.Color}, not an SDK type: it is what the block editor's colour
  * picker already commits ({@code ColorArgPicker}), so a variable holding one is the same value a block holds.
@@ -100,47 +116,47 @@ public enum BotType {
      * named by its {@code Templates} constant rather than by a raw path, so renaming that template rewrites
      * the reference instead of leaving a string literal pointing at a file that has moved.
      */
-    IMAGE_TEMPLATE(Group.VISION, SdkType.IMAGE_TEMPLATE, "template",
-            new NewInstance(SdkType.IMAGE_TEMPLATE.simpleName(),
+    IMAGE_TEMPLATE(Group.VISION, ImageTemplate.class, "template",
+            new NewInstance(ImageTemplate.class.getSimpleName(),
                     List.of(new EnumConst(TemplateNames.CLASS_NAME,
                             TemplateNames.constantForPath(ImageTemplateLibrary.DEFAULT_TEMPLATE_PATH))))),
     /** An empty group is legal and means "nothing to look for" — the SDK is explicit about it. */
-    IMAGE_TEMPLATE_GROUP(Group.VISION, SdkType.IMAGE_TEMPLATE_GROUP, "group",
-            new StaticCall(SdkType.IMAGE_TEMPLATE_GROUP.simpleName(), "of", List.of())),
-    MATCH_RESULT(Group.VISION, SdkType.MATCH_RESULT, "match",
-            new StaticCall(SdkType.VISION.simpleName(), "lastMatch", List.of())),
-    MATCHES(Group.VISION, SdkType.MATCHES, "matches",
-            new StaticCall(SdkType.MATCHES.simpleName(), "none", List.of())),
-    COLOR_MATCH(Group.VISION, SdkType.COLOR_MATCH, "color",
-            new StaticCall(SdkType.VISION.simpleName(), "lastColorMatch", List.of())),
-    TEXT_MATCH(Group.VISION, SdkType.TEXT_MATCH, "textMatch",
-            new StaticCall(SdkType.VISION.simpleName(), "lastTextMatch", List.of())),
-    PRECISION(Group.VISION, SdkType.PRECISION, "precision",
-            new EnumConst(SdkType.PRECISION.simpleName(), "DEFAULT")),
+    IMAGE_TEMPLATE_GROUP(Group.VISION, ImageTemplateGroup.class, "group",
+            new StaticCall(ImageTemplateGroup.class.getSimpleName(), "of", List.of())),
+    MATCH_RESULT(Group.VISION, MatchResult.class, "match",
+            new StaticCall(Vision.class.getSimpleName(), "lastMatch", List.of())),
+    MATCHES(Group.VISION, Matches.class, "matches",
+            new StaticCall(Matches.class.getSimpleName(), "none", List.of())),
+    COLOR_MATCH(Group.VISION, ColorMatch.class, "color",
+            new StaticCall(Vision.class.getSimpleName(), "lastColorMatch", List.of())),
+    TEXT_MATCH(Group.VISION, TextMatch.class, "textMatch",
+            new StaticCall(Vision.class.getSimpleName(), "lastTextMatch", List.of())),
+    PRECISION(Group.VISION, Precision.class, "precision",
+            new EnumConst(Precision.class.getSimpleName(), "DEFAULT")),
 
     // --- Geometry ----------------------------------------------------------------------------------------
 
-    POINT(Group.GEOMETRY, SdkType.POINT, "point",
-            new NewInstance(SdkType.POINT.simpleName(), List.of(new IntLit("0"), new IntLit("0")))),
-    RECT(Group.GEOMETRY, SdkType.RECT, "area",
-            new NewInstance(SdkType.RECT.simpleName(),
+    POINT(Group.GEOMETRY, Point.class, "point",
+            new NewInstance(Point.class.getSimpleName(), List.of(new IntLit("0"), new IntLit("0")))),
+    RECT(Group.GEOMETRY, Rect.class, "area",
+            new NewInstance(Rect.class.getSimpleName(),
                     List.of(new IntLit("0"), new IntLit("0"), new IntLit("0"), new IntLit("0")))),
-    SIZE(Group.GEOMETRY, SdkType.SIZE, "size",
-            new NewInstance(SdkType.SIZE.simpleName(), List.of(new IntLit("0"), new IntLit("0")))),
-    DIRECTION(Group.GEOMETRY, SdkType.DIRECTION, "direction",
-            new EnumConst(SdkType.DIRECTION.simpleName(), "NORTH")),
+    SIZE(Group.GEOMETRY, Size.class, "size",
+            new NewInstance(Size.class.getSimpleName(), List.of(new IntLit("0"), new IntLit("0")))),
+    DIRECTION(Group.GEOMETRY, Direction.class, "direction",
+            new EnumConst(Direction.class.getSimpleName(), "NORTH")),
 
     // --- Input -------------------------------------------------------------------------------------------
 
-    KEY(Group.INPUT, SdkType.KEY, "key", new EnumConst(SdkType.KEY.simpleName(), "A")),
-    MOUSE_BUTTON(Group.INPUT, SdkType.MOUSE_BUTTON, "button",
-            new EnumConst(SdkType.MOUSE_BUTTON.simpleName(), "LEFT")),
+    KEY(Group.INPUT, Key.class, "key", new EnumConst(Key.class.getSimpleName(), "A")),
+    MOUSE_BUTTON(Group.INPUT, MouseButton.class, "button",
+            new EnumConst(MouseButton.class.getSimpleName(), "LEFT")),
 
     // --- Capture -----------------------------------------------------------------------------------------
 
     /** Seeded from whatever the bot is currently pointed at, which is the only source known to exist. */
-    CAPTURE_SOURCE(Group.CAPTURE, SdkType.CAPTURE_SOURCE, "source",
-            new StaticCall(SdkType.SOURCE.simpleName(), "current", List.of()));
+    CAPTURE_SOURCE(Group.CAPTURE, CaptureSource.class, "source",
+            new StaticCall(Source.class.getSimpleName(), "current", List.of()));
 
     /** How the list is grouped in a menu or a dropdown. Declaration order is display order. */
     public enum Group {
@@ -168,13 +184,13 @@ public enum BotType {
     /** The name this type takes inside {@code List<…>}; null when it can't go in one. */
     private final String boxedName;
     private final boolean primitive;
-    private final SdkType sdk;
+    private final Class<?> sdk;
     private final String varName;
     private final Initializer init;
 
     /** An SDK type: its label, and the name it is written under, are its own simple name. */
-    BotType(Group group, SdkType sdk, String varName, Initializer init) {
-        this(group, sdk.simpleName(), sdk.simpleName(), sdk.simpleName(), false, sdk, varName, init);
+    BotType(Group group, Class<?> sdk, String varName, Initializer init) {
+        this(group, sdk.getSimpleName(), sdk.getSimpleName(), sdk.getSimpleName(), false, sdk, varName, init);
     }
 
     /** A {@code java.lang} type written by its simple name — {@code String}. */
@@ -196,7 +212,7 @@ public enum BotType {
         this(group, label, kind.keyword(), box == null ? null : box.simpleName(), true, null, varName, init);
     }
 
-    BotType(Group group, String label, String typeName, String boxedName, boolean primitive, SdkType sdk,
+    BotType(Group group, String label, String typeName, String boxedName, boolean primitive, Class<?> sdk,
             String varName, Initializer init) {
         this.group = group;
         this.label = label;
@@ -232,7 +248,7 @@ public enum BotType {
     }
 
     /** The SDK type this names, or empty for a primitive or a {@code java.lang} type. */
-    public Optional<SdkType> sdkType() {
+    public Optional<Class<?>> sdkType() {
         return Optional.ofNullable(sdk);
     }
 

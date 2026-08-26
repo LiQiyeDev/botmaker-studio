@@ -1,6 +1,7 @@
 package com.botmaker.studio.parser.factories;
 
-import com.botmaker.studio.palette.SdkType;
+import com.botmaker.sdk.api.capture.CaptureSource;
+import com.botmaker.sdk.api.vision.Precision;
 import com.botmaker.studio.parser.EditContext;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
 import com.botmaker.studio.parser.helpers.DefaultValueHelper;
@@ -104,11 +105,11 @@ public class InitializerFactory {
         // be CaptureExpr.of(<today's default>): switching overload through the ⚙ picker runs this path, and a
         // snapshot would silently freeze the argument into a `CaptureSource.window("…")` literal that stops
         // following the project's source. Falls back to the whole desktop if the snippet fails to parse.
-        if (richType.leafType().is(SdkType.CAPTURE_SOURCE)) {
+        if (richType.leafType().is(CaptureSource.class)) {
             Expression seeded = parseExpr(ast, CaptureExpr.projectDefault());
             if (seeded != null) return seeded;
             MethodInvocation desktop = ast.newMethodInvocation();
-            desktop.setExpression(SdkNodes.qualifiedName(ast, SdkType.CAPTURE_SOURCE));
+            desktop.setExpression(SdkNodes.qualifiedName(ast, CaptureSource.class));
             desktop.setName(ast.newSimpleName("desktop"));
             return desktop;
         }
@@ -134,8 +135,8 @@ public class InitializerFactory {
         // unlike java.awt.Color it resolves through the analyzer's SDK index.
         // Not a `case` below only because a switch label must be a compile-time constant, and the name comes
         // from the type identity rather than a literal.
-        if (richType.leafType().is(SdkType.PRECISION)) {
-            Expression seeded = parseExpr(ast, SdkType.PRECISION.simpleName() + ".DEFAULT");
+        if (richType.leafType().is(Precision.class)) {
+            Expression seeded = parseExpr(ast, Precision.class.getSimpleName() + ".DEFAULT");
             if (seeded != null) return seeded;
         }
         String seededConstant = switch (richType.leafType().simpleName()) {

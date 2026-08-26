@@ -1,5 +1,15 @@
 package com.botmaker.studio.palette;
 
+import com.botmaker.sdk.api.bot.BotStuckException;
+import com.botmaker.sdk.api.bot.Session;
+import com.botmaker.sdk.api.bot.StartMode;
+import com.botmaker.sdk.api.capture.CaptureSource;
+import com.botmaker.sdk.api.emulator.Emulator;
+import com.botmaker.sdk.api.emulator.EmulatorRef;
+import com.botmaker.sdk.api.emulator.EmulatorSource;
+import com.botmaker.sdk.api.launch.LaunchTarget;
+import com.botmaker.sdk.api.util.BotMaker;
+import com.botmaker.sdk.api.util.Time;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -14,7 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * The curated type list: what it contains, and — more usefully — what it leaves out.
  *
- * <p>The list is an allow-list over {@link SdkType} rather than a filter of it, so this test's job is to fail
+ * <p>The list is an allow-list over the SDK's own types rather than a filter of them, so this test's job is to fail
  * when someone widens it by accident. The absences are the whole design: a bot author choosing a variable type
  * should not be offered {@code BotStuckException}, and should not be offered the six {@code CaptureSource}
  * implementations when the capture-target dialog is what picks between those.
@@ -25,13 +35,13 @@ class BotTypeTest {
     void everySdkEntryNamesARealSdkType() {
         // The compiler already guarantees this — the point of asserting it is the reverse direction below.
         for (BotType type : BotType.values()) {
-            type.sdkType().ifPresent(sdk -> assertEquals(sdk.simpleName(), type.typeName()));
+            type.sdkType().ifPresent(sdk -> assertEquals(sdk.getSimpleName(), type.typeName()));
         }
     }
 
     @Test
     void theSdkTypesDeliberatelyLeftOutStayOut() {
-        Set<SdkType> offered = BotType.declarableTypes().stream()
+        Set<Class<?>> offered = BotType.declarableTypes().stream()
                 .flatMap(t -> t.sdkType().stream())
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
 
@@ -40,16 +50,17 @@ class BotTypeTest {
         //
         // The list is shorter than it was because SDK 1.1.0 settled several of these at the source: the
         // CaptureSource implementations and the whole observation stack moved to com.botmaker.sdk.internal,
-        // so they are not in SdkType at all any more and cannot be offered by any filter. What is left here
-        // is the set that is still public API and still excluded by this file's judgement rather than by the
-        // SDK's package boundary.
-        for (SdkType excluded : List.of(SdkType.BOT_MAKER, SdkType.BOT_STUCK_EXCEPTION, SdkType.START_MODE,
-                SdkType.EMULATOR_SOURCE, SdkType.EMULATOR, SdkType.EMULATOR_REF, SdkType.LAUNCH_TARGET,
-                SdkType.SESSION, SdkType.TIME)) {
-            assertFalse(offered.contains(excluded), excluded + " should not be offered as a bot type");
+        // so a bot cannot even write their names down and no filter can offer them. What is left here is the
+        // set that is still public API and still excluded by this file's judgement rather than by the SDK's
+        // package boundary.
+        for (Class<?> excluded : List.of(BotMaker.class, BotStuckException.class, StartMode.class,
+                EmulatorSource.class, Emulator.class, EmulatorRef.class, LaunchTarget.class,
+                Session.class, Time.class)) {
+            assertFalse(offered.contains(excluded),
+                    excluded.getSimpleName() + " should not be offered as a bot type");
         }
         // The interface is offered; its implementations are not.
-        assertTrue(offered.contains(SdkType.CAPTURE_SOURCE));
+        assertTrue(offered.contains(CaptureSource.class));
     }
 
     @Test

@@ -1,8 +1,8 @@
 package com.botmaker.studio.ui.render.components.pickers;
 
+import com.botmaker.sdk.api.vision.ImageTemplateGroup;
 import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.events.CoreApplicationEvents;
-import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.parser.helpers.SdkNodes;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.services.CodeEditorService;
@@ -36,7 +36,7 @@ public final class ImageTemplateGroupPicker {
 
     /** True when {@code type} is the SDK {@code ImageTemplateGroup} (by simple or qualified name). */
     public static boolean isImageTemplateGroupType(com.botmaker.studio.types.ResolvedType type) {
-        return type != null && type.is(SdkType.IMAGE_TEMPLATE_GROUP);
+        return type != null && type.is(ImageTemplateGroup.class);
     }
 
     public static Node create(CodeEditorService context, ValueSlot arg) {
@@ -176,7 +176,7 @@ public final class ImageTemplateGroupPicker {
         List<String> out = new ArrayList<>();
         if (node instanceof MethodInvocation mi
                 && "of".equals(mi.getName().getIdentifier())
-                && SdkNodes.isCallOn(mi, SdkType.IMAGE_TEMPLATE_GROUP)) {
+                && SdkNodes.isCallOn(mi, ImageTemplateGroup.class)) {
             for (Object a : mi.arguments()) {
                 templatePath(a).ifPresent(out::add);
             }

@@ -592,12 +592,12 @@ public final class ProgramShapeOverlay {
      * applied once the re-parsed block is available (via {@link #pendingOverload}); otherwise the creation path
      * defaults to the fewest-argument overload (or the project favourite).
      */
-    private void insertLibraryCall(com.botmaker.studio.palette.SdkType facade, String method,
+    private void insertLibraryCall(com.botmaker.plugin.api.catalog.FacadeEntry facade, String method,
                                    MethodSignature overload) {
         pendingOverload = overload;
         BlockType.LibraryCall block = new BlockType.LibraryCall(
                 "OVL_" + facade.simpleName() + "_" + method, method,
-                com.botmaker.studio.palette.BlockCategory.INPUT, facade, method, List.of());
+                com.botmaker.studio.palette.BlockCategory.INPUT, facade.type(), method, List.of());
         insertBelowCursor(block);
     }
 

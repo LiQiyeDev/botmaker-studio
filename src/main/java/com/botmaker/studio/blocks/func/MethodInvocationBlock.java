@@ -3,7 +3,7 @@ package com.botmaker.studio.blocks.func;
 import com.botmaker.studio.core.AbstractExpressionBlock;
 import com.botmaker.studio.core.ExpressionBlock;
 import com.botmaker.studio.core.StatementBlock;
-import com.botmaker.studio.palette.SdkType;
+import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.studio.palette.SdkDocs;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.ProjectSettingsService;
@@ -340,7 +340,7 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
         List<String> libraryClassItems = new ArrayList<>();
         if (context.getProjectAnalyzer().getLibraryIndex() != null) {
             context.getProjectAnalyzer().getLibraryIndex().getStaticUtilityTypes().stream()
-                    .filter(ci -> !SdkType.isFacadeClass(ci.getSimpleName()))
+                    .filter(ci -> !PluginHost.isFacadeClass(ci.getSimpleName()))
                     .forEach(ci -> libraryClassItems.add(ci.getSimpleName()));
         }
         Collections.sort(libraryClassItems);

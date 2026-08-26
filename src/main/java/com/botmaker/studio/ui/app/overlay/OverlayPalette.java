@@ -1,6 +1,6 @@
 package com.botmaker.studio.ui.app.overlay;
 
-import com.botmaker.studio.palette.SdkType;
+import com.botmaker.plugin.api.catalog.FacadeEntry;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.util.MethodSignature;
@@ -38,7 +38,7 @@ final class OverlayPalette {
     /** An SDK call the user picked; {@code overload} is {@code null} when they picked the bare method name. */
     @FunctionalInterface
     interface LibraryCallRequest {
-        void insert(SdkType facade, String method, MethodSignature overload);
+        void insert(FacadeEntry facade, String method, MethodSignature overload);
     }
 
     /**
@@ -63,7 +63,7 @@ final class OverlayPalette {
         // This project's SDK, not Studio's: a chip for a facade the bot's jar doesn't have would open onto
         // "(SDK not indexed yet)" — a message about the wrong thing entirely — and offer a call that cannot
         // compile. Falls back to the full set when the surface is unknown (see CodeEditorService).
-        for (SdkType facade : context.sdkMenuFacades()) {
+        for (FacadeEntry facade : context.sdkMenuFacades()) {
             chips.getChildren().add(facadeMenuButton(facade));
         }
         Button addBlock = new Button("＋ Add block");
@@ -75,7 +75,7 @@ final class OverlayPalette {
     }
 
     /** A category chip for one SDK facade; on show it lists its methods → overloads (favourites first). */
-    private MenuButton facadeMenuButton(SdkType facade) {
+    private MenuButton facadeMenuButton(FacadeEntry facade) {
         MenuButton mb = new MenuButton(facade.simpleName());
         mb.setOnShowing(e -> {
             mb.getItems().clear();
@@ -110,7 +110,7 @@ final class OverlayPalette {
     }
 
     /** The project's favourite methods for this facade (Project Settings) first, then the rest alphabetically. */
-    private List<String> orderedMethods(SdkType facade, java.util.Set<String> available) {
+    private List<String> orderedMethods(FacadeEntry facade, java.util.Set<String> available) {
         List<String> ordered = new ArrayList<>();
         for (String f : settings.current().favoriteMethodsFor(facade.simpleName())) {
             if (available.contains(f) && !ordered.contains(f)) ordered.add(f);

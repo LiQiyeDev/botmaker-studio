@@ -8,7 +8,7 @@ import java.util.Optional;
  * In-memory SDK method documentation: {@code class → method → [overloads]}, each overload carrying a
  * Javadoc summary and its ordered parameters (real names + {@code @param} text).
  *
- * <p>Studio compiles against the SDK for type identity only ({@link SdkType}) — which cannot carry Javadoc,
+ * <p>Studio compiles against the SDK for type identity only (the plugin catalog) — which cannot carry Javadoc,
  * since Javadoc is not in bytecode — and a bot may pin an older SDK than Studio's anyway. So the docs come
  * from the bot's own SDK: {@code index/SdkDocsParser} parses the resolved
  * {@code botmaker-sdk:<version>:sources} jar at runtime (via Eclipse JDT) into an instance of this

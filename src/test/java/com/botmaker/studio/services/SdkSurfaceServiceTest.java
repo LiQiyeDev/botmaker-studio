@@ -25,8 +25,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
- * The palette gate: "does <em>this bot's</em> SDK have this?", as opposed to Studio's compile-time
- * {@code palette/SdkType}.
+ * The palette gate: "does <em>this bot's</em> SDK have this?", as opposed to what the served catalog
+ * says is worth offering.
  *
  * <p>The fixture is a real jar built here by the platform compiler and scanned by the real ClassGraph,
  * because the two things most likely to break silently are exactly the two that a mock would paper over:
@@ -135,7 +135,7 @@ class SdkSurfaceServiceTest {
         // give them nothing to diagnose; offering one that will not compile at least says so.
         assertTrue(surface.hasType("AnythingAtAll"));
         assertTrue(surface.hasMember("AnythingAtAll", "whatever"));
-        assertEquals(com.botmaker.studio.palette.SdkType.MENU_FACADES.size(), surface.menuFacades().size(),
+        assertEquals(com.botmaker.studio.plugin.PluginHost.menuFacades().size(), surface.menuFacades().size(),
                 "an unavailable index must not filter the palette at all");
         assertTrue(surface.missingFacades().isEmpty(), "and must not invent a list of missing classes either");
     }
@@ -184,7 +184,7 @@ class SdkSurfaceServiceTest {
         SdkSurfaceService surface = serviceOver(tmp, fixtureJar(tmp));
 
         assertEquals(List.of("Mouse", "Wait"), surface.facadeNames(),
-                "only the facades in the bot's own jar, in SdkType declaration order");
+                "only the facades in the bot's own jar, in the served catalog's declaration order");
         assertTrue(surface.missingFacades().contains("ImageFinder"));
         assertFalse(surface.missingFacades().contains("Mouse"));
     }

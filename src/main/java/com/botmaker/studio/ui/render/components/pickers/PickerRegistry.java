@@ -1,8 +1,14 @@
 package com.botmaker.studio.ui.render.components.pickers;
 
+import com.botmaker.sdk.api.capture.CaptureSource;
+import com.botmaker.sdk.api.capture.Window;
+import com.botmaker.sdk.api.geometry.Point;
+import com.botmaker.sdk.api.geometry.Rect;
+import com.botmaker.sdk.api.geometry.Size;
+import com.botmaker.sdk.api.launch.LaunchTarget;
+import com.botmaker.sdk.api.vision.Precision;
 import com.botmaker.studio.game.EpicLibraryScanner;
 import com.botmaker.studio.game.SteamLibraryScanner;
-import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.ui.render.components.BotSettingsArgPicker;
 import com.botmaker.studio.ui.render.components.CaptureSourcePicker;
 import com.botmaker.studio.ui.render.components.ColorArgPicker;
@@ -60,14 +66,14 @@ public final class PickerRegistry {
 
             // Type-based.
             // LaunchTarget slot → the Steam/Epic/Exe/Emulator target builder (replaces the plain ctor pill).
-            SpecialTypePicker.of(ctx -> ctx.isType(SdkType.LAUNCH_TARGET),
+            SpecialTypePicker.of(ctx -> ctx.isType(LaunchTarget.class),
                     ctx -> LaunchTargetArgPicker.create(ctx.context(), ctx.arg())),
             // The Pixel facade's strictness argument. It is an SDK value type rather than three bare numbers
             // precisely so this dispatch can be type-based: an arg-index table would have had to know which
             // index it sits at in each of find / findAll / coverage / matchesAt / waitFor, and would silently
             // stop firing the day the SDK gains an overload. The method name is passed on (not matched on) so
             // the editor can hide the knobs that call cannot act on.
-            SpecialTypePicker.of(ctx -> ctx.isType(SdkType.PRECISION),
+            SpecialTypePicker.of(ctx -> ctx.isType(Precision.class),
                     ctx -> PrecisionArgPicker.create(ctx.context(), ctx.arg(), ctx.methodName())),
             // A wait length, for the same reason: the unit is invisible in a bare number (2 seconds and 2
             // milliseconds read identically), and the type is what carries the "random range" the humanized
@@ -93,15 +99,15 @@ public final class PickerRegistry {
                     ctx -> ImageTemplatePicker.create(ctx.context(), ctx.arg())),
             ImageTemplateGroupPicker.asSpecialType(),
             // CaptureSource is an SDK interface — never a `new` ctor; always the visual chooser popup.
-            SpecialTypePicker.of(ctx -> ctx.isType(SdkType.CAPTURE_SOURCE) || ctx.isType(SdkType.WINDOW),
+            SpecialTypePicker.of(ctx -> ctx.isType(CaptureSource.class) || ctx.isType(Window.class),
                     ctx -> CaptureSourcePicker.create(ctx.context(), ctx.arg())),
-            SpecialTypePicker.of(ctx -> ctx.isType(SdkType.RECT),
+            SpecialTypePicker.of(ctx -> ctx.isType(Rect.class),
                     ctx -> RectPicker.create(ctx.context(), ctx.arg())),
-            SpecialTypePicker.of(ctx -> ctx.isType(SdkType.POINT),
+            SpecialTypePicker.of(ctx -> ctx.isType(Point.class),
                     ctx -> PointPicker.create(ctx.context(), ctx.arg())),
             // The third geometry type, and the last one to get a picker: without it a Size argument fell
             // through to the generic pill and rendered as a bare `new Size(w, h)` to type from nothing.
-            SpecialTypePicker.of(ctx -> ctx.isType(SdkType.SIZE),
+            SpecialTypePicker.of(ctx -> ctx.isType(Size.class),
                     ctx -> SizePicker.create(ctx.context(), ctx.arg())),
 
             // Enum fallback (re-resolves name-only SDK types through the project/library index).

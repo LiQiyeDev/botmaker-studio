@@ -1,7 +1,7 @@
 package com.botmaker.studio.parser;
 
 import com.botmaker.sdk.api.authoring.TemplateNames;
-import com.botmaker.studio.palette.SdkType;
+import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
@@ -30,7 +30,7 @@ public class ImportManager {
      * <p><b>Order is the disambiguation.</b> First hit wins, so {@code java.util} ahead of {@code java.awt}
      * settles {@code List} on {@code java.util.List}. The names that used to make this tier dangerous —
      * {@code Point}, {@code Window}, {@code Desktop}, {@code Text}, all of which the SDK also ships — never
-     * reach it at all: {@link SdkType} is consulted first (see {@link #resolveQualifiedName}). The old map
+     * reach it at all: the plugins' catalogs are consulted first (see {@link #resolveQualifiedName}). The old map
      * had to omit {@code Point} entirely and explain why in a comment; the tier above now handles that.
      */
     private static final List<String> JDK_PACKAGES = List.of(
@@ -93,7 +93,7 @@ public class ImportManager {
      *
      * <p>Use this only where the name genuinely <em>is</em> all the caller has: a pasted snippet's type, an
      * enum constant's scope, the leaf of an unbound {@link ResolvedType}. When the type is known at compile
-     * time, call {@link #addImport(CompilationUnit, ASTRewrite, SdkType)} instead — searching for an answer
+     * time, call {@link #addImport(CompilationUnit, ASTRewrite, Class)} instead — searching for an answer
      * you already hold is how an import ends up silently missing.
      */
     public static void addImportForSimpleName(CompilationUnit cu, ASTRewrite rewriter, String typeName,
@@ -138,9 +138,9 @@ public class ImportManager {
      * literal, which then had to <em>search</em> the analyzer index for a name the caller already knew — and
      * silently emitted nothing when the index was cold or the bot's classpath had not resolved yet.
      */
-    public static void addImport(CompilationUnit cu, ASTRewrite rewriter, SdkType type) {
+    public static void addImport(CompilationUnit cu, ASTRewrite rewriter, Class<?> type) {
         if (type == null) return;
-        addImport(cu, rewriter, type.qualifiedName());
+        addImport(cu, rewriter, type.getName());
     }
 
     /**
@@ -179,7 +179,8 @@ public class ImportManager {
      * <ol>
      *   <li><b>the project's own sources</b> — a class the user wrote always wins over anything on a
      *       classpath, exactly as {@code javac} would resolve it;</li>
-     *   <li><b>{@link SdkType}</b> — the closed set of {@code com.botmaker.sdk.api} classes. This is what
+     *   <li><b>{@link PluginHost the plugins' catalogs}</b> — the names the SDK (and any future plugin) owns.
+     *       This is what
      *       makes the tier below safe, and it is the only tier that can supply a <em>sub-package</em> FQN
      *       ({@code api.vision.ImageFinder}) from a bare name;</li>
      *   <li><b>{@link #probeJdkPackages the JDK probe}</b> — a last resort for names like {@code Color} or
@@ -208,10 +209,10 @@ public class ImportManager {
             }
         }
 
-        // Tier 2: the SDK. Must precede the probe — Point/Window/Desktop/Text all collide with java.awt.
-        Optional<SdkType> sdkType = SdkType.byName(className);
-        if (sdkType.isPresent()) {
-            return sdkType.get().qualifiedName();
+        // Tier 2: the plugins. Must precede the probe — Point/Window/Desktop/Text all collide with java.awt.
+        String owned = PluginHost.qualifiedName(className);
+        if (owned != null) {
+            return owned;
         }
 
         // Tier 3: the JDK.
@@ -320,10 +321,10 @@ public class ImportManager {
      * {@code api.Debug} became {@code api.util.Debug}, and so on. A bot written against an earlier SDK
      * carries the old import lines, and a stale import is a hard compile error on a line the user never
      * wrote: it would open every existing project with a wall of red for a rename nobody asked for. This is
-     * the repair, and it costs nothing because {@link SdkType} already holds the current FQN for every simple
-     * name the SDK owns.
+     * the repair, and it costs nothing because the bundled catalog already holds the current FQN for every
+     * simple name the SDK owns.
      *
-     * <p><b>An unrecognised name is left alone, deliberately.</b> A simple name {@link SdkType} does not know
+     * <p><b>An unrecognised name is left alone, deliberately.</b> A simple name the catalog does not know
      * is either a class that left the public API (the {@code CaptureSource} implementations, the observation
      * stack) or one this Studio is too old to know about, and there is no honest FQN to write for either. A
      * wrong import compiles into a different type; an untouched one fails to compile where the user can read
@@ -343,7 +344,7 @@ public class ImportManager {
             if (!stale.startsWith(SDK_API_PREFIX)) continue;
 
             String simpleName = stale.substring(stale.lastIndexOf('.') + 1);
-            String current = SdkType.byName(simpleName).map(SdkType::qualifiedName).orElse(null);
+            String current = PluginHost.qualifiedName(simpleName);
             if (current == null || current.equals(stale)) continue;
 
             ImportDeclaration fixed = cu.getAST().newImportDeclaration();

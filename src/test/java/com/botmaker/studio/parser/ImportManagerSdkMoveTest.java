@@ -1,6 +1,7 @@
 package com.botmaker.studio.parser;
 
-import com.botmaker.studio.palette.SdkType;
+import com.botmaker.plugin.api.catalog.FacadeEntry;
+import com.botmaker.studio.plugin.PluginHost;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -79,12 +80,12 @@ class ImportManagerSdkMoveTest {
     }
 
     @Test
-    void theRepairOnlyEverConsultsSdkType() {
-        // The guarantee behind the test above: every name the repair can write is one SdkType holds as a real
-        // class literal, so a repaired import cannot name a class that does not exist.
-        for (SdkType type : SdkType.values()) {
-            assertTrue(type.qualifiedName().startsWith("com.botmaker.sdk.api."),
-                    type + " is not in the api package: " + type.qualifiedName());
+    void theRepairOnlyEverConsultsTheServedCatalog() {
+        // The guarantee behind the test above: every name the repair can write comes from a catalogued facade,
+        // which holds a real Class<?>, so a repaired import cannot name a class that does not exist.
+        for (FacadeEntry facade : PluginHost.bundled().facades()) {
+            assertTrue(facade.qualifiedName().startsWith("com.botmaker.sdk.api."),
+                    facade.simpleName() + " is not in the api package: " + facade.qualifiedName());
         }
     }
 }

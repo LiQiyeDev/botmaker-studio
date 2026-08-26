@@ -1,7 +1,7 @@
 package com.botmaker.studio.ui.render.components.pickers;
 
+import com.botmaker.sdk.api.launch.Game;
 import com.botmaker.studio.core.ValueSlot;
-import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.types.ResolvedType;
 
@@ -23,7 +23,7 @@ public record PickerContext(CodeEditorService context, ValueSlot arg, ResolvedTy
     }
 
     /** True when {@code paramType} is the SDK type {@code sdkType}. */
-    public boolean isType(SdkType sdkType) {
+    public boolean isType(Class<?> sdkType) {
         return paramType != null && paramType.is(sdkType);
     }
 
@@ -36,7 +36,7 @@ public record PickerContext(CodeEditorService context, ValueSlot arg, ResolvedTy
 
     /** True when the enclosing call is on the SDK {@code Game} facade and names {@code method}. */
     public boolean isGameMethod(String method) {
-        String game = SdkType.GAME.simpleName();
+        String game = Game.class.getSimpleName();
         return method.equals(methodName)
                 && className != null && (className.equals(game) || className.endsWith("." + game));
     }

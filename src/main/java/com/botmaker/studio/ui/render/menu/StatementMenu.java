@@ -3,7 +3,8 @@ package com.botmaker.studio.ui.render.menu;
 import com.botmaker.studio.palette.BlockCatalog;
 import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.palette.BlockType;
-import com.botmaker.studio.palette.SdkType;
+import com.botmaker.plugin.api.catalog.FacadeEntry;
+import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.studio.parser.StatementPlacement;
 import com.botmaker.studio.services.SdkSurfaceService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
@@ -27,8 +28,8 @@ import java.util.stream.Collectors;
  * <em>slot</em>); the two shared nothing but plumbing, now in {@link MenuBuilders}.
  *
  * <p>Entries come from two sources: the language/structure blocks of {@link BlockCatalog}, grouped by
- * {@link BlockCategory}, and the SDK facades of {@link SdkType}, whose methods are discovered at runtime through
- * {@link ProjectAnalyzer} rather than mirrored in the palette.
+ * {@link BlockCategory}, and the {@linkplain FacadeEntry facades a plugin serves}, whose methods are
+ * discovered at runtime through {@link ProjectAnalyzer} rather than mirrored in the palette.
  */
 public final class StatementMenu {
 
@@ -37,7 +38,8 @@ public final class StatementMenu {
     /**
      * Creates the statement insert menu. A search box filters a flat list across every insertable block — the
      * language/structure blocks <em>and</em> every SDK facade method; with no query the menu leads with a submenu
-     * per class in {@link SdkType#MENU_FACADES} order (methods discovered at runtime via {@code ProjectAnalyzer}),
+     * per catalogued facade, in the served catalog's order (methods discovered at runtime via
+     * {@code ProjectAnalyzer}),
      * followed by the language-block category submenus, with the bot-{@code Control} group last.
      *
      * @param analyzer resolves each facade's static methods; may be {@code null} (headless / no project resolved),
@@ -103,7 +105,7 @@ public final class StatementMenu {
             return;
         }
 
-        // Default: one submenu per SDK facade class (in SdkType order), enumerating that class's static methods.
+        // Default: one submenu per SDK facade class (in catalog order), enumerating that class's static methods.
         //
         // PRESENCE is gated implicitly here and must stay so: sdkFacadeSubmenu returns null when the facade
         // resolves no methods, and the analyzer resolves against the bot's own jar — so a class its SDK
@@ -111,12 +113,12 @@ public final class StatementMenu {
         // second answer to the same question, from the same jar. Do not "optimize away" the null return,
         // which is the gate.
         //
-        // CURATION is a different question and does need the explicit filter that arrived with @Palette (see
+        // CURATION is a different question and does need the explicit filter the served catalog supplies (see
         // facadeMethodNames). "Is this method here?" and "should we lead with it?" are not the same, and
         // nothing enumerable answers the second — a method the analyzer resolves perfectly well may still not
         // be one we propose. The rule that keeps the two apart: filter what is OFFERED, never what is
         // RESOLVED. Blocks already in the file resolve through the analyzer, untouched.
-        for (SdkType facade : SdkType.MENU_FACADES) {
+        for (FacadeEntry facade : menuFacades(surface)) {
             Menu sub = sdkFacadeSubmenu(facade, analyzer, surface, onSelection);
             if (sub != null) menu.getItems().add(sub);
         }
@@ -134,7 +136,7 @@ public final class StatementMenu {
 
     /**
      * The insertable language/structure blocks: every {@link BlockCatalog#all()} entry except the SDK-facade
-     * calls (a {@link BlockType.LibraryCall} / {@link BlockType.LambdaCall} on a {@link SdkType} facade), which are
+     * calls (a {@link BlockType.LibraryCall} / {@link BlockType.LambdaCall} on a catalogued facade), which are
      * offered through the generated per-class submenus instead.
      */
     private static List<BlockType> languageBlocks(Predicate<BlockType> allowed) {
@@ -146,8 +148,8 @@ public final class StatementMenu {
 
     private static boolean isSdkFacadeCall(BlockType block) {
         return switch (block) {
-            case BlockType.LibraryCall l -> l.facade().isFacade();
-            case BlockType.LambdaCall l -> l.facade().isFacade();
+            case BlockType.LibraryCall l -> PluginHost.isFacadeClass(l.facade().getSimpleName());
+            case BlockType.LambdaCall l -> PluginHost.isFacadeClass(l.facade().getSimpleName());
             default -> false;
         };
     }
@@ -157,7 +159,7 @@ public final class StatementMenu {
      * the default overload is chosen at insert time by {@code StatementFactory}). Returns {@code null} when the
      * analyzer is absent or the facade resolves no static methods (e.g. the SDK jar isn't on the classpath yet).
      */
-    private static Menu sdkFacadeSubmenu(SdkType facade, ProjectAnalyzer analyzer, SdkSurfaceService surface,
+    private static Menu sdkFacadeSubmenu(FacadeEntry facade, ProjectAnalyzer analyzer, SdkSurfaceService surface,
                                          Consumer<BlockType> onSelection) {
         if (analyzer == null) return null;
         Menu sub = new Menu(facade.simpleName());
@@ -170,13 +172,22 @@ public final class StatementMenu {
     }
 
     /** An SDK facade method as a statement block, paired with its facade so the search view can icon it. */
-    private record SdkCall(SdkType facade, BlockType block) {}
+    private record SdkCall(FacadeEntry facade, BlockType block) {}
+
+    /**
+     * The facades to lead with: this project's served catalog ∩ its own jar, or — with no surface wired
+     * (headless, no project) — the bundled catalog's superset, which is the same answer Studio gave when it
+     * mirrored the SDK's class list by hand.
+     */
+    private static List<FacadeEntry> menuFacades(SdkSurfaceService surface) {
+        return surface == null ? PluginHost.menuFacades() : surface.menuFacades();
+    }
 
     /** Every SDK facade method as a flat list of class-qualified statement blocks, for the search view. */
     private static List<SdkCall> sdkCalls(ProjectAnalyzer analyzer, SdkSurfaceService surface) {
         List<SdkCall> out = new ArrayList<>();
         if (analyzer == null) return out;
-        for (SdkType facade : SdkType.MENU_FACADES) {
+        for (FacadeEntry facade : menuFacades(surface)) {
             for (String method : facadeMethodNames(facade, analyzer, surface)) {
                 out.add(new SdkCall(facade, sdkCall(facade, method, facade.simpleName() + "." + method)));
             }
@@ -191,7 +202,7 @@ public final class StatementMenu {
      * <p>A name survives when the SDK offers at least one of its overloads. Which overload the insert then
      * creates is {@code StatementFactory}'s business, and it applies the same set.
      */
-    private static List<String> facadeMethodNames(SdkType facade, ProjectAnalyzer analyzer,
+    private static List<String> facadeMethodNames(FacadeEntry facade, ProjectAnalyzer analyzer,
                                                   SdkSurfaceService surface) {
         return analyzer.getMethods(facade.simpleName(), true).stream()
                 .map(MethodSignature::name)
@@ -202,9 +213,9 @@ public final class StatementMenu {
     }
 
     /** A synthetic {@code facade.method(<defaults>)} statement block; args are seeded from the resolved overload. */
-    private static BlockType sdkCall(SdkType facade, String method, String displayName) {
+    private static BlockType sdkCall(FacadeEntry facade, String method, String displayName) {
         return new BlockType.LibraryCall("SDK_" + facade.simpleName() + "_" + method, displayName,
-                BlockCategory.INPUT, facade, method, List.of());
+                BlockCategory.INPUT, facade.type(), method, List.of());
     }
 
     private static void addCategoryMenu(ContextMenu menu, BlockCategory category,

@@ -1,8 +1,15 @@
 package com.botmaker.studio.project.activity;
 
 import com.botmaker.sdk.api.authoring.WireText;
+import com.botmaker.sdk.api.geometry.Direction;
+import com.botmaker.sdk.api.geometry.Point;
+import com.botmaker.sdk.api.geometry.Rect;
+import com.botmaker.sdk.api.geometry.Size;
+import com.botmaker.sdk.api.interaction.Key;
+import com.botmaker.sdk.api.interaction.MouseButton;
+import com.botmaker.sdk.api.vision.ImageTemplate;
+import com.botmaker.sdk.api.vision.Precision;
 import com.botmaker.studio.palette.BotType;
-import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.types.JdkType;
 import com.botmaker.studio.types.ResolvedType;
@@ -10,6 +17,7 @@ import com.botmaker.studio.types.ResolvedType;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -104,9 +112,9 @@ public final class VariableWire {
      */
     public static List<String> fixedOptions(BotType type) {
         return switch (type) {
-            case KEY -> SdkType.KEY.enumConstantNames();
-            case MOUSE_BUTTON -> SdkType.MOUSE_BUTTON.enumConstantNames();
-            case DIRECTION -> SdkType.DIRECTION.enumConstantNames();
+            case KEY -> enumConstantNames(Key.class);
+            case MOUSE_BUTTON -> enumConstantNames(MouseButton.class);
+            case DIRECTION -> enumConstantNames(Direction.class);
             default -> List.of();
         };
     }
@@ -264,16 +272,16 @@ public final class VariableWire {
             // source should have to know it.
             case DURATION -> new Literal("Duration.ofMillis(" + WireText.duration(text).toMillis() + "L)",
                     "java.time.Duration");
-            case IMAGE_TEMPLATE -> new Literal("new %s(%s)".formatted(SdkType.IMAGE_TEMPLATE.simpleName(),
+            case IMAGE_TEMPLATE -> new Literal("new %s(%s)".formatted(ImageTemplate.class.getSimpleName(),
                     quote(WireText.IMAGE_PREFIX + text + ".png")),
-                    SdkType.IMAGE_TEMPLATE.qualifiedName());
-            case KEY -> enumLiteral(SdkType.KEY, text);
-            case MOUSE_BUTTON -> enumLiteral(SdkType.MOUSE_BUTTON, text);
-            case DIRECTION -> enumLiteral(SdkType.DIRECTION, text);
+                    ImageTemplate.class.getName());
+            case KEY -> enumLiteral(Key.class, text);
+            case MOUSE_BUTTON -> enumLiteral(MouseButton.class, text);
+            case DIRECTION -> enumLiteral(Direction.class, text);
             case PRECISION -> precisionLiteral(text);
-            case POINT -> intsLiteral(SdkType.POINT, text, 2);
-            case SIZE -> intsLiteral(SdkType.SIZE, text, 2);
-            case RECT -> intsLiteral(SdkType.RECT, text, 4);
+            case POINT -> intsLiteral(Point.class, text, 2);
+            case SIZE -> intsLiteral(Size.class, text, 2);
+            case RECT -> intsLiteral(Rect.class, text, 4);
             default -> null;
         };
     }
@@ -281,9 +289,9 @@ public final class VariableWire {
     /** One literal and the import it needs — what {@code CodeEditor.replaceWithRawExpression} takes. */
     public record Literal(String source, String importFqn) {}
 
-    private static Literal enumLiteral(SdkType type, String wire) {
+    private static Literal enumLiteral(Class<?> type, String wire) {
         String constant = wire.isEmpty() ? firstConstantOf(type) : wire.toUpperCase(Locale.ROOT);
-        return new Literal(type.simpleName() + "." + constant, type.qualifiedName());
+        return new Literal(type.getSimpleName() + "." + constant, type.getName());
     }
 
     private static Literal precisionLiteral(String wire) {
@@ -291,18 +299,18 @@ public final class VariableWire {
         double deltaE = Math.max(0.0, parts.length > 0 ? doubleOr(parts[0], 12.0) : 12.0);
         int minArea = Math.max(1, parts.length > 1 ? (int) doubleOr(parts[1], 4) : 4);
         int minCount = Math.max(0, parts.length > 2 ? (int) doubleOr(parts[2], 0) : 0);
-        return new Literal("new %s(%s, %d, %d)".formatted(SdkType.PRECISION.simpleName(), deltaE, minArea, minCount),
-                SdkType.PRECISION.qualifiedName());
+        return new Literal("new %s(%s, %d, %d)".formatted(Precision.class.getSimpleName(), deltaE, minArea, minCount),
+                Precision.class.getName());
     }
 
-    private static Literal intsLiteral(SdkType type, String wire, int count) {
+    private static Literal intsLiteral(Class<?> type, String wire, int count) {
         String[] parts = wire.split(",");
         StringBuilder args = new StringBuilder();
         for (int i = 0; i < count; i++) {
             if (i > 0) args.append(", ");
             args.append((int) doubleOr(i < parts.length ? parts[i] : "", 0));
         }
-        return new Literal("new " + type.simpleName() + "(" + args + ")", type.qualifiedName());
+        return new Literal("new " + type.getSimpleName() + "(" + args + ")", type.getName());
     }
 
     private static double doubleOr(String text, double fallback) {
@@ -355,11 +363,11 @@ public final class VariableWire {
     // ---- shared parsing -------------------------------------------------------------------------------
 
     private static String qualified(BotType type) {
-        return type.sdkType().map(SdkType::qualifiedName).orElse(type.typeName());
+        return type.sdkType().map(Class::getName).orElse(type.typeName());
     }
 
     private static String boxed(BotType type) {
-        return type.sdkType().map(SdkType::qualifiedName).orElse(type.boxedName());
+        return type.sdkType().map(Class::getName).orElse(type.boxedName());
     }
 
     /**
@@ -382,9 +390,23 @@ public final class VariableWire {
         return options.isEmpty() ? "" : options.getFirst();
     }
 
-    private static String firstConstantOf(SdkType type) {
-        List<String> constants = type.enumConstantNames();
+    private static String firstConstantOf(Class<?> type) {
+        List<String> constants = enumConstantNames(type);
         return constants.isEmpty() ? "" : constants.getFirst();
+    }
+
+    /**
+     * The constant names of an SDK enum, in declaration order — empty for anything that is not one.
+     *
+     * <p>This used to be {@code SdkType.enumConstantNames()}, and it is deliberately not a plugin-host query:
+     * the catalog says which types and members are worth <em>offering</em>, and an enum's constants are never
+     * curated (they are the type's whole value set). Reading them off the class is the same answer with no
+     * indirection.
+     */
+    private static List<String> enumConstantNames(Class<?> type) {
+        Object[] constants = type.getEnumConstants();
+        if (constants == null) return List.of();
+        return Arrays.stream(constants).map(c -> ((Enum<?>) c).name()).toList();
     }
 
     private static String constantOrFirst(BotType type, String wire) {

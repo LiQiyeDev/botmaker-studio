@@ -127,7 +127,7 @@ public class DiagnosticsManager {
                 public boolean visit(org.eclipse.jdt.core.dom.MethodInvocation node) {
                     if (!(node.getExpression() instanceof org.eclipse.jdt.core.dom.SimpleName receiver)) return true;
                     String className = receiver.getIdentifier();
-                    if (!com.botmaker.studio.palette.SdkType.isFacadeClass(className)) return true;
+                    if (!com.botmaker.studio.plugin.PluginHost.isFacadeClass(className)) return true;
                     String method = node.getName().getIdentifier();
                     if (!deprecationProbe.test(className, method)) return true;
                     // The same invocation is reachable from several map keys (a block and its parent block);

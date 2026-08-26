@@ -2,7 +2,7 @@ package com.botmaker.studio.ui.render.menu;
 
 import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.palette.ExpressionCategory;
-import com.botmaker.studio.palette.SdkType;
+import com.botmaker.plugin.api.catalog.FacadeEntry;
 import javafx.scene.Node;
 import javafx.scene.control.Label;
 import javafx.scene.control.MenuItem;
@@ -12,12 +12,12 @@ import javafx.scene.control.MenuItem;
  * category or an SDK facade looks like.
  *
  * <p>Categories already carry their own glyph ({@link BlockCategory#icon()} / {@link ExpressionCategory#icon()})
- * and so, since it became a typed enum, does each SDK facade ({@link SdkType#icon()}); this class re-exports all
+ * and so does each SDK facade ({@link FacadeEntry#icon()}); this class re-exports all
  * three so callers have one place to ask, applies {@link #FALLBACK} where a glyph is absent, and adds the one set
  * that has no record of its own: the menus' structural submenus ("Variables", "Call Function", …).
  *
  * <p>The facade glyphs used to live here as a second hand-maintained map keyed by simple name, which could drift
- * from the facade list itself. They now sit on {@link SdkType} beside the class they belong to.
+ * from the facade list itself. They are now the plugin's own answer, served with the facade they belong to.
  */
 final class MenuIcons {
 
@@ -43,10 +43,10 @@ final class MenuIcons {
         return category == null ? FALLBACK : category.icon();
     }
 
-    /** The glyph for an SDK type, or {@link #FALLBACK} for one that carries none. */
-    static String iconFor(SdkType sdkType) {
-        String icon = sdkType == null ? null : sdkType.icon();
-        return icon == null ? FALLBACK : icon;
+    /** The glyph for a catalogued facade, or {@link #FALLBACK} for one that carries none. */
+    static String iconFor(FacadeEntry facade) {
+        String icon = facade == null ? null : facade.icon();
+        return icon == null || icon.isBlank() ? FALLBACK : icon;
     }
 
     /**

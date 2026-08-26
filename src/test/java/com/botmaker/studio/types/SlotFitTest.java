@@ -1,6 +1,6 @@
 package com.botmaker.studio.types;
 
-import com.botmaker.studio.palette.SdkType;
+import com.botmaker.sdk.api.vision.ImageTemplate;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -54,7 +54,7 @@ class SlotFitTest {
         assertFalse(TypeExpectation.fits(ResolvedType.BOOLEAN, ResolvedType.VOID));
         assertFalse(TypeExpectation.fits(ResolvedType.UNKNOWN, ResolvedType.VOID), "not even an unknown slot");
         assertFalse(TypeExpectation.fits(null, ResolvedType.VOID));
-        assertFalse(TypeExpectation.fits(ResolvedType.of(SdkType.IMAGE_TEMPLATE), ResolvedType.named("void")),
+        assertFalse(TypeExpectation.fits(ResolvedType.of(ImageTemplate.class), ResolvedType.named("void")),
                 "the dragboard carries the name, so the name has to answer the same way");
     }
 
@@ -62,8 +62,8 @@ class SlotFitTest {
     void anObjectSlotComparesNames() {
         // Neither side falls into one of the four categories, so the name is all there is to go on. The
         // simple name counts because a slot is routinely declared with the bare identifier the source wrote.
-        ResolvedType template = ResolvedType.of(SdkType.IMAGE_TEMPLATE);
-        assertTrue(TypeExpectation.fits(template, ResolvedType.named(SdkType.IMAGE_TEMPLATE.simpleName())));
+        ResolvedType template = ResolvedType.of(ImageTemplate.class);
+        assertTrue(TypeExpectation.fits(template, ResolvedType.named(ImageTemplate.class.getSimpleName())));
         assertFalse(TypeExpectation.fits(template, ResolvedType.of(JdkType.STRING)));
         assertFalse(TypeExpectation.fits(template, ResolvedType.named("com.example.Other")));
     }
@@ -83,6 +83,6 @@ class SlotFitTest {
         assertEquals("This slot needs a yes/no, and that line gives int.",
                 SlotFit.refusal(ResolvedType.BOOLEAN, ResolvedType.named("int")));
         assertEquals("This slot needs a ImageTemplate, and that line gives String.",
-                SlotFit.refusal(ResolvedType.of(SdkType.IMAGE_TEMPLATE), ResolvedType.of(JdkType.STRING)));
+                SlotFit.refusal(ResolvedType.of(ImageTemplate.class), ResolvedType.of(JdkType.STRING)));
     }
 }

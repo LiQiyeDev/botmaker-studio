@@ -1,9 +1,11 @@
 package com.botmaker.studio.util;
 
+import com.botmaker.plugin.api.catalog.MemberId;
 import com.botmaker.studio.types.ResolvedType;
 import io.github.classgraph.MethodInfo;
 import io.github.classgraph.MethodParameterInfo;
 
+import java.lang.reflect.Executable;
 import java.util.List;
 
 public record MethodSignature(String name, List<ResolvedType> paramTypes, List<String> paramNames,
@@ -94,6 +96,61 @@ public record MethodSignature(String name, List<ResolvedType> paramTypes, List<S
             sb.append(simpleNameOf(params[i].getTypeSignatureOrTypeDescriptor().toString(), varargsTail));
         }
         return sb.toString();
+    }
+
+    /**
+     * The {@link #signatureKey()} of a member a <em>plugin catalog</em> named — the <b>third</b> vocabulary
+     * the same key has to be spelled in, and the one that arrived with the palette catalog.
+     *
+     * <p>A {@link MemberId} carries the JVM descriptor of the method reference that named it, so the
+     * derivation is the same reduction as {@link #signatureKeyOf(MethodInfo)} over
+     * {@link MemberId#parameterTypeNames()} — with one thing the descriptor cannot say. <b>Varargs is not in
+     * a descriptor:</b> {@code findAny(ImageTemplate...)} and {@code findAny(ImageTemplate[])} compile to the
+     * identical signature, while the key spells the first as its <em>element</em> type. The flag is a
+     * declaration-site fact, so it is read back off the declaring {@link Class} — which the catalog holds for
+     * exactly this kind of question.
+     *
+     * <p>The failure this prevents has no symptom of its own: a curated overload whose key matches nothing
+     * the menu holds is simply never offered, indistinguishable from never having been catalogued.
+     * {@code SignatureKeyAgreementTest} holds all three vocabularies against the real SDK jar.
+     */
+    public static String signatureKeyOf(MemberId id) {
+        List<String> params = id.parameterTypeNames();
+        boolean varargs = isVarArgs(id, params);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < params.size(); i++) {
+            if (i > 0) sb.append(',');
+            sb.append(simpleNameOf(params.get(i), varargs && i == params.size() - 1));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Whether the member {@code id} names was declared varargs. Matched on name and parameter types rather
+     * than on the descriptor string, because {@link Class#getName()} spells an array {@code [Lp.T;} while the
+     * id spells it {@code p.T[]}; false for anything that does not resolve, which is the same answer a
+     * non-varargs method gives and so changes nothing.
+     */
+    private static boolean isVarArgs(MemberId id, List<String> params) {
+        Executable[] candidates = id.isConstructor()
+                ? id.declaringClass().getDeclaredConstructors()
+                : id.declaringClass().getDeclaredMethods();
+        for (Executable candidate : candidates) {
+            if (!candidate.isVarArgs() || candidate.getParameterCount() != params.size()) continue;
+            if (!id.isConstructor() && !candidate.getName().equals(id.name())) continue;
+            Class<?>[] declared = candidate.getParameterTypes();
+            boolean same = true;
+            for (int i = 0; i < declared.length && same; i++) {
+                same = sourceName(declared[i]).equals(params.get(i));
+            }
+            if (same) return true;
+        }
+        return false;
+    }
+
+    /** {@code int}, {@code java.lang.String}, {@code p.T[]} — {@link MemberId}'s spelling of a type. */
+    private static String sourceName(Class<?> type) {
+        return type.isArray() ? sourceName(type.getComponentType()) + "[]" : type.getName();
     }
 
     /** A bytecode descriptor reduced to the simple name {@link ResolvedType#simpleName()} would give it. */

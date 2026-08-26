@@ -1,11 +1,13 @@
 package com.botmaker.studio.parser.factories;
 
+import com.botmaker.sdk.api.util.BotMaker;
+import com.botmaker.sdk.api.vision.ImageTemplate;
+import com.botmaker.sdk.api.vision.Matches;
 import com.botmaker.studio.blocks.flow.MatchesGroupScope;
 import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.palette.BotMakerApi;
 import com.botmaker.studio.palette.Initializer;
 import com.botmaker.studio.palette.MatchesCheck;
-import com.botmaker.studio.palette.SdkType;
 import com.botmaker.studio.parser.EditContext;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
 import com.botmaker.studio.parser.handlers.MatchesSwitchHandler;
@@ -171,7 +173,7 @@ public class StatementFactory {
 
     private static Statement buildScannerRead(EditContext ctx, BlockType.ScannerRead r, ASTNode context) {
         AST ast = ctx.ast();
-        ctx.addImport(SdkType.BOT_MAKER);
+        ctx.addImport(BotMaker.class);
         VariableDeclarationFragment fragment = ast.newVariableDeclarationFragment();
         fragment.setName(ast.newSimpleName(uniqueName(ctx.analyzer(), context, r.varName())));
         MethodInvocation readCall = ast.newMethodInvocation();
@@ -217,16 +219,16 @@ public class StatementFactory {
                                                             ProjectAnalyzer analyzer,
                                                             SdkSurfaceService surface) {
         if (analyzer == null) return null;
-        List<MethodSignature> sigs = analyzer.getMethods(l.facade().simpleName(), true).stream()
+        List<MethodSignature> sigs = analyzer.getMethods(l.facade().getSimpleName(), true).stream()
                 .filter(s -> s.name().equals(l.method()))
                 .collect(Collectors.toList());
         if (sigs.isEmpty()) return null;
         // A fresh insert has no current overload to protect, so the offered set applies without exception:
         // the menu proposed this name because some overload is offered, and that is the one to create.
         // fewestParams over the unfiltered list would happily land the user on a hidden shape.
-        if (surface != null) sigs = surface.retainOffered(l.facade().simpleName(), l.method(), sigs, null);
+        if (surface != null) sigs = surface.retainOffered(l.facade().getSimpleName(), l.method(), sigs, null);
         String favKey = (state != null && state.getSettings() != null)
-                ? state.getSettings().favoriteSignature(l.facade().simpleName() + "#" + l.method()) : null;
+                ? state.getSettings().favoriteSignature(l.facade().getSimpleName() + "#" + l.method()) : null;
         // A favorite pinned before the facade was curated may name an overload that is no longer offered;
         // bestForKey then finds nothing in the filtered list and the fallback takes over, which is the
         // intended degradation — a stale preference must not resurrect a hidden overload.
@@ -330,7 +332,7 @@ public class StatementFactory {
 
     private static Statement createPrintStatement(EditContext ctx) {
         AST ast = ctx.ast();
-        ctx.addImport(SdkType.BOT_MAKER);
+        ctx.addImport(BotMaker.class);
         MethodInvocation print = ast.newMethodInvocation();
         print.setExpression(ast.newSimpleName("BotMaker"));
         print.setName(ast.newSimpleName(BotMakerApi.PRINT));
@@ -507,14 +509,14 @@ public class StatementFactory {
         String subject = MatchesGroupScope.matchesVariable(context);
         if (subject == null) {
             ProjectAnalyzer.VariableOption typed = firstVisibleVariable(ctx.analyzer(), context,
-                    v -> v.type() != null && v.type().is(SdkType.MATCHES));
+                    v -> v.type() != null && v.type().is(Matches.class));
             subject = typed == null ? null : typed.name();
         }
 
         // `Matches` is named in every case label, so the file needs it even though the variable it switches on
         // came from a lambda parameter whose type is inferred and therefore never imported by anything else.
-        ctx.addImport(SdkType.MATCHES);
-        ctx.addImport(SdkType.IMAGE_TEMPLATE);
+        ctx.addImport(Matches.class);
+        ctx.addImport(ImageTemplate.class);
         ctx.addTemplatesImport();
 
         List<String> allowed = MatchesGroupScope.allowedPaths(context);

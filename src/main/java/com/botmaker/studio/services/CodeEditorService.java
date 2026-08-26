@@ -1,5 +1,6 @@
 package com.botmaker.studio.services;
 
+import com.botmaker.plugin.api.catalog.FacadeEntry;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.core.AbstractCodeBlock;
 import com.botmaker.studio.core.BodyBlock;
@@ -22,7 +23,7 @@ import com.botmaker.studio.types.SlotFit;
 import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.palette.FunctionDraft;
 import com.botmaker.studio.palette.SdkDocs;
-import com.botmaker.studio.palette.SdkType;
+import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
 import com.botmaker.studio.ui.dnd.DropInfo;
 import com.botmaker.studio.ui.dnd.ExpressionDropInfo;
@@ -114,14 +115,20 @@ public class CodeEditorService {
     /** This project's SDK surface, or {@code null} when none is wired. Prefer the three helpers below. */
     public SdkSurfaceService getSdkSurface() { return sdkSurfaceService; }
 
-    /** The menu facades this project's SDK actually has — {@link SdkType#MENU_FACADES} when unknown. */
-    public List<SdkType> sdkMenuFacades() {
-        return sdkSurfaceService == null ? SdkType.MENU_FACADES : sdkSurfaceService.menuFacades();
+    /**
+     * The menu facades this project's SDK actually has — the bundled catalog's when no surface is wired.
+     *
+     * <p>The fallback is deliberately the <b>bundled</b> catalog rather than an empty list: with no project
+     * in hand there is nothing to intersect against, and the superset is the same answer Studio gave when it
+     * mirrored the SDK's class list by hand.
+     */
+    public List<FacadeEntry> sdkMenuFacades() {
+        return sdkSurfaceService == null ? PluginHost.menuFacades() : sdkSurfaceService.menuFacades();
     }
 
-    /** The facade class names this project's SDK actually has — {@link SdkType#FACADE_NAMES} when unknown. */
+    /** The facade class names this project's SDK actually has — the bundled catalog's when unknown. */
     public List<String> sdkFacadeNames() {
-        return sdkSurfaceService == null ? SdkType.FACADE_NAMES : sdkSurfaceService.facadeNames();
+        return sdkSurfaceService == null ? PluginHost.facadeNames() : sdkSurfaceService.facadeNames();
     }
 
     /** True when {@code className.member} is {@code @Deprecated} in this project's SDK. False when unknown. */
