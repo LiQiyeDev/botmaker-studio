@@ -44,6 +44,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The plugin contract. Studio is the host side of it, and the SDK (as plugin #1) compiles against it
+      # too — so it has to be installed before the SDK below.
+      - name: Check out botmaker-studio-api
+        uses: actions/checkout@v4
+        with:
+          repository: LiQiyeDev/botmaker-studio-api
+          path: .deps/botmaker-studio-api
+
       - name: Check out botmaker-shared
         uses: actions/checkout@v4
         with:
@@ -69,8 +77,9 @@ jobs:
           java-version: '21'
           cache: maven
 
-      - name: Install botmaker-shared, botmaker-session and botmaker-sdk (0.0.0-SNAPSHOT)
+      - name: Install botmaker-studio-api, botmaker-shared, botmaker-session and botmaker-sdk (0.0.0-SNAPSHOT)
         run: |
+          mvn -B -f .deps/botmaker-studio-api/pom.xml install -DskipTests
           mvn -B -f .deps/botmaker-shared/pom.xml install -DskipTests
           mvn -B -f .deps/botmaker-session/pom.xml install -DskipTests
           mvn -B -f .deps/botmaker-sdk/pom.xml install -DskipTests
@@ -168,22 +177,31 @@ jobs:
           fi
           echo "appversion=${num}" >> "$GITHUB_OUTPUT"
 
-      # The three upstream refs this release is built against, pinned in a committed file rather than
+      # The four upstream refs this release is built against, pinned in a committed file rather than
       # guessed from "newest tag". release.sh writes it into the studio release commit; see .deps.env.
       - name: Read pinned upstream tags
         id: deps
         shell: bash
         run: |
           set -a; . ./.deps.env; set +a
-          for v in SHARED_TAG SESSION_TAG SDK_TAG; do
+          for v in SHARED_TAG SESSION_TAG SDK_TAG STUDIO_API_TAG; do
             [ -n "${!v}" ] || { echo "::error::$v is empty in .deps.env"; exit 1; }
           done
           {
             echo "shared=${SHARED_TAG}"
             echo "session=${SESSION_TAG}"
             echo "sdk=${SDK_TAG}"
+            echo "studioapi=${STUDIO_API_TAG}"
           } >> "$GITHUB_OUTPUT"
-          echo "building against shared=${SHARED_TAG} session=${SESSION_TAG} sdk=${SDK_TAG}"
+          echo "building against shared=${SHARED_TAG} session=${SESSION_TAG} sdk=${SDK_TAG} studio-api=${STUDIO_API_TAG}"
+
+      # The plugin contract, installed first: the SDK compiles against it as well.
+      - name: Check out botmaker-studio-api
+        uses: actions/checkout@v4
+        with:
+          repository: LiQiyeDev/botmaker-studio-api
+          ref: ${{ steps.deps.outputs.studioapi }}
+          path: .deps/botmaker-studio-api
 
       - name: Check out botmaker-shared
         uses: actions/checkout@v4
@@ -207,11 +225,12 @@ jobs:
           ref: ${{ steps.deps.outputs.sdk }}
           path: .deps/botmaker-sdk
 
-      # Lands all three at 0.0.0-SNAPSHOT — the version this pom's properties already default to — so the
+      # Lands all four at 0.0.0-SNAPSHOT — the version this pom's properties already default to — so the
       # build below needs no -Dbotmaker.*.version at all, and resolves nothing from JitPack.
-      - name: Install botmaker-shared, botmaker-session and botmaker-sdk (0.0.0-SNAPSHOT)
+      - name: Install botmaker-studio-api, botmaker-shared, botmaker-session and botmaker-sdk (0.0.0-SNAPSHOT)
         shell: bash
         run: |
+          mvn -B -f .deps/botmaker-studio-api/pom.xml install -DskipTests
           mvn -B -f .deps/botmaker-shared/pom.xml install -DskipTests
           mvn -B -f .deps/botmaker-session/pom.xml install -DskipTests
           mvn -B -f .deps/botmaker-sdk/pom.xml install -DskipTests

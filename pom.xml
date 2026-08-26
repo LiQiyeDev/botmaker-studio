@@ -23,6 +23,10 @@
              only (palette/SdkType); the methods and Javadoc a bot is offered still come from the SDK version
              that bot pins, resolved at runtime. -->
         <botmaker.sdk.version>0.0.0-SNAPSHOT</botmaker.sdk.version>
+        <!-- botmaker-studio-api version: the plugin contract Studio hosts. Same contract again. Studio is
+             the *host* side of it — it implements SlotContext/StudioServices and consumes what a plugin
+             contributes. -->
+        <botmaker.studioapi.version>0.0.0-SNAPSHOT</botmaker.studioapi.version>
         <!-- Numeric-only version for jpackage (rejects -SNAPSHOT / non-numeric versions). -->
         <app.version>1.0.5</app.version>
 
@@ -91,6 +95,16 @@
             <groupId>com.github.LiQiyeDev</groupId>
             <artifactId>botmaker-sdk</artifactId>
             <version>${botmaker.sdk.version}</version>
+        </dependency>
+
+        <!-- The plugin contract, from the host's side: Studio implements SlotContext, StudioServices, Theme,
+             Capture and Dialogs over its own editor, and reads the PaletteCatalog a plugin contributes.
+             Compile scope, not optional — unlike in the SDK, these types are on Studio's own execution path.
+             See ../docs/refactor/24-plugin-platform.md. -->
+        <dependency>
+            <groupId>com.github.LiQiyeDev</groupId>
+            <artifactId>botmaker-studio-api</artifactId>
+            <version>${botmaker.studioapi.version}</version>
         </dependency>
 
         <!-- OpenCV (native bindings). Drives the GrabCut object-capture wand in ui/app/capture.
