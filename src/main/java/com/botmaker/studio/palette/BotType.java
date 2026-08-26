@@ -1,6 +1,6 @@
 package com.botmaker.studio.palette;
 
-import com.botmaker.sdk.api.authoring.TemplateNames;
+import com.botmaker.sdk.authoring.TemplateNames;
 import com.botmaker.sdk.api.capture.CaptureSource;
 import com.botmaker.sdk.api.capture.Source;
 import com.botmaker.sdk.api.geometry.Direction;

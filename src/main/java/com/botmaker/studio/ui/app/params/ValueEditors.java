@@ -1,6 +1,6 @@
 package com.botmaker.studio.ui.app.params;
 
-import com.botmaker.sdk.api.authoring.WireText;
+import com.botmaker.sdk.authoring.WireText;
 import com.botmaker.studio.palette.BotType;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.activity.Bounds;

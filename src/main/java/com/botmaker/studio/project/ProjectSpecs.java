@@ -1,10 +1,10 @@
 package com.botmaker.studio.project;
 
-import com.botmaker.sdk.api.authoring.Authoring;
-import com.botmaker.sdk.api.authoring.AuthoringUnsupported;
-import com.botmaker.sdk.api.authoring.ProjectModel;
-import com.botmaker.sdk.api.authoring.ProjectSpec;
-import com.botmaker.sdk.api.authoring.SdkVersion;
+import com.botmaker.sdk.authoring.Authoring;
+import com.botmaker.sdk.authoring.AuthoringUnsupported;
+import com.botmaker.sdk.authoring.ProjectModel;
+import com.botmaker.sdk.authoring.ProjectSpec;
+import com.botmaker.sdk.authoring.SdkVersion;
 import com.botmaker.sdk.api.geometry.Size;
 import com.botmaker.studio.services.MavenService;
 

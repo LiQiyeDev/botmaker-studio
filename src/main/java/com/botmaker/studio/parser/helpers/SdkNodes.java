@@ -1,6 +1,6 @@
 package com.botmaker.studio.parser.helpers;
 
-import com.botmaker.sdk.api.authoring.TemplateNames;
+import com.botmaker.sdk.authoring.TemplateNames;
 import com.botmaker.sdk.api.vision.ImageTemplate;
 import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.ClassInstanceCreation;

@@ -1,6 +1,6 @@
 package com.botmaker.studio.project.activity;
 
-import com.botmaker.sdk.api.authoring.WireText;
+import com.botmaker.sdk.authoring.WireText;
 import com.botmaker.sdk.api.geometry.Direction;
 import com.botmaker.sdk.api.geometry.Point;
 import com.botmaker.sdk.api.geometry.Rect;

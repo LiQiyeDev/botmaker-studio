@@ -1,7 +1,7 @@
 package com.botmaker.studio.project;
 
-import com.botmaker.sdk.api.authoring.Authoring;
-import com.botmaker.sdk.api.authoring.SdkVersion;
+import com.botmaker.sdk.authoring.Authoring;
+import com.botmaker.sdk.authoring.SdkVersion;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.migration.SchemaFile;
 import com.botmaker.studio.services.MavenService;

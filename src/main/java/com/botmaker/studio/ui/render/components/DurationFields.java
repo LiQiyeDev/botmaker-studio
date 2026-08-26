@@ -1,6 +1,6 @@
 package com.botmaker.studio.ui.render.components;
 
-import com.botmaker.sdk.api.authoring.WireText;
+import com.botmaker.sdk.authoring.WireText;
 import javafx.geometry.Pos;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextField;

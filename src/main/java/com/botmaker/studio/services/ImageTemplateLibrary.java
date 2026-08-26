@@ -1,6 +1,6 @@
 package com.botmaker.studio.services;
 
-import com.botmaker.sdk.api.authoring.TemplateNames;
+import com.botmaker.sdk.authoring.TemplateNames;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.project.Regeneration;

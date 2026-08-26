@@ -1,6 +1,6 @@
 package com.botmaker.studio.ui.render.components.pickers;
 
-import com.botmaker.sdk.api.authoring.WireText;
+import com.botmaker.sdk.authoring.WireText;
 import com.botmaker.sdk.api.interaction.Wait;
 import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.parser.helpers.SdkNodes;

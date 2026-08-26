@@ -1,7 +1,7 @@
 package com.botmaker.studio.services;
 
-import com.botmaker.sdk.api.authoring.TemplateNames;
-import com.botmaker.sdk.api.authoring.WireText;
+import com.botmaker.sdk.authoring.TemplateNames;
+import com.botmaker.sdk.authoring.WireText;
 import com.botmaker.studio.parser.refactor.ReviewMarker;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
