@@ -28,22 +28,24 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p><b>No fixture jar, and that is the change phase 7 made.</b> Until 2026-08-26 curation was an
  * annotation the service probed for in the bot's own jar, so a test had to build one carrying a
- * {@code @Palette} class. Curation now comes from the plugin's per-version catalog — a real
- * {@code Class<?>} named by a method reference, resolved in this build — so what decides these answers is
- * the <em>pin</em>, and the pin is one line in a pom. The index is not consulted at all here, which is
- * itself worth pinning down: presence and curation are two questions with two sources.
+ * {@code @Palette} class. Curation now comes from the plugin's catalog — real {@code Class<?>} identities,
+ * resolved in this build — and the index is not consulted at all here, which is itself worth pinning down:
+ * presence and curation are two questions with two sources.
  *
- * <p>Three pins, because the catalog has three states and conflating any two of them is how this breaks in
- * the field: a version released before catalogs existed (offer everything), a version this build carries a
- * catalog for (offer what it names), and a version newer than this editor (offer everything again — a bot
- * ahead of Studio must not be narrowed to a surface Studio happens to know).
+ * <p><b>The pin no longer selects a catalog</b> (phase 8, later the same day). There was one catalog class
+ * per released version and therefore three states to keep apart — before catalogs, catalogued, and newer
+ * than this editor. The SDK now serves a single catalog generated from its own annotations and
+ * {@linkplain com.botmaker.sdk.plugin.SdkPlugin#catalog(String) ignores the pin}, so every pin here gets
+ * the same curation and the three constants below survive only to say so. The narrowing that used to come
+ * from picking an older catalog now comes from the other half of this service — the intersection against
+ * the bot's own resolved jar, which is {@link SdkSurfaceServiceTest}'s subject and still fails open.
  */
 class SdkSurfacePaletteTest {
 
-    /** A pin no catalog names, and never will: every release before the catalog landed. */
-    private static final String UNCATALOGUED = "1.0.5";
+    /** A release older than the catalog itself. */
+    private static final String ANCIENT = "1.0.5";
 
-    /** A pin this build carries a catalog for. */
+    /** An ordinary pin. Nothing distinguishes it from the two below any more. */
     private static final String CATALOGUED = "1.1.0";
 
     /** A bot pinned to an SDK newer than this editor. */
@@ -78,31 +80,32 @@ class SdkSurfacePaletteTest {
         return new SdkSurfaceService(config, index, new EventBus(false));
     }
 
-    // --- The three states of a pin ---
+    // --- The pin is not a selector any more ---
 
     @Test
-    void anSdkTooOldForACatalogOffersEverything(@TempDir Path tmp) throws IOException {
-        SdkSurfaceService surface = serviceFor(tmp, UNCATALOGUED);
+    void anAncientPinGetsThisBuildsCuration(@TempDir Path tmp) throws IOException {
+        SdkSurfaceService surface = serviceFor(tmp, ANCIENT);
 
-        assertFalse(surface.isPaletteAware(),
-                "a version with no catalog must read as uncurated, not as curated-to-nothing");
-        assertFalse(surface.isCurated(MOUSE));
-        assertNull(surface.offeredSignatures(MOUSE, "click"),
-                "null is the 'all of them' answer and is what every SDK released before 1.1.0 gets");
-        assertTrue(surface.isOffered(MOUSE, "click"));
-        assertTrue(surface.isOffered(MOUSE, "scroll"), "including the members a newer catalog declines");
+        // A deliberate, recorded change: this pin used to read as uncurated and be offered everything. It
+        // is now curated like any other, and what its own jar genuinely lacks is removed by the presence
+        // half of this service rather than by pretending the curation is unknown.
+        assertTrue(surface.isPaletteAware());
+        assertTrue(surface.isCurated(MOUSE));
+        assertEquals(Set.of("Point", "int,int", "CaptureSource,int,int"),
+                surface.offeredSignatures(MOUSE, "click"));
     }
 
     @Test
-    void anSdkNewerThanThisEditorOffersEverythingToo(@TempDir Path tmp) throws IOException {
+    void aPinNewerThanThisEditorGetsTheSameAnswer(@TempDir Path tmp) throws IOException {
         SdkSurfaceService surface = serviceFor(tmp, FROM_THE_FUTURE);
 
-        // The same fail-open, reached from the other end. Narrowing a bot to the surface this build happens
-        // to know would hide members its own jar really has — the one direction the intersection must never
-        // take.
-        assertFalse(surface.isPaletteAware());
-        assertNull(surface.offeredSignatures(MOUSE, "click"));
-        assertTrue(surface.isOffered(MOUSE, "anythingAtAll"));
+        // The direction that always mattered: a bot ahead of Studio must not be *narrowed* to a surface
+        // Studio happens to know. It is not — a name this catalog never heard of stays offered, because a
+        // facade nobody catalogues is uncurated and only a catalogued facade can decline anything.
+        assertTrue(surface.isPaletteAware());
+        assertEquals(Set.of("Point", "int,int", "CaptureSource,int,int"),
+                surface.offeredSignatures(MOUSE, "click"));
+        assertTrue(surface.isOffered("SomethingThisEditorHasNeverHeardOf", "anythingAtAll"));
     }
 
     @Test
