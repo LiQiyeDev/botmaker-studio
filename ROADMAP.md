@@ -6,6 +6,27 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-27 — plugins are discovered and bound per project (plugin platform, phase 15a).**
+  `plugin/PluginLoader` (new) builds a `URLClassLoader` over `ProjectState.getResolvedClasspath()` and runs
+  `ServiceLoader.load(StudioPlugin.class, loader)`; `PluginHost` keeps every static accessor and gains
+  `bind(classpath)` / `unbind()`, a lazily-discovered `BUNDLED` fallback and a rebuilt-on-bind value catalog.
+  `import com.botmaker.sdk.plugin.SdkPlugin` is gone — the first of Studio's 111 SDK imports to come off, and
+  the SDK now reaches the plugin list through its own `META-INF/services` declaration exactly as a
+  third-party plugin would. **The delegation split is the load-bearing part and is not the JDK default:**
+  parent-first for `com.botmaker.plugin.api.**` and the platform namespaces (a contract class must be the
+  *same* `Class` object on both sides), child-first for everything else — otherwise the plugin would resolve
+  out of Studio's own compile dependency, the bundled SDK, and the pinned jar would never be read. Bound at
+  `BotProject.open` and `LibraryService.updateLibraries`, unbound and closed at `BotProject.close` (an open
+  `URLClassLoader` holds every jar it read, which on Windows makes the file unreplaceable). Fail-open in one
+  direction only: an empty classpath, a jar with no services file or a plugin that will not instantiate logs
+  and falls back to `BUNDLED`, so menus widen and never empty. **The pom demotion of `botmaker-sdk` to test
+  scope is still owed** — 110 imports remain, gated on phases 10b/12/14.
+- **2026-08-27 — a stored variable is typed by the contract, not by `BotType` (partial phase 10b).**
+  `ActivityVariable.type()` is a `ValueChoice`; `project/activity/ValueWire` and `ChoiceWire` stand beside
+  `VariableWire` reading `PluginHost.valueTypes()`. `BotType.Choice.toValue()`/`fromValue()` is the whole of
+  the bridge, deliberately parked on the class that is going away. Two behaviour notes from the codec moving
+  into the SDK: a colour still parses without its leading `#`, and a PRECISION variable's minArea now
+  defaults to 1 rather than 4.
 - **2026-08-27 — the upgrade reader learns the contract's pointer spelling (plugin platform, phase 8c.4).**
   `@ReplacedBy`, `@Replaces` and `@Since` moved from `com.botmaker.sdk.api.meta` to
   `com.botmaker.plugin.api.meta`, so `services/SdkApiModel` now reads **three** spellings through the

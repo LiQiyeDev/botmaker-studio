@@ -5,21 +5,34 @@ import com.botmaker.plugin.api.catalog.FacadeEntry;
 import com.botmaker.plugin.api.catalog.FacadeRole;
 import com.botmaker.plugin.api.catalog.PaletteCatalog;
 import com.botmaker.plugin.api.value.ValueCatalog;
-import com.botmaker.sdk.plugin.SdkPlugin;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.ServiceLoader;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * The plugins this Studio has loaded, and the one place their contributions are composed.
  *
- * <p><b>The binding is static, and deliberately so for now.</b> There is exactly one plugin —
- * {@link SdkPlugin} — and Studio's own pom declares the dependency, so it is bound with {@code new} rather
- * than discovered. A {@code ServiceLoader} over a {@code URLClassLoader} built from the project's resolved
- * artifacts is the shape this grows into, and it is a loader rather than a redesign precisely because
- * everything downstream of here already speaks {@link StudioPlugin} and nothing speaks {@code SdkPlugin}.
+ * <p><b>Plugins are discovered, never named.</b> Nothing in this package writes down an implementation
+ * class: {@link ServiceLoader} reads each jar's own {@code META-INF/services} declaration and hands back
+ * instances typed as {@link StudioPlugin}, so every call from here on is javac-checked against the contract.
+ * The SDK reaches this list exactly as a third-party plugin would — it is Studio's plugin #1 and gets no
+ * back door.
+ *
+ * <p><b>The set is bound per project, and that is what makes the pin real.</b> {@link #bind} builds a
+ * {@link PluginLoader} over the project's <em>resolved artifacts</em>, so the plugin answering for a bot
+ * pinned to SDK 1.1.0 is the one inside that jar. With no project open — an import repair, a paste, the
+ * project selection screen — the answer comes from {@link #bundled}, the plugins on Studio's own
+ * classloader, and that is also the fallback for every way binding can fail.
+ *
+ * <p><b>Fail-open, in one direction only.</b> An empty classpath, a jar with no services file, a plugin
+ * whose constructor throws: each is logged and answered with the bundled set. Menus widen, never empty; a
+ * value type nothing registers resolves to {@code ValueType.unknown} and its stored value is preserved
+ * read-only. {@code ActivityVariable}'s constructor reads {@link #valueTypes()} and must never see an
+ * exception, whatever the state of the loader.
  *
  * <h2>Two catalogs, and the difference matters</h2>
  *
@@ -42,10 +55,23 @@ public final class PluginHost {
     private PluginHost() {}
 
     /**
-     * Every loaded plugin, in merge order — the host's own contributions win over a plugin's, and an earlier
-     * plugin's over a later one's.
+     * The plugins on Studio's own classloader — the fallback, and the whole of the no-project path.
+     *
+     * <p>Built once and never rebound: it is a property of this build, not of anything a user does. It is
+     * also why this phase needed no separate step for "discovery without a project" — the no-project path
+     * <em>is</em> plain {@link ServiceLoader}, over the same declaration a project's jar carries.
      */
-    private static final List<StudioPlugin> PLUGINS = List.of(new SdkPlugin());
+    private static final List<StudioPlugin> BUNDLED = discover(PluginHost.class.getClassLoader());
+
+    /**
+     * The plugin set answering right now: the bound project's, or {@link #BUNDLED}. Volatile because
+     * {@link #bind} runs off the FX thread (the classpath resolve it follows does) while the readers below
+     * are called from wherever a variable is constructed.
+     */
+    private static volatile List<StudioPlugin> plugins = BUNDLED;
+
+    /** The loader behind a bound set, held only so it can be closed. Null whenever {@link #BUNDLED} is live. */
+    private static volatile PluginLoader loader;
 
     /** pinned version → the merged catalog for it. Keyed by the raw pin, since that is what a caller holds. */
     private static final Map<String, PaletteCatalog> CACHE = new ConcurrentHashMap<>();
@@ -58,13 +84,83 @@ public final class PluginHost {
     private static final String BUNDLED_PIN = "";
 
     /**
-     * Built once, on the same reasoning as the palette caches: the merge walks every plugin and the variable
-     * editors ask on every keystroke.
+     * Memoised on the same reasoning as the palette caches — the merge walks every plugin and the variable
+     * editors ask on every keystroke — and rebuilt on every bind, which is why it is a field rather than a
+     * constant.
      */
-    private static final ValueCatalog VALUE_TYPES = mergeValueTypes();
+    private static volatile ValueCatalog valueTypes = mergeValueTypes();
 
     public static List<StudioPlugin> plugins() {
-        return PLUGINS;
+        return plugins;
+    }
+
+    /**
+     * Binds the plugins declared on {@code resolvedClasspath}, replacing whatever was bound before.
+     *
+     * <p>Called immediately after a project's classpath is resolved — on open, and again whenever the
+     * libraries or the SDK pin change. Anything that goes wrong leaves {@link #BUNDLED} bound: see the
+     * fail-open note in the class javadoc.
+     */
+    public static synchronized void bind(List<String> resolvedClasspath) {
+        PluginLoader opened = PluginLoader.open(resolvedClasspath);
+        if (opened == null) {
+            unbind();
+            return;
+        }
+        swap(opened, opened.plugins());
+    }
+
+    /**
+     * Falls back to the bundled plugins and releases the project's jars.
+     *
+     * <p>Closing is required rather than tidy: an open {@code URLClassLoader} keeps every jar it read open,
+     * and on Windows that makes the file unreplaceable — so a project switch that skipped this would break
+     * the <em>next</em> project's dependency resolve rather than this one's.
+     */
+    public static synchronized void unbind() {
+        swap(null, BUNDLED);
+    }
+
+    private static void swap(PluginLoader opened, List<StudioPlugin> bound) {
+        ValueCatalog merged;
+        try {
+            merged = mergeValueTypes(bound);
+        } catch (RuntimeException | Error e) {
+            // A clash between two of a project's own plugins refuses the binding, not the project. The same
+            // clash among the bundled ones is a build error and is left to throw at class-init, which is
+            // where a developer can act on it.
+            System.err.println("Warning: the project's plugins do not compose; using the bundled set: " + e);
+            if (opened != null) opened.close();
+            if (bound != BUNDLED) swap(null, BUNDLED);
+            return;
+        }
+        PluginLoader previous = loader;
+        loader = opened;
+        plugins = bound;
+        valueTypes = merged;
+        CACHE.clear();
+        if (previous != null) previous.close();
+    }
+
+    /**
+     * Every {@link StudioPlugin} {@code classLoader} can see, or an empty list.
+     *
+     * <p>Total by construction: a missing service file and a provider that will not instantiate are both
+     * ordinary states here — a bot's classpath legitimately carries no plugin at all — and neither may take
+     * Studio down on the way to a project screen.
+     */
+    private static List<StudioPlugin> discover(ClassLoader classLoader) {
+        List<StudioPlugin> found = new ArrayList<>();
+        try {
+            // An explicit loop, not a stream: providers instantiate lazily and one that throws must not
+            // cost the ones already found.
+            for (StudioPlugin plugin : ServiceLoader.load(StudioPlugin.class, classLoader)) {
+                found.add(plugin);
+            }
+        } catch (RuntimeException | Error e) {
+            System.err.println("Warning: could not discover bundled plugins: " + e);
+        }
+        return List.copyOf(found);
     }
 
     /**
@@ -82,12 +178,16 @@ public final class PluginHost {
      * variables.
      */
     public static ValueCatalog valueTypes() {
-        return VALUE_TYPES;
+        return valueTypes;
     }
 
     private static ValueCatalog mergeValueTypes() {
+        return mergeValueTypes(plugins);
+    }
+
+    private static ValueCatalog mergeValueTypes(List<StudioPlugin> set) {
         ValueCatalog merged = ValueCatalog.empty();
-        for (StudioPlugin plugin : PLUGINS) {
+        for (StudioPlugin plugin : set) {
             ValueCatalog offered = plugin.valueTypes();
             if (offered == null) continue;
             List<String> clashes = merged.clashesWith(offered);
@@ -175,7 +275,7 @@ public final class PluginHost {
 
     private static PaletteCatalog build(String pin) {
         PaletteCatalog merged = PaletteCatalog.empty();
-        for (StudioPlugin plugin : PLUGINS) {
+        for (StudioPlugin plugin : plugins) {
             merged = merged.mergedWith(plugin.catalog(pin));
         }
         return merged;

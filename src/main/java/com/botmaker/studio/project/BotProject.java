@@ -3,6 +3,7 @@ package com.botmaker.studio.project;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.index.TypeSummaryManager;
 import com.botmaker.studio.parser.BlockConverter;
+import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.studio.runtime.CodeExecutionService;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.CodeEditorService;
@@ -129,6 +130,11 @@ public class BotProject {
             System.err.println("Warning: Could not resolve classpath: " + e.getMessage());
             classpath = List.of();
         }
+
+        // 5-. Bind the plugins this project's own jars declare, so the palette and the value vocabulary
+        // describe the SDK it pins rather than the one Studio bundles. An empty or unresolvable classpath
+        // falls back to the bundled plugins; it never leaves Studio without an answer.
+        PluginHost.bind(classpath);
 
         // 6. Build or load the type index for external libraries
         progress.message("Indexing libraries…");
@@ -297,5 +303,8 @@ public class BotProject {
         if (codeExecutionService != null) {
             codeExecutionService.close();
         }
+        // The plugin set goes back to the bundled one, and this project's jars are released — an open
+        // URLClassLoader holds every jar it read, which on Windows makes the file unreplaceable.
+        PluginHost.unbind();
     }
 }

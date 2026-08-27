@@ -3,6 +3,7 @@ package com.botmaker.studio.services;
 import com.botmaker.studio.events.CoreApplicationEvents.LibrariesChangedEvent;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.index.TypeSummaryManager;
+import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.project.UserLibrary;
@@ -60,6 +61,9 @@ public final class LibraryService {
 
             List<String> classpath = MavenService.resolveClasspath(config.projectPath());
             state.setResolvedClasspath(classpath);
+            // The SDK pin may have just moved, so the plugins answering for this project have to move with
+            // it — a palette built from the previous jar would offer members the new one may not have.
+            PluginHost.bind(classpath);
             typeIndex.refresh(classpath);
 
             eventBus.publish(new LibrariesChangedEvent(userLibs));
