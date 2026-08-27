@@ -46,7 +46,7 @@ import java.util.ServiceLoader;
  * <p>While Studio still declares a compile dependency on the SDK, two SDK class-spaces are live at once —
  * Studio's own and this loader's. <b>They must never exchange an SDK type.</b> They do not today: every
  * Studio consumer of a catalog entry reaches it through {@code simpleName()} / {@code qualifiedName()} /
- * {@code isFacade()}, and nothing compares a {@code Class<?>} across the two. Keeping it that way is a
+ * {@code offered()}, and nothing compares a {@code Class<?>} across the two. Keeping it that way is a
  * condition of this class working, not a tidiness preference.
  */
 final class PluginLoader implements Closeable {

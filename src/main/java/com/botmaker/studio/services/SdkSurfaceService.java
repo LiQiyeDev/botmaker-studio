@@ -1,7 +1,6 @@
 package com.botmaker.studio.services;
 
 import com.botmaker.plugin.api.catalog.FacadeEntry;
-import com.botmaker.plugin.api.catalog.FacadeRole;
 import com.botmaker.plugin.api.catalog.MemberEntry;
 import com.botmaker.plugin.api.catalog.PaletteCatalog;
 import com.botmaker.studio.events.CoreApplicationEvents;
@@ -297,7 +296,7 @@ public final class SdkSurfaceService {
      * empty editor: {@link #isPaletteAware} is the flag that tells them apart.
      */
     public List<FacadeEntry> menuFacades() {
-        return catalog.withRole(FacadeRole.MENU).stream()
+        return catalog.offeredFacades().stream()
                 .filter(f -> hasType(f.simpleName()))
                 .toList();
     }
@@ -308,7 +307,6 @@ public final class SdkSurfaceService {
      */
     public List<String> facadeNames() {
         return catalog.facades().stream()
-                .filter(FacadeEntry::isFacade)
                 .map(FacadeEntry::simpleName)
                 .filter(this::hasType)
                 .toList();
@@ -337,7 +335,7 @@ public final class SdkSurfaceService {
      */
     public Set<String> missingFacades() {
         if (!isIndexed()) return Set.of();
-        return PluginHost.bundled().withRole(FacadeRole.MENU).stream()
+        return PluginHost.bundled().offeredFacades().stream()
                 .map(FacadeEntry::simpleName)
                 .filter(n -> !surface.containsKey(n))
                 .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));

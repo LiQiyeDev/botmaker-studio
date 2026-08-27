@@ -4,7 +4,6 @@ import com.botmaker.plugin.api.ParameterGroup;
 import com.botmaker.plugin.api.SlotEditor;
 import com.botmaker.plugin.api.StudioPlugin;
 import com.botmaker.plugin.api.catalog.FacadeEntry;
-import com.botmaker.plugin.api.catalog.FacadeRole;
 import com.botmaker.plugin.api.catalog.PaletteCatalog;
 import com.botmaker.plugin.api.value.ValueCatalog;
 
@@ -333,12 +332,12 @@ public final class PluginHost {
      * A call whose facade this build has never heard of renders as a generic library call, which is right.
      */
     public static boolean isFacadeClass(String simpleClassName) {
-        return ownerOf(simpleClassName).filter(FacadeEntry::isFacade).isPresent();
+        return ownerOf(simpleClassName).isPresent();
     }
 
     /** The facades the insert menus show, in declaration order — the bundled superset. */
     public static List<FacadeEntry> menuFacades() {
-        return bundled().withRole(FacadeRole.MENU);
+        return bundled().offeredFacades();
     }
 
     /**
@@ -348,7 +347,6 @@ public final class PluginHost {
      */
     public static List<String> facadeNames() {
         return bundled().facades().stream()
-                .filter(FacadeEntry::isFacade)
                 .map(FacadeEntry::simpleName)
                 .toList();
     }
