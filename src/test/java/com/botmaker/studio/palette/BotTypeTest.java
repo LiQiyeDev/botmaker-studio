@@ -90,74 +90,29 @@ class BotTypeTest {
     }
 
     /**
-     * The two set-shapes are not the same question. {@code List<T>} is a type a signature can name, so it
-     * needs only a box; "one of a declared set" is a restriction on a value somebody configures, so it needs
-     * a type somebody can configure. Conflating them refused {@code List<MatchResult>} as a return type.
+     * {@code List<T>} is a type a signature can name, so it needs only a box. The three other shapes this enum
+     * once carried — "one of a declared set", "any of", an open list — restricted a value somebody
+     * <em>configures</em> rather than naming a type javac accepts, and phase 10b moved them to
+     * {@link com.botmaker.plugin.api.value.ValueShape} with the rest of the stored-value vocabulary. What is
+     * left here is the axis a signature can spell, which is why {@code List<MatchResult>} is expressible.
      */
     @Test
-    void aListOfAResultIsATypeButAChoiceOfOneIsNotASentence() {
+    void theShapeAxisIsTheOneASignatureCanSpell() {
         assertEquals("List<MatchResult>", BotType.Choice.listOf(BotType.MATCH_RESULT).sourceName());
-        assertThrows(IllegalArgumentException.class,
-                () -> new BotType.Choice(BotType.MATCH_RESULT, BotType.Shape.ONE_OF));
-    }
-
-    /** ONE_OF is a restriction the editor keeps to itself: the bot sees the bare type. */
-    @Test
-    void restrictingWhichValuesAreOfferedChangesNothingInTheSource() {
-        BotType.Choice free = BotType.Choice.of(BotType.WHOLE_NUMBER);
-        BotType.Choice restricted = new BotType.Choice(BotType.WHOLE_NUMBER, BotType.Shape.ONE_OF);
-
-        assertEquals(free.sourceName(), restricted.sourceName());
-        assertFalse(free.hasOptions());
-        assertTrue(restricted.hasOptions());
-        assertEquals("One of Whole number", restricted.label());
+        assertEquals(2, BotType.Shape.values().length, "a signature's shapes are T and List<T>, nothing else");
     }
 
     /**
-     * A type whose values are already a closed set has no "one of…". The control it gets shows every value it
-     * has — two states of a tick box, eight arrows, a mouse diagram, the SDK's key list — so a hand-written
-     * subset would be a second, worse copy of a list nobody has to write.
+     * A type whose values are already a closed set is still listable. The rule that refused such a type a
+     * "one of…" was about a stored value and travelled to the contract with it; conflating the two once turned
+     * {@code List of Direction} — perfectly expressible — into a single direction.
      */
     @Test
-    void aTypeThatIsAlreadyASetIsNotGivenASetOfChoices() {
+    void aTypeThatIsAlreadyASetIsStillListable() {
         for (BotType closed : List.of(BotType.YES_NO, BotType.DIRECTION, BotType.KEY, BotType.MOUSE_BUTTON)) {
-            assertTrue(closed.isClosedSet(), closed + " is a closed set");
-            assertFalse(closed.shapeable(), closed + " must not offer One of…");
-            assertThrows(IllegalArgumentException.class,
-                    () -> new BotType.Choice(closed, BotType.Shape.ONE_OF));
-            // But "any of" still means something: several directions is a list, and its tick boxes come from
-            // the type's own constants rather than from anything the author writes down.
             assertTrue(closed.listable(), closed + " must still be listable");
+            assertTrue(BotType.Choice.listOf(closed).sourceName().startsWith("List<"));
         }
-        // And the free-value types keep all three shapes.
-        for (BotType open : List.of(BotType.TEXT, BotType.WHOLE_NUMBER, BotType.IMAGE_TEMPLATE,
-                BotType.COLOR, BotType.DURATION)) {
-            assertTrue(open.shapeable(), open + " should still offer One of…");
-        }
-    }
-
-    /**
-     * The persisted form of a shape that is no longer offered. Read per shape, not as "anything but ONE":
-     * conflating the two conditions turned {@code List of Direction} — perfectly expressible — into a single
-     * direction on the first open after the rule above landed.
-     */
-    @Test
-    void aStoredChoiceOverAClosedSetOpensAsThePlainType() throws Exception {
-        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-
-        BotType.Choice wasChoiceOfYesNo = mapper.readValue(
-                "{\"type\":\"YES_NO\",\"shape\":\"ONE_OF\"}", BotType.Choice.class);
-        assertEquals(BotType.Choice.of(BotType.YES_NO), wasChoiceOfYesNo);
-
-        BotType.Choice listOfDirection = mapper.readValue(
-                "{\"type\":\"DIRECTION\",\"shape\":\"ANY_OF\"}", BotType.Choice.class);
-        assertEquals(new BotType.Choice(BotType.DIRECTION, BotType.Shape.ANY_OF), listOfDirection,
-                "a list of a closed-set type is still a list");
-
-        BotType.Choice fromTheFuture = mapper.readValue(
-                "{\"type\":\"POINT\",\"shape\":\"ONE_OF_EACH\"}", BotType.Choice.class);
-        assertEquals(BotType.Choice.of(BotType.POINT), fromTheFuture,
-                "a shape a newer Studio invented opens as one free value rather than failing the project");
     }
 
     @Test

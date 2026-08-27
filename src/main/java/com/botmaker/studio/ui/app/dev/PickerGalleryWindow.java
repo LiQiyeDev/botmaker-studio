@@ -2,13 +2,12 @@ package com.botmaker.studio.ui.app.dev;
 
 import com.botmaker.plugin.api.value.ValueChoice;
 import com.botmaker.plugin.api.value.ValueShape;
-import com.botmaker.studio.palette.BotType;
+import com.botmaker.plugin.api.value.ValueType;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.project.activity.Bounds;
 import com.botmaker.studio.project.activity.ParamVisibility;
 import com.botmaker.studio.project.activity.ValueWire;
-import com.botmaker.studio.project.activity.VariableWire;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.ui.app.params.ParamValueWidgets;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
@@ -49,7 +48,7 @@ import java.util.Locale;
  * <p><b>The readout is the point.</b> Each row shows the control on the left and, on the right, the wire text
  * it reads back <em>right now</em> — polled, so it follows the control as it is touched — and beneath it the
  * value {@link ActivityVariable} would store, which is the same text after
- * {@link VariableWire#normalize normalisation}. A picker that looks right and hands back {@code ""}, or one
+ * {@link ValueWire#normalize normalisation}. A picker that looks right and hands back {@code ""}, or one
  * whose value survives the widget and is thrown away by the normaliser, is invisible without those two lines
  * side by side.
  *
@@ -147,6 +146,13 @@ public final class PickerGalleryWindow {
 
     // --- the rows -------------------------------------------------------------------------------------------
 
+    /**
+     * One row per (type, shape) the plugins bound right now can express.
+     *
+     * <p>The set comes from {@link ValueWire#registered()} rather than from a constant list: a stored
+     * variable's type is whatever a plugin registered, so a screen enumerating a fixed set would stop showing
+     * the editors it is for the moment a second plugin adds one.
+     */
     private void rebuild() {
         rows.clear();
         grid.getChildren().clear();
@@ -154,13 +160,13 @@ public final class PickerGalleryWindow {
         String needle = filter.getText() == null ? "" : filter.getText().trim().toLowerCase(Locale.ROOT);
         List<String> templates = templateNames();
         int line = 0;
-        for (BotType type : BotType.storableTypes()) {
+        for (ValueType type : ValueWire.registered()) {
             if (!needle.isEmpty() && !type.label().toLowerCase(Locale.ROOT).contains(needle)
-                    && !type.typeName().toLowerCase(Locale.ROOT).contains(needle)) {
+                    && !type.sourceName().toLowerCase(Locale.ROOT).contains(needle)) {
                 continue;
             }
-            for (BotType.Shape shape : BotType.Shape.values()) {
-                if (shape != BotType.Shape.ONE && !shapesToo.isSelected()) continue;
+            for (ValueShape shape : ValueShape.values()) {
+                if (shape != ValueShape.ONE && !shapesToo.isSelected()) continue;
                 ActivityVariable variable = sample(type, shape, templates);
                 if (variable == null) continue;   // the shape is not a sentence for this type
                 line = addRow(variable, type, shape, line);
@@ -170,7 +176,7 @@ public final class PickerGalleryWindow {
                 + (int) PULSE.toMillis() + "ms: touch a control and watch it move.");
     }
 
-    private int addRow(ActivityVariable variable, BotType type, BotType.Shape shape, int line) {
+    private int addRow(ActivityVariable variable, ValueType type, ValueShape shape, int line) {
         Label name = new Label(type.label());
         Label shapeName = new Label(shape.label());
         shapeName.getStyleClass().add("dialog-hint-text");
@@ -250,18 +256,14 @@ public final class PickerGalleryWindow {
      * declare — "one of a set of colours" is, "one of a set of directions" is not, since the type already
      * shows every value it has.
      */
-    static ActivityVariable sample(BotType type, BotType.Shape shape, List<String> templates) {
-        BotType.Choice choice;
-        try {
-            choice = new BotType.Choice(type, shape);
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
+    static ActivityVariable sample(ValueType type, ValueShape shape, List<String> templates) {
+        // ValueChoice corrects an impossible pairing rather than refusing it — it is built from files, and a
+        // file that says something impossible must still open. Here the correction is the tell: the row it
+        // would produce is another row's, already shown.
+        ValueChoice choice = new ValueChoice(type, shape);
+        if (choice.shape() != shape) return null;
         List<String> options = shape.hasOptions() ? options(type, templates) : List.of();
-        // The gallery still enumerates Studio's own declarable enum; a stored variable is typed by the
-        // contract's vocabulary. Phase 10b deletes the left-hand side and Choice.toValue with it.
-        ValueChoice stored = choice.toValue();
-        return new ActivityVariable(identifier(type, shape), stored, ValueWire.defaultWire(stored),
+        return new ActivityVariable(identifier(type, shape), choice, ValueWire.defaultWire(choice),
                 "", "", ParamVisibility.PUBLIC, options, Bounds.NONE);
     }
 
@@ -269,8 +271,12 @@ public final class PickerGalleryWindow {
      * A valid Java identifier, because {@link ActivityVariable}'s name is a generated field's — nothing here
      * generates code, and a sample that could not have been declared for real is a poor sample.
      */
-    private static String identifier(BotType type, BotType.Shape shape) {
-        return camel(type.name()) + camel(shape.name()).substring(0, 1).toUpperCase(Locale.ROOT)
+    private static String identifier(ValueType type, ValueShape shape) {
+        // An id is a plugin's free string, not necessarily a Java name, so anything that cannot appear in one
+        // is folded to an underscore before the camel-casing. SCREAMING_SNAKE ids pass through untouched.
+        String id = type.id().replaceAll("[^A-Za-z0-9_]", "_");
+        if (id.isEmpty() || Character.isDigit(id.charAt(0))) id = "v" + id;
+        return camel(id) + camel(shape.name()).substring(0, 1).toUpperCase(Locale.ROOT)
                 + camel(shape.name()).substring(1);
     }
 
@@ -290,25 +296,29 @@ public final class PickerGalleryWindow {
      * <p>Written out rather than derived: the values have to be <em>different from each other</em> and
      * different from the default, or a row of three radio buttons all reading {@code "0,0"} tests nothing.
      * The closed-set types are absent because they answer with their own constants
-     * ({@link VariableWire#fixedOptions}) and never read this.
+     * ({@link ValueWire#fixedOptions}) and never read this.
+     *
+     * <p><b>Keyed by {@linkplain ValueType#id() id}, not by the type object</b> — the vocabulary is open, so
+     * there is no set to switch over exhaustively, and a plugin's type simply falls through to no samples.
+     * These ids are the SDK's, and a screen this one can only be a screen about the plugins it has.
      *
      * @param templates the project's own template names, the one set that cannot be written down here
      */
-    static List<String> options(BotType type, List<String> templates) {
-        return switch (type) {
-            case TEXT -> List.of("first", "second", "third");
-            case WHOLE_NUMBER -> List.of("1", "2", "3");
-            case DECIMAL_NUMBER -> List.of("0.5", "1.5", "2.5");
-            case CHARACTER -> List.of("a", "b", "c");
-            case COLOR -> List.of("#FF0000", "#00A000", "#3050FF");
-            case DATE -> List.of("2026-01-01", "2026-06-15");
-            case TIME_OF_DAY -> List.of("08:00", "12:30", "23:59");
-            case DURATION -> List.of("30s", "5m", "1h30m");
-            case POINT -> List.of("0,0", "100,250");
-            case SIZE -> List.of("64,64", "1920,1080");
-            case RECT -> List.of("0,0,100,100", "10,10,50,50");
-            case PRECISION -> List.of("12.0,4,0", "6.0,2,0");
-            case IMAGE_TEMPLATE -> templates;
+    static List<String> options(ValueType type, List<String> templates) {
+        return switch (type.id()) {
+            case "TEXT" -> List.of("first", "second", "third");
+            case "WHOLE_NUMBER" -> List.of("1", "2", "3");
+            case "DECIMAL_NUMBER" -> List.of("0.5", "1.5", "2.5");
+            case "CHARACTER" -> List.of("a", "b", "c");
+            case "COLOR" -> List.of("#FF0000", "#00A000", "#3050FF");
+            case "DATE" -> List.of("2026-01-01", "2026-06-15");
+            case "TIME_OF_DAY" -> List.of("08:00", "12:30", "23:59");
+            case "DURATION" -> List.of("30s", "5m", "1h30m");
+            case "POINT" -> List.of("0,0", "100,250");
+            case "SIZE" -> List.of("64,64", "1920,1080");
+            case "RECT" -> List.of("0,0,100,100", "10,10,50,50");
+            case "PRECISION" -> List.of("12.0,4,0", "6.0,2,0");
+            case "IMAGE_TEMPLATE" -> templates;
             default -> List.of();
         };
     }

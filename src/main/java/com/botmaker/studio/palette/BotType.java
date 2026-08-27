@@ -1,9 +1,6 @@
 package com.botmaker.studio.palette;
 
-import com.botmaker.plugin.api.value.ValueChoice;
-import com.botmaker.plugin.api.value.ValueShape;
 import com.botmaker.sdk.authoring.TemplateNames;
-import com.botmaker.studio.project.activity.ValueWire;
 import com.botmaker.sdk.api.capture.CaptureSource;
 import com.botmaker.sdk.api.capture.Source;
 import com.botmaker.sdk.api.geometry.Direction;
@@ -36,11 +33,24 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * The types a bot author can name: what "Declare Bot Variable" offers, and what the Add Function dialog offers
- * as a return type or a parameter type. One curated list, in one place, because the two features are the same
- * question asked twice — "which types does this editor let you write down?" — and they answered it
- * differently: the declare menu knew five ({@code Point}, {@code Rect}, {@code Size}, {@code MatchResult},
- * {@code ImageTemplate}) and Add Function knew one ({@code void}, hard-coded, with no dialog to change it).
+ * The types a bot author can <b>write into source</b>: what "Declare Bot Variable" offers, and what the Add
+ * Function dialog offers as a return type or a parameter type. One curated list, in one place, because the two
+ * features are the same question asked twice — "which types does this editor let you write down?" — and they
+ * answered it differently: the declare menu knew five ({@code Point}, {@code Rect}, {@code Size},
+ * {@code MatchResult}, {@code ImageTemplate}) and Add Function knew one ({@code void}, hard-coded, with no
+ * dialog to change it).
+ *
+ * <h2>What this is <em>not</em>, since phase 10b</h2>
+ *
+ * <p>It is no longer the vocabulary a <em>project variable</em> is typed by. That is
+ * {@link com.botmaker.plugin.api.value.ValueType} — an open registry the loaded plugins fill — and this enum
+ * was two things wearing one name until they were separated: the persisted vocabulary, and the editor's list
+ * of types a signature may name. The second is what is left, and it stays Studio's, because it is a list
+ * <em>Studio</em> curates about the source <em>Studio</em> writes; nothing here is stored in a project file,
+ * so nothing here has to be extensible by a plugin. The members that answered the first question —
+ * {@code storable()}, {@code storableTypes()}, {@code isClosedSet()}, {@code shapeable()} — are gone, and with
+ * them the two set-shapes: fixing the set a value may come from is a project-variable idea, and a signature has
+ * nobody to ask.
  *
  * <h2>An allow-list, not a filter</h2>
  *
@@ -275,70 +285,6 @@ public enum BotType {
         return boxedName != null;
     }
 
-    /**
-     * Whether this type's values <em>are</em> a set, one the editor already shows in full.
-     *
-     * <p>Yes/No is two states of one tick box; a direction is eight arrows on a pad; a mouse button is a
-     * labelled diagram; a key is the SDK's own list. In every one of them the control the user meets already
-     * offers every value the type has, which is what makes {@link Shape#ONE_OF} over them nonsense — "one of
-     * yes and no" is a boolean, said twice and worse. It is exactly the set
-     * {@link com.botmaker.studio.project.activity.VariableWire#fixedOptions} answers, plus {@link #YES_NO},
-     * whose two values are the two states of one box rather than a list.
-     *
-     * <p>{@link Shape#ANY_OF} stays available: "any of UP, DOWN" is a genuine list of a closed-set type, and
-     * its tick boxes come from the type's own constants rather than from anything the author writes down.
-     */
-    public boolean isClosedSet() {
-        return switch (this) {
-            case YES_NO, DIRECTION, KEY, MOUSE_BUTTON -> true;
-            case TEXT, WHOLE_NUMBER, DECIMAL_NUMBER, CHARACTER, COLOR, DATE, TIME_OF_DAY, DURATION,
-                 IMAGE_TEMPLATE, PRECISION, POINT, RECT, SIZE,
-                 NOTHING, IMAGE_TEMPLATE_GROUP, MATCH_RESULT, MATCHES, COLOR_MATCH, TEXT_MATCH,
-                 CAPTURE_SOURCE -> false;
-        };
-    }
-
-    /**
-     * Whether the author can write down a <em>set</em> of values of this type — whether {@link Shape#ONE_OF}
-     * means anything for it.
-     *
-     * <p>Mostly derived rather than switched: an option is a wire string
-     * ({@link com.botmaker.studio.project.activity.VariableWire}), so a type that can be stored can be listed
-     * as a choice, and a type that can go inside {@code List<…>} can be chosen several times. The one thing
-     * that has to be said out loud is {@link #isClosedSet()} — a type whose values the editor already shows in
-     * full has nothing left for an author-written subset to add.
-     */
-    public boolean shapeable() {
-        return storable() && listable() && !isClosedSet();
-    }
-
-    /**
-     * Whether a <em>project variable</em> can hold this type — whether it has a value somebody can write down
-     * in the Parameters dialog and store in {@code activities.json}.
-     *
-     * <p>A switch with no {@code default} on purpose: a type added to this enum must be classified here or
-     * the build stops, which is the whole reason the two lists are one enum. What is excluded is what has no
-     * value to write: {@code void}, and the vision types that are <em>results</em> — a {@code MatchResult}
-     * is something the bot found a moment ago, not something anyone configures. A group of templates is
-     * excluded too, because {@code List of Image template} already says it and says it better.
-     */
-    public boolean storable() {
-        return switch (this) {
-            case TEXT, YES_NO, WHOLE_NUMBER, DECIMAL_NUMBER, CHARACTER, COLOR,
-                 DATE, TIME_OF_DAY, DURATION,
-                 IMAGE_TEMPLATE, PRECISION,
-                 POINT, RECT, SIZE, DIRECTION,
-                 KEY, MOUSE_BUTTON -> true;
-            case NOTHING, IMAGE_TEMPLATE_GROUP, MATCH_RESULT, MATCHES, COLOR_MATCH, TEXT_MATCH,
-                 CAPTURE_SOURCE -> false;
-        };
-    }
-
-    /** Every type a project variable can hold, in declaration order. */
-    public static List<BotType> storableTypes() {
-        return java.util.Arrays.stream(values()).filter(BotType::storable).toList();
-    }
-
     /** The types offered in {@code group}, in declaration order. */
     public static List<BotType> in(Group group) {
         return java.util.Arrays.stream(values()).filter(t -> t.group == group).toList();
@@ -350,36 +296,21 @@ public enum BotType {
     }
 
     /**
-     * How many values of a type there are, and whether the author fixes the set they come from.
+     * How many values of a type there are: one, or a list of them. <b>The whole axis a signature has.</b>
      *
-     * <p>This is the axis that used to be a {@code boolean list} beside a {@code CHOICE} pseudo-type — a
-     * modelling that could not say "one of these three whole numbers" at all, and whose {@code List of …}
-     * ignored its own element type in every editor. Three shapes crossed with the type catalogue say
-     * everything the two of them said and the cases they could not reach, and a choice of choices is
-     * unrepresentable rather than merely discouraged.
-     *
-     * <p>{@link #ONE_OF} and {@link #ANY_OF} are <em>project variable</em> ideas and nothing else: fixing the
-     * set a value may come from is a question about something somebody configures, and a method parameter has
-     * nobody to ask. In a signature the axis has only two positions, {@code T} and {@code List<T>} — which is
-     * why {@link Choice#sourceName()} treats {@code ONE} and {@code ONE_OF} identically, and {@link #ANY_OF}
-     * and {@link #OPEN_LIST} identically.
-     *
-     * <p><b>Why there are two list shapes.</b> {@code ANY_OF} used to be both of them, and which one it meant
-     * was decided by data the user could not see: the Parameters dialog drew tick boxes when the author had
-     * written choices down and a free-text box when they had not, under one label reading "List of…". So the
-     * same shape changed behaviour the moment a choice was added, and there was no way at all to say "a list
-     * the user fills in themselves" about a variable that happened to have choices. Splitting them makes the
-     * question the shape asks the same question the widget answers.
+     * <p>There were four shapes here until phase 10b, and the other three — {@code ONE_OF} ("one out of a set
+     * the author writes down"), {@code ANY_OF} ("several out of that set") and {@code OPEN_LIST} — were
+     * <em>project variable</em> ideas and nothing else: fixing the set a value may come from is a question
+     * about something somebody configures, and a method parameter has nobody to ask. They live on in
+     * {@link com.botmaker.plugin.api.value.ValueShape}, which is the vocabulary a stored value is typed by;
+     * what was left here after removing them was {@code ONE} and two spellings of {@code List<T>} that
+     * generated identical source, so they are one.
      */
     public enum Shape {
         /** One value, free within its type. */
         ONE("One value", ""),
-        /** One value, out of a set the author writes down. Radio buttons in the Parameters dialog. */
-        ONE_OF("One of…", "One of "),
-        /** Several values out of that set — {@code List<T>} in source. Tick boxes. */
-        ANY_OF("Many of…", "Many of "),
-        /** A list the user writes themselves, out of no set at all — {@code List<T>} too. Growable rows. */
-        OPEN_LIST("List of…", "List of ");
+        /** {@code List<T>} — several values, in a signature or a declaration. */
+        LIST("List of…", "List of ");
 
         private final String label;
         private final String prefix;
@@ -394,28 +325,17 @@ public enum BotType {
             return label;
         }
 
-        /**
-         * Whether the author writes the set of values down — the two set-shaped ones.
-         *
-         * <p>It used to read {@code this != ONE}, which was true of every shape that was not one free value
-         * and is the reading {@link #OPEN_LIST} breaks: an open list has as many values as the user likes and
-         * no set behind them.
-         */
-        public boolean hasOptions() {
-            return this == ONE_OF || this == ANY_OF;
-        }
-
-        /** Whether this is written {@code List<T>} — the two many-valued ones, which spell the same. */
+        /** Whether this is written {@code List<T>}. */
         public boolean isList() {
-            return this == ANY_OF || this == OPEN_LIST;
+            return this == LIST;
         }
     }
 
     /**
-     * A type as chosen in a dialog: one of the curated types, in one of the four {@link Shape}s.
+     * A type as chosen in a dialog: one of the curated types, in one of the two {@link Shape}s.
      *
-     * <p>The shape is an axis rather than four times as many constants because it composes with all of them
-     * and carries no information of its own — {@code List<Point>} needs nothing from the catalogue that
+     * <p>The shape is an axis rather than twice as many constants because it composes with all of them and
+     * carries no information of its own — {@code List<Point>} needs nothing from the catalogue that
      * {@code Point} did not already supply, beyond the box a primitive takes inside the angle brackets.
      */
     public record Choice(BotType type, Shape shape) {
@@ -423,15 +343,11 @@ public enum BotType {
         public Choice {
             if (type == null) throw new IllegalArgumentException("a type choice needs a type");
             if (shape == null) shape = Shape.ONE;
-            // A list shape is `List<T>` in source and only needs a box. ONE_OF is not a type at all — it is a
-            // restriction on a stored value — so it needs a type somebody can store a set of. That asymmetry
-            // is why `List<MatchResult>` is a fine return type while "one of a set of match results" is not a
-            // sentence.
+            // Throwing, where the contract's ValueChoice corrects: this pair can only come from a dialog or a
+            // parsed signature, never from a file, so an impossible one is a bug rather than a project to
+            // rescue. `List<void>` is the only impossible one left.
             if (shape.isList() && !type.listable()) {
                 throw new IllegalArgumentException("there is no list of " + type.typeName());
-            }
-            if (shape == Shape.ONE_OF && !type.shapeable()) {
-                throw new IllegalArgumentException(type.typeName() + " cannot carry a set of choices");
             }
         }
 
@@ -440,16 +356,9 @@ public enum BotType {
             return new Choice(type, Shape.ONE);
         }
 
-        /**
-         * {@code List<type>} — {@link Shape#OPEN_LIST}, the form a signature writes.
-         *
-         * <p>The open one and not {@link Shape#ANY_OF}: a {@code List<Point>} read back out of a method
-         * declaration has no declared set behind it and nobody to ask for one, so calling it "Many of Point"
-         * would name a set that does not exist. The two spell the same in source, so which one a signature
-         * carries is invisible to the generated bot and visible only in the label.
-         */
+        /** {@code List<type>} — the form a signature writes. */
         public static Choice listOf(BotType type) {
-            return new Choice(type, Shape.OPEN_LIST);
+            return new Choice(type, Shape.LIST);
         }
 
         /** True when this is written {@code List<…>}: several values, not one. */
@@ -457,17 +366,7 @@ public enum BotType {
             return shape.isList();
         }
 
-        /** True when the author writes down the set of values this may take. */
-        public boolean hasOptions() {
-            return shape.hasOptions();
-        }
-
-        /**
-         * The name as written in source — {@code Point}, or {@code List<Point>}.
-         *
-         * <p>{@link Shape#ONE_OF} spells the same as {@link Shape#ONE} on purpose: restricting which values
-         * are offered is the editor's business, and nothing about the option set reaches the generated code.
-         */
+        /** The name as written in source — {@code Point}, or {@code List<Point>}. */
         public String sourceName() {
             return isList() ? "List<" + type.boxedName + ">" : type.typeName;
         }
@@ -490,34 +389,6 @@ public enum BotType {
             return shape.prefix + type.label();
         }
 
-        /**
-         * The same pair in the plugin contract's vocabulary — and the whole of the bridge between the two,
-         * deliberately parked on the class that is going away rather than on the one that is staying.
-         *
-         * <p>A stored variable is typed by {@link ValueChoice} since phase 10b began; the pickers still
-         * enumerate this enum. The two line up by <b>name</b> — phase 10a registered the SDK's seventeen
-         * types under the old constant names, which is what keeps every project ever written readable — so
-         * the crossing is a lookup by id and never a mapping table. Phase 10b narrows this enum to the
-         * declarable types and deletes both methods with the last picker that needs them.
-         */
-        public ValueChoice toValue() {
-            return new ValueChoice(ValueWire.type(type.name()), ValueShape.valueOf(shape.name()));
-        }
-
-        /** The contract's pair read back as this enum's; an id this enum has no constant for is {@link #TEXT}. */
-        public static Choice fromValue(ValueChoice choice) {
-            if (choice == null) return new Choice(TEXT, Shape.ONE);
-            BotType type;
-            try {
-                type = BotType.valueOf(choice.type().id());
-            } catch (IllegalArgumentException e) {
-                type = TEXT;
-            }
-            Shape shape = type.shapeable() ? Shape.valueOf(choice.shape().name())
-                    : choice.shape().isList() ? Shape.OPEN_LIST : Shape.ONE;
-            return new Choice(type, shape);
-        }
-
         public String suggestedName() {
             return isList() ? type.suggestedName() + "s" : type.suggestedName();
         }
@@ -529,57 +400,6 @@ public enum BotType {
 
         public boolean isVoid() {
             return shape == Shape.ONE && type == NOTHING;
-        }
-
-        /**
-         * Reads the persisted form, including the one this replaced.
-         *
-         * <p>A variable's type is the one part of {@code activities.json} whose <em>vocabulary</em> changed:
-         * files written before the shape axis say {@code {"type":"CHOICE","list":false}}, and {@code CHOICE}
-         * is no longer a constant this enum has. Migrating here rather than in an open-time pass means every
-         * reader gets it — the project loader, a hand-copied file, a test fixture — and that a project written
-         * by the previous Studio opens without a step anyone can forget to run.
-         *
-         * <p>The shape arrives as a {@code String} and not as the enum so that the parse is <b>total</b>: a
-         * file written by a newer Studio, naming a shape this one has never heard of, loads as one free value
-         * rather than failing the whole project open. That is the repo's rule for a persisted closed set —
-         * keep the wire name stable, and never throw on an unrecognised one.
-         *
-         * <p>What this method cannot decide is {@link Shape#ANY_OF} versus {@link Shape#OPEN_LIST} for a file
-         * written before they were split: the answer is whether the variable declares choices, and the choices
-         * are a sibling field this creator never sees. {@link
-         * com.botmaker.studio.project.activity.ActivityVariable} settles it, where both are in hand.
-         */
-        @com.fasterxml.jackson.annotation.JsonCreator
-        static Choice fromJson(@com.fasterxml.jackson.annotation.JsonProperty("type") String type,
-                               @com.fasterxml.jackson.annotation.JsonProperty("shape") String shape,
-                               @com.fasterxml.jackson.annotation.JsonProperty("list") Boolean list) {
-            boolean wasChoice = "CHOICE".equals(type);
-            BotType base = wasChoice ? TEXT : parse(type);
-            Shape resolved = shape != null ? parseShape(shape)
-                    : Boolean.TRUE.equals(list) ? Shape.ANY_OF
-                    : wasChoice ? Shape.ONE_OF
-                    : Shape.ONE;
-            // Per shape, not "anything but ONE": the two have different conditions, and conflating them turned
-            // `List of Direction` — perfectly expressible — into a single direction the day ONE_OF stopped
-            // being offered for a closed set. A stored `One of Yes/No` becomes `Yes/No`, keeping its value.
-            if (resolved == Shape.ONE_OF && !base.shapeable()) resolved = Shape.ONE;
-            if (resolved.isList() && !base.listable()) resolved = Shape.ONE;
-            return new Choice(base, resolved);
-        }
-
-        private static Shape parseShape(String name) {
-            for (Shape candidate : Shape.values()) {
-                if (candidate.name().equals(name)) return candidate;
-            }
-            return Shape.ONE;   // a shape a newer Studio invented: one free value holds the stored text
-        }
-
-        private static BotType parse(String name) {
-            for (BotType candidate : values()) {
-                if (candidate.name().equals(name)) return candidate;
-            }
-            return TEXT;   // a type a newer Studio invented: text holds anything, and nothing is lost
         }
 
         /**

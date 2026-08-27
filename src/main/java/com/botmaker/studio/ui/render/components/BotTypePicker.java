@@ -34,8 +34,11 @@ public final class BotTypePicker extends MenuButton {
     /**
      * What the type is being picked <em>for</em>, which is the only thing that differs between the three
      * places this picker is used. A named purpose rather than a flag because there are three answers and the
-     * flag could only carry two — and it is the reason a variable's list and a parameter's list can be
-     * different without being two pickers.
+     * flag could only carry two.
+     *
+     * <p>There was a fourth, {@code VARIABLE}, for a <em>project</em> variable; phase 10b split it out as
+     * {@link ValueTypePicker}, because that question is asked of an open vocabulary the plugins register
+     * rather than of this enum. Every purpose left is about a name javac has to accept.
      */
     public enum Purpose {
         /** A method's return type: everything, {@code void} included. */
@@ -49,9 +52,7 @@ public final class BotTypePicker extends MenuButton {
          * {@code List<Point>} is not a name that survives that trip. Offering a shape the write path cannot
          * spell would be a control that silently does the wrong thing.
          */
-        LOCAL_VARIABLE,
-        /** A project variable: the types with a value somebody can write down. See {@link BotType#storable()}. */
-        VARIABLE
+        LOCAL_VARIABLE
     }
 
     public BotTypePicker(Purpose purpose) {
@@ -87,21 +88,16 @@ public final class BotTypePicker extends MenuButton {
         return switch (purpose) {
             case RETURN_TYPE -> true;
             case PARAMETER, LOCAL_VARIABLE -> type.declarable();
-            case VARIABLE -> type.storable();
         };
     }
 
     /**
-     * Which shapes this purpose can express. The two set-shaped ones — {@link BotType.Shape#ONE_OF} and
-     * {@link BotType.Shape#ANY_OF} — are project-variable ideas and nothing else: fixing the set a value may
-     * come from is a question about something somebody configures, and a method parameter has nobody to ask.
-     * So a signature's axis has only {@code T} and {@code List<T>}, the latter spelled
-     * {@link BotType.Shape#OPEN_LIST} because there is no set behind it to name.
+     * Which shapes this purpose can express — {@code T} and {@code List<T>}, except where the write path can
+     * only spell the first (see {@link Purpose#LOCAL_VARIABLE}).
      */
     private static List<BotType.Shape> shapes(Purpose purpose) {
         return switch (purpose) {
-            case VARIABLE -> List.of(BotType.Shape.values());
-            case RETURN_TYPE, PARAMETER -> List.of(BotType.Shape.ONE, BotType.Shape.OPEN_LIST);
+            case RETURN_TYPE, PARAMETER -> List.of(BotType.Shape.ONE, BotType.Shape.LIST);
             case LOCAL_VARIABLE -> List.of(BotType.Shape.ONE);
         };
     }
@@ -132,8 +128,7 @@ public final class BotTypePicker extends MenuButton {
     private static boolean keeps(BotType type, BotType.Shape shape) {
         return switch (shape) {
             case ONE -> true;
-            case ONE_OF -> type.shapeable();
-            case ANY_OF, OPEN_LIST -> type.listable();
+            case LIST -> type.listable();
         };
     }
 

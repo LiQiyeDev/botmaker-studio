@@ -1,9 +1,9 @@
 package com.botmaker.studio.services;
 
-import com.botmaker.studio.palette.BotType;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityDefinition;
 import com.botmaker.studio.project.activity.ActivityVariable;
+import com.botmaker.studio.project.activity.ValueWire;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -24,17 +24,18 @@ class VariableRailModelTest {
         return TagCatalog.of(activities, List.of("Timing"));
     }
 
-    private static ActivityVariable variable(String name, BotType type, String tag) {
-        return ActivityVariable.create(name, BotType.Choice.of(type).toValue()).withTag(tag);
+    /** Keyed by the persisted id, which is what a type <em>is</em> since the vocabulary opened. */
+    private static ActivityVariable variable(String name, String typeId, String tag) {
+        return ActivityVariable.create(name, ValueWire.one(typeId)).withTag(tag);
     }
 
     private static List<ActivityVariable> variables() {
         return List.of(
-                variable("RETRIES", BotType.WHOLE_NUMBER, "Mining"),
-                variable("ORE", BotType.TEXT, "Mining"),
-                variable("BAIT", BotType.TEXT, "Fishing"),
-                variable("DEBUG", BotType.YES_NO, ""),
-                variable("GAP", BotType.DURATION, "Timing"));
+                variable("RETRIES", "WHOLE_NUMBER", "Mining"),
+                variable("ORE", "TEXT", "Mining"),
+                variable("BAIT", "TEXT", "Fishing"),
+                variable("DEBUG", "YES_NO", ""),
+                variable("GAP", "DURATION", "Timing"));
     }
 
     @Test
@@ -63,7 +64,7 @@ class VariableRailModelTest {
      */
     @Test
     void aVariableFiledUnderAVanishedTagIsListedUnderGeneral() {
-        List<ActivityVariable> variables = List.of(variable("ORE", BotType.TEXT, "Smelting"));
+        List<ActivityVariable> variables = List.of(variable("ORE", "TEXT", "Smelting"));
 
         List<ActivityVariable> general = VariableRailModel.in(variables, ActivityVariable.GENERAL, catalog());
 
@@ -88,7 +89,7 @@ class VariableRailModelTest {
 
     @Test
     void aTagIsMatchedHoweverItIsSpelled() {
-        List<ActivityVariable> variables = List.of(variable("RETRIES", BotType.WHOLE_NUMBER, "mining"));
+        List<ActivityVariable> variables = List.of(variable("RETRIES", "WHOLE_NUMBER", "mining"));
 
         assertTrue(VariableRailModel.in(variables, "Mining", catalog()).contains(variables.getFirst()),
                 "the catalog is case-insensitive, so the rail must be too");

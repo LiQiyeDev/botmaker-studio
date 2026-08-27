@@ -87,7 +87,8 @@ public final class ExpressionMenu {
 
     // There is no showBotTypeMenu here any more. It was the declare block's type menu — the BotType groups,
     // then an "Other type…" item that opened showTypeSelectorMenu. Two things were wrong with it, and only one
-    // was fixable: it filtered on BotType.storable(), the *project variable* predicate, so a local could not be
+    // was fixable: it filtered on the *project variable* predicate BotType then carried (`storable()`, gone
+    // since phase 10b split that vocabulary out into the contract's ValueType), so a local could not be
     // retyped to ImageTemplateGroup or Matches at all; and "Other type…" was dead on arrival, because showing
     // the child ContextMenu synchronously inside the parent item's action means JavaFX auto-hides the parent
     // and takes the child with it. The type of a variable is now chosen with BotTypePicker

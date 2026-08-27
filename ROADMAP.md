@@ -6,6 +6,31 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-27 — `VariableWire` is deleted and `BotType` narrows to what a signature can spell (plugin
+  platform, phase 10b).** `project/activity/VariableWire` is gone; `ValueWire` is the whole of the wire layer
+  and every reader goes through it. `palette/BotType` keeps its 25 constants, `Choice`, `Shape` and the
+  `Initializer` seeds, and loses everything that was about a *stored* value: `storable()`, `storableTypes()`,
+  `isClosedSet()`, `shapeable()`, `toValue()`/`fromValue()` and three of the five shapes — `ONE_OF`, `ANY_OF`
+  and `OPEN_LIST` were never things javac accepts in a signature, and `Shape` is now the two positions a
+  signature can spell, `T` and `List<T>`.
+  **The two vocabularies are split because they were two ideas under one name**: what a bot's *source* can
+  declare (Studio's, and staying Studio's) and what a project *stores* (the contract's `ValueType`, open to
+  any plugin). `ui/render/components/ValueTypePicker` (new) is the stored-value half — a `MenuButton` over
+  `ValueChoice`, its tree built from `ValueWire.registered()` grouped by the contract's new
+  `ValueType.group()`, with all four `ValueShape`s on a Shape ▸ submenu; `BotTypePicker` keeps
+  `RETURN_TYPE`/`PARAMETER`/`LOCAL_VARIABLE` over the narrowed enum and `Purpose.VARIABLE` is deleted.
+  **One behaviour note, and it is a consequence of the codec moving rather than a decision taken here:** a
+  literal written into the user's own source is now the codec's, which writes the *parsed* value spelled in
+  full — `new java.awt.Color(255, 0, 0)` where Studio used to write `Color.decode("#FF0000")` plus an import,
+  and `java.time.Duration.ofMillis(…)` where it wrote `Duration.ofMillis(…)` plus an import. Both compile;
+  neither can throw at class initialisation, which the old pair could. The SDK's own types are unaffected —
+  `new Point(3, 4)` still arrives with its import, because a generated file imports them.
+  Six test classes retyped (`BotTypeTest`, `PickerGalleryWindowTest`, `ParameterModelTest`,
+  `ActivityServiceTest`, `VariableRailModelTest`, `ParametersSplitTest`, `ParamShapeWidgetTest`), and where a
+  test loops the vocabulary it loops `ValueWire.registered()` and skips a type nothing registered — an
+  exhaustive switch cannot survive an open set, and `ValueType.unknown(id)` is the ordinary state of a
+  project opened without one of its plugins. **Studio's SDK imports are down to 101 across 32 files** (110
+  after 15a); the pom demotion is still owed on phases 12/14.
 - **2026-08-27 — plugins are discovered and bound per project (plugin platform, phase 15a).**
   `plugin/PluginLoader` (new) builds a `URLClassLoader` over `ProjectState.getResolvedClasspath()` and runs
   `ServiceLoader.load(StudioPlugin.class, loader)`; `PluginHost` keeps every static accessor and gains

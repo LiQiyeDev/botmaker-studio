@@ -311,7 +311,7 @@ public final class ValueEditors {
      * source must say.
      *
      * <p>The declared range is a tooltip, not a clamp, for the reason the class javadoc gives: reading is
-     * total, and {@link VariableWire} pulls the value into range downstream where a limit can be tightened
+     * total, and {@link ValueWire} pulls the value into range downstream where a limit can be tightened
      * afterwards without sealing a dialog shut.
      */
     private static Editor decimal(String wire, Bounds bounds) {
@@ -356,7 +356,7 @@ public final class ValueEditors {
      *
      * <p>Reading back prefers what was <em>typed</em> when it names a key exactly (case-insensitively, so
      * "esc" finds {@code ESCAPE}); anything else falls back to the last item actually chosen, and a name that
-     * matches nothing reads as blank rather than as itself — {@link VariableWire} is the authority on what a
+     * matches nothing reads as blank rather than as itself — {@link ValueWire} is the authority on what a
      * key may be, and handing it half a name to normalise is how a typo became a stored value.
      */
     private static Editor keySearch(List<String> names, String value) {
@@ -387,7 +387,7 @@ public final class ValueEditors {
     /**
      * What a key box stores: the constant {@code typed} names, else the one last picked, else nothing.
      *
-     * <p>Nothing rather than the text itself, because a half-typed name is not a key and {@link VariableWire}
+     * <p>Nothing rather than the text itself, because a half-typed name is not a key and {@link ValueWire}
      * is the authority on what may be one — handing it {@code "esca"} to normalise is how a typo became a
      * stored value.
      */

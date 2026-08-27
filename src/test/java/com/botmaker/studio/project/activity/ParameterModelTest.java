@@ -2,7 +2,7 @@ package com.botmaker.studio.project.activity;
 
 import com.botmaker.plugin.api.value.ValueChoice;
 import com.botmaker.plugin.api.value.ValueShape;
-import com.botmaker.studio.palette.BotType;
+import com.botmaker.plugin.api.value.ValueType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -19,16 +19,35 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * What a project variable is, as a model: who it is <em>for</em>, where it is filed, and — for the choice
  * types — what it may be set to. All model rules, so all tested without a scene.
+ *
+ * <p>The types are looked up by {@linkplain ValueType#id() id} rather than named as enum constants: since
+ * phase 10b the vocabulary is the contract's open registry, so a type is a thing a plugin registered and the
+ * id is what {@code activities.json} holds either way.
  */
 class ParameterModelTest {
 
-    private static ActivityVariable variable(String name, BotType type) {
+    private static final ValueType TEXT = ValueWire.type("TEXT");
+    private static final ValueType WHOLE_NUMBER = ValueWire.type("WHOLE_NUMBER");
+    private static final ValueType DECIMAL_NUMBER = ValueWire.type("DECIMAL_NUMBER");
+    private static final ValueType YES_NO = ValueWire.type("YES_NO");
+    private static final ValueType COLOR = ValueWire.type("COLOR");
+    private static final ValueType DATE = ValueWire.type("DATE");
+    private static final ValueType DURATION = ValueWire.type("DURATION");
+    private static final ValueType POINT = ValueWire.type("POINT");
+    private static final ValueType RECT = ValueWire.type("RECT");
+    private static final ValueType KEY = ValueWire.type("KEY");
+    private static final ValueType MOUSE_BUTTON = ValueWire.type("MOUSE_BUTTON");
+    private static final ValueType DIRECTION = ValueWire.type("DIRECTION");
+    private static final ValueType PRECISION = ValueWire.type("PRECISION");
+    private static final ValueType IMAGE_TEMPLATE = ValueWire.type("IMAGE_TEMPLATE");
+
+    private static ActivityVariable variable(String name, ValueType type) {
         return ActivityVariable.create(name, oneOf(type));
     }
 
-    /** One free value, in the contract's vocabulary — the enum still names the type the test is about. */
-    private static ValueChoice oneOf(BotType type) {
-        return BotType.Choice.of(type).toValue();
+    /** One free value. */
+    private static ValueChoice oneOf(ValueType type) {
+        return ValueChoice.of(type);
     }
 
     /**
@@ -37,21 +56,21 @@ class ParameterModelTest {
      */
     @Test
     void aColourIsStoredAsUpperCaseHexAndFallsBackToWhite() {
-        assertTrue(BotType.COLOR.storable());
-        assertEquals(List.of("#FFFFFF"), variable("accent", BotType.COLOR).value());
+        assertTrue(COLOR.known(), "some plugin has to have registered it");
+        assertEquals(List.of("#FFFFFF"), variable("accent", COLOR).value());
         assertEquals(List.of("#1A2B3C"),
-                variable("accent", BotType.COLOR).withValue("#1a2b3c").value());
+                variable("accent", COLOR).withValue("#1a2b3c").value());
         assertEquals(List.of("#1A2B3C"),
-                variable("accent", BotType.COLOR).withValue("1a2b3c").value(), "the hash is optional");
+                variable("accent", COLOR).withValue("1a2b3c").value(), "the hash is optional");
         assertEquals(List.of("#FFFFFF"),
-                variable("accent", BotType.COLOR).withValue("mauve").value(), "unreadable reads as white");
+                variable("accent", COLOR).withValue("mauve").value(), "unreadable reads as white");
     }
 
     /** A fresh image variable names the template every project ships, not an empty chip nothing can run on. */
     @Test
     void aFreshImageVariablePointsAtTheDefaultTemplate() {
         assertEquals(List.of(com.botmaker.studio.services.ImageTemplateLibrary.DEFAULT_TEMPLATE_NAME),
-                variable("target", BotType.IMAGE_TEMPLATE).value());
+                variable("target", IMAGE_TEMPLATE).value());
     }
 
     /**
@@ -60,11 +79,11 @@ class ParameterModelTest {
      */
     @Test
     void retypingResetsTheValueEvenWhenItHadBeenEdited() {
-        ActivityVariable edited = variable("gap", BotType.TEXT).withValue("hello");
+        ActivityVariable edited = variable("gap", TEXT).withValue("hello");
 
-        ActivityVariable retyped = edited.withType(oneOf(BotType.COLOR));
+        ActivityVariable retyped = edited.withType(oneOf(COLOR));
 
-        assertEquals(BotType.COLOR.name(), retyped.type().type().id());
+        assertEquals(COLOR.id(), retyped.type().type().id());
         assertEquals(List.of("#FFFFFF"), retyped.value());
     }
 
@@ -73,8 +92,8 @@ class ParameterModelTest {
         // The default flipped with the tagged-variable model: a variable exists because someone wanted to
         // configure something, so the useful default is the one the person running the bot can see. Hiding
         // one is now the decision that has to be taken.
-        assertEquals(ParamVisibility.PUBLIC, variable("retryDelay", BotType.WHOLE_NUMBER).visibility());
-        assertTrue(variable("retryDelay", BotType.WHOLE_NUMBER).isPublic());
+        assertEquals(ParamVisibility.PUBLIC, variable("retryDelay", WHOLE_NUMBER).visibility());
+        assertTrue(variable("retryDelay", WHOLE_NUMBER).isPublic());
     }
 
     @Test
@@ -91,14 +110,14 @@ class ParameterModelTest {
     void aVariableIsFiledUnderGeneralUntilItIsTagged() {
         // The tag is a display grouping and never a scope, so "no tag" has to be a real bucket rather than
         // an absence: a variable with no tag is still readable from every activity.
-        assertEquals(ActivityVariable.GENERAL, variable("speed", BotType.WHOLE_NUMBER).tagOrGeneral());
-        assertEquals("", variable("speed", BotType.WHOLE_NUMBER).tag());
-        assertEquals("Mining", variable("speed", BotType.WHOLE_NUMBER).withTag("Mining").tagOrGeneral());
+        assertEquals(ActivityVariable.GENERAL, variable("speed", WHOLE_NUMBER).tagOrGeneral());
+        assertEquals("", variable("speed", WHOLE_NUMBER).tag());
+        assertEquals("Mining", variable("speed", WHOLE_NUMBER).withTag("Mining").tagOrGeneral());
     }
 
     @Test
     void everythingASavedVariableCarriesSurvivesTheRoundTrip(@TempDir Path dir) throws Exception {
-        ActivityVariable mode = ActivityVariable.create("mode", chosenFrom(BotType.TEXT))
+        ActivityVariable mode = ActivityVariable.create("mode", chosenFrom(TEXT))
                 .withDescription("how careful to be")
                 .withOptions(List.of("fast", "safe"))
                 .withValue("safe")
@@ -112,7 +131,7 @@ class ParameterModelTest {
         assertEquals("safe", read.singleValue());
         assertEquals("Mining", read.tag());
         assertEquals("how careful to be", read.description());
-        assertEquals(chosenFrom(BotType.TEXT), read.type());
+        assertEquals(chosenFrom(TEXT), read.type());
     }
 
     /** A value is a list of strings on the wire, whatever the type — one entry, or one per item. */
@@ -141,7 +160,7 @@ class ParameterModelTest {
 
         ActivityVariable read = ActivitiesConfig.read(dir).variables().getFirst();
 
-        assertEquals(oneOf(BotType.TEXT), read.type(), "text holds anything, so it is the default");
+        assertEquals(oneOf(TEXT), read.type(), "text holds anything, so it is the default");
         assertEquals(List.of(""), read.value());
         assertEquals("", read.tag());
         assertEquals(List.of(), read.options());
@@ -151,13 +170,13 @@ class ParameterModelTest {
     void deletingAChoiceUnsetsItWhereverItWasChosen() {
         // Otherwise the bot goes on running with a value that no longer appears anywhere in the UI that set
         // it — invisible, and therefore undebuggable.
-        ActivityVariable single = ActivityVariable.create("mode", chosenFrom(BotType.TEXT))
+        ActivityVariable single = ActivityVariable.create("mode", chosenFrom(TEXT))
                 .withOptions(List.of("fast", "safe", "reckless")).withValue("reckless");
 
         assertEquals("fast", single.withOptions(List.of("fast", "safe")).singleValue(),
                 "the deleted choice falls back to the first one still offered");
 
-        ActivityVariable many = ActivityVariable.create("skills", manyOf(BotType.TEXT))
+        ActivityVariable many = ActivityVariable.create("skills", manyOf(TEXT))
                 .withOptions(List.of("mine", "fish", "cook")).withValue(List.of("mine", "fish"));
 
         assertEquals(List.of("mine"), many.withOptions(List.of("mine", "cook")).value());
@@ -167,53 +186,53 @@ class ParameterModelTest {
     void aChosenListIsWrittenInTheDeclarationOrderAndNotThePickingOrder() {
         // Two people who ticked the same boxes must produce the same file, or a diff shows a change nobody
         // made.
-        ActivityVariable skills = ActivityVariable.create("skills", manyOf(BotType.TEXT))
+        ActivityVariable skills = ActivityVariable.create("skills", manyOf(TEXT))
                 .withOptions(List.of("mine", "fish", "cook"));
 
         assertEquals(List.of("mine", "cook"), skills.withValue(List.of("cook", "mine")).value());
     }
 
     /**
-     * "Many of…" — several out of a set the author wrote down. {@link BotType.Choice#listOf} is the
+     * "Many of…" — several out of a set the author wrote down. {@link ValueChoice#listOf} is the
      * <em>other</em> list shape, the open one a signature carries, and it declares no set at all.
      */
-    private static ValueChoice manyOf(BotType type) {
-        return new BotType.Choice(type, BotType.Shape.ANY_OF).toValue();
+    private static ValueChoice manyOf(ValueType type) {
+        return new ValueChoice(type, ValueShape.ANY_OF);
     }
 
     /** One value out of a written-down set. */
-    private static ValueChoice chosenFrom(BotType type) {
-        return new BotType.Choice(type, BotType.Shape.ONE_OF).toValue();
+    private static ValueChoice chosenFrom(ValueType type) {
+        return new ValueChoice(type, ValueShape.ONE_OF);
     }
 
     @Test
     void retypingResetsTheValueAndDropsOptionsThatNoLongerApply() {
-        ActivityVariable mode = ActivityVariable.create("mode", chosenFrom(BotType.TEXT))
+        ActivityVariable mode = ActivityVariable.create("mode", chosenFrom(TEXT))
                 .withDescription("how careful").withOptions(List.of("fast", "safe")).withValue("safe");
 
-        ActivityVariable asNumber = mode.withType(oneOf(BotType.WHOLE_NUMBER));
+        ActivityVariable asNumber = mode.withType(oneOf(WHOLE_NUMBER));
         assertEquals("0", asNumber.singleValue(), "a choice is not a number; don't pretend it carries over");
         assertEquals(List.of(), asNumber.options());
         assertEquals(ParamVisibility.PUBLIC, asNumber.visibility(), "who it is for doesn't change with the type");
         assertEquals("how careful", asNumber.description());
 
         assertEquals(List.of("fast", "safe"),
-                mode.withType(manyOf(BotType.TEXT)).options(),
+                mode.withType(manyOf(TEXT)).options(),
                 "the choices survive a move from one of them to several of them");
-        assertEquals(List.of(), mode.withType(BotType.Choice.listOf(BotType.TEXT).toValue()).options(),
+        assertEquals(List.of(), mode.withType(ValueChoice.listOf(TEXT)).options(),
                 "an open list declares no set, so there is nothing for the choices to survive into");
     }
 
     /** The types whose choices are their own: the editor never writes an SDK enum's constants down. */
     @Test
     void anEnumTypeBringsItsOwnChoicesAndSnapsToOne() {
-        ActivityVariable key = variable("hotkey", BotType.KEY);
+        ActivityVariable key = variable("hotkey", KEY);
 
-        assertFalse(ValueWire.hasOptions(oneOf(BotType.KEY)),
+        assertFalse(ValueWire.hasOptions(oneOf(KEY)),
                 "one value of an enum type: there is nothing for the editor to write down");
-        assertFalse(VariableWire.fixedOptions(BotType.KEY).isEmpty());
-        assertTrue(VariableWire.fixedOptions(BotType.KEY).contains(key.singleValue()));
-        assertTrue(VariableWire.fixedOptions(BotType.KEY).contains(key.withValue("NOT_A_KEY").singleValue()),
+        assertFalse(ValueWire.fixedOptions(KEY).isEmpty());
+        assertTrue(ValueWire.fixedOptions(KEY).contains(key.singleValue()));
+        assertTrue(ValueWire.fixedOptions(KEY).contains(key.withValue("NOT_A_KEY").singleValue()),
                 "a value the enum does not have falls back to one it does");
     }
 
@@ -222,7 +241,7 @@ class ParameterModelTest {
      * the axis: it used to be true of one pseudo-type and false of the other twenty, which is exactly why
      * "one of these three whole numbers" could not be said.
      *
-     * <p>The exception is a type that already <em>is</em> a set ({@link BotType#isClosedSet()}): its editor
+     * <p>The exception is a type that already <em>is</em> a set ({@link ValueType#isClosedSet()}): its editor
      * shows every value it has, so it takes {@code ONE} and {@code ANY_OF} and no {@code ONE_OF}.
      *
      * <p>The two shapes that carry a set are the two closed ones. An open list is many values and no set —
@@ -230,11 +249,11 @@ class ParameterModelTest {
      */
     @Test
     void everyShapeableTypeCarriesOptionsInEveryShapeButOne() {
-        for (BotType type : BotType.storableTypes()) {
+        for (ValueType type : ValueWire.registered()) {
             assertEquals(!type.isClosedSet(), type.shapeable(),
                     type + " offers One of… iff it is not already a set of its own");
             assertFalse(ValueWire.hasOptions(oneOf(type)), type + " as one free value");
-            assertFalse(ValueWire.hasOptions(BotType.Choice.listOf(type).toValue()), type + " as an open list");
+            assertFalse(ValueWire.hasOptions(ValueChoice.listOf(type)), type + " as an open list");
             assertTrue(ValueWire.hasOptions(manyOf(type)), type + " many of");
             if (!type.shapeable()) continue;
             assertTrue(ValueWire.hasOptions(chosenFrom(type)), type + " one of");
@@ -244,18 +263,18 @@ class ParameterModelTest {
     /** Normalising is a fixed point for every storable type, or the editor and the file disagree forever. */
     @Test
     void normalisingTwiceChangesNothing() {
-        for (BotType type : BotType.storableTypes()) {
-            for (BotType.Shape shape : BotType.Shape.values()) {
-                if (shape == BotType.Shape.ONE_OF && !type.shapeable()) continue;
-                BotType.Choice choice = new BotType.Choice(type, shape);
+        for (ValueType type : ValueWire.registered()) {
+            for (ValueShape shape : ValueShape.values()) {
+                if (shape == ValueShape.ONE_OF && !type.shapeable()) continue;
+                ValueChoice choice = new ValueChoice(type, shape);
                 // A declared set has to be values of the type, or normalising them is what changes on the
                 // second pass. Two of the type's own defaults is the one set every type can supply.
                 List<String> options = shape.hasOptions()
-                        ? VariableWire.normalizeOptions(VariableWire.defaultWire(choice), choice, Bounds.NONE)
+                        ? ValueWire.normalizeOptions(ValueWire.defaultWire(choice), choice, Bounds.NONE)
                         : List.of();
-                List<String> once = VariableWire.normalize(VariableWire.defaultWire(choice), choice, options,
+                List<String> once = ValueWire.normalize(ValueWire.defaultWire(choice), choice, options,
                         Bounds.NONE);
-                assertEquals(once, VariableWire.normalize(once, choice, options, Bounds.NONE), choice.toString());
+                assertEquals(once, ValueWire.normalize(once, choice, options, Bounds.NONE), choice.toString());
             }
         }
     }
@@ -280,18 +299,18 @@ class ParameterModelTest {
 
         List<ActivityVariable> read = ActivitiesConfig.read(dir).variables();
 
-        assertEquals(chosenFrom(BotType.TEXT), read.get(0).type());
+        assertEquals(chosenFrom(TEXT), read.get(0).type());
         assertEquals(List.of("fast", "safe"), read.get(0).options());
         assertEquals("safe", read.get(0).singleValue());
 
         // The two list shapes, told apart by the one thing the old file said about them: a set of choices was
         // written down for "skills" and none for "spots", so one is tick boxes and the other is rows the user
         // fills in — which is exactly how each of them was drawn before they were two shapes.
-        assertEquals(manyOf(BotType.TEXT), read.get(1).type());
+        assertEquals(manyOf(TEXT), read.get(1).type());
         assertEquals(List.of("mine"), read.get(1).value());
 
-        assertEquals(oneOf(BotType.WHOLE_NUMBER), read.get(2).type());
-        assertEquals(BotType.Choice.listOf(BotType.POINT).toValue(), read.get(3).type());
+        assertEquals(oneOf(WHOLE_NUMBER), read.get(2).type());
+        assertEquals(ValueChoice.listOf(POINT), read.get(3).type());
         assertEquals(ValueShape.OPEN_LIST, read.get(3).type().shape());
     }
 
@@ -299,7 +318,7 @@ class ParameterModelTest {
      * A project written by the Studio that had one list shape, reopened by the one that has two. The stored
      * word is the same {@code ANY_OF} in both variables and only the choices tell them apart — so the rule
      * has to be read off the variable, not off its type, which is why it does not live in
-     * {@code BotType.Choice}'s own reader.
+     * {@code ValueChoice}'s own reader.
      */
     @Test
     void aStoredListKeepsTheWidgetItUsedToBeDrawnWith(@TempDir Path dir) throws Exception {
@@ -327,9 +346,8 @@ class ParameterModelTest {
     /** The split is a label, not a type: both list shapes are the same {@code List<T>} a bot compiles. */
     @Test
     void bothListShapesSpellTheSameSource() {
-        for (BotType type : BotType.storableTypes()) {
-            assertEquals(BotType.Choice.listOf(type).toValue().sourceName(), manyOf(type).sourceName(),
-                    type.toString());
+        for (ValueType type : ValueWire.registered()) {
+            assertEquals(ValueChoice.listOf(type).sourceName(), manyOf(type).sourceName(), type.toString());
         }
     }
 
@@ -339,7 +357,7 @@ class ParameterModelTest {
         // will not compile.
         ActivitiesConfig config = ActivitiesConfig.of(
                 List.of(ActivityDefinition.create("Mining", "")),
-                List.of(variable("speed", BotType.WHOLE_NUMBER)));
+                List.of(variable("speed", WHOLE_NUMBER)));
 
         assertTrue(config.nameClash("Mining", null));
         assertTrue(config.nameClash("mining", null), "the stub files are named after activities");
@@ -350,10 +368,10 @@ class ParameterModelTest {
 
     @Test
     void theRunnerIsOfferedThePublicVariablesGroupedByTag() {
-        ActivityVariable speed = variable("speed", BotType.WHOLE_NUMBER);
-        ActivityVariable retryDelay = variable("retryDelay", BotType.WHOLE_NUMBER)
+        ActivityVariable speed = variable("speed", WHOLE_NUMBER);
+        ActivityVariable retryDelay = variable("retryDelay", WHOLE_NUMBER)
                 .withVisibility(ParamVisibility.EDITOR_ONLY);
-        ActivityVariable ore = variable("ore", BotType.TEXT).withTag("Mining");
+        ActivityVariable ore = variable("ore", TEXT).withTag("Mining");
 
         ActivitiesConfig config = ActivitiesConfig.of(
                 List.of(ActivityDefinition.create("Mining", "")), List.of(speed, retryDelay, ore));
@@ -372,7 +390,7 @@ class ParameterModelTest {
      */
     @Test
     void aDeclaredRangePullsAStoredValueBackIntoIt() {
-        ActivityVariable retries = variable("retries", BotType.WHOLE_NUMBER)
+        ActivityVariable retries = variable("retries", WHOLE_NUMBER)
                 .withBounds(new Bounds("1", "5"))
                 .withValue("42");
 
@@ -388,11 +406,11 @@ class ParameterModelTest {
      */
     @Test
     void eitherEndOfARangeCanBeDeclaredWithoutTheOther() {
-        ActivityVariable atMost = variable("count", BotType.WHOLE_NUMBER).withBounds(new Bounds(null, "10"));
+        ActivityVariable atMost = variable("count", WHOLE_NUMBER).withBounds(new Bounds(null, "10"));
         assertEquals(List.of("10"), atMost.withValue("99").value());
         assertEquals(List.of("-500"), atMost.withValue("-500").value(), "no minimum means no floor");
 
-        ActivityVariable atLeast = variable("count", BotType.WHOLE_NUMBER).withBounds(new Bounds("1", null));
+        ActivityVariable atLeast = variable("count", WHOLE_NUMBER).withBounds(new Bounds("1", null));
         assertEquals(List.of("1"), atLeast.withValue("0").value());
         assertEquals(List.of("999999"), atLeast.withValue("999999").value(), "no maximum means no ceiling");
 
@@ -406,9 +424,9 @@ class ParameterModelTest {
      */
     @Test
     void onlyTheNumbersAreBounded() {
-        for (BotType type : BotType.storableTypes()) {
-            assertEquals(type == BotType.WHOLE_NUMBER || type == BotType.DECIMAL_NUMBER,
-                    VariableWire.isBounded(type), type.toString());
+        for (ValueType type : ValueWire.registered()) {
+            assertEquals(type.id().equals(WHOLE_NUMBER.id()) || type.id().equals(DECIMAL_NUMBER.id()),
+                    ValueWire.isBounded(type), type.toString());
         }
     }
 
@@ -421,10 +439,10 @@ class ParameterModelTest {
      */
     @Test
     void theSideButtonsAreOfferedBecauseTheSdkHasThem() {
-        List<String> buttons = VariableWire.effectiveOptions(BotType.MOUSE_BUTTON, List.of());
+        List<String> buttons = ValueWire.effectiveOptions(MOUSE_BUTTON, List.of());
 
         assertTrue(buttons.containsAll(List.of("LEFT", "MIDDLE", "RIGHT", "BACK", "FORWARD")), buttons.toString());
-        assertEquals(List.of("BACK"), variable("button", BotType.MOUSE_BUTTON).withValue("BACK").value());
+        assertEquals(List.of("BACK"), variable("button", MOUSE_BUTTON).withValue("BACK").value());
     }
 
     /**
@@ -434,9 +452,9 @@ class ParameterModelTest {
      */
     @Test
     void aPrecisionIsThreeNumbersAndNotAConstant() {
-        assertEquals(List.of(), ValueWire.effectiveOptions(oneOf(BotType.PRECISION).type(), List.of()));
+        assertEquals(List.of(), ValueWire.effectiveOptions(PRECISION, List.of()));
 
-        ActivityVariable precision = variable("precision", BotType.PRECISION);
+        ActivityVariable precision = variable("precision", PRECISION);
         // The floor moved with the codec: the SDK's own WireText.precision clamps minArea to 1, where
         // Studio's copy clamped it to 4. The plugin that owns the type owns the number, which is the whole
         // point of the vocabulary moving — but it is a visible default change, not a rounding difference.
@@ -448,9 +466,9 @@ class ParameterModelTest {
     /** Retyping drops the range with the value: a range for a number means nothing to the date replacing it. */
     @Test
     void retypingForgetsTheRange() {
-        ActivityVariable retries = variable("retries", BotType.WHOLE_NUMBER).withBounds(new Bounds("1", "5"));
+        ActivityVariable retries = variable("retries", WHOLE_NUMBER).withBounds(new Bounds("1", "5"));
 
-        assertEquals(Bounds.NONE, retries.withType(oneOf(BotType.DATE)).bounds());
+        assertEquals(Bounds.NONE, retries.withType(oneOf(DATE)).bounds());
     }
 
     /** An archived activity contributes no enable flag: a switch for something that cannot run. */
@@ -459,34 +477,39 @@ class ParameterModelTest {
         ActivitiesConfig config = ActivitiesConfig.of(
                 List.of(ActivityDefinition.create("Mining", ""),
                         ActivityDefinition.create("Smelting", "")),
-                List.of(variable("speed", BotType.WHOLE_NUMBER)));
+                List.of(variable("speed", WHOLE_NUMBER)));
 
         assertEquals(List.of("Mining", "Smelting", "speed"),
                 config.allVariables().stream().map(ActivityVariable::name).toList());
     }
 
     /**
-     * The Variables screen writes a wire value into the user's own source, so {@link VariableWire#literalSource}
+     * The Variables screen writes a wire value into the user's own source, so {@link ValueWire#literalSource}
      * has to produce the literal the generated helper would have parsed. The pairs below are the ones that can
-     * silently disagree: a duration whose wire grammar is Studio's alone, a colour whose helper is
-     * {@code Color.decode}, geometry whose helper is a comma split.
+     * silently disagree: a duration whose wire grammar is Studio's alone, a colour, geometry whose helper is
+     * a comma split.
+     *
+     * <p>Since the vocabulary moved to the contract these are the <em>codec's</em> literals, and a codec writes
+     * the parsed value rather than the text — {@code new java.awt.Color(255, 0, 0)} and never
+     * {@code Color.decode("#FF0000")}, which parses at class initialisation and can throw. A type whose codec
+     * spells its literal in full needs no import, which is what the sibling test below now reads.
      */
     @Test
     void aWireValueIsWrittenOutAsTheLiteralTheHelperWouldHaveParsed() {
         assertAll(
-                () -> assertEquals("\"hello\"", VariableWire.literalSource(BotType.TEXT, "hello").source()),
-                () -> assertEquals("true", VariableWire.literalSource(BotType.YES_NO, "true").source()),
-                () -> assertEquals("7", VariableWire.literalSource(BotType.WHOLE_NUMBER, "7").source()),
-                () -> assertEquals("Duration.ofMillis(5400000L)",
-                        VariableWire.literalSource(BotType.DURATION, "1h30m").source()),
-                () -> assertEquals("Color.decode(\"#FF0000\")",
-                        VariableWire.literalSource(BotType.COLOR, "#FF0000").source()),
+                () -> assertEquals("\"hello\"", ValueWire.literalSource(TEXT, "hello").source()),
+                () -> assertEquals("true", ValueWire.literalSource(YES_NO, "true").source()),
+                () -> assertEquals("7", ValueWire.literalSource(WHOLE_NUMBER, "7").source()),
+                () -> assertEquals("java.time.Duration.ofMillis(5400000L)",
+                        ValueWire.literalSource(DURATION, "1h30m").source()),
+                () -> assertEquals("new java.awt.Color(255, 0, 0)",
+                        ValueWire.literalSource(COLOR, "#FF0000").source()),
                 () -> assertEquals("new Point(3, 4)",
-                        VariableWire.literalSource(BotType.POINT, "3,4").source()),
+                        ValueWire.literalSource(POINT, "3,4").source()),
                 () -> assertEquals("new Rect(1, 2, 3, 4)",
-                        VariableWire.literalSource(BotType.RECT, "1,2,3,4").source()),
+                        ValueWire.literalSource(RECT, "1,2,3,4").source()),
                 () -> assertEquals("MouseButton.BACK",
-                        VariableWire.literalSource(BotType.MOUSE_BUTTON, "BACK").source()));
+                        ValueWire.literalSource(MOUSE_BUTTON, "BACK").source()));
     }
 
     /**
@@ -497,22 +520,41 @@ class ParameterModelTest {
     @Test
     void anImpossiblePrecisionIsClampedOnTheWayIntoSourceToo() {
         assertEquals("new Precision(0.0, 1, 0)",
-                VariableWire.literalSource(BotType.PRECISION, "-3,0,-9").source());
+                ValueWire.literalSource(PRECISION, "-3,0,-9").source());
     }
 
-    /** Each literal carries the one import that makes it resolve; a plain literal carries none. */
+    /**
+     * Each literal carries the one import that makes it resolve, and only where it needs one: a plain literal
+     * carries none, and neither does one a codec already spelled in full. What must never happen is a literal
+     * naming a simple name with nothing to resolve it — which is the SDK's own types, whose codecs write
+     * {@code new Point(3, 4)} because a generated file imports them.
+     */
     @Test
     void eachLiteralNamesTheImportItNeeds() {
         assertAll(
-                () -> assertNull(VariableWire.literalSource(BotType.TEXT, "x").importFqn()),
-                () -> assertEquals("java.awt.Color", VariableWire.literalSource(BotType.COLOR, "#FFF").importFqn()),
-                () -> assertEquals("java.time.Duration", VariableWire.literalSource(BotType.DURATION, "2s").importFqn()),
-                () -> assertTrue(VariableWire.literalSource(BotType.POINT, "0,0").importFqn().endsWith(".Point")));
+                () -> assertNull(ValueWire.literalSource(TEXT, "x").importFqn()),
+                () -> assertNull(ValueWire.literalSource(COLOR, "#FFF").importFqn()),
+                () -> assertNull(ValueWire.literalSource(DURATION, "2s").importFqn()),
+                () -> assertTrue(ValueWire.literalSource(POINT, "0,0").importFqn().endsWith(".Point")));
     }
 
-    /** A type with no written-down form has no literal either, rather than a wrong one. */
+    /**
+     * A type nobody registered has no literal either, rather than a wrong one — which is the ordinary state of
+     * a project opened without one of its plugins, not an error.
+     */
     @Test
-    void aTypeThatIsNotStorableHasNoLiteral() {
-        assertNull(VariableWire.literalSource(BotType.CAPTURE_SOURCE, "anything"));
+    void aTypeNoPluginRegisteredHasNoLiteral() {
+        ValueType nobodys = ValueWire.type("CAPTURE_SOURCE");
+        assertFalse(nobodys.known());
+        assertNull(ValueWire.literalSource(nobodys, "anything"));
+    }
+
+    /** DIRECTION is a closed set: it brings its own choices and declines a written-down subset. */
+    @Test
+    void aClosedSetTypeIsNotOfferedASubset() {
+        assertTrue(DIRECTION.isClosedSet());
+        assertFalse(DIRECTION.shapeable());
+        assertEquals(ValueShape.ONE, new ValueChoice(DIRECTION, ValueShape.ONE_OF).shape(),
+                "the record corrects an impossible pairing rather than refusing the file that holds it");
     }
 }

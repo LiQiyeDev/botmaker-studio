@@ -1,7 +1,8 @@
 package com.botmaker.studio.services;
 
+import com.botmaker.plugin.api.value.ValueChoice;
+import com.botmaker.plugin.api.value.ValueType;
 import com.botmaker.studio.events.EventBus;
-import com.botmaker.studio.palette.BotType;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectRepair;
 import com.botmaker.studio.project.ProjectState;
@@ -13,7 +14,7 @@ import com.botmaker.studio.project.activity.ActivityPreset;
 import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.project.activity.FlowEdge;
 import com.botmaker.studio.project.activity.FlowNode;
-import com.botmaker.studio.project.activity.VariableWire;
+import com.botmaker.studio.project.activity.ValueWire;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -26,17 +27,18 @@ import static org.junit.jupiter.api.Assertions.*;
 /** Covers the variable type mapping, JSON round-trip, and generated-class source. */
 public class ActivityServiceTest {
 
-    private static ActivityVariable variable(String name, BotType type) {
-        return ActivityVariable.create(name, BotType.Choice.of(type).toValue());
+    /** Keyed by the persisted id, which is what a type <em>is</em> since the vocabulary opened. */
+    private static ActivityVariable variable(String name, String typeId) {
+        return ActivityVariable.create(name, ValueWire.one(typeId));
     }
 
     @Test
     void variableTypeMappings() {
-        assertEquals("boolean", VariableWire.javaType(BotType.Choice.of(BotType.YES_NO)));
-        assertEquals("int", VariableWire.javaType(BotType.Choice.of(BotType.WHOLE_NUMBER)));
-        assertEquals("java.time.LocalTime", VariableWire.javaType(BotType.Choice.of(BotType.TIME_OF_DAY)));
+        assertEquals("boolean", ValueWire.javaType(ValueWire.one("YES_NO")));
+        assertEquals("int", ValueWire.javaType(ValueWire.one("WHOLE_NUMBER")));
+        assertEquals("java.time.LocalTime", ValueWire.javaType(ValueWire.one("TIME_OF_DAY")));
         assertEquals("java.util.List<Integer>",
-                VariableWire.javaType(BotType.Choice.listOf(BotType.WHOLE_NUMBER)),
+                ValueWire.javaType(ValueChoice.listOf(ValueWire.type("WHOLE_NUMBER"))),
                 "a list of a primitive is a list of its box");
 
         // A generated field's *initialiser* used to be asserted here — `Wire.whole(Wire.one("n"))`, and one
@@ -44,25 +46,25 @@ public class ActivityServiceTest {
         // gone with `Wire`: a value is now baked in as a literal by the SDK's own generator, so what that
         // line says is `ScaffoldEmitTest`'s to assert, against a file it compiles.
 
-        assertTrue(VariableWire.resolvedType(BotType.Choice.of(BotType.WHOLE_NUMBER)).isNumeric());
-        assertTrue(VariableWire.resolvedType(BotType.Choice.of(BotType.YES_NO)).isBoolean());
-        for (BotType type : BotType.storableTypes()) {
-            assertNotNull(VariableWire.defaultWire(BotType.Choice.of(type)), type.toString());
+        assertTrue(ValueWire.resolvedType(ValueWire.one("WHOLE_NUMBER")).isNumeric());
+        assertTrue(ValueWire.resolvedType(ValueWire.one("YES_NO")).isBoolean());
+        for (ValueType type : ValueWire.registered()) {
+            assertNotNull(ValueWire.defaultWire(ValueChoice.of(type)), type.toString());
         }
     }
 
     @Test
     void configRoundTrip(@TempDir Path dir) throws Exception {
         ActivitiesConfig cfg = ActivitiesConfig.of(List.of(), List.of(
-                variable("maxRetries", BotType.WHOLE_NUMBER),
-                variable("startTime", BotType.TIME_OF_DAY)));
+                variable("maxRetries", "WHOLE_NUMBER"),
+                variable("startTime", "TIME_OF_DAY")));
         cfg.write(dir);
 
         ActivitiesConfig read = ActivitiesConfig.read(dir);
         assertEquals(2, read.variables().size());
         ActivityVariable first = read.variables().get(0);
         assertEquals("maxRetries", first.name());
-        assertEquals(BotType.Choice.of(BotType.WHOLE_NUMBER).toValue(), first.type());
+        assertEquals(ValueWire.one("WHOLE_NUMBER"), first.type());
         assertEquals("0", first.singleValue());
         assertEquals("00:00", read.variables().get(1).singleValue());
     }
@@ -77,8 +79,8 @@ public class ActivityServiceTest {
         ActivityDefinition resources = ActivityDefinition.create("Resources", "collect stuff")
                 .withEnabled(true);
         ActivitiesConfig cfg = ActivitiesConfig.of(List.of(resources), List.of(
-                variable("maxRuns", BotType.WHOLE_NUMBER).withTag("Resources"),
-                variable("serverRegion", BotType.TEXT)));
+                variable("maxRuns", "WHOLE_NUMBER").withTag("Resources"),
+                variable("serverRegion", "TEXT")));
         cfg.write(dir);
 
         ActivitiesConfig read = ActivitiesConfig.read(dir);
@@ -131,7 +133,7 @@ public class ActivityServiceTest {
 
         ActivitiesConfig full = ActivitiesConfig.of(
                         List.of(ActivityDefinition.create("Mining", "")),
-                        List.of(variable("speed", BotType.WHOLE_NUMBER).withTag("Mining")))
+                        List.of(variable("speed", "WHOLE_NUMBER").withTag("Mining")))
                 .withFlow(new ActivityFlow(List.of(new FlowNode("Mining", 10, 20)), List.of()))
                 .withPresets(List.of(new ActivityPreset("Quick", List.of("Mining"))))
                 .withGoHomeByDefault(false);
@@ -142,7 +144,7 @@ public class ActivityServiceTest {
                 List.of(ActivityDefinition.create("Mining", ""), ActivityDefinition.create("Smelt", "")))).join();
         // The Parameters dialog path: replace the variables, touching nothing else.
         service.update(service.current().withVariables(
-                List.of(variable("speed", BotType.WHOLE_NUMBER), variable("ore", BotType.TEXT)))).join();
+                List.of(variable("speed", "WHOLE_NUMBER"), variable("ore", "TEXT")))).join();
 
         ActivitiesConfig read = ActivitiesConfig.read(config.resourcesRoot());
         assertEquals(List.of("Mining", "Smelt"),

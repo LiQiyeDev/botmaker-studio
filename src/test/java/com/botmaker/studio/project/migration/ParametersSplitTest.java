@@ -1,6 +1,6 @@
 package com.botmaker.studio.project.migration;
 
-import com.botmaker.studio.palette.BotType;
+import com.botmaker.studio.project.activity.ValueWire;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityDefinition;
@@ -43,7 +43,7 @@ class ParametersSplitTest {
 
         ActivitiesConfig model = ActivitiesConfig.of(
                 List.of(ActivityDefinition.create("Mining", "")),
-                List.of(ActivityVariable.create("rest", BotType.Choice.of(BotType.DURATION).toValue())));
+                List.of(ActivityVariable.create("rest", ValueWire.one("DURATION"))));
         model.write(config.resourcesRoot());
         stampAt(config, 1);
 

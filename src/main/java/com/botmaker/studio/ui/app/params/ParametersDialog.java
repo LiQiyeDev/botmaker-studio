@@ -1,16 +1,13 @@
 package com.botmaker.studio.ui.app.params;
 
 import com.botmaker.plugin.api.value.ValueCatalog;
-import com.botmaker.plugin.api.value.ValueChoice;
 import com.botmaker.plugin.api.value.ValueType;
-import com.botmaker.studio.palette.BotType;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.project.activity.Bounds;
 import com.botmaker.studio.project.activity.ParamVisibility;
 import com.botmaker.studio.project.activity.ValueWire;
-import com.botmaker.studio.project.activity.VariableWire;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.TagCatalog;
 import com.botmaker.studio.services.ImageTemplateLibrary;
@@ -20,8 +17,8 @@ import com.botmaker.studio.ui.app.ActivityFlowDialog;
 import com.botmaker.studio.ui.app.StudioWindow;
 import com.botmaker.studio.ui.app.flow.FlowNames;
 import com.botmaker.studio.ui.app.params.ParamValueWidgets.ValueEditor;
-import com.botmaker.studio.ui.render.components.BotTypePicker;
 import com.botmaker.studio.ui.render.components.TagPicklist;
+import com.botmaker.studio.ui.render.components.ValueTypePicker;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.animation.Animation;
 import javafx.animation.KeyFrame;
@@ -450,13 +447,12 @@ public final class ParametersDialog {
             e.consume();   // Enter commits the name here; it is not also a keystroke for anything else
         });
 
-        BotTypePicker type = new BotTypePicker(BotTypePicker.Purpose.VARIABLE);
-        type.setChoice(BotType.Choice.fromValue(v.type()));
+        ValueTypePicker type = new ValueTypePicker();
+        type.setChoice(v.type());
         type.setPrefWidth(180);
         type.choiceProperty().addListener((o, was, is) -> {
             if (is == null) return;
-            ValueChoice picked = is.toValue();
-            if (!picked.equals(v.type())) edit(v.name(), "the type", current -> current.withType(picked));
+            if (!is.equals(v.type())) edit(v.name(), "the type", current -> current.withType(is));
         });
 
         CheckBox shared = new CheckBox("Show to user");
@@ -704,7 +700,7 @@ public final class ParametersDialog {
         TextField name = new TextField();
         name.setPromptText("variable name");
         HBox.setHgrow(name, Priority.ALWAYS);
-        BotTypePicker type = new BotTypePicker(BotTypePicker.Purpose.VARIABLE);
+        ValueTypePicker type = new ValueTypePicker();
         type.setPrefWidth(180);
         Button add = new Button("Add variable");
         add.getStyleClass().add("primary-button");
@@ -722,7 +718,7 @@ public final class ParametersDialog {
             change("adding " + candidate, () -> {
                 String tag = VariableRailModel.ALL.equals(selectedTag)
                         || ActivityVariable.GENERAL.equals(selectedTag) ? "" : selectedTag;
-                variables.add(ActivityVariable.create(candidate, type.choice().toValue()).withTag(tag));
+                variables.add(ActivityVariable.create(candidate, type.choice()).withTag(tag));
                 error("");
                 name.clear();
                 rebuildRail();
