@@ -1288,9 +1288,18 @@ public class ProjectAnalyzer {
         return names;
     }
 
+    /**
+     * Parameter types read from the <b>erased</b> descriptor, never the generic signature. A type variable is
+     * the whole reason: {@code FlowGraph.<O extends Enum<O>> route(O, String)} has a signature naming {@code O},
+     * which resolves in no index, means nothing to a slot editor, and changes when the SDK renames the variable
+     * — while its erasure, {@code Enum}, is a real type and is the only spelling a plugin catalog's descriptor
+     * can produce. {@link MethodSignature#signatureKeyOf(io.github.classgraph.MethodInfo)} reads the descriptor
+     * for the same reason, and {@code SignatureKeyAgreementTest} holds the two together. For a non-generic
+     * parameter the two are identical, since {@link #resolveLibraryType} strips generic arguments anyway.
+     */
     private List<ResolvedType> libraryParamTypes(MethodInfo mi) {
         return Arrays.stream(mi.getParameterInfo())
-                .map(p -> resolveLibraryType(p.getTypeSignatureOrTypeDescriptor().toString()))
+                .map(p -> resolveLibraryType(p.getTypeDescriptor().toString()))
                 .collect(Collectors.toCollection(ArrayList::new));
     }
 

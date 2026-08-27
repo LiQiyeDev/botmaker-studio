@@ -86,6 +86,14 @@ public record MethodSignature(String name, List<ResolvedType> paramTypes, List<S
      * ({@code Consumer<MatchResult>} → {@code Consumer}), and a varargs tail is spelled as its <em>element</em>
      * type, because the bytecode descriptor of {@code ImageTemplate...} is {@code ImageTemplate[]} and every
      * caller reasons about the element.
+     *
+     * <p><b>It reads the erased descriptor, never the generic signature</b>, and that is what makes a generic
+     * method spellable at all. {@code FlowGraph.<O extends Enum<O>> route(O, String)} has a signature naming
+     * the type <em>variable</em> — the key would read {@code O,String}, which no other vocabulary can produce:
+     * a {@link MemberId} carries a descriptor and so can only ever say {@code Enum}. Erasure is also the better
+     * key on its own merits, since {@code O} is a letter that means nothing to a slot editor and changes if the
+     * SDK renames it. For every non-generic method the two are identical, generic <em>arguments</em> having
+     * been stripped by {@link #simpleNameOf} already.
      */
     public static String signatureKeyOf(MethodInfo mi) {
         MethodParameterInfo[] params = mi.getParameterInfo();
@@ -93,7 +101,7 @@ public record MethodSignature(String name, List<ResolvedType> paramTypes, List<S
         for (int i = 0; i < params.length; i++) {
             if (i > 0) sb.append(',');
             boolean varargsTail = mi.isVarArgs() && i == params.length - 1;
-            sb.append(simpleNameOf(params[i].getTypeSignatureOrTypeDescriptor().toString(), varargsTail));
+            sb.append(simpleNameOf(params[i].getTypeDescriptor().toString(), varargsTail));
         }
         return sb.toString();
     }
