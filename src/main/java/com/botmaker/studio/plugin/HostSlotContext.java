@@ -6,6 +6,8 @@ import com.botmaker.plugin.api.TypeRef;
 import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.types.ResolvedType;
+import org.eclipse.jdt.core.dom.Expression;
+import org.eclipse.jdt.core.dom.MethodInvocation;
 
 import java.util.List;
 
@@ -73,18 +75,50 @@ public final class HostSlotContext implements SlotContext {
     }
 
     @Override
+    public String enclosingSource() {
+        MethodInvocation call = enclosingCall();
+        return call == null ? null : call.toString();
+    }
+
+    @Override
+    public void replaceEnclosingCall(String javaExpression, String... importsNeeded) {
+        MethodInvocation call = enclosingCall();
+        if (call == null || javaExpression == null || javaExpression.isBlank()) return;
+        rewrite(call, javaExpression, importsNeeded);
+    }
+
+    /**
+     * The call this slot is an argument of, resolved now rather than remembered — the same rule the slot
+     * itself follows, and for the same reason: an editor's popup may outlive the re-parse its own first edit
+     * caused, and a node from the old AST is what {@code ASTRewrite} refuses.
+     *
+     * <p>Only a {@link MethodInvocation}, and only when the slot is genuinely one of its arguments: a slot
+     * that is the <em>receiver</em> of a call ({@code x.foo()}) has that call as its parent too, and
+     * replacing it would delete the call on the strength of editing the thing it was called on.
+     */
+    private MethodInvocation enclosingCall() {
+        return slot.node() != null && slot.node().getParent() instanceof MethodInvocation call
+               && call.arguments().contains(slot.node()) ? call : null;
+    }
+
+    @Override
     public void replaceWith(String javaExpression, String... importsNeeded) {
         if (javaExpression == null || javaExpression.isBlank() || slot.node() == null) return;
+        rewrite(slot.node(), javaExpression, importsNeeded);
+    }
+
+    /** One rewrite, whether the target is the slot or the call around it. */
+    private void rewrite(Expression target, String javaExpression, String... importsNeeded) {
         if (importsNeeded == null || importsNeeded.length == 0) {
-            context.getCodeEditor().replaceWithRawExpression(slot.node(), javaExpression);
+            context.getCodeEditor().replaceWithRawExpression(target, javaExpression);
             return;
         }
         // One import per call is what the editor's API takes; the expression is written fully-qualified by
         // every plugin anyway (the contract says that is always safe), so the imports are a tidiness pass and
         // applying them one at a time costs nothing but a loop.
-        context.getCodeEditor().replaceWithRawExpression(slot.node(), javaExpression, importsNeeded[0]);
+        context.getCodeEditor().replaceWithRawExpression(target, javaExpression, importsNeeded[0]);
         for (int i = 1; i < importsNeeded.length; i++) {
-            context.getCodeEditor().replaceWithRawExpression(slot.node(), javaExpression, importsNeeded[i]);
+            context.getCodeEditor().replaceWithRawExpression(target, javaExpression, importsNeeded[i]);
         }
     }
 

@@ -1,6 +1,5 @@
 package com.botmaker.studio.ui.render.components.pickers;
 
-import com.botmaker.sdk.api.launch.Game;
 import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.types.ResolvedType;
@@ -34,49 +33,11 @@ public record PickerContext(CodeEditorService context, ValueSlot arg, ResolvedTy
                     || paramType.qualifiedName().endsWith("." + simpleName));
     }
 
-    /** True when the enclosing call is on the SDK {@code Game} facade and names {@code method}. */
-    public boolean isGameMethod(String method) {
-        String game = Game.class.getSimpleName();
-        return method.equals(methodName)
-                && className != null && (className.equals(game) || className.endsWith("." + game));
-    }
-
-    /**
-     * The program-path argument (index 0) of a Game launch method: {@code launch(path, args...)},
-     * {@code launchIfNotRunning(path, source, args...)}, or {@code launchAndWait(path, source, timeout, args...)}.
-     */
-    public boolean isGameLaunchProgramArg() {
-        return argIndex == 0
-                && (isGameMethod("launch") || isGameMethod("launchIfNotRunning") || isGameMethod("launchAndWait"));
-    }
-
-    /**
-     * A trailing command-line-argument (varargs) of a Game launch method. The varargs start after the fixed
-     * parameters, which differ per overload: {@code launch(path, …)} → index ≥ 1;
-     * {@code launchIfNotRunning(path, source, …)} → index ≥ 2; {@code launchAndWait(path, source, timeout, …)} → index ≥ 3.
-     */
-    public boolean isGameLaunchOptionArg() {
-        if (isGameMethod("launch")) return argIndex >= 1;
-        if (isGameMethod("launchIfNotRunning")) return argIndex >= 2;
-        if (isGameMethod("launchAndWait")) return argIndex >= 3;
-        return false;
-    }
-
-    /**
-     * The Steam appId argument (index 0) of {@code Game.launchSteam(appId)} or
-     * {@code Game.launchSteamIfNotRunning(appId, source)} — offered the cover-art game picker.
-     */
-    public boolean isGameSteamAppIdArg() {
-        return argIndex == 0 && (isGameMethod("launchSteam") || isGameMethod("launchSteamIfNotRunning"));
-    }
-
-    /**
-     * The Epic app-name argument (index 0) of {@code Game.launchEpic(appName)} or
-     * {@code Game.launchEpicIfNotRunning(appName, source)} — offered the cover-art game picker.
-     */
-    public boolean isGameEpicAppIdArg() {
-        return argIndex == 0 && (isGameMethod("launchEpic") || isGameMethod("launchEpicIfNotRunning"));
-    }
+    // The four Game predicates — the program path, the trailing launch options, and the Steam and Epic launch
+    // ids — went with their editors on 2026-08-28 (plugin platform, phase 12c). They are
+    // com.botmaker.sdk.internal.plugin.editors.CallSites now, written against SlotContext's enclosingClass /
+    // enclosingMethod / argIndex, which is the same three facts this record carries and is what the contract
+    // exposes them for.
 
     /** True when the enclosing call is on the SDK {@code Emulators} facade and names {@code method}. */
     public boolean isEmulatorMethod(String method) {
@@ -99,21 +60,7 @@ public record PickerContext(CodeEditorService context, ValueSlot arg, ResolvedTy
     // isBetween(int, int) / isBetweenUtc(int, int); those overloads were removed in favour of the LocalTime
     // pair, and the hook went with them.
 
-    /** True when the enclosing call is on the SDK {@code BotSettings} facade and names {@code method}. */
-    public boolean isBotSettingsMethod(String method) {
-        return method.equals(methodName)
-                && className != null && (className.equals("BotSettings") || className.endsWith(".BotSettings"));
-    }
-
-    /**
-     * The single (index-0) argument of a bounded {@code BotSettings} setter — a delay/retry count, a 0–1
-     * confidence or margin, or a boolean toggle. Offered the bounded {@code BotSettingsArgPicker} (spinner /
-     * slider / checkbox) instead of a free-typed number so the value stays in the setter's accepted range.
-     */
-    public boolean isBotSettingsArg() {
-        return argIndex == 0 && (isBotSettingsMethod("setFoundDelay") || isBotSettingsMethod("setNotFoundDelay")
-                || isBotSettingsMethod("setMaxRetryAttempts") || isBotSettingsMethod("setDefaultConfidence")
-                || isBotSettingsMethod("setCompareMargin")
-                || isBotSettingsMethod("enableRandomClicks") || isBotSettingsMethod("enableDebugMode"));
-    }
+    // The BotSettings predicate went the same way, and with it the one thing it duplicated: the list of which
+    // setters are bounded now lives beside the ranges it selects (SettingsEditors.bounds), so a setter cannot
+    // be claimed by a predicate that a table has no entry for.
 }

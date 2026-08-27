@@ -11,7 +11,6 @@ import com.botmaker.studio.project.activity.Bounds;
 import com.botmaker.studio.project.activity.ValueWire;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.ScreenCaptureService;
-import com.botmaker.studio.ui.render.components.DurationFields;
 import com.botmaker.studio.ui.render.components.TemplateGallery;
 import com.botmaker.studio.ui.render.components.TemplateGalleryDialog;
 import javafx.application.Platform;
@@ -136,12 +135,12 @@ public final class ValueEditors {
             }
             case "WHOLE_NUMBER" -> number(value, ctx.bounds());
             case "DECIMAL_NUMBER" -> decimal(value, ctx.bounds());
-            case "DURATION" -> {
-                // The shared four-field control (ui.render.components.DurationFields) — the same one the
-                // block editor's wait picker opens, so a duration means the same thing on both sides.
-                DurationFields fields = new DurationFields(WireText.duration(value).toMillis());
-                yield new Editor(fields, () -> WireText.spellDuration(fields.totalMillis()));
-            }
+            // DURATION has no arm here any more, and its absence is the point. The four-field control moved
+            // to the SDK with the block editor's wait picker on 2026-08-28 (plugin platform, phase 12c), so
+            // there is now one duration editor rather than two that had to be kept saying the same thing —
+            // and it reaches this window through fromPlugin below, which is where every plugin's editors
+            // arrive. Deleting the arm is what lets it: a type this switch answers is a type no plugin is
+            // ever offered.
             case "TIME_OF_DAY" -> {
                 TimeRow row = new TimeRow(value);
                 yield new Editor(row, row::wire);

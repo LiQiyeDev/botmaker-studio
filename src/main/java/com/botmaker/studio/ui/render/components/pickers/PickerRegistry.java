@@ -4,16 +4,10 @@ import com.botmaker.sdk.api.capture.CaptureSource;
 import com.botmaker.sdk.api.capture.Window;
 import com.botmaker.sdk.api.launch.LaunchTarget;
 import com.botmaker.sdk.api.vision.Precision;
-import com.botmaker.shared.game.EpicLibraryScanner;
-import com.botmaker.shared.game.SteamLibraryScanner;
-import com.botmaker.studio.ui.render.components.BotSettingsArgPicker;
 import com.botmaker.studio.ui.render.components.CaptureSourcePicker;
 import com.botmaker.studio.ui.render.components.ColorArgPicker;
 import com.botmaker.studio.ui.render.components.EmulatorArgPicker;
-import com.botmaker.studio.ui.render.components.ExecutablePicker;
-import com.botmaker.studio.ui.render.components.GameArgPicker;
 import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
-import com.botmaker.studio.ui.render.components.LaunchOptionPicker;
 import com.botmaker.studio.ui.render.components.LaunchTargetArgPicker;
 import com.botmaker.studio.ui.render.components.PrecisionArgPicker;
 import javafx.scene.Node;
@@ -46,24 +40,18 @@ public final class PickerRegistry {
             // literal — the Steam picker on Activities.APP_ID, the enum dropdown on Activities.DIRECTION.
             VariablePicker.asSpecialType(),
 
-            // Method-specific (the class is a simple name on the SDK Game facade). The launch id of
-            // launchSteam / launchEpic (+ their IfNotRunning variants) gets the cover-art game picker; the
-            // program path of launch / launchIfNotRunning / launchAndWait gets the Browse picker; their
-            // trailing varargs are optional command-line launch options edited as plain text. (The
-            // window-detection CaptureSource args fall through to the type-based CaptureSource picker below.)
-            SpecialTypePicker.of(PickerContext::isGameSteamAppIdArg,
-                    ctx -> GameArgPicker.create(ctx.context(), ctx.arg(), SteamLibraryScanner::new)),
-            SpecialTypePicker.of(PickerContext::isGameEpicAppIdArg,
-                    ctx -> GameArgPicker.create(ctx.context(), ctx.arg(), EpicLibraryScanner::new)),
+            // The emulator instance name of Emulators.use / named / launch / stop. The last call-site-matched
+            // picker Studio still owns, and it is here rather than in the SDK — where every other one went in
+            // phase 12c — for one reason: it opens EmulatorPickerDialog, which reaches Studio's own emulator
+            // probe, app cache and phone-pairing dialog. It moves when those do.
             SpecialTypePicker.of(PickerContext::isEmulatorNameArg,
                     ctx -> EmulatorArgPicker.create(ctx.context(), ctx.arg())),
-            SpecialTypePicker.of(PickerContext::isGameLaunchProgramArg,
-                    ctx -> ExecutablePicker.create(ctx.context(), ctx.arg())),
-            SpecialTypePicker.of(PickerContext::isGameLaunchOptionArg,
-                    ctx -> LaunchOptionPicker.create(ctx.context(), ctx.arg())),
-            // BotSettings setter args get a bounded spinner/slider/checkbox instead of a free-typed number.
-            SpecialTypePicker.of(PickerContext::isBotSettingsArg,
-                    ctx -> BotSettingsArgPicker.create(ctx.context(), ctx.arg(), ctx.methodName())),
+
+            // The Steam/Epic launch id, the program path, the trailing launch options and the bounded
+            // BotSettings setters were all here until 2026-08-28. They are the SDK's now
+            // (com.botmaker.sdk.internal.plugin.editors.LaunchEditors / SettingsEditors), reached through
+            // PluginPickers below like any other plugin's — they were only ever Studio's because Studio was
+            // written first, which is the same reasoning that emptied the contract of the SDK's vocabulary.
 
             // Type-based.
             // LaunchTarget slot → the Steam/Epic/Exe/Emulator target builder (replaces the plain ctor pill).
@@ -76,10 +64,6 @@ public final class PickerRegistry {
             // the editor can hide the knobs that call cannot act on.
             SpecialTypePicker.of(ctx -> ctx.isType(Precision.class),
                     ctx -> PrecisionArgPicker.create(ctx.context(), ctx.arg(), ctx.methodName())),
-            // A wait length, for the same reason: the unit is invisible in a bare number (2 seconds and 2
-            // milliseconds read identically), and the type is what carries the "random range" the humanized
-            // wait needs. Type-based, so every future overload taking one is covered.
-            DurationPicker.asSpecialType(),
             SpecialTypePicker.of(ctx -> ImageTemplatePicker.isImageTemplateType(ctx.paramType()),
                     ctx -> ImageTemplatePicker.create(ctx.context(), ctx.arg())),
             ImageTemplateGroupPicker.asSpecialType(),
