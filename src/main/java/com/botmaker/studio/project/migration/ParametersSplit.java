@@ -9,7 +9,7 @@ import com.botmaker.studio.project.Regeneration;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.project.activity.VariableHolder;
-import com.botmaker.studio.project.activity.VariableWire;
+import com.botmaker.studio.project.activity.ValueWire;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -117,7 +117,7 @@ final class ParametersSplit {
         Map<String, List<String>> fieldOwners = new LinkedHashMap<>();
         for (ActivityVariable v : values) {
             // Same name, same type, no arguments to move: shapeChanged() is false, so nothing is marked.
-            String type = VariableWire.javaType(v.type());
+            String type = ValueWire.javaType(v.type());
             redirects.add(new SdkMigrationRunner.Redirect(
                     VariableHolder.ACTIVITIES.className(), v.name(), SdkReferences.FIELD_READ,
                     parameters, v.name(), List.of(), type, type, true));

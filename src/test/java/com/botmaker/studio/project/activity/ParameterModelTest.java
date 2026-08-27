@@ -1,5 +1,7 @@
 package com.botmaker.studio.project.activity;
 
+import com.botmaker.plugin.api.value.ValueChoice;
+import com.botmaker.plugin.api.value.ValueShape;
 import com.botmaker.studio.palette.BotType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -21,7 +23,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ParameterModelTest {
 
     private static ActivityVariable variable(String name, BotType type) {
-        return ActivityVariable.create(name, BotType.Choice.of(type));
+        return ActivityVariable.create(name, oneOf(type));
+    }
+
+    /** One free value, in the contract's vocabulary — the enum still names the type the test is about. */
+    private static ValueChoice oneOf(BotType type) {
+        return BotType.Choice.of(type).toValue();
     }
 
     /**
@@ -55,9 +62,9 @@ class ParameterModelTest {
     void retypingResetsTheValueEvenWhenItHadBeenEdited() {
         ActivityVariable edited = variable("gap", BotType.TEXT).withValue("hello");
 
-        ActivityVariable retyped = edited.withType(BotType.Choice.of(BotType.COLOR));
+        ActivityVariable retyped = edited.withType(oneOf(BotType.COLOR));
 
-        assertEquals(BotType.COLOR, retyped.type().type());
+        assertEquals(BotType.COLOR.name(), retyped.type().type().id());
         assertEquals(List.of("#FFFFFF"), retyped.value());
     }
 
@@ -91,7 +98,7 @@ class ParameterModelTest {
 
     @Test
     void everythingASavedVariableCarriesSurvivesTheRoundTrip(@TempDir Path dir) throws Exception {
-        ActivityVariable mode = ActivityVariable.create("mode", new BotType.Choice(BotType.TEXT, BotType.Shape.ONE_OF))
+        ActivityVariable mode = ActivityVariable.create("mode", chosenFrom(BotType.TEXT))
                 .withDescription("how careful to be")
                 .withOptions(List.of("fast", "safe"))
                 .withValue("safe")
@@ -105,7 +112,7 @@ class ParameterModelTest {
         assertEquals("safe", read.singleValue());
         assertEquals("Mining", read.tag());
         assertEquals("how careful to be", read.description());
-        assertEquals(new BotType.Choice(BotType.TEXT, BotType.Shape.ONE_OF), read.type());
+        assertEquals(chosenFrom(BotType.TEXT), read.type());
     }
 
     /** A value is a list of strings on the wire, whatever the type — one entry, or one per item. */
@@ -134,7 +141,7 @@ class ParameterModelTest {
 
         ActivityVariable read = ActivitiesConfig.read(dir).variables().getFirst();
 
-        assertEquals(BotType.Choice.of(BotType.TEXT), read.type(), "text holds anything, so it is the default");
+        assertEquals(oneOf(BotType.TEXT), read.type(), "text holds anything, so it is the default");
         assertEquals(List.of(""), read.value());
         assertEquals("", read.tag());
         assertEquals(List.of(), read.options());
@@ -144,7 +151,7 @@ class ParameterModelTest {
     void deletingAChoiceUnsetsItWhereverItWasChosen() {
         // Otherwise the bot goes on running with a value that no longer appears anywhere in the UI that set
         // it — invisible, and therefore undebuggable.
-        ActivityVariable single = ActivityVariable.create("mode", new BotType.Choice(BotType.TEXT, BotType.Shape.ONE_OF))
+        ActivityVariable single = ActivityVariable.create("mode", chosenFrom(BotType.TEXT))
                 .withOptions(List.of("fast", "safe", "reckless")).withValue("reckless");
 
         assertEquals("fast", single.withOptions(List.of("fast", "safe")).singleValue(),
@@ -170,16 +177,21 @@ class ParameterModelTest {
      * "Many of…" — several out of a set the author wrote down. {@link BotType.Choice#listOf} is the
      * <em>other</em> list shape, the open one a signature carries, and it declares no set at all.
      */
-    private static BotType.Choice manyOf(BotType type) {
-        return new BotType.Choice(type, BotType.Shape.ANY_OF);
+    private static ValueChoice manyOf(BotType type) {
+        return new BotType.Choice(type, BotType.Shape.ANY_OF).toValue();
+    }
+
+    /** One value out of a written-down set. */
+    private static ValueChoice chosenFrom(BotType type) {
+        return new BotType.Choice(type, BotType.Shape.ONE_OF).toValue();
     }
 
     @Test
     void retypingResetsTheValueAndDropsOptionsThatNoLongerApply() {
-        ActivityVariable mode = ActivityVariable.create("mode", new BotType.Choice(BotType.TEXT, BotType.Shape.ONE_OF))
+        ActivityVariable mode = ActivityVariable.create("mode", chosenFrom(BotType.TEXT))
                 .withDescription("how careful").withOptions(List.of("fast", "safe")).withValue("safe");
 
-        ActivityVariable asNumber = mode.withType(BotType.Choice.of(BotType.WHOLE_NUMBER));
+        ActivityVariable asNumber = mode.withType(oneOf(BotType.WHOLE_NUMBER));
         assertEquals("0", asNumber.singleValue(), "a choice is not a number; don't pretend it carries over");
         assertEquals(List.of(), asNumber.options());
         assertEquals(ParamVisibility.PUBLIC, asNumber.visibility(), "who it is for doesn't change with the type");
@@ -188,7 +200,7 @@ class ParameterModelTest {
         assertEquals(List.of("fast", "safe"),
                 mode.withType(manyOf(BotType.TEXT)).options(),
                 "the choices survive a move from one of them to several of them");
-        assertEquals(List.of(), mode.withType(BotType.Choice.listOf(BotType.TEXT)).options(),
+        assertEquals(List.of(), mode.withType(BotType.Choice.listOf(BotType.TEXT).toValue()).options(),
                 "an open list declares no set, so there is nothing for the choices to survive into");
     }
 
@@ -197,7 +209,7 @@ class ParameterModelTest {
     void anEnumTypeBringsItsOwnChoicesAndSnapsToOne() {
         ActivityVariable key = variable("hotkey", BotType.KEY);
 
-        assertFalse(VariableWire.hasOptions(BotType.Choice.of(BotType.KEY)),
+        assertFalse(ValueWire.hasOptions(oneOf(BotType.KEY)),
                 "one value of an enum type: there is nothing for the editor to write down");
         assertFalse(VariableWire.fixedOptions(BotType.KEY).isEmpty());
         assertTrue(VariableWire.fixedOptions(BotType.KEY).contains(key.singleValue()));
@@ -221,11 +233,11 @@ class ParameterModelTest {
         for (BotType type : BotType.storableTypes()) {
             assertEquals(!type.isClosedSet(), type.shapeable(),
                     type + " offers One of… iff it is not already a set of its own");
-            assertFalse(VariableWire.hasOptions(BotType.Choice.of(type)), type + " as one free value");
-            assertFalse(VariableWire.hasOptions(BotType.Choice.listOf(type)), type + " as an open list");
-            assertTrue(VariableWire.hasOptions(manyOf(type)), type + " many of");
+            assertFalse(ValueWire.hasOptions(oneOf(type)), type + " as one free value");
+            assertFalse(ValueWire.hasOptions(BotType.Choice.listOf(type).toValue()), type + " as an open list");
+            assertTrue(ValueWire.hasOptions(manyOf(type)), type + " many of");
             if (!type.shapeable()) continue;
-            assertTrue(VariableWire.hasOptions(new BotType.Choice(type, BotType.Shape.ONE_OF)), type + " one of");
+            assertTrue(ValueWire.hasOptions(chosenFrom(type)), type + " one of");
         }
     }
 
@@ -268,7 +280,7 @@ class ParameterModelTest {
 
         List<ActivityVariable> read = ActivitiesConfig.read(dir).variables();
 
-        assertEquals(new BotType.Choice(BotType.TEXT, BotType.Shape.ONE_OF), read.get(0).type());
+        assertEquals(chosenFrom(BotType.TEXT), read.get(0).type());
         assertEquals(List.of("fast", "safe"), read.get(0).options());
         assertEquals("safe", read.get(0).singleValue());
 
@@ -278,9 +290,9 @@ class ParameterModelTest {
         assertEquals(manyOf(BotType.TEXT), read.get(1).type());
         assertEquals(List.of("mine"), read.get(1).value());
 
-        assertEquals(BotType.Choice.of(BotType.WHOLE_NUMBER), read.get(2).type());
-        assertEquals(BotType.Choice.listOf(BotType.POINT), read.get(3).type());
-        assertEquals(BotType.Shape.OPEN_LIST, read.get(3).type().shape());
+        assertEquals(oneOf(BotType.WHOLE_NUMBER), read.get(2).type());
+        assertEquals(BotType.Choice.listOf(BotType.POINT).toValue(), read.get(3).type());
+        assertEquals(ValueShape.OPEN_LIST, read.get(3).type().shape());
     }
 
     /**
@@ -303,10 +315,10 @@ class ParameterModelTest {
 
         List<ActivityVariable> read = ActivitiesConfig.read(dir).variables();
 
-        assertEquals(BotType.Shape.ANY_OF, read.get(0).type().shape(), "a set was written down: tick boxes");
-        assertEquals(BotType.Shape.OPEN_LIST, read.get(1).type().shape(),
+        assertEquals(ValueShape.ANY_OF, read.get(0).type().shape(), "a set was written down: tick boxes");
+        assertEquals(ValueShape.OPEN_LIST, read.get(1).type().shape(),
                 "none was, so it was a free list and stays one");
-        assertEquals(BotType.Shape.ANY_OF, read.get(2).type().shape(),
+        assertEquals(ValueShape.ANY_OF, read.get(2).type().shape(),
                 "a closed set brings its own choices; nobody was ever going to write them down");
         assertEquals(List.of("first", "second"), read.get(1).value(),
                 "and the values it already held are not pruned against a set it does not have");
@@ -316,7 +328,8 @@ class ParameterModelTest {
     @Test
     void bothListShapesSpellTheSameSource() {
         for (BotType type : BotType.storableTypes()) {
-            assertEquals(BotType.Choice.listOf(type).sourceName(), manyOf(type).sourceName(), type.toString());
+            assertEquals(BotType.Choice.listOf(type).toValue().sourceName(), manyOf(type).sourceName(),
+                    type.toString());
         }
     }
 
@@ -421,10 +434,13 @@ class ParameterModelTest {
      */
     @Test
     void aPrecisionIsThreeNumbersAndNotAConstant() {
-        assertEquals(List.of(), VariableWire.effectiveOptions(BotType.PRECISION, List.of()));
+        assertEquals(List.of(), ValueWire.effectiveOptions(oneOf(BotType.PRECISION).type(), List.of()));
 
         ActivityVariable precision = variable("precision", BotType.PRECISION);
-        assertEquals(List.of("12.0,4,0"), precision.value(), "the default is a usable tolerance, not blank");
+        // The floor moved with the codec: the SDK's own WireText.precision clamps minArea to 1, where
+        // Studio's copy clamped it to 4. The plugin that owns the type owns the number, which is the whole
+        // point of the vocabulary moving — but it is a visible default change, not a rounding difference.
+        assertEquals(List.of("12.0,1,0"), precision.value(), "the default is a usable tolerance, not blank");
         assertEquals(List.of("5.0,16,2"), precision.withValue("5,16,2").value());
         assertEquals(List.of("0.0,1,0"), precision.withValue("-3,0,-9").value(), "each number has its own floor");
     }
@@ -434,7 +450,7 @@ class ParameterModelTest {
     void retypingForgetsTheRange() {
         ActivityVariable retries = variable("retries", BotType.WHOLE_NUMBER).withBounds(new Bounds("1", "5"));
 
-        assertEquals(Bounds.NONE, retries.withType(BotType.Choice.of(BotType.DATE)).bounds());
+        assertEquals(Bounds.NONE, retries.withType(oneOf(BotType.DATE)).bounds());
     }
 
     /** An archived activity contributes no enable flag: a switch for something that cannot run. */

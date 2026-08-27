@@ -47,7 +47,7 @@ class ParamShapeWidgetTest extends FxHeadlessTest {
     @Test
     void anyOfAClosedSetTicksTheTypesOwnValuesWithNothingDeclared() {
         ActivityVariable directions = ActivityVariable.create("ways",
-                new BotType.Choice(BotType.DIRECTION, BotType.Shape.ANY_OF));
+                new BotType.Choice(BotType.DIRECTION, BotType.Shape.ANY_OF).toValue());
         assertTrue(directions.options().isEmpty(), "nobody declares the directions; the SDK has them");
 
         List<Node> rows = childrenOf(widgetFor(directions));
@@ -68,7 +68,7 @@ class ParamShapeWidgetTest extends FxHeadlessTest {
                 .fixedOptions(BotType.DIRECTION);
         assertFalse(known.isEmpty(), "the SDK enum is what the pad is built from");
 
-        Node pad = widgetFor(ActivityVariable.create("way", BotType.Choice.of(BotType.DIRECTION)));
+        Node pad = widgetFor(ActivityVariable.create("way", BotType.Choice.of(BotType.DIRECTION).toValue()));
         List<Node> parts = childrenOf(pad);
 
         assertEquals(1, parts.size(),
@@ -88,14 +88,14 @@ class ParamShapeWidgetTest extends FxHeadlessTest {
         List<String> skills = List.of("mine", "fish", "cook");
 
         ActivityVariable many = ActivityVariable.create("many",
-                new BotType.Choice(BotType.TEXT, BotType.Shape.ANY_OF)).withOptions(skills);
+                new BotType.Choice(BotType.TEXT, BotType.Shape.ANY_OF).toValue()).withOptions(skills);
         List<Node> ticks = childrenOf(widgetFor(many));
         assertEquals(skills.size(), ticks.size());
         for (Node row : ticks) assertInstanceOf(CheckBox.class, row);
 
         // A textarea and not a Pane, so it has no children to count: text is written one per line.
         ActivityVariable open = ActivityVariable.create("open",
-                BotType.Choice.listOf(BotType.TEXT)).withOptions(skills);
+                BotType.Choice.listOf(BotType.TEXT).toValue()).withOptions(skills);
         assertInstanceOf(TextArea.class, widgetFor(open),
                 "an open list is the user's to fill in, whatever the author wrote down");
         assertTrue(open.options().isEmpty(), "and the choices are not even stored on it");
@@ -104,7 +104,7 @@ class ParamShapeWidgetTest extends FxHeadlessTest {
     /** Every other type's open list is a growable column of that type's own editor, empty to begin with. */
     @Test
     void anOpenListOfSomethingOtherThanTextIsRowsOfItsOwnEditor() {
-        ActivityVariable spots = ActivityVariable.create("spots", BotType.Choice.listOf(BotType.POINT));
+        ActivityVariable spots = ActivityVariable.create("spots", BotType.Choice.listOf(BotType.POINT).toValue());
 
         List<Node> parts = childrenOf(widgetFor(spots));
 
@@ -116,7 +116,7 @@ class ParamShapeWidgetTest extends FxHeadlessTest {
     @Test
     void oneOfShowsItsRadioButtonsBeforeAnyChoiceIsDeclared() {
         ActivityVariable size = ActivityVariable.create("size",
-                new BotType.Choice(BotType.WHOLE_NUMBER, BotType.Shape.ONE_OF));
+                new BotType.Choice(BotType.WHOLE_NUMBER, BotType.Shape.ONE_OF).toValue());
 
         // With nothing declared it says so, rather than quietly rendering the free-value spinner.
         assertEquals(1, childrenOf(widgetFor(size)).size());
@@ -137,7 +137,7 @@ class ParamShapeWidgetTest extends FxHeadlessTest {
     @Test
     void whatIsReadBackIsTheStoredValueAndNotTheLabel() {
         ActivityVariable picked = ActivityVariable.create("mode",
-                        new BotType.Choice(BotType.TEXT, BotType.Shape.ONE_OF))
+                        new BotType.Choice(BotType.TEXT, BotType.Shape.ONE_OF).toValue())
                 .withOptions(List.of("fast", "slow"))
                 .withValue("slow");
 

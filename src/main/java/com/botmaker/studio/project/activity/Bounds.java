@@ -5,7 +5,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 /**
  * The declared range of a number variable — <b>both ends optional and independent</b>, both stored as text so
- * a {@link com.botmaker.studio.palette.BotType#DURATION} bound can be written the way a duration is
+ * a {@code DURATION} bound can be written the way a duration is
  * ({@code "30s"}) rather than as the millisecond count nobody means.
  *
  * <p>Independent is the point: "at most 10" is a sentence a person says, and it used to be unsayable here

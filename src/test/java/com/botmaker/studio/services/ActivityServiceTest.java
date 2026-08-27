@@ -27,7 +27,7 @@ import static org.junit.jupiter.api.Assertions.*;
 public class ActivityServiceTest {
 
     private static ActivityVariable variable(String name, BotType type) {
-        return ActivityVariable.create(name, BotType.Choice.of(type));
+        return ActivityVariable.create(name, BotType.Choice.of(type).toValue());
     }
 
     @Test
@@ -62,7 +62,7 @@ public class ActivityServiceTest {
         assertEquals(2, read.variables().size());
         ActivityVariable first = read.variables().get(0);
         assertEquals("maxRetries", first.name());
-        assertEquals(BotType.Choice.of(BotType.WHOLE_NUMBER), first.type());
+        assertEquals(BotType.Choice.of(BotType.WHOLE_NUMBER).toValue(), first.type());
         assertEquals("0", first.singleValue());
         assertEquals("00:00", read.variables().get(1).singleValue());
     }

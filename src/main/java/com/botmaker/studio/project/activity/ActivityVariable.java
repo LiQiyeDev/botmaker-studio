@@ -1,8 +1,11 @@
 package com.botmaker.studio.project.activity;
 
-import com.botmaker.studio.palette.BotType;
+import com.botmaker.plugin.api.value.ValueChoice;
+import com.botmaker.plugin.api.value.ValueShape;
+import com.botmaker.studio.plugin.PluginHost;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 
 import java.util.List;
 
@@ -15,35 +18,39 @@ import java.util.List;
  * Mining variables" is a <em>view</em> and never a scope. A variable tagged after an activity is readable
  * from anywhere, and renaming the activity renames the tag in the gallery and here at once.
  *
- * <p><b>The value is text.</b> {@link #value()} is the wire form described by {@link VariableWire}: a list of
+ * <p><b>The value is text.</b> {@link #value()} is the wire form described by {@link ValueWire}: a list of
  * strings, one entry for an ordinary variable and one per item for a {@code List of …} one. One shape on disk
  * means one reader, one writer and one normaliser — see that class for why that is worth the {@code ["90s"]}
  * a duration reads as in the file.
  *
- * <p>{@link #type()} is a {@link BotType.Choice} — the same curated vocabulary the Add Function dialog offers
- * for a parameter or a return type, restricted to what {@link BotType#storable()} allows, crossed with a
- * {@link BotType.Shape}. There is one list of types in this editor, so a variable can hold anything a method
- * can take; the shape says whether it holds one of them, one out of a set the author wrote down, or several.
+ * <p>{@link #type()} is a {@link ValueChoice} — a type out of <b>the plugin contract's open vocabulary</b>,
+ * crossed with a {@link ValueShape}. It was Studio's own closed enum until 2026-08-27, and the difference is
+ * the whole point of the platform: the seventeen types a variable can hold are registered by the SDK the same
+ * way any other plugin would register a type of its own, and a type nothing registers still opens, still
+ * shows its stored text and simply cannot be edited. The shape says whether the variable holds one value, one
+ * out of a set the author wrote down, or several.
  *
  * @param name        the generated field name on {@code Activities}; a valid Java identifier
- * @param type        what kind of value this is, and in what {@link BotType.Shape shape} — one value, one of
+ * @param type        what kind of value this is, and in what {@link ValueShape shape} — one value, one of
  *                    a declared set, or any number of them
  * @param value       the wire form of the current value
  * @param description an optional human-readable note explaining what it is for (may be empty)
  * @param tag         the group it is filed under, or blank for {@link #GENERAL}
  * @param visibility  whether the bot's user is offered this at all; absent ⇒ {@link ParamVisibility#PUBLIC}
- * @param options     the declared set of values, for a shape that {@link BotType.Choice#hasOptions has one}
+ * @param options     the declared set of values, for a shape that {@link ValueChoice#hasOptions has one}
  * @param bounds      the declared range, for a bounded number
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record ActivityVariable(String name, BotType.Choice type, List<String> value, String description,
+public record ActivityVariable(String name,
+                               @JsonSerialize(converter = ChoiceWire.ToWire.class) ValueChoice type,
+                               List<String> value, String description,
                                String tag, ParamVisibility visibility, List<String> options, Bounds bounds) {
 
     /** The heading a variable with no tag is listed under. Not a real tag: nothing declares it. */
     public static final String GENERAL = "General";
 
     public ActivityVariable {
-        if (type == null) type = BotType.Choice.of(BotType.TEXT);
+        if (type == null) type = ValueChoice.of(PluginHost.valueTypes().text());
         if (description == null) description = "";
         if (tag == null) tag = "";
         // A variable exists to be configured, so it is offered to whoever runs the bot unless the editor says
@@ -53,12 +60,12 @@ public record ActivityVariable(String name, BotType.Choice type, List<String> va
         if (bounds == null) bounds = Bounds.NONE;
         // The declared set is normalised before the value is measured against it, so the choice a radio button
         // is labelled with and the choice the value holds are the same string.
-        options = VariableWire.normalizeOptions(options, type, bounds);
-        value = VariableWire.normalize(value, type, options, bounds);
+        options = ValueWire.normalizeOptions(options, type, bounds);
+        value = ValueWire.normalize(value, type, options, bounds);
     }
 
     /**
-     * Reads the persisted form, settling the one question {@link BotType.Choice#fromJson} cannot.
+     * Reads the persisted form, settling the one question {@link ValueChoice#fromWire} cannot.
      *
      * <p>{@code ANY_OF} used to mean two things — tick boxes over the author's choices, or a free list the
      * user filled in — and which one it was showed only in whether any choices were written down. Now that
@@ -67,40 +74,40 @@ public record ActivityVariable(String name, BotType.Choice type, List<String> va
      *
      * <p>So: a stored {@code ANY_OF} keeps its shape when there is a set behind it — the author's choices, or
      * the type's own constants for a closed set like {@code Direction} — and becomes {@link
-     * BotType.Shape#OPEN_LIST} when there is not. A newly created "Many of…" with nothing declared yet is
+     * ValueShape#OPEN_LIST} when there is not. A newly created "Many of…" with nothing declared yet is
      * indistinguishable from that on disk and reads back as an open list, which is the shape it was drawn as
      * anyway; declaring a choice on it is what makes the distinction real.
      */
     @com.fasterxml.jackson.annotation.JsonCreator
     static ActivityVariable fromJson(
             @com.fasterxml.jackson.annotation.JsonProperty("name") String name,
-            @com.fasterxml.jackson.annotation.JsonProperty("type") BotType.Choice type,
+            @com.fasterxml.jackson.annotation.JsonProperty("type") ChoiceWire.Wire type,
             @com.fasterxml.jackson.annotation.JsonProperty("value") List<String> value,
             @com.fasterxml.jackson.annotation.JsonProperty("description") String description,
             @com.fasterxml.jackson.annotation.JsonProperty("tag") String tag,
             @com.fasterxml.jackson.annotation.JsonProperty("visibility") ParamVisibility visibility,
             @com.fasterxml.jackson.annotation.JsonProperty("options") List<String> options,
             @com.fasterxml.jackson.annotation.JsonProperty("bounds") Bounds bounds) {
-        return new ActivityVariable(name, listShapeOf(type, options), value, description, tag, visibility,
-                options, bounds);
+        return new ActivityVariable(name, listShapeOf(ChoiceWire.toChoice(type), options), value, description,
+                tag, visibility, options, bounds);
     }
 
     /** {@link #fromJson}'s rule, alone so it can be read — and tested — without a file. */
-    static BotType.Choice listShapeOf(BotType.Choice type, List<String> options) {
-        if (type == null || type.shape() != BotType.Shape.ANY_OF) return type;
+    static ValueChoice listShapeOf(ValueChoice type, List<String> options) {
+        if (type == null || type.shape() != ValueShape.ANY_OF) return type;
         boolean hasSet = (options != null && !options.isEmpty())
-                || !VariableWire.fixedOptions(type.type()).isEmpty();
-        return hasSet ? type : new BotType.Choice(type.type(), BotType.Shape.OPEN_LIST);
+                || !ValueWire.fixedOptions(type.type()).isEmpty();
+        return hasSet ? type : new ValueChoice(type.type(), ValueShape.OPEN_LIST);
     }
 
     /** A fresh variable of {@code type}, with that type's default value. */
-    public static ActivityVariable create(String name, BotType.Choice type) {
+    public static ActivityVariable create(String name, ValueChoice type) {
         return create(name, type, "");
     }
 
     /** A fresh variable of {@code type} with a description. */
-    public static ActivityVariable create(String name, BotType.Choice type, String description) {
-        return new ActivityVariable(name, type, VariableWire.defaultWire(type), description, "",
+    public static ActivityVariable create(String name, ValueChoice type, String description) {
+        return new ActivityVariable(name, type, ValueWire.defaultWire(type), description, "",
                 ParamVisibility.PUBLIC, List.of(), Bounds.NONE);
     }
 
@@ -165,13 +172,16 @@ public record ActivityVariable(String name, BotType.Choice type, List<String> va
      * otherwise stores something the editor would have to explain away on the next open. The old value going
      * is also what makes the value <em>widget</em> safe to rebuild wholesale, which is what the dialog does.
      */
-    public ActivityVariable withType(BotType.Choice newType) {
+    public ActivityVariable withType(ValueChoice newType) {
         // Options survive a change of shape (one of ↔ any of, over the same values), because that is a
         // question about how many may be picked and not about what may be picked. They do not survive a
         // change of the base type, whose values they no longer are.
+        //
+        // Compared by id, never by identity: a ValueType's identity *is* its persisted id, and two plugin
+        // classloaders each holding their own copy of a class would make `==` mean nothing.
         List<String> keptOptions =
-                newType.hasOptions() && newType.type() == type.type() ? options : List.of();
-        return new ActivityVariable(name, newType, VariableWire.defaultWire(newType), description, tag,
+                newType.hasOptions() && newType.type().equals(type.type()) ? options : List.of();
+        return new ActivityVariable(name, newType, ValueWire.defaultWire(newType), description, tag,
                 visibility, keptOptions, Bounds.NONE);
     }
 

@@ -1,10 +1,10 @@
 package com.botmaker.studio.ui.app.params;
 
+import com.botmaker.plugin.api.value.ValueType;
 import com.botmaker.sdk.authoring.WireText;
-import com.botmaker.studio.palette.BotType;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.activity.Bounds;
-import com.botmaker.studio.project.activity.VariableWire;
+import com.botmaker.studio.project.activity.ValueWire;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.ui.render.components.DurationFields;
@@ -55,7 +55,7 @@ import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
 /**
- * One editor per {@link BotType}, built from a wire value and read back as a wire value.
+ * One editor per {@link ValueType}, built from a wire value and read back as a wire value.
  *
  * <p><b>Why this exists separately from the block editor's pickers.</b> {@code ui.render.components} has a
  * picker for most of these types already, but every one of them is built around an {@code ExpressionBlock}:
@@ -65,13 +65,19 @@ import java.util.regex.Pattern;
  * with nothing in it for a precision, a duration that could not say "4h30m".
  *
  * <p>This class is that second set replaced by a real one, stated at the level all three callers share: a
- * {@link BotType} plus the text it currently holds, in, and a {@link Node} plus a reader out. Where an editor
- * needs the screen or the project it takes them from {@link Context}, never from a service locator.
+ * {@link ValueType} plus the text it currently holds, in, and a {@link Node} plus a reader out. Where an
+ * editor needs the screen or the project it takes them from {@link Context}, never from a service locator.
  *
  * <p><b>Reading is total and never validates.</b> A half-typed duration, a number past its bound, a template
  * that has since been deleted: every one of them is handed back as typed and pulled into range downstream by
- * {@link VariableWire}. Nothing here can refuse a value, so nothing here can leave a dialog unable to close
+ * {@link ValueWire}. Nothing here can refuse a value, so nothing here can leave a dialog unable to close
  * because of a limit somebody tightened afterwards.
+ *
+ * <p><b>Dispatch is on the type's {@linkplain ValueType#id() id}, and every arm has a fallback.</b> The
+ * vocabulary is an open registry now (plugin-platform phase 10a), so there is no enum left to switch
+ * exhaustively over and a type nothing here recognises — including one no plugin registered at all — gets
+ * the plain text field rather than nothing. Phase 11 is where a plugin supplies its own editor instead; until
+ * then these ids are the SDK's, read the same way {@code activities.json} reads them.
  */
 public final class ValueEditors {
 
@@ -111,72 +117,81 @@ public final class ValueEditors {
      * row wholesale: the caller throws the old editor away rather than trying to reinterpret what was in it,
      * which is how a date once came back holding text typed for a number.
      */
-    public static Editor editorFor(BotType type, String wire, Context ctx) {
+    public static Editor editorFor(ValueType type, String wire, Context ctx) {
         String value = wire == null ? "" : wire;
-        return switch (type) {
-            case YES_NO -> {
+        return switch (type == null ? "" : type.id()) {
+            case "YES_NO" -> {
                 CheckBox box = new CheckBox();
                 box.setSelected(Boolean.parseBoolean(value));
                 yield new Editor(box, () -> Boolean.toString(box.isSelected()));
             }
-            case WHOLE_NUMBER -> number(value, ctx.bounds());
-            case DECIMAL_NUMBER -> decimal(value, ctx.bounds());
-            case DURATION -> {
+            case "WHOLE_NUMBER" -> number(value, ctx.bounds());
+            case "DECIMAL_NUMBER" -> decimal(value, ctx.bounds());
+            case "DURATION" -> {
                 // The shared four-field control (ui.render.components.DurationFields) — the same one the
                 // block editor's wait picker opens, so a duration means the same thing on both sides.
                 DurationFields fields = new DurationFields(WireText.duration(value).toMillis());
                 yield new Editor(fields, () -> WireText.spellDuration(fields.totalMillis()));
             }
-            case TIME_OF_DAY -> {
+            case "TIME_OF_DAY" -> {
                 TimeRow row = new TimeRow(value);
                 yield new Editor(row, row::wire);
             }
-            case DATE -> {
+            case "DATE" -> {
                 DatePicker picker = new DatePicker(parseDate(value));
                 yield new Editor(picker, () -> picker.getValue() == null ? "" : picker.getValue().toString());
             }
-            case PRECISION -> {
+            case "PRECISION" -> {
                 PrecisionRow row = new PrecisionRow(value);
                 yield new Editor(row, row::wire);
             }
-            case COLOR -> {
+            case "COLOR" -> {
                 ColorRow row = new ColorRow(value, ctx.project());
                 yield new Editor(row, row::wire);
             }
-            case DIRECTION -> {
+            case "DIRECTION" -> {
                 DirectionPad pad = new DirectionPad(value);
                 yield new Editor(pad, pad::wire);
             }
-            case MOUSE_BUTTON -> {
+            case "MOUSE_BUTTON" -> {
                 MouseDiagram diagram = new MouseDiagram(value);
                 yield new Editor(diagram, diagram::wire);
             }
-            case KEY -> keySearch(VariableWire.effectiveOptions(BotType.KEY, List.of()), value);
-            case IMAGE_TEMPLATE -> {
+            case "KEY" -> keySearch(ValueWire.fixedOptions(type), value);
+            case "IMAGE_TEMPLATE" -> {
                 TemplateChip chip = new TemplateChip(value, ctx.project());
                 yield new Editor(chip, chip::wire);
             }
-            case POINT -> {
+            case "POINT" -> {
                 GeometryRow row = new GeometryRow(value, GeometryRow.Kind.POINT, ctx.project());
                 yield new Editor(row, row::wire);
             }
-            case SIZE -> {
+            case "SIZE" -> {
                 GeometryRow row = new GeometryRow(value, GeometryRow.Kind.SIZE, ctx.project());
                 yield new Editor(row, row::wire);
             }
-            case RECT -> {
+            case "RECT" -> {
                 GeometryRow row = new GeometryRow(value, GeometryRow.Kind.RECT, ctx.project());
                 yield new Editor(row, row::wire);
             }
-            case CHARACTER -> {
+            case "CHARACTER" -> {
                 // One character is the whole value, so the field is one character wide rather than letting
                 // somebody type a word that would silently become its first letter.
                 TextField field = new TextField(value);
                 field.setPrefColumnCount(2);
                 yield new Editor(field, () -> text(field));
             }
-            default -> { // TEXT, and any type with no editor of its own
+            default -> {
+                // TEXT, any registered type with no editor of its own, and — read-only — a type nothing
+                // registered. The last is why the field can be disabled at all: the host cannot offer a
+                // meaningful editor for a value it cannot read, and letting somebody type into it would
+                // destroy the stored text of a variable whose plugin is merely absent today.
                 TextField field = new TextField(value);
+                if (type != null && !type.known()) {
+                    field.setEditable(false);
+                    field.setTooltip(new Tooltip("No plugin installed knows the type \"" + type.id()
+                                                 + "\". The stored value is kept as it is."));
+                }
                 yield new Editor(field, () -> text(field));
             }
         };
@@ -194,17 +209,17 @@ public final class ValueEditors {
      * {@code ParametersDialog.buildOptionsEditor}) and then listing what they picked as raw text would put the
      * decoding back on the person the choices exist for.
      */
-    static Node optionGraphic(BotType type, String wire, Context ctx) {
+    static Node optionGraphic(ValueType type, String wire, Context ctx) {
         String value = wire == null ? "" : wire.trim();
         if (value.isEmpty()) return null;
-        return switch (type) {
-            case IMAGE_TEMPLATE -> {
+        return switch (type == null ? "" : type.id()) {
+            case "IMAGE_TEMPLATE" -> {
                 Path file = templateFile(ctx.project(), value);
                 // A name that no longer resolves keeps the plain label: "this template was deleted" is the
                 // honest reading, and it is the same one TemplateChip gives.
                 yield file == null ? null : TemplateGallery.plainTile(file, 48);
             }
-            case COLOR -> {
+            case "COLOR" -> {
                 Region swatch = new Region();
                 swatch.setPrefSize(14, 14);
                 swatch.setMinSize(14, 14);
@@ -212,12 +227,12 @@ public final class ValueEditors {
                 swatch.getStyleClass().add("option-color-swatch");
                 yield swatch;
             }
-            case DURATION -> {
+            case "DURATION" -> {
                 Label spelled = new Label(WireText.spellDuration(WireText.duration(value).toMillis()));
                 spelled.getStyleClass().add("dialog-hint-text");
                 yield spelled;
             }
-            case DIRECTION -> {
+            case "DIRECTION" -> {
                 String arrow = DirectionPad.CELLS.stream()
                         .filter(cell -> cell.name().equals(value))
                         .map(DirectionPad.Cell::arrow)
@@ -616,7 +631,7 @@ public final class ValueEditors {
         DirectionPad(String current) {
             super(4);
             getStyleClass().add("direction-pad");
-            List<String> known = VariableWire.effectiveOptions(BotType.DIRECTION, List.of());
+            List<String> known = ValueWire.fixedOptions(ValueWire.type("DIRECTION"));
 
             GridPane pad = new GridPane();
             pad.setHgap(2);
@@ -681,7 +696,7 @@ public final class ValueEditors {
         MouseDiagram(String current) {
             super(4);
             getStyleClass().add("mouse-diagram");
-            List<String> known = VariableWire.effectiveOptions(BotType.MOUSE_BUTTON, List.of());
+            List<String> known = ValueWire.fixedOptions(ValueWire.type("MOUSE_BUTTON"));
             HBox top = new HBox(2);
             HBox side = new HBox(2);
             for (String[] entry : TOP) {

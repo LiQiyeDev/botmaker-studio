@@ -4,6 +4,7 @@ import com.botmaker.plugin.api.StudioPlugin;
 import com.botmaker.plugin.api.catalog.FacadeEntry;
 import com.botmaker.plugin.api.catalog.FacadeRole;
 import com.botmaker.plugin.api.catalog.PaletteCatalog;
+import com.botmaker.plugin.api.value.ValueCatalog;
 import com.botmaker.sdk.plugin.SdkPlugin;
 
 import java.util.List;
@@ -56,8 +57,48 @@ public final class PluginHost {
      */
     private static final String BUNDLED_PIN = "";
 
+    /**
+     * Built once, on the same reasoning as the palette caches: the merge walks every plugin and the variable
+     * editors ask on every keystroke.
+     */
+    private static final ValueCatalog VALUE_TYPES = mergeValueTypes();
+
     public static List<StudioPlugin> plugins() {
         return PLUGINS;
+    }
+
+    /**
+     * Every value type every loaded plugin registers, merged by id.
+     *
+     * <p><b>This does not vary by pin, and that is not an oversight.</b> A palette entry is an <em>offer</em>
+     * — a member this build knows about that an older jar may not contain — so it is narrowed against the
+     * bot's own bytecode. A value type is a <em>reading</em>: the project file already says {@code DURATION},
+     * and what that word means has to be answered whatever the pin, or the value cannot be shown at all. A
+     * type an older jar never had simply never appears in an older project's file.
+     *
+     * <p>Two plugins claiming one id is refused loudly at startup rather than resolved. First-wins would make
+     * a project open differently depending on load order, which is the one failure a user could never
+     * diagnose; and the ids are what {@code activities.json} holds, so a silent winner silently retypes their
+     * variables.
+     */
+    public static ValueCatalog valueTypes() {
+        return VALUE_TYPES;
+    }
+
+    private static ValueCatalog mergeValueTypes() {
+        ValueCatalog merged = ValueCatalog.empty();
+        for (StudioPlugin plugin : PLUGINS) {
+            ValueCatalog offered = plugin.valueTypes();
+            if (offered == null) continue;
+            List<String> clashes = merged.clashesWith(offered);
+            if (!clashes.isEmpty()) {
+                throw new IllegalStateException("plugin " + plugin.id()
+                        + " registers value type ids another plugin already claims: "
+                        + String.join(", ", clashes));
+            }
+            merged = merged.merge(offered);
+        }
+        return merged;
     }
 
     /**

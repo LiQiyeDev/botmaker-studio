@@ -8,7 +8,7 @@ import io.github.classgraph.MethodInfo;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.project.activity.VariableHolder;
-import com.botmaker.studio.project.activity.VariableWire;
+import com.botmaker.studio.project.activity.ValueWire;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.types.JdkType;
 import com.botmaker.studio.types.PrimitiveKind;
@@ -620,7 +620,7 @@ public class ProjectAnalyzer {
      */
     public List<ActivityVariable> getActivityVariables(ResolvedType requiredType) {
         return state.getActivities().allVariables().stream()
-                .filter(a -> isCompatible(VariableWire.resolvedType(a.type()), requiredType))
+                .filter(a -> isCompatible(ValueWire.resolvedType(a.type()), requiredType))
                 .toList();
     }
 

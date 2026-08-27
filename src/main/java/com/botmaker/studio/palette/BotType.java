@@ -1,6 +1,9 @@
 package com.botmaker.studio.palette;
 
+import com.botmaker.plugin.api.value.ValueChoice;
+import com.botmaker.plugin.api.value.ValueShape;
 import com.botmaker.sdk.authoring.TemplateNames;
+import com.botmaker.studio.project.activity.ValueWire;
 import com.botmaker.sdk.api.capture.CaptureSource;
 import com.botmaker.sdk.api.capture.Source;
 import com.botmaker.sdk.api.geometry.Direction;
@@ -485,6 +488,34 @@ public enum BotType {
         /** What the user is shown — "Point", "One of Point", "Many of Point", or "List of Point". */
         public String label() {
             return shape.prefix + type.label();
+        }
+
+        /**
+         * The same pair in the plugin contract's vocabulary — and the whole of the bridge between the two,
+         * deliberately parked on the class that is going away rather than on the one that is staying.
+         *
+         * <p>A stored variable is typed by {@link ValueChoice} since phase 10b began; the pickers still
+         * enumerate this enum. The two line up by <b>name</b> — phase 10a registered the SDK's seventeen
+         * types under the old constant names, which is what keeps every project ever written readable — so
+         * the crossing is a lookup by id and never a mapping table. Phase 10b narrows this enum to the
+         * declarable types and deletes both methods with the last picker that needs them.
+         */
+        public ValueChoice toValue() {
+            return new ValueChoice(ValueWire.type(type.name()), ValueShape.valueOf(shape.name()));
+        }
+
+        /** The contract's pair read back as this enum's; an id this enum has no constant for is {@link #TEXT}. */
+        public static Choice fromValue(ValueChoice choice) {
+            if (choice == null) return new Choice(TEXT, Shape.ONE);
+            BotType type;
+            try {
+                type = BotType.valueOf(choice.type().id());
+            } catch (IllegalArgumentException e) {
+                type = TEXT;
+            }
+            Shape shape = type.shapeable() ? Shape.valueOf(choice.shape().name())
+                    : choice.shape().isList() ? Shape.OPEN_LIST : Shape.ONE;
+            return new Choice(type, shape);
         }
 
         public String suggestedName() {

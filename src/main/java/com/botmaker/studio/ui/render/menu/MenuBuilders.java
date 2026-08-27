@@ -155,7 +155,7 @@ final class MenuBuilders {
      * {@code Precision} 4, {@code Text} 2, {@code Direction} 4) and each entry is a named anchor a user
      * reaches for — {@code Precision.TIGHT} is the whole point of {@code Precision} having constants. Enum
      * constants also reach the activity-variable pickers by reading the {@code Class<?>} directly (see
-     * {@code VariableWire}), never through the index, so curating them here would be half an answer.
+     * {@code ValueWire}), never through the index, so curating them here would be half an answer.
      */
     static Menu buildScopeMenu(String label, String scope, String typeName, boolean isStatic,
                                ResolvedType expectedType, ProjectAnalyzer analyzer,

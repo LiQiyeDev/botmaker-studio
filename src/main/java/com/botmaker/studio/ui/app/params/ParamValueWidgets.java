@@ -1,9 +1,10 @@
 package com.botmaker.studio.ui.app.params;
 
-import com.botmaker.studio.palette.BotType;
+import com.botmaker.plugin.api.value.ValueCatalog;
+import com.botmaker.plugin.api.value.ValueType;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.activity.ActivityVariable;
-import com.botmaker.studio.project.activity.VariableWire;
+import com.botmaker.studio.project.activity.ValueWire;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
@@ -27,7 +28,7 @@ import java.util.function.Supplier;
  *
  * <p><b>Reading is total and never validates.</b> A half-typed duration, a number past its bound, a template
  * that has since been deleted: every one of them is handed on as typed and pulled into range by
- * {@link ActivityVariable#withValue}, which normalises through {@link VariableWire}. Nothing here can refuse
+ * {@link ActivityVariable#withValue}, which normalises through {@link ValueWire}. Nothing here can refuse
  * a value, so nothing here can leave the editor unable to close a dialog because of a limit somebody
  * tightened afterwards.
  *
@@ -52,10 +53,10 @@ public final class ParamValueWidgets {
      * The widget for {@code variable}, seeded from its current value, registering its reader in {@code sink}.
      *
      * @param config the project, needed by the one type whose picker reads from disk
-     *               ({@link BotType#IMAGE_TEMPLATE})
+     *               ({@code IMAGE_TEMPLATE})
      */
     public static Node build(ActivityVariable variable, ProjectConfig config, List<ValueEditor> sink) {
-        BotType base = variable.type().type();
+        ValueType base = variable.type().type();
         ValueEditors.Context ctx = new ValueEditors.Context(config, variable.bounds());
 
         // The set a set-shaped variable offers: the author's declared choices, or — for a type whose values
@@ -63,7 +64,7 @@ public final class ParamValueWidgets {
         // "any of Direction" with nothing written down offered nothing to tick and fell through to a textarea
         // asking for raw names, one per line.
         List<String> declared = variable.type().hasOptions()
-                ? VariableWire.effectiveOptions(base, variable.options())
+                ? ValueWire.effectiveOptions(base, variable.options())
                 : List.of();
 
         // The shape decides the widget before the type does, because the shape is the question being asked —
@@ -83,13 +84,16 @@ public final class ParamValueWidgets {
             // One value of one type, which is exactly what ValueEditors answers — the same editors the
             // activity Variables screen and the block editor get, so a duration is entered the same way
             // wherever it is met.
-            case ONE -> single(variable, base, ctx, sink);
+            // ONE, and — the reason there is a default at all — any shape a later contract adds. ValueShape
+            // is a contract enum and documented as growable, so an exhaustive switch here would throw a
+            // MatchException against a newer host rather than falling back to the single-value editor.
+            default -> single(variable, base, ctx, sink);
         };
         widget.setId("param-value-" + variable.name());
         return widget;
     }
 
-    private static Node single(ActivityVariable variable, BotType base, ValueEditors.Context ctx,
+    private static Node single(ActivityVariable variable, ValueType base, ValueEditors.Context ctx,
                                List<ValueEditor> sink) {
         ValueEditors.Editor editor = ValueEditors.editorFor(base, variable.singleValue(), ctx);
         Node widget = editor.node();
@@ -112,7 +116,7 @@ public final class ParamValueWidgets {
     }
 
     /** Declared choices, ticked. */
-    private static Node checkList(ActivityVariable variable, List<String> options, BotType base,
+    private static Node checkList(ActivityVariable variable, List<String> options, ValueType base,
                                   ValueEditors.Context ctx, List<ValueEditor> sink) {
         List<CheckBox> boxes = new ArrayList<>();
         VBox column = new VBox(2);
@@ -137,7 +141,7 @@ public final class ParamValueWidgets {
      * from the list shows as no selection rather than as the first choice, which would be this widget
      * choosing a setting on the user's behalf.
      */
-    private static Node radioRow(ActivityVariable variable, List<String> options, BotType base,
+    private static Node radioRow(ActivityVariable variable, List<String> options, ValueType base,
                                  ValueEditors.Context ctx, List<ValueEditor> sink) {
         ToggleGroup group = new ToggleGroup();
         VBox column = new VBox(2);
@@ -159,16 +163,19 @@ public final class ParamValueWidgets {
     }
 
     /**
-     * {@link BotType.Shape#OPEN_LIST}: the user writes the members themselves, out of no set at all.
+     * {@link com.botmaker.plugin.api.value.ValueShape#OPEN_LIST}: the user writes the members themselves,
+     * out of no set at all.
      *
      * <p>Text is one item per line — a newline is not a character anybody types into a value by accident,
      * where a comma is, and twenty strings are faster typed than clicked. Every other type gets a growable
      * column of that type's own editor instead: a list of durations typed as text is four numbers per line to
      * decode, and a list of templates typed as text is names remembered rather than pictures chosen.
      */
-    private static Node openList(ActivityVariable variable, BotType base, ValueEditors.Context ctx,
+    private static Node openList(ActivityVariable variable, ValueType base, ValueEditors.Context ctx,
                                  List<ValueEditor> sink) {
-        if (base == BotType.TEXT) {
+        // By id, never by identity: a ValueType's identity *is* its persisted id, and two plugin
+        // classloaders each holding their own copy of a class would make `==` mean nothing.
+        if (ValueCatalog.TEXT_ID.equals(base.id())) {
             TextArea area = new TextArea(String.join("\n", variable.value()));
             area.setPrefRowCount(Math.max(3, Math.min(8, variable.value().size() + 1)));
             area.setPromptText("One per line");

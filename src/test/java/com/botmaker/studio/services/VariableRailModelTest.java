@@ -25,7 +25,7 @@ class VariableRailModelTest {
     }
 
     private static ActivityVariable variable(String name, BotType type, String tag) {
-        return ActivityVariable.create(name, BotType.Choice.of(type)).withTag(tag);
+        return ActivityVariable.create(name, BotType.Choice.of(type).toValue()).withTag(tag);
     }
 
     private static List<ActivityVariable> variables() {

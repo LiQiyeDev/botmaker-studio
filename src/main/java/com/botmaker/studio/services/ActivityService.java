@@ -10,7 +10,7 @@ import com.botmaker.studio.project.activity.ActivityDefinition;
 import com.botmaker.studio.project.activity.ActivityFlow;
 import com.botmaker.studio.project.activity.ActivityPreset;
 import com.botmaker.studio.project.activity.ActivityVariable;
-import com.botmaker.studio.project.activity.VariableWire;
+import com.botmaker.studio.project.activity.ValueWire;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -38,7 +38,7 @@ import java.util.concurrent.CompletableFuture;
  * <p>One model, one store. Studio briefly generated a {@code Settings.java} holding every value as a compiled
  * Java literal instead; it is gone, along with the discriminator that chose between the two. What that
  * experiment bought — project-wide variables organised by tag, and a type list as wide as the one methods
- * use — was kept, and lives in {@link ActivitiesConfig#variables()} and {@link VariableWire}.
+ * use — was kept, and lives in {@link ActivitiesConfig#variables()} and {@link ValueWire}.
  *
  * All I/O lives here at the service edge. {@link #update} runs off the calling thread and publishes
  * {@link ActivitiesChangedEvent} once state is refreshed.

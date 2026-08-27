@@ -1,10 +1,13 @@
 package com.botmaker.studio.ui.app.dev;
 
+import com.botmaker.plugin.api.value.ValueChoice;
+import com.botmaker.plugin.api.value.ValueShape;
 import com.botmaker.studio.palette.BotType;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.project.activity.Bounds;
 import com.botmaker.studio.project.activity.ParamVisibility;
+import com.botmaker.studio.project.activity.ValueWire;
 import com.botmaker.studio.project.activity.VariableWire;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.ui.app.params.ParamValueWidgets;
@@ -255,7 +258,10 @@ public final class PickerGalleryWindow {
             return null;
         }
         List<String> options = shape.hasOptions() ? options(type, templates) : List.of();
-        return new ActivityVariable(identifier(type, shape), choice, VariableWire.defaultWire(choice),
+        // The gallery still enumerates Studio's own declarable enum; a stored variable is typed by the
+        // contract's vocabulary. Phase 10b deletes the left-hand side and Choice.toValue with it.
+        ValueChoice stored = choice.toValue();
+        return new ActivityVariable(identifier(type, shape), stored, ValueWire.defaultWire(stored),
                 "", "", ParamVisibility.PUBLIC, options, Bounds.NONE);
     }
 

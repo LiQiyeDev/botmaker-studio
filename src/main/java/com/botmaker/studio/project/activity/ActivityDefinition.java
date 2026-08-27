@@ -1,6 +1,5 @@
 package com.botmaker.studio.project.activity;
 
-import com.botmaker.studio.palette.BotType;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 import java.util.ArrayList;
@@ -76,7 +75,7 @@ public record ActivityDefinition(String name, boolean enabled, String descriptio
      * a second one under a tag heading would be the same flag twice.
      */
     public ActivityVariable enabledVariable() {
-        return new ActivityVariable(name, BotType.Choice.of(BotType.YES_NO),
+        return new ActivityVariable(name, ValueWire.one("YES_NO"),
                 List.of(Boolean.toString(enabled)), description, name, ParamVisibility.EDITOR_ONLY,
                 List.of(), Bounds.NONE);
     }

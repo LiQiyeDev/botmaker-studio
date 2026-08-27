@@ -33,8 +33,8 @@ public class PickerGalleryWindowTest {
                 };
                 if (legal) {
                     assertNotNull(variable, type + " in " + shape + " is declarable and needs a row");
-                    assertEquals(type, variable.type().type());
-                    assertEquals(shape, variable.type().shape());
+                    assertEquals(type.name(), variable.type().type().id());
+                    assertEquals(shape.name(), variable.type().shape().name());
                 } else {
                     assertNull(variable, type + " in " + shape + " is not a sentence anyone can write");
                 }

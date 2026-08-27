@@ -1,10 +1,12 @@
 package com.botmaker.studio.ui.app.vars;
 
+import com.botmaker.plugin.api.value.ValueType;
 import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.palette.BotType;
+import com.botmaker.studio.project.activity.ValueWire;
 import com.botmaker.studio.project.activity.VariableWire;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
@@ -347,12 +349,10 @@ public final class EditVariableDialog {
      * committing them would put a dozen entries in the undo history for one edit.
      */
     private Node literalEditor(Local local, ResolvedType type) {
-        Optional<BotType> kind = BotType.Choice.fromSourceName(type.qualifiedName())
-                .map(BotType.Choice::type)
-                .filter(BotType::storable);
+        Optional<ValueType> kind = ValueWire.bySourceName(type.qualifiedName());
         if (kind.isEmpty() || local.initializer() == null) return sourceLabel(local);
 
-        BotType botType = kind.get();
+        ValueType botType = kind.get();
         ValueEditors.Editor editor = ValueEditors.editorFor(botType, readLiteral(local.initializer()),
                 ValueEditors.Context.of(context.getConfig()));
         ValueEditors.stretch(editor.node());
@@ -360,7 +360,7 @@ public final class EditVariableDialog {
 
         Button set = new Button("Set");
         set.setOnAction(e -> {
-            VariableWire.Literal literal = VariableWire.literalSource(botType, editor.read().get());
+            ValueWire.Literal literal = ValueWire.literalSource(botType, editor.read().get());
             if (literal == null) return;
             find().map(Local::initializer).ifPresent(node -> context.getCodeEditor()
                     .replaceWithRawExpression(node, literal.source(), literal.importFqn()));

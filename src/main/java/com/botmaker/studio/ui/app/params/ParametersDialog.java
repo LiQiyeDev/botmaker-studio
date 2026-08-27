@@ -1,11 +1,15 @@
 package com.botmaker.studio.ui.app.params;
 
+import com.botmaker.plugin.api.value.ValueCatalog;
+import com.botmaker.plugin.api.value.ValueChoice;
+import com.botmaker.plugin.api.value.ValueType;
 import com.botmaker.studio.palette.BotType;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.project.activity.Bounds;
 import com.botmaker.studio.project.activity.ParamVisibility;
+import com.botmaker.studio.project.activity.ValueWire;
 import com.botmaker.studio.project.activity.VariableWire;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.TagCatalog;
@@ -447,10 +451,12 @@ public final class ParametersDialog {
         });
 
         BotTypePicker type = new BotTypePicker(BotTypePicker.Purpose.VARIABLE);
-        type.setChoice(v.type());
+        type.setChoice(BotType.Choice.fromValue(v.type()));
         type.setPrefWidth(180);
         type.choiceProperty().addListener((o, was, is) -> {
-            if (is != null && !is.equals(v.type())) edit(v.name(), "the type", current -> current.withType(is));
+            if (is == null) return;
+            ValueChoice picked = is.toValue();
+            if (!picked.equals(v.type())) edit(v.name(), "the type", current -> current.withType(picked));
         });
 
         CheckBox shared = new CheckBox("Show to user");
@@ -498,7 +504,7 @@ public final class ParametersDialog {
         // A closed-set type brings its own choices (every direction, every mouse button), so there is nothing
         // here for the author to write down — offering an "add a choice" row over them would invite a second,
         // hand-typed copy of a list the SDK already owns.
-        if (VariableWire.hasOptions(v.type()) && VariableWire.fixedOptions(v.type().type()).isEmpty()) {
+        if (ValueWire.hasOptions(v.type()) && ValueWire.fixedOptions(v.type().type()).isEmpty()) {
             Label heading = new Label("Choices");
             heading.setTooltip(new Tooltip(v.type().isList()
                     ? "The set this variable's values are picked from. The user ticks any number of them."
@@ -508,7 +514,7 @@ public final class ParametersDialog {
             row++;
         }
 
-        if (VariableWire.isBounded(v.type().type())) {
+        if (ValueWire.isBounded(v.type().type())) {
             grid.add(new Label("Range"), 0, row);
             grid.add(buildBoundsEditor(v), 1, row);
             row++;
@@ -555,7 +561,7 @@ public final class ParametersDialog {
      * survive as a stored value nobody can see any more.
      */
     private Node buildOptionsEditor(ActivityVariable v) {
-        BotType base = v.type().type();
+        ValueType base = v.type().type();
         ValueEditors.Context ctx = new ValueEditors.Context(config, v.bounds());
         VBox box = new VBox(4);
         List<String> options = v.options();
@@ -605,11 +611,11 @@ public final class ParametersDialog {
      * and adding the right one: an in-place editor for those would need a commit gesture per row, and a
      * three-item choice list is not where that ceremony earns its keep.
      */
-    private Node optionRow(ActivityVariable v, BotType base, ValueEditors.Context ctx,
+    private Node optionRow(ActivityVariable v, ValueType base, ValueEditors.Context ctx,
                            List<String> options, int at) {
         String option = options.get(at);
         Node shown;
-        if (base == BotType.TEXT) {
+        if (ValueCatalog.TEXT_ID.equals(base.id())) {
             TextField field = new TextField(option);
             HBox.setHgrow(field, Priority.ALWAYS);
             Runnable commit = () -> {
@@ -716,7 +722,7 @@ public final class ParametersDialog {
             change("adding " + candidate, () -> {
                 String tag = VariableRailModel.ALL.equals(selectedTag)
                         || ActivityVariable.GENERAL.equals(selectedTag) ? "" : selectedTag;
-                variables.add(ActivityVariable.create(candidate, type.choice()).withTag(tag));
+                variables.add(ActivityVariable.create(candidate, type.choice().toValue()).withTag(tag));
                 error("");
                 name.clear();
                 rebuildRail();

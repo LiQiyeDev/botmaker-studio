@@ -43,7 +43,7 @@ class ParametersSplitTest {
 
         ActivitiesConfig model = ActivitiesConfig.of(
                 List.of(ActivityDefinition.create("Mining", "")),
-                List.of(ActivityVariable.create("rest", BotType.Choice.of(BotType.DURATION))));
+                List.of(ActivityVariable.create("rest", BotType.Choice.of(BotType.DURATION).toValue())));
         model.write(config.resourcesRoot());
         stampAt(config, 1);
 
