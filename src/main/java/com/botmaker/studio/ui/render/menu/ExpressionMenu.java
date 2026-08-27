@@ -522,7 +522,7 @@ public final class ExpressionMenu {
                         : v.displayLabel() + " — " + v.name());
                 // The holder per entry, not per menu: this list mixes the project's values with the activity
                 // enable flags, and since the split they are fields of two different generated classes.
-                String holder = context.getProjectAnalyzer().variableHolder(v.name()).className();
+                String holder = context.getProjectAnalyzer().variableQualifier(v.name());
                 item.setOnAction(e -> onSelect.accept(new ExpressionChoice.Field(holder, v.name())));
                 into.add(item);
             }

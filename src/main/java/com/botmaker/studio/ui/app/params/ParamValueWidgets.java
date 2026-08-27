@@ -46,8 +46,24 @@ public final class ParamValueWidgets {
 
     private ParamValueWidgets() {}
 
-    /** A variable's name plus a reader turning its widget's UI state back into the wire form. */
-    public record ValueEditor(String name, Supplier<List<String>> read) {}
+    /**
+     * A variable's handle plus a reader turning its widget's UI state back into the wire form.
+     *
+     * <p>The handle is the <b>pair</b> {@code (group, name)}: a name identifies a variable only inside its
+     * own plugin's section, so a reader holding just the name could write one plugin's value into another
+     * plugin's variable that happens to share it.
+     */
+    public record ValueEditor(String group, String name, Supplier<List<String>> read) {
+
+        static ValueEditor of(ActivityVariable variable, Supplier<List<String>> read) {
+            return new ValueEditor(variable.group(), variable.name(), read);
+        }
+
+        /** True when this reader was built from {@code variable} — the pair, never identity. */
+        public boolean describes(ActivityVariable variable) {
+            return variable.name().equals(name) && variable.isIn(group);
+        }
+    }
 
     /**
      * The widget for {@code variable}, seeded from its current value, registering its reader in {@code sink}.
@@ -98,7 +114,7 @@ public final class ParamValueWidgets {
         ValueEditors.Editor editor = ValueEditors.editorFor(base, variable.singleValue(), ctx);
         Node widget = editor.node();
         ValueEditors.stretch(widget);
-        sink.add(new ValueEditor(variable.name(), () -> List.of(editor.read().get())));
+        sink.add(ValueEditor.of(variable, () -> List.of(editor.read().get())));
         return widget;
     }
 
@@ -129,7 +145,7 @@ public final class ParamValueWidgets {
             column.getChildren().add(box);
         }
         if (boxes.isEmpty()) column.getChildren().add(hint("No choices declared yet."));
-        sink.add(new ValueEditor(variable.name(), () -> boxes.stream()
+        sink.add(ValueEditor.of(variable, () -> boxes.stream()
                 .filter(CheckBox::isSelected).map(box -> (String) box.getUserData()).toList()));
         return column;
     }
@@ -155,7 +171,7 @@ public final class ParamValueWidgets {
             column.getChildren().add(button);
         }
         if (options.isEmpty()) column.getChildren().add(hint("No choices declared yet."));
-        sink.add(new ValueEditor(variable.name(), () -> {
+        sink.add(ValueEditor.of(variable, () -> {
             Toggle chosen = group.getSelectedToggle();
             return List.of(chosen == null ? "" : (String) chosen.getUserData());
         }));
@@ -179,7 +195,7 @@ public final class ParamValueWidgets {
             TextArea area = new TextArea(String.join("\n", variable.value()));
             area.setPrefRowCount(Math.max(3, Math.min(8, variable.value().size() + 1)));
             area.setPromptText("One per line");
-            sink.add(new ValueEditor(variable.name(), () -> area.getText() == null ? List.of()
+            sink.add(ValueEditor.of(variable, () -> area.getText() == null ? List.of()
                     : area.getText().lines().map(String::trim).filter(line -> !line.isEmpty()).toList()));
             return area;
         }
@@ -219,7 +235,7 @@ public final class ParamValueWidgets {
         });
         rebuild[0].run();
 
-        sink.add(new ValueEditor(variable.name(), () -> editors.stream()
+        sink.add(ValueEditor.of(variable, () -> editors.stream()
                 .map(editor -> editor.read().get())
                 .filter(value -> value != null && !value.isBlank())
                 .toList()));

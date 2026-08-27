@@ -637,6 +637,17 @@ public class ProjectAnalyzer {
     }
 
     /**
+     * The qualifier to write in front of {@code name} — {@code Parameters}, {@code Activities}, or the class
+     * of whichever plugin's parameter group the variable is filed under.
+     *
+     * <p>Prefer this to {@link #variableHolder}: since parameters became a plugin surface there are no longer
+     * only two generated classes to choose between, and the enum can only name the host's own two.
+     */
+    public String variableQualifier(String name) {
+        return state.getActivities().qualifierOf(name);
+    }
+
+    /**
      * The names of the project's defined activities, in configured (run) order. Used by the enable/disable
      * name picker to offer {@code Activity.enable("…")}/{@code disable("…")} the real activity names instead of
      * a free-typed string. Sourced from project state (not the AST), so it's available regardless of scope.

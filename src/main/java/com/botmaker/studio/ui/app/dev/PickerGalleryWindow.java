@@ -264,7 +264,8 @@ public final class PickerGalleryWindow {
         if (choice.shape() != shape) return null;
         List<String> options = shape.hasOptions() ? options(type, templates) : List.of();
         return new ActivityVariable(identifier(type, shape), choice, ValueWire.defaultWire(choice),
-                "", "", ParamVisibility.PUBLIC, options, Bounds.NONE);
+                "", "", ParamVisibility.PUBLIC, options, Bounds.NONE,
+                com.botmaker.plugin.api.ParameterGroup.DEFAULT_ID);
     }
 
     /**

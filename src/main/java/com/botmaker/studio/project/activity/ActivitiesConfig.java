@@ -1,5 +1,7 @@
 package com.botmaker.studio.project.activity;
 
+import com.botmaker.plugin.api.ParameterGroup;
+import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.studio.project.migration.SchemaFile;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -28,14 +30,23 @@ import java.util.Set;
  * <ul>
  *   <li>{@link #activities()} — the {@link ActivityDefinition}s: what the bot can do, in what order
  *       ({@link #flow()}), and which of them are on ({@link #presets()})</li>
- *   <li>{@link #variables()} — every configured value the bot reads, one flat project-wide list. A variable
+ *   <li>{@link #variables()} — every configured value the bot reads, in one project-wide list. A variable
  *       is filed under a {@link ActivityVariable#tag() tag} for the reader's benefit; the tag is never a
  *       scope, so a value tagged after one activity is readable from all of them.</li>
  * </ul>
  *
  * <p>{@link #allVariables()} is what the code generator and the expression menu consume: each live activity's
  * enable flag, then the variables, with the field name on the generated class being exactly the variable's
- * own name. One flat namespace means {@link #nameClash} has one question to answer.
+ * own name.
+ *
+ * <p><b>The list is flat on disk and partitioned by owner, since 2026-08-27.</b> Every variable carries an
+ * {@link ActivityVariable#group() group} — the {@link ParameterGroup} of the plugin that owns it — which
+ * decides its section in the Parameters window and the generated class it becomes a field of. So a name has
+ * to be unique within its group rather than across the project ({@link #nameClash(String, String, String)}),
+ * and two plugins may each offer a {@code timeout}. It is a discriminator on the existing array rather than a
+ * section per plugin in the file, because an absent group reads as the default plugin's and so every project
+ * ever written is already partitioned correctly, with no migration and no new envelope. The envelope and the
+ * {@code schemaVersion} ledger stay the host's.
  *
  * <p><b>One public constructor.</b> Every copy goes through a {@code with…} method, because the four
  * convenience constructors this record used to carry were how a save came to drop the flow, the presets and
@@ -229,13 +240,79 @@ public record ActivitiesConfig(List<ActivityDefinition> activities, List<Activit
      * {@code Mining.java} from {@code mining.java}.
      */
     public boolean nameClash(String name, String except) {
+        return nameClash(name, except, ParameterGroup.DEFAULT_ID);
+    }
+
+    /**
+     * Whether {@code name} is already taken <b>within {@code groupId}</b>, ignoring {@code except}.
+     *
+     * <p><b>The namespace is the group, since 2026-08-27.</b> The paragraph above describes the flat one it
+     * replaced, and both of its reasons hold only inside a group: a group's variables are fields of that
+     * group's own generated class, so two plugins may each offer a {@code timeout} without either being a
+     * field declared twice or a name whose qualifier is a coin toss. Activities are checked in every group,
+     * because the enable flags are the host's and there is only one set of them.
+     */
+    public boolean nameClash(String name, String except, String groupId) {
         if (name == null || name.isBlank()) return false;
         String candidate = name.trim().toLowerCase(Locale.ROOT);
         if (except != null && candidate.equals(except.trim().toLowerCase(Locale.ROOT))) return false;
         Set<String> taken = new LinkedHashSet<>();
         for (ActivityDefinition a : activities) taken.add(a.name().toLowerCase(Locale.ROOT));
-        for (ActivityVariable v : variables) taken.add(v.name().toLowerCase(Locale.ROOT));
+        for (ActivityVariable v : variablesIn(groupId)) taken.add(v.name().toLowerCase(Locale.ROOT));
         return taken.contains(candidate);
+    }
+
+    /**
+     * The variables filed under one {@link ParameterGroup}, in declaration order.
+     *
+     * <p>This is the partition the Parameters window renders a section from and the generator writes a file
+     * from — one plugin, one group, one class. A blank id is the default plugin's, which is every variable in
+     * every project written before groups existed.
+     */
+    @JsonIgnore
+    public List<ActivityVariable> variablesIn(String groupId) {
+        return variables.stream().filter(v -> v.isIn(groupId)).toList();
+    }
+
+    /** The group ids this project actually has variables in, in the order they first appear in the file. */
+    @JsonIgnore
+    public List<String> variableGroups() {
+        return variables.stream().map(ActivityVariable::group).distinct().toList();
+    }
+
+    /**
+     * The qualifier a bot writes in front of {@code name} — {@code Parameters.REST}, {@code Activities.Mining},
+     * {@code DiscordParameters.WEBHOOK}.
+     *
+     * <p>{@link #holderOf} answers this for the two classes the host itself knows about, and it stays the
+     * answer for every variable in the default group. A variable filed under another plugin's group is a
+     * field of <em>that</em> group's class, which only the plugin can name — so the group is asked first and
+     * the two-class enum is the fallback, including for a group no loaded plugin claims (whose variables are
+     * not being generated anywhere, and for which the old spelling is the least wrong guess).
+     *
+     * @param pinnedSdkVersion the version the open project pins, for asking the plugins; may be null
+     */
+    /**
+     * {@link #qualifierOf(String, String)} asked of the plugins as they are loaded, without a pin.
+     *
+     * <p>The plugin <em>set</em> is already this project's — {@code PluginHost.bind} swapped it when the
+     * classpath resolved — so the only thing the pin would change is a plugin answering with a different
+     * class name at a different version of itself, which is a rename of generated API and not something a
+     * menu writing a qualifier could act on anyway. The callers are a picker and a menu, asked per keystroke;
+     * re-reading the pom for each would cost more than the question is worth.
+     */
+    public String qualifierOf(String name) {
+        return qualifierOf(name, null);
+    }
+
+    public String qualifierOf(String name, String pinnedSdkVersion) {
+        for (ActivityVariable v : variables) {
+            if (!v.name().equals(name)) continue;
+            ParameterGroup group = PluginHost.parameterGroup(pinnedSdkVersion, v.group());
+            if (group != null) return group.className();
+            break;
+        }
+        return holderOf(name).className();
     }
 
     // ---- persistence ------------------------------------------------------------------------------------

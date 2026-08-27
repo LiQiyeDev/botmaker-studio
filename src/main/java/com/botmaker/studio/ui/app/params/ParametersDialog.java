@@ -1,5 +1,6 @@
 package com.botmaker.studio.ui.app.params;
 
+import com.botmaker.plugin.api.ParameterGroup;
 import com.botmaker.plugin.api.value.ValueCatalog;
 import com.botmaker.plugin.api.value.ValueType;
 import com.botmaker.studio.project.ProjectConfig;
@@ -8,7 +9,9 @@ import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.project.activity.Bounds;
 import com.botmaker.studio.project.activity.ParamVisibility;
 import com.botmaker.studio.project.activity.ValueWire;
+import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.studio.services.ActivityService;
+import com.botmaker.studio.services.MavenService;
 import com.botmaker.studio.services.TagCatalog;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.VariableRailModel;
@@ -116,6 +119,12 @@ public final class ParametersDialog {
 
     private TagCatalog catalog = TagCatalog.empty();
     private String selectedTag = VariableRailModel.ALL;
+
+    /**
+     * Which plugin's section a newly added variable is filed under — the default plugin's (the SDK's) until
+     * a second plugin is installed and the user picks its section in the add row.
+     */
+    private String selectedGroup = ParameterGroup.DEFAULT_ID;
     private Stage stage;
 
     /**
@@ -321,12 +330,12 @@ public final class ParametersDialog {
             error("Every variable is already filed under \u201c" + selectedTag + "\u201d.");
             return;
         }
-        List<String> chosen = pickVariables(outside);
+        List<ActivityVariable> chosen = pickVariables(outside);
         if (chosen.isEmpty()) return;
         // One step for the batch: filing eight variables at once should be one ↶, not eight.
         change("filing " + chosen.size() + " variables under " + selectedTag, () -> {
-            for (String name : chosen) {
-                int at = indexOf(name);
+            for (ActivityVariable picked : chosen) {
+                int at = indexOf(picked.group(), picked.name());
                 if (at >= 0) variables.set(at, variables.get(at).withTag(home));
             }
             error("");
@@ -334,13 +343,18 @@ public final class ParametersDialog {
         });
     }
 
-    /** A tick box per variable, in one modal. Returns the names ticked, or an empty list if cancelled. */
-    private List<String> pickVariables(List<ActivityVariable> offered) {
+    /**
+     * A tick box per variable, in one modal. Returns the variables ticked, or an empty list if cancelled.
+     *
+     * <p>The records themselves rather than their names: a name is unique only inside its plugin's section,
+     * so a list of names could no longer say <em>which</em> {@code Timeout} was ticked.
+     */
+    private List<ActivityVariable> pickVariables(List<ActivityVariable> offered) {
         List<CheckBox> boxes = new ArrayList<>();
         VBox column = new VBox(4);
         for (ActivityVariable v : offered) {
             CheckBox box = new CheckBox(v.name() + "   \u00b7   " + v.tagOrGeneral());
-            box.setUserData(v.name());
+            box.setUserData(v);
             boxes.add(box);
             column.getChildren().add(box);
         }
@@ -361,7 +375,8 @@ public final class ParametersDialog {
         dialog.getDialogPane().setContent(box);
 
         if (dialog.showAndWait().orElse(ButtonType.CANCEL) != move) return List.of();
-        return boxes.stream().filter(CheckBox::isSelected).map(b -> (String) b.getUserData()).toList();
+        return boxes.stream().filter(CheckBox::isSelected)
+                .map(b -> (ActivityVariable) b.getUserData()).toList();
     }
 
     /** Redraws the rail (the counts move on every add, delete and re-tag) and keeps the selection. */
@@ -379,13 +394,20 @@ public final class ParametersDialog {
     }
 
     /**
-     * Files the variable called {@code name} under {@code tag} — what a drop onto the rail does, and the same
-     * edit the card's own picker makes. Returns whether anything moved, which is what a drop reports back.
+     * Files the dragged variable under {@code tag} — what a drop onto the rail does, and the same edit the
+     * card's own picker makes. Returns whether anything moved, which is what a drop reports back.
+     *
+     * <p>{@code dragged} is the {@code group\nname} pair the grip put on the dragboard; a payload with no
+     * newline is read as a bare name in the default section, which is what every earlier drag was.
      */
-    private boolean fileUnder(String name, String tag) {
-        ActivityVariable found = variables.stream().filter(v -> v.name().equals(name)).findFirst().orElse(null);
-        if (found == null) return false;
-        edit(found.name(), "the category", current ->
+    private boolean fileUnder(String dragged, String tag) {
+        if (dragged == null) return false;
+        int cut = dragged.indexOf('\n');
+        String group = cut < 0 ? ParameterGroup.DEFAULT_ID : dragged.substring(0, cut);
+        String name = cut < 0 ? dragged : dragged.substring(cut + 1);
+        int at = indexOf(group, name);
+        if (at < 0) return false;
+        edit(variables.get(at), "the category", current ->
                 current.withTag(ActivityVariable.GENERAL.equals(tag) ? "" : tag));
         return true;
     }
@@ -423,12 +445,62 @@ public final class ParametersDialog {
         paramColumn.getChildren().addAll(title, explain);
 
         List<ActivityVariable> shown = VariableRailModel.in(variables, selectedTag, catalog);
-        if (shown.isEmpty()) {
+        for (ParameterGroup group : sections()) {
+            List<ActivityVariable> mine = shown.stream().filter(v -> v.isIn(group.id())).toList();
+            paramColumn.getChildren().add(sectionHeader(group, mine.isEmpty()));
+            for (ActivityVariable v : mine) paramColumn.getChildren().add(buildParamCard(v));
+        }
+    }
+
+    /**
+     * The sections to draw, in order: one per plugin that declares a {@link ParameterGroup}, then one per
+     * group this project's file names that no installed plugin claims.
+     *
+     * <p><b>Every declared group gets a heading even when it is empty</b>, because the heading is how a user
+     * discovers that a plugin has parameters at all — an empty section reads as "nothing set up yet", an
+     * absent one as "this plugin has no settings", and only the first is true.
+     *
+     * <p><b>An unclaimed group is still drawn</b>, under its raw id: those variables are in the file, they are
+     * about to be written back, and hiding them would make a project silently lose settings while the plugin
+     * that owns them is uninstalled. It is the same fail-soft rule an unregistered {@code ValueType} follows.
+     */
+    private List<ParameterGroup> sections() {
+        List<ParameterGroup> groups = new ArrayList<>(PluginHost.parameterGroups(sdkPin()));
+        if (groups.isEmpty()) groups.add(ParameterGroup.of(ParameterGroup.DEFAULT_ID, "Parameters"));
+        for (ActivityVariable v : variables) {
+            if (groups.stream().noneMatch(g -> g.id().equals(v.group()))) {
+                groups.add(ParameterGroup.of(v.group(), v.group().isEmpty() ? "Parameters" : v.group()));
+            }
+        }
+        return groups;
+    }
+
+    /** The heading of one plugin's section, and — when it holds nothing yet — the line that says so. */
+    private Node sectionHeader(ParameterGroup group, boolean empty) {
+        Label heading = new Label(group.title());
+        heading.getStyleClass().add("param-section-heading");
+        VBox box = new VBox(2, heading);
+        box.setPadding(new Insets(6, 0, 0, 0));
+        if (empty) {
             Label none = new Label("Nothing filed here yet — add one in the bar at the bottom.");
             none.getStyleClass().add("dialog-hint-text");
-            paramColumn.getChildren().add(none);
+            box.getChildren().add(none);
         }
-        for (ActivityVariable v : shown) paramColumn.getChildren().add(buildParamCard(v));
+        return box;
+    }
+
+    /**
+     * The SDK version the open project pins, or null when it cannot be read.
+     *
+     * <p>Read from the pom each time rather than cached: the *Upgrade SDK* dialog moves it while this window
+     * can be open, and a stale pin would draw the previous version's sections.
+     */
+    private String sdkPin() {
+        try {
+            return MavenService.readSdkVersion(config.projectPath());
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     /** One variable: what it is called, what it holds, who it is for, where it is filed, what it is set to. */
@@ -452,14 +524,14 @@ public final class ParametersDialog {
         type.setPrefWidth(180);
         type.choiceProperty().addListener((o, was, is) -> {
             if (is == null) return;
-            if (!is.equals(v.type())) edit(v.name(), "the type", current -> current.withType(is));
+            if (!is.equals(v.type())) edit(v, "the type", current -> current.withType(is));
         });
 
         CheckBox shared = new CheckBox("Show to user");
         shared.setSelected(v.isPublic());
         shared.setTooltip(new Tooltip("Ticked, this appears in the Runner window under its tag's heading. "
                 + "Unticked, it is yours alone and never leaves this dialog."));
-        shared.setOnAction(e -> editQuietly(v.name(), current -> current.withVisibility(
+        shared.setOnAction(e -> editQuietly(v, current -> current.withVisibility(
                 shared.isSelected() ? ParamVisibility.PUBLIC : ParamVisibility.EDITOR_ONLY)));
 
         Button drop = new Button("✕");
@@ -467,7 +539,7 @@ public final class ParametersDialog {
         drop.setTooltip(new Tooltip("Remove this variable. Any code reading it stops compiling, so check "
                 + "first — nothing here scans your source."));
         drop.setOnAction(e -> change("removing " + v.name(), () -> {
-            int at = indexOf(v.name());
+            int at = indexOf(v.group(), v.name());
             if (at >= 0) variables.remove(at);
             rebuildRail();
         }));
@@ -480,7 +552,10 @@ public final class ParametersDialog {
         grip.setOnDragDetected(e -> {
             Dragboard board = grip.startDragAndDrop(TransferMode.MOVE);
             ClipboardContent content = new ClipboardContent();
-            content.putString(v.name());
+            // The pair, not the name: a name only identifies a variable inside its own plugin's section, and
+            // a drop has to move the one that was picked up. \n cannot occur in either half — a group id is
+            // trimmed and a variable name is a Java identifier.
+            content.putString(v.group() + "\n" + v.name());
             board.setContent(content);
             e.consume();
         });
@@ -525,7 +600,7 @@ public final class ParametersDialog {
         TextField description = new TextField(v.description());
         description.setPromptText("what this is for (shown as a tooltip, and to the user when shared)");
         description.textProperty().addListener((o, was, is) ->
-                editQuietly(v.name(), current -> current.withDescription(is)));
+                editQuietly(v, current -> current.withDescription(is)));
         grid.add(new Label("Note"), 0, row);
         grid.add(description, 1, row);
         GridPane.setHgrow(description, Priority.ALWAYS);
@@ -545,7 +620,7 @@ public final class ParametersDialog {
         picker.setValue(catalog.isDeclared(v.tag()) ? v.tag() : ActivityVariable.GENERAL);
         picker.setOnAction(e -> {
             String chosen = picker.getValue();
-            edit(v.name(), "the category", current ->
+            edit(v, "the category", current ->
                     current.withTag(ActivityVariable.GENERAL.equals(chosen) ? "" : chosen));
         });
         return picker;
@@ -672,7 +747,7 @@ public final class ParametersDialog {
         TextField max = boundField(v.bounds().max(), "no maximum");
         Runnable commit = () -> {
             Bounds declared = new Bounds(min.getText(), max.getText());
-            if (!declared.equals(v.bounds())) edit(v.name(), "the range", current -> current.withBounds(declared));
+            if (!declared.equals(v.bounds())) edit(v, "the range", current -> current.withBounds(declared));
         };
         for (TextField field : List.of(min, max)) {
             field.focusedProperty().addListener((o, was, is) -> {
@@ -695,7 +770,15 @@ public final class ParametersDialog {
         return field;
     }
 
-    /** A new variable lands in the tag being looked at, which is where somebody adding one means to put it. */
+    /**
+     * A new variable lands in the tag being looked at, which is where somebody adding one means to put it —
+     * and in the plugin section the picker names, which is a different question.
+     *
+     * <p>The tag is a view and the group is a scope: the first says where it is listed, the second says which
+     * generated class it becomes a field of and whose namespace its name has to be unique in. The section
+     * picker only appears once there is more than one plugin to choose between; with the SDK alone there is
+     * nothing to ask, so the row is the row it always was.
+     */
     private Node buildAddRow() {
         TextField name = new TextField();
         name.setPromptText("variable name");
@@ -711,14 +794,15 @@ public final class ParametersDialog {
                 error("Enter a valid name (letters, digits, _; not starting with a digit).");
                 return;
             }
-            if (isTaken(candidate, null)) {
+            if (isTaken(candidate, null, selectedGroup)) {
                 error("'" + candidate + "' is already the name of a variable or an activity.");
                 return;
             }
             change("adding " + candidate, () -> {
                 String tag = VariableRailModel.ALL.equals(selectedTag)
                         || ActivityVariable.GENERAL.equals(selectedTag) ? "" : selectedTag;
-                variables.add(ActivityVariable.create(candidate, type.choice()).withTag(tag));
+                variables.add(ActivityVariable.create(candidate, type.choice(), "", selectedGroup)
+                        .withTag(tag));
                 error("");
                 name.clear();
                 rebuildRail();
@@ -731,6 +815,20 @@ public final class ParametersDialog {
         });
 
         HBox row = new HBox(6, new Label("New"), name, type, add);
+        List<ParameterGroup> groups = PluginHost.parameterGroups(sdkPin());
+        if (groups.size() > 1) {
+            ComboBox<ParameterGroup> section = new ComboBox<>();
+            section.getItems().setAll(groups);
+            section.setButtonCell(groupCell());
+            section.setCellFactory(list -> groupCell());
+            section.getSelectionModel().select(groups.stream()
+                    .filter(g -> g.id().equals(selectedGroup)).findFirst().orElse(groups.getFirst()));
+            selectedGroup = section.getSelectionModel().getSelectedItem().id();
+            section.valueProperty().addListener((o, was, is) -> {
+                if (is != null) selectedGroup = is.id();
+            });
+            row.getChildren().add(3, section);
+        }
         row.setAlignment(Pos.CENTER_LEFT);
         row.setPadding(new Insets(10, 10, 0, 10));
         return row;
@@ -738,15 +836,27 @@ public final class ParametersDialog {
 
     // --- editing the working copy -------------------------------------------------------------------------
 
+    /** A section's row: its title, which is the plugin's word for it and not its id. */
+    private static ListCell<ParameterGroup> groupCell() {
+        return new ListCell<>() {
+            @Override protected void updateItem(ParameterGroup item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : item.title());
+            }
+        };
+    }
+
     /**
-     * Whether {@code candidate} is spoken for, ignoring {@code except}.
+     * Whether {@code candidate} is spoken for within {@code groupId}, ignoring {@code except}.
      *
-     * <p>Against the activities <em>and</em> the working copy of the variables: both become fields on the same
-     * generated class, so an activity named {@code Mining} and a variable named {@code Mining} are one field
-     * declared twice — a project that saves and then will not compile.
+     * <p>Against the activities <em>and</em> the working copy of the variables <em>in that group</em>. The
+     * activities are checked in every group because the activity stubs are the host's, one set for the whole
+     * project; the variables are not, because each plugin's become fields of its own generated class. Two
+     * plugins may both call a variable {@code Timeout} and neither shadows the other — which is the point of
+     * the sections, and what the flat namespace used to make impossible.
      */
-    private boolean isTaken(String candidate, String except) {
-        return activityService.current().withVariables(variables).nameClash(candidate, except);
+    private boolean isTaken(String candidate, String except, String groupId) {
+        return activityService.current().withVariables(variables).nameClash(candidate, except, groupId);
     }
 
     private void commitRename(ActivityVariable v, TextField field) {
@@ -757,18 +867,18 @@ public final class ParametersDialog {
             field.setText(v.name());
             return;
         }
-        if (isTaken(candidate, v.name())) {
+        if (isTaken(candidate, v.name(), v.group())) {
             error("'" + candidate + "' is already the name of a variable or an activity — reverted.");
             field.setText(v.name());
             return;
         }
         error("");
-        edit(v.name(), "the name", current -> current.withName(candidate));
+        edit(v, "the name", current -> current.withName(candidate));
     }
 
     private void replaceOptions(ActivityVariable v, List<String> options) {
         error("");
-        edit(v.name(), "the choices", current -> current.withOptions(options));
+        edit(v, "the choices", current -> current.withOptions(options));
     }
 
     /**
@@ -787,9 +897,11 @@ public final class ParametersDialog {
      * time onto the record they no longer describe — a retype must land on the new type's default, not on
      * whatever text the old widget still held.
      */
-    private void edit(String name, String what, UnaryOperator<ActivityVariable> change) {
+    private void edit(ActivityVariable v, String what, UnaryOperator<ActivityVariable> change) {
+        String name = v.name();
+        String group = v.group();
         change(what + " of " + name, () -> {
-            int at = indexOf(name);
+            int at = indexOf(group, name);
             if (at < 0) return;
             variables.set(at, change.apply(variables.get(at)));
             rebuildRail();
@@ -848,16 +960,24 @@ public final class ParametersDialog {
      * <p>Nothing is lost by not recording here: {@link #commitPending} runs on a timer and picks the change
      * up on its next tick, which is what turns a typed note into one step instead of one per letter.
      */
-    private void editQuietly(String name, UnaryOperator<ActivityVariable> change) {
-        int at = indexOf(name);
+    private void editQuietly(ActivityVariable v, UnaryOperator<ActivityVariable> change) {
+        int at = indexOf(v.group(), v.name());
         if (at >= 0) variables.set(at, change.apply(variables.get(at)));
     }
 
-    /** Where the variable called {@code name} currently sits, or -1. Names are unique, which is what makes
-     * them the stable handle a widget can hold across a rebuild. */
-    private int indexOf(String name) {
+    /**
+     * Where the variable called {@code name} in {@code group} currently sits, or -1.
+     *
+     * <p><b>The handle is the pair, not the name.</b> A name is unique inside its plugin's section and only
+     * there (phase 11), so two plugins may both have a {@code Timeout} — and a widget holding just the name
+     * would find whichever came first in the file and write the other one's value into it. The pair is still
+     * a <em>value</em> rather than an identity, which is the property the handle needs: every edit on a card
+     * replaces the record the widget was built from, so identity would find nothing.
+     */
+    private int indexOf(String group, String name) {
         for (int i = 0; i < variables.size(); i++) {
-            if (variables.get(i).name().equals(name)) return i;
+            ActivityVariable v = variables.get(i);
+            if (v.name().equals(name) && v.isIn(group)) return i;
         }
         return -1;
     }
@@ -867,9 +987,10 @@ public final class ParametersDialog {
         if (valueEditors.isEmpty()) return;
         for (ValueEditor editor : valueEditors) {
             for (int i = 0; i < variables.size(); i++) {
-                // Matched by name, not by identity: every other edit on this card has already replaced the
-                // record the widget was built from.
-                if (variables.get(i).name().equals(editor.name())) {
+                // Matched by (group, name), not by identity: every other edit on this card has already
+                // replaced the record the widget was built from, and a name alone no longer picks one
+                // variable out of the project — only one out of its own plugin's section.
+                if (editor.describes(variables.get(i))) {
                     variables.set(i, variables.get(i).withValue(editor.read().get()));
                     break;
                 }

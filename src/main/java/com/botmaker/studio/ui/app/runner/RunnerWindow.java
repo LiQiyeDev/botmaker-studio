@@ -525,8 +525,11 @@ public final class RunnerWindow implements ProjectWindow {
     private ActivitiesConfig edited() {
         ActivitiesConfig base = activityService.current();
 
-        Map<String, List<String>> typed = new LinkedHashMap<>();
-        for (ParamValueWidgets.ValueEditor editor : valueEditors) typed.put(editor.name(), editor.read().get());
+        // Keyed by the (group, name) pair the widget was built from, never by the name alone: a name is
+        // unique inside its own plugin's section and only there, so two plugins may both offer a "Timeout"
+        // and a name-keyed map would hand one of them the other's answer.
+        Map<ParamValueWidgets.ValueEditor, List<String>> typed = new LinkedHashMap<>();
+        for (ParamValueWidgets.ValueEditor editor : valueEditors) typed.put(editor, editor.read().get());
 
         List<ActivityDefinition> activities = new ArrayList<>();
         for (ActivityDefinition a : base.activities()) {
@@ -538,7 +541,11 @@ public final class RunnerWindow implements ProjectWindow {
         // change what it cannot see.
         List<ActivityVariable> variables = new ArrayList<>();
         for (ActivityVariable v : base.variables()) {
-            List<String> value = typed.get(v.name());
+            List<String> value = typed.entrySet().stream()
+                    .filter(e -> e.getKey().describes(v))
+                    .map(Map.Entry::getValue)
+                    .findFirst()
+                    .orElse(null);
             variables.add(value == null ? v : v.withValue(value));
         }
 

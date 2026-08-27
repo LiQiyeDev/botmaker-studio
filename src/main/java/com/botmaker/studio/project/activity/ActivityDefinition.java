@@ -77,7 +77,7 @@ public record ActivityDefinition(String name, boolean enabled, String descriptio
     public ActivityVariable enabledVariable() {
         return new ActivityVariable(name, ValueWire.one("YES_NO"),
                 List.of(Boolean.toString(enabled)), description, name, ParamVisibility.EDITOR_ONLY,
-                List.of(), Bounds.NONE);
+                List.of(), Bounds.NONE, com.botmaker.plugin.api.ParameterGroup.DEFAULT_ID);
     }
 
     /**

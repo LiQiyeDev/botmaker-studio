@@ -1,5 +1,7 @@
 package com.botmaker.studio.plugin;
 
+import com.botmaker.plugin.api.ParameterGroup;
+import com.botmaker.plugin.api.SlotEditor;
 import com.botmaker.plugin.api.StudioPlugin;
 import com.botmaker.plugin.api.catalog.FacadeEntry;
 import com.botmaker.plugin.api.catalog.FacadeRole;
@@ -7,8 +9,10 @@ import com.botmaker.plugin.api.catalog.PaletteCatalog;
 import com.botmaker.plugin.api.value.ValueCatalog;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.Optional;
 import java.util.ServiceLoader;
 import java.util.concurrent.ConcurrentHashMap;
@@ -90,6 +94,12 @@ public final class PluginHost {
      */
     private static volatile ValueCatalog valueTypes = mergeValueTypes();
 
+    /** Memoised beside the value catalog, and rebuilt on the same bind, for the same reason. */
+    private static volatile List<SlotEditor> slotEditors = mergeSlotEditors(BUNDLED);
+
+    /** pinned version → the sections of the Parameters window at it. Cleared with {@link #CACHE}. */
+    private static final Map<String, List<ParameterGroup>> GROUPS = new ConcurrentHashMap<>();
+
     public static List<StudioPlugin> plugins() {
         return plugins;
     }
@@ -138,7 +148,9 @@ public final class PluginHost {
         loader = opened;
         plugins = bound;
         valueTypes = merged;
+        slotEditors = mergeSlotEditors(bound);
         CACHE.clear();
+        GROUPS.clear();
         if (previous != null) previous.close();
     }
 
@@ -179,6 +191,74 @@ public final class PluginHost {
      */
     public static ValueCatalog valueTypes() {
         return valueTypes;
+    }
+
+    /**
+     * Every loaded plugin's slot editors, in plugin order, for a value the host is about to render.
+     *
+     * <p>Consulted <b>after</b> the host's own built-in editors, which is the rule
+     * {@link StudioPlugin#slotEditors()} states: a slot holding a project variable stays a variable no matter
+     * what a plugin claims about its type.
+     *
+     * <p>Memoised for the same reason the value catalog is — this is asked once per row of the Parameters
+     * window and once per slot the code editor draws — and cleared on {@link #bind}, since a plugin that has
+     * just been unloaded must stop offering editors that would run on a dead classloader.
+     */
+    public static List<SlotEditor> slotEditors() {
+        return slotEditors;
+    }
+
+    private static List<SlotEditor> mergeSlotEditors(List<StudioPlugin> set) {
+        List<SlotEditor> merged = new ArrayList<>();
+        for (StudioPlugin plugin : set) {
+            List<SlotEditor> offered = plugin.slotEditors();
+            if (offered != null) merged.addAll(offered);
+        }
+        return List.copyOf(merged);
+    }
+
+    /**
+     * The sections of the Parameters window, in plugin order — the default plugin's first.
+     *
+     * <p>One window, one section per group. Two plugins claiming one {@link ParameterGroup#className()} is a
+     * composition error, and it is refused the same way a value-type id clash is: the later claimant is
+     * dropped with a warning rather than the project being refused, because a user whose project will not
+     * open has no way to act on the problem, while a section that is missing is visible and diagnosable.
+     *
+     * @param pinnedSdkVersion the version the open project's pom names; passed through, never interpreted
+     */
+    public static List<ParameterGroup> parameterGroups(String pinnedSdkVersion) {
+        String pin = pinnedSdkVersion == null ? BUNDLED_PIN : pinnedSdkVersion;
+        return GROUPS.computeIfAbsent(pin, PluginHost::buildGroups);
+    }
+
+    /** The group a variable's {@code group} id names, or null when no loaded plugin claims that id. */
+    public static ParameterGroup parameterGroup(String pinnedSdkVersion, String groupId) {
+        String wanted = groupId == null ? ParameterGroup.DEFAULT_ID : groupId.trim();
+        for (ParameterGroup group : parameterGroups(pinnedSdkVersion)) {
+            if (group.id().equals(wanted)) return group;
+        }
+        return null;
+    }
+
+    private static List<ParameterGroup> buildGroups(String pin) {
+        List<ParameterGroup> merged = new ArrayList<>();
+        Set<String> ids = new LinkedHashSet<>();
+        Set<String> classNames = new LinkedHashSet<>();
+        for (StudioPlugin plugin : plugins) {
+            List<ParameterGroup> offered = plugin.parameters(pin);
+            if (offered == null) continue;
+            for (ParameterGroup group : offered) {
+                if (!ids.add(group.id()) || !classNames.add(group.className())) {
+                    System.err.println("Warning: plugin " + plugin.id() + " claims a parameter group ("
+                            + group.id() + " / " + group.className() + ") another plugin already owns;"
+                            + " its section is not shown.");
+                    continue;
+                }
+                merged.add(group);
+            }
+        }
+        return List.copyOf(merged);
     }
 
     private static ValueCatalog mergeValueTypes() {

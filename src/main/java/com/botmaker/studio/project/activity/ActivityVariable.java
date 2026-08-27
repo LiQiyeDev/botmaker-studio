@@ -1,5 +1,6 @@
 package com.botmaker.studio.project.activity;
 
+import com.botmaker.plugin.api.ParameterGroup;
 import com.botmaker.plugin.api.value.ValueChoice;
 import com.botmaker.plugin.api.value.ValueShape;
 import com.botmaker.studio.plugin.PluginHost;
@@ -39,12 +40,18 @@ import java.util.List;
  * @param visibility  whether the bot's user is offered this at all; absent ⇒ {@link ParamVisibility#PUBLIC}
  * @param options     the declared set of values, for a shape that {@link ValueChoice#hasOptions has one}
  * @param bounds      the declared range, for a bounded number
+ * @param group       the {@link ParameterGroup} this is filed under — which plugin owns it, which section of
+ *                    the Parameters window it appears in, and which generated class it becomes a field of.
+ *                    Blank is the default plugin's (the SDK's {@code Parameters}), which is what makes every
+ *                    project written before groups existed read back correctly. Unlike {@link #tag()} this
+ *                    <em>is</em> a scope: a name has to be unique within a group, not across the project.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record ActivityVariable(String name,
                                @JsonSerialize(converter = ChoiceWire.ToWire.class) ValueChoice type,
                                List<String> value, String description,
-                               String tag, ParamVisibility visibility, List<String> options, Bounds bounds) {
+                               String tag, ParamVisibility visibility, List<String> options, Bounds bounds,
+                               String group) {
 
     /** The heading a variable with no tag is listed under. Not a real tag: nothing declares it. */
     public static final String GENERAL = "General";
@@ -58,6 +65,9 @@ public record ActivityVariable(String name,
         // until somebody remembered a dropdown existed.
         if (visibility == null) visibility = ParamVisibility.PUBLIC;
         if (bounds == null) bounds = Bounds.NONE;
+        // Absent means the default plugin's, which is every variable in every project written before groups
+        // existed — a discriminator that reads as the SDK's is what makes the partition need no migration.
+        group = group == null ? ParameterGroup.DEFAULT_ID : group.trim();
         // The declared set is normalised before the value is measured against it, so the choice a radio button
         // is labelled with and the choice the value holds are the same string.
         options = ValueWire.normalizeOptions(options, type, bounds);
@@ -87,9 +97,10 @@ public record ActivityVariable(String name,
             @com.fasterxml.jackson.annotation.JsonProperty("tag") String tag,
             @com.fasterxml.jackson.annotation.JsonProperty("visibility") ParamVisibility visibility,
             @com.fasterxml.jackson.annotation.JsonProperty("options") List<String> options,
-            @com.fasterxml.jackson.annotation.JsonProperty("bounds") Bounds bounds) {
+            @com.fasterxml.jackson.annotation.JsonProperty("bounds") Bounds bounds,
+            @com.fasterxml.jackson.annotation.JsonProperty("group") String group) {
         return new ActivityVariable(name, listShapeOf(ChoiceWire.toChoice(type), options), value, description,
-                tag, visibility, options, bounds);
+                tag, visibility, options, bounds, group);
     }
 
     /** {@link #fromJson}'s rule, alone so it can be read — and tested — without a file. */
@@ -108,7 +119,12 @@ public record ActivityVariable(String name,
     /** A fresh variable of {@code type} with a description. */
     public static ActivityVariable create(String name, ValueChoice type, String description) {
         return new ActivityVariable(name, type, ValueWire.defaultWire(type), description, "",
-                ParamVisibility.PUBLIC, List.of(), Bounds.NONE);
+                ParamVisibility.PUBLIC, List.of(), Bounds.NONE, ParameterGroup.DEFAULT_ID);
+    }
+
+    /** A fresh variable filed under one plugin's {@link ParameterGroup} rather than the default plugin's. */
+    public static ActivityVariable create(String name, ValueChoice type, String description, String group) {
+        return create(name, type, description).withGroup(group);
     }
 
     /** True when the bot's user is offered this variable in the Runner window. */
@@ -136,7 +152,7 @@ public record ActivityVariable(String name,
     }
 
     public ActivityVariable withValue(List<String> newValue) {
-        return new ActivityVariable(name, type, newValue, description, tag, visibility, options, bounds);
+        return new ActivityVariable(name, type, newValue, description, tag, visibility, options, bounds, group);
     }
 
     /** Convenience for the single-valued types, which is most of them. */
@@ -145,23 +161,37 @@ public record ActivityVariable(String name,
     }
 
     public ActivityVariable withName(String newName) {
-        return new ActivityVariable(newName, type, value, description, tag, visibility, options, bounds);
+        return new ActivityVariable(newName, type, value, description, tag, visibility, options, bounds, group);
     }
 
     public ActivityVariable withDescription(String newDescription) {
-        return new ActivityVariable(name, type, value, newDescription, tag, visibility, options, bounds);
+        return new ActivityVariable(name, type, value, newDescription, tag, visibility, options, bounds, group);
     }
 
     public ActivityVariable withTag(String newTag) {
-        return new ActivityVariable(name, type, value, description, newTag, visibility, options, bounds);
+        return new ActivityVariable(name, type, value, description, newTag, visibility, options, bounds, group);
     }
 
     public ActivityVariable withVisibility(ParamVisibility newVisibility) {
-        return new ActivityVariable(name, type, value, description, tag, newVisibility, options, bounds);
+        return new ActivityVariable(name, type, value, description, tag, newVisibility, options, bounds, group);
     }
 
     public ActivityVariable withBounds(Bounds newBounds) {
-        return new ActivityVariable(name, type, value, description, tag, visibility, options, newBounds);
+        return new ActivityVariable(name, type, value, description, tag, visibility, options, newBounds, group);
+    }
+
+    /**
+     * This variable filed under another {@link ParameterGroup} — which plugin owns it, and so which generated
+     * class it becomes a field of and whose namespace its name has to be unique in.
+     */
+    public ActivityVariable withGroup(String newGroup) {
+        return new ActivityVariable(name, type, value, description, tag, visibility, options, bounds, newGroup);
+    }
+
+    /** True when this variable belongs to {@code groupId}, reading a blank or null group as the default. */
+    @JsonIgnore
+    public boolean isIn(String groupId) {
+        return group.equals(groupId == null ? ParameterGroup.DEFAULT_ID : groupId.trim());
     }
 
     /**
@@ -182,7 +212,7 @@ public record ActivityVariable(String name,
         List<String> keptOptions =
                 newType.hasOptions() && newType.type().equals(type.type()) ? options : List.of();
         return new ActivityVariable(name, newType, ValueWire.defaultWire(newType), description, tag,
-                visibility, keptOptions, Bounds.NONE);
+                visibility, keptOptions, Bounds.NONE, group);
     }
 
     /**
@@ -193,6 +223,6 @@ public record ActivityVariable(String name,
      * does the pruning, since normalising is exactly that.
      */
     public ActivityVariable withOptions(List<String> newOptions) {
-        return new ActivityVariable(name, type, value, description, tag, visibility, newOptions, bounds);
+        return new ActivityVariable(name, type, value, description, tag, visibility, newOptions, bounds, group);
     }
 }

@@ -6,6 +6,35 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-27 — the Parameters window has one section per plugin, and a plugin can supply the editor
+  (plugin platform, phase 11).** `ActivityVariable` gains a ninth component, `group` — which plugin's section
+  it is filed under, which generated class it becomes a field of, and whose namespace its name must be unique
+  in. Blank is the default plugin's, so every project ever written reads back unchanged.
+  `ActivitiesConfig.nameClash` takes a group (the activities are checked in every section, the variables only
+  in theirs), and `variablesIn` / `variableGroups` / `qualifierOf` are the partition.
+  **`VariableHolder` is no longer the answer to "which class does this name qualify to"** — two values cannot
+  describe N generated parameter classes — so `ProjectAnalyzer.variableQualifier` asks the plugins, and
+  `VariablePicker` and `ExpressionMenu` were repointed onto it; the enum survives as the fallback and for
+  `ParametersSplit`, a migration that is about the two classes that existed when it was written.
+  `ParametersDialog` renders one section per `ParameterGroup` from `PluginHost.parameterGroups(pin)`, always
+  with a heading (an empty section reads as "nothing set up yet", an absent one as "this plugin has no
+  settings", and only the first is true) and including any group this project's file names that no installed
+  plugin claims — those variables are in the file and must not silently vanish while their plugin is
+  uninstalled. The add row grows a section picker once there is more than one plugin to choose between.
+  **The handle for a variable is now the pair `(group, name)` everywhere**: `indexOf`, `edit`, `editQuietly`,
+  `flushValues`, the drag payload, `pickVariables`, and `RunnerWindow.edited` — a name alone identifies a
+  variable only inside its own section, and a name-keyed lookup would write one plugin's value into
+  another's.
+  **`ValueEditors.editorFor` asks the plugins in its `default ->` arm** — after every built-in case, which is
+  the contract's "the host's own editors are consulted first" written as control flow. A plugin's editor is
+  chosen by the *Java* type through `HostValueContext.typeRef`, so the same predicate that recognises an
+  argument slot in a bot's source recognises a variable here: one editor, both places. An editor that throws
+  costs that row its widget and never the window.
+  New: `plugin/HostServices` (Studio's side of `StudioServices` — theme, capture, dialogs, paths, all of it
+  already existing capability given a shape a plugin can compile against; the window owner is a `Supplier`,
+  never a captured stale parent) and `plugin/HostValueContext`. `PluginHost` gained `slotEditors()` and the
+  `parameterGroups(pin)` / `parameterGroup(pin, id)` cache, both cleared on `swap()`.
+
 - **2026-08-27 — `VariableWire` is deleted and `BotType` narrows to what a signature can spell (plugin
   platform, phase 10b).** `project/activity/VariableWire` is gone; `ValueWire` is the whole of the wire layer
   and every reader goes through it. `palette/BotType` keeps its 25 constants, `Choice`, `Shape` and the

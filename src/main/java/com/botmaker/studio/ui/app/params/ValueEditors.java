@@ -1,7 +1,11 @@
 package com.botmaker.studio.ui.app.params;
 
+import com.botmaker.plugin.api.SlotEditor;
 import com.botmaker.plugin.api.value.ValueType;
 import com.botmaker.sdk.authoring.WireText;
+import com.botmaker.studio.plugin.HostServices;
+import com.botmaker.studio.plugin.HostValueContext;
+import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.activity.Bounds;
 import com.botmaker.studio.project.activity.ValueWire;
@@ -76,8 +80,13 @@ import java.util.regex.Pattern;
  * <p><b>Dispatch is on the type's {@linkplain ValueType#id() id}, and every arm has a fallback.</b> The
  * vocabulary is an open registry now (plugin-platform phase 10a), so there is no enum left to switch
  * exhaustively over and a type nothing here recognises — including one no plugin registered at all — gets
- * the plain text field rather than nothing. Phase 11 is where a plugin supplies its own editor instead; until
- * then these ids are the SDK's, read the same way {@code activities.json} reads them.
+ * the plain text field rather than nothing.
+ *
+ * <p><b>A plugin fills that gap, and only that gap</b> (phase 11): every {@code case} below is a host editor,
+ * and {@link #fromPlugin} is asked in the {@code default} arm — after all of them, which is the contract's
+ * "the host's own editors are consulted first" written as control flow. A plugin's editor is chosen by the
+ * <em>Java</em> type, the same predicate that recognises an argument slot in a bot's source, so an editor is
+ * written once and appears in both places.
  */
 public final class ValueEditors {
 
@@ -182,6 +191,8 @@ public final class ValueEditors {
                 yield new Editor(field, () -> text(field));
             }
             default -> {
+                Editor contributed = fromPlugin(type, value, ctx);
+                if (contributed != null) yield contributed;
                 // TEXT, any registered type with no editor of its own, and — read-only — a type nothing
                 // registered. The last is why the field can be disabled at all: the host cannot offer a
                 // meaningful editor for a value it cannot read, and letting somebody type into it would
@@ -195,6 +206,46 @@ public final class ValueEditors {
                 yield new Editor(field, () -> text(field));
             }
         };
+    }
+
+    /**
+     * The first plugin-contributed editor that claims {@code type}, or null when none does.
+     *
+     * <p><b>It is consulted last, and that placement is the contract's rule made real.</b>
+     * {@link com.botmaker.plugin.api.SlotEditor} documents that the host's own editors come first; every arm
+     * above this one is a host editor, so "the {@code default} arm" and "after everything built in" are the
+     * same statement. A plugin therefore cannot take the duration field away from the SDK's own
+     * {@code DURATION} — it can only supply an editor for a type nothing here has one for, which is every type
+     * a plugin is entitled to introduce.
+     *
+     * <p><b>One editor serves this window and a slot in the source.</b> The predicate is written against a
+     * {@link com.botmaker.plugin.api.TypeRef} — the Java type — so the same {@code matches} that recognises a
+     * {@code com.acme.Channel} argument in a bot's source recognises a variable of that type here.
+     * {@link HostValueContext#typeRef} is the translation, and it is the whole of the bridge.
+     *
+     * <p>The context holds the value: an editor writes through {@code set(…)} and the returned {@code read}
+     * asks the context rather than the widget, which is what lets a plugin build any node it likes without
+     * telling the host how to read it back.
+     */
+    private static Editor fromPlugin(ValueType type, String wire, Context ctx) {
+        List<SlotEditor> editors = PluginHost.slotEditors();
+        if (editors.isEmpty()) return null;
+        HostValueContext context = HostValueContext.of(type, List.of(wire == null ? "" : wire),
+                HostServices.forProject(ctx.project()), null);
+        for (SlotEditor editor : editors) {
+            try {
+                if (!editor.matches(context)) continue;
+                Node node = editor.create(context);
+                if (node != null) return new Editor(node, context::single);
+            } catch (RuntimeException | LinkageError e) {
+                // A plugin's editor is third-party code drawn inside our dialog: one that throws must cost the
+                // user that row's widget, never the window. The next editor is offered the value, and the
+                // built-in text field is still behind them all.
+                System.err.println("Plugin slot editor failed for type " + (type == null ? "?" : type.id())
+                                   + ": " + e);
+            }
+        }
+        return null;
     }
 
     // --- one declared option --------------------------------------------------------------------------------

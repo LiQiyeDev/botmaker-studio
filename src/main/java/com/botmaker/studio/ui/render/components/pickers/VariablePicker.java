@@ -72,7 +72,7 @@ public final class VariablePicker {
             // qualifier already in the slot: swapping a flag for a value moves the reference between the two
             // generated classes, and keeping the old qualifier would write Activities.REST.
             context.getCodeEditor().replaceWithFieldReference(
-                    arg.node(), context.getProjectAnalyzer().variableHolder(picked).className(), picked);
+                    arg.node(), context.getProjectAnalyzer().variableQualifier(picked), picked);
         });
         return combo;
     }

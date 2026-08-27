@@ -418,6 +418,14 @@
     -fx-padding: 0 0 10 0;
 }
 
+/* One plugin's section in the Parameters dialog: which plugin's parameters these are. Quieter than the
+   dialog's own title, which names the category being looked at — the section is the second axis. */
+.param-section-heading {
+    -fx-font-weight: bold;
+    -fx-text-fill: -bm-muted;
+    -fx-padding: 4 0 2 0;
+}
+
 /* ▲ ▼ ✕ on a repeated row: square, quiet, and the same size as each other. */
 .row-icon-button {
     -fx-min-width: 28;

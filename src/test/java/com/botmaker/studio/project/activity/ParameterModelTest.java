@@ -367,6 +367,38 @@ class ParameterModelTest {
     }
 
     @Test
+    void theNamespaceIsThePluginSectionAndNotTheProject() {
+        // Phase 11: a name has to be unique inside its own plugin's section, because each section becomes
+        // its own generated class. Two plugins may both call something "timeout" and neither shadows the
+        // other — which the flat namespace made impossible.
+        ActivitiesConfig config = ActivitiesConfig.of(
+                List.of(ActivityDefinition.create("Mining", "")),
+                List.of(variable("speed", WHOLE_NUMBER),
+                        variable("speed", WHOLE_NUMBER).withGroup("discord")));
+
+        assertTrue(config.nameClash("speed", null), "the default section's own name is taken");
+        assertTrue(config.nameClash("speed", null, "discord"), "and so is the other section's");
+        assertFalse(config.nameClash("speed", null, "steam"), "a third plugin's namespace is empty");
+        assertTrue(config.nameClash("Mining", null, "discord"),
+                "the activity stubs are the host's — one set, in every section");
+        assertEquals(List.of("speed"),
+                config.variablesIn("discord").stream().map(ActivityVariable::name).toList());
+        assertEquals(List.of("", "discord"), config.variableGroups());
+    }
+
+    @Test
+    void aVariableWithNoSectionBelongsToTheDefaultPlugin() {
+        // Every variable in every project written before sections existed. The absent field reads as the
+        // SDK's group, which is what makes the partition need no migration.
+        ActivityVariable v = variable("speed", WHOLE_NUMBER);
+
+        assertEquals("", v.group());
+        assertTrue(v.isIn(null));
+        assertTrue(v.isIn(""));
+        assertFalse(v.isIn("discord"));
+    }
+
+    @Test
     void theRunnerIsOfferedThePublicVariablesGroupedByTag() {
         ActivityVariable speed = variable("speed", WHOLE_NUMBER);
         ActivityVariable retryDelay = variable("retryDelay", WHOLE_NUMBER)
