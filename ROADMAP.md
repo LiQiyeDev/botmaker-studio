@@ -6,6 +6,33 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-27 — a plugin can draw a slot on the canvas, and the first three SDK editors leave (plugin
+  platform, phase 12a).** `PickerRegistry` becomes a **three-tier merge**: its own `PICKERS`, then every loaded
+  plugin's `SlotEditor`s (`PluginPickers`), then a new `FALLBACKS` list holding the JDK types and the enum
+  dropdown. The split is not tidiness — it is the two ends that cannot move. `VariablePicker` has to lead, or a
+  slot holding a project variable is claimed by type and offered a literal instead of the variable it holds;
+  the enum dropdown has to trail, because it claims *any* enum it can resolve and would shut a plugin out of
+  its own type. Everything between is negotiable, and the SDK's editors now sit there like anyone's.
+  - **`HostSlotContext`** is the other half of what phase 11 started: a `SlotContext` over `ValueSlot` +
+    `CodeEditorService`. With `HostValueContext` (the Parameters row) it completes the contract's promise —
+    one editor, written once, drawn in both places. It holds the **slot**, never the expression, because
+    `ValueSlot` re-resolves on every call and a stale node handed to `ASTRewrite` throws *Node is not inside
+    the AST*; that class of bug is unreachable rather than guarded against.
+  - **`HostServices` grows** `pickPoint`, `grabTargetFrame`, `sampleFromTarget`, `chooseSource`,
+    `defaultSource`. All five are adapters over things Studio already had — `ScreenCaptureService`,
+    `ColorSampler`, `GameFrame`, the visual `CaptureSourcePicker` — and `describe(CaptureTarget)` is the whole
+    of the new idea: Studio says what a source *is*, the plugin decides what it is *written as*.
+  - **`RectPicker`, `PointPicker` and `SizePicker` are deleted**, and `com.botmaker.studio.game` moved to
+    `botmaker-shared` (`ToolbarManager` and `LaunchTargetDialog` just change their imports).
+    `CoordinatePickerLabelTest` moved to the SDK as `GeometryLabelTest` — same assertions, and no JavaFX
+    toolkit needed now that the label is read off source text rather than a JDT node.
+  - **A plugin's editor is third-party code drawn inside our window.** One that throws costs the user that
+    slot's widget and nothing else: the next editor is offered the value, and the generic pill is behind them
+    all. Same rule the Parameters window already had.
+  - **Owed to phase 12b:** the other ten editors, Studio's `Assets` implementation over
+    `ImageTemplateLibrary`, and the `PickerGalleryWindow` repoint. Until then Studio still owns Precision,
+    LaunchTarget, CaptureSource, ImageTemplate(Group), Duration, Emulator, Game, LaunchOption and BotSettings.
+
 - **2026-08-27 — the Parameters window has one section per plugin, and a plugin can supply the editor
   (plugin platform, phase 11).** `ActivityVariable` gains a ninth component, `group` — which plugin's section
   it is filed under, which generated class it becomes a field of, and whose namespace its name must be unique

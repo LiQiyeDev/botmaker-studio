@@ -6,7 +6,12 @@ import com.botmaker.plugin.api.Region;
 import com.botmaker.plugin.api.StudioServices;
 import com.botmaker.plugin.api.Theme;
 import com.botmaker.studio.project.ProjectConfig;
+import com.botmaker.studio.project.StudioProjectSettings;
+import com.botmaker.studio.project.capture.CaptureRegion;
+import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.services.ScreenCaptureService;
+import com.botmaker.studio.ui.app.capture.ColorSampler;
+import com.botmaker.studio.ui.app.capture.GameFrame;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import com.botmaker.studio.util.NativeFileDialog;
 import javafx.scene.Parent;
@@ -147,6 +152,14 @@ public final class HostServices implements StudioServices {
         }
 
         @Override
+        public void pickPoint(Consumer<Region> onPicked) {
+            if (capture == null || onPicked == null) return;
+            // A Region with no size: the contract has one coordinate type, and a point is a region whose
+            // width and height are nobody's business. Cheaper than a second record for two ints.
+            capture.pickPoint(owner.get(), p -> onPicked.accept(new Region(p[0], p[1], 0, 0)));
+        }
+
+        @Override
         public void sampleColor(Consumer<Color> onSampled) {
             if (capture == null || onSampled == null) return;
             capture.pickColor(owner.get(), pick -> {
@@ -171,6 +184,78 @@ public final class HostServices implements StudioServices {
         @Override
         public Image toFxImage(BufferedImage image) {
             return ScreenCaptureService.toFxImage(image);
+        }
+
+        /**
+         * The same grab {@link #grabFrame} makes, kept as AWT pixels and carrying the target's label.
+         *
+         * <p>Silent on failure by design: {@link ScreenCaptureService#captureDefaultTargetAsync} hands back
+         * null when there is no target or the grab came back blank, and the contract says a callback that
+         * cannot be satisfied is simply not invoked. What it must never do is fall back to the desktop — a
+         * frame of the wrong thing answers a question the editor did not ask.
+         */
+        @Override
+        public void grabTargetFrame(Consumer<Frame> onGrabbed) {
+            if (capture == null || onGrabbed == null) return;
+            capture.captureDefaultTargetAsync(owner.get(), shot -> {
+                if (shot != null && shot.image() != null) {
+                    onGrabbed.accept(new Frame(shot.image(), shot.label()));
+                }
+            });
+        }
+
+        /**
+         * Grabs a frame, then opens the eyedropper on it — {@link ColorSampler#openOn} rather than
+         * {@link ColorSampler#open}, because that overload wants a {@code CodeEditorService} and this class
+         * deliberately holds only a project.
+         */
+        @Override
+        public void sampleFromTarget(Consumer<Sample> onSampled) {
+            if (onSampled == null) return;
+            grabTargetFrame(frame -> ColorSampler.openOn(new GameFrame(frame.image(), frame.label()),
+                    owner.get(),
+                    picked -> onSampled.accept(new Sample(frame, picked.color(), picked.spread()))));
+        }
+
+        @Override
+        public void chooseSource(Consumer<SourceChoice> onChosen) {
+            if (onChosen == null) return;
+            new com.botmaker.studio.ui.app.capture.CaptureSourcePicker(owner.get(), true).showAndWait()
+                    .ifPresent(selection -> onChosen.accept(switch (selection) {
+                        case com.botmaker.studio.ui.app.capture.CaptureSourcePicker.Selection.ProjectDefault
+                                ignored -> SourceChoice.projectDefault();
+                        case com.botmaker.studio.ui.app.capture.CaptureSourcePicker.Selection.Concrete c ->
+                                describe(c.target(), c.region());
+                    }));
+        }
+
+        @Override
+        public SourceChoice defaultSource() {
+            if (project == null) return SourceChoice.desktop(null);
+            return describe(StudioProjectSettings.read(project.resourcesRoot()).defaultTarget(), null);
+        }
+
+        /**
+         * A {@link CaptureTarget} as the contract's structural description of it.
+         *
+         * <p>This is the whole of the translation the plugin platform needs here: Studio knows what a source
+         * <em>is</em>, the plugin knows what to <em>write</em>, and neither has to learn the other's
+         * vocabulary. A null target is the whole desktop, exactly as it is everywhere else in Studio.
+         */
+        private static SourceChoice describe(CaptureTarget target, CaptureRegion region) {
+            Region narrowed = region != null && region.isValid()
+                    ? new Region(region.x(), region.y(), region.width(), region.height())
+                    : null;
+            if (target instanceof CaptureTarget.ScreenTarget screen) {
+                return SourceChoice.monitor(screen.index(), narrowed);
+            }
+            if (target instanceof CaptureTarget.WindowTarget window) {
+                return SourceChoice.window(window.titleSubstring(), narrowed);
+            }
+            if (target instanceof CaptureTarget.EmulatorTarget emulator) {
+                return SourceChoice.emulator(emulator.instanceName(), narrowed);
+            }
+            return SourceChoice.desktop(narrowed);
         }
     }
 

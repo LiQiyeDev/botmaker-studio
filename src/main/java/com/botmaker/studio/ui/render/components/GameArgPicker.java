@@ -1,8 +1,8 @@
 package com.botmaker.studio.ui.render.components;
 
 import com.botmaker.studio.core.ValueSlot;
-import com.botmaker.studio.game.GameLibraryProvider;
-import com.botmaker.studio.game.InstalledGame;
+import com.botmaker.shared.game.GameLibraryProvider;
+import com.botmaker.shared.game.InstalledGame;
 import com.botmaker.studio.services.CodeEditorService;
 import javafx.application.Platform;
 import javafx.scene.Node;

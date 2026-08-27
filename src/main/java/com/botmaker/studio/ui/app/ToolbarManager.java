@@ -2,8 +2,8 @@ package com.botmaker.studio.ui.app;
 
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
-import com.botmaker.studio.game.GameLibraries;
-import com.botmaker.studio.game.InstalledGame;
+import com.botmaker.shared.game.GameLibraries;
+import com.botmaker.shared.game.InstalledGame;
 import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.project.capture.CaptureTargetNames;
 import com.botmaker.studio.project.launch.QuickLaunch;

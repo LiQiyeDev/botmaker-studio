@@ -1,11 +1,11 @@
 package com.botmaker.studio.ui.app;
 
 import com.botmaker.shared.config.CaptureSourceKind;
-import com.botmaker.studio.game.EpicLibraryScanner;
-import com.botmaker.studio.game.FaugusLibraryScanner;
-import com.botmaker.studio.game.GameLibraryProvider;
-import com.botmaker.studio.game.HeroicLibraryScanner;
-import com.botmaker.studio.game.SteamLibraryScanner;
+import com.botmaker.shared.game.EpicLibraryScanner;
+import com.botmaker.shared.game.FaugusLibraryScanner;
+import com.botmaker.shared.game.GameLibraryProvider;
+import com.botmaker.shared.game.HeroicLibraryScanner;
+import com.botmaker.shared.game.SteamLibraryScanner;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectCreator;
 import com.botmaker.studio.project.ProjectMode;

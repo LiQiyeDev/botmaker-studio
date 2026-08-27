@@ -1,7 +1,7 @@
 package com.botmaker.studio.ui.render.components;
 
-import com.botmaker.studio.game.GameLibraryProvider;
-import com.botmaker.studio.game.InstalledGame;
+import com.botmaker.shared.game.GameLibraryProvider;
+import com.botmaker.shared.game.InstalledGame;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.geometry.Insets;

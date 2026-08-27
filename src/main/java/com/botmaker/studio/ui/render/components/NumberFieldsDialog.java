@@ -12,8 +12,12 @@ import javafx.stage.Window;
 import java.util.function.Consumer;
 
 /**
- * A tiny modal popup with one integer {@link TextField} per named field — the manual-entry path for the
- * {@link RectPicker} / {@link PointPicker}. On OK it hands back the parsed values (missing/blank → 0).
+ * A tiny modal popup with one integer {@link TextField} per named field — the manual-entry path behind a
+ * picker's "Edit values…". On OK it hands back the parsed values (missing/blank → 0).
+ *
+ * <p>The geometry pickers it was written for moved to the SDK on 2026-08-27 and use the plugin toolkit's
+ * {@code Modals.numbers}, which is this dialog generalised. What still calls this one is Studio's own
+ * remaining pickers; it goes when the last of them does.
  */
 public final class NumberFieldsDialog {
 
