@@ -6,6 +6,18 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-27 — the upgrade reader learns the contract's pointer spelling (plugin platform, phase 8c.4).**
+  `@ReplacedBy`, `@Replaces` and `@Since` moved from `com.botmaker.sdk.api.meta` to
+  `com.botmaker.plugin.api.meta`, so `services/SdkApiModel` now reads **three** spellings through the
+  `either(…)` helper it already had: the contract's, `com.botmaker.sdk.api.meta.*` (a 1.2.0 bot, or the
+  deprecated shims), and the pre-1.1.0 `com.botmaker.sdk.api.*`. Nothing else in the upgrade path changed —
+  the annotations' grammar, `SdkPairing`, `CallMigrator` and the dialog are untouched, which is the point of
+  reading pointers by name out of the jar rather than resolving a class. **A pointer may now cross modules**
+  (the SDK's shims point at the contract), and the `@version` on such a `@Replaces` entry is the **old**
+  module's — the last SDK release the old spelling existed in. **Known gap:** `SdkFixtures.jarOf` roots every
+  fixture package under `com.botmaker.sdk.api`, so the contract spelling has no fixture; the two older ones
+  stay covered, and the helper is spelling-agnostic.
+
 - **2026-08-26 — the flow editor gets a `DISABLED` port (plugin platform, phase 9).** Every activity card
   now grows one more output port, last after its outcomes: where the run goes when that activity is
   **switched off**. The destination was always there in the generated `FlowGraph.node` — but the emitter
