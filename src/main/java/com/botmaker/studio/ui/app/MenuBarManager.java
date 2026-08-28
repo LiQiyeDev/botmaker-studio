@@ -30,6 +30,7 @@ public class MenuBarManager {
     private Consumer<Void> onSelectProject;
     private Runnable onManageLibraries;
     private Runnable onManagePlugins;
+    private Runnable onReloadPlugins;
     private Runnable onUpgradeSdk;
     private Runnable onModernise;
     private Runnable onManageImports;
@@ -207,6 +208,15 @@ public class MenuBarManager {
             if (onManagePlugins != null) onManagePlugins.run();
         });
 
+        // The plugin author's loop: rebuild into ~/.m2, reload, see the change. Nothing about the project
+        // changes — the coordinate resolves to the same jar path — so this is deliberately not a library
+        // edit, and it is here rather than hidden behind a rebuild because the jar's bytes are the only
+        // thing that moved and nothing else would notice.
+        MenuItem reloadPluginsItem = new MenuItem("Reload Plugins");
+        reloadPluginsItem.setOnAction(e -> {
+            if (onReloadPlugins != null) onReloadPlugins.run();
+        });
+
         // Beside Manage Libraries, not inside it: the SDK version is the one library whose change can stop
         // the bot compiling, and that deserves a report rather than a cell edit.
         MenuItem upgradeSdkItem = new MenuItem("Upgrade SDK...");
@@ -285,7 +295,8 @@ public class MenuBarManager {
 
         projectMenu.getItems().addAll(
                 projectSetupItem, new SeparatorMenuItem(),
-                manageLibrariesItem, managePluginsItem, upgradeSdkItem, moderniseItem, manageImportsItem,
+                manageLibrariesItem, managePluginsItem, reloadPluginsItem, upgradeSdkItem, moderniseItem,
+                manageImportsItem,
                 new SeparatorMenuItem(),
                 activityFlowItem, parametersItem, manageResourcesItem,
                 new SeparatorMenuItem(),
@@ -641,6 +652,11 @@ public class MenuBarManager {
     /** Sets the callback for when "Manage Plugins..." is clicked — the registry browser. */
     public void setOnManagePlugins(Runnable callback) {
         this.onManagePlugins = callback;
+    }
+
+    /** Sets the callback for when "Reload Plugins" is clicked — re-resolve and re-bind, no pom write. */
+    public void setOnReloadPlugins(Runnable callback) {
+        this.onReloadPlugins = callback;
     }
 
     /**

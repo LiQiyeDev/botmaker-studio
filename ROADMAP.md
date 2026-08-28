@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-28 — a plugin can be developed without publishing it (Part F, phase A).** The SDK has always
+  been testable through `~/.m2` with no tag pushed; a plugin now is too, in two pieces.
+  - **Project ▸ Reload Plugins** (`LibraryService.reloadPlugins`, `MenuBarManager`, `StudioActions`) —
+    re-resolve, re-bind, refresh the index, publish `LibrariesChangedEvent`, and **write no pom**. A rebuilt
+    plugin resolves to the same jar path, so nothing about the project changed; what moved is the jar's
+    bytes, and `PluginHost.bind`'s fresh `URLClassLoader` is all it takes to see them. It reports the plugins
+    it found, because a reload finding nothing new is indistinguishable from one that did nothing.
+  - **Local builds in Manage Plugins** (`MavenService.localPluginBuilds`, `LocalPluginBuildsTest`) — the
+    `~/.m2` scan finds a plugin by the one fact that defines one, `META-INF/services/…StudioPlugin` inside a
+    `*SNAPSHOT` jar, so there is no convention or list to keep in step. Gated on `AppVersion.isDevBuild()`
+    like `localSdkVersions()`. A local build **replaces** the registry's version for its coordinate rather
+    than adding a second row; an unpublished one is a row of its own at the top, labelled `(local build)`.
+
 - **2026-08-28 — the bundled plugin set was not loading at all, and nothing said so.** Studio's plugin #1 is
   the SDK, whose `SdkPlugin` extends the toolkit's `AbstractStudioPlugin`; the SDK declares
   `botmaker-plugin-toolkit` `optional`, so it is **not transitive**, so Studio's classpath carried no toolkit.

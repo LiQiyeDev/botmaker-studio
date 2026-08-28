@@ -69,4 +69,30 @@ public final class LibraryService {
             eventBus.publish(new LibrariesChangedEvent(userLibs));
         });
     }
+
+    /**
+     * Re-resolves the classpath and re-binds the plugins, without touching the pom.
+     *
+     * <p><b>What this is for:</b> a plugin author rebuilds their plugin into {@code ~/.m2} and wants Studio to
+     * pick it up. The project's dependencies have not changed — the same coordinate resolves to the same jar
+     * <em>path</em> — so there is nothing to write, and calling {@link #updateLibraries} with the libraries
+     * that are already declared would rewrite the pom to say what it already says.
+     *
+     * <p>It works because the jar's <b>bytes</b> are what changed: {@link PluginHost#bind} closes the previous
+     * loader and opens a fresh one over the same paths, rebuilding every memoised catalog behind it. No
+     * restart, and no tag pushed — the same property the SDK has had all along through {@code ~/.m2}.
+     *
+     * <p>Publishes {@link LibrariesChangedEvent} for the same reason a real library change does: every
+     * listener that reacts to the palette moving has to react to this too.
+     */
+    public CompletableFuture<Void> reloadPlugins() {
+        return CompletableFuture.runAsync(() -> {
+            List<String> classpath = MavenService.resolveClasspath(config.projectPath());
+            state.setResolvedClasspath(classpath);
+            PluginHost.bind(classpath);
+            typeIndex.refresh(classpath);
+
+            eventBus.publish(new LibrariesChangedEvent(currentLibraries()));
+        });
+    }
 }

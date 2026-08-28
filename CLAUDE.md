@@ -683,6 +683,26 @@ plugin has and a third party's plugin does not — the back door the platform ex
   tested headlessly — the same split as `BlockTree`. It ignores unknown JSON properties because **this Studio
   is the reader that lags**: a field a newer `botmaker publish` writes must not lose the whole catalog.
 
+**The plugin author's loop is *Reload Plugins* plus `~/.m2`, and neither needs a release (2026-08-28).**
+The SDK has always been testable without pushing a tag — `mvn install`, and Maven checks `~/.m2` before
+JitPack — and a plugin now is too:
+
+- **`LibraryService.reloadPlugins()` writes no pom.** The coordinate resolves to the same jar *path* before
+  and after a rebuild, so there is nothing to write; what changed is the jar's **bytes**, and
+  `PluginHost.bind` opening a fresh `URLClassLoader` over the same paths is the whole of what it takes to
+  see them. It is deliberately not `updateLibraries(currentLibraries(), currentSdkVersion())`, which would
+  rewrite the pom to say what it already says. *Project ▸ Reload Plugins* reports the plugins it found,
+  because a reload that found nothing new looks exactly like one that did nothing.
+- **`MavenService.localPluginBuilds()` finds them by the service file, not by a convention.** A candidate is
+  a `*SNAPSHOT` directory in `~/.m2` whose jar carries
+  `META-INF/services/com.botmaker.plugin.api.StudioPlugin` — the entry `ServiceLoader` itself reads — so
+  nothing here keeps a list, a naming rule or a registry in step with anything. Gated on
+  `AppVersion.isDevBuild()`, exactly like `localSdkVersions()`.
+- **In Manage Plugins a local build *replaces* the registry's version for that coordinate**, rather than
+  adding a second row: two rows for one artifact would offer two versions of it, and a developer who just
+  built one wants the one they built. A local build nobody has published becomes a row of its own, at the
+  top.
+
 **Studio carries `botmaker-plugin-toolkit` at `runtime` scope, and the reason is a defect worth
 remembering (2026-08-28).** Studio's own plugin #1 is the SDK, whose `SdkPlugin` extends the toolkit's
 `AbstractStudioPlugin`; the SDK declares the toolkit `optional`, so it is **not transitive**, so Studio's

@@ -140,6 +140,95 @@ public final class MavenService {
         }
     }
 
+    /** A plugin built into {@code ~/.m2} and not published anywhere — what a plugin author is working on. */
+    public record LocalPluginBuild(String groupId, String artifactId, String version) {
+
+        /** {@code group:artifact}, which is how a registry entry and a pom row both name a dependency. */
+        public String coordinate() {
+            return groupId + ":" + artifactId;
+        }
+    }
+
+    /**
+     * The plugins installed as dev builds in {@code ~/.m2}, newest first.
+     *
+     * <p>The counterpart of {@link #localSdkVersions()} for the <em>other</em> kind of local build: a plugin
+     * author runs {@code mvn install} and wants Studio to offer what they just built, without publishing it,
+     * tagging it or hand-editing a pom.
+     *
+     * <p><b>What makes a jar a plugin is the service file, and nothing else asks.</b> A candidate is
+     * accepted when its jar carries {@code META-INF/services/com.botmaker.plugin.api.StudioPlugin} — the
+     * very entry {@code ServiceLoader} reads — so this needs no registry, no naming convention and no list
+     * to keep in step with anything. A local build of the SDK is therefore listed too, correctly: the SDK
+     * <em>is</em> a plugin, and its version is Manage Libraries' business rather than this scan's.
+     *
+     * <p>Only {@code *SNAPSHOT} versions are considered, for the same reason {@link #localSdkVersions()}
+     * considers only those: a released version in {@code ~/.m2} is simply a download, not something somebody
+     * is working on. Best-effort throughout — an unreadable jar or directory yields fewer rows, never an
+     * exception.
+     */
+    public static List<LocalPluginBuild> localPluginBuilds() {
+        // Developer-only affordance, exactly like localSdkVersions(): a packaged Studio must never surface
+        // whatever happens to be in the user's own ~/.m2.
+        if (!AppVersion.isDevBuild()) return List.of();
+        return localPluginBuilds(Path.of(System.getProperty("user.home"), ".m2", "repository"));
+    }
+
+    /** The scan itself, with the repository root given, so a test can point it at a tree it built. */
+    static List<LocalPluginBuild> localPluginBuilds(Path repositoryRoot) {
+        if (!Files.isDirectory(repositoryRoot)) return List.of();
+        List<Path> versionDirs = new ArrayList<>();
+        collectSnapshotDirs(repositoryRoot, versionDirs, 0);
+        List<LocalPluginBuild> found = new ArrayList<>();
+        versionDirs.sort(Comparator.comparingLong(MavenService::lastModifiedMillis).reversed());
+        for (Path versionDir : versionDirs) {
+            String version = versionDir.getFileName().toString();
+            Path artifactDir = versionDir.getParent();
+            if (artifactDir == null || artifactDir.getParent() == null) continue;
+            String artifactId = artifactDir.getFileName().toString();
+            Path jar = versionDir.resolve(artifactId + "-" + version + ".jar");
+            if (!Files.isRegularFile(jar) || !declaresPlugin(jar)) continue;
+            String groupId = repositoryRoot.relativize(artifactDir.getParent()).toString()
+                    .replace('\\', '/').replace('/', '.');
+            if (groupId.isBlank()) continue;
+            found.add(new LocalPluginBuild(groupId, artifactId, version));
+        }
+        return List.copyOf(found);
+    }
+
+    /**
+     * Every {@code *SNAPSHOT} directory under {@code dir}, without listing the files in any other.
+     *
+     * <p>A local repository is tens of thousands of files and a handful of snapshots, so this walks
+     * directories only and stops descending the moment it finds one — a snapshot directory holds an
+     * artifact's files, never another artifact.
+     */
+    private static void collectSnapshotDirs(Path dir, List<Path> out, int depth) {
+        // A Maven coordinate is deep but not unbounded; the cap is what stops a symlink loop rather than a
+        // real repository, which never approaches it.
+        if (depth > 12) return;
+        try (var children = Files.newDirectoryStream(dir, Files::isDirectory)) {
+            for (Path child : children) {
+                if (child.getFileName().toString().contains("SNAPSHOT")) {
+                    out.add(child);
+                } else {
+                    collectSnapshotDirs(child, out, depth + 1);
+                }
+            }
+        } catch (IOException | RuntimeException e) {
+            // An unreadable directory is one fewer candidate, never a failed scan.
+        }
+    }
+
+    /** Whether {@code jar} declares a {@code StudioPlugin} the way {@code ServiceLoader} finds one. */
+    private static boolean declaresPlugin(Path jar) {
+        try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(jar.toFile())) {
+            return zip.getEntry("META-INF/services/com.botmaker.plugin.api.StudioPlugin") != null;
+        } catch (IOException | RuntimeException e) {
+            return false;
+        }
+    }
+
     /** Dependencies every generated project gets (mirrors the old build.gradle). */
     private record Dep(String groupId, String artifactId, String version, String scope) {}
 

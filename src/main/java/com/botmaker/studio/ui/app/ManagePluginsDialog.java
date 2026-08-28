@@ -3,6 +3,7 @@ package com.botmaker.studio.ui.app;
 import com.botmaker.studio.project.UserLibrary;
 import com.botmaker.studio.services.JitPackSearch;
 import com.botmaker.studio.services.LibraryService;
+import com.botmaker.studio.services.MavenService;
 import com.botmaker.studio.sharing.PluginRegistry;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import com.botmaker.studio.util.BrowserLauncher;
@@ -27,7 +28,9 @@ import javafx.stage.Stage;
 import javafx.stage.Window;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -65,6 +68,9 @@ public final class ManagePluginsDialog {
 
     /** The project's libraries as they stand, re-read after every change so the badges stay honest. */
     private List<UserLibrary> installed = List.of();
+
+    /** The coordinates a dev build in {@code ~/.m2} answers for, so a row can say where its version came from. */
+    private final Set<String> localCoordinates = new HashSet<>();
 
     private Stage stage;
 
@@ -122,14 +128,55 @@ public final class ManagePluginsDialog {
     }
 
     private void load() {
-        registry.browse().thenAccept(plugins -> Platform.runLater(() -> {
-            all.clear();
-            all.addAll(plugins);
-            refilter(searchField.getText());
-            list.setPlaceholder(new Label(plugins.isEmpty()
-                    ? "No plugins listed — the registry is empty or could not be reached."
-                    : "No plugin matches that search."));
-        }));
+        // The ~/.m2 scan opens jars, so it is not the FX thread's work; it is also the half that must not
+        // wait on the network, since a plugin author testing an unpublished build may have no registry at
+        // all. Both halves are joined before anything is shown so the rows never re-order under the mouse.
+        CompletableFuture<List<MavenService.LocalPluginBuild>> local =
+                CompletableFuture.supplyAsync(MavenService::localPluginBuilds);
+        registry.browse().thenCombine(local, (plugins, builds) -> merge(plugins, builds))
+                .thenAccept(rows -> Platform.runLater(() -> {
+                    all.clear();
+                    all.addAll(rows);
+                    refilter(searchField.getText());
+                    list.setPlaceholder(new Label(rows.isEmpty()
+                            ? "No plugins listed — the registry is empty or could not be reached."
+                            : "No plugin matches that search."));
+                }));
+    }
+
+    /**
+     * The registry's entries, with what is built locally taking precedence over what is published.
+     *
+     * <p>A local build of a coordinate the registry also lists <b>replaces that entry's version</b> rather
+     * than adding a second row: two rows for one artifact would offer to install two versions of it, and a
+     * developer who has just built one wants the one they built. A local build nobody has published yet
+     * becomes a row of its own, at the top, because it is the row they came here for.
+     *
+     * <p>Only ever populated in a dev build — {@link MavenService#localPluginBuilds()} answers empty
+     * otherwise — so a released Studio shows exactly the registry and nothing else.
+     */
+    private List<PluginRegistry.Plugin> merge(List<PluginRegistry.Plugin> published,
+                                              List<MavenService.LocalPluginBuild> builds) {
+        localCoordinates.clear();
+        List<PluginRegistry.Plugin> rows = new ArrayList<>(published);
+        for (MavenService.LocalPluginBuild build : builds) {
+            localCoordinates.add(build.coordinate());
+            int at = -1;
+            for (int i = 0; i < rows.size(); i++) {
+                if (rows.get(i).coordinate().equals(build.coordinate())) at = i;
+            }
+            if (at >= 0) {
+                PluginRegistry.Plugin entry = rows.get(at);
+                rows.set(at, new PluginRegistry.Plugin(entry.id(), entry.name(), entry.coordinate(),
+                        entry.repo(), entry.description(), entry.tags(), entry.minContractVersion(),
+                        entry.valueTypeIds(), build.version(), entry.verifiedAt()));
+            } else {
+                rows.add(0, new PluginRegistry.Plugin(build.coordinate(), build.artifactId(),
+                        build.coordinate(), "", "Built locally into ~/.m2 — not published.", List.of(), "",
+                        List.of(), build.version(), ""));
+            }
+        }
+        return rows;
     }
 
     private void refilter(String query) {
@@ -242,7 +289,11 @@ public final class ManagePluginsDialog {
             }
             Label name = new Label(plugin.name().isBlank() ? plugin.id() : plugin.name());
             name.setStyle("-fx-font-weight: bold;");
-            Label coordinate = new Label(plugin.coordinate());
+            // The same wording the SDK dropdown uses for the same thing, because it is the same thing: a
+            // build in ~/.m2 that no repository has ever served.
+            boolean localBuild = localCoordinates.contains(plugin.coordinate());
+            Label coordinate = new Label(plugin.coordinate()
+                    + (localBuild ? "  " + plugin.verifiedVersion() + " (local build)" : ""));
             coordinate.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
             Label description = new Label(plugin.description());
             description.setWrapText(true);

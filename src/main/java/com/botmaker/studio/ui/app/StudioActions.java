@@ -1,5 +1,6 @@
 package com.botmaker.studio.ui.app;
 
+import com.botmaker.plugin.api.StudioPlugin;
 import com.botmaker.studio.docs.StudioAction;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.ProjectConfig;
@@ -23,15 +24,20 @@ import com.botmaker.studio.sharing.GitHubAuth;
 import com.botmaker.studio.sharing.GitHubClient;
 import com.botmaker.studio.sharing.GitHubGallery;
 import com.botmaker.studio.sharing.PluginRegistry;
+import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.ui.app.capture.OverlayTemplateCapture;
 import com.botmaker.studio.ui.app.dev.PickerGalleryWindow;
 import com.botmaker.studio.ui.app.overlay.ProgramShapeOverlay;
 import com.botmaker.studio.ui.app.params.ParametersDialog;
 import com.botmaker.studio.ui.app.pilot.RemotePilotUi;
+import com.botmaker.studio.ui.render.theme.ThemedWindows;
+import javafx.application.Platform;
+import javafx.scene.control.Alert;
 import javafx.stage.Stage;
 
 import java.io.IOException;
+import java.util.List;
 
 /**
  * Every top-level action the shell offers, built once and wired into the menu bar and the toolbar.
@@ -108,6 +114,7 @@ final class StudioActions {
         // --- Project ---
         menuBar.setOnManageLibraries(this::openManageLibraries);
         menuBar.setOnManagePlugins(this::openManagePlugins);
+        menuBar.setOnReloadPlugins(this::reloadPlugins);
         menuBar.setOnUpgradeSdk(this::openSdkUpgrade);
         menuBar.setOnModernise(this::openModernise);
         menuBar.setOnProjectSetup(this::openProjectSetup);
@@ -201,6 +208,35 @@ final class StudioActions {
      */
     void openManagePlugins() {
         new ManagePluginsDialog(primaryStage, libraryService, pluginRegistry, jitPackSearch).show();
+    }
+
+    /**
+     * Re-resolves the project's classpath and re-binds its plugins, with the pom untouched.
+     *
+     * <p>This is the plugin author's inner loop: {@code mvn install} the plugin into {@code ~/.m2}, reload,
+     * see the change. The coordinate resolves to the same jar path either way, so nothing about the project
+     * has changed and there is nothing to write — what moved is the jar's bytes, and a fresh classloader is
+     * the whole of what it takes to see them.
+     *
+     * <p>Reported as an alert rather than silently: a reload that found the same plugins as before looks
+     * exactly like a reload that did nothing, and an author who forgot to run {@code mvn install} needs to
+     * be able to tell those apart.
+     */
+    void reloadPlugins() {
+        libraryService.reloadPlugins().whenComplete((ignored, failure) -> Platform.runLater(() -> {
+            if (failure != null) {
+                ThemedWindows.alert(Alert.AlertType.ERROR,
+                        "Could not reload plugins: " + failure.getMessage()).showAndWait();
+                return;
+            }
+            List<StudioPlugin> plugins = PluginHost.plugins();
+            StringBuilder names = new StringBuilder();
+            for (StudioPlugin plugin : plugins) {
+                names.append(names.isEmpty() ? "" : "\n").append("• ").append(plugin.displayName());
+            }
+            ThemedWindows.alert(Alert.AlertType.INFORMATION,
+                    plugins.size() + " plugin(s) loaded:\n" + names).showAndWait();
+        }));
     }
 
     /**
