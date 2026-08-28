@@ -661,6 +661,28 @@ The user can add/remove third-party dependencies from the GUI (**Project → Man
   using the JDK's built-in `java.net.http.HttpClient` + Jackson (no new dependencies). All calls are async and
   best-effort — network failures resolve to empty results.
 
+### Plugins — the registry answers "where is it", and installing is an ordinary dependency
+
+**Project ▸ Manage Plugins…** (`ui/app/ManagePluginsDialog` over `sharing/PluginRegistry`) browses the
+generated `index.json` in `botmaker-plugin-registry` and installs through **`LibraryService`**, the same path
+Manage Libraries uses. That is the whole design and it is deliberate: `META-INF/services` says how the host
+*instantiates* a plugin already on the classpath, so what is missing is only the **coordinate**, and once you
+have one a plugin is a normal Maven dependency. A bespoke install path would be a privilege the bundled SDK
+plugin has and a third party's plugin does not — the back door the platform exists to close.
+
+- **Studio only ever reads the registry.** A plugin is submitted with `botmaker publish`, whose validator is
+  the same code the registry's CI runs; those checks need the plugin's build, which a bot's editor has not
+  got. There is no publish path here and there should not be one.
+- **The version installed is the entry's `verifiedVersion`, not the newest tag** — the version the gate
+  actually loaded and checked. Only an entry carrying none falls back to JitPack's newest.
+- **Installed is decided by coordinate, never by version**, so a plugin pinned to an older version reads as
+  installed; changing that version is Manage Libraries' job, and this dialog does not duplicate it.
+- **Everything degrades to a sentence.** An unreachable registry is an empty catalog with a message in the
+  list's placeholder, matching `JitPackSearch`; a catalog nobody can fetch must never block the editor.
+- `PluginRegistry.Plugin` is pure and its rules (parse, `matches`, `isInstalledIn`, `isInstallable`) are
+  tested headlessly — the same split as `BlockTree`. It ignores unknown JSON properties because **this Studio
+  is the reader that lags**: a field a newer `botmaker publish` writes must not lose the whole catalog.
+
 ### Sharing — the gallery is read whole and written one file at a time
 
 `sharing/GitHubGallery` **reads** `index.json` from the gallery's raw-CDN URL; `sharing/BotPublisher`

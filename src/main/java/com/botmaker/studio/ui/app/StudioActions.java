@@ -22,6 +22,7 @@ import com.botmaker.studio.sharing.BotSource;
 import com.botmaker.studio.sharing.GitHubAuth;
 import com.botmaker.studio.sharing.GitHubClient;
 import com.botmaker.studio.sharing.GitHubGallery;
+import com.botmaker.studio.sharing.PluginRegistry;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.ui.app.capture.OverlayTemplateCapture;
 import com.botmaker.studio.ui.app.dev.PickerGalleryWindow;
@@ -67,6 +68,8 @@ final class StudioActions {
     private final GitHubGallery gallery = new GitHubGallery(gitHubClient, gitHubAuth);
     private final BotInstaller botInstaller = new BotInstaller(gitHubClient, gallery);
     private final BotPublisher botPublisher = new BotPublisher(gitHubClient, gitHubAuth);
+    // Reads the plugin index off the same raw CDN the gallery uses, with the same client and no account.
+    private final PluginRegistry pluginRegistry = new PluginRegistry(gitHubClient);
 
     /**
      * Six of the thirteen parameters this took were the project's own services, re-listed here after
@@ -104,6 +107,7 @@ final class StudioActions {
 
         // --- Project ---
         menuBar.setOnManageLibraries(this::openManageLibraries);
+        menuBar.setOnManagePlugins(this::openManagePlugins);
         menuBar.setOnUpgradeSdk(this::openSdkUpgrade);
         menuBar.setOnModernise(this::openModernise);
         menuBar.setOnProjectSetup(this::openProjectSetup);
@@ -189,6 +193,14 @@ final class StudioActions {
      */
     public void openManageLibraries() {
         new ManageLibrariesDialog(primaryStage, libraryService, mavenCentralSearch, jitPackSearch).show();
+    }
+
+    /**
+     * The registry browser, which installs through the same {@link LibraryService} the dialog above uses —
+     * a plugin is an ordinary dependency, and the registry only answers where to find its coordinate.
+     */
+    void openManagePlugins() {
+        new ManagePluginsDialog(primaryStage, libraryService, pluginRegistry, jitPackSearch).show();
     }
 
     /**

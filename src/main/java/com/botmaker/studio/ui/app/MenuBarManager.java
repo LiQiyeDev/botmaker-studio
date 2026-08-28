@@ -29,6 +29,7 @@ public class MenuBarManager {
     private final Stage primaryStage;
     private Consumer<Void> onSelectProject;
     private Runnable onManageLibraries;
+    private Runnable onManagePlugins;
     private Runnable onUpgradeSdk;
     private Runnable onModernise;
     private Runnable onManageImports;
@@ -199,6 +200,13 @@ public class MenuBarManager {
             if (onManageLibraries != null) onManageLibraries.run();
         });
 
+        // Beside Manage Libraries because a plugin IS a library — the registry browser is only a way to find
+        // the coordinate, which is the one thing META-INF/services cannot tell anybody.
+        MenuItem managePluginsItem = new MenuItem("Manage Plugins...");
+        managePluginsItem.setOnAction(e -> {
+            if (onManagePlugins != null) onManagePlugins.run();
+        });
+
         // Beside Manage Libraries, not inside it: the SDK version is the one library whose change can stop
         // the bot compiling, and that deserves a report rather than a cell edit.
         MenuItem upgradeSdkItem = new MenuItem("Upgrade SDK...");
@@ -277,7 +285,7 @@ public class MenuBarManager {
 
         projectMenu.getItems().addAll(
                 projectSetupItem, new SeparatorMenuItem(),
-                manageLibrariesItem, upgradeSdkItem, moderniseItem, manageImportsItem,
+                manageLibrariesItem, managePluginsItem, upgradeSdkItem, moderniseItem, manageImportsItem,
                 new SeparatorMenuItem(),
                 activityFlowItem, parametersItem, manageResourcesItem,
                 new SeparatorMenuItem(),
@@ -628,6 +636,11 @@ public class MenuBarManager {
      */
     public void setOnManageLibraries(Runnable callback) {
         this.onManageLibraries = callback;
+    }
+
+    /** Sets the callback for when "Manage Plugins..." is clicked — the registry browser. */
+    public void setOnManagePlugins(Runnable callback) {
+        this.onManagePlugins = callback;
     }
 
     /**
