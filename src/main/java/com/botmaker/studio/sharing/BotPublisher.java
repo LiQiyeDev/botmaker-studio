@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -140,11 +141,11 @@ public final class BotPublisher {
         try {
             // The maintainer can't fork their own index repo (and a self-PR is a no-op): commit directly.
             if (login.equalsIgnoreCase(GitHubConfig.INDEX_OWNER)) {
-                editIndex(GitHubConfig.INDEX_OWNER, token, entry, slug);
+                writeEntry(GitHubConfig.INDEX_OWNER, token, entry, login, repoName);
                 return "Added to the gallery.";
             }
 
-            // Other users: fork the index repo, edit their fork, and open a PR for review.
+            // Other users: fork the index repo, write their entry file in the fork, and open a PR.
             if (alreadyListed(slug)) {
                 return "Already listed in the gallery (new release will be picked up automatically).";
             }
@@ -156,7 +157,7 @@ public final class BotPublisher {
                 return "Published. Couldn't reach your gallery fork to submit — try again from your fork.";
             }
 
-            editIndex(login, token, entry, slug);
+            writeEntry(login, token, entry, login, repoName);
 
             JsonNode pr = client.post(indexRepoApi + "/pulls", mapOf(
                     "title", "Add " + slug + " to the gallery",
@@ -369,7 +370,7 @@ public final class BotPublisher {
         try {
             // The maintainer can commit the removal directly (can't fork / self-PR their own index repo).
             if (login.equalsIgnoreCase(GitHubConfig.INDEX_OWNER)) {
-                editIndexRemove(GitHubConfig.INDEX_OWNER, token, slug);
+                deleteEntry(GitHubConfig.INDEX_OWNER, token, login, repoName);
                 return "Removed from the gallery.";
             }
 
@@ -384,7 +385,7 @@ public final class BotPublisher {
                 return "Couldn't reach your gallery fork to submit the removal — try again from your fork.";
             }
 
-            editIndexRemove(login, token, slug);
+            deleteEntry(login, token, login, repoName);
 
             JsonNode pr = client.post(indexRepoApi + "/pulls", mapOf(
                     "title", "Remove " + slug + " from the gallery",
@@ -401,77 +402,72 @@ public final class BotPublisher {
         }
     }
 
-    /** Reads {@code index.json} from {@code repoOwner}'s copy of the index repo, drops the entry for
-     * {@code slug}, and commits it back. */
-    private void editIndexRemove(String repoOwner, String token, String slug) throws Exception {
-        String contentsUrl = GitHubConfig.API_BASE + "/repos/" + repoOwner + "/" + GitHubConfig.INDEX_REPO
-                + "/contents/" + GitHubConfig.INDEX_PATH;
-
-        JsonNode contents = client.get(contentsUrl + "?ref=" + GitHubConfig.INDEX_BRANCH, token).join();
-        if (contents == null || !contents.hasNonNull("content")) {
-            throw new IOException("Could not read " + GitHubConfig.INDEX_PATH + " in " + repoOwner + "/"
-                    + GitHubConfig.INDEX_REPO);
-        }
-        String sha = contents.path("sha").asText();
-        byte[] decoded = Base64.getMimeDecoder().decode(contents.path("content").asText());
-
-        String newContent = Base64.getEncoder().encodeToString(removeEntry(client.mapper(), decoded, slug));
-
-        client.put(contentsUrl, mapOf(
-                "message", "Remove " + slug + " from the gallery",
-                "content", newContent,
-                "sha", sha,
-                "branch", GitHubConfig.INDEX_BRANCH), token).join();
-    }
-
     /**
-     * Pure JSON transform: parse an {@code index.json} body and return it with any entry whose
-     * {@code owner/repo} equals {@code slug} removed, pretty-printed.
+     * Deletes {@code bots/<owner>-<repo>.json} from {@code repoOwner}'s copy of the index repo.
+     *
+     * <p><b>A deletion, which is the half of this layout worth having.</b> Delisting used to rewrite the
+     * whole array, so the diff a maintainer had to review was the entire gallery and the one line that
+     * mattered was somewhere inside it.
      */
-    static byte[] removeEntry(ObjectMapper mapper, byte[] indexJson, String slug) throws IOException {
-        List<Object> entries = new ArrayList<>(List.of(mapper.readValue(indexJson, Object[].class)));
-        entries.removeIf(o -> o instanceof Map<?, ?> e
-                && slug.equalsIgnoreCase(e.get("owner") + "/" + e.get("repo")));
-        return mapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(entries);
-    }
-
-    /**
-     * Reads {@code index.json} from {@code repoOwner}'s copy of the index repo, replaces the entry with the
-     * new one (deduping by {@code owner/repo} so re-publishing is idempotent), and commits it back.
-     */
-    private void editIndex(String repoOwner, String token, Map<String, Object> entry, String slug)
+    private void deleteEntry(String repoOwner, String token, String owner, String repoName)
             throws Exception {
+        String path = GitHubConfig.entryPath(owner, repoName);
         String contentsUrl = GitHubConfig.API_BASE + "/repos/" + repoOwner + "/" + GitHubConfig.INDEX_REPO
-                + "/contents/" + GitHubConfig.INDEX_PATH;
+                + "/contents/" + path;
 
-        JsonNode contents = client.get(contentsUrl + "?ref=" + GitHubConfig.INDEX_BRANCH, token).join();
-        if (contents == null || !contents.hasNonNull("content")) {
-            throw new IOException("Could not read " + GitHubConfig.INDEX_PATH + " in " + repoOwner + "/"
-                    + GitHubConfig.INDEX_REPO);
+        String sha = fileSha(contentsUrl, token);
+        if (sha == null) {
+            throw new IOException("No " + path + " in " + repoOwner + "/" + GitHubConfig.INDEX_REPO
+                    + " — nothing to remove.");
         }
-        String sha = contents.path("sha").asText();
-        byte[] decoded = Base64.getMimeDecoder().decode(contents.path("content").asText());
-
-        String newContent = Base64.getEncoder().encodeToString(mergeEntry(client.mapper(), decoded, entry, slug));
-
-        client.put(contentsUrl, mapOf(
-                "message", "Add " + slug + " to the gallery",
-                "content", newContent,
+        client.delete(contentsUrl, mapOf(
+                "message", "Remove " + owner + "/" + repoName + " from the gallery",
                 "sha", sha,
                 "branch", GitHubConfig.INDEX_BRANCH), token).join();
     }
 
     /**
-     * Pure JSON merge: parse an {@code index.json} body, drop any existing entry with the same
-     * {@code owner/repo} as {@code slug}, append {@code entry}, and return the pretty-printed bytes.
+     * Writes {@code bots/<owner>-<repo>.json} into {@code repoOwner}'s copy of the index repo.
+     *
+     * <p><b>One file, and never {@code index.json}</b> — that file is generated by the gallery's own CI and
+     * a pull request editing it is refused. Re-publishing is idempotent by construction: the entry's path is
+     * its identity, so a second publish replaces the author's own file and touches no line of anybody
+     * else's. The old shape read the whole array, appended and wrote it back, which made every concurrent
+     * submission a conflict and every publish a read-modify-write against a SHA somebody else may have moved.
      */
-    static byte[] mergeEntry(ObjectMapper mapper, byte[] indexJson, Map<String, Object> entry, String slug)
-            throws IOException {
-        List<Object> entries = new ArrayList<>(List.of(mapper.readValue(indexJson, Object[].class)));
-        entries.removeIf(o -> o instanceof Map<?, ?> e
-                && slug.equalsIgnoreCase(e.get("owner") + "/" + e.get("repo")));
-        entries.add(entry);
-        return mapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(entries);
+    private void writeEntry(String repoOwner, String token, Map<String, Object> entry, String owner,
+                            String repoName) throws IOException {
+        String path = GitHubConfig.entryPath(owner, repoName);
+        String contentsUrl = GitHubConfig.API_BASE + "/repos/" + repoOwner + "/" + GitHubConfig.INDEX_REPO
+                + "/contents/" + path;
+
+        Map<String, Object> body = mapOf(
+                "message", "Add " + owner + "/" + repoName + " to the gallery",
+                "content", Base64.getEncoder().encodeToString(entryJson(client.mapper(), entry)),
+                "branch", GitHubConfig.INDEX_BRANCH);
+        // An UPDATE needs the file's current sha and a CREATE must not carry one, so the absence of the file
+        // is a normal outcome here rather than an error.
+        String sha = fileSha(contentsUrl, token);
+        if (sha != null) {
+            body.put("sha", sha);
+        }
+        client.put(contentsUrl, body, token).join();
+    }
+
+    /** One entry as the bytes of its own file: pretty-printed, newline-terminated. */
+    static byte[] entryJson(ObjectMapper mapper, Map<String, Object> entry) throws IOException {
+        return (mapper.writerWithDefaultPrettyPrinter().writeValueAsString(entry) + "\n")
+                .getBytes(StandardCharsets.UTF_8);
+    }
+
+    /** The sha of a file in a repo, or null when it is not there. */
+    private String fileSha(String contentsUrl, String token) {
+        try {
+            JsonNode contents = client.get(contentsUrl + "?ref=" + GitHubConfig.INDEX_BRANCH, token).join();
+            return contents == null ? null : contents.path("sha").asText(null);
+        } catch (Exception absent) {
+            return null;
+        }
     }
 
     private boolean alreadyListed(String slug) {
@@ -488,7 +484,12 @@ public final class BotPublisher {
         return false;
     }
 
-    /** Polls until the signed-in user's fork of the index repo has a readable {@code index.json}. */
+    /**
+     * Polls until the signed-in user's fork of the index repo is readable (fork creation is asynchronous).
+     *
+     * <p>Still {@code index.json} rather than the entries directory: it is the one file the gallery always
+     * has, generated or not, and an empty {@code bots/} would answer 404 forever.
+     */
     private boolean awaitFork(String login, String token) {
         String url = GitHubConfig.API_BASE + "/repos/" + login + "/" + GitHubConfig.INDEX_REPO
                 + "/contents/" + GitHubConfig.INDEX_PATH + "?ref=" + GitHubConfig.INDEX_BRANCH;

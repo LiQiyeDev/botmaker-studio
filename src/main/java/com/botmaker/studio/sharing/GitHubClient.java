@@ -124,6 +124,18 @@ public final class GitHubClient {
                 });
     }
 
+    /**
+     * DELETE <em>with</em> a body, which the Contents API's file deletion requires ({@code message},
+     * {@code sha}, {@code branch}).
+     *
+     * <p>Separate from the bodyless one above rather than replacing it: {@code HttpRequest.DELETE()} sends
+     * no body at all, and several endpoints reject a request that carries one. Deleting a gallery entry is
+     * the caller this exists for.
+     */
+    public CompletableFuture<JsonNode> delete(String url, Object body, String token) {
+        return send("DELETE", url, body, token);
+    }
+
     /** True when {@code GET url} returns 204 (GitHub's "yes" for boolean check endpoints), false on 404/error. */
     public CompletableFuture<Boolean> isNoContent(String url, String token) {
         HttpRequest req = authed(baseRequest(url), token).GET().build();

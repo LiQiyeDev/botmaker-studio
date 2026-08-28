@@ -661,6 +661,26 @@ The user can add/remove third-party dependencies from the GUI (**Project → Man
   using the JDK's built-in `java.net.http.HttpClient` + Jackson (no new dependencies). All calls are async and
   best-effort — network failures resolve to empty results.
 
+### Sharing — the gallery is read whole and written one file at a time
+
+`sharing/GitHubGallery` **reads** `index.json` from the gallery's raw-CDN URL; `sharing/BotPublisher`
+**writes** `bots/<owner>-<repo>.json` and nothing else. Since 2026-08-28 `index.json` is *generated* by the
+gallery's own CI from those entry files, and a pull request that edits it is refused — so the read path and
+the write path no longer touch the same file, and that asymmetry is the design rather than an accident:
+
+- **The read URL is a compatibility promise.** Every Studio already installed has it compiled in, so the
+  generated array stays byte-compatible with `GalleryEntry` and the path never moves.
+- **The write path was the problem.** Appending to a shared array made every concurrent submission a merge
+  conflict and each publish a read-modify-write against a base SHA somebody else may have moved; unpublishing
+  rewrote the whole file for a one-line removal. `GitHubConfig.entryPath` is where a bot's identity becomes a
+  path, and re-publishing is idempotent because that path is the identity.
+- **Publishing from a Studio older than that release breaks, deliberately** — the gate refuses the pull
+  request with a message naming the update. The alternative (a CI job converting an index-only PR) means
+  maintaining both shapes indefinitely.
+- `GitHubClient.delete(url, body, token)` exists for this: GitHub's Contents API needs a body to delete a
+  file and `HttpRequest.DELETE()` sends none. The bodyless `delete(url, token)` stays for the endpoints that
+  reject one.
+
 ### Validation
 
 `DiagnosticsManager` holds the current set of compiler diagnostics. `ErrorTranslator` maps Eclipse JDT error codes to user-friendly messages. Diagnostics are surfaced to blocks via `CodeBlock.setError()` / `clearError()`.

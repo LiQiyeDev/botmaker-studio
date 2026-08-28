@@ -30,7 +30,20 @@ public final class GitHubConfig {
     public static final String ISSUE_OWNER = "LiQiyeDev";
     public static final String ISSUE_REPO = "botmaker";
     public static final String INDEX_BRANCH = "main";
+
+    /**
+     * The generated catalog, read by {@link GitHubGallery#browse()}.
+     *
+     * <p><b>Read only.</b> Studio used to publish by rewriting this whole array, which made every concurrent
+     * submission a merge conflict and every delisting a whole-file diff. The gallery's own CI generates it
+     * from {@link #ENTRIES_DIR} now, and refuses a pull request that edits it. The path is a compatibility
+     * promise in the other direction — a Studio already in the wild has this URL compiled into it — so it
+     * must not move.
+     */
     public static final String INDEX_PATH = "index.json";
+
+    /** Where one bot's entry lives, and what {@link BotPublisher} writes: {@code bots/<owner>-<repo>.json}. */
+    public static final String ENTRIES_DIR = "bots";
 
     /** Discovery topic also applied to published repos (secondary signal; the index repo is authoritative). */
     public static final String TOPIC = "botmaker-bot";
@@ -45,6 +58,16 @@ public final class GitHubConfig {
      * in" hint rather than a raw API error.
      */
     public static final String SCOPE = "repo";
+
+    /**
+     * The path of one bot's entry file, {@code bots/<owner>-<repo>.json}.
+     *
+     * <p>The filename is the bot's identity, which is what makes two submissions two files that cannot
+     * conflict — and makes a delisting a deletion rather than a rewrite.
+     */
+    public static String entryPath(String owner, String repo) {
+        return ENTRIES_DIR + "/" + owner + "-" + repo + ".json";
+    }
 
     /** Raw (CDN) URL of the curated catalog — no API rate limit, no auth. */
     public static String indexRawUrl() {
