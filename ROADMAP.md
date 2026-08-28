@@ -6,6 +6,30 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-28 — the GitHub Release is published by JReleaser, and its notes stop lying.** `jreleaser.yml`
+  (new), `tools/changelog-section.sh` (new), and the `release` job in `ci.yml` rewritten: the
+  `softprops/action-gh-release` step and the hand-written `awk` beside it are gone. The extractor is now a
+  script in this repository, called both by that job **and** by the umbrella's `check_changelog` gate — its
+  own comment had admitted it "mirrors release.sh's `changelog_section` deliberately", and two copies of one
+  format eventually publish two different things.
+
+  **A real defect went with it.** The job began by `sed`-ing `MIN_SDK_VERSION` out of `MavenService.java`
+  and prepending *"Requires BotMaker SDK &lt;x&gt; or newer… Studio shows a banner offering Project ▸ Upgrade
+  SDK…"*. That constant was deleted on 2026-08-25 with the floor and the banner it described, so the `sed`
+  had been matching nothing: every release since had shipped notes opening `Requires BotMaker SDK  or newer`
+  and promising a banner that no longer exists. Any pinned SDK opens now; an incompatibility surfaces at
+  compile time. The preamble is deleted rather than repaired.
+
+  **What deliberately did NOT move: the `package` matrix.** The plan expected JReleaser's
+  `assemble.jpackage` + `distributions` to replace it. It cannot — jpackage builds an installer only **for
+  the host OS**, so one runner per target OS is jpackage's constraint and JReleaser's own assembler inherits
+  it unchanged. `pages` is untouched too; it still runs `needs: release`. What JReleaser replaced is the
+  publish step alone, and what it adds is a `checksums_sha256.txt` asset the release never had.
+
+  Verified by running the real config through the JReleaser CLI in a throwaway standalone checkout: it
+  resolved `1.0.31` from `JRELEASER_PROJECT_VERSION`, took the body from the extracted section (47 lines,
+  no preamble) and listed all six installers plus `install.sh` as uploads.
+
 - **2026-08-27 — a plugin can draw a slot on the canvas, and the first three SDK editors leave (plugin
   platform, phase 12a).** `PickerRegistry` becomes a **three-tier merge**: its own `PICKERS`, then every loaded
   plugin's `SlotEditor`s (`PluginPickers`), then a new `FALLBACKS` list holding the JDK types and the enum

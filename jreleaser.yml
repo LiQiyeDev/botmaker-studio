@@ -1,0 +1,79 @@
+# JReleaser — what ONE release of this repository looks like.
+#
+# The split with the umbrella's release.sh is the whole design: release.sh knows the CONSTELLATION (which
+# of the eight repositories changed, at what versions, in what order, and which upstream ref each pins);
+# this file knows what a release IS — the tag's release, its notes, and the assets on it.
+#
+# WHERE THIS RUNS: this repository's own CI, on a version tag — .github/workflows/ci.yml, the `release`
+# job. NOT from the umbrella working copy: JReleaser's JGit cannot open a submodule (`.git` is a `gitdir:`
+# FILE there and it reports "repository not found"), and --git-root-search gets past that only by resolving
+# the UMBRELLA repository, which would attach this release to the wrong repo. A CI checkout is standalone.
+#
+# THE VERSION ARRIVES AS JRELEASER_PROJECT_VERSION, set by the workflow from the tag that triggered it.
+#
+# WHAT THIS DOES NOT DO, AND WILL NOT: build the packages. The `package` job's two-OS matrix stays exactly
+# as it is, because jpackage can only build an installer FOR THE HOST OS — that is jpackage's constraint,
+# not the workflow's, and JReleaser's own `assemble.jpackage` inherits it unchanged. The matrix is not
+# ceremony that a release tool removes; it is one runner per target OS. What JReleaser replaces here is the
+# `release` job alone: `softprops/action-gh-release` plus a hand-written awk. See the ROADMAP entry.
+
+project:
+  name: botmaker-studio
+  description: The BotMaker Studio IDE — the editor bots are built in, and the plugin host.
+  longDescription: |
+    A JavaFX IDE for building game-automation bots: a block editor over real Java source, an activity flow,
+    a capture and template workbench, and a runner. It is also the plugin host — it loads a project's
+    plugins from that project's own resolved classpath, which is what lets a bot's palette and value
+    vocabulary come from the SDK version it pins rather than from the Studio that opened it.
+  authors:
+    - LiQiyeDev
+  license: CC0-1.0
+  copyright: LiQiyeDev
+  inceptionYear: '2026'
+  links:
+    homepage: https://github.com/LiQiyeDev/botmaker-studio
+  languages:
+    java:
+      groupId: com.botmaker
+      artifactId: botmaker-studio
+      version: '21'
+
+release:
+  github:
+    owner: LiQiyeDev
+    name: botmaker-studio
+    tagName: 'v{{projectVersion}}'
+    releaseName: 'v{{projectVersion}}'
+    # release.sh created and pushed the tag, and that push is what started this workflow. Keeping the tag
+    # on the umbrella's side is deliberate: it is what orders a cross-module release, and ordering is the
+    # one thing JReleaser has no way to express.
+    skipTag: true
+    overwrite: false
+    update:
+      enabled: false
+    # A tag with a hyphen is a pre-release (v1.0.0-rc1), which is what the softprops step this replaced
+    # expressed as `contains(github.ref_name, '-')`.
+    prerelease:
+      pattern: .*-.*
+    # The workflow writes release-notes.md with tools/changelog-section.sh — the SAME script the umbrella's
+    # release.sh calls to gate this release (check_changelog). One extractor, two readers in two
+    # repositories: a release whose notes come from a different rule than the one that gated it can pass
+    # the gate and then publish something else. Taken verbatim, so the notes stay the maintainer's words.
+    changelog:
+      external: release-notes.md
+
+# The assets. They are built by the `package` job on two runners and downloaded into artifacts/ by the
+# `release` job, so this section only has to name them.
+#
+# install.sh ships as a release asset as well as at the site root, so the one-command install is reviewable
+# from the Releases page next to the packages it installs, and stays reachable for a given version even
+# though the repository itself only ever carries the latest.
+files:
+  globs:
+    - pattern: artifacts/*.zip
+    - pattern: artifacts/*.tar.gz
+    - pattern: artifacts/*.deb
+    - pattern: artifacts/*.rpm
+    - pattern: artifacts/*.AppImage
+    - pattern: artifacts/*.msi
+    - pattern: packaging/linux/install.sh

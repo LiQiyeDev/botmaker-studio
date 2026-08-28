@@ -5,7 +5,10 @@ name: CI
 #   build    — every push and PR except version tags: compiles Studio. The gate. (On a tag it would only
 #              repeat a compile `package` does anyway, ahead of the job the release is actually waiting on.)
 #   package  — version tags (and a manual dispatch dry run): the per-OS app-images and installers.
-#   release  — version tags only: publishes them as a GitHub Release.
+#   release  — version tags only: publishes them as a GitHub Release, through JReleaser (jreleaser.yml).
+#              Note what did NOT move into JReleaser: `package`. jpackage can only build an installer FOR
+#              THE HOST OS, so one runner per target OS is jpackage's constraint and not this workflow's,
+#              and JReleaser's own assemble.jpackage inherits it unchanged.
 #   pages    — version tags only: republishes the same .rpm/.deb as dnf/apt repositories on GitHub Pages.
 #
 # `package`/`release` were a separate file (release.yml) purely because their trigger differs, which a
@@ -310,8 +313,11 @@ jobs:
     # Only publish a Release for actual tag pushes, not manual dry runs.
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
-      # Only for packaging/linux/install.sh below — the packages themselves come from `package`.
+      # For packaging/linux/install.sh, tools/changelog-section.sh and CHANGELOG.md — the packages
+      # themselves come from `package`. fetch-depth 0 because JReleaser wants the history behind the tag.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -319,63 +325,43 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      # The SDK floor is a property of the build, not of the release notes, so it is read out of the
-      # source this tag was cut from rather than written down twice. release.sh has already refused the
-      # release if this is newer than the SDK a fresh project pins (check_sdk_floor).
-      - name: Read the SDK floor this build imposes
-        id: floor
-        run: |
-          floor=$(sed -n -E 's/.*[[:space:]]MIN_SDK_VERSION = "([^"]*)".*/\1/p' \
-                    src/main/java/com/botmaker/studio/services/MavenService.java | head -1)
-          echo "min_sdk=$floor" >> "$GITHUB_OUTPUT"
-
-      # What this release actually gives you, in the maintainer's own words. The umbrella release.sh has
-      # already refused the release if CHANGELOG.md has no section for this tag (check_changelog), so an
-      # empty extraction here means the tag was cut by hand; the notes then degrade to the generated ones
-      # rather than failing a release whose packages are already built.
+      # What this release actually gives you, in the maintainer's own words.
       #
-      # The awk mirrors release.sh's `changelog_section` deliberately: shared/session/sdk publish their
-      # notes from that function, studio from here, and two different extractors would eventually publish
-      # two different things from one format.
+      # `tools/changelog-section.sh` is the SAME script the umbrella's release.sh calls to gate this
+      # release (check_changelog), which is the point of it being a script in this repository rather than
+      # an awk in two places: a release whose notes are extracted by a different rule than the one that
+      # gated it can pass the gate and then publish something else. The awk that used to sit here said so
+      # itself, in a comment, and was the second copy anyway.
+      #
+      # A failure here means the tag was cut by hand, past the gate. The notes degrade to the commit
+      # subjects rather than failing a release whose packages are already built and uploaded.
+      #
+      # Deleted with the awk: a two-sentence preamble reading MIN_SDK_VERSION out of MavenService.java and
+      # announcing "Requires BotMaker SDK <x> or newer". That constant was removed on 2026-08-25 with the
+      # floor and the banner it described, so the sed had been matching nothing and every release since had
+      # shipped notes that began "Requires BotMaker SDK  or newer" and promised a banner that no longer
+      # exists. Any pinned SDK opens now; an incompatibility surfaces at compile time.
       - name: Read this release's changelog section
         run: |
-          ver="${GITHUB_REF_NAME#v}"
-          {
-            echo "**Requires BotMaker SDK ${{ steps.floor.outputs.min_sdk }} or newer.** A bot pinned to an older SDK"
-            echo "still opens; Studio shows a banner offering **Project ▸ Upgrade SDK…**, which reports exactly what"
-            echo "the upgrade breaks in *your* bot — with file and line — before anything is changed."
-            echo
-            awk -v ver="$ver" '
-              /^## / { if (inside) exit; inside = ($0 ~ "^## \\[" ver "\\]"); next }
-              inside { print }
-            ' CHANGELOG.md | awk 'NF || seen { seen = 1; line[++n] = $0; if (NF) last = n }
-                                  END { for (i = 1; i <= last; i++) print line[i] }'
-          } > release-notes.md
+          version="${GITHUB_REF_NAME#v}"
+          if ! tools/changelog-section.sh "$version" > release-notes.md; then
+            echo "::warning::CHANGELOG.md has no section for $version — falling back to commit subjects"
+            git log --pretty='- %s' "$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo HEAD)..HEAD" \
+              > release-notes.md
+          fi
+          echo "JRELEASER_PROJECT_VERSION=$version" >> "$GITHUB_ENV"
           cat release-notes.md
 
+      # The release itself, its notes and its assets are declared in jreleaser.yml. The tag is not: it was
+      # pushed by the umbrella's release.sh, which is what ordered this release against the other seven
+      # repositories — the one thing JReleaser has no way to express.
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: jreleaser/release-action@v2
         with:
-          # Prepended to the generated notes: which SDK versions this Studio edits (older bots still open —
-          # they get a banner offering Project > Upgrade SDK..., never a refusal — but a user deciding
-          # whether to update should see the number before downloading 240 MB), then this version's
-          # CHANGELOG.md section.
-          body_path: release-notes.md
-
-          # install.sh ships as a release asset as well as at the site root, so the one-command install is
-          # reviewable from the Releases page next to the packages it installs, and stays reachable for a
-          # given version even though the repository itself only ever carries the latest.
-          files: |
-            artifacts/*.zip
-            artifacts/*.tar.gz
-            artifacts/*.deb
-            artifacts/*.rpm
-            artifacts/*.AppImage
-            artifacts/*.msi
-            packaging/linux/install.sh
-          generate_release_notes: true
-          # Tags containing a hyphen (e.g. v1.0.0-rc1) are treated as pre-releases.
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          version: 1.25.0
+          arguments: full-release
+        env:
+          JRELEASER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # Republish the .rpm/.deb this release just signed as real dnf and apt repositories, so users get updates
   # from `dnf upgrade` / `apt upgrade` rather than by revisiting the Releases page. See build-repo.sh for why
