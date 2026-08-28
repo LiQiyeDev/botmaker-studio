@@ -6,6 +6,27 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-28 — the bundled plugin set was not loading at all, and nothing said so.** Studio's plugin #1 is
+  the SDK, whose `SdkPlugin` extends the toolkit's `AbstractStudioPlugin`; the SDK declares
+  `botmaker-plugin-toolkit` `optional`, so it is **not transitive**, so Studio's classpath carried no toolkit.
+  `ServiceLoader` threw `NoClassDefFoundError` constructing it, `PluginHost.discover` caught it — correctly,
+  a classpath with no plugin on it is an ordinary state — and Studio ran with an **empty palette, no name
+  recognition and none of the SDK's slot editors**, having printed one line to stderr. Everything compiled
+  throughout, which is why it survived two phases of platform work.
+  - Fixed by declaring the toolkit at **`runtime` scope** in `pom.xml`. Scope matters twice: javac never sees
+    it, so no Studio source can name a toolkit type (`StudioSourcesTest` refuses a widening to `compile`),
+    and `PluginLoader` resolves the toolkit **child-first**, so a plugin bringing its own version still gets
+    its own — Studio's copy is only the fallback for a plugin that brings none. The rule in the umbrella
+    `CLAUDE.md` said Studio must never depend on the toolkit "because the moment the host resolves one
+    version of it, two plugins can no longer hold two"; the clause after the comma was false and has been
+    rewritten. What replaces it: *whoever puts a plugin on a classpath supplies what that plugin needs.*
+  - `PluginHostLoadTest` is the guard, and every assertion in it is "not empty", because empty is exactly
+    what this break looks like. **It also explains 47 test failures and 2 errors** that had been recorded as
+    pre-existing and unrelated — `SdkSurfacePaletteTest`, `SdkSurfaceServiceTest` and `VisionBlockRenderingTest`
+    all ask the bundled palette a question. The suite is at 1356 tests, 0 failures.
+  - Release plumbing: `PLUGIN_TOOLKIT_TAG` is a sixth line in `.deps.env`, both CI jobs check the toolkit out
+    and install it from source, and a `--plugin-toolkit` release now forces `--studio`.
+
 - **2026-08-28 — Project ▸ Manage Plugins… (plugin ecosystem, phase 9).** `ui/app/ManagePluginsDialog` over
   the new `sharing/PluginRegistry`: browse the plugin registry's generated `index.json`, search it, install
   and remove. **Installing adds an ordinary dependency through `LibraryService`** — the same path Manage

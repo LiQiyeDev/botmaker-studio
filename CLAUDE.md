@@ -683,6 +683,23 @@ plugin has and a third party's plugin does not — the back door the platform ex
   tested headlessly — the same split as `BlockTree`. It ignores unknown JSON properties because **this Studio
   is the reader that lags**: a field a newer `botmaker publish` writes must not lose the whole catalog.
 
+**Studio carries `botmaker-plugin-toolkit` at `runtime` scope, and the reason is a defect worth
+remembering (2026-08-28).** Studio's own plugin #1 is the SDK, whose `SdkPlugin` extends the toolkit's
+`AbstractStudioPlugin`; the SDK declares the toolkit `optional`, so it is **not transitive**, so Studio's
+classpath had no toolkit at all. `ServiceLoader` threw `NoClassDefFoundError` while constructing it,
+`PluginHost.discover` caught it — correctly; a classpath with no plugin on it is an ordinary state — and
+Studio ran with an **empty palette, no name recognition and no SDK slot editors**, having printed one
+line to stderr. Nothing failed to compile at any point.
+
+- **`PluginHostLoadTest` is the guard**, and every assertion in it is "not empty", because empty is exactly
+  what this break looks like. It reads the unbound statics, which answer from `BUNDLED`.
+- **The scope is `runtime` so javac never sees the toolkit**: no Studio source may name a
+  `com.botmaker.plugin.toolkit` type, and `StudioSourcesTest` refuses a widening to `compile`. The toolkit is
+  a *plugin's* widget kit; Studio having a version of its own to keep in step is the thing to avoid.
+- **It does not lock a plugin to Studio's version.** `PluginLoader` is parent-first only for
+  `com.botmaker.plugin.api.**` and the platform namespaces, so the toolkit is child-first: a plugin carrying
+  its own copy resolves its own, and Studio's is the fallback for one that brings none.
+
 ### Sharing — the gallery is read whole and written one file at a time
 
 `sharing/GitHubGallery` **reads** `index.json` from the gallery's raw-CDN URL; `sharing/BotPublisher`

@@ -18,8 +18,8 @@ name: CI
 # -DskipTests still *compiles* the tests, so test code that no longer builds is still caught. (The release
 # half always skipped them — packaging an artifact was never the place to discover a red suite.)
 #
-# botmaker-studio-api, botmaker-plugin-host, botmaker-shared, botmaker-session and botmaker-sdk are all
-# resolved FROM SOURCE in both jobs: this pom pins
+# botmaker-studio-api, botmaker-plugin-host, botmaker-plugin-toolkit, botmaker-shared, botmaker-session and
+# botmaker-sdk are all resolved FROM SOURCE in both jobs: this pom pins
 # every one at 0.0.0-SNAPSHOT — the version the umbrella reactor and a local `mvn install` produce — so
 # there is no published artifact under those coordinates to download. `build` checks out their main
 # branches (it is a gate: it should notice an upstream break early). `package` checks out the exact tags
@@ -56,13 +56,22 @@ jobs:
           repository: LiQiyeDev/botmaker-studio-api
           path: .deps/botmaker-studio-api
 
-      # The plugin loader. Studio's own, until 2026-08-28. NOT botmaker-plugin-toolkit, which Studio must
-      # never resolve — that one is a plugin's dependency and lives on the plugin's classloader.
+      # The plugin loader. Studio's own, until 2026-08-28.
       - name: Check out botmaker-plugin-host
         uses: actions/checkout@v4
         with:
           repository: LiQiyeDev/botmaker-plugin-host
           path: .deps/botmaker-plugin-host
+
+      # The widget kit — at RUNTIME scope, and only because Studio's bundled plugin is the SDK, whose
+      # SdkPlugin extends the toolkit's AbstractStudioPlugin through an `optional` (non-transitive)
+      # dependency. Without it the bundled set fails to instantiate and Studio's palette is silently empty.
+      # Installed before the SDK, which compiles against it.
+      - name: Check out botmaker-plugin-toolkit
+        uses: actions/checkout@v4
+        with:
+          repository: LiQiyeDev/botmaker-plugin-toolkit
+          path: .deps/botmaker-plugin-toolkit
 
       - name: Check out botmaker-shared
         uses: actions/checkout@v4
@@ -89,10 +98,11 @@ jobs:
           java-version: '21'
           cache: maven
 
-      - name: Install the five upstreams (0.0.0-SNAPSHOT)
+      - name: Install the six upstreams (0.0.0-SNAPSHOT)
         run: |
           mvn -B -f .deps/botmaker-studio-api/pom.xml install -DskipTests
           mvn -B -f .deps/botmaker-plugin-host/pom.xml install -DskipTests
+          mvn -B -f .deps/botmaker-plugin-toolkit/pom.xml install -DskipTests
           mvn -B -f .deps/botmaker-shared/pom.xml install -DskipTests
           mvn -B -f .deps/botmaker-session/pom.xml install -DskipTests
           mvn -B -f .deps/botmaker-sdk/pom.xml install -DskipTests
@@ -190,14 +200,14 @@ jobs:
           fi
           echo "appversion=${num}" >> "$GITHUB_OUTPUT"
 
-      # The five upstream refs this release is built against, pinned in a committed file rather than
+      # The six upstream refs this release is built against, pinned in a committed file rather than
       # guessed from "newest tag". release.sh writes it into the studio release commit; see .deps.env.
       - name: Read pinned upstream tags
         id: deps
         shell: bash
         run: |
           set -a; . ./.deps.env; set +a
-          for v in SHARED_TAG SESSION_TAG SDK_TAG STUDIO_API_TAG PLUGIN_HOST_TAG; do
+          for v in SHARED_TAG SESSION_TAG SDK_TAG STUDIO_API_TAG PLUGIN_HOST_TAG PLUGIN_TOOLKIT_TAG; do
             [ -n "${!v}" ] || { echo "::error::$v is empty in .deps.env"; exit 1; }
           done
           {
@@ -206,8 +216,9 @@ jobs:
             echo "sdk=${SDK_TAG}"
             echo "studioapi=${STUDIO_API_TAG}"
             echo "pluginhost=${PLUGIN_HOST_TAG}"
+            echo "plugintoolkit=${PLUGIN_TOOLKIT_TAG}"
           } >> "$GITHUB_OUTPUT"
-          echo "building against shared=${SHARED_TAG} session=${SESSION_TAG} sdk=${SDK_TAG} studio-api=${STUDIO_API_TAG} plugin-host=${PLUGIN_HOST_TAG}"
+          echo "building against shared=${SHARED_TAG} session=${SESSION_TAG} sdk=${SDK_TAG} studio-api=${STUDIO_API_TAG} plugin-host=${PLUGIN_HOST_TAG} plugin-toolkit=${PLUGIN_TOOLKIT_TAG}"
 
       # The plugin contract, installed first: the SDK and the plugin host compile against it as well.
       - name: Check out botmaker-studio-api
@@ -217,13 +228,23 @@ jobs:
           ref: ${{ steps.deps.outputs.studioapi }}
           path: .deps/botmaker-studio-api
 
-      # The plugin loader. NOT botmaker-plugin-toolkit, which Studio must never resolve.
+      # The plugin loader.
       - name: Check out botmaker-plugin-host
         uses: actions/checkout@v4
         with:
           repository: LiQiyeDev/botmaker-plugin-host
           ref: ${{ steps.deps.outputs.pluginhost }}
           path: .deps/botmaker-plugin-host
+
+      # The widget kit, at RUNTIME scope: the bundled SdkPlugin is a subclass of its AbstractStudioPlugin,
+      # reached through the SDK's `optional` (non-transitive) dependency. Pinned like the rest so a release
+      # ships a Studio whose toolkit is the one its bundled plugin was built against.
+      - name: Check out botmaker-plugin-toolkit
+        uses: actions/checkout@v4
+        with:
+          repository: LiQiyeDev/botmaker-plugin-toolkit
+          ref: ${{ steps.deps.outputs.plugintoolkit }}
+          path: .deps/botmaker-plugin-toolkit
 
       - name: Check out botmaker-shared
         uses: actions/checkout@v4
@@ -247,13 +268,14 @@ jobs:
           ref: ${{ steps.deps.outputs.sdk }}
           path: .deps/botmaker-sdk
 
-      # Lands all five at 0.0.0-SNAPSHOT — the version this pom's properties already default to — so the
+      # Lands all six at 0.0.0-SNAPSHOT — the version this pom's properties already default to — so the
       # build below needs no -Dbotmaker.*.version at all, and resolves nothing from JitPack.
-      - name: Install the five upstreams (0.0.0-SNAPSHOT)
+      - name: Install the six upstreams (0.0.0-SNAPSHOT)
         shell: bash
         run: |
           mvn -B -f .deps/botmaker-studio-api/pom.xml install -DskipTests
           mvn -B -f .deps/botmaker-plugin-host/pom.xml install -DskipTests
+          mvn -B -f .deps/botmaker-plugin-toolkit/pom.xml install -DskipTests
           mvn -B -f .deps/botmaker-shared/pom.xml install -DskipTests
           mvn -B -f .deps/botmaker-session/pom.xml install -DskipTests
           mvn -B -f .deps/botmaker-sdk/pom.xml install -DskipTests
