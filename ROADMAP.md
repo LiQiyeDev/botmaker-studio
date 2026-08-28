@@ -6,6 +6,32 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-28 — the plugin loader leaves Studio (plugin ecosystem, phase 5).**
+  `plugin/PluginLoader` is deleted here and is `com.botmaker.plugin.host.PluginLoader` in the new
+  **`botmaker-plugin-host`** submodule, which Studio now lists as an ordinary `compile` dependency
+  (`${botmaker.pluginhost.version}`). A pure move: not a line of behaviour changed, and `PluginHost` gains
+  one import.
+
+  **Why it left.** Studio is no longer the only host. The `botmaker` CLI's `validate` and `run` and the
+  plugin registry's CI all have to load a plugin *exactly* as Studio does, and the parent-first/child-first
+  delegation split is the last code here that should exist in two copies — a wrong answer there does not
+  throw where it happens, it throws much later as a `ClassCastException` between two classes with identical
+  names.
+
+  **What deliberately stayed: `PluginHost`.** The bundled fallback, the bind/unbind swap and the two served
+  catalogs are all about *Studio's* open project; what a single-shot CLI needs is `open`/`plugins`/`close`,
+  which is what moved.
+
+  **Do not confuse the new dependency with `botmaker-plugin-toolkit`.** They are mirror images: the toolkit
+  is what a **plugin** compiles against and is resolved onto the plugin's own classloader — Studio must
+  never list it — while the host is what a **host** loads plugins with. `botmaker-studio-api` is `provided`
+  inside the host module on purpose, so Studio's own copy of the contract stays the only one.
+
+  Nine tests landed with it, where Studio had none for that class: the split (including the case the
+  dot-terminated prefixes exist for — `com.botmaker.plugin.apix.*` must **not** be parent-first), the three
+  ways a classpath answers `null`, and a real `ServiceLoader` round trip. `ci.yml` checks out and installs
+  the new module in both jobs, and `package` now requires `PLUGIN_HOST_TAG` in `.deps.env`.
+
 - **2026-08-28 — the GitHub Release is published by JReleaser, and its notes stop lying.** `jreleaser.yml`
   (new), `tools/changelog-section.sh` (new), and the `release` job in `ci.yml` rewritten: the
   `softprops/action-gh-release` step and the hand-written `awk` beside it are gone. The extractor is now a

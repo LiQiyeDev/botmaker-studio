@@ -6,6 +6,7 @@ import com.botmaker.plugin.api.StudioPlugin;
 import com.botmaker.plugin.api.catalog.FacadeEntry;
 import com.botmaker.plugin.api.catalog.PaletteCatalog;
 import com.botmaker.plugin.api.value.ValueCatalog;
+import com.botmaker.plugin.host.PluginLoader;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -27,7 +28,10 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p><b>The set is bound per project, and that is what makes the pin real.</b> {@link #bind} builds a
  * {@link PluginLoader} over the project's <em>resolved artifacts</em>, so the plugin answering for a bot
- * pinned to SDK 1.1.0 is the one inside that jar. With no project open — an import repair, a paste, the
+ * pinned to SDK 1.1.0 is the one inside that jar. That loader lived in this package until 2026-08-28 and is
+ * now {@code botmaker-plugin-host}: Studio is no longer the only host, and the delegation split it makes is
+ * the last code here that should exist in two copies. What stayed is everything below — the bundled
+ * fallback, the swap, and the two catalogs — because all of it is about <em>Studio's</em> open project. With no project open — an import repair, a paste, the
  * project selection screen — the answer comes from {@link #bundled}, the plugins on Studio's own
  * classloader, and that is also the fallback for every way binding can fail.
  *

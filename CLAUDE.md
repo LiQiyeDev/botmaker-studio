@@ -89,6 +89,16 @@ there are three distinct relationships to keep straight:
   the only one curation may read. Using the first for curation would offer a bot on an older SDK members its
   jar has never had — the bug the pinned catalog exists to prevent.
 
+  **What loads the plugins is no longer here.** `plugin/PluginLoader` moved to the `botmaker-plugin-host`
+  submodule on 2026-08-28 (`com.botmaker.plugin.host.PluginLoader`, an ordinary `compile` dependency), so
+  the `botmaker` CLI and the plugin registry's CI load a plugin exactly as Studio does — the
+  parent-first/child-first split is the last code in this project that should exist in two copies.
+  `PluginHost` itself stayed: it is the bundled fallback, the per-project bind and the two catalogs above,
+  all of which are about *Studio's* open project. **`botmaker-plugin-host` is not `botmaker-plugin-toolkit`,
+  and Studio must still never list the second** — the toolkit is a *plugin's* dependency, resolved onto the
+  plugin's own classloader, and the moment Studio resolves one version of it two plugins can no longer hold
+  two.
+
   **The catalog mirrors the SDK's `api`/`internal` boundary; it does not draw a second one.** The SDK's rule
   is *"can a bot write the name down?"* — a type it can only ever *receive* lives in `internal`. When 1.1.0
   applied that rule, the `CaptureSource` implementations (`Desktop`, `Monitor`, `NamedWindow`,
