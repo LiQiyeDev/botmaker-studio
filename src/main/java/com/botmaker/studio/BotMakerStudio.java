@@ -87,10 +87,17 @@ public class BotMakerStudio extends Application {
         sweep.start();
         applyAppIcons(primaryStage);
         configureWindow(primaryStage);
-        String lastProject = ProjectPreferences.getLastOpened();
-        if (lastProject != null && projectExists(lastProject)) {
-            openProject(primaryStage, lastProject, false);
+        String requested = requestedProject();
+        String toOpen = requested != null ? requested : ProjectPreferences.getLastOpened();
+        if (toOpen != null && projectExists(toOpen)) {
+            openProject(primaryStage, toOpen, false);
         } else {
+            if (requested != null) {
+                // Named but absent: say so rather than silently showing the picker, because the caller was
+                // a program (`botmaker run --project`) and a picker is not an answer a program can read.
+                System.err.println("No project '" + requested + "' under " + PROJECTS_ROOT
+                        + " — showing the project list instead.");
+            }
             showProjectSelection(primaryStage);
         }
     }
@@ -565,6 +572,30 @@ public class BotMakerStudio extends Application {
             InputStream in = getClass().getResourceAsStream("/icons/icon-" + size + ".png");
             if (in != null) stage.getIcons().add(new Image(in));
         }
+    }
+
+    /**
+     * The project named on the command line as {@code --project=<name>}, or {@code null}.
+     *
+     * <p>Added 2026-08-28 for {@code botmaker run}, whose whole job is to build a plugin and put the user in
+     * front of a project that uses it. Without it the CLI would have to write Studio's own preferences file
+     * from outside to choose what opens, which is a program reaching into another program's state.
+     *
+     * <p>A <em>name</em>, not a path, because that is the unit Studio deals in: projects live under
+     * {@link #PROJECTS_ROOT} and are opened, remembered and listed by name everywhere else. A path here
+     * would be a second way to identify the same thing.
+     *
+     * <p>It does not become the remembered project by itself — {@link #openProject} does that, exactly as it
+     * would for a click. Opening one project by request and then having Studio reopen it next time is what a
+     * user expects; suppressing that would be a special case with no reason behind it.
+     */
+    private String requestedProject() {
+        Parameters parameters = getParameters();
+        if (parameters == null) {
+            return null;
+        }
+        String named = parameters.getNamed().get("project");
+        return named == null || named.isBlank() ? null : named;
     }
 
     private boolean projectExists(String projectName) {
