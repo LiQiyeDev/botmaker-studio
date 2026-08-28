@@ -36,6 +36,11 @@ public final class ProjectSettingsService {
         return new ProjectSettingsService(context.getConfig(), context.getState(), context.getEventBus());
     }
 
+    /** The project this service is bound to — what a host-side plugin context reports as the open project. */
+    public ProjectConfig projectConfig() {
+        return config;
+    }
+
     /** The current settings (from project state, loaded at open and refreshed on change). */
     public StudioProjectSettings current() {
         StudioProjectSettings s = state.getSettings();

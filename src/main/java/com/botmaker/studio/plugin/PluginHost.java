@@ -3,12 +3,15 @@ package com.botmaker.studio.plugin;
 import com.botmaker.plugin.api.ParameterGroup;
 import com.botmaker.plugin.api.SlotEditor;
 import com.botmaker.plugin.api.StudioPlugin;
+import com.botmaker.plugin.api.ToolbarGroup;
+import com.botmaker.plugin.api.ToolbarItem;
 import com.botmaker.plugin.api.catalog.FacadeEntry;
 import com.botmaker.plugin.api.catalog.PaletteCatalog;
 import com.botmaker.plugin.api.value.ValueCatalog;
 import com.botmaker.plugin.host.PluginLoader;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -100,6 +103,9 @@ public final class PluginHost {
     /** Memoised beside the value catalog, and rebuilt on the same bind, for the same reason. */
     private static volatile List<SlotEditor> slotEditors = mergeSlotEditors(BUNDLED);
 
+    /** Memoised beside the slot editors, rebuilt on the same bind. See {@link #toolbarItems()}. */
+    private static volatile List<ToolbarItem> toolbarItems = mergeToolbarItems(BUNDLED);
+
     /** pinned version → the sections of the Parameters window at it. Cleared with {@link #CACHE}. */
     private static final Map<String, List<ParameterGroup>> GROUPS = new ConcurrentHashMap<>();
 
@@ -152,6 +158,7 @@ public final class PluginHost {
         plugins = bound;
         valueTypes = merged;
         slotEditors = mergeSlotEditors(bound);
+        toolbarItems = mergeToolbarItems(bound);
         CACHE.clear();
         GROUPS.clear();
         if (previous != null) previous.close();
@@ -218,6 +225,57 @@ public final class PluginHost {
             if (offered != null) merged.addAll(offered);
         }
         return List.copyOf(merged);
+    }
+
+    /**
+     * Every loaded plugin's toolbar items, sorted into the order the bar draws them.
+     *
+     * <p>Sorted here rather than at render time because the order is a property of the <em>set</em>, not of
+     * the bar: group first, then the item's own {@code order}, then the contributing plugin's id. That last
+     * tie-break is what stops a bar built from two plugins depending on which one {@code ServiceLoader}
+     * happened to find first — the same reasoning that makes the value catalog refuse a clash instead of
+     * letting the winner be decided by load order.
+     *
+     * <p>Studio's own items are <b>not</b> here. They are added by the toolbar itself, which is why
+     * {@link ToolbarGroup#STUDIO} is refused below: it is the host's section, and a plugin quietly re-homed
+     * into it would sit where a user reads the application rather than their project.
+     */
+    public static List<ToolbarItem> toolbarItems() {
+        return toolbarItems;
+    }
+
+    // Package-private rather than private: the three rules below — the STUDIO refusal, the sort's tie-break
+    // on the plugin id, and a throwing plugin costing only itself — have no visible symptom when they are
+    // wrong. A bar in a slightly different order looks like somebody's preference, not like a bug.
+    static List<ToolbarItem> mergeToolbarItems(List<StudioPlugin> set) {
+        record Owned(String pluginId, ToolbarItem item) {}
+        List<Owned> merged = new ArrayList<>();
+        for (StudioPlugin plugin : set) {
+            List<ToolbarItem> offered;
+            try {
+                offered = plugin.toolbarItems();
+            } catch (RuntimeException | Error e) {
+                // A plugin that cannot list its buttons must not cost the ones that can, nor the project.
+                System.err.println("Warning: " + plugin.id() + " could not offer toolbar items: " + e);
+                continue;
+            }
+            if (offered == null) continue;
+            for (ToolbarItem item : offered) {
+                if (item == null || item.label() == null || item.onClick() == null) continue;
+                if (item.group() == ToolbarGroup.STUDIO) {
+                    System.err.println("Warning: " + plugin.id() + " asked for the STUDIO toolbar group with '"
+                            + item.id() + "'; that group is the host's own and the item is dropped.");
+                    continue;
+                }
+                merged.add(new Owned(plugin.id(), item));
+            }
+        }
+        merged.sort(Comparator.comparing((Owned o) -> o.item().group())
+                .thenComparingInt(o -> o.item().order())
+                .thenComparing(Owned::pluginId));
+        List<ToolbarItem> out = new ArrayList<>(merged.size());
+        for (Owned owned : merged) out.add(owned.item());
+        return List.copyOf(out);
     }
 
     /**

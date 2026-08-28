@@ -6,6 +6,36 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-29 — the toolbar is built from data, and a plugin may add to it (plugin platform, phase 13a).**
+  `ToolbarManager.createCaptureGroup()` no longer constructs fifteen `Button`s and passes them varargs to
+  `OverflowBar`, where the argument list *was* the order. Studio's own items are now
+  `com.botmaker.plugin.api.ToolbarItem` records built by `ui/app/ToolbarItems`, sorted with every plugin's
+  through `PluginHost.mergeToolbarItems`, and the acceptance test was that the resulting bar is **the same
+  bar** — same buttons, same order, same overflow behaviour.
+  - **Studio's own items go through the plugin's own record and the plugin's own builder**, which is the
+    point rather than a tidiness: an item built by a second path drifts, and the first symptom would be that
+    the host's buttons are the ones that line up.
+  - **Four groups reproduce the old argument list exactly** — `PROJECT`, `AUTHORING`, `RUN`, `TOOLS` — and
+    that is why `TOOLS` exists at all. With three, the instruments (Input, Templates, Overlay, Record,
+    Resources) would have moved ahead of the run cluster, which is a visible change nobody asked for.
+  - **Three things stay hand-built nodes**, placed beside the described ones: the `QuickLaunch` button (it
+    builds and rebinds its own control against the target on disk, so what it contributes is a node, not a
+    description of one), the Debug `ToggleButton`, and the resolution `Label`. The contract has no toggle
+    kind and no read-out kind because the host is the only thing that wants either — adding a member for its
+    single implementor is the mistake the `Assets` reversal recorded.
+  - **The Launch Target button's cover art stopped being a `setGraphic` call.** The background library scan
+    now moves two fields and calls `refreshItems()`; the label and icon suppliers read them. Same behaviour,
+    and the race guard (only decorate the spec we were asked about) is unchanged.
+  - `HostActionContext` reads everything at call time and captures nothing — the same rule as
+    `HostSlotContext` with a longer fuse, since a toolbar button outlives every project opened after it.
+  - `ToolbarMergeTest` (7) holds the three rules that have **no visible symptom when wrong**: `STUDIO` is
+    refused, a tie breaks on the plugin's id rather than on discovery order, and a plugin that throws costs
+    only its own items. A seventh asserts the SDK contributes **none** yet — so the day it starts, somebody
+    is told to delete Studio's copy rather than ship both buttons.
+  - **The eleven SDK buttons did not move, and that is phase 13's remaining half.** Their actions are Studio
+    dialogs on Studio's project services; migrating the declaration alone would need an intent registry,
+    which was offered and declined in favour of the dialogs genuinely moving. Phase 14 runs first to give
+    them somewhere to stand.
 - **2026-08-28 — a plugin can be developed without publishing it (Part F, phase A).** The SDK has always
   been testable through `~/.m2` with no tag pushed; a plugin now is too, in two pieces.
   - **Project ▸ Reload Plugins** (`LibraryService.reloadPlugins`, `MenuBarManager`, `StudioActions`) —

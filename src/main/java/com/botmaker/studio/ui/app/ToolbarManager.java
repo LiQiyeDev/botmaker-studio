@@ -1,7 +1,13 @@
 package com.botmaker.studio.ui.app;
 
+import com.botmaker.plugin.api.ActionContext;
+import com.botmaker.plugin.api.EnabledWhen;
+import com.botmaker.plugin.api.ToolbarGroup;
+import com.botmaker.plugin.api.ToolbarItem;
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
+import com.botmaker.studio.plugin.HostActionContext;
+import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.shared.game.GameLibraries;
 import com.botmaker.shared.game.InstalledGame;
 import com.botmaker.studio.project.capture.CaptureTarget;
@@ -13,24 +19,26 @@ import com.botmaker.studio.services.ProjectSettingsService;
 import javafx.geometry.HPos;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.OverrunStyle;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.Tooltip;
-import javafx.scene.image.Image;
-import javafx.scene.image.ImageView;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Region;
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.function.Consumer;
 
 public class ToolbarManager {
 
     /** Longest window title shown on the Capture button before it's ellipsized. */
     private static final int CAPTURE_LABEL_MAX = 26;
-    /** Edge length of the launch target's cover thumbnail on its toolbar button. */
-    private static final int LAUNCH_ICON_PX = 20;
+    // The launch target's cover thumbnail is sized by ToolbarItems now — one icon box for every item on the
+    // bar, the host's or a plugin's, which is the whole reason a toolbar item is data and not a Node.
     /**
      * Ceiling for the two buttons whose label tracks project state (capture target, launch target).
      * Sized for {@link #CAPTURE_LABEL_MAX} characters plus the icon and padding. These are the buttons that
@@ -59,6 +67,16 @@ public class ToolbarManager {
     private Button launchTargetButton;
     /** The current {@code launch.target} spec, pushed in by {@link UIManager}; null when none is set. */
     private String launchTargetSpec;
+    /**
+     * The real game title behind {@link #launchTargetSpec}, once the library scan has found it; null until
+     * then, and null again the moment the target changes.
+     *
+     * <p>A field rather than a {@code setText} because the label is a supplier now: the scan lands, this
+     * moves, {@link #refreshItems()} re-reads it. Same for {@link #launchArtworkUri}.
+     */
+    private String launchResolvedName;
+    /** The cover art's URI for the same spec, or null — a plain exe and an uninstalled game both have none. */
+    private String launchArtworkUri;
     /** "▶ Launch" — starts the configured target without running the bot. Rebound when the target changes. */
     private Button quickLaunchButton;
     /** The project's resources dir, pushed in by {@link UIManager}; what quick launch reads its target from. */
@@ -108,7 +126,9 @@ public class ToolbarManager {
     private void setupEventHandlers() {
         // Keep the Capture button's text + resolution readout in sync with the project's settings.
         eventBus.subscribe(CoreApplicationEvents.SettingsChangedEvent.class, e -> {
-            if (captureButton != null) captureButton.setText(captureButtonText());
+            // Every item re-reads itself, not just this one: a supplier is a field read by contract, so
+            // refreshing the bar costs less than knowing which button a settings change touched.
+            refreshItems();
             if (resolutionLabel != null) resolutionLabel.setText(resolutionText());
         }, true);
         eventBus.subscribe(CoreApplicationEvents.ProgramStartedEvent.class, e -> setAppState(AppState.RUNNING), true);
@@ -260,37 +280,31 @@ public class ToolbarManager {
      * where the alternative was a toolbar taller than the canvas.
      */
     public OverflowBar createCaptureGroup() {
-        Button projectSetupButton = new Button("🧭 Setup");
-        projectSetupButton.getStyleClass().add("toolbar-btn");
-        projectSetupButton.setTooltip(new Tooltip(
-                "Set the project up to run: launch target, capture target, resolution and templates in one checklist"));
-        projectSetupButton.setOnAction(e -> {
-            if (onProjectSetup != null) onProjectSetup.run();
-        });
+        // Studio's own items, spelled the way a plugin would have to spell them. Going through the same
+        // record and the same builder is the point rather than a tidiness: an item built by a second path is
+        // an item that drifts, and the first thing anybody would notice is that the host's buttons are the
+        // ones that line up. The orders below reproduce, exactly, the sequence this bar was hand-arranged
+        // into before any of it was data — see the reading-order note on the return.
+        List<Placed> placed = new ArrayList<>();
+        ActionContext ctx = actionContext();
 
-        Button projectSettingsButton = new Button("⚙ Settings");
-        projectSettingsButton.getStyleClass().add("toolbar-btn");
-        projectSettingsButton.setTooltip(new Tooltip(
-                "Project settings: the standard resolution templates are authored at, and favourite methods"));
-        projectSettingsButton.setOnAction(e -> {
-            if (onProjectSettings != null) onProjectSettings.run();
-        });
+        place(placed, ctx, ToolbarItem.of("setup", "🧭 Setup",
+                "Set the project up to run: launch target, capture target, resolution and templates in one checklist",
+                ToolbarGroup.PROJECT, 10, c -> run(onProjectSetup)));
 
-        captureButton = new Button(captureButtonText());
-        captureButton.getStyleClass().add("toolbar-btn");
-        captureButton.setTooltip(new Tooltip("Manage screen / window capture targets (current default shown)"));
-        captureButton.setOnAction(e -> {
-            if (onManageCaptureTargets != null) onManageCaptureTargets.run();
-        });
-        pinWidth(captureButton);
+        place(placed, ctx, ToolbarItem.of("settings", "⚙ Settings",
+                "Project settings: the standard resolution templates are authored at, and favourite methods",
+                ToolbarGroup.PROJECT, 20, c -> run(onProjectSettings)));
 
-        launchTargetButton = new Button(launchTargetText(launchTargetSpec));
-        launchTargetButton.getStyleClass().add("toolbar-btn");
-        launchTargetButton.setTooltip(new Tooltip(
-                "Choose what the bot launches at startup — a Steam/Epic game, an executable, or an emulator app"));
-        launchTargetButton.setOnAction(e -> {
-            if (onManageLaunchTarget != null) onManageLaunchTarget.run();
-        });
+        // The launch target's label and icon are suppliers because the answer arrives twice: the spec's own
+        // short label immediately, and the real game title plus its cover art when the library scan lands.
+        // That is why ToolbarItem carries suppliers at all — this bar already worked this way before there
+        // was a surface to describe it, and a record of Strings would have described a toolbar nobody has.
+        launchTargetButton = place(placed, ctx, new ToolbarItem("launch-target",
+                () -> launchTargetText(launchTargetSpec, launchResolvedName),
+                "Choose what the bot launches at startup — a Steam/Epic game, an executable, or an emulator app",
+                () -> launchArtworkUri, ToolbarGroup.PROJECT, 30, EnabledWhen.ALWAYS,
+                c -> run(onManageLaunchTarget)));
         pinWidth(launchTargetButton);
         resolveLaunchArtwork(launchTargetSpec);
 
@@ -298,34 +312,33 @@ public class ToolbarManager {
         // constant ("▶ Launch" never becomes "Launching…"), so unlike its two neighbours it cannot change
         // width mid-session and re-wrap the bar — the reason those two are pinned. Progress is reported on
         // the status line instead.
+        //
+        // Not a ToolbarItem: QuickLaunch.button builds and rebinds its own control against the target on
+        // disk, so what it contributes is a Node and not a description of one. It sits here as a placed raw
+        // node, which is also what a contract surface has to be able to live beside.
         quickLaunchButton = QuickLaunch.button(resourcesDir, this::reportQuickLaunch);
         quickLaunchButton.setText("▶ Launch");
         quickLaunchButton.getStyleClass().add("toolbar-btn");
+        placed.add(new Placed(ToolbarGroup.PROJECT, 40, "quick-launch", quickLaunchButton, null));
 
-        Button activityFlowButton = new Button("🔀 Flow");
-        activityFlowButton.getStyleClass().add("toolbar-btn");
-        activityFlowButton.setTooltip(new Tooltip(
-                "Define the bot's activities and wire the order they run in"));
-        activityFlowButton.setOnAction(e -> {
-            if (onActivityFlow != null) onActivityFlow.run();
-        });
+        captureButton = place(placed, ctx, new ToolbarItem("capture-target",
+                this::captureButtonText,
+                "Manage screen / window capture targets (current default shown)",
+                null, ToolbarGroup.PROJECT, 50, EnabledWhen.ALWAYS, c -> run(onManageCaptureTargets)));
+        pinWidth(captureButton);
 
-        Button parametersButton = new Button("🎚 Parameters");
-        parametersButton.getStyleClass().add("toolbar-btn");
-        parametersButton.setTooltip(new Tooltip(
-                "The project's variables: every value the bot reads, with its tag and its editor"));
-        parametersButton.setOnAction(e -> {
-            if (onParameters != null) onParameters.run();
-        });
+        place(placed, ctx, ToolbarItem.of("flow", "🔀 Flow",
+                "Define the bot's activities and wire the order they run in",
+                ToolbarGroup.AUTHORING, 10, c -> run(onActivityFlow)));
 
-        Button remotePilotButton = new Button("🎮 Pilot");
-        remotePilotButton.getStyleClass().add("toolbar-btn");
-        remotePilotButton.setTooltip(new Tooltip(
+        place(placed, ctx, ToolbarItem.of("parameters", "🎚 Parameters",
+                "The project's variables: every value the bot reads, with its tag and its editor",
+                ToolbarGroup.AUTHORING, 20, c -> run(onParameters)));
+
+        place(placed, ctx, ToolbarItem.of("pilot", "🎮 Pilot",
                 "Stream what the bot sees to your phone or browser — watch it, start/stop it, "
-                        + "or turn on Interact to click and drag in the game yourself"));
-        remotePilotButton.setOnAction(e -> {
-            if (onEnableRemotePilot != null) onEnableRemotePilot.run();
-        });
+                        + "or turn on Interact to click and drag in the game yourself",
+                ToolbarGroup.RUN, 10, c -> run(onEnableRemotePilot)));
 
         ToggleButton debugOutputButton = new ToggleButton(debugOutputText(debugOutputInitial));
         debugOutputButton.getStyleClass().add("toolbar-btn");
@@ -337,18 +350,20 @@ public class ToolbarManager {
             debugOutputButton.setText(debugOutputText(on));
             if (onToggleDebugOutput != null) onToggleDebugOutput.accept(on);
         });
+        // Not a ToolbarItem, and deliberately: it is a ToggleButton with two equal-width states, and there is
+        // no toggle kind in the contract because no plugin item needs one yet. Adding one for the host's own
+        // button would be designing a surface against its only implementor, which is the mistake the Assets
+        // and SourceChoice reversal of 2026-08-27 recorded. Debug also stays Studio's for now — "how a bot is
+        // debugged" is a plugin's answer to give, and there is no second plugin to give one.
+        placed.add(new Placed(ToolbarGroup.RUN, 20, "debug-output", debugOutputButton, null));
 
         // The same action as View ▸ Preview as user, not a second thing that sounds like it. This used to be
         // a "Reader mode" toggle that hid the editor's controls in place — a third rendering of the project
         // that answered "what does a user see?" with something no user ever sees. The Runner is the answer.
-        Button previewAsUserButton = new Button("👁 Preview");
-        previewAsUserButton.getStyleClass().add("toolbar-btn");
-        previewAsUserButton.setTooltip(new Tooltip(
+        place(placed, ctx, ToolbarItem.of("preview", "👁 Preview",
                 "Open this bot the way someone who only runs it sees it — the Runner window, with the "
-                        + "switches and values you chose to expose. Its header brings you back."));
-        previewAsUserButton.setOnAction(e -> {
-            if (onPreviewAsUser != null) onPreviewAsUser.run();
-        });
+                        + "switches and values you chose to expose. Its header brings you back.",
+                ToolbarGroup.RUN, 30, c -> run(onPreviewAsUser)));
 
         Button inputConfigButton = new Button("🖱 Input");
         inputConfigButton.getStyleClass().add("toolbar-btn");
@@ -363,40 +378,29 @@ public class ToolbarManager {
         inputConfigButton.setOnAction(e -> {
             if (onConfigureInput != null) onConfigureInput.run();
         });
+        // The one tooltip too long to read as a record argument. It stays a hand-built button until the
+        // action itself moves, at which point the sentence moves with it — a five-paragraph explanation of
+        // how a bot clicks belongs to whoever owns the clicking.
+        placed.add(new Placed(ToolbarGroup.TOOLS, 10, "input", inputConfigButton, null));
 
-        Button captureTemplatesButton = new Button("✂ Templates");
-        captureTemplatesButton.getStyleClass().add("toolbar-btn");
-        captureTemplatesButton.setTooltip(new Tooltip(
-                "Cut and manage the template images the bot matches against"));
-        captureTemplatesButton.setOnAction(e -> {
-            if (onCaptureTemplates != null) onCaptureTemplates.run();
-        });
+        place(placed, ctx, ToolbarItem.of("templates", "✂ Templates",
+                "Cut and manage the template images the bot matches against",
+                ToolbarGroup.TOOLS, 20, c -> run(onCaptureTemplates)));
 
-        Button overlayEditorButton = new Button("⧉ Overlay");
-        overlayEditorButton.getStyleClass().add("toolbar-btn");
-        overlayEditorButton.setTooltip(new Tooltip(
-                "Build the bot over the running game: a compact block tree on top of the target window"));
-        overlayEditorButton.setOnAction(e -> {
-            if (onOverlayEditor != null) onOverlayEditor.run();
-        });
+        place(placed, ctx, ToolbarItem.of("overlay", "⧉ Overlay",
+                "Build the bot over the running game: a compact block tree on top of the target window",
+                ToolbarGroup.TOOLS, 30, c -> run(onOverlayEditor)));
 
         // The same overlay, opened straight into recording. Its own button because "record what I do in the
         // game" is how the tool is reached for, and routing it through ⧉ Overlay → ● Record made the feature
         // look absent: the standalone Record Macro button was dropped in 2026-07 and nothing replaced it.
-        Button recordButton = new Button("⏺ Record");
-        recordButton.getStyleClass().add("toolbar-btn");
-        recordButton.setTooltip(new Tooltip(
-                "Open the overlay and start recording real clicks and keys into the current activity"));
-        recordButton.setOnAction(e -> {
-            if (onRecordMacro != null) onRecordMacro.run();
-        });
+        place(placed, ctx, ToolbarItem.of("record", "⏺ Record",
+                "Open the overlay and start recording real clicks and keys into the current activity",
+                ToolbarGroup.TOOLS, 40, c -> run(onRecordMacro)));
 
-        Button resourcesButton = new Button("🗂 Resources");
-        resourcesButton.getStyleClass().add("toolbar-btn");
-        resourcesButton.setTooltip(new Tooltip("Browse the project's resource files"));
-        resourcesButton.setOnAction(e -> {
-            if (onAccessResources != null) onAccessResources.run();
-        });
+        place(placed, ctx, ToolbarItem.of("resources", "🗂 Resources",
+                "Browse the project's resource files",
+                ToolbarGroup.TOOLS, 50, c -> run(onAccessResources)));
 
         resolutionLabel = new Label(resolutionText());
         resolutionLabel.getStyleClass().add("toolbar-resolution");
@@ -405,22 +409,85 @@ public class ToolbarManager {
         // in .toolbar-resolution.
         resolutionLabel.setMinHeight(Region.USE_PREF_SIZE);
         resolutionLabel.setTooltip(new Tooltip("Project standard resolution · primary screen resolution"));
+        // A read-out, not an action, and the reason ToolbarItem has no kind for one: a plugin that wants to
+        // state a fact on the bar has not asked for that yet, and inventing the surface before it does is how
+        // a contract acquires a member with one implementor.
+        placed.add(new Placed(ToolbarGroup.STUDIO, 100, "resolution", resolutionLabel, null));
 
+        // Every plugin's items, merged into the same groups. PluginHost has already sorted them and already
+        // refused anything claiming ToolbarGroup.STUDIO, so what arrives here is only ever placeable.
+        for (ToolbarItem item : PluginHost.toolbarItems()) place(placed, ctx, item);
+
+        // The reading order the bar was hand-arranged into, now stated as four groups rather than as an
+        // argument list — and it comes out identical, which is the acceptance test for this change.
+        //
+        // PROJECT: Launch target before Capture target — you pick what the bot opens, then where it looks,
+        // and a game's window can only be picked as a capture target once the game is actually up. Settings
+        // sits next to Setup: the checklist is the guided path, this is the same project's stored values
+        // (the resolution the label at the end of this bar is reading) in one dialog.
+        // AUTHORING: Flow then Parameters — the activities are drawn first, and their values are what the
+        // drawing reads.
+        // RUN, then TOOLS: what is observed, then what observes it.
+        //
         // The order is also the order things drop into the » menu: what is furthest right goes first, so the
         // readout and the least-reached-for tools are what a narrow window costs you, not Project Setup.
-        return new OverflowBar(5, 5, TOOLBAR_MAX_ROWS, HPos.CENTER,
-                // Launch before Capture: you pick what the bot opens, then where it looks — and a game's
-                // window can only be picked as a capture target once the game is actually up.
-                // Settings sits next to Setup: the checklist is the guided path, this is the same project's
-                // stored values (the resolution the label at the end of this bar is reading) in one dialog.
-                projectSetupButton, projectSettingsButton, launchTargetButton, quickLaunchButton, captureButton,
-                // Flow then Parameters: the activities are drawn first, and their values are what the drawing
-                // reads. Both are Project-menu actions with no button until now.
-                activityFlowButton, parametersButton,
-                remotePilotButton,
-                debugOutputButton, previewAsUserButton, inputConfigButton, captureTemplatesButton,
-                overlayEditorButton, recordButton,
-                resourcesButton, resolutionLabel);
+        placed.sort(Comparator.comparing(Placed::group)
+                .thenComparingInt(Placed::order)
+                .thenComparing(Placed::id));
+        this.items = List.copyOf(placed);
+        Node[] nodes = new Node[placed.size()];
+        for (int i = 0; i < placed.size(); i++) nodes[i] = placed.get(i).node();
+        return new OverflowBar(5, 5, TOOLBAR_MAX_ROWS, HPos.CENTER, nodes);
+    }
+
+    /**
+     * One thing on the bar: an item and the node built from it, or a node the host built by hand.
+     *
+     * <p>The second case is not a loose end. A {@link ToolbarItem} describes a button and there are three
+     * things up here that are not one — a control {@code QuickLaunch} builds and rebinds itself, a toggle,
+     * and a read-out — so the placement model has to hold a bare {@link Node} beside a described one. Every
+     * attempt to make the record cover all three would have added a member with exactly one implementor.
+     */
+    private record Placed(ToolbarGroup group, int order, String id, Node node, ToolbarItem item) {}
+
+    /** What is currently on the bar, in draw order, so {@link #refreshItems()} can re-read the suppliers. */
+    private List<Placed> items = List.of();
+
+    /** Builds {@code item}'s button, records where it goes, and hands the button back for any pinning. */
+    private Button place(List<Placed> into, ActionContext ctx, ToolbarItem item) {
+        Button button = ToolbarItems.button(item, ctx);
+        into.add(new Placed(item.group(), item.order(), item.id(), button, item));
+        return button;
+    }
+
+    /** Runs a wired callback, or does nothing when the bar was built before that callback was set. */
+    private static void run(Runnable callback) {
+        if (callback != null) callback.run();
+    }
+
+    /**
+     * Re-reads every item's label and icon.
+     *
+     * <p>Cheap by contract — a supplier is a field read and a format — so this runs on the events that
+     * already redraw parts of the bar rather than on a timer.
+     */
+    private void refreshItems() {
+        for (Placed p : items) {
+            if (p.item() != null && p.node() instanceof Button button) ToolbarItems.refresh(button, p.item());
+        }
+    }
+
+    /**
+     * The facts a toolbar click is handed.
+     *
+     * <p>Built once and reused: {@link HostActionContext} reads everything at call time, so one context is
+     * correct for every project opened after it — which a captured one would not be, and a button outlives
+     * the project it was built under.
+     */
+    private ActionContext actionContext() {
+        return new HostActionContext(
+                () -> settings == null ? null : settings.projectConfig(),
+                () -> "");
     }
 
     /**
@@ -480,9 +547,13 @@ public class ToolbarManager {
      */
     public void setLaunchTarget(String spec) {
         this.launchTargetSpec = (spec == null || spec.isBlank()) ? null : spec.trim();
+        // A new target has not been resolved yet, so the old title and cover must go before the scan runs —
+        // otherwise the button shows the previous game's art for as long as the library walk takes.
+        this.launchResolvedName = null;
+        this.launchArtworkUri = null;
         if (launchTargetButton == null) return;
         launchTargetButton.setGraphic(null);
-        launchTargetButton.setText(launchTargetText(launchTargetSpec));
+        refreshItems();
         resolveLaunchArtwork(launchTargetSpec);
         // The quick-launch button reads the target off disk, so it has to be rebound whenever it changes —
         // otherwise it stays disabled after the very first target is set, or launches the previous one.
@@ -523,22 +594,15 @@ public class ToolbarManager {
     private void resolveLaunchArtwork(String spec) {
         LaunchSpec parsed = LaunchSpec.parse(spec);
         if (parsed == null || parsed.kind() == LaunchKind.UNKNOWN) return;
-        Button button = launchTargetButton;
         Thread scan = new Thread(() -> {
             InstalledGame game = GameLibraries.findGame(parsed.kind().id(), parsed.token()).orElse(null);
             if (game == null) return;
             javafx.application.Platform.runLater(() -> {
                 // A later setLaunchTarget may have won the race; only decorate the spec we were asked about.
                 if (!java.util.Objects.equals(spec, launchTargetSpec)) return;
-                button.setText(launchTargetText(spec, game.name()));
-                if (game.artwork() != null) {
-                    ImageView icon = new ImageView(
-                            new Image(game.artwork().toUri().toString(), LAUNCH_ICON_PX, LAUNCH_ICON_PX, true, true, true));
-                    icon.setPreserveRatio(true);
-                    icon.setFitWidth(LAUNCH_ICON_PX);
-                    icon.setFitHeight(LAUNCH_ICON_PX);
-                    button.setGraphic(icon);
-                }
+                launchResolvedName = game.name();
+                launchArtworkUri = game.artwork() == null ? null : game.artwork().toUri().toString();
+                refreshItems();
             });
         }, "launch-target-art");
         scan.setDaemon(true);
