@@ -34,9 +34,19 @@ public final class SchemaMigrations {
      * simply live again on the next open — and its stub has to be live with it, or the project has an activity
      * whose class does not exist. Dropping the flag from the model is the shape change; this is its fallout.
      *
-     * <p><b>1 → 2: the values leave {@code Activities} for {@code Parameters}.</b> Two generated classes where
-     * there was one, and every {@code Activities.<value>} in the bot's own source repointed — a complete
-     * repair, so nothing is marked for review. See {@link ParametersSplit}.
+     * <p><b>1 → 2: nothing, since 2026-08-29.</b> It used to split the values out of a generated
+     * {@code Activities} into a generated {@code Parameters} and repoint every {@code Activities.<value>} in
+     * the bot's own source. Neither class is generated any more — a value is read at run time
+     * ({@code Wire.whole("minHealth")}) — so the step's destination no longer exists, and running it would
+     * rewrite a user's working source into a shape nothing produces.
+     *
+     * <p>A project still holding an {@code Activities.java} keeps it, as an ordinary source file it owns.
+     * That is the standing answer for everything the old generator wrote: it stops being rewritten, and
+     * nobody deletes it.
+     *
+     * <p>The step stays in the list rather than being removed, because the position <em>is</em> the schema
+     * version: dropping it would renumber every step after it and re-run them on projects that have already
+     * had them.
      */
     private static final List<SchemaMigration> ACTIVITIES_STEPS = List.of(
             ctx -> {
@@ -45,7 +55,7 @@ public final class SchemaMigrations {
                         : "Restored " + restored + " archived activity stub" + (restored == 1 ? "" : "s")
                           + " into the project.";
             },
-            ctx -> ParametersSplit.apply(ctx.config()));
+            ctx -> null);
 
     /**
      * No steps yet — {@code settings.json} is still at version 0. Listed explicitly rather than left to a

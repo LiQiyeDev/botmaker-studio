@@ -287,23 +287,15 @@ class LockedBlockRenderingTest extends FxHeadlessTest {
                 "a locked field offers no delete / Set Value control");
     }
 
-    @Test
-    void theRealGeneratedFlowDriverRendersInertEndToEnd() {
-        // Not a synthetic snippet: the exact source the SDK's generator writes, rendered whole-file. This is
-        // the page the bug reports keep coming from — an unguarded null button in any block it contains
-        // aborts the entire render pass ("no blocks visible"), and any surviving control is an edit leak.
-        String source = com.botmaker.studio.project.ProjectSpecs.generatedSource(CONFIG,
-                com.botmaker.studio.project.ProjectTemplate.GAME_BOT,
-                com.botmaker.studio.services.MavenService.SDK_FALLBACK_VERSION, "FlowDriver.java");
-        assertNotNull(source, "precondition: the game-bot template generates FlowDriver.java");
-
-        Rendered r = render(CONFIG.flowDriverSourceFile(), source);
-        Node[] node = new Node[1];
-        assertDoesNotThrow(() -> interact(() -> node[0] = r.root().getUINode(r.context())),
-                "the generated FlowDriver must render, not crash the pass");
-        assertEquals(List.of(), editingControls(node[0]),
-                "nothing in the generated flow driver may be editable");
-    }
+    // `theRealGeneratedFlowDriverRendersInertEndToEnd` stood here: it fetched the exact source the SDK's
+    // generator wrote for FlowDriver.java and asserted the whole file rendered with no editable control in
+    // it. Deleted on 2026-08-29 with its subject — there is no fully generated file left to render. The
+    // three files a game bot is created with are seeds the user owns and edits, and the flow they used to
+    // read from FlowDriver is read from activities.json at run time.
+    //
+    // What it covered is not lost: the synthetic whole-file cases below hold the same rules, and it is the
+    // rules rather than one particular generated file that the render pass has to honour. Reinstating it
+    // against a seed would assert the opposite of the truth — a seed is meant to be editable.
 
     @Test
     void aLockedPrivateConstructorAndANullLiteralOfferNothing() {

@@ -272,8 +272,9 @@ public class ActivityServiceTest {
 
         assertTrue(java.nio.file.Files.exists(config.resourcesRoot().resolve(ActivitiesConfig.FILE_NAME)),
                 "the model is still saved");
-        assertTrue(java.nio.file.Files.exists(config.activitiesSourceFile()));
-        assertTrue(java.nio.file.Files.exists(config.flowDriverSourceFile()));
+        // Activities.java and FlowDriver.java were asserted here too, until both stopped being written: an
+        // activity's tick and the drawn flow are read from the JSON above at run time. A save's whole output
+        // is now the model and any stub that did not exist yet.
         assertTrue(java.nio.file.Files.exists(config.activitiesPackageDir().resolve("Mining.java")),
                 "and the new activity's stub with them");
     }

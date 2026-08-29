@@ -60,32 +60,6 @@ public final class ProjectRepair {
     private ProjectRepair() {}
 
     /**
-     * The two generated files that both passes in {@link #findMissing} would report — the scaffold pass by
-     * name, the activity pass on the project's actual flow. Reported once, by whichever pass has evidence:
-     * the activity pass when there are activities, the scaffold pass otherwise.
-     *
-     * <p>They used to be skipped for a stronger reason — the scaffold's registry source was an <em>empty</em>
-     * {@code List.of()}, so restoring from it would have quietly emptied a real flow. That hazard is gone
-     * (both passes now render from the stored model), leaving only the duplicate row.
-     */
-    private static final String REGISTRY_FILE = "ActivityRegistry.java";
-    private static final String DRIVER_FILE = "FlowDriver.java";
-
-    /**
-     * Generated files the scaffold pass does <b>not</b> report, because a later pass in {@link #findMissing}
-     * owns them and reports them on better evidence.
-     *
-     * <p>It exists because the file list is the generator's now (2026-08-25) rather than a hand-written five:
-     * the SDK writes {@code Activities.java} and {@code Parameters.java} too, and a scaffold pass that
-     * reported everything the generator emits would list them a second time — once with no evidence, once
-     * with the right evidence — and would demand them from a project that has never had an activity to put in
-     * them. {@code Templates.java} is the same shape of answer with a different owner: it is a function of the
-     * project's images, and {@code ImageTemplateLibrary} is what regenerates it.
-     */
-    private static final java.util.Set<String> OWNED_BY_A_LATER_PASS =
-            java.util.Set.of("Activities.java", "Parameters.java", "Templates.java");
-
-    /**
      * A file that should exist but doesn't, plus what would restore it.
      *
      * <p>The restorer is nullable and, since 2026-08-26, is never actually null: every file this class
@@ -125,10 +99,13 @@ public final class ProjectRepair {
      * <p>A guess costs more than it used to: the answer feeds {@link FileRole}, so guessing GAME_BOT makes the
      * named files read-only. One stray file must therefore not be enough — a user's own {@code GameLoop.java}
      * in an empty project used to be sufficient here, and the reward was that their only file went read-only.
-     * Requiring {@code FlowDriver.java} <em>and</em> {@code ActivityRegistry.java} together (a pairing only the
-     * generator produces) keeps the recovery case while dropping the false positive. It was
-     * {@code GameLoop.java} + the registry until that file was retired; the driver is the same shape of
-     * evidence — generated, game-bot-only, and never written by hand.
+     * So the evidence is <em>every</em> file the generator claims, all present at once.
+     *
+     * <p><b>Which files those are is asked, never known.</b> This method named two of them as string
+     * literals until 2026-08-29, which is the same mistake as {@code GeneratedMembers} on a smaller scale: a
+     * host that spells a plugin's file names has an opinion about that plugin, and the second plugin to write
+     * a file into a project would have had no way to be recognised. The list comes from the project's own SDK
+     * through {@link ProjectSpecs#generatedFileNames}, so it moves the day the generator does.
      */
     public static boolean looksLikeGameBot(ProjectConfig config) {
         Path mainDir = config.mainSourceFile().getParent();
@@ -143,8 +120,18 @@ public final class ProjectRepair {
                 // Unreadable main: fall through to the file-presence check.
             }
         }
-        return Files.exists(mainDir.resolve(DRIVER_FILE))
-                && Files.exists(mainDir.resolve(REGISTRY_FILE));
+        // Every file the generator claims for a game bot, all of them present. Which files those are is not
+        // Studio's to know: the list comes from the project's own SDK, so it moves when the generator does
+        // and there is no name written down here to go stale. It used to be a hand-picked pair —
+        // FlowDriver.java and ActivityRegistry.java, "a pairing only the generator produces" — which was the
+        // same idea with the answer copied into this file.
+        //
+        // Requiring all of them rather than any one keeps the false positive out: a user's own GameLoop.java
+        // in an empty project must not make their only file read-only, which is what a single match once did.
+        List<String> claimed = ProjectSpecs.generatedFileNames(
+                config, ProjectTemplate.GAME_BOT, MavenService.readSdkVersion(config.projectPath()));
+        return !claimed.isEmpty()
+                && claimed.stream().allMatch(name -> Files.exists(mainDir.resolve(name)));
     }
 
     /**
@@ -166,9 +153,6 @@ public final class ProjectRepair {
                 ? template
                 : (looksLikeGameBot(config) ? ProjectTemplate.GAME_BOT : ProjectTemplate.EMPTY);
 
-        // Decides which of the two passes reports the registry and the driver — see REGISTRY_FILE.
-        boolean hasActivities = activities != null && !activities.activities().isEmpty();
-
         String sdkPin = MavenService.readSdkVersion(config.projectPath());
         if (resolved == ProjectTemplate.GAME_BOT) {
             // Reported by name *and* restored, since 2026-08-26: which files a game bot must have comes from
@@ -176,9 +160,12 @@ public final class ProjectRepair {
             // Regeneration.restore does. For one day (phase 0b) every entry here carried a null restorer,
             // because nothing in Studio could produce the text — reporting without restoring being the least
             // bad of the three answers available then.
+            // Every name the generator claims is reported, with no exclusions. There used to be two sets of
+            // them — files a later pass owned on better evidence, and the registry/driver pair both passes
+            // would otherwise have listed twice — and both existed because the generator emitted files
+            // derived from the model. It does not any more: what comes back is the seeds, which a game bot
+            // must have whatever is in its model, so there is one pass and no evidence to weigh.
             for (String name : ProjectSpecs.generatedFileNames(config, resolved, sdkPin)) {
-                if (OWNED_BY_A_LATER_PASS.contains(name)) continue;
-                if (hasActivities && (REGISTRY_FILE.equals(name) || DRIVER_FILE.equals(name))) continue;
                 Path path = mainDir.resolve(name);
                 if (!Files.exists(path)) missing.add(regenerated(config, path, "game-bot scaffold"));
             }
@@ -216,32 +203,14 @@ public final class ProjectRepair {
                         "activity settings"));
             }
 
-            // Activities.java and Parameters.java exist as soon as the project has any activity or variable at
-            // all, because ActivityService writes both even when they would be empty rather than deleting
-            // them (something may still be importing them). Only a project that has never had an activity or
-            // a variable is entitled not to have them.
+            // Activities.java, Parameters.java, ActivityRegistry.java and FlowDriver.java were asked about
+            // here, on the evidence of the model rather than by name. All four are gone: a tick, a value, a
+            // picture and a wire are read from activities.json at run time, so there is no file whose absence
+            // is damage — and, more to the point, none this class could offer to write back. A repair that
+            // reports a file it cannot restore is worse than one that says nothing.
             //
-            // The pair is asked about together, on the same evidence, even though one holds the flags and the
-            // other the values: they are written by one save and the file that has no fields of its own is
-            // the one nothing would otherwise notice was gone.
-            if (hasActivities || !activities.allVariables().isEmpty()) {
-                if (!Files.exists(config.activitiesSourceFile())) {
-                    missing.add(regenerated(config, config.activitiesSourceFile(),
-                            "generated activity code"));
-                }
-                if (!Files.exists(config.parametersSourceFile())) {
-                    missing.add(regenerated(config, config.parametersSourceFile(),
-                            "generated activity code"));
-                }
-            }
-            if (hasActivities && !Files.exists(config.activityRegistrySourceFile())) {
-                missing.add(regenerated(config, config.activityRegistrySourceFile(),
-                        "generated activity code"));
-            }
-            if (hasActivities && !Files.exists(config.flowDriverSourceFile())) {
-                missing.add(regenerated(config, config.flowDriverSourceFile(),
-                        "generated activity code"));
-            }
+            // A project generated before that keeps those files as ordinary source. They are the user's now,
+            // so their absence is a deletion rather than damage, exactly like any other file in the project.
 
             // Per-activity subclass stubs (the same set ActivityService.ensureStubs would create).
             for (ActivityDefinition a : activities.activities()) {

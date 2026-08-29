@@ -48,15 +48,22 @@ class ProjectRepairTest {
      * a question about the text, so a stand-in serves it exactly as well as the real thing. The one place the
      * text mattered was an assertion that a restored {@code FlowDriver} contained {@code MAX_STEPS}, and there
      * is no restoring to assert on any more.
+     *
+     * <p>It is three files now, not five. {@code FlowDriver} and {@code ActivityRegistry} were both derived
+     * entirely from the model and are read at run time instead ({@code FlowGraph.load}), so a game bot's
+     * whole scaffold is its entry point, {@code GoHome} and {@code Popups}.
      */
     private void layDownScaffold() throws IOException {
         Files.writeString(config.mainSourceFile(), """
                 package com.mybot;
                 public class MyBot {
-                    public static void main(String[] args) { Bot.start(FlowDriver::run, GoHome.INSTANCE); }
+                    public static void main(String[] args) {
+                        Bot.start(() -> FlowGraph.run(MyBot.class, GoHome.INSTANCE::execute),
+                                GoHome.INSTANCE::execute);
+                    }
                 }
                 """);
-        for (String name : List.of("FlowDriver.java", "GoHome.java", "Popups.java", "ActivityRegistry.java")) {
+        for (String name : List.of("GoHome.java", "Popups.java")) {
             String type = name.substring(0, name.length() - ".java".length());
             Files.writeString(mainDir.resolve(name),
                     "package com.mybot;\npublic class " + type + " {\n}\n");
@@ -91,7 +98,7 @@ class ProjectRepairTest {
 
     @Test
     void anEmptyProjectIsNotMistakenForAGameBot() throws IOException {
-        for (String name : List.of("FlowDriver.java", "GoHome.java", "ActivityRegistry.java")) {
+        for (String name : List.of("GoHome.java", "Popups.java")) {
             Files.delete(mainDir.resolve(name));
         }
         Files.writeString(config.mainSourceFile(), """
@@ -106,8 +113,8 @@ class ProjectRepairTest {
     @Test
     void aStrayScaffoldNameDoesNotMakeAnEmptyProjectAGameBot() throws IOException {
         // One file named like scaffolding used to be enough to guess GAME_BOT. That guess feeds FileRole, so a
-        // user who wrote their own FlowDriver.java in an empty project had their only file turned read-only.
-        for (String name : List.of("FlowDriver.java", "GoHome.java", "ActivityRegistry.java")) {
+        // user who wrote their own GoHome.java in an empty project had their only file turned read-only.
+        for (String name : List.of("GoHome.java", "Popups.java")) {
             Files.delete(mainDir.resolve(name));
         }
         Files.writeString(config.mainSourceFile(), """
@@ -116,31 +123,31 @@ class ProjectRepairTest {
                     public static void main(String[] args) {}
                 }
                 """);
-        Files.writeString(mainDir.resolve("FlowDriver.java"), """
+        Files.writeString(mainDir.resolve("GoHome.java"), """
                 package com.mybot;
-                public class FlowDriver {
+                public class GoHome {
                     public static void run() {}
                 }
                 """);
         assertFalse(ProjectRepair.looksLikeGameBot(config),
-                "a lone FlowDriver.java is a file the user wrote, not a scaffold");
+                "a lone GoHome.java is a file the user wrote, not a scaffold");
     }
 
     @Test
     void aFileDeletedOutsideStudioIsFoundAndPutBack() throws IOException {
-        Path driver = mainDir.resolve("FlowDriver.java");
-        Files.delete(driver);   // e.g. an `rm` outside the Studio
+        Path popups = mainDir.resolve("Popups.java");
+        Files.delete(popups);   // e.g. an `rm` outside the Studio
 
         List<ProjectRepair.Missing> missing = ProjectRepair.findMissing(config, ProjectTemplate.GAME_BOT, ActivitiesConfig.empty());
         assertEquals(1, missing.size());
-        assertEquals("FlowDriver.java", missing.get(0).fileName());
+        assertEquals("Popups.java", missing.get(0).fileName());
 
         // Finding it is half the point; writing it back is the other half, and it came back on 2026-08-26
         // when the generator landed in the SDK. What is asserted here is the file's *reappearance*, not a
-        // byte of its text: what a FlowDriver says is the SDK's to test, in its own build.
-        assertEquals(List.of(driver), ProjectRepair.recover(config, missing));
-        assertTrue(Files.exists(driver));
-        assertTrue(Files.readString(driver).contains("class FlowDriver"));
+        // byte of its text: what a Popups says is the SDK's to test, in its own build.
+        assertEquals(List.of(popups), ProjectRepair.recover(config, missing));
+        assertTrue(Files.exists(popups));
+        assertTrue(Files.readString(popups).contains("class Popups"));
     }
 
     @Test
@@ -208,7 +215,7 @@ class ProjectRepairTest {
                 + "}\n";
         Files.writeString(goHome, userEdited);
 
-        Files.delete(mainDir.resolve("FlowDriver.java"));   // something else is genuinely missing
+        Files.delete(mainDir.resolve("Popups.java"));   // something else is genuinely missing
         List<ProjectRepair.Missing> missing = ProjectRepair.findMissing(config, ProjectTemplate.GAME_BOT, ActivitiesConfig.empty());
         ProjectRepair.recover(config, missing);
 
@@ -217,14 +224,13 @@ class ProjectRepairTest {
 
     @Test
     void severalMissingFilesAreAllFound() throws IOException {
-        Files.delete(mainDir.resolve("FlowDriver.java"));
         Files.delete(mainDir.resolve("GoHome.java"));
-        Files.delete(mainDir.resolve("ActivityRegistry.java"));
+        Files.delete(mainDir.resolve("Popups.java"));
 
         List<ProjectRepair.Missing> missing = ProjectRepair.findMissing(config, ProjectTemplate.GAME_BOT, ActivitiesConfig.empty());
         // The order is the generator's emission order, not a list written here — since 2026-08-25 the file
-        // set comes from the SDK, so what this asserts is that all three are found, in one stable order.
-        assertEquals(List.of("GoHome.java", "ActivityRegistry.java", "FlowDriver.java"),
+        // set comes from the SDK, so what this asserts is that both are found, in one stable order.
+        assertEquals(List.of("GoHome.java", "Popups.java"),
                 missing.stream().map(ProjectRepair.Missing::fileName).toList());
     }
 
@@ -235,28 +241,15 @@ class ProjectRepairTest {
 
         List<ProjectRepair.Missing> missing = ProjectRepair.findMissing(config, ProjectTemplate.GAME_BOT, activities);
 
-        // Everything this activity implies is absent here: its settings, the generated Activities class
-        // holding the enable flag, its Parameters twin, and the subclass stub. Parameters is listed even
-        // with no variables to put in it — the pair is written by one save, and a project holding one of the
-        // two is not a state the emitter can produce.
-        assertEquals(List.of("activities.json", "Activities.java", "Parameters.java", "Mining.java"),
+        // Everything this activity implies is absent here: its settings and its subclass stub. The generated
+        // Activities and Parameters classes used to be listed alongside them; both are gone, because an
+        // activity's tick and a project's values are read at run time. A file nothing writes is a file a
+        // repair must not claim it can put back.
+        assertEquals(List.of("activities.json", "Mining.java"),
                 missing.stream().map(ProjectRepair.Missing::fileName).toList());
-        // Every one of them can be written back (2026-08-26): the settings from the model in hand, the three
-        // .java files from the project's own SDK. For one day they all carried a null restorer.
+        // Both can be written back (2026-08-26): the settings from the model in hand, the stub from the
+        // project's own SDK. For one day they all carried a null restorer.
         assertTrue(missing.stream().allMatch(m -> m.restorer() != null));
-    }
-
-    @Test
-    void aDeletedActivitiesClassIsRecoverable() {
-        // The explorer's delete dialog promises Recover can bring Activities.java back; it must actually
-        // report it. It is generated by ActivityService and is in no template's source list, so nothing
-        // used to notice it was gone — Recover said "nothing to recover" while the project wouldn't compile.
-        ActivitiesConfig activities = ActivitiesConfig.of(
-                List.of(new ActivityDefinition("Mining", true, "", List.of(), true, true)), List.of());
-
-        List<ProjectRepair.Missing> missing = ProjectRepair.findMissing(config, ProjectTemplate.GAME_BOT, activities);
-        assertTrue(missing.stream().anyMatch(m -> m.fileName().equals("Activities.java")
-                && m.reason().equals("generated activity code")));
     }
 
     @Test
@@ -278,7 +271,7 @@ class ProjectRepairTest {
         // The stub used to be skipped here — only ActivityService could write one, and this pass had no
         // access to it. Since 2026-08-26 every entry is restorable, so a recovery finishes on its own rather
         // than handing the rest to a save the user has to remember to make.
-        assertEquals(List.of("activities.json", "Activities.java", "Parameters.java", "Mining.java"),
+        assertEquals(List.of("activities.json", "Mining.java"),
                 written.stream().map(p -> p.getFileName().toString()).toList());
         assertTrue(written.stream().allMatch(Files::exists));
     }
@@ -298,7 +291,7 @@ class ProjectRepairTest {
 
     @Test
     void aMissingEntryPointIsRecoveredForANonGameBotProject() throws IOException {
-        for (String name : List.of("FlowDriver.java", "GoHome.java", "ActivityRegistry.java")) {
+        for (String name : List.of("GoHome.java", "Popups.java")) {
             Files.delete(mainDir.resolve(name));
         }
         Files.delete(config.mainSourceFile());

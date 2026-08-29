@@ -118,9 +118,16 @@ class TemplateArchiveTest {
         assertEquals(1, ImageTemplateLibrary.list(config).size());
     }
 
-    /** An import that adds a template must also add its constant, or no block can name what just arrived. */
+    /**
+     * An import that adds a template must make it nameable.
+     *
+     * <p>It used to assert that a {@code GOLD_ORE} constant appeared in a generated {@code Templates} class,
+     * because a picture with no constant could only be referenced by a raw path literal. There is no such
+     * class: {@code Wire.image("gold_ore")} names the file, so the import is complete the moment the file and
+     * its library entry are there, which is what this asserts instead.
+     */
     @Test
-    void anImportRegeneratesTheTemplatesClass(@TempDir Path root) throws IOException {
+    void anImportMakesTheTemplateNameable(@TempDir Path root) throws IOException {
         ProjectConfig source = project(root, "Source");
         saveTemplate(source, "gold_ore");
         Path archive = root.resolve("out" + TemplateArchive.EXTENSION);
@@ -129,8 +136,11 @@ class TemplateArchiveTest {
         ProjectConfig dest = project(root, "Dest");
         TemplateArchive.importInto(dest, archive);
 
-        assertTrue(Files.readString(dest.templatesSourceFile()).contains("GOLD_ORE"),
-                "a template with no constant can only be referenced by a raw path literal");
+        assertTrue(Files.exists(dest.imagesRoot().resolve("gold_ore.png")),
+                "the picture itself must arrive; its name is how a bot reaches it");
+        assertTrue(ImageTemplateLibrary.list(dest).stream()
+                        .anyMatch(t -> ImageTemplateLibrary.baseName(t).equals("gold_ore")),
+                "and the library must list it, or no picker offers it");
     }
 
     @Test

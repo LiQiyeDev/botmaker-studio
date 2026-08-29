@@ -5,7 +5,6 @@ import com.botmaker.sdk.authoring.Authoring;
 import com.botmaker.sdk.authoring.ProjectModel;
 import com.botmaker.sdk.authoring.ProjectSpec;
 import com.botmaker.sdk.authoring.SdkVersion;
-import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.MavenService;
 
 import java.io.IOException;
@@ -37,11 +36,21 @@ import java.util.Map;
  * explicit rather than incidental: <b>persist first, then regenerate</b> — the generator emits what was
  * actually stored, never what a caller believed it had stored.
  *
+ * <h2>There is nothing left to regenerate</h2>
+ *
+ * <p>{@link #render} and {@link #writeTemplatesClass} answer with nothing, and the five files they owned no
+ * longer exist in a new project: a tick, a value, a picture and a wire are all read at run time from the
+ * project's own {@code activities.json}. Their callers are unchanged and still correct — persisting the model
+ * and then asking whether any source must follow is the right shape; the answer is simply no.
+ *
+ * <p>What survives is {@link #ensureStubs} and {@link #renderEverything}, both of which are about files the
+ * user owns: a stub that has never been written, and what the generator <em>would</em> write, which is how a
+ * repair knows a seed has gone missing.
+ *
  * <h2>All of it or none of it</h2>
  *
- * <p>{@link #write} renders every file into memory before it opens one for writing, so a project is never
- * left with a new {@code Activities} and a stale {@code FlowDriver} that no longer agree. That is the rule
- * phase 0b recorded as the one its successor inherits, and it is honoured here rather than at each call site.
+ * <p>Every path here still renders into memory before it opens a file for writing. That is the rule phase 0b
+ * recorded as the one its successor inherits, and it is honoured here rather than at each call site.
  *
  * <h2>The version is the project's</h2>
  *
@@ -55,19 +64,25 @@ public final class Regeneration {
     private Regeneration() {}
 
     /**
-     * The files {@link Authoring#regenerate} owns for this project, as absolute paths, or empty when there is
-     * nothing to regenerate (an empty project has no model-derived file at all).
+     * The files a change to the model forces to be rewritten. <b>There are none, and there is no longer any
+     * such thing.</b>
      *
-     * <p>Rendering and writing are separate so a caller that has other work to commit in the same breath —
-     * the {@code Parameters} split rewrites the bot's own sources too — can fail before anything is written.
+     * <p>Five files used to be here — {@code Activities}, {@code Parameters}, {@code Templates},
+     * {@code ActivityRegistry}, {@code FlowDriver} — and every one of them followed entirely from the
+     * project's own data. They are reads now: {@code Wire.enabled}, {@code Wire.whole} and friends,
+     * {@code Wire.image}, {@code FlowGraph.load}. A tick, a value, a picture or a wire changes
+     * {@code activities.json} and no Java at all.
+     *
+     * <p>It stays as an empty answer rather than being deleted with its callers, because those callers are
+     * right to ask: saving an Activity Flow, splitting parameters and finishing an SDK upgrade all still have
+     * to persist the model, and asking afterwards whether anything must be regenerated is the correct shape
+     * for them to keep. What has gone is the answer, not the question.
+     *
+     * <p><b>A project generated before this keeps its five files as ordinary source.</b> Nothing rewrites
+     * them and nothing deletes them, so a bot that compiles today still compiles.
      */
     public static Map<Path, String> render(ProjectConfig config) throws IOException {
-        ProjectTemplate template = templateOf(config);
-        if (template != ProjectTemplate.GAME_BOT) return Map.of();
-        String pin = MavenService.readSdkVersion(config.projectPath());
-        SdkVersion version = ProjectSpecs.readerVersionFor(pin);
-        return absolute(config, Authoring.regenerate(version, spec(config, template, pin),
-                Authoring.readModel(version, config.resourcesRoot()), imageBaseNames(config)));
+        return Map.of();
     }
 
     /**
@@ -109,18 +124,17 @@ public final class Regeneration {
     }
 
     /**
-     * The generated {@code Templates} class, written from the images that are on disk right now.
+     * Nothing, since a picture stopped being a compiled constant.
      *
-     * <p>On its own path because it is on its own path in the SDK: it is a function of the images folder
-     * rather than of the model, and an empty project has one too. Regenerating the whole set after a capture
-     * would rewrite four files that did not change.
+     * <p>{@code Templates} held one {@code public static final String} per file in the images folder and was
+     * rewritten on every capture, rename and delete. {@code Wire.image("ore")} names the file instead, so
+     * adding a picture to a project is no longer a source edit and there is nothing to keep in step.
+     *
+     * <p>Kept, empty, for the same reason as {@link #render}: a capture asking whether it owes the project a
+     * file is a correct question with a new answer.
      */
     public static List<Path> writeTemplatesClass(ProjectConfig config) throws IOException {
-        ProjectTemplate template = templateOf(config);
-        String pin = MavenService.readSdkVersion(config.projectPath());
-        SdkVersion version = ProjectSpecs.readerVersionFor(pin);
-        return commit(absolute(config, Authoring.templates(version, spec(config, template, pin),
-                imageBaseNames(config))));
+        return List.of();
     }
 
     /**
@@ -171,8 +185,7 @@ public final class Regeneration {
         ProjectSpec spec = spec(config, template, pin);
         ProjectModel model = Authoring.readModel(version, config.resourcesRoot());
 
-        Map<String, String> relative =
-                new LinkedHashMap<>(Authoring.sources(version, spec, model, imageBaseNames(config)));
+        Map<String, String> relative = new LinkedHashMap<>(Authoring.sources(version, spec, model));
         for (ActivityModel activity : model.activities()) {
             relative.putAll(Authoring.activityStub(version, spec, activity));
         }
@@ -221,11 +234,6 @@ public final class Regeneration {
         } catch (IOException | RuntimeException e) {
             return false;
         }
-    }
-
-    /** The template base names, in the order the images folder lists them. */
-    private static List<String> imageBaseNames(ProjectConfig config) {
-        return ImageTemplateLibrary.list(config).stream().map(ImageTemplateLibrary::baseName).toList();
     }
 
     private static Map<Path, String> absolute(ProjectConfig config, Map<String, String> relative) {
