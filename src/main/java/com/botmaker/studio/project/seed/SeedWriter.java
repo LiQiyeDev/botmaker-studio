@@ -2,6 +2,10 @@ package com.botmaker.studio.project.seed;
 
 import com.botmaker.plugin.api.catalog.ScaffoldEntry;
 import com.botmaker.plugin.api.catalog.ScaffoldPlan;
+import com.botmaker.plugin.api.scaffold.ClassName;
+import com.botmaker.plugin.api.scaffold.Editable;
+import com.botmaker.plugin.api.scaffold.EnumValues;
+import com.botmaker.plugin.api.scaffold.Scaffold;
 import com.botmaker.studio.parser.helpers.SourceParser;
 import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.ASTNode;
@@ -22,6 +26,7 @@ import org.eclipse.text.edits.TextEdit;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Stream;
 
 /**
  * Turns one planned seed into the source text a project gets.
@@ -54,12 +59,37 @@ import java.util.List;
  */
 public final class SeedWriter {
 
-    /** The marks, by simple name — stripped from the written file along with their imports. */
-    private static final List<String> MARKS =
-            List.of("Scaffold", "ClassName", "EnumValues", "Editable");
+    /**
+     * The marks — stripped from the written file along with the imports that brought them in.
+     *
+     * <p>Class literals rather than strings, so a mark renamed in the contract is a Studio that does not
+     * compile rather than a Studio that quietly leaves the annotation in somebody's project. Studio depends
+     * on {@code botmaker-studio-api} at {@code compile} scope precisely because it is the host side of this
+     * contract, so naming the type costs nothing that a string was saving.
+     *
+     * <p>They are matched by <em>both</em> spellings a source file may use — the simple name after an import,
+     * and the fully qualified name written inline — because this reads text, not a resolved type.
+     */
+    // Fully qualified: JDT's own Annotation is imported above, and it is the one this file mostly means.
+    private static final List<Class<? extends java.lang.annotation.Annotation>> MARKS =
+            List.of(Scaffold.class, ClassName.class, EnumValues.class, Editable.class);
 
-    /** The package the marks live in; an import starting with it goes with them. */
-    private static final String MARK_PACKAGE = "com.botmaker.plugin.api.scaffold";
+    private static final List<String> MARK_NAMES = MARKS.stream()
+            .flatMap(mark -> Stream.of(mark.getSimpleName(), mark.getCanonicalName()))
+            .toList();
+
+    /**
+     * The imports that go with the marks — the four exactly, plus the on-demand import of their package.
+     *
+     * <p>Not "anything under {@code com.botmaker.plugin.api.scaffold}": {@link
+     * com.botmaker.plugin.api.scaffold.Seeding} lives there too and is an ordinary type a seed could
+     * legitimately name. Only what this class removed may have its import removed.
+     */
+    private static final List<String> MARK_IMPORTS = MARKS.stream()
+            .map(Class::getCanonicalName)
+            .toList();
+
+    private static final String MARK_PACKAGE = Scaffold.class.getPackageName();
 
     private SeedWriter() {}
 
@@ -137,6 +167,32 @@ public final class SeedWriter {
         }
     }
 
+    /**
+     * {@code source} with every mention of the type {@code from} rewritten to {@code to}, or {@code null} when
+     * that cannot be produced.
+     *
+     * <p>The same rewrite {@link #render} performs, exposed because a <b>rename</b> needs it on a file that is
+     * already the user's — the seed's declaration, its constructor calls and its nested-type references, in a
+     * body this class did not write. {@code parser/refactor/CallMigrator.renameTypeIn} is the tool for every
+     * <em>other</em> file in the bot and is deliberately not the tool for this one: it never rewrites a type's
+     * own <b>declaration</b>, because the SDK types it was built for are never declared in a bot.
+     */
+    public static String renameType(String source, String from, String to) {
+        if (source == null || from == null || to == null || from.equals(to)) return null;
+        CompilationUnit cu = SourceParser.parse(source);
+        if (SourceParser.hasSyntaxErrors(cu)) return null;
+
+        ASTRewrite rewrite = ASTRewrite.create(cu.getAST());
+        renameType(rewrite, cu, from, to);
+        try {
+            Document document = new Document(source);
+            rewrite.rewriteAST(document, null).apply(document);
+            return document.get();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     /** Every mention of the seed class's own simple name, rewritten — see the class note on why by name. */
     private static void renameType(ASTRewrite rewrite, CompilationUnit cu, String from, String to) {
         if (to == null || to.isEmpty() || to.equals(from)) return;
@@ -191,9 +247,11 @@ public final class SeedWriter {
     private static void stripMarks(ASTRewrite rewrite, CompilationUnit cu, TypeDeclaration type) {
         for (Object imported : cu.imports()) {
             ImportDeclaration declaration = (ImportDeclaration) imported;
-            if (declaration.getName().getFullyQualifiedName().startsWith(MARK_PACKAGE)) {
-                rewrite.remove(declaration, null);
-            }
+            String name = declaration.getName().getFullyQualifiedName();
+            boolean isMark = declaration.isOnDemand()
+                    ? MARK_PACKAGE.equals(name)
+                    : MARK_IMPORTS.contains(name);
+            if (isMark) rewrite.remove(declaration, null);
         }
         removeMarksOn(rewrite, type);
         type.accept(new ASTVisitor() {
@@ -226,7 +284,7 @@ public final class SeedWriter {
     private static void removeMarksOn(ASTRewrite rewrite, BodyDeclaration declaration) {
         for (Object modifier : declaration.modifiers()) {
             if (modifier instanceof Annotation annotation
-                    && MARKS.contains(annotation.getTypeName().toString())) {
+                    && MARK_NAMES.contains(annotation.getTypeName().getFullyQualifiedName())) {
                 rewrite.remove((ASTNode) modifier, null);
             }
         }

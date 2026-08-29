@@ -16,9 +16,10 @@ import java.util.Set;
 import java.util.stream.Stream;
 
 /**
- * One walk over the bot's own Java sources, for the two things that need it: finding template references and
- * rewriting them ({@link TemplateReferences}), and finding review marks and stripping them
- * ({@link ReviewService}).
+ * One walk over the bot's own Java sources, for the three things that need it: finding template references
+ * and rewriting them ({@link TemplateReferences}), finding review marks and stripping them
+ * ({@link ReviewService}), and repointing every reference to a seed's type when the thing it stands for is
+ * renamed ({@code project/seed/SeedSync}).
  *
  * <h2>Why the buffer wins over the file</h2>
  *
@@ -32,18 +33,18 @@ import java.util.stream.Stream;
  * ours if it is in {@code openFiles} — and the generated {@code Templates.java} is skipped everywhere: it
  * declares the constants rather than using them, and it is rewritten from the images folder anyway.
  */
-final class BotSources {
+public final class BotSources {
 
     private BotSources() {}
 
     /** What to do with one source file; return the rewritten text, or null to leave it alone. */
     @FunctionalInterface
-    interface Rewrite {
+    public interface Rewrite {
         String apply(Path file, String source);
     }
 
     /** Visits every {@code .java} file the bot owns exactly once, buffer first. */
-    static void forEach(ProjectConfig config, ProjectState state, Rewrite rewrite) {
+    public static void forEach(ProjectConfig config, ProjectState state, Rewrite rewrite) {
         Map<Path, ProjectFile> open = new LinkedHashMap<>();
         if (state != null) {
             for (ProjectFile file : state.getAllFiles()) {

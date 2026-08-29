@@ -6,6 +6,21 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-29 — a save maintains every plugin's seeds, and Studio stopped knowing what an activity is
+  (seeds, phase 5b).** `project/seed/SeedReconciler` keeps a seed's substituted enums in step with the model
+  and touches nothing else; `project/seed/SeedSync` is the pass that decides, per seed, between writing a
+  file, updating one and moving one, told apart by `SeedLedger` alone. `ActivityService.update` is now JSON
+  then one `SeedSync.sync` — `Regeneration.ensureStubs`, `services/ActivityStubSync` and
+  `deleteRemovedStubs` are all deleted rather than generalised, since each knew the SDK's activities by name.
+  Two behaviour changes worth knowing: a deleted activity's file **stays** (nothing is generated any more, so
+  it still compiles, and deleting the user's code because they unchecked a box is not a trade worth making),
+  and the SDK-specific migrations `ActivityStubSync` carried (`void run()` → `Outcome run()`,
+  `DEFAULT` → `NEXT`, the appended trailing `return`) are gone — a plugin needing its own migration carries
+  it in the seed it ships. `PluginHost.seedPlan` now answers `PlannedSeed(pluginId, file)`, because the
+  ledger is keyed by *(plugin, key)*. `SeedWriter.renameType` is public for the one file
+  `CallMigrator.renameTypeIn` cannot serve: it never rewrites a type's own **declaration**, having been
+  built for SDK types a bot never declares.
+
 - **2026-08-29 — the toolbar is built from data, and a plugin may add to it (plugin platform, phase 13a).**
   `ToolbarManager.createCaptureGroup()` no longer constructs fifteen `Button`s and passes them varargs to
   `OverflowBar`, where the argument list *was* the order. Studio's own items are now

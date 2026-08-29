@@ -156,12 +156,21 @@ public class ActivityServiceTest {
     }
 
     /**
-     * The removal counterpart of {@code ensureStubs}. A dropped activity stops generating its
-     * {@code Activities.<Name>} field, so a stub left behind reads a field that no longer exists — a project
-     * that does not compile, in a file the user never opened.
+     * A deleted activity's file stays, and that is a deliberate reversal of what this class used to assert.
+     *
+     * <p>{@code deleteRemovedStubs} removed it, and had to: a dropped activity stopped generating its
+     * {@code Activities.<Name>} field, so a file left behind read a field that no longer existed — a project
+     * that did not compile, in a file the user never opened. Nothing is generated now; a seed asks the
+     * project's own configuration at run time ({@code Wire.enabled(name())}), so the file goes on compiling
+     * whether or not anything still names it.
+     *
+     * <p>With the reason gone, deleting is simply destroying the user's code because they unchecked something
+     * on a canvas — and an activity removed by accident is then unrecoverable outside Project History. The
+     * file is theirs from the moment it is written; all that goes is the ledger's claim that BotMaker put it
+     * there.
      */
     @Test
-    void deletingAnActivityTakesItsStubWithIt(@TempDir Path dir) throws Exception {
+    void deletingAnActivityLeavesItsFileAlone(@TempDir Path dir) throws Exception {
         ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
         ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
         Path idleStub = config.activitiesPackageDir().resolve("Idle.java");
@@ -176,11 +185,11 @@ public class ActivityServiceTest {
         service.update(ActivitiesConfig.of(
                 List.of(ActivityDefinition.create("Resources", "")), List.of())).join();
 
-        assertFalse(java.nio.file.Files.exists(idleStub), "the deleted activity's stub goes with it");
+        assertTrue(java.nio.file.Files.exists(idleStub), "the file is the user's, deleted activity or not");
         assertTrue(java.nio.file.Files.exists(
-                config.activitiesPackageDir().resolve("Resources.java")), "and nothing else does");
+                config.activitiesPackageDir().resolve("Resources.java")), "and the live one is still there");
         assertTrue(java.nio.file.Files.exists(helper),
-                "a file that was never an activity is not this method's business");
+                "a file that was never an activity was never this pass's business either");
     }
 
     /** An {@code activities.json} written when archiving existed loads with every activity live. */

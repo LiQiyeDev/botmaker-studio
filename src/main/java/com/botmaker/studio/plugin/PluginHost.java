@@ -317,15 +317,32 @@ public final class PluginHost {
      * @param packageName      the project's base package, which is the host's to know and resolves
      *                         {@code {package}} in every seed's path
      */
-    public static List<ScaffoldPlan.PlannedFile> seedFiles(String pinnedSdkVersion, Path projectDir,
-                                                           String packageName) {
-        return seedPlan(pinnedSdkVersion, projectDir, packageName).files();
+    public static List<PlannedSeed> seedFiles(String pinnedSdkVersion, Path projectDir, String packageName) {
+        return seedPlan(pinnedSdkVersion, projectDir, packageName).seeds();
     }
 
-    /** {@link #seedFiles} with the problems kept — what a caller reports, or a test asserts is empty. */
-    public static ScaffoldPlan seedPlan(String pinnedSdkVersion, Path projectDir, String packageName) {
+    /**
+     * One planned file and the plugin that wants it.
+     *
+     * <p>The owner travels with the file because the ledger that remembers where each seed was written is
+     * keyed by <em>(plugin, key)</em>: a key is unique only within the plugin that minted it. A merged plan
+     * that dropped the owner would make two plugins' identical keys one row.
+     */
+    public record PlannedSeed(String pluginId, ScaffoldPlan.PlannedFile file) {}
+
+    /** Every planned seed with the problems kept — what a caller reports, or a test asserts is empty. */
+    public record SeedPlan(List<PlannedSeed> seeds, List<String> problems) {
+
+        public SeedPlan {
+            seeds = List.copyOf(seeds);
+            problems = List.copyOf(problems);
+        }
+    }
+
+    /** {@link #seedFiles} with the problems kept. */
+    public static SeedPlan seedPlan(String pinnedSdkVersion, Path projectDir, String packageName) {
         String pin = pinnedSdkVersion == null ? BUNDLED_PIN : pinnedSdkVersion;
-        List<ScaffoldPlan.PlannedFile> files = new ArrayList<>();
+        List<PlannedSeed> files = new ArrayList<>();
         List<String> problems = new ArrayList<>();
         Map<String, String> claimedPaths = new LinkedHashMap<>();
 
@@ -349,10 +366,10 @@ public final class PluginHost {
                             + ", which " + claimant + " already writes");
                     continue;
                 }
-                files.add(file);
+                files.add(new PlannedSeed(plugin.id(), file));
             }
         }
-        return new ScaffoldPlan(files, problems);
+        return new SeedPlan(files, problems);
     }
 
     /** The group a variable's {@code group} id names, or null when no loaded plugin claims that id. */

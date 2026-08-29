@@ -43,9 +43,10 @@ import java.util.Map;
  * project's own {@code activities.json}. Their callers are unchanged and still correct — persisting the model
  * and then asking whether any source must follow is the right shape; the answer is simply no.
  *
- * <p>What survives is {@link #ensureStubs} and {@link #renderEverything}, both of which are about files the
- * user owns: a stub that has never been written, and what the generator <em>would</em> write, which is how a
- * repair knows a seed has gone missing.
+ * <p>What survives is {@link #renderEverything} — what the generator <em>would</em> write, which is how a
+ * repair knows a file has gone missing. {@code ensureStubs} was here too and has moved rather than gone:
+ * writing a file a project must have and does not have is {@code project/seed/SeedSync}'s job now, for every
+ * plugin at once, because a stub was never the SDK's alone to want.
  *
  * <h2>All of it or none of it</h2>
  *
@@ -92,35 +93,6 @@ public final class Regeneration {
      */
     public static List<Path> write(ProjectConfig config) throws IOException {
         return commit(render(config));
-    }
-
-    /**
-     * Writes a stub for every activity in the stored model that has not got one, and says which appeared.
-     *
-     * <p><b>The one generated file that is never rewritten.</b> {@code run()}'s body is the whole point of a
-     * stub, so this creates and never overwrites; keeping the BotMaker-owned parts of an existing one in step
-     * is {@code ActivityStubSync}'s job, by AST edit rather than by re-render. That is why it is not part of
-     * {@link #write}'s all-or-none set — those files hold no user code and this one holds nothing else.
-     *
-     * <p>It is still all-or-none in the sense that matters: every missing stub is rendered before any is
-     * written, so a model the generator cannot serve leaves the package exactly as it found it.
-     */
-    public static List<Path> ensureStubs(ProjectConfig config) throws IOException {
-        ProjectTemplate template = templateOf(config);
-        if (template != ProjectTemplate.GAME_BOT) return List.of();
-        String pin = MavenService.readSdkVersion(config.projectPath());
-        SdkVersion version = ProjectSpecs.readerVersionFor(pin);
-        ProjectSpec spec = spec(config, template, pin);
-
-        Map<String, String> relative = new LinkedHashMap<>();
-        for (ActivityModel activity : Authoring.readModel(version, config.resourcesRoot()).activities()) {
-            relative.putAll(Authoring.activityStub(version, spec, activity));
-        }
-        Map<Path, String> absent = new LinkedHashMap<>();
-        for (Map.Entry<Path, String> stub : absolute(config, relative).entrySet()) {
-            if (!Files.exists(stub.getKey())) absent.put(stub.getKey(), stub.getValue());
-        }
-        return commit(absent);
     }
 
     /**

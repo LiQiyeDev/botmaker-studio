@@ -4,18 +4,14 @@ import com.botmaker.studio.events.CoreApplicationEvents.ActivitiesChangedEvent;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
-import com.botmaker.studio.project.Regeneration;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
-import com.botmaker.studio.project.activity.ActivityDefinition;
 import com.botmaker.studio.project.activity.ActivityFlow;
 import com.botmaker.studio.project.activity.ActivityPreset;
 import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.project.activity.ValueWire;
+import com.botmaker.studio.project.seed.SeedSync;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.util.Set;
-import java.util.stream.Collectors;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -23,17 +19,17 @@ import java.util.concurrent.CompletableFuture;
  * {@link ActivityVariable variables} they read. It owns exactly one file:
  * {@code src/main/resources/activities.json}, the whole model, values included, read at runtime by the bot.
  *
- * <p><b>It does not generate Java itself, and since 2026-08-26 it does ask for it again.</b> Five generators
- * lived here — {@code Activities.java}, {@code Parameters.java}, {@code ActivityRegistry.java},
- * {@code FlowDriver.java} and the per-activity stub — each of them a scaffold template from the pinned SDK
- * jar with Studio's fills spliced into its fences. They left with the templates on 2026-08-25, and for one
- * day a save rewrote no source at all. The emitters now live in the SDK, where a generated file is compiled
- * against the API it calls in the same build, and {@link #update} reaches them through
- * {@link Regeneration#write}.
+ * <p><b>It does not generate Java, and it no longer knows anybody who does.</b> Five generators lived here —
+ * {@code Activities.java}, {@code Parameters.java}, {@code ActivityRegistry.java}, {@code FlowDriver.java}
+ * and the per-activity stub — each of them a scaffold template from the pinned SDK jar with Studio's fills
+ * spliced into its fences. Four of the five are gone entirely: a file whose contents follow from the model is
+ * read from the model at run time now rather than compiled from it. The fifth, the stub, is a <b>seed</b> —
+ * a real class the SDK ships and this project owns a copy of — and every plugin may have some, which is why
+ * {@link #update} asks {@link SeedSync} rather than asking the SDK.
  *
- * <p><b>The JSON is written first and the generator reads it back</b>, rather than being handed the config in
- * memory. That is what makes the two agree by construction: the source describes what is stored, never what
- * a caller believed it was about to store.
+ * <p><b>The JSON is written first and each plugin reads it back</b>, rather than being handed the config in
+ * memory. That is what makes the two agree by construction: what lands on disk describes what is stored,
+ * never what a caller believed it was about to store.
  *
  * <p>One model, one store. Studio briefly generated a {@code Settings.java} holding every value as a compiled
  * Java literal instead; it is gone, along with the discriminator that chose between the two. What that
@@ -76,33 +72,33 @@ public final class ActivityService {
     }
 
     /**
-     * Persists {@code newConfig} — writes {@code activities.json}, drops the stubs of removed activities and
-     * reconciles the surviving ones' {@code Outcome} enums — then refreshes project state and publishes
+     * Persists {@code newConfig} — writes {@code activities.json}, then asks every loaded plugin to bring the
+     * project's files in line with it — and refreshes project state and publishes
      * {@link ActivitiesChangedEvent}. Runs asynchronously; the returned future completes exceptionally if
-     * writing fails.
+     * writing the JSON fails.
      *
-     * <p><b>The generated Java is rewritten too</b>, by the project's own SDK, from the JSON this method has
-     * just written. {@link Regeneration#write} renders every file before it writes any, so a save never
-     * leaves a new {@code Activities} beside a {@code FlowDriver} describing the previous flow.
+     * <p><b>The JSON is written first and read back, and that ordering is the design.</b> {@link SeedSync}
+     * asks each plugin what files it wants for this project, and the SDK answers by reading the very
+     * {@code activities.json} this method has just written. The two therefore agree by construction: what
+     * lands on disk describes what is stored, never what a caller believed it was about to store.
      *
-     * <p>Ordering: JSON, then stubs ({@link Regeneration#ensureStubs}, which creates and never overwrites),
-     * then the regenerated set. The stubs go in the middle because a newly added activity's file must exist
-     * before {@code ActivityRegistry} names it, and a removed one's must be gone before the registry stops.
+     * <p>It knows nothing about activities beyond writing their file. Creating a new one's source, keeping an
+     * existing one's outcomes in step and moving a renamed one are all one call, and none of them names the
+     * SDK — which is why {@code Regeneration.ensureStubs}, {@code ActivityStubSync} and this class's own
+     * {@code deleteRemovedStubs} are gone rather than generalised.
      */
     public CompletableFuture<Void> update(ActivitiesConfig newConfig) {
-        // Read on the caller's thread, before the async body: deleteRemovedStubs needs to know which
-        // activities this save drops, and state is not for background callers.
-        ActivitiesConfig previous = current();
         return CompletableFuture.runAsync(() -> {
             try {
                 newConfig.write(config.resourcesRoot());
-                deleteRemovedStubs(previous, newConfig);
-                Regeneration.ensureStubs(config);
-                ActivityStubSync.sync(config, newConfig);
-                Regeneration.write(config);
             } catch (IOException e) {
                 throw new RuntimeException("Failed to save activities: " + e.getMessage(), e);
             }
+            // Never fails the save: the model is stored, and a plugin that cannot write its own files is a
+            // project that still opens and still builds from what is there.
+            SeedSync.Result seeds = SeedSync.sync(config, state);
+            for (String problem : seeds.problems()) System.err.println("Seeds: " + problem);
+
             state.setActivities(newConfig);
             eventBus.publish(new ActivitiesChangedEvent(newConfig));
         });
@@ -119,28 +115,9 @@ public final class ActivityService {
 
     /**
      * Persists a new canvas {@link ActivityFlow} (node placements + wires) — the drawn order, saved to the
-     * model, and the generated {@code FlowDriver} rewritten from it by {@link #update}.
+     * model and read back at run time by the bot's own flow walker.
      */
     public CompletableFuture<Void> updateFlow(ActivityFlow flow) {
         return update(current().withFlow(flow));
-    }
-
-    /**
-     * Deletes the stub of every activity this save removed.
-     *
-     * <p>Not optional: a removed activity stops having an {@code Activities.<Name>} field, so its
-     * {@code <Name>.java} — which reads that field in {@code isEnabled()} — no longer compiles. Leaving the
-     * file behind turns "I removed an activity" into a broken build in a file the user never opened.
-     *
-     * <p>Keyed on the <em>difference</em> between the two configs, never on "every file in {@code activities/}
-     * that isn't an activity": a helper class the user parked in that package is not this method's business,
-     * and a sweep would eat it on the next unrelated save.
-     */
-    private void deleteRemovedStubs(ActivitiesConfig previous, ActivitiesConfig cfg) throws IOException {
-        Set<String> kept = cfg.activities().stream().map(ActivityDefinition::name).collect(Collectors.toSet());
-        for (ActivityDefinition gone : previous.activities()) {
-            if (kept.contains(gone.name())) continue;
-            Files.deleteIfExists(config.activitiesPackageDir().resolve(gone.name() + ".java"));
-        }
     }
 }
