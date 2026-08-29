@@ -43,29 +43,16 @@ public final class ProjectOpenMigrations {
         report.addAll(ProjectSchema.migrate(config,
                 updated -> refreshCachedSource(state, eventBus, config.mainSourceFile(), updated)));
 
-        // 2. Not schema-versioned, and deliberately so. A project created before GameLoop.java and Startup.java
-        //    were retired binds a 3-arg Bot.start the SDK no longer has, so it doesn't compile until this runs
-        //    — but what it versions is the generated scaffold, not one of the three data files, and the
-        //    scaffold is versioned per hole by the SDK's own templates. It is self-gated (it looks for the
-        //    legacy call) and therefore free to run every time.
-        try {
-            String migratedMain = ScaffoldMigration.migrate(config);
-            if (migratedMain != null) {
-                refreshCachedSource(state, eventBus, config.mainSourceFile(), migratedMain);
-                report.add("Updated this project's entry point to the current scaffold.");
-            }
-        } catch (IOException ex) {
-            System.err.println("Could not update this project's entry point to the current scaffold: "
-                    + ex.getMessage());
-        }
-
-        // 3. Not a migration at all: idempotent regeneration. Every project needs a Templates class before a
-        //    block can write `new ImageTemplate(Templates.X)`, including one whose templates were all captured
-        //    before the class existed. Doing it on open (not just on capture) is also what repairs a
-        //    hand-deleted or hand-edited copy, which is why it must run every time rather than once.
-        ImageTemplateLibrary.regenerateTemplatesClass(config);
-
-        // 4. Restore what was deleted outside the Studio.
+        // 2. Restore what was deleted outside the Studio.
+        //
+        //    Two passes used to sit above this one and both are gone with the generator they served.
+        //    ScaffoldMigration rewrote the entry point of a project created before GameLoop.java and
+        //    Startup.java were retired, so it would bind the Bot.start the SDK still has; and an idempotent
+        //    re-emit of Templates.java ran on every open, because a hand-edited copy of a generated file is
+        //    a file with two authors. Neither has a subject any more: an entry point is the user's, written
+        //    once, and a picture is named by its file rather than by a constant. A project that will not
+        //    compile against the SDK it pins is what the upgrade path is for, and it edits the user's code
+        //    only when they ask it to.
         report.addAll(restoreMissingFiles(config, state));
         return report;
     }

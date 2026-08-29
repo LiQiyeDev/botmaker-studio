@@ -28,32 +28,27 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Finds and regenerates project files that have gone missing — typically deleted outside the Studio (an
- * {@code rm}, a bad merge, a sync conflict), which nothing else notices: {@code ProjectManager.isValidProject}
- * only checks that {@code src/main/java} and {@code pom.xml} exist, so a project missing {@code FlowDriver.java}
- * opens happily and then fails to compile.
+ * Restores the project files that are <b>not</b> the user's source and have gone missing — typically deleted
+ * outside the Studio (an {@code rm}, a bad merge, a sync conflict), which nothing else notices:
+ * {@code ProjectManager.isValidProject} only checks that {@code src/main/java} and {@code pom.xml} exist.
  *
- * <p>Recovery works at two granularities, because "broken" has two meanings:
- * <ul>
- *   <li><b>Missing files</b> ({@link #findMissing} / {@link #recover}) — <b>only ever creates what is absent,
- *       never overwrites what is there.</b> A file that exists is the user's, whatever is in it.</li>
- *   <li><b>Damaged locked methods</b> ({@link #findDamaged} / {@link #repairDamaged}) — the file exists, so the
- *       rule above declared it fine, and a {@code GoHome.run} renamed to {@code goHome} stayed renamed and the
- *       bot stayed uncompilable with nothing offering to fix it. Only methods {@link MethodLock} locks are
- *       touched, and for a {@code SIGNATURE} lock only the signature: the user's body is carried over. Their
- *       own methods are never touched at all.</li>
- * </ul>
+ * <p><b>Only ever creates what is absent, never overwrites what is there.</b> A file that exists is the
+ * user's, whatever is in it.
  *
- * <p>Sources come from the project's own SDK, through {@link Regeneration} — this class holds no templates of
- * its own. (It briefly held a copy of the empty-project entry point, which promptly drifted from the real one
- * and lost an import, so a "recovered" project didn't compile. Hence the rule.) The version asked is the one
- * the <b>pom pins</b>, not Studio's newest: a restored file has to compile against the jar this bot actually
- * resolves.
+ * <h2>No {@code .java} is repaired, and none is reported</h2>
  *
- * <p><b>Every entry can be restored again, as of 2026-08-26.</b> For one day (phase 0b) this class reported
- * a game bot's missing scaffold and could write none of it, because the generator had left Studio and had not
- * yet arrived in the SDK; reporting without restoring was chosen over the alternative of calling a project
- * that does not compile healthy. The generator has landed, and the restorers are real.
+ * <p>Since 2026-08-29 nothing writes a project's Java, so nothing knows what it should contain and nothing
+ * may put it back. What can still go missing and be restored is everything <em>around</em> the source:
+ * {@code pom.xml}, {@code botmaker-project.properties}, {@code settings.json}, {@code activities.json} and
+ * the placeholder image template.
+ *
+ * <p>Two capabilities went with the generator, and both are worth knowing about rather than reinventing.
+ * <b>Missing source</b> was restored by asking the project's own SDK to emit the file again — which needed a
+ * generator that knew what a project must contain. <b>Damaged locked methods</b> ({@code findDamaged} /
+ * {@code repairDamaged}) went further: the file existed, so the never-overwrite rule declared it fine, and a
+ * {@code GoHome.run} renamed to {@code goHome} stayed renamed with nothing offering to fix it. That needed a
+ * canonical text to diff a method against. Neither has one now, and the idea underneath both — that a file
+ * can be partly the user's — is what the change actually removed.
  */
 public final class ProjectRepair {
 
@@ -101,37 +96,22 @@ public final class ProjectRepair {
      * in an empty project used to be sufficient here, and the reward was that their only file went read-only.
      * So the evidence is <em>every</em> file the generator claims, all present at once.
      *
-     * <p><b>Which files those are is asked, never known.</b> This method named two of them as string
-     * literals until 2026-08-29, which is the same mistake as {@code GeneratedMembers} on a smaller scale: a
-     * host that spells a plugin's file names has an opinion about that plugin, and the second plugin to write
-     * a file into a project would have had no way to be recognised. The list comes from the project's own SDK
-     * through {@link ProjectSpecs#generatedFileNames}, so it moves the day the generator does.
+     * <p><b>There is no file list to check any more, and the fallback that used one is gone.</b> It asked
+     * the project's own SDK which {@code .java} a game bot must have and required all of them present —
+     * itself a repair of an older version that named {@code FlowDriver.java} and {@code ActivityRegistry.java}
+     * as literals. Nothing writes a project's Java now, so no list exists and no set of files is evidence of
+     * anything. What is left is the entry point's own text, which is the evidence that was always the
+     * strongest, plus {@code settings.json} where the user's choice is actually recorded.
      */
     public static boolean looksLikeGameBot(ProjectConfig config) {
-        Path mainDir = config.mainSourceFile().getParent();
-        if (mainDir == null) return false;
-
-        if (Files.exists(config.mainSourceFile())) {
-            try {
-                // "Bot.start" is the current entry-point call; "Bot.supervise" recognises pre-rename projects.
-                String main = Files.readString(config.mainSourceFile());
-                if (main.contains("Bot.start") || main.contains("Bot.supervise")) return true;
-            } catch (IOException ignored) {
-                // Unreadable main: fall through to the file-presence check.
-            }
+        if (!Files.exists(config.mainSourceFile())) return false;
+        try {
+            // "Bot.start" is the current entry-point call; "Bot.supervise" recognises pre-rename projects.
+            String main = Files.readString(config.mainSourceFile());
+            return main.contains("Bot.start") || main.contains("Bot.supervise");
+        } catch (IOException unreadable) {
+            return false;
         }
-        // Every file the generator claims for a game bot, all of them present. Which files those are is not
-        // Studio's to know: the list comes from the project's own SDK, so it moves when the generator does
-        // and there is no name written down here to go stale. It used to be a hand-picked pair —
-        // FlowDriver.java and ActivityRegistry.java, "a pairing only the generator produces" — which was the
-        // same idea with the answer copied into this file.
-        //
-        // Requiring all of them rather than any one keeps the false positive out: a user's own GameLoop.java
-        // in an empty project must not make their only file read-only, which is what a single match once did.
-        List<String> claimed = ProjectSpecs.generatedFileNames(
-                config, ProjectTemplate.GAME_BOT, MavenService.readSdkVersion(config.projectPath()));
-        return !claimed.isEmpty()
-                && claimed.stream().allMatch(name -> Files.exists(mainDir.resolve(name)));
     }
 
     /**
@@ -153,36 +133,14 @@ public final class ProjectRepair {
                 ? template
                 : (looksLikeGameBot(config) ? ProjectTemplate.GAME_BOT : ProjectTemplate.EMPTY);
 
-        String sdkPin = MavenService.readSdkVersion(config.projectPath());
-        if (resolved == ProjectTemplate.GAME_BOT) {
-            // Reported by name *and* restored, since 2026-08-26: which files a game bot must have comes from
-            // the generator's own file list, and rendering one of them in isolation is what
-            // Regeneration.restore does. For one day (phase 0b) every entry here carried a null restorer,
-            // because nothing in Studio could produce the text — reporting without restoring being the least
-            // bad of the three answers available then.
-            // Every name the generator claims is reported, with no exclusions. There used to be two sets of
-            // them — files a later pass owned on better evidence, and the registry/driver pair both passes
-            // would otherwise have listed twice — and both existed because the generator emitted files
-            // derived from the model. It does not any more: what comes back is the seeds, which a game bot
-            // must have whatever is in its model, so there is one pass and no evidence to weigh.
-            for (String name : ProjectSpecs.generatedFileNames(config, resolved, sdkPin)) {
-                Path path = mainDir.resolve(name);
-                if (!Files.exists(path)) missing.add(regenerated(config, path, "game-bot scaffold"));
-            }
-        } else {
-            // An empty project's entry point *can* be restored: it says nothing about the flow, so the
-            // generator renders it from an empty model. Only that one file — `Templates.java` is a function
-            // of the images actually in the project and belongs to ImageTemplateLibrary, not to a repair
-            // that has not looked at them.
-            String entryFile = config.className() + ".java";
-            Path path = mainDir.resolve(entryFile);
-            if (!Files.exists(path)) {
-                String source = ProjectSpecs.generatedSource(config, resolved, sdkPin, entryFile);
-                missing.add(source == null
-                        ? new Missing(path, null, "entry point")
-                        : Missing.ofSource(path, source, "entry point"));
-            }
-        }
+        // No .java is reported and none is restored. BotMaker writes a project's source once, when the
+        // project is created, and never reads or rewrites it — so there is no list of files a project "must"
+        // have, and a file that is gone is a file its owner deleted. Restoring it would be inventing a
+        // starting point for code that has since been written and thrown away.
+        //
+        // What used to be here, in the order it appeared: two file names as string literals, then the
+        // generator's own claimed list with Regeneration.restore behind each entry, then the seed plan. Each
+        // was a better answer to a question that has stopped being asked.
 
         missing.addAll(missingResources(config, template, resolved));
 
@@ -203,39 +161,13 @@ public final class ProjectRepair {
                         "activity settings"));
             }
 
-            // Activities.java, Parameters.java, ActivityRegistry.java and FlowDriver.java were asked about
-            // here, on the evidence of the model rather than by name. All four are gone: a tick, a value, a
-            // picture and a wire are read from activities.json at run time, so there is no file whose absence
-            // is damage — and, more to the point, none this class could offer to write back. A repair that
-            // reports a file it cannot restore is worse than one that says nothing.
-            //
-            // A project generated before that keeps those files as ordinary source. They are the user's now,
-            // so their absence is a deletion rather than damage, exactly like any other file in the project.
-
-            // Per-activity subclass stubs (the same set ActivityService.ensureStubs would create).
-            for (ActivityDefinition a : activities.activities()) {
-                Path stub = config.activitiesPackageDir().resolve(a.name() + ".java");
-                if (!Files.exists(stub)) {
-                    missing.add(regenerated(config, stub, "activity stub"));
-                }
-            }
+            // Activities.java, Parameters.java, ActivityRegistry.java, FlowDriver.java and one stub per
+            // activity were all asked about here. None of them exists to be missing: a tick, a value, a
+            // picture and a wire are read from activities.json at run time, and an activity's behaviour is an
+            // Activities.define call in a file the user owns. A project generated before that keeps those
+            // files as ordinary source — theirs, so their absence is a deletion rather than damage.
         }
         return missing;
-    }
-
-    /**
-     * A generated file, restored by asking the project's <b>own</b> SDK to emit it again.
-     *
-     * <p>The text is not computed here and not cached in the {@link Missing}: {@link Regeneration#restore}
-     * renders the whole set and picks this one out, so a file is only ever restored to something the
-     * generator would produce for the model as it stands at the moment the user presses the button. A
-     * {@code Missing} built at open and acted on ten minutes later is therefore still correct.
-     *
-     * <p>It throws when this project's SDK does not generate that name, which is the honest answer for a file
-     * Studio has no way to write — and the reason this is a restorer rather than a pre-rendered string.
-     */
-    private static Missing regenerated(ProjectConfig config, Path path, String reason) {
-        return new Missing(path, target -> Regeneration.restore(config, target), reason);
     }
 
     /**
@@ -319,215 +251,10 @@ public final class ProjectRepair {
         return byReason;
     }
 
-    // =====================================================================================================
-    // DAMAGED LOCKED METHODS — the file is present, but something BotMaker owns inside it has been changed.
-    // =====================================================================================================
-
-    /** One locked method that no longer matches what BotMaker generates. */
-    public record Damage(Path file, String methodName, Kind kind) {
-        public enum Kind {
-            /** The method is gone entirely. */
-            MISSING,
-            /** Renamed, re-parameterised, or given a different return type — BotMaker can no longer call it. */
-            SIGNATURE_CHANGED,
-            /** A fully generated method whose body has been edited (an activity's {@code isEnabled()}). */
-            BODY_CHANGED
-        }
-
-        /** A one-line description for the confirmation dialog. */
-        public String describe() {
-            String what = switch (kind) {
-                case MISSING -> "missing";
-                case SIGNATURE_CHANGED -> "signature changed";
-                case BODY_CHANGED -> "body changed";
-            };
-            return file.getFileName() + "." + methodName + " — " + what;
-        }
-    }
-
-    /**
-     * Every locked method that no longer matches the generator's version.
-     *
-     * <p>{@code canonicalByPath} maps each scaffold file to the source the generator would produce for it
-     * today; the caller supplies it ({@code Authoring}, {@code ActivityService}'s stub generator) so this
-     * class keeps holding no templates of its own. Files not in the map, and methods
-     * {@link MethodLock} doesn't lock, are never looked at.
-     */
-    public static List<Damage> findDamaged(ProjectConfig config, ProjectTemplate template,
-                                           Map<Path, String> canonicalByPath) {
-        List<Damage> damaged = new ArrayList<>();
-        if (canonicalByPath == null) return damaged;
-
-        for (Map.Entry<Path, String> entry : canonicalByPath.entrySet()) {
-            Path file = entry.getKey();
-            if (!Files.exists(file)) continue;   // a missing file is findMissing's job, not ours
-
-            String current;
-            try {
-                current = Files.readString(file);
-            } catch (IOException e) {
-                continue;                        // unreadable: nothing useful to say
-            }
-            damaged.addAll(damageIn(config, template, file, current, entry.getValue()));
-        }
-        return damaged;
-    }
-
-    /** The damage in one file, comparing {@code current} against the generator's {@code canonical}. */
-    private static List<Damage> damageIn(ProjectConfig config, ProjectTemplate template, Path file,
-                                         String current, String canonical) {
-        List<Damage> damaged = new ArrayList<>();
-        CompilationUnit currentCu = parse(current);
-        CompilationUnit canonicalCu = parse(canonical);
-
-        for (MethodDeclaration expected : methodsOf(canonicalCu)) {
-            MethodLock lock = MethodLock.of(config, template, file, expected);
-            if (!lock.locksSignature()) continue;   // the user's method: not ours to have an opinion about
-
-            String name = expected.getName().getIdentifier();
-            MethodDeclaration actual = methodNamed(currentCu, name);
-
-            if (actual == null) {
-                damaged.add(new Damage(file, name, Damage.Kind.MISSING));
-            } else if (!sameSignature(expected, actual)) {
-                damaged.add(new Damage(file, name, Damage.Kind.SIGNATURE_CHANGED));
-            } else if (lock.locksBody() && !sameBody(expected, actual)) {
-                damaged.add(new Damage(file, name, Damage.Kind.BODY_CHANGED));
-            }
-        }
-        return damaged;
-    }
-
-    /**
-     * {@code current} with every damaged locked method restored, or {@code current} unchanged when there is
-     * nothing to fix.
-     *
-     * <p>A {@link MethodLock#SIGNATURE} method keeps the user's body — only its declaration is replaced, which
-     * is the whole distinction the lock draws. A {@link MethodLock#FULL} method is replaced outright, since all
-     * of it is generated. Methods outside the locked set are never touched.
-     */
-    public static String repairSource(ProjectConfig config, ProjectTemplate template, Path file,
-                                      String current, String canonical) {
-        CompilationUnit currentCu = parse(current);
-        CompilationUnit canonicalCu = parse(canonical);
-
-        TypeDeclaration currentType = firstType(currentCu);
-        if (currentType == null) return current;
-
-        ASTRewrite rewrite = ASTRewrite.create(currentCu.getAST());
-        ListRewrite members = rewrite.getListRewrite(currentType, TypeDeclaration.BODY_DECLARATIONS_PROPERTY);
-        boolean changed = false;
-
-        for (MethodDeclaration expected : methodsOf(canonicalCu)) {
-            MethodLock lock = MethodLock.of(config, template, file, expected);
-            if (!lock.locksSignature()) continue;
-
-            MethodDeclaration actual = methodNamed(currentCu, expected.getName().getIdentifier());
-            MethodDeclaration replacement = (MethodDeclaration) ASTNode.copySubtree(currentCu.getAST(), expected);
-
-            if (actual == null) {
-                members.insertLast(replacement, null);
-                changed = true;
-            } else if (!sameSignature(expected, actual)) {
-                // Carry the user's body across: a SIGNATURE lock says the name is BotMaker's and the body is
-                // theirs, so restoring the one must not cost them the other.
-                if (!lock.locksBody() && actual.getBody() != null) {
-                    replacement.setBody((Block) ASTNode.copySubtree(currentCu.getAST(), actual.getBody()));
-                }
-                members.replace(actual, replacement, null);
-                changed = true;
-            } else if (lock.locksBody() && !sameBody(expected, actual)) {
-                members.replace(actual, replacement, null);
-                changed = true;
-            }
-        }
-
-        if (!changed) return current;
-
-        try {
-            Document document = new Document(current);
-            rewrite.rewriteAST(document, null).apply(document);
-            return document.get();
-        } catch (Exception e) {
-            return current;   // a repair that can't be applied cleanly is not worth risking the file for
-        }
-    }
-
-    /** Applies {@code damaged} to disk. Returns the files actually rewritten. */
-    public static List<Path> repairDamaged(ProjectConfig config, ProjectTemplate template,
-                                           Map<Path, String> canonicalByPath,
-                                           List<Damage> damaged) throws IOException {
-        List<Path> written = new ArrayList<>();
-        for (Path file : damaged.stream().map(Damage::file).distinct().toList()) {
-            String canonical = canonicalByPath.get(file);
-            if (canonical == null || !Files.exists(file)) continue;
-
-            String current = Files.readString(file);
-            String repaired = repairSource(config, template, file, current, canonical);
-            if (!repaired.equals(current)) {
-                Files.writeString(file, repaired);
-                written.add(file);
-            }
-        }
-        return written;
-    }
-
-    // --- AST helpers -------------------------------------------------------------------------------------
-
-    /**
-     * Parses at the latest language level via {@link SourceParser}.
-     *
-     * <p>This used to build its own bare {@code ASTParser}, which defaults to source level 1.3 — so every
-     * {@code @Override} in a scaffold file was a syntax error and the recovered tree had no methods on it.
-     * Damage detection was reading that tree.
-     */
-    private static CompilationUnit parse(String source) {
-        return SourceParser.parse(source);
-    }
-
-    private static TypeDeclaration firstType(CompilationUnit cu) {
-        for (Object type : cu.types()) {
-            if (type instanceof TypeDeclaration decl) return decl;
-        }
-        return null;
-    }
-
-    private static List<MethodDeclaration> methodsOf(CompilationUnit cu) {
-        TypeDeclaration type = firstType(cu);
-        return type == null ? List.of() : List.of(type.getMethods());
-    }
-
-    private static MethodDeclaration methodNamed(CompilationUnit cu, String name) {
-        for (MethodDeclaration m : methodsOf(cu)) {
-            if (m.getName().getIdentifier().equals(name)) return m;
-        }
-        return null;
-    }
-
-    /** Name, return type, modifiers and parameter types — everything a caller binds to. */
-    private static boolean sameSignature(MethodDeclaration a, MethodDeclaration b) {
-        if (!a.getName().getIdentifier().equals(b.getName().getIdentifier())) return false;
-        if (!String.valueOf(a.getReturnType2()).equals(String.valueOf(b.getReturnType2()))) return false;
-        if (a.parameters().size() != b.parameters().size()) return false;
-        for (int i = 0; i < a.parameters().size(); i++) {
-            SingleVariableDeclaration pa = (SingleVariableDeclaration) a.parameters().get(i);
-            SingleVariableDeclaration pb = (SingleVariableDeclaration) b.parameters().get(i);
-            if (!pa.getType().toString().equals(pb.getType().toString())) return false;
-        }
-        // static/visibility matter: Bot.start binds GoHome.INSTANCE::execute as a method reference.
-        return modifiers(a).equals(modifiers(b));
-    }
-
-    private static String modifiers(MethodDeclaration m) {
-        StringBuilder sb = new StringBuilder();
-        for (Object modifier : m.modifiers()) {
-            if (modifier instanceof Modifier mod) sb.append(mod.getKeyword()).append(' ');
-        }
-        return sb.toString();
-    }
-
-    /** Compares printed bodies, so reindenting an untouched generated method isn't reported as damage. */
-    private static boolean sameBody(MethodDeclaration a, MethodDeclaration b) {
-        return String.valueOf(a.getBody()).equals(String.valueOf(b.getBody()));
-    }
+    // `Damage`, `findDamaged`, `damageIn`, `repairSource`, `repairDamaged` and their AST helpers were
+    // here, and went on 2026-08-29 with the generator they compared against. They asked whether a method
+    // BotMaker owns inside a file the user owns had been renamed, re-signed or rewritten — which needed a
+    // canonical text to diff against, and there is none: nothing generates a project's Java. The whole idea
+    // that a file can be partly the user's is what went; see `FileRole` and `MethodLock`, which are the next
+    // thing to follow it.
 }

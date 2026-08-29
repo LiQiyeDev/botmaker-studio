@@ -156,40 +156,35 @@ public class ActivityServiceTest {
     }
 
     /**
-     * A deleted activity's file stays, and that is a deliberate reversal of what this class used to assert.
+     * Saving activities touches no {@code .java} at all — not to create one, not to delete one.
      *
-     * <p>{@code deleteRemovedStubs} removed it, and had to: a dropped activity stopped generating its
-     * {@code Activities.<Name>} field, so a file left behind read a field that no longer existed — a project
-     * that did not compile, in a file the user never opened. Nothing is generated now; a seed asks the
-     * project's own configuration at run time ({@code Wire.enabled(name())}), so the file goes on compiling
-     * whether or not anything still names it.
-     *
-     * <p>With the reason gone, deleting is simply destroying the user's code because they unchecked something
-     * on a canvas — and an activity removed by accident is then unrecoverable outside Project History. The
-     * file is theirs from the moment it is written; all that goes is the ledger's claim that BotMaker put it
-     * there.
+     * <p>This assertion has been inverted twice and the history is the point. It first checked that a
+     * removed activity's stub was deleted, which it had to be: a dropped activity stopped generating its
+     * {@code Activities.<Name>} field, so a file left behind read a field that no longer existed. Then it
+     * checked that the file <em>stayed</em>, once nothing was generated and the stub asked the project's own
+     * configuration at run time. Now there is no stub at all — an activity's behaviour is an
+     * {@code Activities.define} call in a file the user wrote, wherever they wrote it, and BotMaker has
+     * never known where that is.
      */
     @Test
-    void deletingAnActivityLeavesItsFileAlone(@TempDir Path dir) throws Exception {
+    void savingActivitiesWritesNoJava(@TempDir Path dir) throws Exception {
         ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
         ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
-        Path idleStub = config.activitiesPackageDir().resolve("Idle.java");
-        Path helper = config.activitiesPackageDir().resolve("MiningHelper.java");
+        Path userFile = config.mainSourceFile();
+        java.nio.file.Files.createDirectories(userFile.getParent());
+        java.nio.file.Files.writeString(userFile, "// where the user put their define calls");
 
         service.update(ActivitiesConfig.of(List.of(
                 ActivityDefinition.create("Idle", ""), ActivityDefinition.create("Resources", "")),
                 List.of())).join();
-        assertTrue(java.nio.file.Files.exists(idleStub));
-        java.nio.file.Files.writeString(helper, "// a class the user parked in the activities package");
-
         service.update(ActivitiesConfig.of(
                 List.of(ActivityDefinition.create("Resources", "")), List.of())).join();
 
-        assertTrue(java.nio.file.Files.exists(idleStub), "the file is the user's, deleted activity or not");
-        assertTrue(java.nio.file.Files.exists(
-                config.activitiesPackageDir().resolve("Resources.java")), "and the live one is still there");
-        assertTrue(java.nio.file.Files.exists(helper),
-                "a file that was never an activity was never this pass's business either");
+        try (var walk = java.nio.file.Files.walk(config.projectPath())) {
+            assertEquals(List.of(userFile), walk.filter(p -> p.toString().endsWith(".java")).sorted().toList(),
+                    "adding and removing an activity created no file and deleted none");
+        }
+        assertEquals("// where the user put their define calls", java.nio.file.Files.readString(userFile));
     }
 
     /** An {@code activities.json} written when archiving existed loads with every activity live. */
@@ -260,19 +255,17 @@ public class ActivityServiceTest {
     }
 
     /**
-     * A save writes {@code activities.json} <em>and</em> the Java that describes it (2026-08-26).
+     * A save writes the model, and the model is all of it.
      *
-     * <p>This test has now said three different things, and the middle one is worth remembering. It asserted
-     * generation, then — for one day, deliberately — that there was <b>none</b>, because the templates had
-     * left the SDK (phase 0b) and Studio's own emitters were gone with them. Phase 4 reconnects the path, so
-     * it asserts generation again, from the other side of the inversion: the files appear because the
-     * project's own SDK produced them from the JSON this save had just written.
-     *
-     * <p>What is asserted is the files' <em>appearance</em>, never a byte of what they say. The emitted text
-     * belongs to the generator and is tested where the generator lives, in the SDK's {@code ScaffoldEmitTest}.
+     * <p>This test has said four different things and the sequence is worth keeping. It asserted that a save
+     * generated five {@code .java} files; then — for one day, deliberately — that it generated <b>none</b>,
+     * the templates having left the SDK with Studio's emitters; then that it generated the two the model
+     * could not replace; and now that {@code activities.json} is the whole output. A tick, a value, a picture
+     * and a wire are read from that file at run time, and an activity's behaviour is a call in a file the
+     * user owns.
      */
     @Test
-    void aSaveWritesTheModelAndTheJavaThatDescribesIt(@TempDir Path dir) throws Exception {
+    void aSaveWritesTheModelAndNothingElse(@TempDir Path dir) throws Exception {
         ProjectConfig config = ProjectConfig.forProject("MyBot", dir);
         ActivityService service = new ActivityService(config, new ProjectState(), new EventBus(false));
 
@@ -280,11 +273,9 @@ public class ActivityServiceTest {
                 List.of(ActivityDefinition.create("Mining", "")), List.of())).join();
 
         assertTrue(java.nio.file.Files.exists(config.resourcesRoot().resolve(ActivitiesConfig.FILE_NAME)),
-                "the model is still saved");
-        // Activities.java and FlowDriver.java were asserted here too, until both stopped being written: an
-        // activity's tick and the drawn flow are read from the JSON above at run time. A save's whole output
-        // is now the model and any stub that did not exist yet.
-        assertTrue(java.nio.file.Files.exists(config.activitiesPackageDir().resolve("Mining.java")),
-                "and the new activity's stub with them");
+                "the model is saved");
+        try (var walk = java.nio.file.Files.walk(config.projectPath())) {
+            assertEquals(List.of(), walk.filter(p -> p.toString().endsWith(".java")).toList());
+        }
     }
 }

@@ -9,7 +9,6 @@ import com.botmaker.studio.project.activity.ActivityFlow;
 import com.botmaker.studio.project.activity.ActivityPreset;
 import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.project.activity.ValueWire;
-import com.botmaker.studio.project.seed.SeedSync;
 
 import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
@@ -23,13 +22,14 @@ import java.util.concurrent.CompletableFuture;
  * {@code Activities.java}, {@code Parameters.java}, {@code ActivityRegistry.java}, {@code FlowDriver.java}
  * and the per-activity stub — each of them a scaffold template from the pinned SDK jar with Studio's fills
  * spliced into its fences. Four of the five are gone entirely: a file whose contents follow from the model is
- * read from the model at run time now rather than compiled from it. The fifth, the stub, is a <b>seed</b> —
- * a real class the SDK ships and this project owns a copy of — and every plugin may have some, which is why
- * {@link #update} asks {@link SeedSync} rather than asking the SDK.
+ * read from the model at run time now rather than compiled from it. <b>So is the fifth</b>: an activity's
+ * behaviour is an {@code Activities.define("Mining", ctx -> …)} call in a file the user wrote and owns, and
+ * this class's job ends where the JSON does.
  *
- * <p><b>The JSON is written first and each plugin reads it back</b>, rather than being handed the config in
- * memory. That is what makes the two agree by construction: what lands on disk describes what is stored,
- * never what a caller believed it was about to store.
+ * <p>The stub went through one more shape on the way out. It was briefly a <em>seed</em> — a real class the
+ * SDK shipped, written into the project once and then maintained at marked regions — with a key ledger, a
+ * reconciler and a rename engine here to keep owning it. All of that is deleted: a project's structure
+ * belongs to the user, so BotMaker writes no Java into one at all.
  *
  * <p>One model, one store. Studio briefly generated a {@code Settings.java} holding every value as a compiled
  * Java literal instead; it is gone, along with the discriminator that chose between the two. What that
@@ -82,10 +82,13 @@ public final class ActivityService {
      * {@code activities.json} this method has just written. The two therefore agree by construction: what
      * lands on disk describes what is stored, never what a caller believed it was about to store.
      *
-     * <p>It knows nothing about activities beyond writing their file. Creating a new one's source, keeping an
-     * existing one's outcomes in step and moving a renamed one are all one call, and none of them names the
-     * SDK — which is why {@code Regeneration.ensureStubs}, {@code ActivityStubSync} and this class's own
-     * {@code deleteRemovedStubs} are gone rather than generalised.
+     * <p><b>Saving an activity writes no Java at all.</b> An activity's behaviour is an
+     * {@code Activities.define("Mining", ctx -> …)} call the user wrote somewhere in their own source, so
+     * adding one on the canvas creates a file for nobody to own, renaming one moves nothing, and deleting
+     * one leaves whatever the user wrote exactly where it is. What used to be here —
+     * {@code Regeneration.ensureStubs}, {@code ActivityStubSync}, {@code SeedSync} and this class's own
+     * {@code deleteRemovedStubs} — is gone, not generalised: the model is the file, and the file is all of
+     * it.
      */
     public CompletableFuture<Void> update(ActivitiesConfig newConfig) {
         return CompletableFuture.runAsync(() -> {
@@ -94,11 +97,6 @@ public final class ActivityService {
             } catch (IOException e) {
                 throw new RuntimeException("Failed to save activities: " + e.getMessage(), e);
             }
-            // Never fails the save: the model is stored, and a plugin that cannot write its own files is a
-            // project that still opens and still builds from what is there.
-            SeedSync.Result seeds = SeedSync.sync(config, state);
-            for (String problem : seeds.problems()) System.err.println("Seeds: " + problem);
-
             state.setActivities(newConfig);
             eventBus.publish(new ActivitiesChangedEvent(newConfig));
         });

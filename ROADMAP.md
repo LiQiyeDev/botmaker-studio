@@ -6,6 +6,22 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-29 — Studio writes a project's Java once and never touches it again.** A project's structure
+  belongs to the user, so nothing generates, reconciles, restores or re-renders source. **Creation:**
+  `project/StarterSources` composes the one starting file (a game bot's entry point now carries `goHome` and
+  `dismissPopups` as plain methods rather than shipping `GoHome.java` and `Popups.java` beside it) and
+  `ProjectCreator` hands it to `Authoring.createProject` with the pom. **Deleted:** `project/seed/` (writer,
+  reconciler, ledger, sync), `project/Regeneration`, `project/ScaffoldMigration`, `ProjectSpecs`'
+  `generatedFileNames`/`generatedSource`, `PluginHost.seedPlan`/`seedFiles`,
+  `ImageTemplateLibrary.regenerateTemplatesClass` and its six call sites,
+  `SdkUpgradeService.regenerateScaffolding`, and `ProjectRepair`'s whole damaged-locked-method half
+  (`Damage`, `findDamaged`, `repairSource`, `repairDamaged`). **Narrowed:** *Recover Project Files* restores
+  only what is not source — pom, project properties, `settings.json`, `activities.json`, the placeholder
+  image; `looksLikeGameBot` is the entry point's own text, there being no file list left to check;
+  `ActivityService.update` is `activities.json` and nothing else. Three test files inverted, one deleted.
+  1329 tests green. *The lock machinery (`FileRole.GENERATED`, `MethodLock`, `LockResolver`,
+  `GeneratedMembers`) is still standing and is the next thing to go — it is a large, separate sweep.*
+
 - **2026-08-29 — a save maintains every plugin's seeds, and Studio stopped knowing what an activity is
   (seeds, phase 5b).** `project/seed/SeedReconciler` keeps a seed's substituted enums in step with the model
   and touches nothing else; `project/seed/SeedSync` is the pass that decides, per seed, between writing a

@@ -2,15 +2,10 @@ package com.botmaker.studio.project;
 
 import com.botmaker.sdk.authoring.Authoring;
 import com.botmaker.sdk.authoring.AuthoringUnsupported;
-import com.botmaker.sdk.authoring.ProjectModel;
 import com.botmaker.sdk.authoring.ProjectSpec;
 import com.botmaker.sdk.authoring.SdkVersion;
 import com.botmaker.sdk.api.geometry.Size;
 import com.botmaker.studio.services.MavenService;
-
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * The one place Studio's project vocabulary is put into the SDK's.
@@ -27,6 +22,19 @@ import java.util.List;
  * record for record, giving {@code activities.json} two owners; this converts three identifiers and a size at
  * the one boundary where Studio hands work over, and it disappears when nothing on this side is spelled
  * differently any more.
+ *
+ * <h2>What used to be here, and is not coming back</h2>
+ *
+ * <p>{@code generatedFileNames} and {@code generatedSource} answered "which {@code .java} must a project of
+ * this shape have, and what is in it", so a repair could notice one missing and write it back. Both halves
+ * went on 2026-08-29: nothing writes a project's Java, so nothing knows what it should contain, and nothing
+ * may put it back. A project's structure belongs to its owner — a file they deleted is a file they meant to
+ * delete.
+ *
+ * <p>The note that stood on the first of those said it went through one named plugin and ought to go through
+ * the contract instead, over every plugin that writes into a project. That surface was built the day before
+ * and deleted the day after; see {@code botmaker-studio-api}'s {@code CLAUDE.md}. The right number of plugins
+ * to ask turned out to be none.
  */
 public final class ProjectSpecs {
 
@@ -77,57 +85,4 @@ public final class ProjectSpecs {
         return SdkVersion.ofPin(sdkPin).orElseGet(SdkVersion::latest);
     }
 
-    /**
-     * The file names — not paths — of the generated {@code .java} a project of this shape must have.
-     *
-     * <p>Studio's own checks resolve them against the package directory they already hold, which is why the
-     * last segment is what comes back. The list itself is the generator's, so a file that stops being emitted
-     * stops being looked for on the same day.
-     *
-     * <h2>This asks the SDK, and it should ask the contract</h2>
-     *
-     * <p><b>It goes through {@code com.botmaker.sdk.authoring.Authoring} — one named plugin — and that is
-     * wrong.</b> Which files a project must have is a question for <em>every</em> plugin that writes into
-     * that project, and the surface for it already exists on the contract:
-     * {@code StudioPlugin.scaffold(pin)} answers the shapes and {@code StudioPlugin.seedings(pin, dir)}
-     * answers how many files there are and where. The right call here is one over
-     * {@code PluginHost.plugins()}, crossed through {@code ScaffoldPlan}, which is the same shape as
-     * {@code PluginHost.parameterGroups(pin)} and {@code PluginHost.slotEditors()}.
-     *
-     * <p>It is not that yet for a sequencing reason and no other: no plugin implements {@code scaffold()}
-     * until the SDK's own seeds land, so a contract-driven answer today would be an empty list, and every
-     * repair would report a project intact. This is the seam that moves — not a design that stands.
-     *
-     * <p>Only two callers reach it, both in {@code ProjectRepair}, so the move is small when the seeds exist.
-     * {@code ProjectRepair} itself no longer names a file: it stopped spelling {@code FlowDriver.java} and
-     * {@code ActivityRegistry.java} on 2026-08-29, which is what makes this the one place left to change.
-     */
-    public static List<String> generatedFileNames(ProjectConfig cfg, ProjectTemplate template, String sdkPin) {
-        List<String> names = new ArrayList<>();
-        for (String path : Authoring.generatedFileNames(readerVersionFor(sdkPin),
-                of(cfg, template, sdkPin, null))) {
-            names.add(Path.of(path).getFileName().toString());
-        }
-        return names;
-    }
-
-    /**
-     * The text of one generated file, rendered <b>against an empty model</b>, or {@code null} when this shape
-     * of project does not have a file by that name.
-     *
-     * <p>The empty model is what bounds this to honest callers: it is the right answer for a file that says
-     * nothing about the project's activities — an empty project's entry point — and the wrong one for every
-     * file that does. <b>Do not reach for it to restore a game bot's file:</b> {@link Regeneration} reads the
-     * project's stored model and is the one that renders against what the project actually contains. This
-     * stays because an empty project has no {@code activities.json} to read, so there is nothing for the
-     * model-driven path to be more accurate about.
-     */
-    public static String generatedSource(ProjectConfig cfg, ProjectTemplate template, String sdkPin,
-                                         String fileName) {
-        for (var entry : Authoring.sources(readerVersionFor(sdkPin), of(cfg, template, sdkPin, null),
-                ProjectModel.empty()).entrySet()) {
-            if (Path.of(entry.getKey()).getFileName().toString().equals(fileName)) return entry.getValue();
-        }
-        return null;
-    }
 }

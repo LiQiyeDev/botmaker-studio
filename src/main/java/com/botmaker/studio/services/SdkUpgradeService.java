@@ -9,7 +9,6 @@ import com.botmaker.studio.project.FileRole;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
-import com.botmaker.studio.project.Regeneration;
 import com.botmaker.studio.project.vcs.ProjectVcs;
 import com.botmaker.studio.services.SdkApiModel.ApiClass;
 import org.eclipse.jdt.core.dom.CompilationUnit;
@@ -599,38 +598,13 @@ public final class SdkUpgradeService {
                     }
                 })
                 .thenCompose(v -> libraryService.updateLibraries(libraryService.currentLibraries(),
-                        targetVersion))
-                .thenRun(this::regenerateScaffolding);
-    }
-
-    /**
-     * Produces the generated files again, now that the pom names the new SDK.
-     *
-     * <p>This is the other half of the mid-apply refusal narrowing (see
-     * {@code SdkMigrationRunner.scaffoldingInTheWay}). The migrator deliberately never rewrites a generated
-     * file; it does not have to, because these files are derived from the activity model and can simply be
-     * produced again — against the new jar. After the pom has moved, not before: the render has to see the
-     * SDK the project actually pins now.
-     *
-     * <p>All five again since 2026-08-26 — {@code Activities}, {@code Parameters}, {@code ActivityRegistry},
-     * {@code FlowDriver} and {@code Templates}. For one day (phase 0b) it re-rendered only the last of them,
-     * because Studio had no generator at all, and a bot whose generated files named something the new SDK
-     * renamed simply did not compile. {@link Regeneration#write} reads the pom for the pin, which is why this
-     * runs <em>after</em> the pom has moved and not before.
-     *
-     * <p>An {@code IOException} here is worth a sentence and not worth failing the upgrade over: the sources
-     * are already repaired and the pom is already moved, so undoing it would be the destructive answer, and
-     * the snapshot taken before the upgrade is the way back.
-     */
-    private void regenerateScaffolding() {
-        try {
-            // An empty project has no model-derived file, so `write` has nothing to do — but it still has a
-            // Templates class, and an upgrade is not followed by the project open that would refresh it.
-            if (Regeneration.write(config).isEmpty()) Regeneration.writeTemplatesClass(config);
-        } catch (IOException | RuntimeException e) {
-            System.err.println("SDK upgrade: the generated files could not be re-rendered against the new "
-                    + "SDK (" + e.getMessage() + "). Open Project ▸ Activity Flow and save to redo them.");
-        }
+                        targetVersion));
+        // There is no re-render step after the pom moves, and there is nothing left for one to do.
+        // `regenerateScaffolding` produced Activities, Parameters, ActivityRegistry, FlowDriver and
+        // Templates again against the new jar, because the migrator deliberately never rewrote a generated
+        // file and did not have to: they were derived from the model. Nothing is derived and nothing is
+        // generated, so every file in the project is the user's and every one of them goes through the same
+        // migration as the rest of their code.
     }
 
     /**

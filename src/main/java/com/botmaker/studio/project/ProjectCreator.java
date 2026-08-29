@@ -12,6 +12,7 @@ import com.botmaker.studio.services.MavenService;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static com.botmaker.studio.config.Constants.PROJECTS_ROOT;
@@ -19,18 +20,21 @@ import static com.botmaker.studio.config.Constants.PROJECTS_ROOT;
 /**
  * Creates a new user project — the part of it that is about <em>Studio</em>.
  *
- * <p>Since 2026-08-25 the bot's own files are not written here. {@code Authoring.createProject} writes the
- * {@code src/} layout, every {@code .java}, {@code activities.json}, {@code botmaker-project.properties} and
- * the placeholder image, because each of those is a statement about the SDK the bot compiles against and
- * only that SDK can make it (the inversion, phase 3). Studio keeps the things that are genuinely its own:
- * <b>where</b> projects live, <b>whether the name is one a user may pick</b>, the editor's
- * {@code settings.json}, project history — and <b>the pom</b>.
+ * <p>{@code Authoring.createProject} writes the {@code src/} layout, {@code activities.json},
+ * {@code botmaker-project.properties} and the placeholder image — the data a bot reads back at run time, and
+ * the only thing the SDK owns. Studio keeps the rest: <b>where</b> projects live, <b>whether the name is one
+ * a user may pick</b>, the editor's {@code settings.json}, project history, <b>the pom</b> — and, since
+ * 2026-08-29, <b>every {@code .java}</b>.
  *
- * <p>The pom is the interesting one, and it came back here on 2026-08-26 after one day in the SDK. It is not
- * a file about the SDK, it is the file that declares <em>which</em> SDK the project has — and the SDK is the
- * editor's default plugin, not the editor. A second plugin would be invisible to it, so a pom it wrote would
- * silently omit that plugin's dependency. Studio composes it ({@code MavenService.pomXml}) and hands the
- * <em>text</em> to {@code createProject}, which commits it beside the files it owns.
+ * <p>The pom won that argument first, on 2026-08-26 after one day in the SDK. It is not a file about the
+ * SDK, it is the file that declares <em>which</em> SDK the project has — and the SDK is the editor's default
+ * plugin, not the editor. A second plugin would be invisible to it, so a pom it wrote would silently omit
+ * that plugin's dependency. The entry point is the same argument one step on: it is where those plugins get
+ * <em>installed</em>. And the argument for every other file is plainer still — a project's structure belongs
+ * to the user, so it is written once ({@link StarterSources}) and never read, rewritten or restored.
+ *
+ * <p>Studio composes both and hands the <em>text</em> to {@code createProject}, which commits them beside the
+ * files it owns.
  *
  * <p>That handing-in is what preserves the all-or-none rule rather than trading it away: the refusal still
  * happens where the files are rendered, and one pass writes every byte of the project. What is left here is
@@ -86,16 +90,17 @@ public class ProjectCreator {
         }
 
         try {
-            // 1. Everything the bot is made of. The SDK that wrote its API writes the src/ layout, every
-            //    .java, activities.json, botmaker-project.properties and the placeholder image; the pom is
-            //    ours, composed here and handed in so the two land together. All of it or none of it — the
-            //    refusal lands before a single directory exists, so a project that cannot be created never
-            //    has to be deleted by hand.
-            System.out.println("1. Generating the project...");
+            // 1. Everything the bot is made of. The SDK writes the src/ layout, activities.json,
+            //    botmaker-project.properties and the placeholder image — the data a bot reads back at run
+            //    time. Every .java is ours, and so is the pom; both are composed here and handed in so all
+            //    of it lands together. All of it or none of it — the refusal lands before a single directory
+            //    exists, so a project that cannot be created never has to be deleted by hand.
+            System.out.println("1. Creating the project...");
+            Map<String, String> ourFiles = new LinkedHashMap<>(StarterSources.of(cfg, template));
+            ourFiles.put("pom.xml", MavenService.pomXml(cfg, effectiveSdkVersion(sdkVersion)));
             Authoring.createProject(sdk,
                     ProjectSpecs.of(cfg, template, effectiveSdkVersion(sdkVersion), referenceResolution),
-                    projectPath, SchemaFile.ACTIVITIES.current(),
-                    Map.of("pom.xml", MavenService.pomXml(cfg, effectiveSdkVersion(sdkVersion))));
+                    projectPath, SchemaFile.ACTIVITIES.current(), ourFiles);
 
             // 2. Seed settings.json (the chosen template + the standard capture resolution). Studio's own
             //    file: no bot reads it, and it records what the editor chose rather than what the bot needs.

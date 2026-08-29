@@ -3,7 +3,6 @@ package com.botmaker.studio.services;
 import com.botmaker.sdk.authoring.TemplateNames;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
-import com.botmaker.studio.project.Regeneration;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -36,6 +35,13 @@ import java.util.stream.Stream;
  * <p>The SDK loads templates from the filesystem relative to the working directory (which is the project
  * root at run time), so the path embedded in code is relative to the project root, e.g.
  * {@code "src/main/resources/images/accept_button.png"} — always forward-slashed for cross-platform use.
+ *
+ * <p><b>Adding a picture writes no Java.</b> There was a generated {@code Templates.java} holding one
+ * {@code public static final String} per file in the images folder, rewritten after every add, rename and
+ * delete, so a bot could name a picture and have a typo be a compile error. A picture is named by its file
+ * now, so there is no constant to keep in step. The lineage went the long way round — Studio emitted the
+ * file, then the SDK did (a second emitter being a second author of one file), then it stopped being emitted
+ * at all — and {@code regenerateTemplatesClass} outlived the file it wrote by three days.
  */
 public final class ImageTemplateLibrary {
 
@@ -148,30 +154,6 @@ public final class ImageTemplateLibrary {
     }
 
     /**
-     * Rewrites the generated {@code Templates.java} from what is on disk now. Best-effort: a project whose
-     * source tree isn't writable still captures templates, it just doesn't get constants for them.
-     *
-     * <p>Called after every add, rename and delete rather than on a timer or at project open, because the
-     * class is only correct relative to the folder — a stale constant is a use site that compiles and finds
-     * nothing, which is the exact failure the constants exist to turn into a compile error.
-     *
-     * <p><b>The SDK writes it, like every other generated file</b> (2026-08-26). Studio held its own emitter
-     * for this one on the argument that the file names no SDK member — it declares {@code public static final
-     * String} paths and nothing else — so there was nothing to ask an SDK about. That argument was true and
-     * beside the point: the file is <em>created</em> by the SDK with the rest of the project, so a second
-     * emitter here is a second author of one file, which is the shape this whole inversion removes. It goes
-     * through {@link Regeneration#writeTemplatesClass}, which asks for this file alone rather than the whole
-     * model-derived set — a capture changes the images folder and nothing about the flow.
-     */
-    public static void regenerateTemplatesClass(ProjectConfig config) {
-        try {
-            Regeneration.writeTemplatesClass(config);
-        } catch (IOException e) {
-            System.err.println("Failed to regenerate " + TemplateNames.CLASS_NAME + ": " + e.getMessage());
-        }
-    }
-
-    /**
      * Whether {@code baseName} would collide with a file the library owns rather than a template — today the
      * one name whose {@code <name>.json} sidecar <em>is</em> {@link TemplateManifest#FILE_NAME}. Checked by
      * every naming path alongside {@link #exists}: saving a template called "templates" would otherwise
@@ -263,7 +245,6 @@ public final class ImageTemplateLibrary {
         TemplateMetadata meta = new TemplateMetadata(img.getWidth(), img.getHeight(),
                 Math.max(0, captureWidth), Math.max(0, captureHeight), targetTitle, Instant.now().toString());
         MAPPER.writerWithDefaultPrettyPrinter().writeValue(sidecarFor(png).toFile(), meta);
-        regenerateTemplatesClass(config);
         return pathFor(config, png);
     }
 
@@ -385,7 +366,6 @@ public final class ImageTemplateLibrary {
             Files.move(oldSidecar, sidecarFor(target), StandardCopyOption.REPLACE_EXISTING);
         }
         saveManifest(config, manifest(config).renamed(baseName(file), newBaseName));
-        regenerateTemplatesClass(config);
     }
 
     /** Deletes a template: the PNG, its resolution sidecar and its manifest entry. */
@@ -393,7 +373,6 @@ public final class ImageTemplateLibrary {
         Files.deleteIfExists(file);
         Files.deleteIfExists(sidecarFor(file));
         saveManifest(config, manifest(config).without(baseName(file)));
-        regenerateTemplatesClass(config);
     }
 
     // ── The same picture twice ──────────────────────────────────────────────────────────────────────────

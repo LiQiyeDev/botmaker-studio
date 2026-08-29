@@ -12,65 +12,43 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * The two sentences Recover Project Files shows the user.
  *
- * <p>They are the whole reason the action is trustworthy — a recovery that says "3 files are missing" and then
- * silently repairs a method, or one that offers to regenerate nothing at all, is worse than no recovery. Both
- * are {@code static} and JavaFX-free, so the counting is checkable without a toolkit.
+ * <p>They are the whole reason the action is trustworthy — a recovery that offers to regenerate nothing at
+ * all is worse than no recovery. Both are {@code static} and JavaFX-free, so the counting is checkable
+ * without a toolkit.
+ *
+ * <p>The damaged-method half of this test went on 2026-08-29 with the machinery behind it: a "damaged" method
+ * was one that no longer matched what the generator would write, and nothing generates a project's Java.
  */
 class ProjectRecoveryTest {
 
     private static ProjectRepair.Missing missing(String name) {
-        return ProjectRepair.Missing.ofSource(Path.of("/p/src", name), "// source",
-                "files BotMaker generates");
-    }
-
-    private static ProjectRepair.Damage damage(String method) {
-        return new ProjectRepair.Damage(Path.of("/p/src/Main.java"), method,
-                ProjectRepair.Damage.Kind.SIGNATURE_CHANGED);
+        return ProjectRepair.Missing.ofSource(Path.of("/p", name), "// content",
+                "files BotMaker needs");
     }
 
     @Test
-    void missingFilesAloneAreReportedAsRegeneration() {
-        assertEquals("2 file(s) are missing and will be regenerated.",
-                ProjectRecoveryAction.headerFor(List.of(missing("A.java"), missing("B.java")), List.of()));
+    void missingFilesAreReportedByCount() {
+        assertEquals("2 file(s) are missing and will be restored.",
+                ProjectRecoveryAction.headerFor(List.of(missing("pom.xml"), missing("settings.json"))));
     }
 
     @Test
-    void damagedMethodsAloneAreReportedAsRestoration() {
-        assertEquals("1 method(s) BotMaker needs will be restored.",
-                ProjectRecoveryAction.headerFor(List.of(), List.of(damage("run"))));
-    }
-
-    /** Both kinds present: the header must name both, since the dialog is the only place the user sees them. */
-    @Test
-    void bothKindsAreNamedWhenBothWereFound() {
-        String header = ProjectRecoveryAction.headerFor(List.of(missing("A.java")),
-                List.of(damage("run"), damage("stop")));
-        assertTrue(header.contains("1 file(s)"), header);
-        assertTrue(header.contains("2 method(s)"), header);
-    }
-
-    /** Nothing repaired means nothing claimed repaired — the clause is dropped, not written as "0 file(s)". */
-    @Test
-    void theSummaryMentionsRepairsOnlyWhenSomethingWasRepaired() {
+    void theSummaryCountsWhatWasRecovered() {
         assertEquals("Recovered 2 file(s).",
-                ProjectRecoveryAction.summaryOf(List.of(missing("A.java"), missing("B.java")), List.of()));
-        assertEquals("Recovered 1 file(s) and repaired 1 file(s).",
-                ProjectRecoveryAction.summaryOf(List.of(missing("A.java")), List.of(Path.of("/p/src/Main.java"))));
+                ProjectRecoveryAction.summaryOf(List.of(missing("pom.xml"), missing("settings.json"))));
     }
 
-    /** The body groups the missing files under their reason and lists every damaged method by name. */
+    /** The body groups the missing files under their reason. */
     @Test
-    void theDetailListsEveryFileAndEveryDamagedMethod() {
-        String detail = ProjectRecoveryAction.detailOf(List.of(missing("A.java"), missing("B.java")),
-                List.of(damage("run")));
-        assertTrue(detail.contains("files BotMaker generates:"), detail);
-        assertTrue(detail.contains("A.java"), detail);
-        assertTrue(detail.contains("B.java"), detail);
-        assertTrue(detail.contains("Main.java.run — signature changed"), detail);
+    void theDetailListsEveryFileUnderItsReason() {
+        String detail = ProjectRecoveryAction.detailOf(List.of(missing("pom.xml"), missing("settings.json")));
+        assertTrue(detail.contains("files BotMaker needs:"), detail);
+        assertTrue(detail.contains("pom.xml"), detail);
+        assertTrue(detail.contains("settings.json"), detail);
     }
 
     @Test
     void anEmptyDetailIsEmptyRatherThanBlankLines() {
-        assertEquals("", ProjectRecoveryAction.detailOf(List.of(), List.of()));
+        assertEquals("", ProjectRecoveryAction.detailOf(List.of()));
     }
 }

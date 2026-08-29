@@ -1,10 +1,10 @@
 package com.botmaker.studio.project;
 
-import com.botmaker.studio.services.MavenService;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -40,29 +40,24 @@ class ProjectNamingTest {
         assertEquals("com.mybot.MyBot", config.mainClassName());
     }
 
+    /**
+     * The failure this guards against is a project whose entry point is called {@code myBot.java} and
+     * declares {@code class MyBot} — which does not compile, and which a lowercase project name produces
+     * unless the capitalisation is applied in both places at once.
+     */
     @Test
-    void theGeneratedSourcesUseTheClassName() {
+    void theStarterFileNameAndItsClassAgree() {
         ProjectConfig config = ProjectConfig.forProject("myBot", ROOT);
-        String main = ProjectSpecs.generatedSource(config, ProjectTemplate.EMPTY,
-                MavenService.SDK_FALLBACK_VERSION, "MyBot.java");
 
-        assertNotNull(main, "expected MyBot.java among "
-                + ProjectSpecs.generatedFileNames(config, ProjectTemplate.EMPTY,
-                        MavenService.SDK_FALLBACK_VERSION));
-        assertTrue(main.contains("class MyBot"),
-                "the class must be capitalized or the project doesn't compile:\n" + main);
-        assertTrue(main.contains("package com.mybot;"), main);
-    }
-
-    @Test
-    void theGameBotScaffoldAlsoUsesTheClassName() {
-        // Asked of the file *names*: the naming rule this test is about was never in the text, and the names
-        // come from the generator that writes them, so a file that stops being emitted stops being asserted.
-        // The failure it guards against is unchanged — a project whose entry point is called `myBot.java`
-        // and declares `class MyBot`.
-        ProjectConfig config = ProjectConfig.forProject("myBot", ROOT);
-        assertEquals("MyBot.java", ProjectSpecs.generatedFileNames(config, ProjectTemplate.GAME_BOT,
-                MavenService.SDK_FALLBACK_VERSION).getFirst());
+        for (ProjectTemplate template : ProjectTemplate.values()) {
+            var starter = StarterSources.of(config, template);
+            assertEquals(List.of("src/main/java/com/mybot/MyBot.java"), List.copyOf(starter.keySet()),
+                    "the file is named for the class, not for the project: " + template);
+            String main = starter.values().iterator().next();
+            assertTrue(main.contains("class MyBot"),
+                    "the class must be capitalized or the project doesn't compile:\n" + main);
+            assertTrue(main.contains("package com.mybot;"), main);
+        }
     }
 
     @Test

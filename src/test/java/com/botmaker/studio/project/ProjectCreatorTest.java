@@ -11,6 +11,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -120,20 +121,32 @@ class ProjectCreatorTest {
     }
 
     /**
-     * The empty project's entry point, as the SDK writes it and as recovery restores it.
+     * The one file a new project starts with is Studio's, and it is the only {@code .java} either half of
+     * creation writes.
      *
-     * <p>{@link ProjectRepair} used to hold its own copy of this source, which lost an import and so
-     * "recovered" a project that did not compile. There is one copy now — the generator's — and this is the
-     * assertion that the path Studio restores through really reaches it.
+     * <p>It used to come from the SDK — and before that from a copy {@code ProjectRepair} kept, which lost
+     * an import and so "recovered" a project that did not compile. Neither writes source now:
+     * {@link StarterSources} composes it once and nothing reads it back, so there is nothing left to drift.
      */
     @Test
-    void theEmptyTemplateEntryPointComesFromTheGenerator(@TempDir Path root) {
+    void aNewProjectStartsWithOneFileAndItIsStudiosOwn(@TempDir Path root) {
         ProjectConfig config = ProjectConfig.forProject("MyBot", root);
-        String main = ProjectSpecs.generatedSource(config, ProjectTemplate.EMPTY,
-                MavenService.SDK_FALLBACK_VERSION, "MyBot.java");
 
-        assertNotNull(main, "the entry point is a file every project shape has");
-        assertTrue(main.contains("package com.mybot;"), main);
-        assertTrue(main.contains("class MyBot"), main);
+        Map<String, String> empty = StarterSources.of(config, ProjectTemplate.EMPTY);
+        assertEquals(List.of("src/main/java/com/mybot/MyBot.java"), List.copyOf(empty.keySet()));
+        assertTrue(empty.values().iterator().next().contains("package com.mybot;"));
+
+        String gameBot = StarterSources.of(config, ProjectTemplate.GAME_BOT)
+                .get("src/main/java/com/mybot/MyBot.java");
+        assertNotNull(gameBot);
+        assertTrue(gameBot.contains("public class MyBot"), gameBot);
+        // The three things a game bot's entry point is for: the guard, the flow, and the recovery hook it
+        // hands to both. GoHome.java and Popups.java were separate files until 2026-08-29 — one file is what
+        // "written once and never touched again" can honestly promise.
+        assertTrue(gameBot.contains("PopupGuard.install(MyBot::dismissPopups)"), gameBot);
+        assertTrue(gameBot.contains("FlowGraph.run(MyBot.class, MyBot::goHome)"), gameBot);
+        assertTrue(gameBot.contains("static void goHome()"), gameBot);
+        // The shape of a define call is shown rather than written: at creation there are no activities.
+        assertTrue(gameBot.contains("Activities.define(\"Mining\""), gameBot);
     }
 }

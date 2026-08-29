@@ -188,9 +188,6 @@ public final class TemplateArchive {
         }
 
         ImageTemplateLibrary.saveManifest(config, merged);
-        // Every imported name needs its constant, or the templates that just arrived are the only ones a
-        // block cannot name. Nothing else regenerates the class until the next add/rename/delete.
-        if (!imported.isEmpty()) ImageTemplateLibrary.regenerateTemplatesClass(config);
         return new ImportResult(imported, renamed, unchanged, skipped);
     }
 

@@ -7,11 +7,9 @@ import com.botmaker.plugin.api.ToolbarGroup;
 import com.botmaker.plugin.api.ToolbarItem;
 import com.botmaker.plugin.api.catalog.FacadeEntry;
 import com.botmaker.plugin.api.catalog.PaletteCatalog;
-import com.botmaker.plugin.api.catalog.ScaffoldPlan;
 import com.botmaker.plugin.api.value.ValueCatalog;
 import com.botmaker.plugin.host.PluginLoader;
 
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -294,82 +292,6 @@ public final class PluginHost {
     public static List<ParameterGroup> parameterGroups(String pinnedSdkVersion) {
         String pin = pinnedSdkVersion == null ? BUNDLED_PIN : pinnedSdkVersion;
         return GROUPS.computeIfAbsent(pin, PluginHost::buildGroups);
-    }
-
-    /**
-     * Every seed file every loaded plugin wants written into this project, already validated.
-     *
-     * <p>The one call the rest of Studio makes about seeds, and the reason it is here rather than anywhere
-     * else: <b>which files a project must have is a question for every plugin that writes into it</b>, and a
-     * host that asked one plugin by name would have an opinion about that plugin. Nothing above this method
-     * knows the SDK exists.
-     *
-     * <p>Each plugin's catalog is crossed with its own seedings separately and the plans are concatenated —
-     * never merged into one {@code ScaffoldPlan}, because a key is only unique <em>within</em> a plugin and
-     * two plugins may both use {@code "activity:1"} without either being wrong. What must not collide is the
-     * <b>path</b>, and that is checked here, across plugins, since neither plugin can see the other's.
-     *
-     * <p>Degrades rather than throws, like every catalog on this class: a plugin whose seeds or seedings are
-     * malformed contributes a line to {@code problems()} and whatever else it got right. A project must open.
-     *
-     * @param pinnedSdkVersion the version the open project's pom names; passed through, never interpreted
-     * @param projectDir       the project root — each plugin reads its own files under it
-     * @param packageName      the project's base package, which is the host's to know and resolves
-     *                         {@code {package}} in every seed's path
-     */
-    public static List<PlannedSeed> seedFiles(String pinnedSdkVersion, Path projectDir, String packageName) {
-        return seedPlan(pinnedSdkVersion, projectDir, packageName).seeds();
-    }
-
-    /**
-     * One planned file and the plugin that wants it.
-     *
-     * <p>The owner travels with the file because the ledger that remembers where each seed was written is
-     * keyed by <em>(plugin, key)</em>: a key is unique only within the plugin that minted it. A merged plan
-     * that dropped the owner would make two plugins' identical keys one row.
-     */
-    public record PlannedSeed(String pluginId, ScaffoldPlan.PlannedFile file) {}
-
-    /** Every planned seed with the problems kept — what a caller reports, or a test asserts is empty. */
-    public record SeedPlan(List<PlannedSeed> seeds, List<String> problems) {
-
-        public SeedPlan {
-            seeds = List.copyOf(seeds);
-            problems = List.copyOf(problems);
-        }
-    }
-
-    /** {@link #seedFiles} with the problems kept. */
-    public static SeedPlan seedPlan(String pinnedSdkVersion, Path projectDir, String packageName) {
-        String pin = pinnedSdkVersion == null ? BUNDLED_PIN : pinnedSdkVersion;
-        List<PlannedSeed> files = new ArrayList<>();
-        List<String> problems = new ArrayList<>();
-        Map<String, String> claimedPaths = new LinkedHashMap<>();
-
-        for (StudioPlugin plugin : plugins()) {
-            ScaffoldPlan plan;
-            try {
-                plan = ScaffoldPlan.of(plugin.scaffold(pin), packageName, plugin.seedings(pin, projectDir));
-            } catch (RuntimeException e) {
-                // A plugin's own code, reading a project's own files. It failing is a plugin bug and must
-                // not be a project that will not open.
-                problems.add(plugin.id() + " could not say which seeds it wants (" + e + ")");
-                continue;
-            }
-            for (String problem : plan.problems()) problems.add(plugin.id() + ": " + problem);
-            for (ScaffoldPlan.PlannedFile file : plan.files()) {
-                String claimant = claimedPaths.putIfAbsent(file.path(), plugin.id());
-                if (claimant != null) {
-                    // Whole-file ownership, across plugins. ScaffoldPlan enforces it within one plugin and
-                    // cannot see beyond it; this is the only place both sides are visible at once.
-                    problems.add(plugin.id() + " wants to write " + file.path()
-                            + ", which " + claimant + " already writes");
-                    continue;
-                }
-                files.add(new PlannedSeed(plugin.id(), file));
-            }
-        }
-        return new SeedPlan(files, problems);
     }
 
     /** The group a variable's {@code group} id names, or null when no loaded plugin claims that id. */

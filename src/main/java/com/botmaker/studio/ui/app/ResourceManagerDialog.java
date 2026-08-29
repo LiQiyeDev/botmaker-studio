@@ -853,7 +853,6 @@ public class ResourceManagerDialog {
         TemplateManifest manifest = ImageTemplateLibrary.manifest(config);
         for (String name : missing) manifest = manifest.without(name);
         ImageTemplateLibrary.saveManifest(config, manifest);
-        ImageTemplateLibrary.regenerateTemplatesClass(config);
         published();
         reload();
         statusLabel.setText("Forgot " + missing.size() + (missing.size() == 1 ? " template" : " templates")
