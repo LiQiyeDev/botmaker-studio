@@ -12,6 +12,12 @@ package com.botmaker.studio.core.component;
  * remains the only authority on whether an edit is allowed; {@code Audience} decides only whether a component
  * is worth <em>showing</em>. A component hidden from {@link #USER} is not thereby protected — if it also has
  * to be unmodifiable, the lock that says so lives in {@code LockResolver}, as it did before.
+ *
+ * <p>Its reach narrowed on 2026-08-29. A {@code USER} parse used to drop whole members from the tree —
+ * a generated {@code Outcome} enum, a scaffold's static field, a read-only method shell — through a
+ * {@code MemberVisibility} class that is gone with them. Nothing generates a project's Java, so there is no
+ * member that is not the user's, and what is left is the component-level rule: which <em>parts</em> of a
+ * block are worth showing to someone who did not write this bot.
  */
 public enum Audience {
 

@@ -7,7 +7,6 @@ import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.palette.InputKind;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.FileRole;
-import com.botmaker.studio.project.LockedRegions;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.services.launch.BackgroundLauncher;
@@ -236,23 +235,13 @@ public class CodeExecutionService {
         // This loop is the ONLY place edited source reaches disk — the editor keeps every change in memory
         // (ProjectFile.setContent) and never writes as you type.
         //
-        // It used to skip GENERATED files wholesale. That is wrong in both directions: a generated file can
-        // hold an editable method (a MethodLock.SIGNATURE body), so skipping it silently throws away the
-        // user's work on every compile. What must not reach disk is a change to the *locked parts* — so that,
-        // and only that, is what's checked. This is defense in depth: CodeEditor already refuses those edits,
-        // so a refusal here means something upstream let one through.
+        // It used to compare each file's locked parts against what was on disk and refuse a write that
+        // changed one. Nothing generates a project's Java any more, so a project file has no locked parts:
+        // every one of them is the user's, and what they typed is what gets written.
         for (ProjectState.SourceFile file : snapshot.files()) {
             Path path = file.path();
             if (path == null) continue;
-
-            FileRole role = FileRole.of(config, snapshot.template(), path);
-            if (role == FileRole.LIBRARY) continue;   // never ours to write
-
-            if (role.isReadOnly() && !lockedPartsUnchanged(snapshot, path, file.content())) {
-                eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(
-                        "Refused to save " + path.getFileName() + ": it changes code BotMaker generates."));
-                continue;
-            }
+            if (FileRole.of(path) == FileRole.LIBRARY) continue;   // never ours to write
 
             Files.createDirectories(path.getParent());
             Files.writeString(path, file.content());
@@ -260,20 +249,6 @@ public class CodeExecutionService {
 
         Files.createDirectories(compiledOutputPath);
         return compileSources(snapshot, compiledOutputPath);
-    }
-
-    /**
-     * True when {@code content} changes nothing outside the methods the user owns, so it is safe to write over
-     * the scaffolding on disk. A file not yet on disk has no locked parts to protect.
-     */
-    private boolean lockedPartsUnchanged(ProjectState.Snapshot snapshot, Path path, String content) {
-        try {
-            if (!Files.exists(path)) return true;
-            return LockedRegions.lockedPartsMatch(
-                    config, snapshot.template(), path, Files.readString(path), content);
-        } catch (IOException e) {
-            return false;   // can't prove it's safe: don't write
-        }
     }
 
     private boolean compileSources(ProjectState.Snapshot snapshot, Path compiledOutputPath)

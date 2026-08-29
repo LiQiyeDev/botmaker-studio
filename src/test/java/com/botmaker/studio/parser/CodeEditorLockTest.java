@@ -36,11 +36,15 @@ import static org.junit.jupiter.api.Assertions.*;
  * separator "+" — silently rewrote generated code and persisted it. No block or JavaFX node appears below: these
  * call {@link CodeEditor} directly, exactly as a forgetful UI path would, and the guard still has to hold.
  *
- * <p>The mirror-image case matters just as much and is easier to get wrong: an activity's {@code run()} is
- * signature-locked (an {@code @Override} of {@code Activity.run}) but its body is exactly what the user came to
- * write, so "this edit must land" is asserted as carefully as "this edit must not". ({@code GameLoop.run} used
- * to be the example here — it was reclassified as fully generated, and the file has since been retired
- * altogether; {@code FlowDriver} is the generated file these tests use now.)
+ * <p>The mirror-image case matters just as much and is easier to get wrong, so "this edit must land" is
+ * asserted as carefully as "this edit must not".
+ *
+ * <p><b>What the refusals are about changed on 2026-08-29.</b> Most of them used to be about generated code —
+ * a {@code FlowDriver} BotMaker wrote and rewrote, an activity stub's {@code isEnabled()} wiring, a signature
+ * an {@code @Override} fixed. Nothing generates a project's Java, so those files and members are the user's
+ * and every one of those edits now lands. The two locks left are the two that were never about generation:
+ * <b>bundled library source</b>, and a <b>bot opened for reading</b> (an installed one, see
+ * {@code ProjectMode}). They are asserted here through the same forgetful-UI paths.
  */
 class CodeEditorLockTest {
 
@@ -58,6 +62,19 @@ class CodeEditorLockTest {
                     int x = 1;
                 }
                 public static void helper() {
+                    int y = 2;
+                }
+            }
+            """;
+
+    /** The shape a new project starts with: a locked main(), and the user's own methods beside it. */
+    private static final String ENTRY_POINT = """
+            package com.mybot;
+            public class MyBot {
+                public static void main(String[] args) {
+                    int x = 1;
+                }
+                static void goHome() {
                     int y = 2;
                 }
             }
@@ -105,7 +122,12 @@ class CodeEditorLockTest {
         final List<String> statusMessages = new ArrayList<>();
 
         Fixture(Path file, String source) {
+            this(file, source, false);
+        }
+
+        Fixture(Path file, String source, boolean readerMode) {
             state = new ProjectState();
+            state.setReaderMode(readerMode);
             state.addFile(new ProjectFile(file, source));
             state.setActiveFile(file);
             // The project lives at a notional /tmp path (FileRole only compares paths, it never reads them),
@@ -168,6 +190,11 @@ class CodeEditorLockTest {
         return new Fixture(CONFIG.flowDriverSourceFile(), FLOW_DRIVER);
     }
 
+    /** The same project, opened for reading — someone else's installed bot. */
+    private static Fixture reading() {
+        return new Fixture(CONFIG.flowDriverSourceFile(), FLOW_DRIVER, true);
+    }
+
     private static Fixture activity() {
         return new Fixture(CONFIG.activitiesPackageDir().resolve("Mining.java"), ACTIVITY);
     }
@@ -213,74 +240,37 @@ class CodeEditorLockTest {
         assertFalse(f.lastCode.contains("item"), "no stale reference to the old name may remain:\n" + f.lastCode);
     }
 
-    // --- the edits that must NOT land ---------------------------------------------------------------------
+    // --- the edits that used to be refused and now land ---------------------------------------------------
 
+    /**
+     * {@code FlowDriver.java} is the strongest case in the file: BotMaker wrote it in every game bot and every
+     * line of it was locked, body, signature and class header alike. In a project that still has one, all
+     * three edits land — nothing will write over them.
+     */
     @Test
-    void theFlowDriversRunBodyRejectsEdits() {
-        // FlowDriver.run is the complete generated walk over the drawn flow, not a stub to fill in — the user's
-        // code goes in the activities it routes between.
-        Fixture f = flowDriver();
-        f.editor.addStatement(f.body("run"), BlockCatalog.PRINT, 0);
-        f.assertRefused("editing the generated flow walk");
+    void aFileBotMakerUsedToGenerateAcceptsEveryEdit() {
+        Fixture body = flowDriver();
+        body.editor.addStatement(body.body("run"), BlockCatalog.PRINT, 0);
+        assertNotNull(body.lastCode, "the body is the user's now");
+
+        Fixture rename = flowDriver();
+        rename.editor.renameMethod(rename.method("run"), "tick");
+        assertNotNull(rename.lastCode, "so is the signature");
+
+        Fixture structure = flowDriver();
+        structure.editor.addMethodToClass(structure.type(), "mine", "void", 0);
+        assertNotNull(structure.lastCode, "and the class header");
     }
 
+    /** An activity's {@code run()} is an ordinary method in an ordinary class — nothing overrides anything. */
     @Test
-    void aLockedMethodsSignatureCannotBeRenamedEvenWithoutTheUi() {
-        Fixture f = flowDriver();
-        f.editor.renameMethod(f.method("run"), "tick");
-        f.assertRefused("renaming a generated method");
-    }
-
-    @Test
-    void aLockedMethodCannotBeDeletedOrReParameterised() {
-        Fixture f = flowDriver();
-        f.editor.deleteMethod(f.method("run"));
-        f.assertRefused("deleting a generated method");
-
-        // Adding a parameter is no longer its own editor call — it is a signature draft like every other
-        // header edit — so the lock is asserted on the path that now carries it.
-        Fixture g = flowDriver();
-        com.botmaker.studio.palette.FunctionDraft draft =
-                com.botmaker.studio.parser.helpers.MethodSignatures.draftOf(g.method("run")).orElseThrow();
-        java.util.List<com.botmaker.studio.palette.FunctionDraft.Parameter> parameters =
-                new java.util.ArrayList<>(draft.parameters());
-        parameters.add(new com.botmaker.studio.palette.FunctionDraft.Parameter(
-                "n", com.botmaker.studio.palette.SignatureType.kept("int")));
-        g.editor.applyFunctionSignature(g.method("run"),
-                new com.botmaker.studio.palette.FunctionDraft(draft.name(), draft.returnType(), parameters));
-        g.assertRefused("adding a parameter to a generated method");
-    }
-
-    @Test
-    void aStatementCannotBeAddedToAGeneratedFilesOtherMethods() {
-        // MethodLock.NONE defers to FileRole, and the file is scaffolding.
-        Fixture f = flowDriver();
-        f.editor.addStatement(f.body("helper"), BlockCatalog.PRINT, 0);
-        f.assertRefused("editing a generated file's own helper");
-    }
-
-    @Test
-    void aGeneratedFilesClassStructureIsLocked() {
-        Fixture f = flowDriver();
-        f.editor.addMethodToClass(f.type(), "sneaky", "void", 0);
-        f.assertRefused("adding a method to a generated class");
-    }
-
-    @Test
-    void anActivitysIsEnabledBodyRejectsAnExpressionReplacement() {
-        // The exact shape of the reported bug: the expression menu edits a FULL-locked body and it sticks.
-        Fixture f = activity();
-        ReturnStatement ret = (ReturnStatement) f.method("isEnabled").getBody().statements().getFirst();
-        f.editor.replaceExpression(ret.getExpression(), ExpressionCatalog.TEXT);
-        f.assertRefused("replacing the expression in generated isEnabled() wiring");
-    }
-
-    @Test
-    void anActivitysRunSignatureIsLockedBecauseItIsAnOverride() {
+    void anActivitysRunCanBeRenamedNow() {
         Fixture f = activity();
         f.editor.renameMethod(f.method("run"), "execute");
-        f.assertRefused("renaming an @Override of Activity.run");
+        assertNotNull(f.lastCode, "an activity's body is reached by name from Activities.define, not by class");
     }
+
+    // --- the edits that must NOT land ---------------------------------------------------------------------
 
     @Test
     void aLibraryFileRejectsEveryEdit() {
@@ -290,23 +280,32 @@ class CodeEditorLockTest {
     }
 
     @Test
-    void aVendoredSuperviseHookDoesNotGetItsBodyUnlocked() {
-        // SIGNATURE *grants* a body. If hooks were matched on file name alone, a GoHome.java vendored under
-        // the library would have a writable run() — the one place nothing may be touched.
-        Fixture f = new Fixture(CONFIG.sourceRoot().resolve("com/botmaker/library/GoHome.java"), FLOW_DRIVER);
+    void aBotOpenedForReadingRejectsEveryEdit() {
+        Fixture f = reading();
         f.editor.addStatement(f.body("run"), BlockCatalog.PRINT, 0);
-        assertNull(f.lastCode);
+        f.assertRefused("editing someone else's installed bot");
+    }
+
+    @Test
+    void readingRefusesTheSignatureAndTheClassHeaderToo() {
+        Fixture rename = reading();
+        rename.editor.renameMethod(rename.method("run"), "tick");
+        rename.assertRefused("renaming a method in a bot open for reading");
+
+        Fixture structure = reading();
+        structure.editor.addMethodToClass(structure.type(), "sneaky", "void", 0);
+        structure.assertRefused("adding a method to a class in a bot open for reading");
     }
 
     // --- moves are two edits ------------------------------------------------------------------------------
 
     @Test
     void aStatementCannotBeDraggedOutOfALockedBody() {
-        // Checking only the destination would let a drag empty out a generated method.
-        Fixture f = flowDriver();
+        // Checking only the destination would let a drag empty out a body nothing may change.
+        Fixture f = reading();
         f.editor.moveStatement(f.body("helper").getStatements().getFirst(),
                 f.body("helper"), f.body("run"), 0);
-        f.assertRefused("dragging a statement out of locked scaffolding");
+        f.assertRefused("dragging a statement out of a bot open for reading");
     }
 
     // --- the menu path, driven end-to-end -----------------------------------------------------------------
@@ -315,7 +314,7 @@ class CodeEditorLockTest {
     void theExpressionMenuPathIsRejectedToo() {
         // AbstractCodeBlock.applyExpressionSelection dispatches menu picks to these same calls. Whatever the
         // menu decides to render, the write layer is what actually holds.
-        Fixture f = activity();
+        Fixture f = new Fixture(CONFIG.activitiesPackageDir().resolve("Mining.java"), ACTIVITY, true);
         ReturnStatement ret = (ReturnStatement) f.method("isEnabled").getBody().statements().getFirst();
         Expression original = ret.getExpression();
 
@@ -323,7 +322,65 @@ class CodeEditorLockTest {
         f.editor.replaceLiteralValue(original, "false");
         f.editor.replaceWithRawExpression(original, "1 + 1");
 
-        assertNull(f.lastCode, "no menu pick may rewrite generated wiring");
+        assertNull(f.lastCode, "no menu pick may rewrite a bot open for reading");
+    }
+
+    // --- the one member-level rule left: main() -----------------------------------------------------------
+
+    /**
+     * {@code main(String[])} is the method Java itself looks for. Renaming it, deleting it or changing its
+     * parameter is the one edit whose consequence the user cannot read off the screen — the project stops
+     * launching, or stops compiling, with nothing pointing at what changed.
+     */
+    @Test
+    void theEntryPointsMainSignatureIsRefused() {
+        Fixture rename = new Fixture(CONFIG.mainSourceFile(), ENTRY_POINT);
+        rename.editor.renameMethod(rename.method("main"), "start");
+        rename.assertRefused("renaming main()");
+
+        Fixture delete = new Fixture(CONFIG.mainSourceFile(), ENTRY_POINT);
+        delete.editor.deleteMethod(delete.method("main"));
+        delete.assertRefused("deleting main()");
+
+        Fixture parameter = new Fixture(CONFIG.mainSourceFile(), ENTRY_POINT);
+        parameter.editor.renameMethodParameter(parameter.method("main"), 0, "argv");
+        parameter.assertRefused("renaming main()'s parameter");
+    }
+
+    /**
+     * And its <b>body</b> is the user's, which is the whole point of the file. It is where the bot is put
+     * together, one static call at a time — {@code PopupGuard.install}, {@code Bot.start},
+     * {@code FlowGraph.run} are ordinary API methods a user calls or does not.
+     */
+    @Test
+    void theEntryPointsMainBodyIsTheUsers() {
+        Fixture f = new Fixture(CONFIG.mainSourceFile(), ENTRY_POINT);
+        f.editor.addStatement(f.body("main"), BlockCatalog.PRINT, 0);
+        assertNotNull(f.lastCode, "main()'s body is where the bot is assembled:\n" + f.lastCode);
+        assertTrue(f.lastCode.contains("BotMaker.print("), "the print should land in main():\n" + f.lastCode);
+    }
+
+    /** The rest of the entry point file is ordinary user code too. */
+    @Test
+    void everythingElseInTheEntryPointFileIsTheUsers() {
+        Fixture f = new Fixture(CONFIG.mainSourceFile(), ENTRY_POINT);
+        f.editor.addStatement(f.body("goHome"), BlockCatalog.PRINT, 0);
+        assertNotNull(f.lastCode, "goHome is the user's to fill in:\n" + f.lastCode);
+
+        Fixture g = new Fixture(CONFIG.mainSourceFile(), ENTRY_POINT);
+        g.editor.addMethodToClass(g.type(), "mine", "void", 0);
+        assertNotNull(g.lastCode, "and they may add methods beside it");
+    }
+
+    /**
+     * The rule is matched on the method's shape, not on the file's path: the entry point is the user's file to
+     * rename, move or split, and a path-keyed rule would stop holding the moment they did.
+     */
+    @Test
+    void mainIsProtectedWhereverTheUserPutsIt() {
+        Fixture f = new Fixture(CONFIG.mainSourceFile().getParent().resolve("Renamed.java"), ENTRY_POINT);
+        f.editor.renameMethod(f.method("main"), "start");
+        f.assertRefused("renaming main() in a renamed entry point");
     }
 
     // --- the escape hatch ---------------------------------------------------------------------------------

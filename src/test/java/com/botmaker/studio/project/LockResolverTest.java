@@ -15,16 +15,14 @@ import java.nio.file.Paths;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * The truth table for {@link FileRole} × {@link MethodLock} × {@link EditKind}.
+ * The truth table for {@link LockResolver} — which is now two rows long, and it is worth recording what the
+ * other rows were.
  *
- * <p>The two cases that matter most are the ones where the method's verdict must beat the file's: an activity's
- * {@code isEnabled()} ({@link MethodLock#FULL} inside an {@link FileRole#EDITABLE} file — locks), and an
- * activity's / GoHome's {@code run()} ({@link MethodLock#SIGNATURE} — keeps its body editable however the
- * signature is bound). {@code FlowDriver.run} is deliberately <em>not</em> such a grant: it is the generated
- * walk over the drawn flow, and {@link MethodLock#NONE} defers to a file that is {@link FileRole#GENERATED} —
- * so it is locked with the rest of that file. (The stand-in here used to be {@code GameLoop.run}, which was
- * {@link MethodLock#FULL} inside the same generated file until the file itself was retired; the driver is the
- * same case and the only one left.)
+ * <p>This used to be {@link FileRole} × {@code MethodLock} × {@link EditKind}: a generated file whose one
+ * granted method kept an editable body, an activity's {@code isEnabled()} locked inside a file the user
+ * otherwise owned, a flow driver locked wholesale. All of it described code BotMaker wrote and rewrote, and
+ * it writes none — so the two verdicts that remain are the two that were never about generation at all: a
+ * bot opened for <em>reading</em>, and bundled library source.
  */
 class LockResolverTest {
 
@@ -35,10 +33,8 @@ class LockResolverTest {
         return CONFIG.mainSourceFile().getParent().resolve(fileName);
     }
 
-    private static final Path FLOW_DRIVER = inMainPackage("FlowDriver.java");
-    private static final Path GO_HOME = inMainPackage("GoHome.java");
     private static final Path HELPER = inMainPackage("MyHelper.java");
-    private static final Path ACTIVITY_STUB = CONFIG.activitiesPackageDir().resolve("Mining.java");
+    private static final Path FLOW_DRIVER = inMainPackage("FlowDriver.java");
     private static final Path LIBRARY_FILE =
             Paths.get("/tmp/projects/MyBot/src/main/java/com/botmaker/library/Helper.java");
 
@@ -47,7 +43,6 @@ class LockResolverTest {
             public class FlowDriver {
                 private int field = 1;
                 public static void run() { System.out.println("hi"); }
-                public boolean isEnabled() { return true; }
                 public void helper() { System.out.println("mine"); }
             }
             """;
@@ -77,132 +72,82 @@ class LockResolverTest {
     }
 
     private static LockResolver resolver(Path file) {
-        return new LockResolver(CONFIG, ProjectTemplate.GAME_BOT, file);
+        return new LockResolver(CONFIG, file);
     }
 
-    // --- reader mode: outranks every file/method verdict --------------------------------------------------
+    // --- reader mode: outranks the file's own verdict -----------------------------------------------------
 
     @Test
     void readerModeDeniesEvenAUsersOwnHelperInAnEditableFile() {
         // A helper file is EDITABLE and its body is normally the user's…
-        LockResolver editable = new LockResolver(CONFIG, ProjectTemplate.GAME_BOT, HELPER, false);
+        LockResolver editable = new LockResolver(CONFIG, HELPER, false);
         assertTrue(editable.permits(statementIn("helper"), EditKind.BODY), "precondition: editable when editing");
 
         // …but opened for reading, the same edit is refused with the reader message.
-        LockResolver reader = new LockResolver(CONFIG, ProjectTemplate.GAME_BOT, HELPER, true);
+        LockResolver reader = new LockResolver(CONFIG, HELPER, true);
         LockResolver.Verdict v = reader.check(statementIn("helper"), EditKind.BODY);
         assertFalse(v.allowed());
         assertEquals(LockResolver.READER_MODE_REASON, v.reason());
         assertTrue(reader.suppressesInteraction(), "reader mode suppresses interaction across the file");
     }
 
-    // --- the flow driver: fully generated, fully locked ------------------------------------------------------
+    // --- the project's own files: all of them the user's ---------------------------------------------------
 
+    /**
+     * {@code FlowDriver.java} is the strongest case: BotMaker wrote it in every game bot for a year, and every
+     * line of it was locked. In a project that still has one it is now ordinary code the user may change or
+     * delete, because nothing will write over their change.
+     */
     @Test
-    void theFlowDriversRunIsLockedBodyAndAll() {
+    void aFileBotMakerUsedToGenerateIsFullyEditable() {
         LockResolver r = resolver(FLOW_DRIVER);
-        assertEquals(FileRole.GENERATED, r.role(), "precondition: the file really is scaffolding");
-        assertFalse(r.bodyEditable(statementIn("run")), "the flow walk is generated wiring");
-        assertFalse(r.permits(statementIn("run"), EditKind.BODY));
-        assertFalse(r.permits(method("run"), EditKind.SIGNATURE), "Bot.start binds FlowDriver::run");
-    }
-
-    @Test
-    void theFlowDriversOwnScaffoldingIsLocked() {
-        LockResolver r = resolver(FLOW_DRIVER);
-        // Everything in the file that isn't the granted run() body: the class itself, and any other method.
-        assertFalse(r.permits(type(), EditKind.SIGNATURE), "no adding members to a generated class");
-        assertFalse(r.permits(statementIn("helper"), EditKind.BODY),
-                "MethodLock.NONE defers to the file, and the file is generated");
-    }
-
-    // --- an editable file ---------------------------------------------------------------------------------
-
-    @Test
-    void aSuperviseHookInAnEditableFileKeepsItsBodyAndLosesItsSignature() {
-        LockResolver r = resolver(GO_HOME);
         assertEquals(FileRole.EDITABLE, r.role());
         assertTrue(r.permits(statementIn("run"), EditKind.BODY));
-        assertFalse(r.permits(method("run"), EditKind.SIGNATURE));
+        assertTrue(r.permits(method("run"), EditKind.SIGNATURE));
+        assertTrue(r.permits(type(), EditKind.SIGNATURE), "the class header too");
     }
 
     @Test
     void anOrdinaryUserFileIsFullyEditable() {
         LockResolver r = resolver(HELPER);
-        assertTrue(r.permits(statementIn("run"), EditKind.BODY));
-        assertTrue(r.permits(method("run"), EditKind.SIGNATURE), "a user's own run() is not a supervise hook");
-        assertTrue(r.permits(type(), EditKind.SIGNATURE));
+        assertTrue(r.permits(statementIn("helper"), EditKind.BODY));
+        assertTrue(r.permits(method("helper"), EditKind.SIGNATURE));
+        assertFalse(r.suppressesInteraction());
     }
 
-    // --- activity stubs -----------------------------------------------------------------------------------
-
-    @Test
-    void anActivitysIsEnabledIsLockedBodyAndAll() {
-        LockResolver r = resolver(ACTIVITY_STUB);
-        assertEquals(FileRole.EDITABLE, r.role(), "the stub file itself is the user's");
-        assertFalse(r.permits(statementIn("isEnabled"), EditKind.BODY), "generated wiring to the Activities flag");
-        assertFalse(r.permits(method("isEnabled"), EditKind.SIGNATURE));
-    }
-
-    @Test
-    void anActivitysRunBodyIsEditableButItsSignatureIsNot() {
-        LockResolver r = resolver(ACTIVITY_STUB);
-        assertTrue(r.permits(statementIn("run"), EditKind.BODY), "this is what the user came to write");
-        assertFalse(r.permits(method("run"), EditKind.SIGNATURE), "it is an @Override of Activity.run");
-    }
-
-    // --- library ------------------------------------------------------------------------------------------
+    // --- library source: not the project's at all ----------------------------------------------------------
 
     @Test
     void libraryCodeRejectsEverything() {
         LockResolver r = resolver(LIBRARY_FILE);
         assertEquals(FileRole.LIBRARY, r.role());
-        assertFalse(r.permits(statementIn("run"), EditKind.BODY));
         assertFalse(r.permits(statementIn("helper"), EditKind.BODY));
-        assertFalse(r.permits(method("run"), EditKind.SIGNATURE));
-        assertFalse(r.permits(type(), EditKind.SIGNATURE));
+        assertFalse(r.permits(method("helper"), EditKind.SIGNATURE));
+        assertTrue(r.suppressesInteraction());
+        assertTrue(r.check(method("helper"), EditKind.SIGNATURE).reason().contains("library"));
     }
 
-    // --- nodes outside any method -------------------------------------------------------------------------
-
-    @Test
-    void aNodeOutsideAnyMethodIsJudgedByItsFileAlone() {
-        assertFalse(resolver(FLOW_DRIVER).permits(type().getFields()[0], EditKind.SIGNATURE));
-        assertTrue(resolver(HELPER).permits(type().getFields()[0], EditKind.SIGNATURE));
-    }
-
-    // --- the escape hatches -------------------------------------------------------------------------------
+    // --- the two escape hatches ---------------------------------------------------------------------------
 
     @Test
     void noConfigMeansEverythingIsEditable() {
-        // Tests and editor paths with no project open construct a permissive resolver rather than a null one.
-        LockResolver none = new LockResolver(null, null, null);
+        LockResolver none = new LockResolver(null, null);
+        assertTrue(none.permits(statementIn("run"), EditKind.BODY));
         assertTrue(none.permits(method("run"), EditKind.SIGNATURE));
-        assertTrue(none.permits(statementIn("isEnabled"), EditKind.BODY));
-        assertTrue(none.check(null, EditKind.BODY).allowed(), "no project: nothing to protect");
     }
 
     @Test
     void aMissingTargetIsDeniedNotWavedThrough() {
-        // The "we don't know the project" hatch belongs on config. A caller that forgot to say what it is
-        // editing must fail loudly here, not silently rewrite locked code.
-        LockResolver.Verdict v = resolver(FLOW_DRIVER).check(null, EditKind.BODY);
-        assertFalse(v.allowed());
+        LockResolver.Verdict v = resolver(HELPER).check(null, EditKind.BODY);
+        assertFalse(v.allowed(), "a caller that forgot to say what it was editing fails loudly");
         assertNotNull(v.reason());
     }
 
     @Test
     void aRefusalAlwaysCarriesAReasonToShowTheUser() {
-        for (Path file : java.util.List.of(FLOW_DRIVER, ACTIVITY_STUB, LIBRARY_FILE)) {
-            for (EditKind kind : EditKind.values()) {
-                for (var node : java.util.List.of(method("isEnabled"), statementIn("isEnabled"), type())) {
-                    LockResolver.Verdict v = resolver(file).check(node, kind);
-                    if (!v.allowed()) {
-                        assertNotNull(v.reason(), file + "/" + kind);
-                        assertFalse(v.reason().isBlank(), file + "/" + kind);
-                    }
-                }
-            }
-        }
+        LockResolver.Verdict v = resolver(LIBRARY_FILE).check(statementIn("helper"), EditKind.BODY);
+        assertFalse(v.allowed());
+        assertNotNull(v.reason());
+        assertFalse(v.reason().isBlank());
     }
 }

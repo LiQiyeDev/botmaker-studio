@@ -706,10 +706,10 @@ public final class SdkUpgradeService {
         List<ProjectFile> generated = new ArrayList<>();
         for (ProjectFile file : state.getAllFiles()) {
             // FileRole is the single source of truth for "may the user change this?", and the migration
-            // answers to the same rule the editor does — see SdkMigrationRunner on why a scaffold file is
-            // refused rather than rewritten.
-            (FileRole.of(config, state.getTemplate(), file.getPath()) == FileRole.EDITABLE ? editable : generated)
-                    .add(file);
+            // answers to the same rule the editor does. Since 2026-08-29 the only file it refuses to rewrite
+            // is bundled library source: nothing in a project is generated, so the second list is normally
+            // empty and the runner's two-list shape is what carries that fact rather than a special case.
+            (FileRole.of(file.getPath()) == FileRole.EDITABLE ? editable : generated).add(file);
         }
 
         return SdkMigrationRunner.run(repairs, choicesFor(before, after, uses, pairing, picks),

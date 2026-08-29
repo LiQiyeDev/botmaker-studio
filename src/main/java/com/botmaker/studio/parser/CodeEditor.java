@@ -168,25 +168,20 @@ public class CodeEditor {
     }
 
     /**
-     * Whether a statement may be inserted into {@code targetBody} at {@code index}.
+     * Whether a statement may be inserted into {@code targetBody} at {@code index} — always, now.
      *
-     * <p>Some bodies end in a statement that has to stay last — an activity's {@code run()} always closes by
-     * reporting an outcome. That is a rule about a <em>position</em>, so {@link #canModify} can't express it:
-     * the body is editable, and so is the return; only "after it" isn't.
+     * <p>It used to refuse a drop <em>after</em> the trailing {@code return} of a generated activity stub's
+     * {@code run()}: the body was editable and so was the return, only "after it" was not, which is a rule
+     * about a position that {@link #canModify} could not express. Nothing generates that return any more, so
+     * every statement in a body is an ordinary one and a body has no last-statement rule left.
      */
     private boolean canInsertAt(BodyBlock targetBody, int index) {
-        LockResolver resolver = LockResolver.forActiveFile(config, state);
-        ASTNode body = targetBody.getAstNode();
-        var pinned = resolver.pinnedReturnOf(body);
-        // The drop index counts BodyBlock children (comments included); the pinned return's position is a
-        // statements() index (comments excluded). Translate before comparing, or a drop between a trailing
-        // comment and the pinned return reads as "after the return" and is wrongly refused.
-        int statementIndex = toStatementIndex(targetBody, index);
-        if (pinned == null || statementIndex <= ((org.eclipse.jdt.core.dom.Block) body).statements().indexOf(pinned)) {
-            return true;
-        }
-        eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(LockResolver.pinnedReturnReason()));
-        return false;
+        return true;
+    }
+
+    /** Whether {@code toDelete} may be removed. Every statement is the user's, so: yes. */
+    private boolean canDelete(Statement toDelete) {
+        return true;
     }
 
     /**
@@ -201,13 +196,6 @@ public class CodeEditor {
             if (!(children.get(i).getAstNode() instanceof Comment)) astIndex++;
         }
         return astIndex;
-    }
-
-    /** Whether {@code toDelete} may be removed — a pinned trailing return may not. */
-    private boolean canDelete(Statement toDelete) {
-        if (!LockResolver.forActiveFile(config, state).isPinnedReturn(toDelete)) return true;
-        eventBus.publish(new CoreApplicationEvents.StatusMessageEvent(LockResolver.pinnedReturnReason()));
-        return false;
     }
 
     private boolean triggerUpdate(String newCode, ASTNode target) {

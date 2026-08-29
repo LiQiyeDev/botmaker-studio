@@ -1,6 +1,5 @@
 package com.botmaker.studio.ui.app.overlay;
 
-import com.botmaker.studio.project.MethodLock;
 import com.botmaker.studio.project.activity.ActivityDefinition;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.CodeEditorService;
@@ -42,6 +41,9 @@ final class OverlayTargetPicker {
 
     /** Caption separating the flow's activities from the scaffold hooks; disabled in the list, never selectable. */
     private static final String SCAFFOLD_HEADER = "— scaffolds —";
+
+    /** The two supervised hooks a pre-2026-08-29 project has as files of their own. */
+    private static final List<String> HOOK_FILES = List.of("GoHome.java", "Popups.java");
 
     private final CodeEditorService context;
     private final ProjectSettingsService settings;
@@ -119,11 +121,14 @@ final class OverlayTargetPicker {
     }
 
     /**
-     * Everything the overlay can author into: the activities, then the supervised scaffold hooks
-     * ({@code GoHome}, {@code Popups}) that exist on disk. The hooks are as much a place for blocks as any
-     * activity — their {@code run()} body is the user's by {@link MethodLock}'s design, and {@code Popups} in
-     * particular is where the popup-dismissal steps belong — but they have no {@link ActivityDefinition}, so a
-     * list built from the flow alone could never reach them.
+     * Everything the overlay can author into: the activities, then the two supervised hooks
+     * ({@code GoHome}, {@code Popups}) if this project has them as files. They are as much a place for blocks
+     * as any activity — {@code Popups} in particular is where the popup-dismissal steps belong — but they have
+     * no {@link ActivityDefinition}, so a list built from the flow alone could never reach them.
+     *
+     * <p>Only a project created before 2026-08-29 has them: a new one carries {@code goHome} and
+     * {@code dismissPopups} as methods of its own entry point, and both are ordinary user code the overlay
+     * reaches through the file the user has open. The list stays for the projects that do have the files.
      */
     private List<String> targetNames() {
         List<String> out = new ArrayList<>(activityNames());
@@ -135,11 +140,11 @@ final class OverlayTargetPicker {
         return out;
     }
 
-    /** The scaffold hooks present in this project, by class name. Empty for a template that has none. */
+    /** The two hook files, if this project has them. Empty for one created after they stopped being files. */
     private List<String> hookNames() {
         Path dir = context.getConfig().mainSourceFile().getParent();
         if (dir == null) return List.of();
-        return MethodLock.superviseHookFiles().stream()
+        return HOOK_FILES.stream()
                 .sorted()
                 .filter(f -> Files.isRegularFile(dir.resolve(f)))
                 .map(f -> f.substring(0, f.length() - ".java".length()))

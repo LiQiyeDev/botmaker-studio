@@ -21,14 +21,12 @@ import com.botmaker.studio.blocks.var.DeclareClassVariableBlock;
 import com.botmaker.studio.blocks.var.DeclareEnumBlock;
 import com.botmaker.studio.blocks.var.VariableDeclarationBlock;
 import com.botmaker.studio.core.*;
-import com.botmaker.studio.core.component.MemberVisibility;
 import com.botmaker.studio.palette.BotMakerApi;
 import com.botmaker.studio.palette.InputKind;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
 import com.botmaker.studio.parser.helpers.FileTypeDetector;
 import com.botmaker.studio.parser.handlers.MatchesSwitchHandler;
 import com.botmaker.studio.project.LockResolver;
-import com.botmaker.studio.project.MethodLock;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.types.JdkType;
@@ -130,10 +128,9 @@ public class BlockConverter {
             ctx.nodeToBlockMap().put(typeDecl, classBlock);
 
             for (Object obj : typeDecl.bodyDeclarations()) {
-                // Scaffolding is left out of the tree for a user audience, not merely greyed out — the Outcome
-                // enum, the INSTANCE static and the isEnabled() wiring are nothing to read or change.
-                if (obj instanceof BodyDeclaration member && isScaffoldingHiddenFrom(member, ctx)) continue;
-
+                // Every member of every file is the user's since 2026-08-29, so none is filtered out of the
+                // tree. What used to be dropped here — an activity's Outcome enum, its INSTANCE static, its
+                // isEnabled() wiring — was dropped because BotMaker wrote it and rewrote it; nothing does.
                 if (obj instanceof MethodDeclaration method) {
                     MethodDeclarationBlock methodBlock;
                     if (method.isConstructor()) {
@@ -146,12 +143,9 @@ public class BlockConverter {
                         methodBlock = new MethodDeclarationBlock(
                                 BlockId.of(method), method, ctx.manager());
                     }
-                    // A method's lock is not its file's. An activity's run() is an @Override whose signature
-                    // is fixed but whose body is the whole reason the stub exists; its isEnabled() next door
-                    // is generated wiring inside a file the user otherwise owns.
-                    // LockResolver combines the two verdicts; don't re-derive either here.
+                    // LockResolver is the one authority on whether an edit is allowed — bundled library
+                    // source, or a bot open for reading. Don't re-derive either from a path here.
                     methodBlock.setReadOnly(!signatureEditable(method, ctx));
-                    methodBlock.setLockBadge(lockBadgeFor(method, ctx));
                     ctx.nodeToBlockMap().put(method, methodBlock);
 
                     if (method.getBody() != null) {
@@ -205,16 +199,6 @@ public class BlockConverter {
         return null;
     }
 
-    /**
-     * True when {@code member} is the Studio's own scaffolding and the canvas is being drawn for someone who did
-     * not write this bot. Skipping it here rather than hiding its node later is deliberate: an unbuilt block is
-     * also an unregistered one, so nothing downstream — the drop targets, the overlay's row list, the breakpoint
-     * map — can offer a member the user cannot see.
-     */
-    private boolean isScaffoldingHiddenFrom(BodyDeclaration member, ParseContext ctx) {
-        return !MemberVisibility.isVisible(ctx.resolver(), member, ctx.audience());
-    }
-
     private void applyReadOnly(CodeBlock block, ParseContext ctx) {
         if (ctx.readOnly()) block.setReadOnly(true);
     }
@@ -227,27 +211,6 @@ public class BlockConverter {
     /** True when statements inside {@code method} may be changed. */
     private boolean bodyEditable(MethodDeclaration method, ParseContext ctx) {
         return ctx.resolver() == null ? !ctx.readOnly() : ctx.resolver().bodyEditable(method);
-    }
-
-    /**
-     * The badge for {@code method}'s header. "Your code goes here" wins over the lock's own badge: an activity's
-     * {@code run()} is both signature-locked and the one method the user came to write, and telling them its
-     * parameters are fixed is not the point — telling them this is where they work is.
-     */
-    private String lockBadgeFor(MethodDeclaration method, ParseContext ctx) {
-        if (isUsersEntryPoint(method)) return "Your code goes here";
-        Path file = activeFilePath();
-        return file == null ? null : MethodLock.of(config, state.getTemplate(), file, method).badge();
-    }
-
-    /** True when {@code method} is the one the user is meant to fill in (an activity's {@code run()}). */
-    private boolean isUsersEntryPoint(MethodDeclaration method) {
-        Path file = activeFilePath();
-        return file != null && MethodLock.isUsersEntryPoint(config, state.getTemplate(), file, method);
-    }
-
-    private Path activeFilePath() {
-        return state.getActiveFile() == null ? null : state.getActiveFile().getPath();
     }
 
     // =========================================================================

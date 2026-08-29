@@ -316,9 +316,10 @@ there are three distinct relationships to keep straight:
     `ProjectConfig.needsReviewSourceFile`) rather than shipped by the SDK, because every bot an upgrade is
     about to touch is pinned to the *older* SDK — an annotation arriving with the version the user is trying
     to leave would help nobody. `@Retention(SOURCE)`, so a marked bot ships the same bytes as an unmarked
-    one. `FileRole` calls it `GENERATED` **before the template gate** (so an `EMPTY` project gets one too)
-    and therefore `isDerived`, which keeps it out of the explorer: nothing in it is about this bot, and the
-    block editor has no blocks for an annotation declaration. Writing **merges** into the mark already there
+    one. It used to be the one file `FileRole` classed `GENERATED` outside the game-bot template, which kept
+    it out of the explorer; since the lock sweep it is an ordinary listed file, written when missing and
+    never rewritten — nothing in it is about this bot, but hiding a file nobody rewrites bought nothing.
+    Writing **merges** into the mark already there
     (Java allows one per method) and dedupes; `strip` removes one entry, and the last one takes the
     annotation — and, once the file holds no marks at all, the import. **A rename is not marked**: the bot
     does afterwards exactly what it did before, and burying the sites that changed meaning under the ones
@@ -383,10 +384,10 @@ there are three distinct relationships to keep straight:
     file is worth renaming were blind to it. `mentions` is now the same walk asking a narrower question —
     the three positions `renameTypeIn` actually rewrites, plus a static import's qualifier — rather than
     "any name anywhere", which matched a local variable that happened to share a class's name.
-  - **Studio's own scaffolding is not rewritten, it is re-rendered — all five files again since 2026-08-26.**
-    Only `FileRole.EDITABLE` files are migrated; a generated file (the entry point, `FlowDriver`,
-    `ActivityRegistry`, `Activities`, `Parameters`) is *derived*, so rewriting it would be overwritten at the
-    next regeneration and does not have to be attempted. `SdkUpgradeService.regenerateScaffolding` calls
+  - **Every file in the project is migrated, since 2026-08-30.** The split survives in the runner's two
+    lists — only `FileRole.EDITABLE` files are rewritten — but the second list now holds bundled library
+    source alone and is empty in an ordinary project. What follows described the arrangement it replaced, in
+    which a generated file was re-rendered rather than rewritten: `SdkUpgradeService.regenerateScaffolding` called
     `Regeneration.write` **after the pom has moved** — the render has to see the SDK the project actually
     pins now — falling back to `Regeneration.writeTemplatesClass` for an empty project, which has no
     model-derived file but does have a `Templates` class. For one day (phase 0b) it re-rendered only that
@@ -436,9 +437,28 @@ there are three distinct relationships to keep straight:
     renaming one moves nothing, deleting one leaves whatever the user wrote where it is — an activity's
     behaviour is an `Activities.define("Mining", ctx -> …)` call in a file BotMaker has never known the
     location of.
-  - **Still standing, and next to go**: `FileRole.GENERATED`, `MethodLock`, `LockResolver` and
-    `GeneratedMembers` — the "may the user change this?" machinery, reaching about twenty files. With nothing
-    generated it has no subject, but unpicking it is a sweep of its own.
+  - **The lock machinery went on 2026-08-30, and what replaced it is one rule.** `FileRole.GENERATED`,
+    `MethodLock`, `GeneratedMembers`, `LockedRegions` and `core/component/MemberVisibility` are deleted;
+    `FileRole` is `EDITABLE | LIBRARY` over a path alone, and `LockResolver` refuses exactly three things:
+    a bot open for **reading** (`ProjectMode`), **bundled library source**, and **`main`'s signature**.
+    - **`main` is the one member-level lock left, and only its signature.** It is matched on the method's
+      *shape* — `public static void main(String[])`, wherever the user has put it — rather than on
+      `config.mainSourceFile()`, because the entry point is theirs to rename, move or split and a path-keyed
+      rule would stop holding the moment they did. The signature is not a BotMaker convention but the one
+      the JVM looks for, so renaming it, deleting it or retyping its parameter is the single edit whose
+      consequence the user cannot read off the screen. **Its body is the user's**, and that is the point of
+      the file: it is where the bot is put together, one static call at a time. Nothing is *installed* there
+      and no plugin is registered — `PopupGuard.install`, `Bot.start` and `FlowGraph.run` are ordinary static
+      API methods a user calls or does not. Deleting the file it lives in is not offered anywhere (the
+      explorer has had no context menu since well before this).
+    - What went with the machinery, deliberately: the **method lock badge** ("Generated - Read Only", "Your
+      code goes here") and its `.method-block--yours` accent — every sentence it could say was about a method
+      BotMaker wrote; the **pinned trailing `return`** in an activity's `run()`, which nothing may be
+      inserted after; the explorer's **Generated by BotMaker** group and its hidden *derived* files, so every
+      file the walk finds is now listed under **My code** or **Library**; and `CodeExecutionService`'s
+      **locked-parts diff** before writing to disk, since a project file has no locked parts.
+    - `Audience` and `ComponentResolver` stay: audience still decides which *components* of a block are worth
+      showing. What it no longer does is drop whole members from the tree.
 - **Studio generates bot projects that depend on the SDK.** `services/MavenService` writes each user
   project's `pom.xml` pinning `com.github.LiQiyeDev:botmaker-sdk` (default `SDK_FALLBACK_VERSION`;
   user-selectable in the project screen from JitPack's version list). That pin is independent of the version

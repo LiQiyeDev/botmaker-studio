@@ -1,8 +1,6 @@
 package com.botmaker.studio.blocks.flow;
 
 import com.botmaker.studio.palette.BlockCategory;
-import com.botmaker.studio.project.LockResolver;
-import com.botmaker.studio.project.activity.FlowEdge;
 import com.botmaker.studio.ui.render.menu.ExpressionMenu;
 
 import com.botmaker.studio.core.AbstractStatementBlock;
@@ -17,24 +15,14 @@ import javafx.scene.Node;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
-import javafx.scene.control.MenuButton;
-import javafx.scene.control.MenuItem;
 import org.eclipse.jdt.core.dom.ASTNode;
-import org.eclipse.jdt.core.dom.AbstractTypeDeclaration;
-import org.eclipse.jdt.core.dom.EnumConstantDeclaration;
-import org.eclipse.jdt.core.dom.EnumDeclaration;
-import org.eclipse.jdt.core.dom.Expression;
 import org.eclipse.jdt.core.dom.MethodDeclaration;
-import org.eclipse.jdt.core.dom.QualifiedName;
 import org.eclipse.jdt.core.dom.ReturnStatement;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public class ReturnBlock extends AbstractStatementBlock {
-
-    /** The nested enum an activity reports through — the return's outcome is one of its constants. */
-    private static final String OUTCOME_ENUM = "Outcome";
 
     private ExpressionBlock expression;
 
@@ -53,14 +41,11 @@ public class ReturnBlock extends AbstractStatementBlock {
 
     @Override
     protected Node createUINode(CodeEditorService context) {
-        // The pinned trailing return of an activity's run() is special: which outcome it reports stays the
-        // user's to choose, but it can't be deleted, moved, or turned into an arbitrary expression. So it gets
-        // a dedicated outcome picker (the Outcome enum's constants) instead of the generic expression menu, and
-        // no delete button — the flow canvas routes each outcome; this only says which one.
-        if (expression != null && isPinnedActivityReturn(context)) {
-            return buildPinnedOutcomeReturn(context);
-        }
-
+        // An activity's run() used to close with a pinned `return Outcome.X;` that BotMaker wrote and kept, so
+        // this drew a dedicated outcome picker over it instead of the generic expression menu, with no delete
+        // button. Nothing generates an activity class or its Outcome enum now: an outcome is reported by
+        // `ctx.outcome("BAG_FULL")`, an ordinary call whose argument gets its picker from the SDK's own slot
+        // editor. So a return is a return, and this is the only path.
         String methodReturnType = findParentMethodReturnType();
         boolean isVoid = "void".equals(methodReturnType);
 
@@ -137,67 +122,6 @@ public class ReturnBlock extends AbstractStatementBlock {
             if (n instanceof MethodDeclaration method) return method;
         }
         return null;
-    }
-
-    /** Whether this is the pinned {@code return Outcome.X;} that closes an activity's {@code run()}. */
-    private boolean isPinnedActivityReturn(CodeEditorService context) {
-        return LockResolver.forActiveFile(context.getConfig(), context.getState()).isPinnedReturn(this.astNode);
-    }
-
-    /**
-     * The pinned return: {@code return} + the current outcome + an outcome-only picker; no delete/move.
-     *
-     * <p>Outcomes are labelled through {@link FlowEdge#outcomeLabel}, which is the constant itself — the same
-     * name the flow canvas and the activity dialog now show, and the same one that appears in the generated
-     * source. Nothing is translated into friendlier words on the way to the screen: the implicit outcome used
-     * to read "then" on a port and {@code NEXT} here, so the same outcome looked like two different things
-     * depending on which editor the user was in.
-     */
-    private Node buildPinnedOutcomeReturn(CodeEditorService context) {
-        MenuButton picker = new MenuButton(FlowEdge.outcomeLabel(currentOutcome()));
-        picker.getStyleClass().add("outcome-picker");
-        for (String outcome : outcomeConstants()) {
-            MenuItem item = new MenuItem(FlowEdge.outcomeLabel(outcome));
-            item.setOnAction(e -> context.getCodeEditor()
-                    .replaceWithEnumConstant((Expression) expression.getAstNode(), OUTCOME_ENUM, outcome));
-            picker.getItems().add(item);
-        }
-
-        var sentence = BlockLayout.sentence()
-                .addKeyword("return")
-                .addNode(picker)
-                .build();
-        return BlockLayout.header()
-                .withCustomNode(sentence)
-                .build();
-    }
-
-    /** The constant name the return currently reports (the {@code X} in {@code Outcome.X}), or its raw text. */
-    private String currentOutcome() {
-        ASTNode node = expression.getAstNode();
-        if (node instanceof QualifiedName qn) {
-            return qn.getName().getIdentifier();
-        }
-        return node.toString();
-    }
-
-    /** The constants of the enclosing activity's nested {@code Outcome} enum, in declaration order. */
-    private List<String> outcomeConstants() {
-        for (ASTNode n = this.astNode.getParent(); n != null; n = n.getParent()) {
-            if (n instanceof AbstractTypeDeclaration type) {
-                for (Object member : type.bodyDeclarations()) {
-                    if (member instanceof EnumDeclaration en
-                            && OUTCOME_ENUM.equals(en.getName().getIdentifier())) {
-                        List<String> names = new ArrayList<>();
-                        for (Object c : en.enumConstants()) {
-                            names.add(((EnumConstantDeclaration) c).getName().getIdentifier());
-                        }
-                        return names;
-                    }
-                }
-            }
-        }
-        return List.of();
     }
 
     private String findParentMethodReturnType() {

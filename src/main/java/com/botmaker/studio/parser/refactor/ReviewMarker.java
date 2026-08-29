@@ -79,17 +79,16 @@ public final class ReviewMarker {
     }
 
     /**
-     * Whether a mark written into {@code file} would still be there tomorrow.
+     * Whether a mark written into {@code file} would still be there tomorrow. It always would.
      *
-     * <p>False for anything Studio generates. Those files <em>are</em> rewritten by a refactor — a call in the
-     * activity registry has to be renamed with everything else or the bot stops compiling — but they are
-     * regenerated from the project's shape on the next save, which silently erases a mark. A review row that
-     * disappears on its own is worse than no row: the user is not told the thing they were meant to look at
-     * has stopped being listed. The change lands; only the bookkeeping is skipped.
+     * <p>This used to answer "no" for anything Studio generated: such a file <em>was</em> rewritten by a
+     * refactor — a call in the activity registry had to be renamed with everything else or the bot stopped
+     * compiling — and then regenerated from the project's shape on the next save, which silently erased the
+     * mark. A review row that disappears on its own is worse than no row. Nothing regenerates a project's
+     * Java any more, so no mark can be erased behind the user's back and the question has one answer.
      */
     public static boolean marksSurvive(ProjectConfig config, ProjectState state, Path file) {
-        if (config == null || file == null) return false;
-        return !FileRole.isDerived(config, state == null ? null : state.getTemplate(), file);
+        return config != null && file != null;
     }
 
     /**

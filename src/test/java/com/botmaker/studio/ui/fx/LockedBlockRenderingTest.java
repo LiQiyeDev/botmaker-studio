@@ -81,7 +81,17 @@ class LockedBlockRenderingTest extends FxHeadlessTest {
     private record Rendered(AbstractCodeBlock root, CodeEditorService context, ProjectState state) {}
 
     private Rendered render(Path file, String source) {
+        return render(file, source, false);
+    }
+
+    /**
+     * Renders {@code source} at {@code file}. {@code readerMode} is what makes a block locked now: since
+     * 2026-08-29 nothing in a project is generated, so the two remaining locks are a bot opened for reading
+     * (this flag) and bundled library source (the path).
+     */
+    private Rendered render(Path file, String source, boolean readerMode) {
         ProjectState state = new ProjectState();
+        state.setReaderMode(readerMode);
         state.addFile(new ProjectFile(file, source));
         state.setActiveFile(file);
         state.setSourcePath(Paths.get("src", "main", "java").toAbsolutePath());
@@ -173,15 +183,18 @@ class LockedBlockRenderingTest extends FxHeadlessTest {
         return found;
     }
 
+    /**
+     * Every member of every file is drawn. This used to assert the opposite for {@code isEnabled()}: it was
+     * written from the flow dialog's enable checkbox, so there was no version of it the author edited here and
+     * it was kept out of the tree entirely. Nothing writes a member into a user's class any more, so a member
+     * hidden from its owner would be a member nobody could reach.
+     */
     @Test
-    void aGeneratedWiringMethodIsNotBuiltAtAll() {
-        // Stronger than "offers nothing to click", which is what this used to assert. isEnabled() is written
-        // from the flow dialog's enable checkbox, so there is no version of it the author edits here — it is
-        // MemberVisibility.NOBODY and never reaches the tree. Its run() sibling is untouched.
+    void everyMemberIsBuilt() {
         Rendered r = render(CONFIG.activitiesPackageDir().resolve("Mining.java"), ACTIVITY);
 
-        assertFalse(hasMethod(r.root(), "isEnabled"), "generated wiring must not be rendered for anyone");
-        assertTrue(hasMethod(r.root(), "run"), "the method the user came to write stays");
+        assertTrue(hasMethod(r.root(), "isEnabled"), "a member of the user's own class is drawn");
+        assertTrue(hasMethod(r.root(), "run"), "so is the one beside it");
     }
 
     /** True when the block tree contains a method declaration called {@code methodName}. */
@@ -211,38 +224,37 @@ class LockedBlockRenderingTest extends FxHeadlessTest {
     }
 
     @Test
-    void theFlowDriversRunBodyOffersNoControlsAtAll() {
-        // The reported bug: the generated loop's calls kept live class/method selectors and the ⚙ overload
-        // button. run() is the complete generated flow walk — nothing in it is clickable.
-        Rendered r = render(CONFIG.flowDriverSourceFile(), FLOW_DRIVER);
+    void aBodyOpenedForReadingOffersNoControlsAtAll() {
+        // The reported bug: a locked body's calls kept live class/method selectors and the ⚙ overload button.
+        Rendered r = render(CONFIG.flowDriverSourceFile(), FLOW_DRIVER, true);
         BodyBlock run = bodyOf(r.root(), "run");
-        assertTrue(run.isReadOnly(), "the flow walk is generated wiring, not a stub to fill in");
+        assertTrue(run.isReadOnly(), "a bot open for reading is locked throughout");
 
         Node[] node = new Node[1];
         interact(() -> node[0] = run.getUINode(r.context()));
 
         assertEquals(List.of(), interactiveControls(node[0]),
-                "no selector, overload picker, add or delete on the generated flow driver");
+                "no selector, overload picker, add or delete when reading");
     }
 
     @Test
-    void aGeneratedFilesOtherMethodsAreInert() {
+    void theSameFileIsFullyInteractiveWhenItIsYours() {
+        // The mirror image, and the half that regressed: the file is ordinary user code unless something says
+        // otherwise, and nothing says otherwise about a project you made.
         Rendered r = render(CONFIG.flowDriverSourceFile(), FLOW_DRIVER);
-        BodyBlock helper = bodyOf(r.root(), "helper");
-        assertTrue(helper.isReadOnly(), "MethodLock.NONE defers to the file, and the file is generated");
+        BodyBlock run = bodyOf(r.root(), "run");
+        assertFalse(run.isReadOnly(), "nothing in a project of your own is generated or locked");
 
         Node[] node = new Node[1];
-        interact(() -> node[0] = helper.getUINode(r.context()));
+        interact(() -> node[0] = run.getUINode(r.context()));
 
-        assertEquals(List.of(), interactiveControls(node[0]));
+        assertFalse(interactiveControls(node[0]).isEmpty(), "your own code stays interactive");
     }
 
     @Test
     void aLockedCallOffersNoDropdownToChangeTheMethod() {
-        // The reported bug: the method-call dropdown edited read-only code and the edit stuck. Asserted on the
-        // flow driver's generated run() — an activity's isEnabled(), the other locked call, is no longer drawn
-        // at all (see aGeneratedWiringMethodIsNotBuiltAtAll), so it can no longer carry a dropdown to test.
-        Rendered r = render(CONFIG.flowDriverSourceFile(), FLOW_DRIVER);
+        // The reported bug: the method-call dropdown edited read-only code and the edit stuck.
+        Rendered r = render(CONFIG.flowDriverSourceFile(), FLOW_DRIVER, true);
         BodyBlock locked = bodyOf(r.root(), "run");
 
         Node[] node = new Node[1];
@@ -269,14 +281,14 @@ class LockedBlockRenderingTest extends FxHeadlessTest {
                     }
                 }
                 """;
-        Rendered r = render(CONFIG.flowDriverSourceFile(), withField);
+        Rendered r = render(CONFIG.flowDriverSourceFile(), withField, true);
 
         AbstractCodeBlock field = null;
         for (CodeBlock b : flatten(r.root())) {
             if (b instanceof com.botmaker.studio.blocks.var.DeclareClassVariableBlock d) { field = d; break; }
         }
         assertNotNull(field, "precondition: the field parsed to a DeclareClassVariableBlock");
-        assertTrue(field.isReadOnly(), "precondition: a field in a generated file is read-only");
+        assertTrue(field.isReadOnly(), "precondition: a field in a bot open for reading is read-only");
 
         AbstractCodeBlock finalField = field;
         Node[] node = new Node[1];
@@ -315,7 +327,7 @@ class LockedBlockRenderingTest extends FxHeadlessTest {
                     private FlowDriver() {}
                 }
                 """;
-        Rendered r = render(CONFIG.flowDriverSourceFile(), source);
+        Rendered r = render(CONFIG.flowDriverSourceFile(), source, true);
         Node[] node = new Node[1];
         interact(() -> node[0] = r.root().getUINode(r.context()));
 
@@ -357,7 +369,7 @@ class LockedBlockRenderingTest extends FxHeadlessTest {
                     }
                 }
                 """;
-        Rendered r = render(CONFIG.flowDriverSourceFile(), source);
+        Rendered r = render(CONFIG.flowDriverSourceFile(), source, true);
         BodyBlock helper = bodyOf(r.root(), "helper");
         assertTrue(helper.isReadOnly(), "precondition: everything in the file is locked");
 
@@ -376,7 +388,7 @@ class LockedBlockRenderingTest extends FxHeadlessTest {
                     }
                 }
                 """;
-        Rendered r = render(CONFIG.flowDriverSourceFile(), emptyRun);
+        Rendered r = render(CONFIG.flowDriverSourceFile(), emptyRun, true);
         BodyBlock helper = bodyOf(r.root(), "helper");
         assertTrue(helper.isReadOnly());
 

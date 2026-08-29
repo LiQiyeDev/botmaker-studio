@@ -135,17 +135,23 @@ class LockedMethodRenderingTest extends FxHeadlessTest {
         assertTrue(labels.contains("times"), "the parameter name is still displayed: " + labels);
     }
 
+    /**
+     * A locked method carries no badge explaining itself, and that is a deliberate loss.
+     *
+     * <p>There used to be one — "Generated - Read Only", "Name and parameters required by BotMaker", and on
+     * the one method the user was meant to fill in, "Your code goes here". Every sentence it could say was
+     * about a method BotMaker wrote, and it writes none since 2026-08-29. The two locks that remain are
+     * whole-file and are already said elsewhere: bundled library source carries {@code FileRole.LIBRARY}'s
+     * badge on the status line, and a bot open for reading says so in the refusal message.
+     */
     @Test
-    void theBadgeTellsTheUserWhyItIsLocked() {
+    void aLockedMethodCarriesNoBadgeOfItsOwn() {
         MethodDeclarationBlock block = new MethodDeclarationBlock("id", parseRun(), null);
         block.setReadOnly(true);
-        block.setLockBadge("Name and parameters required by BotMaker");
         Node ui = render(block);
 
-        List<Label> badges = descendants(ui, Label.class).stream()
-                .filter(l -> l.getStyleClass().contains("method-lock-badge"))
-                .toList();
-        assertEquals(1, badges.size());
-        assertEquals("Name and parameters required by BotMaker", badges.getFirst().getText());
+        assertTrue(descendants(ui, Label.class).stream()
+                        .noneMatch(l -> l.getStyleClass().contains("method-lock-badge")),
+                "the lock badge went with the generated files it described");
     }
 }

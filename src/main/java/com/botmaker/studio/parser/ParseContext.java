@@ -22,9 +22,10 @@ import java.util.Map;
  * @param manager                       drag-and-drop manager handed to interactive blocks
  * @param readOnly                      whether blocks parsed under this context are locked
  * @param resolver                      the file's lock rules; null when there is no project (tests)
- * @param audience                      who the canvas is being drawn for; a {@code USER} parse leaves the
- *                                      Studio's own scaffolding out of the tree entirely
- *                                      (see {@code core/component/MemberVisibility})
+ * @param audience                      who the canvas is being drawn for. It used to decide whole members —
+ *                                      a {@code USER} parse left the Studio's own scaffolding out of the
+ *                                      tree — and now reaches only the component level, because there is no
+ *                                      scaffolding: every member of every file is the user's
  * @param markNewIdentifiersAsUnedited  whether freshly created identifiers/field accesses
  *                                      should be visually marked as auto-generated
  */
@@ -43,11 +44,11 @@ public record ParseContext(
      * This context with {@code readOnly} set to {@code ro}, for parsing a method body whose lock differs from
      * the file around it. Every block created under the returned context inherits the verdict.
      *
-     * <p><b>This is two-way, and deliberately so.</b> It locks a subtree the file doesn't — an activity's
-     * {@code isEnabled()} inside a file the user otherwise owns ({@code MethodLock.FULL}) — and it can also
-     * <em>unlock</em> one: a {@code MethodLock.SIGNATURE} body inside a locked file. It used to only ever
-     * lock, which made a generated file's verdict final. The only thing allowed to widen a lock is a
-     * {@link LockResolver} verdict — do not call this with a hand-derived boolean.
+     * <p><b>This is two-way, and deliberately so</b> — it can unlock a subtree the file around it locked, not
+     * only lock one. That mattered when a method's verdict could differ from its file's; today the two agree
+     * everywhere, since the only read-only cases left are whole-file (bundled library source, and a bot open
+     * for reading). The only thing allowed to widen a lock is a {@link LockResolver} verdict — do not call
+     * this with a hand-derived boolean.
      */
     public ParseContext withReadOnly(boolean ro) {
         return ro == readOnly ? this

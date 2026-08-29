@@ -4,149 +4,64 @@ import java.nio.file.Path;
 
 /**
  * What a project file <em>is</em>, from the editor's point of view — the single source of truth for which
- * files the user owns and which are scaffolding.
+ * files the user owns.
  *
  * <p>Before this existed the rules were duplicated as inline path checks in {@code CodeEditorService.refreshUI}
- * and half-mirrored in {@code FileExplorerManager}'s cell factory, which is how {@code ActivityRegistry.java}
- * ended up read-only in the editor but freely deletable (with no confirmation) from the tree. Anything that
- * needs to know "may the user change this?" asks {@link #of} — do not re-derive it from a path.
+ * and half-mirrored in {@code FileExplorerManager}'s cell factory, which is how a generated file ended up
+ * read-only in the editor but freely deletable (with no confirmation) from the tree. Anything that needs to
+ * know "may the user change this?" asks {@link #of} — do not re-derive it from a path.
  *
- * <p>This is a <b>file</b>-level verdict. "This whole file is the user's, but one method in it is load-bearing"
- * is {@link MethodLock}'s job — see {@code GoHome.run}, which the SDK's {@code Bot.start} binds as a
- * {@code Runnable} even though the file around it is {@link #EDITABLE}.
+ * <h2>There used to be a third role, and it is worth knowing why there is not</h2>
+ *
+ * <p>{@code GENERATED} classified the files BotMaker wrote into a user's own source tree — the game-bot entry
+ * point, {@code Activities}, {@code ActivityRegistry}, {@code FlowDriver}, {@code Templates} — and locked
+ * them, because an edit that appears to work and then vanishes on the next regeneration is worse than one
+ * that was never offered. Around it grew {@code MethodLock} (a method-level grant inside a locked file),
+ * {@code GeneratedMembers} (a member-level lock inside an editable one), {@code LockedRegions} (what may
+ * reach disk) and {@code MemberVisibility} (what is worth drawing).
+ *
+ * <p>All of it went on 2026-08-29, because <b>nothing generates a project's Java any more</b>. A project's
+ * structure belongs to the user: what BotMaker writes, it writes once at creation and never reads back. A
+ * lock over files nobody rewrites protects nothing and only refuses the owner their own code.
+ *
+ * <p>So the question this enum answers is now the small one it started as: is this file the user's, or is it
+ * bundled library source they happen to be able to open? Enforcement of the <em>other</em> read-only case —
+ * a bot installed from the gallery, opened for reading — is {@link ProjectMode}'s, and is applied in
+ * {@link LockResolver} rather than here: it is a property of the checkout, not of the file.
  */
 public enum FileRole {
 
     /** Ordinary user code. Fully editable, edits persist. */
     EDITABLE,
 
-    /**
-     * Scaffolding the Studio generates and owns: the game-bot entry point, {@code ActivityRegistry},
-     * {@code Activities}, and {@code FlowDriver} (the generated walk over the drawn Activity Flow).
-     *
-     * <p>Locked by default: no menus, no drop targets, no edits. Interactivity is not a gentler contract than a
-     * lock — an edit that appears to work, survives until the next reload and then vanishes with no warning is
-     * worse than one that was never offered. If it can't be saved, it must not be offered.
-     *
-     * <p><b>But "the file is generated" does not mean "every method in it is".</b> A
-     * {@link MethodLock#SIGNATURE} method inside a generated file keeps an editable body; only its signature
-     * and the code around it are locked. (No game-bot scaffold file currently carries such a grant —
-     * {@code GameLoop.run} used to, wrongly, before the dispatch loop was recognised as generated wiring and
-     * that file was retired altogether — but the rule is the mechanism, not today's file list.) So the rule is
-     * <em>this file's locked parts can't be saved</em>, not <em>this file can't be saved</em> — see {@code LockedRegions}, which decides what may be
-     * flushed, and {@code LockResolver}, which combines this verdict with {@link MethodLock}'s. Do not
-     * reintroduce a whole-file skip.
-     *
-     * <p>They are not deletable from the explorer — the "Delete File" action is disabled for them, since
-     * removing scaffolding breaks the build (Project ▸ Recover Project Files regenerates them).
-     */
-    GENERATED,
-
     /** Bundled library source under {@code com/botmaker/library}. Fully locked: no interaction at all. */
     LIBRARY;
 
-    /** True when this file is scaffolding, so edits are locked unless a {@link MethodLock} grants them. */
+    /** True when this file's contents are not the user's to change. */
     public boolean isReadOnly() {
         return this != EDITABLE;
     }
 
-    /** True when blocks default to refusing interaction (menus suppressed) — again, modulo {@link MethodLock}. */
+    /** True when blocks default to refusing interaction (menus suppressed). */
     public boolean suppressesInteraction() {
         return this != EDITABLE;
     }
 
-    /**
-     * A short suffix for the editor status line / explorer label, or {@code null} for ordinary files.
-     *
-     * <p>{@link #GENERATED} does not say "read-only": a generated file can contain a method whose body is
-     * entirely the user's (a {@code MethodLock.SIGNATURE} grant), so a blanket claim on the status line could
-     * contradict an editable body right there on screen. The per-method truth is told per method, by
-     * {@code MethodLock}'s own badge.
-     */
+    /** A short suffix for the editor status line / explorer label, or {@code null} for ordinary files. */
     public String badge() {
         return switch (this) {
             case EDITABLE -> null;
-            case GENERATED -> "Generated by BotMaker";
             case LIBRARY -> "Library - Read Only";
         };
     }
 
     /**
-     * Classifies {@code file} for {@code config}, given the project's {@code template}. Never null; unknown
-     * files are {@link #EDITABLE}, so a file the Studio doesn't recognise always belongs to the user.
-     *
-     * <p>{@code template} decides <b>all</b> of it: only the {@link ProjectTemplate#GAME_BOT} template generates
-     * any of these files (the entry point is just {@code Bot.start(FlowDriver::run, GoHome.INSTANCE::execute)}).
-     * An {@link ProjectTemplate#EMPTY} project's {@code main} is the user's only file and must stay editable, and
-     * so must a {@code FlowDriver.java} the user happened to write themselves — a null {@code template} (legacy
-     * project, or a caller that doesn't know) is therefore treated as EMPTY and nothing is scaffolding.
+     * Classifies {@code file}. Never null; anything that is not bundled library source is {@link #EDITABLE},
+     * so a file the Studio doesn't recognise always belongs to the user — which, since nothing is generated,
+     * is every file in the project.
      */
-    public static FileRole of(ProjectConfig config, ProjectTemplate template, Path file) {
-        if (config == null || file == null) return EDITABLE;
-
-        String normalized = file.toString().replace("\\", "/");
-        if (normalized.contains("com/botmaker/library")) return LIBRARY;
-
-        // Checked before the template gate, deliberately: the review marker is not part of any scaffold. It is
-        // written on demand by whichever refactor first needed it, so an EMPTY project can have one too.
-        if (isReviewMarker(config, file.toAbsolutePath())) return GENERATED;
-
-        if (template != ProjectTemplate.GAME_BOT) return EDITABLE;
-
-        Path abs = file.toAbsolutePath();
-        return isStudioOwned(config, abs) ? GENERATED : EDITABLE;
-    }
-
-    /**
-     * True when {@code file} is one BotMaker writes and the user never does —
-     * {@code ActivityRegistry} and {@code FlowDriver} from the Activity Flow, {@code Activities} from the
-     * project's variables, {@code Templates} from the image library, and the entry point itself.
-     * Each is a rendering of something the user already has on screen — a drawing, a dialog, a gallery — and
-     * nothing in one can be changed except by changing what it renders.
-     *
-     * <p>The entry point was held out of this set on the grounds that it is where a reader starts and the only
-     * place the two {@code Bot.start} hooks are visibly wired up. Both are true and neither is a reason to list
-     * it: it is written once at creation and never again, every line of it is locked, and a game bot's author
-     * opening their project found a file named after the project that they could not touch and did not write.
-     * A tour of the wiring is documentation's job, not the file tree's.
-     */
-    public static boolean isDerived(ProjectConfig config, ProjectTemplate template, Path file) {
-        if (of(config, template, file) != GENERATED) return false;
-        return isStudioOwned(config, file.toAbsolutePath());
-    }
-
-    /**
-     * The files BotMaker writes — one predicate, because {@link #of} and {@link #isDerived} must not disagree
-     * about a file: {@code isDerived} is only ever asked about files {@code of} already called
-     * {@link #GENERATED}, so a file listed in one and forgotten in the other is a file the editor calls derived
-     * and lets the user edit. {@code Templates.java} was exactly that: generated on every capture, and classed
-     * {@link #EDITABLE} because {@code of} never listed it. The two verdicts now differ only in the question
-     * asked, never in the list — which is why there is one list.
-     */
-    private static boolean isStudioOwned(ProjectConfig config, Path abs) {
-        return isReviewMarker(config, abs)
-                || sameFile(abs, config.mainSourceFile())
-                || sameFile(abs, config.activitiesSourceFile())
-                || sameFile(abs, config.parametersSourceFile())
-                || sameFile(abs, config.activityRegistrySourceFile())
-                || sameFile(abs, config.flowDriverSourceFile())
-                || sameFile(abs, config.templatesSourceFile());
-    }
-
-    /**
-     * True for the generated {@code NeedsReview.java}.
-     *
-     * <p>It is {@link #GENERATED} — and therefore {@linkplain #isDerived derived}, so the explorer does not
-     * list it — for the same reason {@code Templates.java} is: nothing in it is about <em>this</em> bot. It is
-     * a fixed four-line annotation declaration whose only purpose is to let the marks on the user's own
-     * functions compile, it is regenerated from {@code ReviewMarks.annotationSource} whenever it is missing,
-     * and a user who opened it would find a Java construct the block editor has no blocks for.
-     */
-    private static boolean isReviewMarker(ProjectConfig config, Path abs) {
-        return sameFile(abs, config.needsReviewSourceFile());
-    }
-
-    private static boolean sameFile(Path abs, Path other) {
-        return other != null && abs.equals(other.toAbsolutePath());
+    public static FileRole of(Path file) {
+        if (file == null) return EDITABLE;
+        return file.toString().replace("\\", "/").contains("com/botmaker/library") ? LIBRARY : EDITABLE;
     }
 }

@@ -109,8 +109,8 @@ public class ClassBlock extends AbstractCodeBlock implements BlockWithChildren {
         container.getChildren().add(createHeader());
 
         // A read-only class is inert: no "Add Function", no drop targets between members, no drag-to-reorder.
-        // The members still render (the user should be able to read generated scaffolding) — they just can't
-        // be added to, removed, or shuffled. See project/FileRole.
+        // The members still render — reading is the whole point of opening bundled library source, or someone
+        // else's bot — they just can't be added to, removed, or shuffled. See project/LockResolver.
         boolean editable = !isReadOnly();
 
         // --- 1. ADD BUTTONS AT TOP (Call helper to get NEW instances) ---

@@ -38,38 +38,18 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
     /** Drives the collapsed-header corner radius via blocks.css (`.block-header:collapsed`). */
     protected static final PseudoClass COLLAPSED = PseudoClass.getPseudoClass("collapsed");
 
-    /** Distinguishes a "you can't touch this" badge from a "this one's yours" badge (`.method-lock-badge:locked`). */
-    protected static final PseudoClass LOCKED = PseudoClass.getPseudoClass("locked");
-
     private final String methodName;
     private final String returnType;
     private BodyBlock body;
 
     protected boolean isDeletable = true; // False for Main method
     private boolean isCollapsed = false;
-    private String lockBadge;
-
-    /** The badge text that marks the one method the user is meant to fill in. */
-    private static final String YOURS_BADGE = "Your code goes here";
-
-    /**
-     * A short note rendered in the header saying what the user may do with this method — the {@code MethodLock}
-     * badge ("Generated - Read Only", "Name and parameters required by BotMaker"), or the nudge toward the
-     * method they <em>should</em> edit ("Your code goes here"). Null renders nothing.
-     */
-    public void setLockBadge(String lockBadge) {
-        this.lockBadge = lockBadge;
-    }
-
-    /**
-     * True when this is the method the user is meant to write. Drives the block-level accent
-     * ({@code .method-block--yours}) that makes it findable at a glance: in a scaffolded file the badge alone
-     * was 10px of low-contrast text among a dozen identical-looking methods, so "which one do I edit?" was a
-     * question the screen didn't answer.
-     */
-    private boolean isUsersEntryPoint() {
-        return YOURS_BADGE.equals(lockBadge);
-    }
+    // There used to be a lock badge here — a short note in the header saying what the user could do with this
+    // method ("Generated - Read Only", "Name and parameters required by BotMaker") and, on the one method they
+    // were meant to fill in, "Your code goes here" plus a block-level accent that made it findable among a
+    // dozen identical-looking siblings. Every one of those sentences was about a method BotMaker wrote, and it
+    // writes none: in a file that is entirely the user's, a badge on one method would be answering a question
+    // nobody is asking.
 
     /**
      * Whether the signature (name, return type, parameters, existence) may be changed. Read-only methods keep a
@@ -168,8 +148,6 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
     protected Node createUINode(CodeEditorService context) {
         VBox container = new VBox(0);
         container.getStyleClass().add("method-block");
-        // In a file full of scaffolding, this is the one method that should look touchable.
-        if (isUsersEntryPoint()) container.getStyleClass().add("method-block--yours");
 
         // --- STATE SYNC ---
         String parentName = "";
@@ -240,16 +218,6 @@ public class MethodDeclarationBlock extends AbstractStatementBlock implements Bl
         // nothing in particular. Its size is blocks.css's business; it used to be whatever a 14px glyph with no
         // padding happened to be, which is a hit target of about ten pixels.
         if (canEditSignature()) topRowBuilder.addNode(editSignatureButton(context));
-
-        // The badge goes *beside the method name*, not after a spacer out in the middle of the header where it
-        // floated next to the louder return-type chip. "Your code goes here" is the answer to the first
-        // question a scaffolded file raises, so it belongs where the eye already is.
-        if (lockBadge != null) {
-            Label badge = new Label(lockBadge);
-            badge.getStyleClass().add("method-lock-badge");
-            badge.pseudoClassStateChanged(LOCKED, isReadOnly());
-            topRowBuilder.addNode(badge);
-        }
 
         Node reviewBadge = reviewBadge();
         if (reviewBadge != null) topRowBuilder.addNode(reviewBadge);
