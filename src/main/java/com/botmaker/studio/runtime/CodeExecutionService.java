@@ -146,7 +146,10 @@ public class CodeExecutionService {
                 // Run the compiled main class directly: java [session hand-off] -cp <classes:deps> <mainClass>
                 List<String> command = new ArrayList<>(List.of(config.javaExecutable()));
                 command.addAll(sessionHandoffArguments());
-                command.addAll(List.of("-cp", buildRuntimeClasspath(snapshot), config.mainClassName()));
+                // entryClassName(), not mainClassName(): the entry class is named after the project only in a
+                // project Studio created and the user has not renamed. One made from a published template
+                // keeps its author's class name, which is the whole point of a template arriving as shipped.
+                command.addAll(List.of("-cp", buildRuntimeClasspath(snapshot), config.entryClassName()));
                 ProcessBuilder pb = new ProcessBuilder(command)
                         .directory(config.projectPath().toFile());
 

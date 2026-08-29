@@ -104,10 +104,11 @@ public final class ProjectRepair {
      * strongest, plus {@code settings.json} where the user's choice is actually recorded.
      */
     public static boolean looksLikeGameBot(ProjectConfig config) {
-        if (!Files.exists(config.mainSourceFile())) return false;
+        Path entry = config.entrySourceFile();
+        if (!Files.exists(entry)) return false;
         try {
             // "Bot.start" is the current entry-point call; "Bot.supervise" recognises pre-rename projects.
-            String main = Files.readString(config.mainSourceFile());
+            String main = Files.readString(entry);
             return main.contains("Bot.start") || main.contains("Bot.supervise");
         } catch (IOException unreadable) {
             return false;

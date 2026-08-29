@@ -3,6 +3,8 @@ package com.botmaker.studio.ui.app;
 import com.botmaker.shared.launch.LaunchKind;
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.studio.project.ProjectConfig;
+import com.botmaker.studio.project.TemplateProject;
+import com.botmaker.studio.sharing.GalleryEntry;
 import com.botmaker.studio.project.ProjectCreator;
 import com.botmaker.studio.project.launch.SupportedTargets;
 import com.botmaker.studio.sharing.BotPublisher;
@@ -74,6 +76,17 @@ public class PublishDialog {
     private final ComboBox<String> versionCombo = new ComboBox<>();
     private final TextField tagsField = new TextField();
     private final CheckBox listInGalleryCheck = new CheckBox("List in the public gallery");
+
+    /**
+     * Publishes this project as a <b>starting template</b> rather than as a bot to install: it adds the
+     * reserved {@code template} tag, and New Project lists it for everyone.
+     *
+     * <p>Ticking it makes the project's {@code botmaker-template.properties} load-bearing — it is what says
+     * which package to replace with the user's own — so the tick is refused when that file is missing or
+     * does not match the sources. Refused here, where the author can fix it, rather than at the far end where
+     * somebody else's New Project fails.
+     */
+    private final CheckBox templateCheck = new CheckBox("This is a starting template");
 
     /**
      * One checkbox per {@link LaunchKind} — the "runs on" declaration, in enum order so the row reads the same
@@ -237,6 +250,7 @@ public class PublishDialog {
         g.addRow(3, new Label("Tags:"), tagsField);
         g.addRow(4, new Label("Runs on:"), buildLaunchKindBox());
         g.add(listInGalleryCheck, 1, 5);
+        g.add(templateCheck, 1, 6);
         GridPane.setHgrow(repoField, Priority.ALWAYS);
         GridPane.setHgrow(descriptionField, Priority.ALWAYS);
         GridPane.setHgrow(versionCombo, Priority.ALWAYS);
@@ -298,11 +312,30 @@ public class PublishDialog {
         return new VBox(8, statusLabel, bar);
     }
 
+    /**
+     * Why this project cannot be published as a template, or null when it can.
+     *
+     * <p>The one check worth making, and it is made here because it is the only failure whose result still
+     * <em>compiles</em>: a template whose declared package is not the one its sources are in unpacks into
+     * somebody's New Project, has nothing replaced, and hands them a working project sitting in the author's
+     * package. Every other way a template can be wrong shows up as an ordinary broken project.
+     */
+    private String templateProblem() {
+        try {
+            return TemplateProject.read(projectDir).matches(projectDir)
+                    ? null
+                    : "Your " + TemplateProject.FILE_NAME + " names a package that has no sources in it, so "
+                            + "nothing would be renamed when somebody starts from this template.";
+        } catch (java.io.IOException missing) {
+            return missing.getMessage();
+        }
+    }
+
     private void doPublish() {
         String repo = repoField.getText() == null ? "" : repoField.getText().trim();
         String version = currentVersion();
         String description = descriptionField.getText() == null ? "" : descriptionField.getText().trim();
-        List<String> tags = parseTags(tagsField.getText());
+        List<String> parsedTags = parseTags(tagsField.getText());
         SupportedTargets launchTargets = selectedLaunchTargets();
         boolean listInGallery = listInGalleryCheck.isSelected();
         if (repo.isBlank()) {
@@ -313,6 +346,18 @@ public class PublishDialog {
             refreshPublishEnabled();
             return;
         }
+        if (templateCheck.isSelected()) {
+            String problem = templateProblem();
+            if (problem != null) {
+                statusLabel.setText(problem);
+                return;
+            }
+            if (!parsedTags.contains(GalleryEntry.TEMPLATE_TAG)) {
+                parsedTags = new ArrayList<>(parsedTags);
+                parsedTags.add(GalleryEntry.TEMPLATE_TAG);
+            }
+        }
+        final List<String> tags = parsedTags;
 
         // Persisted before the upload, not after: the archive is collected inside publish(), and this key is
         // one of the things it has to carry. It also makes the declaration stick for the next publish.
@@ -414,6 +459,7 @@ public class PublishDialog {
         descriptionField.setDisable(busy);
         versionCombo.setDisable(busy);
         tagsField.setDisable(busy);
+        templateCheck.setDisable(busy);
         listInGalleryCheck.setDisable(busy);
     }
 

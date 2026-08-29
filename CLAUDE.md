@@ -408,10 +408,15 @@ there are three distinct relationships to keep straight:
   plugin — the SDK included — contributes methods a user calls rather than files a user inherits.
   - **`project/StarterSources` is the whole of it**: one file, composed by Studio, handed to
     `Authoring.createProject` as a caller file beside `MavenService.pomXml`. It is Studio's for the reason
-    the pom already was — the entry point is where the plugins get *installed*, and only the thing that knows
-    the whole plugin set can compose it. A game bot's carries `goHome` and `dismissPopups` as plain methods:
-    one file is what "written once, never touched again" can honestly promise, where three were three things
-    a user could delete and be quietly given back.
+    the pom already was — only the thing that knows the whole plugin set can compose the file that calls into
+    them.
+  - **And since 2026-08-30 it composes only the *blank* project.** There was a second shape, a game bot, and
+    it was not Studio's to write: **a game bot is a project that calls the SDK's static API**, which is
+    exactly what the gallery already publishes, browses and installs. So a richer starting point is now a
+    **published bot carrying the `template` tag** — see *Templates* below — and the one Studio composes is
+    the one that must work with no network. It prints with `System.out.println` and imports nothing:
+    teaching `BotMaker.print` for what the JDK already does spends a user's first line on a BotMaker spelling
+    of a Java call.
   - **What is deleted, and it is a long list.** `project/Regeneration` (with `ensureStubs`, `write`,
     `writeTemplatesClass`, `restore`, `renderEverything`), `project/seed/` (`SeedWriter`, `SeedReconciler`,
     `SeedLedger`, `SeedSync`), `project/ScaffoldMigration`, `ProjectSpecs.generatedFileNames`/
@@ -739,6 +744,42 @@ the write path no longer touch the same file, and that asymmetry is the design r
 - `GitHubClient.delete(url, body, token)` exists for this: GitHub's Contents API needs a body to delete a
   file and `HttpRequest.DELETE()` sends none. The bodyless `delete(url, token)` stays for the endpoints that
   reject one.
+
+### Templates — a starting point is a published bot (2026-08-30)
+
+**New Project lists the gallery.** An entry whose `tags` carry `GalleryEntry.TEMPLATE_TAG` (`"template"`) is
+a starting template rather than a bot to install: `ProjectSelectionScreen` lists exactly those, and
+`GalleryDialog` (Browse Bots) filters exactly those out. Nothing else about the gallery changes — same
+`index.json`, same `bots/<owner>-<repo>.json`, same release zip, same `BotInstaller`.
+
+That reuse is the whole point, and it is what a Maven archetype or a bundled resource would have cost:
+**a new starting point needs no Studio release**, and the people who write bots are the people who write the
+templates. What Studio composes itself is one blank project (`StarterSources`), which is what makes New
+Project work with no network — and is the only reason it composes any at all.
+
+- **A template arrives as its author shipped it, except for its package.** `project/TemplateProject` reads a
+  one-key `botmaker-template.properties` (`package=com.botmaker.gamebot`) at the repo root, replaces that
+  prefix in every text file and moves the directories. **The entry class keeps the author's name.** Renaming
+  it was built and then dropped: a copy that quietly renames somebody's types is a copy whose stack traces
+  and README stop matching, and the package is the one name that genuinely must not be shared.
+- **So nothing may assume the entry class is named after the project.** `ProjectConfig.entrySourceFile()` /
+  `entryClassName()` *find* it — the derived path when it exists, else the one class in the package
+  declaring a `main` — and `CodeExecutionService`, `DebuggingService`, `CodeEditorService.openInitialFile`,
+  `ProjectRepair.looksLikeGameBot` and `BotSettings.migrate` all go through them. This also fixes a case
+  that predates templates: a user who renamed their own entry class could not Run.
+- **`BotInstaller.unpackTemplate` writes no `botmaker-source.json`, and that absence is load-bearing.**
+  Provenance is what makes a project an *installed bot*: `checkForUpdate` reads it, and an update
+  re-downloads and replaces the project in place, overwriting local edits. A project made from a template is
+  the user's from the second it lands, so there must be nothing for an update to find.
+- **The template's pom is kept whole, versions and all**, which is why New Project hides the SDK row when a
+  template is selected. What a template ships is what built for its author; changing the pin afterwards is
+  Manage Libraries, like any other version change. `ProjectCreator.createFromTemplate` writes only
+  `settings.json` and the capture resolution, and deletes the directory if anything fails — the unpack is a
+  whole tree `Authoring` never sees, so the atomic pass on the blank path cannot cover it.
+- **The publish-time check is `TemplateProject.matches`**, run when *This is a starting template* is ticked.
+  It is the only template mistake whose result still **compiles**: a declared package with no sources in it
+  unpacks into somebody's New Project, renames nothing, and hands them a working project sitting in the
+  author's package.
 
 ### Validation
 

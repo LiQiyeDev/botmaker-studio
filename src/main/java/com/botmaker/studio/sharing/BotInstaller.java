@@ -56,6 +56,30 @@ public final class BotInstaller {
     }
 
     /**
+     * Unpacks {@code entry} at release {@code tag} into {@code dest} as the <b>starting point of a new
+     * project</b>, and deliberately writes <b>no</b> {@link BotSource}.
+     *
+     * <p>That absence is the whole difference from {@link #install}, and it is load-bearing. Provenance is
+     * what makes a project an <em>installed bot</em>: it is what {@link #checkForUpdate} reads, and an
+     * update re-downloads the release and replaces the project in place, overwriting local edits. A project
+     * created from a template is the user's from the second it lands — a later release of the template is a
+     * different starting point, not a newer version of their bot — so there must be nothing here for an
+     * update to find.
+     *
+     * @return the project directory
+     */
+    public Path unpackTemplate(GalleryEntry entry, String tag, Path dest) throws IOException {
+        if (Files.exists(dest)) {
+            throw new IOException("A project named '" + dest.getFileName() + "' already exists.");
+        }
+        downloadInto(entry.owner(), entry.repo(), tag, dest);
+        // A template author may have installed their own template from the gallery while writing it; their
+        // provenance file must not become the new project's.
+        Files.deleteIfExists(dest.resolve(BotSource.FILE_NAME));
+        return dest;
+    }
+
+    /**
      * Returns the latest release tag for an installed bot if it is newer than what's installed, else empty.
      */
     public Optional<String> checkForUpdate(Path projectDir) {

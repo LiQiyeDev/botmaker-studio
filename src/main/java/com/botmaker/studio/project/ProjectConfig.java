@@ -62,6 +62,57 @@ public record ProjectConfig(
         );
     }
 
+    /**
+     * The file holding the bot's {@code main} — <b>found, not assumed</b>.
+     *
+     * <p>{@link #mainSourceFile()} is the file a project Studio created <em>starts</em> with, named after the
+     * project. That is a fact about creation and not about the project, and two things break it: a user who
+     * renames or splits their entry class (their file, their call), and a project made from a published
+     * template, which arrives exactly as its author shipped it and whose entry class is called whatever they
+     * called it.
+     *
+     * <p>So: the derived path when it is there, otherwise the one source in the bot's package that declares a
+     * {@code main}. Falls back to the derived path when there is no such file, because every caller wants a
+     * path to complain about rather than a null.
+     */
+    public Path entrySourceFile() {
+        if (java.nio.file.Files.isRegularFile(mainSourceFile)) return mainSourceFile;
+        Path packageDir = mainSourceFile.getParent();
+        if (packageDir == null || !java.nio.file.Files.isDirectory(packageDir)) return mainSourceFile;
+        try (var files = java.nio.file.Files.list(packageDir)) {
+            return files.filter(p -> p.getFileName().toString().endsWith(".java"))
+                    .filter(ProjectConfig::declaresMain)
+                    .sorted()
+                    .findFirst()
+                    .orElse(mainSourceFile);
+        } catch (java.io.IOException unreadable) {
+            return mainSourceFile;
+        }
+    }
+
+    /**
+     * The fully-qualified class {@code java -cp …} is given — {@link #entrySourceFile()}'s class, so a
+     * renamed entry point or a template's own is launched rather than a name that no longer exists.
+     */
+    public String entryClassName() {
+        String file = entrySourceFile().getFileName().toString();
+        return "com." + packageName + "." + file.substring(0, file.length() - ".java".length());
+    }
+
+    /**
+     * A cheap textual test for {@code public static void main(String[])}. Deliberately not a parse: this runs
+     * on a directory listing, before anything is compiled, and the cost of a wrong answer is that Run names
+     * the wrong class in an error the user can read.
+     */
+    private static boolean declaresMain(Path javaFile) {
+        try {
+            String source = java.nio.file.Files.readString(javaFile);
+            return source.contains("static void main(") || source.contains("static void main (");
+        } catch (java.io.IOException | RuntimeException unreadable) {
+            return false;
+        }
+    }
+
     /** {@code projectName} as a Java class name: the same word, capitalized. */
     public static String toClassName(String projectName) {
         if (projectName == null || projectName.isEmpty()) return projectName;

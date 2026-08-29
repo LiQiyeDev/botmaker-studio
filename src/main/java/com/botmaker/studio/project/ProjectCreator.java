@@ -96,7 +96,7 @@ public class ProjectCreator {
             //    of it lands together. All of it or none of it — the refusal lands before a single directory
             //    exists, so a project that cannot be created never has to be deleted by hand.
             System.out.println("1. Creating the project...");
-            Map<String, String> ourFiles = new LinkedHashMap<>(StarterSources.of(cfg, template));
+            Map<String, String> ourFiles = new LinkedHashMap<>(StarterSources.of(cfg));
             ourFiles.put("pom.xml", MavenService.pomXml(cfg, effectiveSdkVersion(sdkVersion)));
             Authoring.createProject(sdk,
                     ProjectSpecs.of(cfg, template, effectiveSdkVersion(sdkVersion), referenceResolution),
@@ -128,6 +128,90 @@ public class ProjectCreator {
             System.err.println("!!! ERROR during project creation !!!");
             e.printStackTrace();
             throw new IOException("Failed to create project: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Creates a project from a published template: download the release, rename it into the user's own
+     * package and class, and record how it was made.
+     *
+     * <p><b>Nothing composed here reaches the result.</b> The pom is the template author's, versions and all,
+     * and so are {@code activities.json}, the runtime settings and every {@code .java}. That is the point of
+     * a template being a real published bot rather than a set of holes: what the user gets is a project that
+     * demonstrably built for its author. Changing the SDK pin afterwards is <b>Project ▸ Manage Libraries</b>,
+     * which is the same path any other version change takes.
+     *
+     * <p>The only things written are the two Studio owns and the template cannot know: {@code settings.json}
+     * (its {@code template} is {@link ProjectTemplate#FROM_TEMPLATE}) and the capture resolution, and the
+     * latter is merged into whatever {@code botmaker-project.properties} the template shipped rather than
+     * replacing it.
+     *
+     * <p>All-or-none is kept the crude way rather than the {@code createProject} way: the unpack writes a
+     * whole directory tree that {@code Authoring} never sees, so a failure anywhere in here deletes the
+     * directory. A half-unpacked project the user has to remove by hand is exactly what the atomic pass on
+     * the other path exists to prevent.
+     *
+     * @param projectName the user's name for it, which becomes the directory, the package and the class
+     * @param unpack      downloads the release into the directory it is handed — {@code BotInstaller
+     *                    ::unpackTemplate} bound to the chosen entry and tag, passed in so this class keeps
+     *                    knowing nothing about GitHub
+     */
+    public void createFromTemplate(String projectName, StudioProjectSettings.Resolution referenceResolution,
+                                   TemplateUnpack unpack) throws IOException {
+        validateProjectName(projectName);
+
+        ProjectConfig cfg = ProjectConfig.forProject(projectName, PROJECTS_ROOT);
+        Path projectPath = cfg.projectPath();
+        if (Files.exists(projectPath)) {
+            throw new IllegalArgumentException("Project '" + projectName + "' already exists");
+        }
+
+        System.out.println("------------------------------------------------");
+        System.out.println("Creating Project: " + projectName + " (from a template)");
+        System.out.println("Location: " + projectPath);
+        System.out.println("------------------------------------------------");
+
+        try {
+            System.out.println("1. Downloading the template...");
+            unpack.into(projectPath);
+
+            System.out.println("2. Making it yours...");
+            TemplateProject.read(projectPath).renameInto(projectPath, "com." + cfg.packageName());
+
+            System.out.println("3. Generating settings...");
+            seedSettings(cfg, referenceResolution, ProjectTemplate.FROM_TEMPLATE);
+
+            new ProjectVcs(projectPath).init();
+
+            System.out.println("------------------------------------------------");
+            System.out.println("SUCCESS: Project created at " + projectPath);
+            System.out.println("------------------------------------------------");
+        } catch (Exception e) {
+            deleteRecursively(projectPath);
+            System.err.println("!!! ERROR during project creation !!!");
+            throw new IOException("Failed to create project from the template: " + e.getMessage(), e);
+        }
+    }
+
+    /** Downloads a chosen template release into {@code dest}. */
+    @FunctionalInterface
+    public interface TemplateUnpack {
+        void into(Path dest) throws IOException;
+    }
+
+    /** Removes a half-created project so a failure leaves nothing behind to delete by hand. */
+    private static void deleteRecursively(Path path) {
+        if (!Files.exists(path)) return;
+        try (var walk = Files.walk(path)) {
+            walk.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
+                try {
+                    Files.delete(p);
+                } catch (IOException ignored) {
+                    // Best effort: the creation failure is what the user is told about, not this.
+                }
+            });
+        } catch (IOException ignored) {
+            // Same.
         }
     }
 

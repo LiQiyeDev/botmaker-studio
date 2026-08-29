@@ -192,8 +192,9 @@ public class DebuggingService {
                 Platform.runLater(() -> eventBus.publish(new CoreApplicationEvents.OutputClearedEvent()));
 
                 String classPath = config.compiledOutputPath().toString();
-                // We debug the Main class defined in config
-                String className = config.mainClassName();
+                // The bot's entry class — found rather than derived, so a renamed one or a template's own is
+                // debugged rather than a name that no longer exists. See ProjectConfig.entrySourceFile().
+                String className = config.entryClassName();
                 String javaExecutable = config.javaExecutable();
 
                 // Suspend=y waits for us to attach before running main()

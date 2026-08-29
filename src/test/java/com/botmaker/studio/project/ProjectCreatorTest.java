@@ -127,26 +127,36 @@ class ProjectCreatorTest {
      * <p>It used to come from the SDK — and before that from a copy {@code ProjectRepair} kept, which lost
      * an import and so "recovered" a project that did not compile. Neither writes source now:
      * {@link StarterSources} composes it once and nothing reads it back, so there is nothing left to drift.
+     *
+     * <p>There used to be a second shape here, a game bot. It went on 2026-08-30: a game bot is a project
+     * that calls the SDK's static API, which is what the gallery already publishes and installs, so a richer
+     * starting point is a published template rather than a string constant in Studio.
      */
     @Test
     void aNewProjectStartsWithOneFileAndItIsStudiosOwn(@TempDir Path root) {
         ProjectConfig config = ProjectConfig.forProject("MyBot", root);
 
-        Map<String, String> empty = StarterSources.of(config, ProjectTemplate.EMPTY);
-        assertEquals(List.of("src/main/java/com/mybot/MyBot.java"), List.copyOf(empty.keySet()));
-        assertTrue(empty.values().iterator().next().contains("package com.mybot;"));
+        Map<String, String> starter = StarterSources.of(config);
+        assertEquals(List.of("src/main/java/com/mybot/MyBot.java"), List.copyOf(starter.keySet()));
 
-        String gameBot = StarterSources.of(config, ProjectTemplate.GAME_BOT)
+        String main = starter.values().iterator().next();
+        assertTrue(main.contains("package com.mybot;"), main);
+        assertTrue(main.contains("public class MyBot"), main);
+    }
+
+    /**
+     * The blank project prints with {@code System.out.println} and imports nothing.
+     *
+     * <p>It called {@code BotMaker.print} until 2026-08-30, which is an SDK spelling of what the JDK already
+     * does — a user's very first line of BotMaker code teaching them a BotMaker word for {@code println}.
+     */
+    @Test
+    void theBlankProjectPrintsWithTheJdk(@TempDir Path root) {
+        String main = StarterSources.of(ProjectConfig.forProject("MyBot", root))
                 .get("src/main/java/com/mybot/MyBot.java");
-        assertNotNull(gameBot);
-        assertTrue(gameBot.contains("public class MyBot"), gameBot);
-        // The three things a game bot's entry point is for: the guard, the flow, and the recovery hook it
-        // hands to both. GoHome.java and Popups.java were separate files until 2026-08-29 — one file is what
-        // "written once and never touched again" can honestly promise.
-        assertTrue(gameBot.contains("PopupGuard.install(MyBot::dismissPopups)"), gameBot);
-        assertTrue(gameBot.contains("FlowGraph.run(MyBot.class, MyBot::goHome)"), gameBot);
-        assertTrue(gameBot.contains("static void goHome()"), gameBot);
-        // The shape of a define call is shown rather than written: at creation there are no activities.
-        assertTrue(gameBot.contains("Activities.define(\"Mining\""), gameBot);
+
+        assertTrue(main.contains("System.out.println("), main);
+        assertFalse(main.contains("BotMaker.print("), main);
+        assertFalse(main.contains("import com.botmaker"), "a blank project imports nothing:\n" + main);
     }
 }

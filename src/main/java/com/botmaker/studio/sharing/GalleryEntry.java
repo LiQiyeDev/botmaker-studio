@@ -24,6 +24,22 @@ import java.util.List;
 public record GalleryEntry(String name, String owner, String repo, String description, List<String> tags,
                            SupportedTargets launchTargets) {
 
+    /**
+     * The one reserved tag: an entry carrying it is a <b>starting template</b> rather than a bot to install.
+     *
+     * <p>A template is a published bot — same repo, same release, same install path — and that is the whole
+     * design. Studio composes one starting point of its own (a blank project: a pom, an empty {@code src}
+     * tree and a {@code main} that prints a line), and every richer one is somebody's published project that
+     * New Project downloads and renames. So a new kind of starting point needs no Studio release, and the
+     * people who write bots are the people who write the templates.
+     *
+     * <p>It is a value in the existing free-form {@code tags} list rather than a field of its own, which
+     * costs one thing worth stating: an author is free to tag an ordinary bot {@code "template"} and it will
+     * be offered as one. That is a curation problem in a curated index, not a correctness one — the entry is
+     * still a real project that unpacks and compiles.
+     */
+    public static final String TEMPLATE_TAG = "template";
+
     public GalleryEntry {
         name = name == null ? "" : name.trim();
         owner = owner == null ? "" : owner.trim();
@@ -40,6 +56,11 @@ public record GalleryEntry(String name, String owner, String repo, String descri
     /** {@code owner/repo}, the stable identity of a bot. */
     public String slug() {
         return owner + "/" + repo;
+    }
+
+    /** True when this entry is a starting template — see {@link #TEMPLATE_TAG}. */
+    public boolean isTemplate() {
+        return tags.stream().anyMatch(TEMPLATE_TAG::equalsIgnoreCase);
     }
 
     /** True if the entry matches a free-text query against name / description / owner / tags. */

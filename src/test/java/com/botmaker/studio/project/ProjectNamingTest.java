@@ -1,7 +1,10 @@
 package com.botmaker.studio.project;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
@@ -49,15 +52,13 @@ class ProjectNamingTest {
     void theStarterFileNameAndItsClassAgree() {
         ProjectConfig config = ProjectConfig.forProject("myBot", ROOT);
 
-        for (ProjectTemplate template : ProjectTemplate.values()) {
-            var starter = StarterSources.of(config, template);
-            assertEquals(List.of("src/main/java/com/mybot/MyBot.java"), List.copyOf(starter.keySet()),
-                    "the file is named for the class, not for the project: " + template);
-            String main = starter.values().iterator().next();
-            assertTrue(main.contains("class MyBot"),
-                    "the class must be capitalized or the project doesn't compile:\n" + main);
-            assertTrue(main.contains("package com.mybot;"), main);
-        }
+        var starter = StarterSources.of(config);
+        assertEquals(List.of("src/main/java/com/mybot/MyBot.java"), List.copyOf(starter.keySet()),
+                "the file is named for the class, not for the project");
+        String main = starter.values().iterator().next();
+        assertTrue(main.contains("class MyBot"),
+                "the class must be capitalized or the project doesn't compile:\n" + main);
+        assertTrue(main.contains("package com.mybot;"), main);
     }
 
     @Test
@@ -65,6 +66,49 @@ class ProjectNamingTest {
         // ProjectManager used to rebuild this path itself, so it kept its own copy of the naming rule.
         ProjectConfig config = ProjectConfig.forProject("myBot", com.botmaker.studio.config.Constants.PROJECTS_ROOT);
         assertEquals(config.mainSourceFile(), new ProjectManager().getSourceFilePath("myBot"));
+    }
+
+    /**
+     * The entry point is <b>found</b>, not assumed — the derived name when it is there, otherwise the one
+     * class in the package that declares a {@code main}.
+     *
+     * <p>Two things make the derived name wrong: a user who renames or splits their entry class, and a
+     * project made from a published template, which keeps its author's class name. Run and the debugger both
+     * launch this, so assuming would mean launching a class that does not exist.
+     */
+    @Test
+    void theEntryPointIsFoundWhenItIsNotNamedAfterTheProject(@TempDir Path root) throws IOException {
+        ProjectConfig config = ProjectConfig.forProject("MyFarmer", root);
+        Path packageDir = config.mainSourceFile().getParent();
+        Files.createDirectories(packageDir);
+        Files.writeString(packageDir.resolve("Helper.java"),
+                "package com.myfarmer;\nfinal class Helper {}\n");
+        Files.writeString(packageDir.resolve("GameBot.java"),
+                "package com.myfarmer;\npublic class GameBot { public static void main(String[] a) {} }\n");
+
+        assertEquals("GameBot.java", config.entrySourceFile().getFileName().toString());
+        assertEquals("com.myfarmer.GameBot", config.entryClassName());
+    }
+
+    @Test
+    void theDerivedEntryPointWinsWhenItExists(@TempDir Path root) throws IOException {
+        ProjectConfig config = ProjectConfig.forProject("MyFarmer", root);
+        Path packageDir = config.mainSourceFile().getParent();
+        Files.createDirectories(packageDir);
+        Files.writeString(packageDir.resolve("GameBot.java"),
+                "package com.myfarmer;\npublic class GameBot { public static void main(String[] a) {} }\n");
+        Files.writeString(config.mainSourceFile(),
+                "package com.myfarmer;\npublic class MyFarmer { public static void main(String[] a) {} }\n");
+
+        assertEquals(config.mainSourceFile(), config.entrySourceFile(),
+                "a project Studio created keeps answering with the file it created");
+    }
+
+    @Test
+    void anEmptyProjectStillNamesAPathRatherThanNothing(@TempDir Path root) {
+        ProjectConfig config = ProjectConfig.forProject("MyFarmer", root);
+        assertEquals(config.mainSourceFile(), config.entrySourceFile(),
+                "callers want a path to complain about, not a null");
     }
 
     @Test

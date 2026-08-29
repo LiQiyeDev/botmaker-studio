@@ -598,7 +598,7 @@ public class CodeEditorService {
                         .anyMatch(f -> f.getPath().equals(file.getPath()));
                 if (!alreadyLoaded) state.addFile(file);
             }
-            switchToFile(config.mainSourceFile());
+            switchToFile(config.entrySourceFile());
         } catch (Exception e) {
             e.printStackTrace();
         }

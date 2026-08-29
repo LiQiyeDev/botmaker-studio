@@ -6,7 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
-- **2026-08-30 — nothing is locked but `main`.** With nothing generated there is nothing to protect an edit
+- **2026-08-30 — a starting point is a published bot.** New Project lists the gallery: an entry tagged
+  `template` is a starting template, and Browse Bots stops listing those. A template is an ordinary published
+  bot — same repo, release and index entry — so a new starting point needs no Studio release. Studio composes
+  one starting point of its own, the blank project, which is what makes New Project work with no network; it
+  now prints with `System.out.println` and imports nothing. The game-bot starter is gone from Studio: it is a
+  project that calls the SDK's static API, which is exactly what the gallery publishes.
+  A template arrives as its author shipped it **except for its package** (`project/TemplateProject`, driven by
+  a one-key `botmaker-template.properties`), so the entry class keeps the author's name — which is why
+  `ProjectConfig.entrySourceFile()`/`entryClassName()` now *find* the entry point instead of deriving it from
+  the project name, fixing Run and the debugger for a user who renames their own entry class too. No
+  `botmaker-source.json` is written, so a template is never mistaken for an installed bot with an update
+  waiting; the template's pom is kept whole, and the New Project SDK row is hidden when one is chosen.
+- **2026-08-30 — nothing is locked but `main`'s signature.** With nothing generated there is nothing to protect an edit
   from, so the "may the user change this?" machinery is gone: `FileRole.GENERATED`, `MethodLock`,
   `GeneratedMembers`, `LockedRegions` and `core/component/MemberVisibility` are deleted, `FileRole` is
   `EDITABLE | LIBRARY` over a path alone, and `LockResolver` refuses three things — a bot open for reading,

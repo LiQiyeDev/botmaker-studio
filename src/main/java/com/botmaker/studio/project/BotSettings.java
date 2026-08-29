@@ -259,7 +259,7 @@ public record BotSettings(boolean realInput,
      *         the caller can refresh the copy the editor holds in memory
      */
     public static String migrate(ProjectConfig config) throws IOException {
-        Path main = config.mainSourceFile();
+        Path main = config.entrySourceFile();
         Path legacy = legacyFile(main);
         boolean hasLegacyFile = legacy != null && Files.exists(legacy);
         String source = main != null && Files.exists(main) ? Files.readString(main) : null;

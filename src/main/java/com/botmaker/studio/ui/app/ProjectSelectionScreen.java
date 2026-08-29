@@ -8,6 +8,7 @@ import com.botmaker.studio.services.JitPackSearch;
 import com.botmaker.studio.services.MavenService;
 import com.botmaker.studio.sharing.BotInstaller;
 import com.botmaker.studio.sharing.BotSource;
+import com.botmaker.studio.sharing.GalleryEntry;
 import com.botmaker.studio.sharing.GitHubAuth;
 import com.botmaker.studio.sharing.GitHubClient;
 import com.botmaker.studio.sharing.GitHubGallery;
@@ -501,17 +502,42 @@ public class ProjectSelectionScreen implements ProjectWindow {
                 (o, was, portrait) -> ResolutionChoices.orient(resolutionCombo, !portrait));
         HBox orientationRow = new HBox(8, landscapeBtn, portraitBtn);
 
-        ComboBox<com.botmaker.studio.project.ProjectTemplate> templateCombo = new ComboBox<>(
-                javafx.collections.FXCollections.observableArrayList(
-                        com.botmaker.studio.project.ProjectTemplate.values()));
-        templateCombo.setValue(com.botmaker.studio.project.ProjectTemplate.GAME_BOT);
+        // The starting point. "Blank" is Studio's own and is always here, which is what makes New Project work
+        // with no network; every other row is a published bot tagged `template` in the gallery, fetched in the
+        // background so an unreachable index costs nothing but the extra rows.
+        ComboBox<TemplateChoice> templateCombo = new ComboBox<>(
+                javafx.collections.FXCollections.observableArrayList(TemplateChoice.blank()));
+        templateCombo.setValue(TemplateChoice.blank());
         templateCombo.setMaxWidth(Double.MAX_VALUE);
         templateCombo.setConverter(new javafx.util.StringConverter<>() {
-            @Override public String toString(com.botmaker.studio.project.ProjectTemplate t) {
-                return t == null ? "" : t.displayName() + " — " + t.description();
+            @Override public String toString(TemplateChoice t) {
+                return t == null ? "" : t.label();
             }
-            @Override public com.botmaker.studio.project.ProjectTemplate fromString(String s) { return null; }
+            @Override public TemplateChoice fromString(String s) { return null; }
         });
+        loadTemplates(templateCombo);
+
+        // The SDK pin is a question about a blank project only. A template ships its own pom — versions,
+        // extra libraries and all — and keeping it is the point of a template being a real published bot
+        // rather than a set of holes; Project ▸ Manage Libraries changes it afterwards, as it does for any
+        // other project. So the row is hidden rather than disabled: a control that cannot apply is not a
+        // control the user should have to reason about.
+        Label sdkLabel = new Label("BotMaker SDK version:");
+        Label templateNote = new Label("This template brings its own SDK and libraries — "
+                + "change them later in Project ▸ Manage Libraries.");
+        templateNote.setStyle("-fx-font-size: 10px; -fx-text-fill: gray;");
+        templateNote.setWrapText(true);
+        templateCombo.valueProperty().addListener((o, was, now) -> {
+            boolean blank = now == null || now.isBlank();
+            sdkLabel.setVisible(blank);
+            sdkLabel.setManaged(blank);
+            sdkVersionCombo.setVisible(blank);
+            sdkVersionCombo.setManaged(blank);
+            templateNote.setVisible(!blank);
+            templateNote.setManaged(!blank);
+        });
+        templateNote.setVisible(false);
+        templateNote.setManaged(false);
 
         content.getChildren().addAll(
                 new Label("Project Name:"),
@@ -521,9 +547,10 @@ public class ProjectSelectionScreen implements ProjectWindow {
                 rule2,
                 rule3,
                 exampleLabel,
-                new Label("Template:"),
+                new Label("Start from:"),
                 templateCombo,
-                new Label("BotMaker SDK version:"),
+                templateNote,
+                sdkLabel,
                 sdkVersionCombo,
                 new Label("Standard resolution:"),
                 resolutionCombo,
@@ -558,15 +585,59 @@ public class ProjectSelectionScreen implements ProjectWindow {
                 }
                 // Already in the chosen orientation — the combo's items are what the toggle re-orients.
                 com.botmaker.studio.project.StudioProjectSettings.Resolution resolution = resolutionCombo.getValue();
-                com.botmaker.studio.project.ProjectTemplate template = templateCombo.getValue() == null
-                        ? com.botmaker.studio.project.ProjectTemplate.EMPTY : templateCombo.getValue();
-                return new CreateRequest(projectNameField.getText(), version, resolution, template);
+                TemplateChoice choice = templateCombo.getValue() == null
+                        ? TemplateChoice.blank() : templateCombo.getValue();
+                return new CreateRequest(projectNameField.getText(), version, resolution, choice);
             }
             return null;
         });
 
         Optional<CreateRequest> result = dialog.showAndWait();
-        result.ifPresent(req -> createProject(req.projectName(), req.sdkVersion(), req.resolution(), req.template()));
+        result.ifPresent(req -> {
+            if (req.template().isBlank()) {
+                createProject(req.projectName(), req.sdkVersion(), req.resolution());
+            } else {
+                createFromTemplate(req.projectName(), req.resolution(), req.template().entry());
+            }
+        });
+    }
+
+    /**
+     * One row of the "Start from" list: Studio's blank project, or a published template.
+     *
+     * <p>{@code entry} is null for the blank one rather than there being two types, because the list is one
+     * list to the user and the difference is a branch at creation time, not a kind of thing.
+     */
+    private record TemplateChoice(GalleryEntry entry) {
+        static TemplateChoice blank() {
+            return new TemplateChoice(null);
+        }
+
+        boolean isBlank() {
+            return entry == null;
+        }
+
+        String label() {
+            if (entry == null) return "Blank — a main() and nothing else";
+            String description = entry.description() == null || entry.description().isBlank()
+                    ? "" : " — " + entry.description();
+            return entry.name() + description + "  (" + entry.owner() + ")";
+        }
+    }
+
+    /**
+     * Appends the gallery's templates to {@code combo}, off the FX thread.
+     *
+     * <p>Failure is silent on purpose: the list already holds the blank project, which is a complete answer to
+     * "what can I start from", and an error dialog in front of a working New Project dialog would be the
+     * network's problem presented as the user's.
+     */
+    private void loadTemplates(ComboBox<TemplateChoice> combo) {
+        new GitHubGallery(gitHubClient, gitHubAuth).browse().thenAccept(entries -> Platform.runLater(() -> {
+            for (GalleryEntry entry : entries) {
+                if (entry.isTemplate()) combo.getItems().add(new TemplateChoice(entry));
+            }
+        }));
     }
 
     /** Replaces the combo's items with the local dev builds (top) + JitPack versions. Preselects a local
@@ -601,7 +672,7 @@ public class ProjectSelectionScreen implements ProjectWindow {
     /** Result of the create-project dialog. */
     private record CreateRequest(String projectName, String sdkVersion,
                                  com.botmaker.studio.project.StudioProjectSettings.Resolution resolution,
-                                 com.botmaker.studio.project.ProjectTemplate template) {}
+                                 TemplateChoice template) {}
 
     private void showGallery() {
         GitHubGallery gallery = new GitHubGallery(gitHubClient, gitHubAuth);
@@ -634,19 +705,45 @@ public class ProjectSelectionScreen implements ProjectWindow {
      * was somewhere off-screen. Creating a project <em>is</em> asking to work on it.
      */
     private void createProject(String projectName, String sdkVersion,
-                               com.botmaker.studio.project.StudioProjectSettings.Resolution resolution,
-                               com.botmaker.studio.project.ProjectTemplate template) {
+                               com.botmaker.studio.project.StudioProjectSettings.Resolution resolution) {
         try {
-            projectCreator.createProject(projectName, sdkVersion, resolution, template);
+            projectCreator.createProject(projectName, sdkVersion, resolution,
+                    com.botmaker.studio.project.ProjectTemplate.EMPTY);
             onProjectSelected.open(projectName, false, true);
         } catch (Exception e) {
             // No version is a failure here any more: the floor went on 2026-08-25 with Studio's generation,
-            // and so did the too-new probe with the scaffold contract the day before. What is left is a
-            // refusal that is not about the version at all — the game-bot template needs the SDK's own file
-            // generator, which is not written yet (inversion phase 2) — and ProjectCreator's own sentence
-            // says that better than a header could, so it is shown as it is.
+            // and so did the too-new probe with the scaffold contract the day before. Whatever refusal is
+            // left, ProjectCreator's own sentence says it better than a header could.
             error("Could not create the project", e.getMessage());
         }
+    }
+
+    /**
+     * Downloads {@code entry}'s newest release and makes it {@code projectName}.
+     *
+     * <p>The download and the unpack are the slow, failable part and they run off the FX thread; everything
+     * the user sees about a failure is one dialog, because there is nothing half-created to explain — a
+     * failed template creation deletes its own directory (see {@code ProjectCreator.createFromTemplate}).
+     */
+    private void createFromTemplate(String projectName,
+                                    com.botmaker.studio.project.StudioProjectSettings.Resolution resolution,
+                                    GalleryEntry entry) {
+        GitHubGallery gallery = new GitHubGallery(gitHubClient, gitHubAuth);
+        BotInstaller installer = new BotInstaller(gitHubClient, gallery);
+        new Thread(() -> {
+            try {
+                String tag = gallery.latestReleaseTag(entry.owner(), entry.repo()).join();
+                if (tag == null || tag.isBlank()) {
+                    throw new java.io.IOException(entry.name() + " has no published release yet, so there is "
+                            + "nothing to start from. Ask its author to cut one.");
+                }
+                projectCreator.createFromTemplate(projectName, resolution,
+                        dest -> installer.unpackTemplate(entry, tag, dest));
+                Platform.runLater(() -> onProjectSelected.open(projectName, false, true));
+            } catch (Exception e) {
+                Platform.runLater(() -> error("Could not create the project", e.getMessage()));
+            }
+        }, "template-create").start();
     }
 
     private void error(String header, String body) {

@@ -149,7 +149,12 @@ public class GalleryDialog {
         browseProgress.setVisible(true);
         gallery.browse().whenComplete((entries, err) -> Platform.runLater(() -> {
             browseProgress.setVisible(false);
-            allEntries.setAll(entries == null ? List.of() : entries);
+            // Templates are in the same index and are not bots to install: they are starting points, offered
+            // by New Project. Installing one would give the user somebody else's package and a project with
+            // no name of their own, which is exactly what the template path exists to avoid.
+            allEntries.setAll(entries == null
+                    ? List.of()
+                    : entries.stream().filter(e -> !e.isTemplate()).toList());
             applyFilter();
             // Fetch each repo's live stars/last-push so the Stars/Recently-updated sorts and the ★ counts work.
             for (GalleryEntry e : allEntries) {
