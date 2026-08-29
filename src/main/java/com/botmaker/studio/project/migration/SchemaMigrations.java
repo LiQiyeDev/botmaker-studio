@@ -47,6 +47,13 @@ public final class SchemaMigrations {
      * <p>The step stays in the list rather than being removed, because the position <em>is</em> the schema
      * version: dropping it would renumber every step after it and re-run them on projects that have already
      * had them.
+     *
+     * <p><b>There is deliberately no step for activity ids.</b> {@code ActivityDefinition.id} arrived on
+     * 2026-08-29 and an existing project has none — and needs none: an absent id reads as the activity's
+     * name, which is stable, is what the identity has always effectively been, and makes a rename behave
+     * exactly as it did before. An activity created from that point on gets a real id, so the projects that
+     * gain the better behaviour are the ones being worked on. A step that rewrote every stored activity to
+     * add a field nobody can see would be a write to a user's file bought with nothing.
      */
     private static final List<SchemaMigration> ACTIVITIES_STEPS = List.of(
             ctx -> {

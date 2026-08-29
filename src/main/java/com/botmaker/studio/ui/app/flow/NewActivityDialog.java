@@ -200,8 +200,10 @@ public final class NewActivityDialog {
         String text = description.getText() == null ? "" : description.getText().trim();
         // Enabled from the start: an activity you just asked for and then have to tick on is a papercut, and the
         // canvas already shows a disabled card greyed out if you change your mind.
+        // An id of its own from the moment it is created, so the very first rename is already a rename.
         created = new ActivityDraft(candidate, text, true, List.of(), List.copyOf(outcomes),
-                goHome.isSelected(), popupCheck.isSelected(), x, y);
+                goHome.isSelected(), popupCheck.isSelected(), x, y,
+                com.botmaker.sdk.authoring.ActivityModel.newId());
         stage.close();
     }
 

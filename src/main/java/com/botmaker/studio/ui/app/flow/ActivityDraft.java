@@ -43,8 +43,29 @@ public final class ActivityDraft {
     private double x;
     private double y;
 
+    /**
+     * The activity's stable identity, carried through this draft untouched and never shown.
+     *
+     * <p><b>It is here because renaming happens here.</b> The name is a {@link StringProperty} the side
+     * panel edits in place, so a draft that did not carry the id would hand back a definition whose identity
+     * was the new name — and a host reconciling seed files would see one activity deleted and another
+     * created, orphaning the stub the user wrote their {@code run()} body into. This is the one field on this
+     * class that the editor never reads and never writes; it exists only to survive the round trip.
+     *
+     * <p>Not a property, because nothing may observe it and nothing may bind to it. Blank means "this draft
+     * was built before ids existed"; {@link ActivityDefinition} resolves that to the name.
+     */
+    private final String id;
+
     public ActivityDraft(String name, String description, boolean enabled, List<ActivityVariable> params,
                          List<String> outcomes, boolean goHome, boolean popupCheck, double x, double y) {
+        this(name, description, enabled, params, outcomes, goHome, popupCheck, x, y, null);
+    }
+
+    public ActivityDraft(String name, String description, boolean enabled, List<ActivityVariable> params,
+                         List<String> outcomes, boolean goHome, boolean popupCheck, double x, double y,
+                         String id) {
+        this.id = id;
         this.name.set(name);
         this.description.set(description == null ? "" : description);
         this.enabled.set(enabled);
@@ -56,16 +77,22 @@ public final class ActivityDraft {
         this.y = y;
     }
 
-    /** A draft of an existing activity, placed at {@code (x, y)}. */
+    /** A draft of an existing activity, placed at {@code (x, y)} — carrying its id. */
     public static ActivityDraft of(ActivityDefinition def, double x, double y) {
         return new ActivityDraft(def.name(), def.description(), def.enabled(), List.of(), def.outcomes(),
-                def.goHome(), def.popupCheck(), x, y);
+                def.goHome(), def.popupCheck(), x, y, def.id());
     }
 
-    /** The immutable definition this draft currently describes. */
+    /**
+     * The immutable definition this draft currently describes, <b>with the identity it came in with</b>.
+     *
+     * <p>The last argument is the whole reason {@link #id} exists on this class. Rebuilding the definition
+     * from the draft's visible fields alone — which is what this did until 2026-08-29 — makes a rename
+     * indistinguishable from a delete plus a create, because the name is the only identity left.
+     */
     public ActivityDefinition toDefinition() {
         return new ActivityDefinition(name.get(), enabled.get(), description.get(),
-                List.copyOf(outcomes), goHome.get(), popupCheck.get());
+                List.copyOf(outcomes), goHome.get(), popupCheck.get(), id);
     }
 
     /**

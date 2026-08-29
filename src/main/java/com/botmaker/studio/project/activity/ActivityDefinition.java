@@ -44,27 +44,54 @@ import java.util.List;
  * {@code PopupGuard.enabled(…)} per activity rather than only for the off ones, because the flag is
  * process-global: an activity that didn't set it would inherit whatever the previous one left behind.
  *
+ * <p><b>{@link #id()} is what a rename is a rename of</b> (2026-08-29). The name is what the user types and
+ * what the class is called, so it is exactly the thing a rename changes — which means nothing tracking
+ * "which file is this activity's" across a rename may key on it. A host reconciling seed files that matched
+ * on the name would see one activity vanish and another appear, orphan the stub the user wrote their
+ * {@code run()} body into, and hand them an empty one. The id never changes and is never shown.
+ *
+ * <p>It is carried here, on Studio's own record, for a blunt reason: <b>Studio writes this file</b>. A field
+ * this record did not know about would be dropped on the first save, so the SDK's
+ * {@code ActivityModel.id} would exist exactly until the user touched anything. That is the standing hazard
+ * of two record sets over one file, and it is why the two are being collapsed.
+ *
+ * <p><b>Absent means the name, and there is no migration.</b> That default is what every project written
+ * before the field behaved as: stable, so a rename in an old project does exactly what it always did rather
+ * than anything worse, and never churning the way a fresh random default would — which would make every open
+ * look like a rename. An activity created from 2026-08-29 on gets a real id, so the projects that gain the
+ * better behaviour are the ones being worked on, and nobody's stored file is rewritten to add a field they
+ * cannot see.
+ *
  * @param name        activity name / generated class name (a valid Java identifier)
  * @param enabled     the default value of the enable flag
  * @param description optional human-readable note (may be empty)
  * @param outcomes    the named results this activity can report, excluding the implicit NEXT
  * @param goHome      run {@code GoHome.run()} before this activity; null (absent) ⇒ true
  * @param popupCheck  let the popup guard dismiss popups during this activity; null (absent) ⇒ true
+ * @param id          the stable identity a rename does not change; blank (absent) ⇒ {@code name}
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record ActivityDefinition(String name, boolean enabled, String description,
-                                 List<String> outcomes, Boolean goHome, Boolean popupCheck) {
+                                 List<String> outcomes, Boolean goHome, Boolean popupCheck, String id) {
 
     public ActivityDefinition {
         if (description == null) description = "";
         outcomes = outcomes == null ? List.of() : List.copyOf(outcomes);
         if (goHome == null) goHome = Boolean.TRUE;
         if (popupCheck == null) popupCheck = Boolean.TRUE;
+        if (id == null || id.isBlank()) id = name == null ? "" : name;
     }
 
-    /** A fresh activity with the given name/description, disabled. */
+    /** The pre-id shape: the name stands in as the id, exactly as it does for a file that has none. */
+    public ActivityDefinition(String name, boolean enabled, String description,
+                              List<String> outcomes, Boolean goHome, Boolean popupCheck) {
+        this(name, enabled, description, outcomes, goHome, popupCheck, null);
+    }
+
+    /** A fresh activity with the given name/description, disabled, and an id of its own from the start. */
     public static ActivityDefinition create(String name, String description) {
-        return new ActivityDefinition(name, false, description, List.of(), Boolean.TRUE, Boolean.TRUE);
+        return new ActivityDefinition(name, false, description, List.of(), Boolean.TRUE, Boolean.TRUE,
+                com.botmaker.sdk.authoring.ActivityModel.newId());
     }
 
     /**
@@ -113,22 +140,34 @@ public record ActivityDefinition(String name, boolean enabled, String descriptio
     }
 
     public ActivityDefinition withEnabled(boolean newEnabled) {
-        return new ActivityDefinition(name, newEnabled, description, outcomes, goHome, popupCheck);
+        return new ActivityDefinition(name, newEnabled, description, outcomes, goHome, popupCheck, id);
     }
 
     public ActivityDefinition withDescription(String newDescription) {
-        return new ActivityDefinition(name, enabled, newDescription, outcomes, goHome, popupCheck);
+        return new ActivityDefinition(name, enabled, newDescription, outcomes, goHome, popupCheck, id);
     }
 
     public ActivityDefinition withOutcomes(List<String> newOutcomes) {
-        return new ActivityDefinition(name, enabled, description, newOutcomes, goHome, popupCheck);
+        return new ActivityDefinition(name, enabled, description, newOutcomes, goHome, popupCheck, id);
     }
 
     public ActivityDefinition withGoHome(boolean newGoHome) {
-        return new ActivityDefinition(name, enabled, description, outcomes, newGoHome, popupCheck);
+        return new ActivityDefinition(name, enabled, description, outcomes, newGoHome, popupCheck, id);
     }
 
     public ActivityDefinition withPopupCheck(boolean newPopupCheck) {
-        return new ActivityDefinition(name, enabled, description, outcomes, goHome, newPopupCheck);
+        return new ActivityDefinition(name, enabled, description, outcomes, goHome, newPopupCheck, id);
     }
+
+    /**
+     * The same activity under a new name, keeping its id — which is the whole point of there being one.
+     *
+     * <p>Every other copy above carries the id through as bookkeeping; here carrying it <em>is</em> the
+     * behaviour. Rename through this and a host sees one activity that changed its name; rebuild the record
+     * from its parts instead and it sees one deleted and one created, over the user's own work.
+     */
+    public ActivityDefinition withName(String newName) {
+        return new ActivityDefinition(newName, enabled, description, outcomes, goHome, popupCheck, id);
+    }
+
 }
