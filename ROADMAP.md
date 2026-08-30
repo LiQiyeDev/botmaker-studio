@@ -6,6 +6,21 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-30 — the strictness editor is the SDK's, and Studio stops naming `com.botmaker.sdk.internal`.**
+  Ninth step of *Studio knows only the contract*, phase 3b slice 2. Deleted
+  `ui/render/components/PrecisionArgPicker` (711 lines) with **both** dispatch arms — the `PickerRegistry`
+  entry and `ValueEditors`' `PRECISION` case, whose `PrecisionRow` drew the same three numbers as a preset
+  dropdown and three bare fields. What replaces them is one editor in the SDK
+  (`internal/plugin/editors/PrecisionEditors`) drawn in both places, so a Parameters row gets the ΔE swatch
+  strip, the blob drawn to scale and the frame readout it never had. The port's real work was the **reader**:
+  Studio read the current value off a JDT syntax tree, and the contract hands a plugin source text, so it is
+  now a walk over the expression's top-level dotted segments — which is all a wither chain
+  (`Precision.TIGHT.minArea(400)`) is. This also retires the second temporary the colour slice left behind:
+  `PrecisionArgPicker` was the last Studio class reaching into `com.botmaker.sdk.internal.plugin.capture`.
+  `ObjectCaptureSurface`'s import of the SDK's `ZoomPan` stays for one more slice — its caller is
+  `OverlayTemplateCapture`, so it belongs to the **image-template** slice, not this one. 1218 Studio tests,
+  495 SDK tests, green.
+
 - **2026-08-30 — the colour editor is the SDK's, in both places a colour is edited.** Eighth step of *Studio
   knows only the contract*, phase 3b slice 1, and the first slice that actually moves a picker. Deleted
   `ui/render/components/ColorArgPicker`, `ui/app/capture/{ColorSampler, ZoomPan, GameFrame}` and

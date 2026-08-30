@@ -149,10 +149,12 @@ public final class ValueEditors {
                 DatePicker picker = new DatePicker(parseDate(value));
                 yield new Editor(picker, () -> picker.getValue() == null ? "" : picker.getValue().toString());
             }
-            case "PRECISION" -> {
-                PrecisionRow row = new PrecisionRow(value);
-                yield new Editor(row, row::wire);
-            }
+            // PRECISION has no arm here any more, on the same reasoning as DURATION above and with the same
+            // thing gained as COLOR below: this window drew the three numbers as a preset dropdown and three
+            // bare fields, while a block drew them as a dialog that shows what each of them does — the ΔE
+            // swatch strip, the blob drawn to scale, and the readout of what these settings would find in a
+            // frozen frame of the game. The SDK's editor is the one with the explanations, and it is now
+            // drawn in both places.
             // COLOR has no arm here any more either, on the same reasoning as DURATION above and with one
             // thing gained beyond having a single editor: the row's eyedropper picked off the live screen
             // while the block's picked off a frozen frame of the capture target, so the same value was
@@ -524,88 +526,11 @@ public final class ValueEditors {
 
     // --- precision ------------------------------------------------------------------------------------------
 
-    /**
-     * The three numbers a {@code Precision} is — colour tolerance, smallest blob, fewest blobs — as a preset
-     * dropdown over the tolerance plus two fields.
-     *
-     * <p>This slot used to render as an empty dropdown, and the reason is worth recording: the generic enum
-     * branch read {@code Precision}'s enum constants, and {@code Precision} is a <em>record</em>,
-     * so it has no constants and the list came back empty. A record's fields are what it needs edited, and
-     * they are what this shows.
-     *
-     * <p>ΔE is named by tolerance rather than by number because "12" means nothing without knowing the scale;
-     * the exact value is still typeable for anyone who does.
-     */
-    private static final class PrecisionRow extends HBox {
-
-        /** The tolerance presets, as ΔE in the CIE76 sense the SDK matcher uses. */
-        private enum Tolerance {
-            EXACT("Exact", 0), STRICT("Strict", 5), NORMAL("Normal", 12), LOOSE("Loose", 25);
-
-            final String label;
-            final double deltaE;
-
-            Tolerance(String label, double deltaE) {
-                this.label = label;
-                this.deltaE = deltaE;
-            }
-        }
-
-        private final ComboBox<Tolerance> preset = new ComboBox<>();
-        private final TextField deltaE = new TextField();
-        private final TextField minArea = new TextField();
-        private final TextField minCount = new TextField();
-
-        PrecisionRow(String wire) {
-            super(6);
-            setAlignment(Pos.CENTER_LEFT);
-            String[] parts = (wire == null ? "" : wire).split(",");
-            deltaE.setText(part(parts, 0, "12.0"));
-            minArea.setText(part(parts, 1, "4"));
-            minCount.setText(part(parts, 2, "0"));
-            for (TextField field : List.of(deltaE, minArea, minCount)) field.setPrefColumnCount(5);
-
-            preset.getItems().setAll(Tolerance.values());
-            preset.setButtonCell(presetCell());
-            preset.setCellFactory(list -> presetCell());
-            preset.valueProperty().addListener((obs, was, now) -> {
-                if (now != null) deltaE.setText(trimZero(now.deltaE));
-            });
-            syncPreset();
-            deltaE.textProperty().addListener((obs, was, now) -> syncPreset());
-
-            getChildren().addAll(preset, labelled("ΔE", deltaE), labelled("min area", minArea),
-                    labelled("min blobs", minCount));
-        }
-
-        String wire() {
-            return number(text(deltaE), 12.0) + "," + (long) number(text(minArea), 4)
-                    + "," + (long) number(text(minCount), 0);
-        }
-
-        /** Shows the preset the typed ΔE happens to be, and nothing when it is a value of its own. */
-        private void syncPreset() {
-            double current = number(text(deltaE), -1);
-            Tolerance match = null;
-            for (Tolerance t : Tolerance.values()) {
-                if (Math.abs(t.deltaE - current) < 0.001) match = t;
-            }
-            preset.setValue(match);
-        }
-
-        private static String part(String[] parts, int index, String fallback) {
-            return index < parts.length && !parts[index].isBlank() ? parts[index].trim() : fallback;
-        }
-
-        private static javafx.scene.control.ListCell<Tolerance> presetCell() {
-            return new javafx.scene.control.ListCell<>() {
-                @Override protected void updateItem(Tolerance item, boolean empty) {
-                    super.updateItem(item, empty);
-                    setText(empty || item == null ? "Custom" : item.label);
-                }
-            };
-        }
-    }
+    // PrecisionRow is gone, with the arm above. It showed the three numbers as a preset dropdown and three
+    // fields, which is the shape a record's components suggest and not the shape the question has: each of
+    // the three fails silently on its own, and a number typed into a box says nothing about what it will let
+    // through. The SDK's editor is a dialog that shows each of them instead, and it is now what this window
+    // draws too.
 
     // --- colour ---------------------------------------------------------------------------------------------
 
@@ -916,11 +841,6 @@ public final class ValueEditors {
         } catch (NumberFormatException e) {
             return fallback;
         }
-    }
-
-    /** {@code 12.0} as "12" and {@code 12.5} as "12.5" — a whole value should not read as a decimal. */
-    private static String trimZero(double value) {
-        return value == Math.rint(value) ? Long.toString(Math.round(value)) : Double.toString(value);
     }
 
     /** {@code #RRGGBB} as an FX colour; anything unreadable is white, which is what the wire form says too. */

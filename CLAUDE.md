@@ -114,6 +114,27 @@ Three things are worth knowing before touching any of it.
   and the legacy `settings.json` reader is deliberately a **tree walk** rather than a resurrected record set
   — four lines mapping an old node to a spec, so no second vocabulary survives to serve one file format.
 
+**Two of Studio's value editors are the SDK plugin's now, and deleting *both* dispatch arms is what let them
+be (2026-08-30).** A `java.awt.Color` and an `api.vision.Precision` are drawn by
+`com.botmaker.sdk.internal.plugin.editors.{ColorEditors, PrecisionEditors}`; gone from here are
+`ui/render/components/{ColorArgPicker, PrecisionArgPicker}`, `ui/app/capture/{ColorSampler, ZoomPan,
+GameFrame}` and `ValueEditors`' `ColorRow` and `PrecisionRow`.
+
+- **A type the host answers is a type no plugin is ever offered**, and there are two places the host answers
+  one: a `PickerRegistry` entry for a slot on the canvas, and a `case` in `ValueEditors` for a row in the
+  Parameters window. Removing one leaves the plugin shut out of half the app, so each move removes both.
+  `DurationEditor` is the precedent, and the standing comments at both sites say so.
+- **The gain is not tidiness, it is that the two halves stop disagreeing.** Studio sampled a colour off a
+  frozen frame on a block and off the live screen in a row — same value, two answers, and only one could
+  report the patch's ΔE spread. It drew a `Precision` as a dialog explaining each number on a block and as
+  three bare fields in a row. One editor over a `ValueContext` is drawn in both.
+- **A plugin's editor grabs its own pixels.** `EditorFrame` reads the project's default capture target out of
+  the SDK's `capture.json` and grabs through shared; the host answers only `resourcesDir()`. Nothing was
+  added to `StudioServices` for either move, which is the standing condition on all of this.
+- **The `Precision` port had to leave JDT behind**, and that is the general cost of this direction: Studio
+  reads a slot's current value off a syntax tree, and the contract hands a plugin source text. Expect the
+  reader to be rewritten every time a picker moves.
+
 ## Setup
 
 User projects live in `~/BotMakerProjects/` (not inside this repo). Each project is a standard **Maven** project with the layout `src/main/java/com/<projectnamelowercase>/<ProjectName>.java`. The BotMaker-Studio app itself is also a Maven project (`pom.xml`): build with `mvn compile`, run with `mvn javafx:run`, test with `mvn test`.
@@ -687,8 +708,10 @@ The `ui/` package is split by concern:
   plugin's contribution. Nothing here calls it and nothing here closes it: the host says the project is
   closing and the plugin releases its own port and display. See *the Remote Pilot left Studio* below.
 - **`ui/app/capture/`** — the screen-capture feature: `OverlayTemplateCapture` (the on-screen capture toolbar)
-  over `CaptureSurface` / `ObjectCaptureSurface` (rect and contour selection), `MagicWand`, `ColorSampler`,
-  `ZoomPan`, `CaptureSourcePicker`, `TargetThumbnail`, `GameFrame`, `BatchTemplateNamingDialog`.
+  over `CaptureSurface` / `ObjectCaptureSurface` (rect and contour selection), `MagicWand`,
+  `CaptureSourcePicker`, `TargetThumbnail`, `BatchTemplateNamingDialog`. `ColorSampler`, `ZoomPan` and
+  `GameFrame` left for the SDK plugin on 2026-08-30; `ObjectCaptureSurface` imports the SDK's `ZoomPan` until
+  it follows, which is the image-template slice.
 - **`ui/app/flow/`** — the activity-flow graph editor: `FlowCanvas` (nodes, ports, edges, auto-arrange),
   `FlowRules`, `FlowNames`, `ActivityDraft`, `ActivityValueWidgets`, `NewActivityDialog`.
 - **`ui/app/overlay/`** — the **Overlay Editor**: the always-on-top HUD that mirrors the program as one-line

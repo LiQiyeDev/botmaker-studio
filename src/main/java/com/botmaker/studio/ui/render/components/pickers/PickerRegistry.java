@@ -3,12 +3,10 @@ package com.botmaker.studio.ui.render.components.pickers;
 import com.botmaker.sdk.api.capture.CaptureSource;
 import com.botmaker.sdk.api.capture.Window;
 import com.botmaker.sdk.api.launch.LaunchTarget;
-import com.botmaker.sdk.api.vision.Precision;
 import com.botmaker.studio.ui.render.components.CaptureSourcePicker;
 import com.botmaker.studio.ui.render.components.EmulatorArgPicker;
 import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
 import com.botmaker.studio.ui.render.components.LaunchTargetArgPicker;
-import com.botmaker.studio.ui.render.components.PrecisionArgPicker;
 import javafx.scene.Node;
 
 import java.util.List;
@@ -56,13 +54,12 @@ public final class PickerRegistry {
             // LaunchTarget slot → the Steam/Epic/Exe/Emulator target builder (replaces the plain ctor pill).
             SpecialTypePicker.of(ctx -> ctx.isType(LaunchTarget.class),
                     ctx -> LaunchTargetArgPicker.create(ctx.context(), ctx.arg())),
-            // The Pixel facade's strictness argument. It is an SDK value type rather than three bare numbers
-            // precisely so this dispatch can be type-based: an arg-index table would have had to know which
-            // index it sits at in each of find / findAll / coverage / matchesAt / waitFor, and would silently
-            // stop firing the day the SDK gains an overload. The method name is passed on (not matched on) so
-            // the editor can hide the knobs that call cannot act on.
-            SpecialTypePicker.of(ctx -> ctx.isType(Precision.class),
-                    ctx -> PrecisionArgPicker.create(ctx.context(), ctx.arg(), ctx.methodName())),
+            // The Pixel facade's strictness argument has no entry here any more either, on the same reasoning
+            // as DURATION and COLOR: it is the SDK's own value type, so its editor is the SDK's
+            // (com.botmaker.sdk.internal.plugin.editors.PrecisionEditors), reached through PluginPickers
+            // below. Deleting this entry and the PRECISION arm of ValueEditors is what lets one editor draw
+            // it in both places — the Parameters window used to show the same three numbers as bare fields,
+            // with none of the swatch strip, the blob preview or the frame readout.
             SpecialTypePicker.of(ctx -> ImageTemplatePicker.isImageTemplateType(ctx.paramType()),
                     ctx -> ImageTemplatePicker.create(ctx.context(), ctx.arg())),
             ImageTemplateGroupPicker.asSpecialType(),
