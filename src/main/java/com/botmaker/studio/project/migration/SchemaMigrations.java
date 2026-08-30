@@ -6,6 +6,7 @@ import com.botmaker.studio.project.ProjectConfig;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -16,12 +17,13 @@ import java.util.List;
  * of a sniff. Nothing was deleted, so first-open behaviour on an existing project is unchanged — what changes
  * is that the second open does not run them again.
  *
- * <p><b>What is deliberately not here.</b> {@code ScaffoldMigration} — retiring {@code GameLoop.java} and
- * {@code Startup.java}, installing the popup guard — is not a step, because the thing it versions is the
- * generated <em>scaffold</em>, which is not one of these three files and is the SDK generator's to version.
- * It stays an unconditional, self-gated pass in {@code ProjectOpenMigrations}. So does
- * {@code ImageTemplateLibrary.regenerateTemplatesClass}, which is not a migration at all: it is idempotent
- * regeneration that also happens to repair a hand-deleted copy, and it must run on every open, not once.
+ * <p><b>What used to be deliberately not here, and no longer exists.</b> Two passes were excluded on the
+ * grounds that they versioned the generated <em>scaffold</em> rather than one of these three files, and so
+ * ran unconditionally on every open: {@code ScaffoldMigration} (retiring {@code GameLoop.java} and
+ * {@code Startup.java}) and {@code ImageTemplateLibrary.regenerateTemplatesClass} (idempotent re-emission
+ * of a file with two authors). Both are deleted with the generator, on 2026-08-29. Nothing outside this
+ * class rewrites a project's Java now, which is why the *"a project's structure belongs to the user"* step
+ * below can be a report and nothing more.
  */
 public final class SchemaMigrations {
 
@@ -54,6 +56,22 @@ public final class SchemaMigrations {
      * exactly as it did before. An activity created from that point on gets a real id, so the projects that
      * gain the better behaviour are the ones being worked on. A step that rewrote every stored activity to
      * add a field nobody can see would be a write to a user's file bought with nothing.
+     *
+     * <p><b>2 → 3: the files the old generator wrote become the user's, and are said to be (2026-08-30).</b>
+     * The step writes nothing at all — it reads the project's source directory and reports what it finds.
+     * That is the entire migration, because the change it announces already happened everywhere else: with
+     * the generator deleted, nothing rewrites {@code Activities.java}, {@code Parameters.java},
+     * {@code Templates.java}, {@code ActivityRegistry.java}, {@code FlowDriver.java} or the
+     * {@code activities} package, and {@code FileRole} classes every one of them {@code EDITABLE}.
+     *
+     * <p>It is a numbered step rather than a check on every open for the one property a number buys:
+     * <b>the sentence is said once</b>. A project a user has already been told about is a project where the
+     * message is noise, and a message that reappears every open is one that stops being read.
+     *
+     * <p><b>Deleting them was considered and refused.</b> They compile — every SDK type they name is kept by
+     * never-delete — and one of them, {@code Templates.java}, is the only place a bot's picture names are
+     * written down. A migration that deleted working code the user can read would be the generator's last
+     * act of ownership, taken on the way out.
      */
     private static final List<SchemaMigration> ACTIVITIES_STEPS = List.of(
             ctx -> {
@@ -62,7 +80,46 @@ public final class SchemaMigrations {
                         : "Restored " + restored + " archived activity stub" + (restored == 1 ? "" : "s")
                           + " into the project.";
             },
-            ctx -> null);
+            ctx -> null,
+            ctx -> {
+                List<String> inherited = generatedFilesLeftBehind(ctx.config());
+                return inherited.isEmpty() ? null
+                        : inherited.size() + " file" + (inherited.size() == 1 ? " that BotMaker" : "s that BotMaker")
+                          + " used to rewrite " + (inherited.size() == 1 ? "is" : "are") + " yours now — "
+                          + String.join(", ", inherited)
+                          + ". Nothing regenerates them; rename, edit or delete them as you like.";
+            });
+
+    /**
+     * The files the old generator wrote that are still in this project, by name, in a stable order.
+     *
+     * <p>Named rather than detected by a marker comment: the marker was the generator's and a user who
+     * edited one of these files may well have removed it, which would make the very projects most worth
+     * telling the silent ones. A user's own class that happens to be called {@code Templates.java} is
+     * reported too, and that is the right trade — the sentence says the file is theirs, which was already
+     * true.
+     */
+    private static List<String> generatedFilesLeftBehind(ProjectConfig config) {
+        Path pkg = config.mainSourceFile().getParent();
+        if (pkg == null || !Files.isDirectory(pkg)) return List.of();
+
+        List<String> found = new ArrayList<>();
+        for (String name : List.of("Activities.java", "ActivityRegistry.java", "FlowDriver.java",
+                "Parameters.java", "Templates.java")) {
+            if (Files.isRegularFile(pkg.resolve(name))) found.add(name);
+        }
+        Path activities = config.activitiesPackageDir();
+        if (Files.isDirectory(activities)) {
+            try (var entries = Files.list(activities)) {
+                long stubs = entries.filter(p -> p.toString().endsWith(".java")).count();
+                if (stubs > 0) found.add(stubs + " in activities/");
+            } catch (IOException unreadable) {
+                // A directory that cannot be listed is not worth failing an open over: the other names
+                // still report, and nothing here is about to write anything.
+            }
+        }
+        return found;
+    }
 
     /**
      * No steps yet — {@code settings.json} is still at version 0. Listed explicitly rather than left to a

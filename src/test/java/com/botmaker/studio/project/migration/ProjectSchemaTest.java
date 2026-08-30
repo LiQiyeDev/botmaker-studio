@@ -124,6 +124,50 @@ class ProjectSchemaTest {
                 "stamping the file must not lose what was already in it");
     }
 
+    /**
+     * The files the old generator wrote are the user's now, and the project is told so once.
+     *
+     * <p>The two halves are equally load-bearing. Reporting is what stops a user believing BotMaker still
+     * owns those files; writing <b>nothing</b> is what makes the sentence true.
+     */
+    @Test
+    void aProjectFromTheGeneratorIsToldItsFilesAreItsOwn(@TempDir Path root) throws IOException {
+        ProjectConfig config = project(root);
+        Files.writeString(SchemaFile.ACTIVITIES.in(config.resourcesRoot()), "{\"activities\":[]}");
+        Path pkg = config.mainSourceFile().getParent();
+        Files.writeString(pkg.resolve("Activities.java"), "package com.mybot;\npublic class Activities {}\n");
+        Files.writeString(pkg.resolve("Templates.java"), "package com.mybot;\npublic class Templates {}\n");
+        Files.createDirectories(config.activitiesPackageDir());
+        Files.writeString(config.activitiesPackageDir().resolve("Mining.java"),
+                "package com.mybot.activities;\npublic class Mining {}\n");
+
+        List<String> report = ProjectSchema.migrate(config, ignored -> { });
+
+        assertTrue(report.stream().anyMatch(line -> line.contains("Activities.java")
+                        && line.contains("Templates.java") && line.contains("1 in activities/")),
+                "the user is told which files they have inherited: " + report);
+        assertTrue(Files.exists(pkg.resolve("Activities.java")), "and not one of them is touched");
+        assertEquals("package com.mybot;\npublic class Templates {}\n",
+                Files.readString(pkg.resolve("Templates.java")));
+        assertTrue(Files.exists(config.activitiesPackageDir().resolve("Mining.java")));
+
+        assertTrue(ProjectSchema.migrate(config, ignored -> { }).isEmpty(),
+                "and told once — a sentence repeated on every open stops being read");
+    }
+
+    @Test
+    void aProjectThatNeverHadThoseFilesIsToldNothing(@TempDir Path root) throws IOException {
+        ProjectConfig config = project(root);
+        Files.writeString(SchemaFile.ACTIVITIES.in(config.resourcesRoot()), "{\"activities\":[]}");
+        Files.writeString(config.mainSourceFile(),
+                "package com.mybot;\npublic class MyBot { public static void main(String[] a) {} }\n");
+
+        List<String> report = ProjectSchema.migrate(config, ignored -> { });
+
+        assertTrue(report.stream().noneMatch(line -> line.contains("yours now")),
+                "a blank project has inherited nothing: " + report);
+    }
+
     @Test
     void aSecondOpenRunsNothingAndReportsNothing(@TempDir Path root) throws IOException {
         ProjectConfig config = project(root);

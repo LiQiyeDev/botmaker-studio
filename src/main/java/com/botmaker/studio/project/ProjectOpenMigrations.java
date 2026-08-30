@@ -67,11 +67,13 @@ public final class ProjectOpenMigrations {
      * is <b>absent</b>, where there is no edit to judge and nothing to overwrite: {@link ProjectRepair#recover}
      * re-checks each path and never clobbers a file that exists.
      *
-     * <p><b>Stubs and the generated activity classes come back here too, since 2026-08-26.</b> They used to
-     * be skipped, because rebuilding them meant an {@code ActivityService} that is not wired yet at this
-     * point in the open; {@link Regeneration} needs no service — it reads the pom for the pin and
-     * {@code activities.json} for the model, both of which are files — so the open path can restore
-     * everything the menu action can.
+     * <p><b>No {@code .java} is restored here, or anywhere, since 2026-08-29.</b> For three days this pass
+     * could rebuild the generated activity classes, because {@code Regeneration} read the pom for the pin
+     * and {@code activities.json} for the model and so needed no service the open had not yet wired. Both
+     * the class and the capability are gone with the generator: restoring a source file means knowing what
+     * it ought to contain, and nothing knows that about a file whose author is the user. What is restored
+     * is the four files that are not source — the pom, the project properties, {@code settings.json} and
+     * the placeholder image — plus {@code activities.json} itself.
      */
     private static List<String> restoreMissingFiles(ProjectConfig config, ProjectState state) {
         List<String> report = new ArrayList<>();

@@ -451,6 +451,15 @@ there are three distinct relationships to keep straight:
     an offer to write into a user's project, about a file that was never there. The same applies to creating
     an activity in the explorer: it opens the body if the user has already written one, and otherwise opens
     nothing.
+  - **A project the old generator wrote keeps every file it wrote, and is told so once (2026-08-30).**
+    `Activities.java`, `Parameters.java`, `Templates.java`, `ActivityRegistry.java`, `FlowDriver.java` and
+    the whole `activities/` package are ordinary user files: nothing regenerates, reconciles or deletes them,
+    `FileRole` classes them `EDITABLE`, and they keep compiling because every SDK type they name is kept by
+    never-delete. The announcement is `SchemaMigrations` **activities step 2 → 3**, which writes nothing at
+    all — it reads the source directory and returns a sentence. It is a numbered step for the one property a
+    number buys: **the sentence is said once**, where a check on every open would become noise and stop
+    being read. *Deleting them was considered and refused* — they work, and `Templates.java` is the only
+    place a bot's picture names are written down.
   - **The lock machinery went on 2026-08-30, and what replaced it is one rule.** `FileRole.GENERATED`,
     `MethodLock`, `GeneratedMembers`, `LockedRegions` and `core/component/MemberVisibility` are deleted;
     `FileRole` is `EDITABLE | LIBRARY` over a path alone, and `LockResolver` refuses exactly three things:

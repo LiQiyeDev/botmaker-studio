@@ -6,6 +6,13 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-30 — an old project's generated files become its own.** `SchemaMigrations` activities step 2 → 3
+  reads the source directory and reports `Activities.java`, `Parameters.java`, `Templates.java`,
+  `ActivityRegistry.java`, `FlowDriver.java` and the `activities/` stubs as the user's, writing nothing. A
+  numbered step rather than an open-time check, so the sentence is said once. Deleting them was refused:
+  they compile, and `Templates.java` is where a bot's picture names are written down. `ProjectRepair`
+  already restored no `.java`, so the rest of the phase was two stale comments.
+
 - **2026-08-30 — an activity's body is found, not computed.** `project/ActivityBodies.find` scans for
   `define("<name>"` over `BotSources.firstMatch` (the new read-only half of the sources walk, buffer before
   disk); `OverlayTargetPicker` and the explorer's *new activity* path both go through it. Nothing writes a
