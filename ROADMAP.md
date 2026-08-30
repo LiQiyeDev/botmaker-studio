@@ -6,6 +6,23 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-30 — the capture surfaces are the SDK's, and the overlay is its feature.** Eleventh step of
+  *Studio knows only the contract*, phase 3b slice 3. Gone from here:
+  `ui/app/capture/{CaptureSurface, ObjectCaptureSurface, MagicWand}` and the body of
+  `OverlayToolbars.promoteAboveFullscreen`, all four into `com.botmaker.sdk.internal.plugin.capture`
+  (`OverlayStage` for the last). The framing that settles every remaining question in this area: **the
+  overlay is a feature of the SDK, not of Studio** — it exists to turn a `CaptureTargetModel` into an
+  `ImageTemplate`, and both of those belong to that plugin. `ZoomPan` went the rest of its way in the same
+  commit, from the SDK to `botmaker-plugin-toolkit`, which it could not reach while a Studio class named it.
+  Two details worth carrying: both surfaces took a `Window owner` they never used (they are deliberately
+  ownerless so the editor can be minimised mid-capture) and that dead parameter became the live
+  `StudioServices` they reach `Capture.toFxImage` through — nothing was added to the contract; and
+  `ThemedWindows.UNTHEMED` became `Styles.UNTHEMED`, the same string in the toolkit, because refusing the
+  host's theme is something a plugin drawing over a live game has to be able to say. `OverlayTemplateCapture`
+  and `BatchTemplateNamingDialog` stay here for one more step — they need `TagPicklist` and
+  `ImageTemplatePicker`, which move with the template editors. 1180 Studio tests, 533 SDK tests, 39 toolkit
+  tests, green; the 11-test difference is the two `MagicWand` tests moving with their subject.
+
 - **2026-08-30 — the project's pictures are the SDK's folder.** Tenth step of *Studio knows only the
   contract*, and the prerequisite half of phase 3b slice 3 — the same shape as 3b-0, and found the same way:
   the image-template picker and the capture toolbar both go through `ImageTemplateLibrary`, which is 493

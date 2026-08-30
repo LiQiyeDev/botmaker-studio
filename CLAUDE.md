@@ -726,15 +726,23 @@ The `ui/` package is split by concern:
   feature, in `botmaker-sdk`'s `internal/plugin/pilot/`, reached through a `ToolbarItem` like any other
   plugin's contribution. Nothing here calls it and nothing here closes it: the host says the project is
   closing and the plugin releases its own port and display. See *the Remote Pilot left Studio* below.
-- **`ui/app/capture/`** — the screen-capture feature: `OverlayTemplateCapture` (the on-screen capture toolbar)
-  over `CaptureSurface` / `ObjectCaptureSurface` (rect and contour selection), `MagicWand`,
-  `CaptureSourcePicker`, `TargetThumbnail`, `BatchTemplateNamingDialog`. `ColorSampler`, `ZoomPan` and
-  `GameFrame` left for the SDK plugin on 2026-08-30; `ObjectCaptureSurface` imports the SDK's `ZoomPan` until
-  it follows, which is the image-template slice.
+- **`ui/app/capture/`** — what is *left* of the screen-capture feature: `OverlayTemplateCapture` (the
+  on-screen capture toolbar), `CaptureSourcePicker`, `TargetThumbnail`, `BatchTemplateNamingDialog`.
+  **The overlay is a feature of the SDK, not of Studio** — it exists to turn a `CaptureTargetModel` into an
+  `ImageTemplate`, both of which are that plugin's — so `ColorSampler`, `ZoomPan` and `GameFrame` left on
+  2026-08-30 and `CaptureSurface`, `ObjectCaptureSurface` and `MagicWand` followed the same day, into
+  `com.botmaker.sdk.internal.plugin.capture`. `OverlayTemplateCapture` names them there and hands them a
+  `StudioServices` (built from the project with `HostServices.forProject`) until it follows, which is the
+  step that makes *Capture Templates* a `ToolbarItem`.
 - **`ui/app/flow/`** — the activity-flow graph editor: `FlowCanvas` (nodes, ports, edges, auto-arrange),
   `FlowRules`, `FlowNames`, `ActivityDraft`, `ActivityValueWidgets`, `NewActivityDialog`.
 - **`ui/app/overlay/`** — the **Overlay Editor**: the always-on-top HUD that mirrors the program as one-line
   rows over the running game, and the only place a bot can be authored or recorded without leaving it.
+  `OverlayToolbars.promoteAboveFullscreen` is a two-line delegation since 2026-08-30 — the EWMH trick that
+  stacks a transparent stage above a fullscreen game is
+  `com.botmaker.sdk.internal.plugin.capture.OverlayStage`, because the capture surfaces that were its other
+  callers are the plugin's now and the raise itself is `botmaker-shared`'s. Its last two callers here leave
+  with the launch pickers.
   `ProgramShapeOverlay` is the *coordinator* — the stage, the event subscriptions, and the FX-thread-confined
   state that sequences an edit against the re-parse it causes. Everything else is a collaborator it constructs
   and hands callbacks to; none of them holds a reference back to it:

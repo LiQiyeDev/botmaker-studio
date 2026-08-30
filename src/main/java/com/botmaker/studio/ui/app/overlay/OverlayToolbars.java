@@ -1,10 +1,6 @@
 package com.botmaker.studio.ui.app.overlay;
 
-import com.botmaker.shared.capture.NativeControllerFactory;
-import javafx.animation.Animation;
-import javafx.animation.KeyFrame;
-import javafx.animation.Timeline;
-import javafx.application.Platform;
+import com.botmaker.sdk.internal.plugin.capture.OverlayStage;
 import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.layout.HBox;
@@ -54,19 +50,16 @@ public final class OverlayToolbars {
     }
 
     /**
-     * Ask the window manager to stack {@code stage} <em>above fullscreen</em> windows. A JavaFX
-     * {@code setAlwaysOnTop} stage still hides behind a fullscreen game (its {@code _NET_WM_STATE_ABOVE} loses
-     * to {@code _NET_WM_STATE_FULLSCREEN}); the native layer promotes it via notification window-type + raise.
+     * Ask the window manager to stack {@code stage} <em>above fullscreen</em> windows — see
+     * {@link OverlayStage#promoteAboveFullscreen(Stage)}, where the implementation now lives.
      *
-     * <p>Bridges JavaFX→native by a unique window <b>title</b> (invisible on a transparent stage): we tag the
-     * stage, then the native controller finds the matching X11 client window and applies the EWMH hints.
-     * Best-effort — a no-op on Windows/Wayland or a WM that ignores the hints. Re-asserted on focus <em>and</em>
-     * on a low-frequency timer so it survives a capture-surface toggle or the game re-fullscreening/re-raising
-     * itself; the first promotion remaps the window once, later ticks are the cheap raise path (no flicker).
-     * Safe to call on any {@link Stage}.
+     * <p>It moved to the SDK plugin on 2026-08-30 with the two capture surfaces that were its other callers,
+     * and Studio's remaining overlays reach it here rather than carrying a second copy of an EWMH trick. The
+     * import is temporary in the same sense the capture surfaces' is: {@link ProgramShapeOverlay} and this
+     * class's own toolbar are the last two callers, and both leave with the launch pickers.
      */
     public static void promoteAboveFullscreen(Stage stage) {
-        promoteAboveFullscreen(stage, () -> true);
+        OverlayStage.promoteAboveFullscreen(stage);
     }
 
     /**
@@ -81,28 +74,7 @@ public final class OverlayToolbars {
      * So the HUD stands down instead, for as long as the popover is open.
      */
     public static void promoteAboveFullscreen(Stage stage, java.util.function.BooleanSupplier enabled) {
-        String existing = stage.getTitle();
-        final String title = (existing == null || existing.isEmpty())
-                ? "__bm_overlay_" + Long.toHexString(System.nanoTime()) : existing;
-        if (existing == null || existing.isEmpty()) stage.setTitle(title);
-        Runnable promote = () -> {
-            try {
-                NativeControllerFactory.get().promoteOverlayAboveFullscreen(title);
-            } catch (Throwable ignored) {
-                // best-effort; the overlay still shows (just possibly under a fullscreen window)
-            }
-        };
-        // Defer so the native window/title exists, and re-assert whenever the overlay regains focus.
-        Platform.runLater(promote);
-        stage.focusedProperty().addListener((o, was, now) -> { if (now) promote.run(); });
-        // Continuously re-assert while shown — defends against the fullscreen app re-raising itself.
-        Timeline keepOnTop = new Timeline(new KeyFrame(javafx.util.Duration.millis(750), e -> {
-            if (enabled.getAsBoolean()) promote.run();
-        }));
-        keepOnTop.setCycleCount(Animation.INDEFINITE);
-        keepOnTop.play();
-        // Stop when the overlay is no longer showing (an additive listener — won't clobber a caller's onHidden).
-        stage.showingProperty().addListener((o, was, showing) -> { if (!showing) keepOnTop.stop(); });
+        OverlayStage.promoteAboveFullscreen(stage, enabled);
     }
 
     /** Makes dragging on {@code handle} move {@code stage} (tracks the press offset from the stage origin). */

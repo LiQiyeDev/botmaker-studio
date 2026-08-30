@@ -1,6 +1,13 @@
 package com.botmaker.studio.ui.app.capture;
 
+import com.botmaker.plugin.api.StudioServices;
 import com.botmaker.sdk.authoring.CaptureTargetModel;
+// The two drawing surfaces moved to the SDK plugin on 2026-08-30 — they are the overlay's own, and the
+// overlay is a feature of the SDK rather than of Studio. This class follows them when "Capture Templates"
+// becomes a ToolbarItem; until then it names them where they now live.
+import com.botmaker.sdk.internal.plugin.capture.CaptureSurface;
+import com.botmaker.sdk.internal.plugin.capture.CaptureSurface.Region;
+import com.botmaker.sdk.internal.plugin.capture.ObjectCaptureSurface;
 import com.botmaker.studio.events.CoreApplicationEvents.ResourcesChangedEvent;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.ProjectConfig;
@@ -11,8 +18,8 @@ import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.services.capture.TargetCapture;
 import com.botmaker.studio.services.capture.TargetCapture.TargetShot;
 import com.botmaker.studio.services.capture.TargetCapture.WindowShot;
+import com.botmaker.studio.plugin.HostServices;
 import com.botmaker.studio.ui.app.capture.BatchTemplateNamingDialog.NamedTemplate;
-import com.botmaker.studio.ui.app.capture.CaptureSurface.Region;
 import com.botmaker.studio.ui.app.overlay.OverlayStyles;
 import com.botmaker.studio.ui.app.overlay.OverlayToolbars;
 import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
@@ -66,6 +73,12 @@ public final class OverlayTemplateCapture {
 
     private final Window owner;
     private final ProjectConfig config;
+    /**
+     * The host capabilities the two surfaces take, since they are the SDK plugin's and reach the host only
+     * through the contract. Built here from the project rather than passed in, because every caller of
+     * {@link #open} already hands over the {@link ProjectConfig} it would be built from.
+     */
+    private final StudioServices services;
     private final ScreenCaptureService capture;
     private final ProjectSettingsService settings;
     private final EventBus eventBus;
@@ -108,6 +121,7 @@ public final class OverlayTemplateCapture {
                                    CaptureTargetModel target, String suggestedTag, Runnable onClosed) {
         this.owner = owner;
         this.config = config;
+        this.services = HostServices.forProject(config);
         this.capture = capture;
         this.settings = settings;
         this.eventBus = eventBus;
@@ -265,7 +279,7 @@ public final class OverlayTemplateCapture {
         toolbarStage.hide();
         captureTargetAsync(shot -> {
             if (shot == null) { warnClosed(); endSession(); return; }
-            surface = CaptureSurface.single(owner, shot.bounds(), backdropFor(shot), shape,
+            surface = CaptureSurface.single(services, shot.bounds(), backdropFor(shot), shape,
                     this::onSingleRegion, this::endSession);
         });
     }
@@ -299,7 +313,7 @@ public final class OverlayTemplateCapture {
         toolbarStage.hide();
         captureTargetAsync(shot -> {
             if (shot == null) { warnClosed(); endSession(); return; }
-            surface = CaptureSurface.many(owner, shot.bounds(), backdropFor(shot), shape,
+            surface = CaptureSurface.many(services, shot.bounds(), backdropFor(shot), shape,
                     this::onManyDone, this::endSession);
         });
     }
@@ -343,7 +357,7 @@ public final class OverlayTemplateCapture {
             if (shot == null) { warnClosed(); endSession(); return; }
             objectFrameW = shot.image().getWidth();
             objectFrameH = shot.image().getHeight();
-            objectSurface = ObjectCaptureSurface.open(owner, shot.bounds(), shot.image(),
+            objectSurface = ObjectCaptureSurface.open(services, shot.bounds(), shot.image(),
                     this::onObjectExtracted, this::endSession);
         });
     }
