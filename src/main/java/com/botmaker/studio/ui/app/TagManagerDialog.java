@@ -1,9 +1,9 @@
 package com.botmaker.studio.ui.app;
 
 import com.botmaker.studio.project.ProjectConfig;
+import com.botmaker.sdk.authoring.TagCatalog;
+import com.botmaker.sdk.authoring.TemplateManifest;
 import com.botmaker.studio.services.ImageTemplateLibrary;
-import com.botmaker.studio.services.TagCatalog;
-import com.botmaker.studio.services.TemplateManifest;
 import com.botmaker.studio.ui.render.components.TagPicklist;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.geometry.Insets;

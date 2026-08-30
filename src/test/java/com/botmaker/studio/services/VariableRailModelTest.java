@@ -1,7 +1,6 @@
 package com.botmaker.studio.services;
 
-import com.botmaker.studio.project.activity.ActivitiesConfig;
-import com.botmaker.studio.project.activity.ActivityDefinition;
+import com.botmaker.sdk.authoring.TagCatalog;
 import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.project.activity.ValueWire;
 import org.junit.jupiter.api.Test;
@@ -18,10 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class VariableRailModelTest {
 
     private static TagCatalog catalog() {
-        ActivitiesConfig activities = ActivitiesConfig.of(
-                List.of(ActivityDefinition.create("Mining", ""), ActivityDefinition.create("Fishing", "")),
-                List.of());
-        return TagCatalog.of(activities, List.of("Timing"));
+        return TagCatalog.of(List.of("Mining", "Fishing"), List.of("Timing"));
     }
 
     /** Keyed by the persisted id, which is what a type <em>is</em> since the vocabulary opened. */

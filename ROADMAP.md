@@ -6,6 +6,22 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-30 — the project's pictures are the SDK's folder.** Tenth step of *Studio knows only the
+  contract*, and the prerequisite half of phase 3b slice 3 — the same shape as 3b-0, and found the same way:
+  the image-template picker and the capture toolbar both go through `ImageTemplateLibrary`, which is 493
+  lines with 20 caller files reaching `sharing/TemplateArchive`, `ProjectRepair`, `SchemaMigrations`,
+  `StatementFactory` and `BotType`. That is the project's picture store, not a picker's dependency, so it
+  moved first. `services/{ImageTemplateLibrary, TagCatalog, TemplateManifest}` are now
+  `com.botmaker.sdk.authoring.{TemplateLibrary, TagCatalog, TemplateManifest}`, keyed on the resources
+  directory — which is what the contract hands a plugin, so the pickers that follow need nothing added to
+  `StudioServices`. Studio keeps a **delegating** `ImageTemplateLibrary` so its ~90 call sites did not move,
+  and keeps `openActivityTag`, whose question is about the editor's open file rather than about the folder.
+  Two findings recorded rather than worked around: `TemplateReferences` cannot follow (it reads open buffers
+  and writes `@NeedsReview`, so the Resource Manager's rename/delete guards stay here), and
+  **`ResourcesChangedEvent` has no subscriber at all** — four publishers, nothing listening, and a javadoc
+  claiming template pickers refresh on it. 1191 Studio tests, 522 SDK tests, green; the 27-test difference
+  is `TagCatalogTest` and `TemplateManifestTest` moving with their subjects.
+
 - **2026-08-30 — the strictness editor is the SDK's, and Studio stops naming `com.botmaker.sdk.internal`.**
   Ninth step of *Studio knows only the contract*, phase 3b slice 2. Deleted
   `ui/render/components/PrecisionArgPicker` (711 lines) with **both** dispatch arms — the `PickerRegistry`

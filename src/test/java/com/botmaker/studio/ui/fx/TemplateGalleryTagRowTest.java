@@ -2,8 +2,8 @@ package com.botmaker.studio.ui.fx;
 
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.services.ImageTemplateLibrary;
+import com.botmaker.sdk.authoring.TemplateManifest;
 import com.botmaker.studio.services.TemplateGalleryModel;
-import com.botmaker.studio.services.TemplateManifest;
 import com.botmaker.studio.ui.render.components.TemplateGallery;
 import javafx.scene.control.ListView;
 import org.junit.jupiter.api.Test;

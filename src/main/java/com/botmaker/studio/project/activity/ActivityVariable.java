@@ -1,6 +1,7 @@
 package com.botmaker.studio.project.activity;
 
 import com.botmaker.plugin.api.ParameterGroup;
+import com.botmaker.sdk.authoring.TagCatalog;
 import com.botmaker.plugin.api.value.ValueChoice;
 import com.botmaker.plugin.api.value.ValueShape;
 import com.botmaker.studio.plugin.PluginHost;

@@ -1,8 +1,8 @@
 package com.botmaker.studio.sharing;
 
 import com.botmaker.studio.project.ProjectConfig;
+import com.botmaker.sdk.authoring.TemplateManifest;
 import com.botmaker.studio.services.ImageTemplateLibrary;
-import com.botmaker.studio.services.TemplateManifest;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;

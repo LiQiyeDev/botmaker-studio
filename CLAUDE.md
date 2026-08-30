@@ -135,6 +135,25 @@ GameFrame}` and `ValueEditors`' `ColorRow` and `PrecisionRow`.
   reads a slot's current value off a syntax tree, and the contract hands a plugin source text. Expect the
   reader to be rewritten every time a picker moves.
 
+**The project's pictures are the SDK's folder, and `services/ImageTemplateLibrary` is a façade over it
+(2026-08-30).** The store is `com.botmaker.sdk.authoring.TemplateLibrary`, with `TagCatalog` and
+`TemplateManifest` beside it; what is left here is a `ProjectConfig` → `resourcesRoot()` translation with no
+state and no rules. **Put nothing in it that decides anything** — a rule here is a rule the plugin's own
+pickers do not have, which is the bug the move exists to prevent.
+
+- **It moved for the same reason `capture.json` did.** A named picture is `ImageTemplate`'s concept, so the
+  plugin offering the type owns the folder. The façade exists only so ~90 call sites across 20 files —
+  `sharing/TemplateArchive`, `ProjectRepair`, `SchemaMigrations`, `StatementFactory`, `BotType` and the
+  dialogs — did not have to move with it.
+- **`TemplateReferences` did not go and cannot**: it finds and repoints a picture's uses in the bot's *own
+  source*, through the open buffers (`ProjectState`) and `ReviewMarker`. Rewriting a user's Java is host
+  work, which is why `ResourceManagerDialog`'s rename and delete guards stay here.
+- **`openActivityTag` stayed** for the narrower version of the same reason — *which file is open* is editor
+  state. `TemplateLibrary.declaredTag` is the half that travelled.
+- **`ResourcesChangedEvent` has four publishers and no subscriber.** Its javadoc says open template pickers
+  refresh on it; nothing subscribes, and nothing ever did in this repository's history of the event. Delete
+  it rather than wiring the capture flow to it.
+
 ## Setup
 
 User projects live in `~/BotMakerProjects/` (not inside this repo). Each project is a standard **Maven** project with the layout `src/main/java/com/<projectnamelowercase>/<ProjectName>.java`. The BotMaker-Studio app itself is also a Maven project (`pom.xml`): build with `mvn compile`, run with `mvn javafx:run`, test with `mvn test`.

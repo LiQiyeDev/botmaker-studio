@@ -1,10 +1,10 @@
 package com.botmaker.studio.ui.render.components;
 
 import com.botmaker.studio.project.ProjectConfig;
+import com.botmaker.sdk.authoring.TagCatalog;
+import com.botmaker.sdk.authoring.TemplateManifest;
 import com.botmaker.studio.services.ImageTemplateLibrary;
-import com.botmaker.studio.services.TagCatalog;
 import com.botmaker.studio.services.TemplateGalleryModel;
-import com.botmaker.studio.services.TemplateManifest;
 import javafx.css.PseudoClass;
 import javafx.geometry.Bounds;
 import javafx.geometry.Insets;

@@ -1,5 +1,6 @@
 package com.botmaker.studio.services;
 
+import com.botmaker.sdk.authoring.TagCatalog;
 import com.botmaker.studio.project.activity.ActivityVariable;
 
 import java.util.ArrayList;

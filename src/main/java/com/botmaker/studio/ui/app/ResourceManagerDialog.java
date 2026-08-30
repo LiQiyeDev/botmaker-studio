@@ -1,5 +1,6 @@
 package com.botmaker.studio.ui.app;
 
+import com.botmaker.sdk.authoring.TemplateManifest;
 import com.botmaker.studio.events.CoreApplicationEvents.ResourcesChangedEvent;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.parser.refactor.ReviewMarker;
@@ -9,7 +10,6 @@ import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
-import com.botmaker.studio.services.TemplateManifest;
 import com.botmaker.studio.services.TemplateReferences;
 import com.botmaker.studio.sharing.TemplateArchive;
 import com.botmaker.studio.ui.app.capture.OverlayTemplateCapture;
