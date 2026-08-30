@@ -125,7 +125,7 @@ public final class CaptureSurface {
      * <p>{@code backdrop} is the frame to paint under the rubber band, and is {@code null} for every target
      * whose pixels are genuinely on the desktop at {@code bounds} — the surface is transparent and the live
      * window shows through. Pass the captured frame when it is <em>not</em>
-     * ({@link com.botmaker.studio.services.ScreenCaptureService.TargetShot#onScreen()} false, i.e. an
+     * ({@link com.botmaker.studio.services.capture.TargetCapture.TargetShot#onScreen()} false, i.e. an
      * emulator), so what the user draws over is what the crop is taken from.
      */
     public static CaptureSurface single(Window owner, java.awt.Rectangle bounds, BufferedImage backdrop,

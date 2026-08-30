@@ -9,7 +9,8 @@ import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
-import com.botmaker.studio.services.ScreenCaptureService.WindowShot;
+import com.botmaker.studio.services.capture.ScreenOverlay;
+import com.botmaker.studio.services.capture.TargetCapture.WindowShot;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.events.CoreApplicationEvents.ActivitiesChangedEvent;
 import com.botmaker.studio.events.CoreApplicationEvents.StatusMessageEvent;
@@ -426,7 +427,7 @@ public final class ProgramShapeOverlay {
 
         // Hide the HUD (and any open config popover) while a capture draw surface is up, so it doesn't sit
         // over the region/point/template selection — restored when the overlay closes.
-        captureVisibility = ScreenCaptureService.addCaptureOverlayListener(new ScreenCaptureService.CaptureOverlayListener() {
+        captureVisibility = ScreenCaptureService.addCaptureOverlayListener(new ScreenOverlay.CaptureOverlayListener() {
             @Override public void onShown() { hideForCapture(true); }
             @Override public void onHidden() { hideForCapture(false); }
         });

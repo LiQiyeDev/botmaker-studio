@@ -4,6 +4,7 @@ import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeController;
 import com.botmaker.shared.capture.NativeControllerFactory;
 import com.botmaker.studio.project.capture.CaptureTarget.WindowTarget;
+import com.botmaker.studio.services.capture.ScreenOverlay;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
@@ -320,7 +321,7 @@ class ScreenCaptureServiceTest {
     @Test
     void theCaptureSessionKnowsExactlyThreeKindsOfArgumentToPick() {
         List<String> permitted = java.util.Arrays.stream(
-                        ScreenCaptureService.PickStep.class.getPermittedSubclasses())
+                        ScreenOverlay.PickStep.class.getPermittedSubclasses())
                 .map(Class::getSimpleName).sorted().toList();
 
         assertEquals(3, permitted.size(), "the sealed set changed: " + permitted);

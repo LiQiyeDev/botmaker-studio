@@ -6,6 +6,20 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-30 — capture split into "which pixels" and "what the user does with them".** Sixth step of
+  *Studio knows only the contract*, phase 3a, and pure preparation: no behaviour changed and no call site
+  moved. `ScreenCaptureService`'s 1,324 lines became `services/capture/TargetCapture` (445 — the default
+  target, window raise/resize/bounds, the emulator's ADB frame, the Wayland desktop-crop fallback),
+  `services/capture/ScreenOverlay` (866 — the surface, the rubber band, the magnifier, the screen chooser,
+  the multi-pick session) and a 187-line façade that forwards to both. **`ScreenOverlay` names no
+  `CaptureTarget` and nothing in `com.botmaker.shared`**, which is the property the whole step exists to
+  create: the target half is the SDK's vocabulary and leaves, and the overlay stays as what
+  `StudioServices.capture()` is implemented with. The seam is `ScreenShot` (pixels, bounds, two flags) and
+  `ShotSource` (`grab`, `title`) — two methods, because a survey found exactly two places where the overlay
+  flow touched a target. Everything else it needs is `Screens` (monitor arithmetic both halves use) and
+  `DesktopGrab`. Raised and not answered: the contract's `Capture.grabFrame` is target vocabulary on the
+  contract, and after the move the host has no targets.
+
 - **2026-08-30 — a second plugin interface was bound here, and unbound the same day.** `PluginHost` grew a
   second `ServiceLoader` pass for a `CompanionPlugin`, a merged toolbar de-duplicated by object identity,
   and `HostServices.themeTokens()` reporting the active theme as CSS strings with `dark` measured from the

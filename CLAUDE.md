@@ -59,7 +59,35 @@ pickers so they can't drift on timeouts or failure handling.
 
 **One conversion, one place.** `ScreenCaptureService.toFxImage` is the single `BufferedImage` → FX `Image`
 path and is null-tolerant, so best-effort callers (a window that wouldn't capture, a stopped emulator) pass
-their result straight through instead of keeping a private null-returning copy.
+their result straight through instead of keeping a private null-returning copy. It lives on `ScreenOverlay`
+now and the service delegates.
+
+**Capture is two halves, and `ScreenCaptureService` is scaffolding between them (2026-08-30).** It was 1,324
+lines in which resolving *which pixels* and deciding *what the user does with them* were one flow. They are
+now `services/capture/`:
+
+- **`TargetCapture`** — which pixels. The project's default capture target, window raise/focus/resize/bounds,
+  the emulator's ADB frame, the desktop-crop fallback for a blank Wayland grab, the window-title list. It is
+  the half that **leaves for the SDK plugin**: a window to look at is what a bot's own `CaptureSource` names,
+  so the vocabulary is the SDK's rather than an editor's.
+- **`ScreenOverlay`** — what the user does with them. The full-screen surface, the rubber band, the magnifier,
+  the colour readout, the screen chooser, the blank-grab warning, the multi-pick session. It **names no
+  capture target and nothing in `com.botmaker.shared`** — check that with a grep before adding to it, because
+  it is what stays behind as the implementation of the contract's `StudioServices.capture()`.
+- **`ScreenShot` is the seam** — pixels, bounds, `fullScreen`, `blank` — and `ShotSource` is the whole of what
+  the overlay needs from the target half: `grab(owner)` and `title()`. Two methods, measured rather than
+  guessed: a survey of the old class found exactly two places where the overlay flow touched a target.
+  `Screens` holds the monitor arithmetic both halves genuinely need.
+
+So **add nothing to `ScreenCaptureService`.** New overlay behaviour goes on `ScreenOverlay`; anything that
+has to know what a capture target is goes on `TargetCapture`. The façade exists so the split cost no call
+site a change, and it disappears when the target half moves.
+
+**One question this split raised and did not answer:** the contract's `Capture.grabFrame` is documented as
+*"one frame of whatever the host is configured to look at"*, and `HostServices` serves it by calling
+`captureDefaultTargetAsync` — capture-**target** vocabulary reaching the contract. After the move the host
+has no targets, so either that member goes or the host keeps a default-target notion it has no other use
+for. It is the maintainer's call and it is recorded in the plan.
 
 ## Setup
 

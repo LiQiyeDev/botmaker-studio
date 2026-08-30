@@ -9,7 +9,8 @@ import com.botmaker.studio.project.capture.CaptureTargetNames;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
-import com.botmaker.studio.services.ScreenCaptureService.WindowShot;
+import com.botmaker.studio.services.capture.TargetCapture.TargetShot;
+import com.botmaker.studio.services.capture.TargetCapture.WindowShot;
 import com.botmaker.studio.ui.app.capture.BatchTemplateNamingDialog.NamedTemplate;
 import com.botmaker.studio.ui.app.capture.CaptureSurface.Region;
 import com.botmaker.studio.ui.app.overlay.OverlayStyles;
@@ -369,9 +370,9 @@ public final class OverlayTemplateCapture {
     /**
      * The frame the rubber-band surface must paint itself, or {@code null} when the pixels are really on the
      * desktop behind it and it can stay transparent. Non-null for an emulator target, whose frame comes over
-     * ADB and is nowhere on screen — see {@link ScreenCaptureService.TargetShot#onScreen()}.
+     * ADB and is nowhere on screen — see {@link TargetShot#onScreen()}.
      */
-    private static BufferedImage backdropFor(ScreenCaptureService.TargetShot shot) {
+    private static BufferedImage backdropFor(TargetShot shot) {
         return shot.onScreen() ? null : shot.image();
     }
 
@@ -394,7 +395,7 @@ public final class OverlayTemplateCapture {
      * canonical resolution first and grabbed occlusion-safe via {@link ScreenCaptureService#captureWindow}; a
      * screen/desktop target is grabbed at its native size via {@link ScreenCaptureService#captureDefaultTargetAsync}.
      */
-    private void captureTargetAsync(Consumer<ScreenCaptureService.TargetShot> onFx) {
+    private void captureTargetAsync(Consumer<TargetShot> onFx) {
         if (target instanceof CaptureTarget.WindowTarget wt) {
             Thread t = new Thread(() -> {
                 // Snap the window to the project's canonical resolution first, so the drawn surface and the saved
@@ -403,8 +404,8 @@ public final class OverlayTemplateCapture {
                     capture.resizeTarget(wt, referenceResolution.width(), referenceResolution.height());
                 }
                 WindowShot shot = capture.captureWindow(wt);
-                ScreenCaptureService.TargetShot ts = (shot == null) ? null
-                        : new ScreenCaptureService.TargetShot(shot.image(), shot.bounds(),
+                TargetShot ts = (shot == null) ? null
+                        : new TargetShot(shot.image(), shot.bounds(),
                         CaptureTargetNames.shortLabel(wt), true, true);
                 Platform.runLater(() -> onFx.accept(ts));
             }, "overlay-template-capture");
