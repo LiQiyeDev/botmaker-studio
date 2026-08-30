@@ -1,6 +1,11 @@
 package com.botmaker.studio.project;
 
+import com.botmaker.sdk.authoring.Authoring;
+import com.botmaker.sdk.authoring.CaptureModel;
+import com.botmaker.sdk.authoring.CaptureTargetModel;
+import com.botmaker.sdk.authoring.SdkVersion;
 import com.botmaker.studio.project.capture.CaptureTarget;
+import com.botmaker.studio.project.capture.CaptureTargets;
 import com.botmaker.studio.project.migration.SchemaFile;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -22,8 +27,17 @@ import java.util.Map;
  * default used by all on-screen pickers. Modeled on
  * {@link com.botmaker.studio.project.activity.ActivitiesConfig}.
  *
- * @param captureTargets      the saved screen/window targets (order is the display order)
- * @param defaultTargetIndex  index into {@code captureTargets} of the default, or {@code null} for none
+ * <p><b>The capture targets are not in this file.</b> They live in the SDK's own {@code capture.json}, read
+ * and written here through {@link Authoring} — see {@link #read} and {@link #write}. They were stored twice
+ * (this file's list, and the one {@code capture.source} spec a running bot reads out of
+ * {@code botmaker-project.properties}) with nothing keeping the two in step, so the editor and the bot could
+ * silently disagree about which window to look at. They stay record components because every picker in the
+ * editor asks for them here; only the file underneath them changed.
+ *
+ * @param captureTargets      the saved screen/window targets (order is the display order); stored in
+ *                            {@code capture.json}, not in this file
+ * @param defaultTargetIndex  index into {@code captureTargets} of the default, or {@code null} for none;
+ *                            stored in {@code capture.json}, not in this file
  * @param knownWindowTitles   window titles seen/used before, remembered so a window can be picked as a
  *                            target without the app being currently open (backward-compatible; absent → empty)
  * @param favoriteOverloads   per-method chosen overload: {@code methodKey → signatureKey} (see
@@ -50,7 +64,8 @@ import java.util.Map;
  *                            the next time the project opens (backward-compatible; absent → null)
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex,
+public record StudioProjectSettings(@JsonIgnore List<CaptureTarget> captureTargets,
+                                    @JsonIgnore Integer defaultTargetIndex,
                                     List<String> knownWindowTitles, Map<String, String> favoriteOverloads,
                                     Resolution referenceResolution, Map<String, List<String>> favoriteMethods,
                                     ProjectTemplate template, String lastRecordedActivity,
@@ -294,26 +309,105 @@ public record StudioProjectSettings(List<CaptureTarget> captureTargets, Integer 
         return favoriteMethods.getOrDefault(className, List.of());
     }
 
-    /** Reads {@code settings.json} from {@code resourcesDir}; returns {@link #empty()} if absent/invalid. */
+    /**
+     * Reads {@code settings.json} from {@code resourcesDir}; returns {@link #empty()} if absent/invalid.
+     *
+     * <p>The capture targets come from {@code capture.json} beside it. When that file does not exist the
+     * targets this settings file itself used to hold are read instead and carried in memory — so a project
+     * written by an older Studio opens with its pickers intact, and the next write moves them across. Once
+     * {@code capture.json} exists it is the answer, empty or not: the migration must not resurrect a list the
+     * user has since emptied.
+     */
     public static StudioProjectSettings read(Path resourcesDir) {
         Path file = resourcesDir.resolve(FILE_NAME);
-        if (!Files.exists(file)) return empty();
-        try {
-            return MAPPER.readValue(file.toFile(), StudioProjectSettings.class);
-        } catch (Exception e) {
-            System.err.println("Failed to read " + FILE_NAME + " in " + resourcesDir + ": " + e.getMessage());
-            return empty();
+        StudioProjectSettings settings = empty();
+        if (Files.exists(file)) {
+            try {
+                settings = MAPPER.readValue(file.toFile(), StudioProjectSettings.class);
+            } catch (Exception e) {
+                System.err.println("Failed to read " + FILE_NAME + " in " + resourcesDir + ": " + e.getMessage());
+                return empty();
+            }
         }
+        return settings.withCapture(readCapture(resourcesDir));
     }
 
     /**
      * Writes (overwrites) {@code settings.json} into {@code resourcesDir}, creating it if needed, stamped with
      * the file's {@code schemaVersion} — see {@link SchemaFile#stamped} and the same note on
      * {@link com.botmaker.studio.project.activity.ActivitiesConfig#write}.
+     *
+     * <p>The capture targets go to {@code capture.json} in the same pass, through {@link Authoring}.
      */
     public void write(Path resourcesDir) throws IOException {
         Files.createDirectories(resourcesDir);
         ObjectNode body = MAPPER.valueToTree(this);
         MAPPER.writeValue(resourcesDir.resolve(FILE_NAME).toFile(), SchemaFile.SETTINGS.stamped(body));
+        Authoring.writeCapture(SdkVersion.latest(), resourcesDir, captureModel());
+        projectDefaultSource(resourcesDir);
     }
+
+    /**
+     * Projects the default target onto {@code botmaker-project.properties}' {@code capture.source} — the one
+     * spec a <em>running</em> bot resolves.
+     *
+     * <p>It is a projection with one writer and one direction, written in the same pass as the list it comes
+     * from, which is what makes it a cache rather than a second answer. A bot cannot read {@code capture.json}
+     * itself: {@link Authoring} reaches the value vocabulary in {@code botmaker-studio-api}, which is
+     * deliberately off a bot's classpath, so the properties file stays the bot's side of this.
+     *
+     * <p>A project with no default target is left alone rather than cleared. The property is also written
+     * directly by the launch-target dialog and the emulator picker for a project that has no target list at
+     * all, and clearing it here would silently un-configure those.
+     */
+    private void projectDefaultSource(Path resourcesDir) throws IOException {
+        CaptureTarget target = defaultTarget();
+        if (target == null) return;
+        ProjectCreator.writeCaptureSource(resourcesDir, CaptureTargets.spec(target));
+    }
+
+    /** This settings' capture targets as the SDK stores them. */
+    @JsonIgnore
+    public CaptureModel captureModel() {
+        return new CaptureModel(captureTargets.stream().map(CaptureTargets::model).toList(),
+                defaultTargetIndex);
+    }
+
+    private StudioProjectSettings withCapture(CaptureModel capture) {
+        return new StudioProjectSettings(capture.targets().stream().map(CaptureTargets::target).toList(),
+                capture.defaultIndex(), knownWindowTitles, favoriteOverloads, referenceResolution,
+                favoriteMethods, template, lastRecordedActivity, overlayState, workspaceLayout);
+    }
+
+    private static CaptureModel readCapture(Path resourcesDir) {
+        try {
+            if (Files.exists(resourcesDir.resolve(CaptureModel.FILE_NAME))) {
+                return Authoring.readCapture(SdkVersion.latest(), resourcesDir);
+            }
+            return legacyCapture(resourcesDir);
+        } catch (Exception e) {
+            System.err.println("Failed to read " + CaptureModel.FILE_NAME + " in " + resourcesDir + ": "
+                    + e.getMessage());
+            return CaptureModel.empty();
+        }
+    }
+
+    /**
+     * The capture targets a pre-{@code capture.json} {@code settings.json} carried, in the shape they were
+     * stored in — four polymorphic JSON forms under {@code captureTargets}.
+     *
+     * <p>Read here rather than by the record itself because the components are {@link JsonIgnore}d now, which
+     * is what stops a stale copy being written back beside the real one.
+     */
+    private static CaptureModel legacyCapture(Path resourcesDir) throws IOException {
+        Path file = resourcesDir.resolve(FILE_NAME);
+        if (!Files.exists(file)) return CaptureModel.empty();
+        LegacyCapture legacy = MAPPER.readValue(file.toFile(), LegacyCapture.class);
+        List<CaptureTargetModel> targets = legacy.captureTargets() == null ? List.of()
+                : legacy.captureTargets().stream().map(CaptureTargets::model).toList();
+        return new CaptureModel(targets, legacy.defaultTargetIndex());
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record LegacyCapture(List<CaptureTarget> captureTargets, Integer defaultTargetIndex) {}
 }

@@ -739,6 +739,28 @@ line to stderr. Nothing failed to compile at any point.
 - **The scope is `runtime` so javac never sees the toolkit**: no Studio source may name a
   `com.botmaker.plugin.toolkit` type, and `StudioSourcesTest` refuses a widening to `compile`. The toolkit is
   a *plugin's* widget kit; Studio having a version of its own to keep in step is the thing to avoid.
+**The capture targets stopped being stored twice (2026-08-30).** Fourth step of *Studio knows only the
+contract*, and the first that changes where a project's data lives: the targets are the SDK's
+`capture.json` now, read and written through `Authoring.readCapture`/`writeCapture`.
+
+- **The disagreement it ends.** `settings.json` held the list a picker offered; `botmaker-project.properties`
+  held the one `capture.source` spec a *running bot* resolves. Nothing synced them, and both files parse — so
+  the editor and the bot could look at two different windows and say nothing about it.
+- **`StudioProjectSettings` keeps both components and `@JsonIgnore`s them.** Every picker in the editor asks
+  for `captureTargets`/`defaultTargetIndex` there and still does; only the file underneath changed. `read`
+  takes them from `capture.json`, or — while that file does not exist — from the ones this settings file
+  itself used to hold, so an older project opens configured and the next write moves them across. Once
+  `capture.json` exists it is the answer, empty or not: a migration that resurrects a list the user emptied
+  is worse than no migration.
+- **`project/capture/CaptureTargets` is the one conversion**, both directions total. A spec in no recognised
+  form reads back as the whole desktop, which is the SDK's own fallback. `WindowTarget.windowId` does not
+  survive the trip, correctly — its javadoc already says a persisted live handle is meaningless.
+- **`write` projects the default target onto `capture.source` in the same pass.** A bot cannot read
+  `capture.json` (`Authoring` names the contract's value vocabulary, which is off a bot's classpath), so the
+  properties key stays the bot's side — one writer, one direction, written with the list it comes from. **A
+  project with no default is left alone rather than cleared**: `LaunchTargetDialog` and `EmulatorArgPicker`
+  write that key directly for a project that has no target list at all.
+
 **The capability layers the pilot stands on left Studio (2026-08-30).** Third step of *Studio knows only the
 contract*, and pure preparation: nothing changed behaviour, ~870 lines left the repository.
 

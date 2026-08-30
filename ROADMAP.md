@@ -6,6 +6,16 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-30 — the capture targets stopped being stored twice.** They live in the SDK's `capture.json`
+  now (`Authoring.readCapture`/`writeCapture`); `StudioProjectSettings` keeps `captureTargets` and
+  `defaultTargetIndex` as components — every picker asks for them there — but `@JsonIgnore`s them, reads
+  them from the SDK's file, and falls back to the ones an older `settings.json` holds until that file
+  exists. `project/capture/CaptureTargets` is the one conversion between the editor's four shapes and the
+  spec text a bot reads, and `write` projects the default target onto `capture.source` in the same pass, so
+  the editor and the bot can no longer disagree about which window to look at. A project with no default
+  leaves that key alone — the launch-target dialog and the emulator picker still write it directly for a
+  project with no target list.
+
 - **2026-08-30 — the capability layers the pilot stands on left Studio.** `studio/emulator/*` (probe, app
   cache, instance scanner, the three capture surfaces) → `shared.emulator`, with the cache root as
   `shared.config.CacheDirs`; `services/launch/BackgroundLauncher` → `session.launch`, losing its
