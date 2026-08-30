@@ -1,6 +1,5 @@
 package com.botmaker.studio.plugin;
 
-import com.botmaker.plugin.api.CompanionPlugin;
 import com.botmaker.plugin.api.StudioPlugin;
 import com.botmaker.plugin.api.ToolbarGroup;
 import com.botmaker.plugin.api.ToolbarItem;
@@ -46,11 +45,6 @@ class ToolbarMergeTest {
         return ToolbarItem.of(id, id, null, group, order, c -> { });
     }
 
-    /** The merge with no companion plugins — the shape every rule below is about. */
-    private static List<ToolbarItem> merge(List<? extends StudioPlugin> set) {
-        return PluginHost.mergeToolbarItems(set, List.of());
-    }
-
     private static List<String> ids(List<ToolbarItem> items) {
         List<String> out = new ArrayList<>();
         for (ToolbarItem item : items) out.add(item.id());
@@ -59,7 +53,7 @@ class ToolbarMergeTest {
 
     @Test
     void items_sort_by_group_then_by_their_own_order() {
-        List<ToolbarItem> merged = merge(List.of(
+        List<ToolbarItem> merged = PluginHost.mergeToolbarItems(List.of(
                 new Fake("a", List.of(
                         item("tools-late", ToolbarGroup.TOOLS, 90),
                         item("project-early", ToolbarGroup.PROJECT, 10),
@@ -76,10 +70,10 @@ class ToolbarMergeTest {
      */
     @Test
     void a_tie_breaks_on_the_plugin_id_rather_than_on_discovery_order() {
-        List<ToolbarItem> zebraFirst = merge(List.of(
+        List<ToolbarItem> zebraFirst = PluginHost.mergeToolbarItems(List.of(
                 new Fake("zebra", List.of(item("z", ToolbarGroup.RUN, 10))),
                 new Fake("alpha", List.of(item("a", ToolbarGroup.RUN, 10)))));
-        List<ToolbarItem> alphaFirst = merge(List.of(
+        List<ToolbarItem> alphaFirst = PluginHost.mergeToolbarItems(List.of(
                 new Fake("alpha", List.of(item("a", ToolbarGroup.RUN, 10))),
                 new Fake("zebra", List.of(item("z", ToolbarGroup.RUN, 10)))));
 
@@ -94,7 +88,7 @@ class ToolbarMergeTest {
      */
     @Test
     void the_studio_group_is_refused_and_the_plugins_other_items_survive() {
-        List<ToolbarItem> merged = merge(List.of(
+        List<ToolbarItem> merged = PluginHost.mergeToolbarItems(List.of(
                 new Fake("a", List.of(
                         item("sneaky", ToolbarGroup.STUDIO, 1),
                         item("honest", ToolbarGroup.TOOLS, 1)))));
@@ -105,7 +99,7 @@ class ToolbarMergeTest {
     /** A plugin that cannot list its buttons costs its own and nothing else — never the project. */
     @Test
     void a_plugin_that_throws_does_not_cost_the_others_their_items() {
-        List<ToolbarItem> merged = merge(List.of(
+        List<ToolbarItem> merged = PluginHost.mergeToolbarItems(List.of(
                 new Broken("broken"),
                 new Fake("good", List.of(item("kept", ToolbarGroup.RUN, 1)))));
 
@@ -123,64 +117,15 @@ class ToolbarMergeTest {
                 com.botmaker.plugin.api.EnabledWhen.ALWAYS, null));
         offered.add(item("fine", ToolbarGroup.RUN, 3));
 
-        assertEquals(List.of("fine"), ids(merge(List.of(new Fake("a", offered)))));
+        assertEquals(List.of("fine"), ids(PluginHost.mergeToolbarItems(List.of(new Fake("a", offered)))));
     }
 
     /** A plugin contributing nothing is the ordinary case, and the default the contract ships. */
     @Test
     void a_plugin_that_contributes_nothing_is_not_an_error() {
-        assertTrue(merge(List.of(new Fake("a", List.of()))).isEmpty());
-        assertTrue(merge(List.of(new Fake("a", null))).isEmpty());
-        assertTrue(merge(List.of()).isEmpty());
-    }
-
-    /** A companion plugin offers exactly what it is handed. */
-    private record FakeCompanion(String id, List<ToolbarItem> items) implements CompanionPlugin {
-        @Override
-        public List<ToolbarItem> toolbarItems() {
-            return items;
-        }
-    }
-
-    /**
-     * A plugin that is both. Javac forces the single {@code toolbarItems()} below: two unrelated interfaces
-     * declaring the same default method cannot both be inherited, so the class must resolve it — which is
-     * exactly why the merge has to ask such a plugin once rather than once per interface.
-     */
-    private static final class Both implements StudioPlugin, CompanionPlugin {
-        @Override public String id() { return "both"; }
-
-        @Override public String displayName() { return "Both"; }
-
-        @Override public void projectClosing() { }
-
-        @Override
-        public List<ToolbarItem> toolbarItems() {
-            return List.of(item("only-once", ToolbarGroup.RUN, 1));
-        }
-    }
-
-    /** Both kinds land on one bar, ordered by the same rules — a companion is not a second-class contributor. */
-    @Test
-    void companion_items_and_plugin_items_sort_into_one_bar() {
-        List<ToolbarItem> merged = PluginHost.mergeToolbarItems(
-                List.of(new Fake("a", List.of(item("tools", ToolbarGroup.TOOLS, 1)))),
-                List.of(new FakeCompanion("b", List.of(item("run", ToolbarGroup.RUN, 1)))));
-
-        assertEquals(List.of("run", "tools"), ids(merged));
-    }
-
-    /**
-     * One object implementing both interfaces appears in both lists and must be asked once.
-     *
-     * <p>The failure this guards is invisible in code review and obvious on screen: the SDK implements both,
-     * so getting it wrong draws every one of its buttons twice.
-     */
-    @Test
-    void a_plugin_that_is_both_contributes_its_items_once() {
-        Both both = new Both();
-
-        assertEquals(List.of("only-once"), ids(PluginHost.mergeToolbarItems(List.of(both), List.of(both))));
+        assertTrue(PluginHost.mergeToolbarItems(List.of(new Fake("a", List.of()))).isEmpty());
+        assertTrue(PluginHost.mergeToolbarItems(List.of(new Fake("a", null))).isEmpty());
+        assertTrue(PluginHost.mergeToolbarItems(List.of()).isEmpty());
     }
 
     /**

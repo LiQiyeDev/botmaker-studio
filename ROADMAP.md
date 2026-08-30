@@ -6,16 +6,14 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
-- **2026-08-30 — `PluginHost` binds two plugin interfaces.** The contract gained `CompanionPlugin`, for the
-  plugins that do something beside the user's code rather than shaping it, and `ThemeTokens` /
-  `StudioServices.themeTokens()` for the ones that draw where JavaFX cannot reach. Studio's side:
-  `BUNDLED_COMPANIONS` beside `BUNDLED` and `companions()` beside `plugins()`, bound together in `swap`;
-  `discover` generic over the service type; `HostServices.themeTokens()` reading `BlockTheme.current()` live,
-  with `dark` derived from the **luminance of the background** rather than the theme's name so a theme added
-  later reports itself correctly. `closeOutgoing` and `mergeToolbarItems` de-duplicate **by object identity**
-  — a class implementing both interfaces has a single `toolbarItems()`/`projectClosing()`, so asking twice
-  would draw every button twice and close a port already closed. `ProjectClosingTest`, `ToolbarMergeTest`,
-  `PluginHostLoadTest` and the new `ThemeTokensTest` hold all of it (1232 tests, +5).
+- **2026-08-30 — a second plugin interface was bound here, and unbound the same day.** `PluginHost` grew a
+  second `ServiceLoader` pass for a `CompanionPlugin`, a merged toolbar de-duplicated by object identity,
+  and `HostServices.themeTokens()` reporting the active theme as CSS strings with `dark` measured from the
+  background's luminance. **All reverted** — see `../botmaker-studio-api/ROADMAP.md` for why, in one line:
+  the machinery outweighed the one plugin asking for it. `PluginHost` binds one plugin interface again and
+  `ThemeTokensTest` is gone. Nothing user-visible changed in either direction: the 🎮 Pilot button comes
+  from `SdkPlugin` before and after. The code is at `ee33fe5`.
+
 - **2026-08-30 — the Remote Pilot left Studio.** `services/pilot/*`, `ui/app/pilot/*`, `ui/util/QrCodes` and
   `src/main/resources/pilot/` (17 files, ~3,400 lines) are `botmaker-sdk`'s `internal/plugin/pilot/`; the
   button is a `ToolbarItem` from `SdkPlugin` and the port and nested display are released in its

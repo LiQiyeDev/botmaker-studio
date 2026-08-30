@@ -1,6 +1,5 @@
 package com.botmaker.studio.plugin;
 
-import com.botmaker.plugin.api.CompanionPlugin;
 import com.botmaker.plugin.api.StudioPlugin;
 import org.junit.jupiter.api.DisplayNameGeneration;
 import org.junit.jupiter.api.DisplayNameGenerator.ReplaceUnderscores;
@@ -55,58 +54,13 @@ class ProjectClosingTest {
         }
     }
 
-    /** A companion plugin that writes down that it was told, the same way {@link Fake} does. */
-    private static final class FakeCompanion implements CompanionPlugin {
-        private final String id;
-        private final List<String> log;
-
-        FakeCompanion(String id, List<String> log) {
-            this.id = id;
-            this.log = log;
-        }
-
-        @Override
-        public String id() {
-            return id;
-        }
-
-        @Override
-        public void projectClosing() {
-            log.add(id);
-        }
-    }
-
-    /**
-     * A plugin that is both, counting how many times it was told.
-     *
-     * <p>Javac forces every one of these overrides: two unrelated interfaces declaring the same default
-     * method cannot both be inherited. That is the compiler stating the thing this test is about — such a
-     * plugin has <em>one</em> {@code projectClosing()}, so the host must call it once.
-     */
-    private static final class Both implements StudioPlugin, CompanionPlugin {
-        private int told;
-
-        @Override public String id() { return "both"; }
-
-        @Override public String displayName() { return "Both"; }
-
-        @Override public List<com.botmaker.plugin.api.ToolbarItem> toolbarItems() { return List.of(); }
-
-        @Override public void projectClosing() { told++; }
-    }
-
-    /** The plugins with no companion set — the shape most of the rules below are about. */
-    private static void closeOutgoing(List<? extends StudioPlugin> outgoing) {
-        PluginHost.closeOutgoing(outgoing, List.of());
-    }
-
     @Test
     void every_plugin_serving_the_project_is_told_once() {
         List<String> log = new ArrayList<>();
         Fake first = new Fake("first", log);
         Fake second = new Fake("second", log);
 
-        closeOutgoing(List.of(first, second));
+        PluginHost.closeOutgoing(List.of(first, second));
 
         assertEquals(List.of("first", "second"), log);
         assertEquals(1, first.told, "a plugin told twice would release something it no longer holds");
@@ -123,7 +77,7 @@ class ProjectClosingTest {
         List<String> log = new ArrayList<>();
         Fake after = new Fake("after", log);
 
-        closeOutgoing(List.of(new Broken("broken"), after));
+        PluginHost.closeOutgoing(List.of(new Broken("broken"), after));
 
         assertEquals(List.of("after"), log);
     }
@@ -137,35 +91,7 @@ class ProjectClosingTest {
     void a_plugin_that_never_heard_of_it_is_unaffected() {
         StudioPlugin older = () -> "older";
 
-        closeOutgoing(List.of(older));
-    }
-
-    /** A companion plugin is told exactly like any other — it is the kind most likely to hold a port. */
-    @Test
-    void companion_plugins_are_told_too() {
-        List<String> log = new ArrayList<>();
-
-        PluginHost.closeOutgoing(
-                List.of(new Fake("plugin", log)),
-                List.of(new FakeCompanion("companion", log)));
-
-        assertEquals(List.of("plugin", "companion"), log);
-    }
-
-    /**
-     * One object implementing both interfaces appears in both lists and is told once.
-     *
-     * <p>Told twice, a plugin releases something it no longer holds — closing a port it has already closed,
-     * or reaping a display that now belongs to the project that is opening. The SDK implements both, so this
-     * is not hypothetical.
-     */
-    @Test
-    void a_plugin_that_is_both_is_told_once() {
-        Both both = new Both();
-
-        PluginHost.closeOutgoing(List.of(both), List.of(both));
-
-        assertEquals(1, both.told);
+        PluginHost.closeOutgoing(List.of(older));
     }
 
     /**

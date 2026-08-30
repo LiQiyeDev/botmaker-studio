@@ -737,24 +737,6 @@ line to stderr. Nothing failed to compile at any point.
 - **The scope is `runtime` so javac never sees the toolkit**: no Studio source may name a
   `com.botmaker.plugin.toolkit` type, and `StudioSourcesTest` refuses a widening to `compile`. The toolkit is
   a *plugin's* widget kit; Studio having a version of its own to keep in step is the thing to avoid.
-**`PluginHost` binds two plugin interfaces, not one (2026-08-30).** `CompanionPlugin` is the contract's
-second interface, for the plugins that do something beside the user's code rather than shaping it — the
-Remote Pilot is the case that drew the line. Studio's side is small and has three details worth knowing:
-
-- **`BUNDLED_COMPANIONS` beside `BUNDLED`, `companions()` beside `plugins()`**, bound and rebound together in
-  `swap`. `discover` is generic over the service type for the same reason `PluginLoader.load` is: the
-  failure handling is the part that must exist once.
-- **`closeOutgoing` and `mergeToolbarItems` de-duplicate by object *identity*.** A class implementing both
-  interfaces appears in both lists, and javac forces it to have a single `toolbarItems()`/`projectClosing()`
-  — so asking twice draws every button twice and releases a port that is already closed. Identity rather
-  than id, because a genuinely duplicated id is a different problem and both of those plugins should still
-  be released. `ProjectClosingTest` and `ToolbarMergeTest` hold both rules.
-- **`HostServices.themeTokens()`** answers `StudioServices`' new member from `BlockTheme.current()`, read
-  live rather than cached. `dark` is derived from the **luminance of the background** rather than from the
-  theme's name, so a fifth theme reports itself correctly instead of defaulting to light and making a
-  plugin's page draw white on white. `ThemeTokensTest` runs it over all four themes and needs no JavaFX
-  toolkit, which is itself the point of the record.
-
 **The Remote Pilot left Studio (2026-08-30).** Fifth step of *Studio knows only the contract*, and the one the
 toolbar surface was added for: 17 files and ~3,400 lines, plus the built web client under
 `src/main/resources/pilot/`, moved to `botmaker-sdk`'s `internal/plugin/pilot/`, and Javalin and ZXing left
