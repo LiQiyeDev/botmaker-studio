@@ -6,6 +6,13 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-30 — a plugin is told when a project closes.** `StudioPlugin.projectClosing()` on the contract;
+  `PluginHost.swap` calls it on the outgoing set, after the merge that can refuse a binding and before the
+  outgoing loader is closed. Keyed on a new `serving` flag rather than on `loader != null`, so the fail-open
+  case (a project served by the bundled set because its own plugins would not load) is told too. First step
+  of *Studio knows only the contract* — the Remote Pilot becomes an SDK feature and holds a bound port and a
+  nested `:N` display.
+
 - **2026-08-30 — an old project's generated files become its own.** `SchemaMigrations` activities step 2 → 3
   reads the source directory and reports `Activities.java`, `Parameters.java`, `Templates.java`,
   `ActivityRegistry.java`, `FlowDriver.java` and the `activities/` stubs as the user's, writing nothing. A

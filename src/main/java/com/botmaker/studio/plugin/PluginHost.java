@@ -84,6 +84,17 @@ public final class PluginHost {
     /** The loader behind a bound set, held only so it can be closed. Null whenever {@link #BUNDLED} is live. */
     private static volatile PluginLoader loader;
 
+    /**
+     * Whether the live set is serving an open project — which is <em>not</em> the same question as whether
+     * {@link #loader} is non-null.
+     *
+     * <p>A project whose own plugins failed to load is served by {@link #BUNDLED} with no loader at all, and
+     * that set is holding whatever it opened for that project exactly as a project's own would. So this is
+     * what decides that {@link StudioPlugin#projectClosing()} is owed, rather than the loader: without it,
+     * the fail-open case — the one where a leak is least likely to be noticed — would never be told.
+     */
+    private static boolean serving;
+
     /** pinned version → the merged catalog for it. Keyed by the raw pin, since that is what a caller holds. */
     private static final Map<String, PaletteCatalog> CACHE = new ConcurrentHashMap<>();
 
@@ -124,10 +135,14 @@ public final class PluginHost {
     public static synchronized void bind(List<String> resolvedClasspath) {
         PluginLoader opened = PluginLoader.open(resolvedClasspath);
         if (opened == null) {
-            unbind();
+            // Not unbind(): a classpath that would not open is still a project opening, and the bundled set
+            // is about to serve it. Saying "no project" here would leave the next close with nobody to tell.
+            swap(null, BUNDLED);
+            serving = true;
             return;
         }
         swap(opened, opened.plugins());
+        serving = true;
     }
 
     /**
@@ -139,6 +154,7 @@ public final class PluginHost {
      */
     public static synchronized void unbind() {
         swap(null, BUNDLED);
+        serving = false;
     }
 
     private static void swap(PluginLoader opened, List<StudioPlugin> bound) {
@@ -154,6 +170,10 @@ public final class PluginHost {
             if (bound != BUNDLED) swap(null, BUNDLED);
             return;
         }
+        // Before anything is replaced, and before the outgoing loader is closed at the end of this method:
+        // a plugin releasing a port or a nested display has to be able to run its own code to do it.
+        if (serving) closeOutgoing(plugins);
+
         PluginLoader previous = loader;
         loader = opened;
         plugins = bound;
@@ -163,6 +183,33 @@ public final class PluginHost {
         CACHE.clear();
         GROUPS.clear();
         if (previous != null) previous.close();
+    }
+
+    /**
+     * Tells the plugins that were serving the outgoing project that it is over.
+     *
+     * <p>Called from {@link #swap} once the binding is known to succeed, and deliberately at two points in
+     * that method at once: <b>after</b> the merge that can still refuse the new set — a project that fails to
+     * bind never displaced anything, so nothing has closed — and <b>before</b> the outgoing
+     * {@link PluginLoader} is closed, because a plugin's release code is that plugin's own class and cannot
+     * run on a dead classloader.
+     *
+     * <p>The bundled set gets it too. It is never unloaded, so it is the set holding a project's resources
+     * whenever a project's own plugins failed to bind — which is precisely when leaking them would be least
+     * noticed.
+     *
+     * <p>Total, like every other pass over plugin code here: one plugin that throws on the way out must not
+     * stop the next plugin from being told, and must not stop the project that is opening.
+     */
+    static void closeOutgoing(List<StudioPlugin> outgoing) {
+        for (StudioPlugin plugin : outgoing) {
+            try {
+                plugin.projectClosing();
+            } catch (RuntimeException | Error e) {
+                System.err.println("Warning: plugin '" + plugin.id()
+                        + "' failed to release what it held for the closing project: " + e);
+            }
+        }
     }
 
     /**

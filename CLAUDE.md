@@ -739,6 +739,21 @@ line to stderr. Nothing failed to compile at any point.
 - **The scope is `runtime` so javac never sees the toolkit**: no Studio source may name a
   `com.botmaker.plugin.toolkit` type, and `StudioSourcesTest` refuses a widening to `compile`. The toolkit is
   a *plugin's* widget kit; Studio having a version of its own to keep in step is the thing to avoid.
+**A plugin is told when a project closes (2026-08-30).** `PluginHost.swap` calls
+`StudioPlugin.projectClosing()` on the outgoing set — after the merge that could still refuse the new
+binding, so a project that failed to bind has displaced nothing, and **before** the outgoing `PluginLoader`
+is closed, since a plugin's release code is its own class and cannot run on a dead classloader. It is the
+first step of *Studio knows only the contract*: the Remote Pilot becomes an SDK feature, and it holds a
+bound port and a nested `:N` display that `UIManager.dispose()` releases today.
+
+- **`serving` decides it, not `loader != null`.** A project whose own plugins failed to load is served by
+  `BUNDLED` with no loader at all, and that set holds whatever it opened for that project exactly as a
+  project's own would. Keying on the loader would leave the fail-open case — the one where a leak is least
+  likely to be noticed — never told. So `bind` on an unopenable classpath swaps to `BUNDLED` and sets
+  `serving`, rather than calling `unbind`.
+- **`closeOutgoing` is total**, like every other pass over plugin code here: a plugin that throws on the way
+  out loses what it held and costs nobody else theirs, and cannot stop the project that is opening.
+
 - **It does not lock a plugin to Studio's version.** `PluginLoader` is parent-first only for
   `com.botmaker.plugin.api.**` and the platform namespaces, so the toolkit is child-first: a plugin carrying
   its own copy resolves its own, and Studio's is the fallback for one that brings none.
