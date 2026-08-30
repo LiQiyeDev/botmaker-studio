@@ -109,6 +109,24 @@ public final class HostServices implements StudioServices {
     }
 
     /**
+     * The open project's bot, or {@link com.botmaker.plugin.api.Runs#NONE} between projects.
+     *
+     * <p>Read from {@link HostRuns} rather than held, and that is the one thing about it worth knowing: this
+     * class is built ad hoc from a {@code ProjectConfig} at three call sites with no event bus in scope, and
+     * an instance can outlive the project it was made for. Asking the live channel each time is what stops a
+     * plugin's editor, built for a project the user has since left, from starting that project's bot.
+     */
+    @Override
+    public com.botmaker.plugin.api.Runs runs() {
+        return HostRuns.live();
+    }
+
+    @Override
+    public void status(String message) {
+        HostRuns.status(message);
+    }
+
+    /**
      * Stateless, so one instance serves every plugin: {@link ThemedWindows} is entirely static, and the
      * current theme is a property of the application rather than of whoever is asking.
      */

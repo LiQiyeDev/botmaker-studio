@@ -739,6 +739,27 @@ line to stderr. Nothing failed to compile at any point.
 - **The scope is `runtime` so javac never sees the toolkit**: no Studio source may name a
   `com.botmaker.plugin.toolkit` type, and `StudioSourcesTest` refuses a widening to `compile`. The toolkit is
   a *plugin's* widget kit; Studio having a version of its own to keep in step is the thing to avoid.
+**A plugin can reach the open project's bot (2026-08-30).** `plugin/HostRuns` implements the contract's
+`Runs` over what Studio already had — the Run/Stop events, `CodeExecutionService.runningBotPid()`, and the
+`EventBus` subscriptions for started/stopped/telemetry — and `HostServices.runs()`/`status()` expose it.
+Second step of *Studio knows only the contract*, and the thing without which the Remote Pilot cannot leave.
+
+- **Static and installed per project, like `PluginHost`**, because `HostServices` is built ad hoc from a
+  `ProjectConfig` at three call sites with no event bus in scope, and Studio holds one open project.
+  `BotProject` installs it after `CodeExecutionService` (which owns the process) and clears it in `close()`
+  **after `PluginHost.unbind()`** — a plugin releasing something on the way out may well want to stop the
+  bot, and a channel already cleared would silently do nothing.
+- **`HostServices.runs()` reads the live channel rather than holding one.** An instance can outlive the
+  project it was made for, and a held channel would let a stale editor start the bot of a project the user
+  has left.
+- **A plugin's listener goes in Studio's own list, not on the `EventBus`** — which has no unsubscribe, so a
+  per-plugin subscription would leave one dead handler per project opened. The handle returned by
+  `onStateChanged`/`onTelemetry` removes from that list.
+- **Telemetry is re-encoded with `TelemetryFrame` and handed over as bytes.** Studio decoded it on the way
+  in and holds a shared type the contract may not name; the frame is one definition of the format rather
+  than a text rendering owned by neither end. A frame that will not encode is dropped, not reported: the bot
+  is running, and one stale overlay beats taking the session down.
+
 **A plugin is told when a project closes (2026-08-30).** `PluginHost.swap` calls
 `StudioPlugin.projectClosing()` on the outgoing set — after the merge that could still refuse the new
 binding, so a project that failed to bind has displaced nothing, and **before** the outgoing `PluginLoader`

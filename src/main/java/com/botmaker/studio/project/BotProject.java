@@ -3,6 +3,7 @@ package com.botmaker.studio.project;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.index.TypeSummaryManager;
 import com.botmaker.studio.parser.BlockConverter;
+import com.botmaker.studio.plugin.HostRuns;
 import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.studio.runtime.CodeExecutionService;
 import com.botmaker.studio.services.ActivityService;
@@ -253,6 +254,11 @@ public class BotProject {
         this.debuggingService = new DebuggingService(
                 state, eventBus, codeExec, config
         );
+
+        // The bot, as a plugin is allowed to see it. After CodeExecutionService, since that is what owns the
+        // process; cleared in close(), so a plugin between projects reaches Runs.NONE rather than a channel
+        // into the project the user just left.
+        HostRuns.install(eventBus, codeExec);
     }
 
     // =========================================================================
@@ -303,8 +309,12 @@ public class BotProject {
         if (codeExecutionService != null) {
             codeExecutionService.close();
         }
-        // The plugin set goes back to the bundled one, and this project's jars are released — an open
+        // Before unbind, which is what tells each plugin its project is over: a plugin releasing something
+        // it started may well want to stop the bot on the way out, and a channel already cleared would
+        // silently do nothing.
+        // The plugin set then goes back to the bundled one, and this project's jars are released — an open
         // URLClassLoader holds every jar it read, which on Windows makes the file unreplaceable.
         PluginHost.unbind();
+        HostRuns.clear();
     }
 }

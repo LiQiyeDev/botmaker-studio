@@ -6,6 +6,13 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-30 — a plugin can reach the open project's bot.** The contract's `Runs`
+  (`StudioServices.runs()`) plus `status(String)`; `plugin/HostRuns` implements it over the Run/Stop events,
+  `runningBotPid()` and the telemetry subscription Studio already made. Installed per project by
+  `BotProject`, cleared after `PluginHost.unbind()`. Telemetry crosses as an encoded `TelemetryFrame` rather
+  than as the decoded shared record, so no vocabulary enters the contract. Without this the Remote Pilot
+  cannot become an SDK feature.
+
 - **2026-08-30 — a plugin is told when a project closes.** `StudioPlugin.projectClosing()` on the contract;
   `PluginHost.swap` calls it on the outgoing set, after the merge that can refuse a binding and before the
   outgoing loader is closed. Keyed on a new `serving` flag rather than on `loader != null`, so the fail-open
