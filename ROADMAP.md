@@ -6,6 +6,24 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-30 — a capture target is the SDK's `CaptureTargetModel`, and Studio has none of its own.**
+  Seventh step of *Studio knows only the contract*, phase 3b-0, and the one that unblocked the rest of
+  phase 3: a survey found that **all three** of the vertical picker slices the plan named — colour,
+  precision, image template — reach the project's default capture target, through `GameFrame.grab` or
+  `project.capture` directly, so none of them could move while Studio owned the vocabulary. The maintainer
+  settled the ownership question the plan had parked: the SDK owns capture targets and stores them itself.
+  Deleted `project/capture/{CaptureTarget,CaptureTargets,CaptureTargetNames}` — four sealed records, the
+  adapter onto the spec grammar and a label table — and retyped ~180 references across 20 files onto
+  `com.botmaker.sdk.authoring.CaptureTargetModel`, which had already been the **stored** shape since
+  `capture.json` landed earlier the same day. The model grew what the records answered: four factories,
+  `is`/`isDesktop`/`monitorIndex`/`windowTitle`/`emulatorName`, and `longLabel`/`shortLabel`. The pilot's
+  own private `monitorIndex` went with them — the two copies had already drifted, an unparseable index
+  reading as *monitor 0* in the editor and as *no frame this tick* in the pilot's stream. What deliberately
+  stayed in Studio is `TargetCapture.WindowRef`: a window plus an optional **live** native handle, which a
+  stored spec cannot carry and a gamescope host window cannot do without. The legacy `settings.json` reader
+  became a tree walk rather than a resurrected record set. No behaviour changed; 1223 Studio tests and 477
+  SDK tests green.
+
 - **2026-08-30 — capture split into "which pixels" and "what the user does with them".** Sixth step of
   *Studio knows only the contract*, phase 3a, and pure preparation: no behaviour changed and no call site
   moved. `ScreenCaptureService`'s 1,324 lines became `services/capture/TargetCapture` (445 — the default

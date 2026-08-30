@@ -1,10 +1,10 @@
 package com.botmaker.studio.services;
 
+import com.botmaker.sdk.authoring.CaptureTargetModel;
 import com.botmaker.studio.project.ProjectConfig;
-import com.botmaker.studio.project.capture.CaptureTarget;
-import com.botmaker.studio.project.capture.CaptureTarget.WindowTarget;
 import com.botmaker.studio.services.capture.ScreenOverlay;
 import com.botmaker.studio.services.capture.TargetCapture;
+import com.botmaker.studio.services.capture.TargetCapture.WindowRef;
 
 import javafx.scene.image.Image;
 import javafx.stage.Window;
@@ -73,7 +73,7 @@ public final class ScreenCaptureService {
     }
 
     /** The project's default capture target, or {@code null} — asked afresh at each pick. */
-    public CaptureTarget defaultTarget() {
+    public CaptureTargetModel defaultTarget() {
         return target.defaultTarget();
     }
 
@@ -140,7 +140,7 @@ public final class ScreenCaptureService {
      * Brings the window matching {@code target} to the front and captures its pixels, or {@code null} when no
      * window matches or capture fails.
      */
-    public TargetCapture.WindowShot captureWindow(WindowTarget windowTarget) {
+    public TargetCapture.WindowShot captureWindow(WindowRef windowTarget) {
         return target.captureWindow(windowTarget);
     }
 
@@ -153,17 +153,17 @@ public final class ScreenCaptureService {
     }
 
     /** The current absolute bounds of the window matching {@code target}, or {@code null}. Cheap; FX-safe. */
-    public static java.awt.Rectangle windowBounds(WindowTarget windowTarget) {
+    public static java.awt.Rectangle windowBounds(WindowRef windowTarget) {
         return TargetCapture.windowBounds(windowTarget);
     }
 
     /** Brings the window matching {@code target} to the front without capturing. Best-effort. */
-    public void raiseWindow(WindowTarget windowTarget) {
+    public void raiseWindow(WindowRef windowTarget) {
         target.raiseWindow(windowTarget);
     }
 
     /** Resizes the matching window to {@code width}×{@code height} logical px. Call off the FX thread. */
-    public void resizeTarget(WindowTarget windowTarget, int width, int height) {
+    public void resizeTarget(WindowRef windowTarget, int width, int height) {
         target.resizeTarget(windowTarget, width, height);
     }
 

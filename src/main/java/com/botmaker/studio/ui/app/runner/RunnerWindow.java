@@ -10,8 +10,7 @@ import com.botmaker.studio.project.StudioContext;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityDefinition;
 import com.botmaker.studio.project.activity.ActivityVariable;
-import com.botmaker.studio.project.capture.CaptureTarget;
-import com.botmaker.studio.project.capture.CaptureTargetNames;
+import com.botmaker.sdk.authoring.CaptureTargetModel;
 import com.botmaker.studio.project.vcs.ProjectVcs;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.ProjectSettingsService;
@@ -304,9 +303,8 @@ public final class RunnerWindow implements ProjectWindow {
         String spec = ProjectCreator.readLaunchTarget(config.resourcesRoot());
         launchTargetLabel.setText(spec == null || spec.isBlank()
                 ? "Nothing chosen yet" : LaunchSpec.shortLabel(spec, null));
-        CaptureTarget target = settings.defaultTarget();
-        captureTargetLabel.setText(target == null
-                ? "Nothing chosen yet" : CaptureTargetNames.shortLabel(target));
+        CaptureTargetModel target = settings.defaultTarget();
+        captureTargetLabel.setText(target == null ? "Nothing chosen yet" : target.shortLabel());
     }
 
     /** The activity checkboxes: the bot's own list of things it can do, each one on or off. */

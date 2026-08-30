@@ -1,15 +1,16 @@
 package com.botmaker.studio.ui.app.overlay;
 
+import com.botmaker.sdk.authoring.CaptureTargetModel;
 import com.botmaker.studio.blocks.func.MethodInvocationBlock;
 import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.CodeBlock;
 import com.botmaker.studio.core.StatementBlock;
 import com.botmaker.studio.project.StudioProjectSettings;
-import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.services.capture.ScreenOverlay;
+import com.botmaker.studio.services.capture.TargetCapture;
 import com.botmaker.studio.services.capture.TargetCapture.WindowShot;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.events.CoreApplicationEvents.ActivitiesChangedEvent;
@@ -112,7 +113,16 @@ public final class ProgramShapeOverlay {
     private final ScreenCaptureService capture;
     private final ActivityService activities;
     /** The default capture target: a window, a monitor, or the whole desktop. */
-    private final CaptureTarget target;
+    private final CaptureTargetModel target;
+
+    /**
+     * The same target as a window to act on, or {@code null} when it names no window.
+     *
+     * <p>Held beside {@link #target} rather than derived from it because of the one case a stored target
+     * cannot express: a private session's host window is named by its live id, and {@link #sessionTarget}
+     * is the only thing that knows it.
+     */
+    private final TargetCapture.WindowRef window;
 
     private Stage stage;
     /** Title bar, drag handle, and the size-being-authored-against readout. See {@link OverlayHeader}. */
@@ -201,13 +211,15 @@ public final class ProgramShapeOverlay {
     private volatile java.awt.Rectangle hudBounds;
 
     private ProgramShapeOverlay(CodeEditorService context, ProjectSettingsService settings,
-                                ScreenCaptureService capture, ActivityService activities, CaptureTarget target) {
+                                ScreenCaptureService capture, ActivityService activities,
+                                CaptureTargetModel target, TargetCapture.WindowRef window) {
         this.context = context;
         this.state = context.getState();
         this.settings = settings;
         this.capture = capture;
         this.activities = activities;
         this.target = target;
+        this.window = window;
         this.picker = new OverlayTargetPicker(context, settings, activities,
                 new OverlayTargetPicker.Callbacks(this::openTargetFile, this::scopeToMethod, this::status));
         this.palette = new OverlayPalette(context, settings,
@@ -245,7 +257,8 @@ public final class ProgramShapeOverlay {
             if (startRecording && active.recorder != null) active.recorder.start();
             return;
         }
-        CaptureTarget target = sessionTarget(sessionWindow);
+        TargetCapture.WindowRef session = sessionTarget(sessionWindow);
+        CaptureTargetModel target = session == null ? null : CaptureTargetModel.window(session.titleSubstring());
         if (target == null) {
             try {
                 target = settings.defaultTarget();
@@ -267,7 +280,10 @@ public final class ProgramShapeOverlay {
                     + "\"Launch Target\" (and start it), or set a default window in \"Capture Targets\".");
             return;
         }
-        ProgramShapeOverlay overlay = new ProgramShapeOverlay(context, settings, capture, activities, target);
+        // The session's window ref wins when there is one: it carries the live id, which is the only way to
+        // name a gamescope host window at all. Otherwise the default target names a window, or it does not.
+        ProgramShapeOverlay overlay = new ProgramShapeOverlay(context, settings, capture, activities, target,
+                session != null ? session : TargetCapture.WindowRef.of(target));
         overlay.autoStartRecording = startRecording;
         active = overlay;
         overlay.start(owner);
@@ -283,12 +299,12 @@ public final class ProgramShapeOverlay {
      * gamescope host window cannot be named by title — gamescope renames it after whatever app is inside it, and
      * a second window of its own carries the same {@code WM_CLASS}. The title here is a label, not a key.
      */
-    private static CaptureTarget sessionTarget(java.util.function.LongSupplier sessionWindow) {
+    private static TargetCapture.WindowRef sessionTarget(java.util.function.LongSupplier sessionWindow) {
         if (sessionWindow == null) {
             return null;
         }
         long id = sessionWindow.getAsLong();
-        return id == 0 ? null : new CaptureTarget.WindowTarget("private session", id);
+        return id == 0 ? null : new TargetCapture.WindowRef("private session", id);
     }
 
     /**
@@ -300,7 +316,8 @@ public final class ProgramShapeOverlay {
     private void start(Window owner) {
         // A window target is raised + snapped to the reference resolution beneath the HUD; a screen/desktop
         // target is used at its native bounds (no raise/resize).
-        if (target instanceof CaptureTarget.WindowTarget wt) {
+        if (window != null) {
+            TargetCapture.WindowRef wt = window;
             Thread t = new Thread(() -> {
                 WindowShot shot = capture.captureWindow(wt);   // restores + raises + focuses the window
                 if (shot == null) {
@@ -343,7 +360,7 @@ public final class ProgramShapeOverlay {
 
     private void show(java.awt.Rectangle windowBounds) {
         this.windowBounds = windowBounds;
-        recorder = new OverlayRecorder(capture, target, windowBounds, new OverlayRecorder.Callbacks(
+        recorder = new OverlayRecorder(capture, window, windowBounds, new OverlayRecorder.Callbacks(
                 this::status, this::onRecordWindowBounds, this::insertRecordedBatch,
                 picker::hasTargets, this::overlayScreenBounds, () -> stage));
 

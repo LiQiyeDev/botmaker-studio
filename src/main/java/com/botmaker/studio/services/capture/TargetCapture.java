@@ -1,19 +1,15 @@
 package com.botmaker.studio.services.capture;
 
+import com.botmaker.sdk.authoring.CaptureTargetModel;
 import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeController;
 import com.botmaker.shared.capture.NativeControllerFactory;
 import com.botmaker.shared.emulator.EmulatorInstance;
 import com.botmaker.shared.emulator.EmulatorInstances;
+import com.botmaker.shared.config.CaptureSourceKind;
 import com.botmaker.shared.emulator.EmulatorProbe;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.StudioProjectSettings;
-import com.botmaker.studio.project.capture.CaptureTarget;
-import com.botmaker.studio.project.capture.CaptureTarget.DesktopTarget;
-import com.botmaker.studio.project.capture.CaptureTarget.EmulatorTarget;
-import com.botmaker.studio.project.capture.CaptureTarget.ScreenTarget;
-import com.botmaker.studio.project.capture.CaptureTarget.WindowTarget;
-import com.botmaker.studio.project.capture.CaptureTargetNames;
 import com.botmaker.studio.services.ProjectSettingsService;
 
 import javafx.application.Platform;
@@ -70,17 +66,45 @@ public final class TargetCapture implements ShotSource {
      * rather than at construction is also what lets a target chosen in one window be honoured in another
      * without anybody re-wiring a service.
      */
-    private final Supplier<CaptureTarget> defaultTarget;
+    private final Supplier<CaptureTargetModel> defaultTarget;
+
+    /**
+     * A window to act on, named by title and — when the caller has one — by its exact native handle.
+     *
+     * <p><b>The id is why this is not a {@link CaptureTargetModel}.</b> A stored target's identity is its spec
+     * text, and an id belongs to one live process: persisting one is meaningless, which is exactly what
+     * {@code window:<title>} says by having nowhere to put it. But a caller that has just launched a window
+     * <em>does</em> know which one it means, and a title cannot always say — a gamescope session renames its
+     * host window after whatever app is inside it and shares its {@code WM_CLASS} with a second, unmanaged
+     * window of its own.
+     *
+     * <p>So the handle lives here, beside the code that resolves it, for the length of one session. A stale id
+     * is not an error: {@link #resolveWindow(WindowRef)} falls back to the title, which makes carrying an id no
+     * worse than not carrying one.
+     */
+    public record WindowRef(String titleSubstring, Long windowId) {
+
+        /** A window named the ordinary way: by title alone, which is every persisted target. */
+        public WindowRef(String titleSubstring) {
+            this(titleSubstring, null);
+        }
+
+        /** The window {@code target} names, or {@code null} when it names no window. */
+        public static WindowRef of(CaptureTargetModel target) {
+            String title = target == null ? null : target.windowTitle();
+            return title == null ? null : new WindowRef(title);
+        }
+    }
 
     public TargetCapture() {
-        this((Supplier<CaptureTarget>) null);
+        this((Supplier<CaptureTargetModel>) null);
     }
 
     public TargetCapture(ProjectSettingsService settings) {
         this(settings == null ? null : settings::defaultTarget);
     }
 
-    private TargetCapture(Supplier<CaptureTarget> defaultTarget) {
+    private TargetCapture(Supplier<CaptureTargetModel> defaultTarget) {
         this.defaultTarget = defaultTarget;
     }
 
@@ -96,7 +120,7 @@ public final class TargetCapture implements ShotSource {
     }
 
     /** The project's default capture target, or {@code null} — asked afresh at each pick. */
-    public CaptureTarget defaultTarget() {
+    public CaptureTargetModel defaultTarget() {
         return defaultTarget == null ? null : defaultTarget.get();
     }
 
@@ -111,8 +135,8 @@ public final class TargetCapture implements ShotSource {
      */
     @Override
     public String title() {
-        CaptureTarget target = defaultTarget();
-        return (target instanceof WindowTarget wt) ? wt.titleSubstring() : null;
+        CaptureTargetModel target = defaultTarget();
+        return target == null ? null : target.windowTitle();
     }
 
     /**
@@ -126,10 +150,11 @@ public final class TargetCapture implements ShotSource {
      * </ul>
      */
     private Grab grabOffThread(Window owner) {
-        CaptureTarget target = defaultTarget();
+        CaptureTargetModel target = defaultTarget();
 
-        if (target instanceof WindowTarget wt) {
-            WindowShot ws = captureWindow(wt);
+        WindowRef window = WindowRef.of(target);
+        if (window != null) {
+            WindowShot ws = captureWindow(window);
             if (ws == null) return new Grab(null, null);
             java.awt.Rectangle b = ws.bounds();
             Rectangle2D bounds = new Rectangle2D(b.x, b.y, b.width, b.height);
@@ -147,11 +172,13 @@ public final class TargetCapture implements ShotSource {
         boolean blank = DesktopGrab.looksBlank(desktop);
 
         List<Screen> screens = Screen.getScreens();
-        if (target instanceof ScreenTarget st && st.index() >= 0 && st.index() < screens.size()) {
-            Screen screen = screens.get(st.index()); // remembered default → no dialog
+        if (target != null && target.is(CaptureSourceKind.MONITOR) && target.monitorIndex() < screens.size()) {
+            Screen screen = screens.get(target.monitorIndex()); // remembered default → no dialog
             return new Grab(new ScreenShot(Screens.cropToScreen(desktop, screens, screen), screen.getBounds(), true, blank), null);
         }
-        if (target instanceof DesktopTarget) {
+        // isDesktop rather than is(DESKTOP): a spec nothing recognises reads as the whole desktop here, the
+        // same fallback every other reader of a target takes, rather than dropping through to the chooser.
+        if (target != null && target.isDesktop()) {
             // Whole virtual desktop: overlay spans every monitor (positioned, not single-screen fullscreen).
             return new Grab(new ScreenShot(desktop, Screens.virtualScreenBounds(screens), false, blank), null);
         }
@@ -173,7 +200,7 @@ public final class TargetCapture implements ShotSource {
      * native per-window capture yields a blank frame (e.g. native Wayland, where Robot returns black),
      * this falls back to a full-desktop grab cropped to the window bounds (Wayland-capable, lossless).
      */
-    public WindowShot captureWindow(WindowTarget target) {
+    public WindowShot captureWindow(WindowRef target) {
         GenericWindow win = resolveWindow(target);
         if (win == null) {
             System.err.println("No window matching \"" + target.titleSubstring() + "\" was found.");
@@ -253,10 +280,9 @@ public final class TargetCapture implements ShotSource {
                     java.awt.Rectangle awt = new java.awt.Rectangle(
                             (int) Math.round(b.getMinX()), (int) Math.round(b.getMinY()),
                             (int) Math.round(b.getWidth()), (int) Math.round(b.getHeight()));
-                    CaptureTarget def = defaultTarget();
-                    String label = (def != null)
-                            ? com.botmaker.studio.project.capture.CaptureTargetNames.shortLabel(def) : "Screen";
-                    result = new TargetShot(shot.image(), awt, label, def instanceof WindowTarget, true);
+                    CaptureTargetModel def = defaultTarget();
+                    String label = def != null ? def.shortLabel() : "Screen";
+                    result = new TargetShot(shot.image(), awt, label, def != null && def.windowTitle() != null, true);
                 }
             } catch (Throwable ex) {
                 System.err.println("Default-target capture failed: " + ex.getMessage());
@@ -284,8 +310,9 @@ public final class TargetCapture implements ShotSource {
      * the surface draws it. Aspect ratio is what matters — every crop is mapped back by the width/height ratio.
      */
     private TargetShot emulatorShot() {
-        CaptureTarget target = defaultTarget();
-        if (!(target instanceof EmulatorTarget(String instanceName))) {
+        CaptureTargetModel target = defaultTarget();
+        String instanceName = target == null ? null : target.emulatorName();
+        if (instanceName == null) {
             return null;
         }
         EmulatorInstance instance = EmulatorInstances.byName(instanceName).orElse(null);
@@ -294,7 +321,7 @@ public final class TargetCapture implements ShotSource {
             return null;   // not running, or the grab failed — the caller reports "couldn't capture the target"
         }
         return new TargetShot(frame, fitToPrimaryScreen(frame.getWidth(), frame.getHeight()),
-                com.botmaker.studio.project.capture.CaptureTargetNames.shortLabel(target), false, false);
+                target.shortLabel(), false, false);
     }
 
     /** A {@code w}×{@code h}-shaped rectangle centred on the primary screen, at most 80% of its visual area. */
@@ -310,7 +337,7 @@ public final class TargetCapture implements ShotSource {
     }
 
     /**
-     * The window {@code target} names: its exact {@link WindowTarget#windowId() windowId} when it carries one and
+     * The window {@code target} names: its exact {@link WindowRef#windowId() windowId} when it carries one and
      * that window still exists, otherwise its title substring.
      *
      * <p>The fallback is the whole point of the id being optional. An id belongs to one live process — a session
@@ -318,7 +345,7 @@ public final class TargetCapture implements ShotSource {
      * a target that silently captures nothing is the failure mode this service is worst at reporting. Falling back
      * to the title makes a stale id no worse than not having one.
      */
-    private static GenericWindow resolveWindow(WindowTarget target) {
+    private static GenericWindow resolveWindow(WindowRef target) {
         if (target == null) return null;
         Long id = target.windowId();
         if (id != null) {
@@ -371,7 +398,7 @@ public final class TargetCapture implements ShotSource {
      * the compositor, nor grabs any pixels, so it is cheap enough to call from the FX thread. That is what the
      * overlay recorder needs when a session starts — the origin its coordinates are relative to, nothing else.
      */
-    public static java.awt.Rectangle windowBounds(WindowTarget target) {
+    public static java.awt.Rectangle windowBounds(WindowRef target) {
         GenericWindow win = resolveWindow(target);
         return win == null ? null : win.getRect();
     }
@@ -380,7 +407,7 @@ public final class TargetCapture implements ShotSource {
      * Brings the window matching {@code target} to the front (de-iconifying if minimized) without capturing.
      * Best-effort; used by the macro recorder so the target is raised when recording begins.
      */
-    public void raiseWindow(WindowTarget target) {
+    public void raiseWindow(WindowRef target) {
         GenericWindow win = resolveWindow(target);
         if (win == null) return;
         try {
@@ -396,7 +423,7 @@ public final class TargetCapture implements ShotSource {
      * size the window happens to be. Best-effort no-op when the window can't be found or is already that size.
      * Runs synchronously; call it off the FX thread (it sleeps briefly).
      */
-    public void resizeTarget(WindowTarget target, int width, int height) {
+    public void resizeTarget(WindowRef target, int width, int height) {
         if (width <= 0 || height <= 0) return;
         GenericWindow win = resolveWindow(target);
         if (win == null) return;

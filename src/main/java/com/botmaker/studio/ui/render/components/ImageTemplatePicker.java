@@ -4,7 +4,7 @@ import com.botmaker.sdk.api.vision.ImageTemplate;
 import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.project.ProjectConfig;
-import com.botmaker.studio.project.capture.CaptureTarget;
+import com.botmaker.sdk.authoring.CaptureTargetModel;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.ProjectSettingsService;
@@ -110,8 +110,8 @@ public final class ImageTemplatePicker {
      * target isn't a window — drives whether an {@code ImageFinder.find} pick becomes window-targeted.
      */
     static String defaultWindowTitle(CodeEditorService context) {
-        CaptureTarget target = ProjectSettingsService.forProject(context).defaultTarget();
-        return (target instanceof CaptureTarget.WindowTarget w) ? w.titleSubstring() : null;
+        CaptureTargetModel target = ProjectSettingsService.forProject(context).defaultTarget();
+        return target == null ? null : target.windowTitle();
     }
 
     /**

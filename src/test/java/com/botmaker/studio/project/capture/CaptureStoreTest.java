@@ -1,6 +1,7 @@
 package com.botmaker.studio.project.capture;
 
 import com.botmaker.sdk.authoring.CaptureModel;
+import com.botmaker.sdk.authoring.CaptureTargetModel;
 import com.botmaker.shared.config.ProjectProperties;
 import com.botmaker.studio.project.StudioProjectSettings;
 import org.junit.jupiter.api.Test;
@@ -45,8 +46,8 @@ class CaptureStoreTest {
         StudioProjectSettings read = StudioProjectSettings.read(dir);
 
         assertEquals(2, read.captureTargets().size());
-        assertEquals(new CaptureTarget.WindowTarget("Diablo IV"), read.captureTargets().get(0));
-        assertEquals(new CaptureTarget.EmulatorTarget("MuMu Player 12"), read.defaultTarget());
+        assertEquals(CaptureTargetModel.window("Diablo IV"), read.captureTargets().get(0));
+        assertEquals(CaptureTargetModel.emulator("MuMu Player 12"), read.defaultTarget());
         assertEquals(List.of("Diablo IV"), read.knownWindowTitles());
     }
 
@@ -61,7 +62,7 @@ class CaptureStoreTest {
 
         StudioProjectSettings reread = StudioProjectSettings.read(dir);
         assertEquals(2, reread.captureTargets().size());
-        assertEquals(new CaptureTarget.EmulatorTarget("MuMu Player 12"), reread.defaultTarget());
+        assertEquals(CaptureTargetModel.emulator("MuMu Player 12"), reread.defaultTarget());
     }
 
     @Test
@@ -77,8 +78,8 @@ class CaptureStoreTest {
 
     @Test
     void theDefaultTargetIsProjectedOntoTheSpecARunningBotReads(@TempDir Path dir) throws IOException {
-        new StudioProjectSettings(List.of(new CaptureTarget.DesktopTarget(),
-                new CaptureTarget.WindowTarget("Diablo IV")), 1).write(dir);
+        new StudioProjectSettings(List.of(CaptureTargetModel.desktop(),
+                CaptureTargetModel.window("Diablo IV")), 1).write(dir);
 
         assertEquals("window:Diablo IV", captureSource(dir));
     }

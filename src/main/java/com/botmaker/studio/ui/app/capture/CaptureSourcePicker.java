@@ -1,5 +1,6 @@
 package com.botmaker.studio.ui.app.capture;
 
+import com.botmaker.sdk.authoring.CaptureTargetModel;
 import com.botmaker.shared.capture.GamescopeHost;
 import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeControllerFactory;
@@ -10,12 +11,7 @@ import com.botmaker.shared.emulator.EmulatorInstanceScanner;
 import com.botmaker.shared.emulator.EmulatorProbe;
 import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.project.capture.CaptureRegion;
-import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.services.capture.DesktopGrab;
-import com.botmaker.studio.project.capture.CaptureTarget.DesktopTarget;
-import com.botmaker.studio.project.capture.CaptureTarget.EmulatorTarget;
-import com.botmaker.studio.project.capture.CaptureTarget.ScreenTarget;
-import com.botmaker.studio.project.capture.CaptureTarget.WindowTarget;
 import com.botmaker.studio.ui.app.StudioWindow;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -60,7 +56,7 @@ import java.util.concurrent.ScheduledExecutorService;
  */
 public final class CaptureSourcePicker {
 
-    /** What the user chose: either "track the project default", or a concrete, frozen {@link CaptureTarget}. */
+    /** What the user chose: either "track the project default", or a concrete, frozen {@link CaptureTargetModel}. */
     public sealed interface Selection permits Selection.ProjectDefault, Selection.Concrete {
         record ProjectDefault() implements Selection {}
 
@@ -68,8 +64,8 @@ public final class CaptureSourcePicker {
          * A concrete source, optionally narrowed to a {@link CaptureRegion} of it (a rect in the source's own
          * pixel space). {@code region} is {@code null} for the whole source.
          */
-        record Concrete(CaptureTarget target, CaptureRegion region) implements Selection {
-            public Concrete(CaptureTarget target) {
+        record Concrete(CaptureTargetModel target, CaptureRegion region) implements Selection {
+            public Concrete(CaptureTargetModel target) {
                 this(target, null);
             }
         }
@@ -231,7 +227,7 @@ public final class CaptureSourcePicker {
             String name = String.format("Screen %d — %d×%d", i + 1,
                     (int) b.getWidth(), (int) b.getHeight());
             VBox tile = tile(name, s.equals(Screen.getPrimary()) ? "Primary monitor" : "Monitor");
-            CaptureTarget target = new ScreenTarget(index);
+            CaptureTargetModel target = CaptureTargetModel.monitor(index);
             tile.setOnMouseClicked(e -> {
                 select(tile, new Selection.Concrete(target));
                 if (e.getClickCount() == 2) close();
@@ -258,10 +254,10 @@ public final class CaptureSourcePicker {
         });
     }
 
-    /** A single "Whole desktop" tile (all monitors combined) → {@link DesktopTarget}, with a live thumbnail. */
+    /** A single "Whole desktop" tile (all monitors combined) → {@code desktop}, with a live thumbnail. */
     private void loadDesktop(FlowPane into) {
         VBox tile = tile("Whole desktop", "All monitors combined");
-        CaptureTarget target = new DesktopTarget();
+        CaptureTargetModel target = CaptureTargetModel.desktop();
         tile.setOnMouseClicked(e -> {
             select(tile, new Selection.Concrete(target));
             if (e.getClickCount() == 2) close();
@@ -301,7 +297,7 @@ public final class CaptureSourcePicker {
                 Image img = running ? ScreenCaptureService.toFxImage(emulatorThumbnail(instance)) : null;
                 Platform.runLater(() -> {
                     VBox tile = tile(name, running ? "Emulator · running" : "Emulator · stopped");
-                    CaptureTarget target = new EmulatorTarget(name);
+                    CaptureTargetModel target = CaptureTargetModel.emulator(name);
                     tile.setOnMouseClicked(e -> {
                         select(tile, new Selection.Concrete(target));
                         if (e.getClickCount() == 2) close();
@@ -388,7 +384,7 @@ public final class CaptureSourcePicker {
                 Image img = ScreenCaptureService.toFxImage(shot);
                 Platform.runLater(() -> {
                     VBox tile = tile(title, "Window");
-                    CaptureTarget target = new WindowTarget(title);
+                    CaptureTargetModel target = CaptureTargetModel.window(title);
                     tile.setOnMouseClicked(e -> {
                         select(tile, new Selection.Concrete(target));
                         if (e.getClickCount() == 2) close();

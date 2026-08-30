@@ -1,14 +1,14 @@
 package com.botmaker.studio.ui.app.capture;
 
+import com.botmaker.sdk.authoring.CaptureTargetModel;
 import com.botmaker.studio.events.CoreApplicationEvents.ResourcesChangedEvent;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.StudioProjectSettings;
-import com.botmaker.studio.project.capture.CaptureTarget;
-import com.botmaker.studio.project.capture.CaptureTargetNames;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
+import com.botmaker.studio.services.capture.TargetCapture;
 import com.botmaker.studio.services.capture.TargetCapture.TargetShot;
 import com.botmaker.studio.services.capture.TargetCapture.WindowShot;
 import com.botmaker.studio.ui.app.capture.BatchTemplateNamingDialog.NamedTemplate;
@@ -70,7 +70,10 @@ public final class OverlayTemplateCapture {
     private final ProjectSettingsService settings;
     private final EventBus eventBus;
     /** The default capture target: a window, a monitor, or the whole desktop. */
-    private final CaptureTarget target;
+    private final CaptureTargetModel target;
+
+    /** The same target as a window to raise, snap and grab, or {@code null} when it names no window. */
+    private final TargetCapture.WindowRef window;
 
     private Stage toolbarStage;
     private CaptureSurface surface;
@@ -102,13 +105,14 @@ public final class OverlayTemplateCapture {
 
     private OverlayTemplateCapture(Window owner, ProjectConfig config, ScreenCaptureService capture,
                                    ProjectSettingsService settings, EventBus eventBus,
-                                   CaptureTarget target, String suggestedTag, Runnable onClosed) {
+                                   CaptureTargetModel target, String suggestedTag, Runnable onClosed) {
         this.owner = owner;
         this.config = config;
         this.capture = capture;
         this.settings = settings;
         this.eventBus = eventBus;
         this.target = target;
+        this.window = TargetCapture.WindowRef.of(target);
         this.suggestedTag = suggestedTag;
         this.onClosed = onClosed;
     }
@@ -131,7 +135,7 @@ public final class OverlayTemplateCapture {
                             ScreenCaptureService capture, EventBus eventBus, String suggestedTag,
                             Runnable onClosed) {
         Runnable done = onClosed == null ? () -> {} : onClosed;
-        CaptureTarget target = null;
+        CaptureTargetModel target = null;
         try {
             target = settings.defaultTarget();
         } catch (Exception ignored) {
@@ -156,20 +160,19 @@ public final class OverlayTemplateCapture {
         // The project reference resolution: the canonical window size every template is captured at (window
         // targets only — a screen/desktop is captured at its native size). Seed it from the window's current
         // size the first time so later captures snap back to this exact size.
-        referenceResolution = (target instanceof CaptureTarget.WindowTarget)
-                ? settings.current().referenceResolution() : null;
+        referenceResolution = window != null ? settings.current().referenceResolution() : null;
         // Probe the target once up front so we can fail fast (and place the toolbar near it) before showing
         // anything. Sessions re-resolve the bounds again so the surface tracks a moved window.
         captureTargetAsync(shot -> {
             if (shot == null) {
-                warn(owner, "Couldn't capture the target \"" + CaptureTargetNames.shortLabel(target) + "\". "
+                warn(owner, "Couldn't capture the target \"" + CaptureTargetModel.shortLabelOf(target) + "\". "
                         + "Is it open / on screen?");
                 if (active == this) active = null;
                 closed = true;
                 onClosed.run();
                 return;
             }
-            if (target instanceof CaptureTarget.WindowTarget && referenceResolution == null) {
+            if (window != null && referenceResolution == null) {
                 referenceResolution = new StudioProjectSettings.Resolution(shot.bounds().width, shot.bounds().height);
                 settings.update(settings.current().withReferenceResolution(referenceResolution));
             }
@@ -195,7 +198,7 @@ public final class OverlayTemplateCapture {
         Label hint = new Label("Capture Templates");
         hint.setTextFill(Color.web("#c9d4e6"));
         // Current resolution readout so the user always knows the window/screen size they're capturing at.
-        boolean isWindow = target instanceof CaptureTarget.WindowTarget;
+        boolean isWindow = window != null;
         Label resLabel = new Label(com.botmaker.studio.ui.app.ResolutionChoices.readout(
                 isWindow ? windowBounds : null));
         resLabel.setTextFill(Color.web("#8fa3bf"));
@@ -396,7 +399,8 @@ public final class OverlayTemplateCapture {
      * screen/desktop target is grabbed at its native size via {@link ScreenCaptureService#captureDefaultTargetAsync}.
      */
     private void captureTargetAsync(Consumer<TargetShot> onFx) {
-        if (target instanceof CaptureTarget.WindowTarget wt) {
+        if (window != null) {
+            TargetCapture.WindowRef wt = window;
             Thread t = new Thread(() -> {
                 // Snap the window to the project's canonical resolution first, so the drawn surface and the saved
                 // template share one resolution regardless of the window's current size.
@@ -406,7 +410,7 @@ public final class OverlayTemplateCapture {
                 WindowShot shot = capture.captureWindow(wt);
                 TargetShot ts = (shot == null) ? null
                         : new TargetShot(shot.image(), shot.bounds(),
-                        CaptureTargetNames.shortLabel(wt), true, true);
+                        target.shortLabel(), true, true);
                 Platform.runLater(() -> onFx.accept(ts));
             }, "overlay-template-capture");
             t.setDaemon(true);
@@ -418,7 +422,7 @@ public final class OverlayTemplateCapture {
 
     /** The associated window title for saved templates, or {@code null} for a screen/desktop target. */
     private String windowTitleOrNull() {
-        return (target instanceof CaptureTarget.WindowTarget wt) ? wt.titleSubstring() : null;
+        return window == null ? null : window.titleSubstring();
     }
 
     private void warnClosed() {

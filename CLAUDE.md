@@ -87,7 +87,32 @@ site a change, and it disappears when the target half moves.
 *"one frame of whatever the host is configured to look at"*, and `HostServices` serves it by calling
 `captureDefaultTargetAsync` — capture-**target** vocabulary reaching the contract. After the move the host
 has no targets, so either that member goes or the host keeps a default-target notion it has no other use
-for. It is the maintainer's call and it is recorded in the plan.
+for. **The maintainer settled it on 2026-08-30: the SDK owns capture targets and stores them itself**, so
+`grabFrame` goes when the last host caller does. The step below is the first half of that.
+
+**A capture target is the SDK's `CaptureTargetModel`, and Studio has no shape of its own for one
+(2026-08-30).** `project/capture/{CaptureTarget,CaptureTargets,CaptureTargetNames}` are deleted: four sealed
+records, the adapter that mapped them onto the spec grammar, and a label table. Roughly 180 references
+across 20 files now name `com.botmaker.sdk.authoring.CaptureTargetModel` directly, which is where the
+targets have actually been **stored** since earlier that day (`capture.json`, through `Authoring`).
+
+Three things are worth knowing before touching any of it.
+
+- **The store did not move; the vocabulary did.** `StudioProjectSettings` already wrote `capture.json` and
+  read it back through a converter. Deleting the converter is the whole change, and it is what makes the
+  editor and the running bot incapable of disagreeing about which window to look at — there is no second
+  spelling left to drift.
+- **`TargetCapture.WindowRef` is what did not move, and it is not an oversight.** A window plus an optional
+  **live** native handle. A stored target's identity is its spec text and a handle is meaningless once
+  persisted; but a private session's gamescope host window cannot be named by title at all, so the caller
+  that launched it carries the id for one session and `resolveWindow` falls back to the title when it goes
+  stale. `WindowRef.of(target)` is the ordinary path; only `ProgramShapeOverlay.sessionTarget` builds one
+  with an id. `OverlayRecorder` holds a `WindowRef` rather than a target because every click it records is
+  window-relative — a screen or an emulator is not something it can record against at all.
+- **A spec nothing recognises reads as the whole desktop**, in every branch that used to switch on a sealed
+  type. That state was unreachable before and is ordinary now (a hand-edited file, a newer Studio's form),
+  and the legacy `settings.json` reader is deliberately a **tree walk** rather than a resurrected record set
+  — four lines mapping an old node to a spec, so no second vocabulary survives to serve one file format.
 
 ## Setup
 

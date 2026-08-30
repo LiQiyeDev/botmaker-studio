@@ -1,8 +1,7 @@
 package com.botmaker.studio.ui.app;
 
+import com.botmaker.sdk.authoring.CaptureTargetModel;
 import com.botmaker.studio.project.StudioProjectSettings;
-import com.botmaker.studio.project.capture.CaptureTarget;
-import com.botmaker.studio.project.capture.CaptureTarget.WindowTarget;
 import com.botmaker.studio.project.launch.QuickLaunch;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
@@ -38,7 +37,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Editor-side dialog to manage the project's {@link CaptureTarget}s (monitors and application windows)
+ * Editor-side dialog to manage the project's {@link CaptureTargetModel}s (monitors and application windows)
  * and mark one as the <em>default</em> used by every on-screen picker (image / region / point). Applying
  * delegates to {@link ProjectSettingsService}, which writes {@code settings.json} off the FX thread.
  *
@@ -55,7 +54,7 @@ public class ManageCaptureTargetsDialog {
      */
     private final Path resourcesDir;
 
-    private final ObservableList<CaptureTarget> rows = FXCollections.observableArrayList();
+    private final ObservableList<CaptureTargetModel> rows = FXCollections.observableArrayList();
     private final Label statusLabel = new Label();
     private final ProgressIndicator progress = new ProgressIndicator();
 
@@ -63,12 +62,12 @@ public class ManageCaptureTargetsDialog {
     private final java.util.LinkedHashSet<String> knownWindowTitles = new java.util.LinkedHashSet<>();
 
     /** The row currently marked default, or {@code null} for none. Tracked by identity into {@link #rows}. */
-    private CaptureTarget defaultTarget;
-    private ListView<CaptureTarget> list;
+    private CaptureTargetModel defaultTarget;
+    private ListView<CaptureTargetModel> list;
     private Stage stage;
 
     /** Cached live-preview probes per target, so cell recycling doesn't re-grab. */
-    private final Map<CaptureTarget, ThumbEntry> thumbs = new HashMap<>();
+    private final Map<CaptureTargetModel, ThumbEntry> thumbs = new HashMap<>();
     /** Single background thread for the (blocking) native/desktop grabs. */
     private final ExecutorService thumbExec = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "target-thumb");
@@ -109,10 +108,9 @@ public class ManageCaptureTargetsDialog {
         defaultTarget = current.defaultTarget();
         knownWindowTitles.addAll(current.knownWindowTitles());
         // Titles from already-saved window targets are known too (older projects predate the stored list).
-        for (CaptureTarget t : current.captureTargets()) {
-            if (t instanceof WindowTarget w && w.titleSubstring() != null && !w.titleSubstring().isBlank()) {
-                knownWindowTitles.add(w.titleSubstring());
-            }
+        for (CaptureTargetModel t : current.captureTargets()) {
+            String title = t.windowTitle();
+            if (title != null && !title.isBlank()) knownWindowTitles.add(title);
         }
 
         VBox root = new VBox(12);
@@ -134,7 +132,7 @@ public class ManageCaptureTargetsDialog {
         // Double-click a row to make it the default (mirrors "Set as default").
         list.setOnMouseClicked(e -> {
             if (e.getButton() == MouseButton.PRIMARY && e.getClickCount() == 2) {
-                CaptureTarget sel = list.getSelectionModel().getSelectedItem();
+                CaptureTargetModel sel = list.getSelectionModel().getSelectedItem();
                 if (sel != null) { defaultTarget = sel; list.refresh(); }
             }
         });
@@ -148,11 +146,11 @@ public class ManageCaptureTargetsDialog {
             removeBtn.setDisable(sel == null);
         });
         setDefaultBtn.setOnAction(e -> {
-            CaptureTarget sel = list.getSelectionModel().getSelectedItem();
+            CaptureTargetModel sel = list.getSelectionModel().getSelectedItem();
             if (sel != null) { defaultTarget = sel; list.refresh(); }
         });
         removeBtn.setOnAction(e -> {
-            CaptureTarget sel = list.getSelectionModel().getSelectedItem();
+            CaptureTargetModel sel = list.getSelectionModel().getSelectedItem();
             if (sel != null) {
                 rows.remove(sel);
                 if (sel.equals(defaultTarget)) defaultTarget = null;
@@ -178,7 +176,7 @@ public class ManageCaptureTargetsDialog {
      * marker. The (blocking) preview grab runs off the FX thread and is cached per target, so scrolling /
      * cell recycling doesn't re-probe.
      */
-    private final class TargetCell extends ListCell<CaptureTarget> {
+    private final class TargetCell extends ListCell<CaptureTargetModel> {
         private final ImageView thumb = new ImageView();
         private final Label name = new Label();
         private final Label status = new Label();
@@ -198,7 +196,7 @@ public class ManageCaptureTargetsDialog {
             box.setAlignment(Pos.CENTER_LEFT);
         }
 
-        @Override protected void updateItem(CaptureTarget item, boolean empty) {
+        @Override protected void updateItem(CaptureTargetModel item, boolean empty) {
             super.updateItem(item, empty);
             if (empty || item == null) { setText(null); setGraphic(null); return; }
             setText(null);
@@ -207,7 +205,7 @@ public class ManageCaptureTargetsDialog {
             renderThumb(item);
         }
 
-        private void renderThumb(CaptureTarget item) {
+        private void renderThumb(CaptureTargetModel item) {
             ThumbEntry cached = thumbs.get(item);
             if (cached != null) {
                 thumb.setImage(cached.image());
@@ -241,9 +239,8 @@ public class ManageCaptureTargetsDialog {
         HBox.setHgrow(choose, Priority.ALWAYS);
         choose.setOnAction(e -> new CaptureSourcePicker(stage, false).showAndWait().ifPresent(sel -> {
             if (sel instanceof CaptureSourcePicker.Selection.Concrete c) {
-                if (c.target() instanceof WindowTarget wt && wt.titleSubstring() != null) {
-                    knownWindowTitles.add(wt.titleSubstring());
-                }
+                String title = c.target().windowTitle();
+                if (title != null) knownWindowTitles.add(title);
                 addTarget(c.target());
             }
         }));
@@ -253,7 +250,7 @@ public class ManageCaptureTargetsDialog {
         return row;
     }
 
-    private void addTarget(CaptureTarget target) {
+    private void addTarget(CaptureTargetModel target) {
         if (!rows.contains(target)) rows.add(target);
         defaultTarget = target; // a newly added source becomes the default
         statusLabel.setText("");
@@ -281,7 +278,7 @@ public class ManageCaptureTargetsDialog {
     }
 
     private void apply(Button apply, Button cancel) {
-        List<CaptureTarget> result = new ArrayList<>(rows);
+        List<CaptureTargetModel> result = new ArrayList<>(rows);
         Integer defaultIndex = (defaultTarget == null) ? null : result.indexOf(defaultTarget);
         if (defaultIndex != null && defaultIndex < 0) defaultIndex = null;
 

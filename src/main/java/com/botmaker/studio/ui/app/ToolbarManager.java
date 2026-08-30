@@ -10,8 +10,7 @@ import com.botmaker.studio.plugin.HostActionContext;
 import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.shared.game.GameLibraries;
 import com.botmaker.shared.game.InstalledGame;
-import com.botmaker.studio.project.capture.CaptureTarget;
-import com.botmaker.studio.project.capture.CaptureTargetNames;
+import com.botmaker.sdk.authoring.CaptureTargetModel;
 import com.botmaker.studio.project.launch.QuickLaunch;
 import com.botmaker.shared.launch.LaunchKind;
 import com.botmaker.shared.launch.LaunchSpec;
@@ -519,13 +518,13 @@ public class ToolbarManager {
 
     /** "🎯 " + the current default target's short name, or "🎯 Capture Targets" when no default is set. */
     private String captureButtonText() {
-        CaptureTarget def = null;
+        CaptureTargetModel def = null;
         try {
             def = (settings != null) ? settings.defaultTarget() : null;
         } catch (Exception ignored) {
         }
         if (def == null) return "🎯 Capture Targets";
-        String name = CaptureTargetNames.shortLabel(def);
+        String name = def.shortLabel();
         if (name.length() > CAPTURE_LABEL_MAX) name = name.substring(0, CAPTURE_LABEL_MAX - 1) + "…";
         return "🎯 " + name;
     }

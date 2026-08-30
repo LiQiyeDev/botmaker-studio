@@ -2,8 +2,8 @@ package com.botmaker.studio.ui.app.overlay;
 
 import com.botmaker.shared.input.InputEvent;
 import com.botmaker.studio.palette.BlockType;
-import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.services.ScreenCaptureService;
+import com.botmaker.studio.services.capture.TargetCapture;
 import com.botmaker.studio.services.record.MacroTranslator;
 import com.botmaker.studio.services.record.RecordingSession;
 import javafx.application.Platform;
@@ -52,7 +52,15 @@ final class OverlayRecorder {
                      Supplier<Stage> owner) {}
 
     private final ScreenCaptureService capture;
-    private final CaptureTarget target;
+
+    /**
+     * The window a recording is relative to, or {@code null} when the target is not a window at all.
+     *
+     * <p>A window ref rather than a capture target because that is the whole of what this class asks of one:
+     * every click it records is translated into window-relative coordinates, so a screen or an emulator is not
+     * a target it can record against — which is what {@link #refreshAvailability()} says out loud.
+     */
+    private final TargetCapture.WindowRef window;
     private final Callbacks callbacks;
     private final RecordingSession session;
 
@@ -65,10 +73,10 @@ final class OverlayRecorder {
     /** Set while a coalesced status refresh is already queued, so one FX runnable serves a burst of input. */
     private final AtomicBoolean statusQueued = new AtomicBoolean();
 
-    OverlayRecorder(ScreenCaptureService capture, CaptureTarget target, Rectangle windowBounds,
+    OverlayRecorder(ScreenCaptureService capture, TargetCapture.WindowRef window, Rectangle windowBounds,
                     Callbacks callbacks) {
         this.capture = capture;
-        this.target = target;
+        this.window = window;
         this.windowBounds = windowBounds;
         this.callbacks = callbacks;
         this.session = new RecordingSession(callbacks.hudBounds(), count -> requestStatusRefresh());
@@ -129,7 +137,7 @@ final class OverlayRecorder {
         String blocker;
         if (!RecordingSession.isSupported()) {
             blocker = "Recording is available on Linux (X11) only";
-        } else if (!(target instanceof CaptureTarget.WindowTarget)) {
+        } else if (window == null) {
             // Recording translates clicks to window-relative coordinates, so it needs a window target.
             blocker = "Recording targets a window — set a window as the default capture target";
         } else if (!callbacks.hasInsertTarget().getAsBoolean()) {
@@ -157,11 +165,11 @@ final class OverlayRecorder {
     /** Starts a session against freshly probed window bounds. Safe to call when one is already running. */
     void start() {
         if (session.isRecording() || !RecordingSession.isSupported()) return;
-        if (target instanceof CaptureTarget.WindowTarget wt) {
-            capture.raiseWindow(wt);   // interact with the target window, not whatever was focused
+        if (window != null) {
+            capture.raiseWindow(window);   // interact with the target window, not whatever was focused
             // Cheap on purpose: a bounds probe, not captureWindow — this runs on the FX thread and the pixels
             // are of no use here, only the origin the coordinates will be relative to.
-            Rectangle fresh = ScreenCaptureService.windowBounds(wt);
+            Rectangle fresh = ScreenCaptureService.windowBounds(window);
             if (fresh != null) {
                 windowBounds = fresh;
                 callbacks.onWindowBounds().accept(fresh);
@@ -186,7 +194,7 @@ final class OverlayRecorder {
         stopBtn.setDisable(true);
         refreshAvailability();
 
-        String title = (target instanceof CaptureTarget.WindowTarget wt) ? wt.titleSubstring() : null;
+        String title = window == null ? null : window.titleSubstring();
         MacroTranslator.WindowRef ref = new MacroTranslator.WindowRef(
                 title, windowBounds.x, windowBounds.y, windowBounds.width, windowBounds.height);
         callbacks.onRecorded().accept(MacroTranslator.translate(events, ref));

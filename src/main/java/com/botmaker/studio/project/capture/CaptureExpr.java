@@ -3,12 +3,11 @@ package com.botmaker.studio.project.capture;
 import com.botmaker.sdk.api.capture.CaptureSource;
 import com.botmaker.sdk.api.emulator.EmulatorSource;
 import com.botmaker.sdk.api.geometry.Rect;
-import com.botmaker.studio.project.capture.CaptureTarget.EmulatorTarget;
-import com.botmaker.studio.project.capture.CaptureTarget.ScreenTarget;
-import com.botmaker.studio.project.capture.CaptureTarget.WindowTarget;
+import com.botmaker.sdk.authoring.CaptureTargetModel;
+import com.botmaker.shared.config.CaptureSourceKind;
 
 /**
- * Maps a {@link CaptureTarget} (+ optional {@link CaptureRegion}) to the inline Java expression a
+ * Maps a {@link CaptureTargetModel} (+ optional {@link CaptureRegion}) to the inline Java expression a
  * capture-source block emits. Expressions are <b>fully qualified</b> against the SDK's {@code api.capture}
  * facades so they compile with no import management and no generated sidecar — the block source is
  * self-contained.
@@ -40,7 +39,7 @@ public final class CaptureExpr {
     }
 
     /** The inline expression for {@code target}, or the whole-desktop source when {@code target} is null. */
-    public static String of(CaptureTarget target) {
+    public static String of(CaptureTargetModel target) {
         return of(target, null);
     }
 
@@ -48,7 +47,7 @@ public final class CaptureExpr {
      * The inline expression for {@code target}, narrowed to {@code region} when it is a valid (positive-area)
      * rectangle of that source. {@code region} is in the source's own pixel coordinates.
      */
-    public static String of(CaptureTarget target, CaptureRegion region) {
+    public static String of(CaptureTargetModel target, CaptureRegion region) {
         String base = baseOf(target);
         if (region != null && region.isValid()) {
             return base + ".region(new " + RECT + "(" + region.x() + ", " + region.y() + ", "
@@ -57,18 +56,23 @@ public final class CaptureExpr {
         return base;
     }
 
-    private static String baseOf(CaptureTarget target) {
-        if (target instanceof ScreenTarget st) {
-            return PKG + "CaptureSource.monitor(" + st.index() + ")";
+    private static String baseOf(CaptureTargetModel target) {
+        if (target == null) return PKG + "CaptureSource.desktop()";
+        if (target.is(CaptureSourceKind.MONITOR)) {
+            return PKG + "CaptureSource.monitor(" + target.monitorIndex() + ")";
         }
-        if (target instanceof WindowTarget wt && wt.titleSubstring() != null && !wt.titleSubstring().isBlank()) {
-            return PKG + "CaptureSource.window(\"" + escape(wt.titleSubstring()) + "\")";
+        if (notBlank(target.windowTitle())) {
+            return PKG + "CaptureSource.window(\"" + escape(target.windowTitle()) + "\")";
         }
-        if (target instanceof EmulatorTarget et && et.instanceName() != null && !et.instanceName().isBlank()) {
-            return "new " + EMULATOR_SOURCE + "(\"" + escape(et.instanceName()) + "\")";
+        if (notBlank(target.emulatorName())) {
+            return "new " + EMULATOR_SOURCE + "(\"" + escape(target.emulatorName()) + "\")";
         }
-        // DesktopTarget and null both map to the whole virtual desktop.
+        // The desktop, a null target and a spec nothing recognises all map to the whole virtual desktop.
         return PKG + "CaptureSource.desktop()";
+    }
+
+    private static boolean notBlank(String s) {
+        return s != null && !s.isBlank();
     }
 
     private static String escape(String s) {

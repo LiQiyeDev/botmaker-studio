@@ -4,12 +4,11 @@ import com.botmaker.sdk.authoring.Authoring;
 import com.botmaker.sdk.authoring.CaptureModel;
 import com.botmaker.sdk.authoring.CaptureTargetModel;
 import com.botmaker.sdk.authoring.SdkVersion;
-import com.botmaker.studio.project.capture.CaptureTarget;
-import com.botmaker.studio.project.capture.CaptureTargets;
 import com.botmaker.studio.project.migration.SchemaFile;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -17,13 +16,14 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
  * Per-project editor settings, persisted as {@code settings.json} under the project's
- * {@code src/main/resources}. Currently holds the saved {@link CaptureTarget}s and which one is the
+ * {@code src/main/resources}. Currently holds the saved {@link CaptureTargetModel}s and which one is the
  * default used by all on-screen pickers. Modeled on
  * {@link com.botmaker.studio.project.activity.ActivitiesConfig}.
  *
@@ -64,7 +64,7 @@ import java.util.Map;
  *                            the next time the project opens (backward-compatible; absent → null)
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record StudioProjectSettings(@JsonIgnore List<CaptureTarget> captureTargets,
+public record StudioProjectSettings(@JsonIgnore List<CaptureTargetModel> captureTargets,
                                     @JsonIgnore Integer defaultTargetIndex,
                                     List<String> knownWindowTitles, Map<String, String> favoriteOverloads,
                                     Resolution referenceResolution, Map<String, List<String>> favoriteMethods,
@@ -151,7 +151,7 @@ public record StudioProjectSettings(@JsonIgnore List<CaptureTarget> captureTarge
     }
 
     /** Convenience constructor for callers that manage the overlay's layout but not the window's. */
-    public StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex,
+    public StudioProjectSettings(List<CaptureTargetModel> captureTargets, Integer defaultTargetIndex,
                                  List<String> knownWindowTitles, Map<String, String> favoriteOverloads,
                                  Resolution referenceResolution, Map<String, List<String>> favoriteMethods,
                                  ProjectTemplate template, String lastRecordedActivity,
@@ -161,7 +161,7 @@ public record StudioProjectSettings(@JsonIgnore List<CaptureTarget> captureTarge
     }
 
     /** Convenience constructor for callers that manage the last activity but not the overlay's layout. */
-    public StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex,
+    public StudioProjectSettings(List<CaptureTargetModel> captureTargets, Integer defaultTargetIndex,
                                  List<String> knownWindowTitles, Map<String, String> favoriteOverloads,
                                  Resolution referenceResolution, Map<String, List<String>> favoriteMethods,
                                  ProjectTemplate template, String lastRecordedActivity) {
@@ -170,7 +170,7 @@ public record StudioProjectSettings(@JsonIgnore List<CaptureTarget> captureTarge
     }
 
     /** Convenience constructor for callers that manage the template but not the overlay's last activity. */
-    public StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex,
+    public StudioProjectSettings(List<CaptureTargetModel> captureTargets, Integer defaultTargetIndex,
                                  List<String> knownWindowTitles, Map<String, String> favoriteOverloads,
                                  Resolution referenceResolution, Map<String, List<String>> favoriteMethods,
                                  ProjectTemplate template) {
@@ -179,7 +179,7 @@ public record StudioProjectSettings(@JsonIgnore List<CaptureTarget> captureTarge
     }
 
     /** Convenience constructor for callers that manage favorite methods but not the template. */
-    public StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex,
+    public StudioProjectSettings(List<CaptureTargetModel> captureTargets, Integer defaultTargetIndex,
                                  List<String> knownWindowTitles, Map<String, String> favoriteOverloads,
                                  Resolution referenceResolution, Map<String, List<String>> favoriteMethods) {
         this(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads, referenceResolution,
@@ -187,26 +187,26 @@ public record StudioProjectSettings(@JsonIgnore List<CaptureTarget> captureTarge
     }
 
     /** Convenience constructor for callers that manage favorite overloads + resolution but not favorite methods. */
-    public StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex,
+    public StudioProjectSettings(List<CaptureTargetModel> captureTargets, Integer defaultTargetIndex,
                                  List<String> knownWindowTitles, Map<String, String> favoriteOverloads,
                                  Resolution referenceResolution) {
         this(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads, referenceResolution, Map.of(), null);
     }
 
     /** Convenience constructor for callers that manage favorite overloads but not the reference resolution. */
-    public StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex,
+    public StudioProjectSettings(List<CaptureTargetModel> captureTargets, Integer defaultTargetIndex,
                                  List<String> knownWindowTitles, Map<String, String> favoriteOverloads) {
         this(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads, null, Map.of(), null);
     }
 
     /** Convenience constructor for callers that don't manage favorite overloads. */
-    public StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex,
+    public StudioProjectSettings(List<CaptureTargetModel> captureTargets, Integer defaultTargetIndex,
                                  List<String> knownWindowTitles) {
         this(captureTargets, defaultTargetIndex, knownWindowTitles, Map.of(), null, Map.of(), null);
     }
 
     /** Convenience constructor for callers that don't manage the remembered window titles. */
-    public StudioProjectSettings(List<CaptureTarget> captureTargets, Integer defaultTargetIndex) {
+    public StudioProjectSettings(List<CaptureTargetModel> captureTargets, Integer defaultTargetIndex) {
         this(captureTargets, defaultTargetIndex, List.of(), Map.of(), null, Map.of(), null);
     }
 
@@ -215,18 +215,18 @@ public record StudioProjectSettings(@JsonIgnore List<CaptureTarget> captureTarge
      * so every picker/toolbar already shows "Whole desktop" instead of an empty "no default set" state.
      */
     public static StudioProjectSettings empty() {
-        return new StudioProjectSettings(List.of(new CaptureTarget.DesktopTarget()), 0, List.of(), Map.of(), null,
+        return new StudioProjectSettings(List.of(CaptureTargetModel.desktop()), 0, List.of(), Map.of(), null,
                 Map.of(), null);
     }
 
     /** The default target, or {@code null} if none is set (pickers then show the chooser). */
     @JsonIgnore
-    public CaptureTarget defaultTarget() {
+    public CaptureTargetModel defaultTarget() {
         return defaultTargetIndex == null ? null : captureTargets.get(defaultTargetIndex);
     }
 
     /** This settings with the target list replaced (keeps the default if still in range). */
-    public StudioProjectSettings withTargets(List<CaptureTarget> targets) {
+    public StudioProjectSettings withTargets(List<CaptureTargetModel> targets) {
         return new StudioProjectSettings(targets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
                 referenceResolution, favoriteMethods, template, lastRecordedActivity, overlayState, workspaceLayout);
     }
@@ -361,22 +361,28 @@ public record StudioProjectSettings(@JsonIgnore List<CaptureTarget> captureTarge
      * all, and clearing it here would silently un-configure those.
      */
     private void projectDefaultSource(Path resourcesDir) throws IOException {
-        CaptureTarget target = defaultTarget();
+        CaptureTargetModel target = defaultTarget();
         if (target == null) return;
-        ProjectCreator.writeCaptureSource(resourcesDir, CaptureTargets.spec(target));
+        ProjectCreator.writeCaptureSource(resourcesDir, target.spec());
     }
 
-    /** This settings' capture targets as the SDK stores them. */
+    /**
+     * This settings' capture targets as the SDK stores them.
+     *
+     * <p>A copy of the list and the index and nothing else since 2026-08-30: the editor holds the SDK's own
+     * {@link CaptureTargetModel} now, so there is no conversion left to get wrong. It went through one —
+     * {@code project.capture.CaptureTargets}, mapping four Studio record shapes onto the spec grammar and back
+     * — and the shapes are deleted because a target's identity is its spec on both sides of the boundary.
+     */
     @JsonIgnore
     public CaptureModel captureModel() {
-        return new CaptureModel(captureTargets.stream().map(CaptureTargets::model).toList(),
-                defaultTargetIndex);
+        return new CaptureModel(captureTargets, defaultTargetIndex);
     }
 
     private StudioProjectSettings withCapture(CaptureModel capture) {
-        return new StudioProjectSettings(capture.targets().stream().map(CaptureTargets::target).toList(),
-                capture.defaultIndex(), knownWindowTitles, favoriteOverloads, referenceResolution,
-                favoriteMethods, template, lastRecordedActivity, overlayState, workspaceLayout);
+        return new StudioProjectSettings(capture.targets(), capture.defaultIndex(), knownWindowTitles,
+                favoriteOverloads, referenceResolution, favoriteMethods, template, lastRecordedActivity,
+                overlayState, workspaceLayout);
     }
 
     private static CaptureModel readCapture(Path resourcesDir) {
@@ -394,20 +400,41 @@ public record StudioProjectSettings(@JsonIgnore List<CaptureTarget> captureTarge
 
     /**
      * The capture targets a pre-{@code capture.json} {@code settings.json} carried, in the shape they were
-     * stored in — four polymorphic JSON forms under {@code captureTargets}.
+     * stored in — four polymorphic JSON forms under {@code captureTargets}, discriminated by {@code "type"}.
      *
      * <p>Read here rather than by the record itself because the components are {@link JsonIgnore}d now, which
      * is what stops a stale copy being written back beside the real one.
+     *
+     * <p><b>Walked as a tree rather than bound to records, and that is the point of the shape being gone.</b>
+     * The four records were the editor's vocabulary and were deleted on 2026-08-30 when the editor moved onto
+     * {@link CaptureTargetModel}; keeping them alive here — as a nested legacy type with its Jackson subtypes
+     * intact — would leave a second spelling of a capture target in the codebase to serve a file format with
+     * one job left. What is actually needed is the mapping from an old node to a spec, and that is four lines.
+     * An entry whose {@code type} nothing recognises is skipped: this runs once, against a file written by an
+     * older Studio, and a target it cannot read is one the user re-adds rather than a reason a project will
+     * not open.
      */
     private static CaptureModel legacyCapture(Path resourcesDir) throws IOException {
         Path file = resourcesDir.resolve(FILE_NAME);
         if (!Files.exists(file)) return CaptureModel.empty();
-        LegacyCapture legacy = MAPPER.readValue(file.toFile(), LegacyCapture.class);
-        List<CaptureTargetModel> targets = legacy.captureTargets() == null ? List.of()
-                : legacy.captureTargets().stream().map(CaptureTargets::model).toList();
-        return new CaptureModel(targets, legacy.defaultTargetIndex());
+        JsonNode root = MAPPER.readTree(file.toFile());
+        List<CaptureTargetModel> targets = new ArrayList<>();
+        for (JsonNode node : root.path("captureTargets")) {
+            CaptureTargetModel target = legacyTarget(node);
+            if (target != null) targets.add(target);
+        }
+        JsonNode index = root.path("defaultTargetIndex");
+        return new CaptureModel(targets, index.isInt() ? index.intValue() : null);
     }
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record LegacyCapture(List<CaptureTarget> captureTargets, Integer defaultTargetIndex) {}
+    /** One legacy {@code captureTargets} entry as a spec, or {@code null} when its {@code type} is unknown. */
+    private static CaptureTargetModel legacyTarget(JsonNode node) {
+        return switch (node.path("type").asText("")) {
+            case "screen" -> CaptureTargetModel.monitor(node.path("index").asInt(0));
+            case "window" -> CaptureTargetModel.window(node.path("titleSubstring").asText(""));
+            case "desktop" -> CaptureTargetModel.desktop();
+            case "emulator" -> CaptureTargetModel.emulator(node.path("instanceName").asText(""));
+            default -> null;
+        };
+    }
 }

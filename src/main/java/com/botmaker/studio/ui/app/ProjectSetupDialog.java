@@ -6,8 +6,7 @@ import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectCreator;
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.studio.project.StudioProjectSettings;
-import com.botmaker.studio.project.capture.CaptureTarget;
-import com.botmaker.studio.project.capture.CaptureTargetNames;
+import com.botmaker.sdk.authoring.CaptureTargetModel;
 import com.botmaker.studio.project.launch.QuickLaunch;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.ProjectSettingsService;
@@ -186,9 +185,9 @@ public final class ProjectSetupDialog {
      * explicit multi-target or non-desktop default satisfy it.
      */
     private static boolean captureConfigured(StudioProjectSettings s) {
-        CaptureTarget def = s.defaultTarget();
+        CaptureTargetModel def = s.defaultTarget();
         if (def == null) return false;
-        return !(def instanceof CaptureTarget.DesktopTarget) || s.captureTargets().size() > 1;
+        return !def.isDesktop() || s.captureTargets().size() > 1;
     }
 
     private String describeLaunch() {
@@ -197,9 +196,9 @@ public final class ProjectSetupDialog {
     }
 
     private static String describeCapture(StudioProjectSettings s) {
-        CaptureTarget def = s.defaultTarget();
+        CaptureTargetModel def = s.defaultTarget();
         if (def == null) return "No default set.";
-        String label = CaptureTargetNames.shortLabel(def);
+        String label = def.shortLabel();
         return captureConfigured(s) ? label : label + " (default — pick your game window or emulator).";
     }
 

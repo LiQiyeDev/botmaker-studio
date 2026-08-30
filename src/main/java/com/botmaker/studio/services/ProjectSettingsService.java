@@ -1,5 +1,6 @@
 package com.botmaker.studio.services;
 
+import com.botmaker.sdk.authoring.CaptureTargetModel;
 import com.botmaker.studio.events.CoreApplicationEvents.SettingsChangedEvent;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.ProjectConfig;
@@ -7,14 +8,13 @@ import com.botmaker.studio.project.ProjectRepair;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.project.ProjectTemplate;
 import com.botmaker.studio.project.StudioProjectSettings;
-import com.botmaker.studio.project.capture.CaptureTarget;
 
 import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
 
 /**
  * Orchestrates the project's editor {@link StudioProjectSettings} — currently the saved
- * {@link CaptureTarget}s and which one is the default used by every on-screen picker. Persistence is a
+ * {@link CaptureTargetModel}s and which one is the default used by every on-screen picker. Persistence is a
  * single {@code settings.json} under {@code src/main/resources}. All I/O lives here at the service edge;
  * {@link #update} runs off the calling thread and publishes {@link SettingsChangedEvent} once state is
  * refreshed. Modeled on {@link ActivityService}.
@@ -48,7 +48,7 @@ public final class ProjectSettingsService {
     }
 
     /** The default capture target, or {@code null} if none is set (pickers then show the chooser). */
-    public CaptureTarget defaultTarget() {
+    public CaptureTargetModel defaultTarget() {
         return current().defaultTarget();
     }
 

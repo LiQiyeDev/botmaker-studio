@@ -3,7 +3,7 @@ package com.botmaker.studio.services;
 import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeController;
 import com.botmaker.shared.capture.NativeControllerFactory;
-import com.botmaker.studio.project.capture.CaptureTarget.WindowTarget;
+import com.botmaker.studio.services.capture.TargetCapture.WindowRef;
 import com.botmaker.studio.services.capture.ScreenOverlay;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Disabled;
@@ -110,7 +110,7 @@ class ScreenCaptureServiceTest {
                 window("Some Game — Direct3D", BOUNDS));
         nc.frame = realFrame(640, 480);
 
-        var shot = new ScreenCaptureService().captureWindow(new WindowTarget("some game"));
+        var shot = new ScreenCaptureService().captureWindow(new WindowRef("some game"));
 
         assertNotNull(shot, "'some game' must match 'Some Game — Direct3D'");
         assertEquals(BOUNDS, shot.bounds());
@@ -121,7 +121,7 @@ class ScreenCaptureServiceTest {
         FakeController nc = install(new FakeController());
         nc.windows = List.of(window("Steam", BOUNDS));
 
-        assertNull(new ScreenCaptureService().captureWindow(new WindowTarget("no such game")));
+        assertNull(new ScreenCaptureService().captureWindow(new WindowRef("no such game")));
     }
 
     /**
@@ -134,7 +134,7 @@ class ScreenCaptureServiceTest {
         nc.windows = List.of(window("Some Game", BOUNDS));
         nc.frame = realFrame(640, 480);
 
-        new ScreenCaptureService().captureWindow(new WindowTarget("Some Game"));
+        new ScreenCaptureService().captureWindow(new WindowRef("Some Game"));
 
         assertTrue(nc.calls.contains("enumerate(minimized=true)"),
                 "a minimized target must be findable: " + nc.calls);
@@ -150,7 +150,7 @@ class ScreenCaptureServiceTest {
         nc.windows = List.of(window("Some Game", BOUNDS));
         nc.frame = realFrame(640, 480);
 
-        var shot = new ScreenCaptureService().captureWindow(new WindowTarget("Some Game"));
+        var shot = new ScreenCaptureService().captureWindow(new WindowRef("Some Game"));
 
         assertNotNull(shot);
         assertEquals(640, shot.image().getWidth());
@@ -165,7 +165,7 @@ class ScreenCaptureServiceTest {
         nc.windows = List.of(window("Some Game", BOUNDS));
         nc.frame = new BufferedImage(640, 480, BufferedImage.TYPE_INT_RGB); // all black
 
-        new ScreenCaptureService().captureWindow(new WindowTarget("Some Game"));
+        new ScreenCaptureService().captureWindow(new WindowRef("Some Game"));
 
         assertTrue(nc.calls.contains("capture Some Game"), "the native path must be tried first: " + nc.calls);
     }
@@ -191,7 +191,7 @@ class ScreenCaptureServiceTest {
         nc.windows = List.of(window("Some Game", BOUNDS));
         nc.frame = new BufferedImage(640, 480, BufferedImage.TYPE_INT_RGB); // all black
 
-        var shot = new ScreenCaptureService().captureWindow(new WindowTarget("Some Game"));
+        var shot = new ScreenCaptureService().captureWindow(new WindowRef("Some Game"));
 
         if (shot != null) {
             assertFalse(com.botmaker.studio.services.capture.DesktopGrab.looksBlank(shot.image()),
@@ -207,7 +207,7 @@ class ScreenCaptureServiceTest {
         nc.captureFailure = new RuntimeException("X error: BadWindow");
 
         // Null (or a desktop-crop fallback) — but never the exception.
-        var shot = new ScreenCaptureService().captureWindow(new WindowTarget("Some Game"));
+        var shot = new ScreenCaptureService().captureWindow(new WindowRef("Some Game"));
         assertTrue(shot == null || shot.image() != null);
     }
 
@@ -218,7 +218,7 @@ class ScreenCaptureServiceTest {
         FakeController nc = install(new FakeController());
         nc.windows = List.of(window("Some Game", new Rectangle(0, 0, 1280, 720)));
 
-        new ScreenCaptureService().resizeTarget(new WindowTarget("Some Game"), 1280, 720);
+        new ScreenCaptureService().resizeTarget(new WindowRef("Some Game"), 1280, 720);
 
         assertTrue(nc.calls.stream().noneMatch(c -> c.startsWith("resize")),
                 "resizing to the size it already is costs a compositor round trip for nothing: " + nc.calls);
@@ -229,7 +229,7 @@ class ScreenCaptureServiceTest {
         FakeController nc = install(new FakeController());
         nc.windows = List.of(window("Some Game", new Rectangle(0, 0, 800, 600)));
 
-        new ScreenCaptureService().resizeTarget(new WindowTarget("Some Game"), 1280, 720);
+        new ScreenCaptureService().resizeTarget(new WindowRef("Some Game"), 1280, 720);
 
         assertTrue(nc.calls.contains("resize Some Game 1280x720"), nc.calls.toString());
     }
@@ -240,7 +240,7 @@ class ScreenCaptureServiceTest {
         FakeController nc = install(new FakeController());
         nc.windows = List.of(window("Some Game", BOUNDS));
 
-        new ScreenCaptureService().resizeTarget(new WindowTarget("Some Game"), 0, 720);
+        new ScreenCaptureService().resizeTarget(new WindowRef("Some Game"), 0, 720);
 
         assertTrue(nc.calls.isEmpty(), nc.calls.toString());
     }
@@ -250,7 +250,7 @@ class ScreenCaptureServiceTest {
         FakeController nc = install(new FakeController());
         nc.windows = List.of();
 
-        new ScreenCaptureService().raiseWindow(new WindowTarget("Some Game"));
+        new ScreenCaptureService().raiseWindow(new WindowRef("Some Game"));
 
         assertTrue(nc.calls.stream().noneMatch(c -> c.startsWith("restore")), nc.calls.toString());
     }
@@ -308,7 +308,8 @@ class ScreenCaptureServiceTest {
         com.botmaker.studio.project.ProjectConfig config =
                 com.botmaker.studio.project.ProjectConfig.forProject("Fixture", dir);
         Files.createDirectories(config.resourcesRoot());
-        WindowTarget window = new WindowTarget("RuneLite");
+        com.botmaker.sdk.authoring.CaptureTargetModel window =
+                com.botmaker.sdk.authoring.CaptureTargetModel.window("RuneLite");
         new com.botmaker.studio.project.StudioProjectSettings(List.of(window), 0, List.of(), java.util.Map.of(),
                 null, null).write(config.resourcesRoot());
 
