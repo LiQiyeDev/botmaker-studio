@@ -739,6 +739,22 @@ line to stderr. Nothing failed to compile at any point.
 - **The scope is `runtime` so javac never sees the toolkit**: no Studio source may name a
   `com.botmaker.plugin.toolkit` type, and `StudioSourcesTest` refuses a widening to `compile`. The toolkit is
   a *plugin's* widget kit; Studio having a version of its own to keep in step is the thing to avoid.
+**The capability layers the pilot stands on left Studio (2026-08-30).** Third step of *Studio knows only the
+contract*, and pure preparation: nothing changed behaviour, ~870 lines left the repository.
+
+- **`studio/emulator/*` → `com.botmaker.shared.emulator`** (`EmulatorProbe`, `EmulatorAppCache`,
+  `EmulatorInstanceScanner`, and the three `*EmulatorSurface`). Their only Studio dependency was a cache
+  directory, which went with them as `shared.config.CacheDirs`; `config/BotMakerDirs` delegates to it, so
+  there is one cache root and not two.
+- **`services/launch/BackgroundLauncher` → `com.botmaker.session.launch`**, where it always belonged: it
+  named session and shared and nothing else. **Its `Platform.runLater` did not survive** — session has no
+  JavaFX — so its callback arrives on the launcher's own thread and `QuickLaunch` and `NestedSessionLauncher`
+  hop themselves. Same rule the plugin contract states for its listeners.
+- **Why this looks like the wrong direction and is not.** Moving Studio code into shared raises Studio's
+  shared *import* count; what matters is that the code is out of Studio, so the pilot can reach it from the
+  SDK. An earlier attempt moved the emulator layer on its own, which really was the wrong direction, and was
+  reverted — it belongs here, behind the feature that needs it.
+
 **A plugin can reach the open project's bot (2026-08-30).** `plugin/HostRuns` implements the contract's
 `Runs` over what Studio already had — the Run/Stop events, `CodeExecutionService.runningBotPid()`, and the
 `EventBus` subscriptions for started/stopped/telemetry — and `HostServices.runs()`/`status()` expose it.

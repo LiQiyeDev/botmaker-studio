@@ -5,7 +5,7 @@ import com.botmaker.shared.capture.NativeController;
 import com.botmaker.shared.capture.NativeControllerFactory;
 import com.botmaker.shared.emulator.EmulatorInstance;
 import com.botmaker.shared.emulator.EmulatorInstances;
-import com.botmaker.studio.emulator.EmulatorProbe;
+import com.botmaker.shared.emulator.EmulatorProbe;
 import com.botmaker.studio.services.capture.DesktopGrab;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectPreferences;

@@ -4,8 +4,9 @@ import com.botmaker.shared.launch.LaunchIsolation;
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.session.display.SessionBackends;
 import com.botmaker.session.impl.NestedSession;
+import com.botmaker.session.launch.BackgroundLauncher;
 import com.botmaker.studio.project.launch.QuickLaunch;
-import com.botmaker.studio.services.launch.BackgroundLauncher;
+import javafx.application.Platform;
 
 import java.nio.file.Path;
 
@@ -103,7 +104,10 @@ public final class NestedSessionLauncher implements AutoCloseable {
             report.accept(false, LaunchIsolation.check(spec).reason());
             return;
         }
-        launcher.start(backend, spec, width, height, report::accept);
+        // The hop is ours since BackgroundLauncher moved into botmaker-session, which has no JavaFX: every
+        // caller of this method renders the outcome, and the outcome arrives on the launcher's own thread.
+        launcher.start(backend, spec, width, height,
+                (ok, message) -> Platform.runLater(() -> report.accept(ok, message)));
     }
 
     /**

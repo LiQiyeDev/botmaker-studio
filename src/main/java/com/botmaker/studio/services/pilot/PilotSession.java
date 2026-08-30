@@ -1,7 +1,7 @@
 package com.botmaker.studio.services.pilot;
 
 import com.botmaker.session.DesktopSession;
-import com.botmaker.studio.services.launch.BackgroundLauncher;
+import com.botmaker.session.launch.BackgroundLauncher;
 
 import java.nio.file.Path;
 import java.util.function.Supplier;

@@ -2,7 +2,7 @@ package com.botmaker.studio.services.pilot;
 
 import com.botmaker.session.Capability;
 import com.botmaker.session.DesktopSession;
-import com.botmaker.studio.emulator.EmulatorSurface;
+import com.botmaker.shared.emulator.EmulatorSurface;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;

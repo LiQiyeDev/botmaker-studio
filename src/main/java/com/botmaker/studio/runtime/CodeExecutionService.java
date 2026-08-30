@@ -9,7 +9,7 @@ import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.FileRole;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
-import com.botmaker.studio.services.launch.BackgroundLauncher;
+import com.botmaker.session.launch.BackgroundLauncher;
 import com.botmaker.studio.util.ClassPathManager;
 import com.botmaker.studio.validation.DiagnosticsManager;
 import javafx.application.Platform;

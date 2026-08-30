@@ -5,7 +5,7 @@ import com.botmaker.shared.capture.NativeControllerFactory;
 import com.botmaker.session.Capability;
 import com.botmaker.session.DesktopSession;
 import com.botmaker.session.PointerPolicy;
-import com.botmaker.studio.emulator.EmulatorSurface;
+import com.botmaker.shared.emulator.EmulatorSurface;
 
 /**
  * Replays the pilot's manual "Interact" gestures onto whichever surface the bot is acting on.

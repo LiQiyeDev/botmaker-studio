@@ -10,7 +10,7 @@ import com.botmaker.session.SessionKeyboard;
 import com.botmaker.session.SessionPointer;
 import com.botmaker.session.video.VideoPacket;
 import com.botmaker.session.video.VideoStream;
-import com.botmaker.studio.emulator.EmulatorSurface;
+import com.botmaker.shared.emulator.EmulatorSurface;
 
 import java.awt.Rectangle;
 import java.awt.image.BufferedImage;

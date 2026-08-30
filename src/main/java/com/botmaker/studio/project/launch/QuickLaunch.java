@@ -6,7 +6,7 @@ import com.botmaker.session.impl.NestedSession;
 import com.botmaker.session.display.SessionBackends;
 import com.botmaker.studio.project.ProjectCreator;
 import com.botmaker.studio.project.StudioProjectSettings;
-import com.botmaker.studio.services.launch.BackgroundLauncher;
+import com.botmaker.session.launch.BackgroundLauncher;
 import javafx.application.Platform;
 import javafx.scene.control.Button;
 import javafx.scene.control.Tooltip;
@@ -184,9 +184,11 @@ public final class QuickLaunch {
                 backend.get(), spec,
                 size != null ? size.width() : BackgroundLauncher.DEFAULT_WIDTH,
                 size != null ? size.height() : BackgroundLauncher.DEFAULT_HEIGHT,
-                (ok, message) -> {
+                // The hop is the caller's since BackgroundLauncher moved into botmaker-session, which has no
+                // JavaFX: the outcome arrives on whichever thread produced it, and this one touches a button.
+                (ok, message) -> Platform.runLater(() -> {
                     button.setDisable(false);
                     report.accept(ok, message);
-                });
+                }));
     }
 }

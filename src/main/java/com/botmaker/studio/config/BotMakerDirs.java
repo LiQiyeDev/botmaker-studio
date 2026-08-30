@@ -1,22 +1,20 @@
 package com.botmaker.studio.config;
 
+import com.botmaker.shared.config.CacheDirs;
+
 import java.nio.file.Path;
 
+/**
+ * Studio's caches — shared's cache root, with Studio's own subdirectories under it.
+ *
+ * <p>The three-branch platform switch that used to be here moved to {@link CacheDirs} on 2026-08-30, when
+ * {@code EmulatorAppCache} became shared's: a cache written by a plugin and one written by Studio have to
+ * agree about where the cache <em>is</em>, and two copies of that switch is how a user ends up with two of
+ * them.
+ */
 public class BotMakerDirs {
 
     public static Path getCacheDir() {
-        String os = System.getProperty("os.name").toLowerCase();
-
-        if (os.contains("win")) {
-            return Path.of(System.getenv("LOCALAPPDATA"), "BotMaker", ".cache");
-        } else if (os.contains("mac")) {
-            return Path.of(System.getProperty("user.home"), "Library", "Caches", "botmaker");
-        } else {
-            String xdgCache = System.getenv("XDG_CACHE_HOME");
-            if (xdgCache != null && !xdgCache.isEmpty()) {
-                return Path.of(xdgCache, "botmaker");
-            }
-            return Path.of(System.getProperty("user.home"), ".cache", "botmaker");
-        }
+        return CacheDirs.cacheRoot();
     }
 }

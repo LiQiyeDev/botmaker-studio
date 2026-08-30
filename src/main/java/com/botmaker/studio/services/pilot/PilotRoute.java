@@ -1,7 +1,7 @@
 package com.botmaker.studio.services.pilot;
 
 import com.botmaker.session.DesktopSession;
-import com.botmaker.studio.emulator.EmulatorSurface;
+import com.botmaker.shared.emulator.EmulatorSurface;
 
 /**
  * <b>Which surface the pilot is streaming and touching</b> — the one question {@link TargetCapture} and

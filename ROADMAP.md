@@ -6,6 +6,13 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-30 — the capability layers the pilot stands on left Studio.** `studio/emulator/*` (probe, app
+  cache, instance scanner, the three capture surfaces) → `shared.emulator`, with the cache root as
+  `shared.config.CacheDirs`; `services/launch/BackgroundLauncher` → `session.launch`, losing its
+  `Platform.runLater` because session has no JavaFX (the two Studio callers hop instead). ~870 lines out, no
+  behaviour change. Preparation for the Remote Pilot becoming an SDK feature: a plugin may not name a Studio
+  type.
+
 - **2026-08-30 — a plugin can reach the open project's bot.** The contract's `Runs`
   (`StudioServices.runs()`) plus `status(String)`; `plugin/HostRuns` implements it over the Run/Stop events,
   `runningBotPid()` and the telemetry subscription Studio already made. Installed per project by

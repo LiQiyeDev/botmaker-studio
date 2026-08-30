@@ -8,7 +8,7 @@ import com.botmaker.shared.launch.LaunchKind;
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.session.display.SessionBackends;
 import com.botmaker.session.impl.NestedSession;
-import com.botmaker.studio.emulator.EmulatorProbe;
+import com.botmaker.shared.emulator.EmulatorProbe;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.pilot.NestedSessionLauncher;
 import javafx.application.Platform;

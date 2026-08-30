@@ -4,7 +4,7 @@ import com.botmaker.shared.capture.GenericWindow;
 import com.botmaker.shared.capture.NativeControllerFactory;
 import com.botmaker.shared.emulator.EmulatorInstance;
 import com.botmaker.shared.emulator.EmulatorInstances;
-import com.botmaker.studio.emulator.EmulatorProbe;
+import com.botmaker.shared.emulator.EmulatorProbe;
 import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.DesktopTarget;
 import com.botmaker.studio.project.capture.CaptureTarget.EmulatorTarget;

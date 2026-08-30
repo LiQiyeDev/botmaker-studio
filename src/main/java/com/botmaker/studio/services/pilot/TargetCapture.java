@@ -8,10 +8,10 @@ import com.botmaker.session.DesktopSession;
 import com.botmaker.session.Preview;
 import com.botmaker.session.PreviewFrame;
 import com.botmaker.session.remote.WindowIds;
-import com.botmaker.studio.emulator.EmulatorSurface;
+import com.botmaker.shared.emulator.EmulatorSurface;
 import com.botmaker.studio.project.capture.CaptureTarget;
 import com.botmaker.studio.services.ProjectSettingsService;
-import com.botmaker.studio.services.launch.BackgroundLauncher;
+import com.botmaker.session.launch.BackgroundLauncher;
 
 import java.awt.GraphicsDevice;
 import java.awt.GraphicsEnvironment;
