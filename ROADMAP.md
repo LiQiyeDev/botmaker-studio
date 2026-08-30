@@ -6,6 +6,20 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-30 — the colour editor is the SDK's, in both places a colour is edited.** Eighth step of *Studio
+  knows only the contract*, phase 3b slice 1, and the first slice that actually moves a picker. Deleted
+  `ui/render/components/ColorArgPicker`, `ui/app/capture/{ColorSampler, ZoomPan, GameFrame}` and
+  `ValueEditors.ColorRow`, with **both** dispatch arms — the `PickerRegistry` entry and the `COLOR` case in
+  the Parameters window — because a type the host answers is a type no plugin is ever offered. What replaces
+  them is one editor in the SDK (`internal/plugin/editors/ColorEditors`) drawn in both places, over
+  `internal/plugin/capture/{EditorFrame, ColorSampler, ZoomPan}`. Studio had been sampling a colour two
+  different ways for the same value: a frozen frame of the capture target on a block, the live screen in a
+  Parameters row, and only the first could report the ΔE spread. The SDK's editor does both — the frozen
+  frame when the project has a capture target, the screen when it does not — so it is strictly more than
+  either offered, and needed nothing added to `StudioServices`. Two temporary arrangements end in the next
+  slice: `ObjectCaptureSurface` imports the SDK's `ZoomPan`, and `PrecisionArgPicker` imports its
+  `EditorFrame`/`ColorSampler`. 1223 Studio tests, 484 SDK tests, green.
+
 - **2026-08-30 — a capture target is the SDK's `CaptureTargetModel`, and Studio has none of its own.**
   Seventh step of *Studio knows only the contract*, phase 3b-0, and the one that unblocked the rest of
   phase 3: a survey found that **all three** of the vertical picker slices the plan named — colour,

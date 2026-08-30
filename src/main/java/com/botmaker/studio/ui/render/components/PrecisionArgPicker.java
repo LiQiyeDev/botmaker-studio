@@ -1,12 +1,12 @@
 package com.botmaker.studio.ui.render.components;
 
 import com.botmaker.sdk.api.vision.Precision;
+import com.botmaker.sdk.internal.plugin.capture.ColorSampler;
+import com.botmaker.sdk.internal.plugin.capture.EditorFrame;
 import com.botmaker.shared.opencv.ColorMatcher;
 import com.botmaker.shared.opencv.RawColorMatch;
 import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.services.CodeEditorService;
-import com.botmaker.studio.ui.app.capture.ColorSampler;
-import com.botmaker.studio.ui.app.capture.GameFrame;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.animation.PauseTransition;
 import javafx.application.Platform;
@@ -303,7 +303,7 @@ public final class PrecisionArgPicker {
         private final PauseTransition debounce = new PauseTransition(DEBOUNCE);
         private final AtomicLong generation = new AtomicLong();
 
-        private GameFrame frame;
+        private EditorFrame frame;
         private java.awt.Color target;
         private Settings pending;
         private Runnable onTargetChanged = () -> {};
@@ -318,16 +318,16 @@ public final class PrecisionArgPicker {
             result.setStyle("-fx-font-weight: bold;");
 
             Button sample = new Button("Sample from game…");
-            sample.setOnAction(e -> ColorSampler.open(context, window(), s -> {
+            sample.setOnAction(e -> withFrame(f -> ColorSampler.openOn(services(), f, s -> {
                 frame = s.frame();
                 target = s.color();
                 onTargetChanged.run();
                 status.setText("Sampled from " + frame.label() + " — previewing against that colour.");
                 schedule();
-            }));
+            })));
 
             Button grab = new Button("Use current frame");
-            grab.setOnAction(e -> GameFrame.grab(context, window(), f -> {
+            grab.setOnAction(e -> withFrame(f -> {
                 frame = f;
                 status.setText("Frame from " + f.label() + ".");
                 schedule();
@@ -358,6 +358,36 @@ public final class PrecisionArgPicker {
 
         private javafx.stage.Window window() {
             return owner.getScene() == null ? null : owner.getScene().getWindow();
+        }
+
+        /**
+         * The host services the SDK's frame grabber and sampler are written against.
+         *
+         * <p>Built here rather than held because this picker is one of the two Studio classes still reaching
+         * into {@code com.botmaker.sdk.internal.plugin.capture} — the colour slice moved the sampler and the
+         * frame grabber there on 2026-08-30, and this whole picker follows in the next one. Nothing about
+         * this is meant to survive that.
+         */
+        private com.botmaker.plugin.api.StudioServices services() {
+            return com.botmaker.studio.plugin.HostServices.forProject(context.getConfig(), this::window);
+        }
+
+        /**
+         * Runs {@code onFrame} with a frozen frame of the project's capture target, or explains why there is
+         * none. Unlike the colour editor there is no screen-pick fallback here: what these settings are being
+         * previewed against has to be a frame of the thing the bot will look at, and the desktop behind the
+         * dialog is not it.
+         */
+        private void withFrame(java.util.function.Consumer<EditorFrame> onFrame) {
+            EditorFrame.grabAsync(services(), onFrame, failure -> {
+                javafx.scene.control.Alert alert = com.botmaker.studio.ui.render.theme.ThemedWindows
+                        .alert(javafx.scene.control.Alert.AlertType.WARNING);
+                alert.setTitle("No frame to preview against");
+                alert.setHeaderText(failure.headline());
+                alert.setContentText(failure.detail());
+                if (window() != null) alert.initOwner(window());
+                alert.showAndWait();
+            });
         }
 
         /** Runs the same search the bot would, off the FX thread; a stale result is dropped by generation. */

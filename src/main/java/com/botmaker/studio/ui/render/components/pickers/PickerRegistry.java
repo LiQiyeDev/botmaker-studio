@@ -5,7 +5,6 @@ import com.botmaker.sdk.api.capture.Window;
 import com.botmaker.sdk.api.launch.LaunchTarget;
 import com.botmaker.sdk.api.vision.Precision;
 import com.botmaker.studio.ui.render.components.CaptureSourcePicker;
-import com.botmaker.studio.ui.render.components.ColorArgPicker;
 import com.botmaker.studio.ui.render.components.EmulatorArgPicker;
 import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
 import com.botmaker.studio.ui.render.components.LaunchTargetArgPicker;
@@ -95,9 +94,9 @@ public final class PickerRegistry {
                     ctx -> TimeArgPicker.dayOfWeek(ctx.context(), ctx.arg())),
             SpecialTypePicker.of(ctx -> ctx.isType("Month"),
                     ctx -> TimeArgPicker.month(ctx.context(), ctx.arg())),
-            // A java.awt.Color arg → a colour swatch (replaces hand-writing new Color(r, g, b)).
-            SpecialTypePicker.of(ctx -> ctx.isType("Color"),
-                    ctx -> ColorArgPicker.create(ctx.context(), ctx.arg())),
+            // Color is gone from this list too, since 2026-08-30, and for the reason that emptied the arm
+            // beside it in the Parameters window: a type this list answers is a type no plugin is ever
+            // offered, so leaving it here is what would stop the SDK's own colour editor being drawn.
             // Rect, Point and Size are gone from this list: they are the SDK's types, so they are the SDK's
             // editors now (com.botmaker.sdk.internal.plugin.editors.GeometryEditors), reached through
             // PluginPickers below exactly as any other plugin's would be.

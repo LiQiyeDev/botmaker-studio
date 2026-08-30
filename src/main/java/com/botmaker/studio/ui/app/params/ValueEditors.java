@@ -153,10 +153,12 @@ public final class ValueEditors {
                 PrecisionRow row = new PrecisionRow(value);
                 yield new Editor(row, row::wire);
             }
-            case "COLOR" -> {
-                ColorRow row = new ColorRow(value, ctx.project());
-                yield new Editor(row, row::wire);
-            }
+            // COLOR has no arm here any more either, on the same reasoning as DURATION above and with one
+            // thing gained beyond having a single editor: the row's eyedropper picked off the live screen
+            // while the block's picked off a frozen frame of the capture target, so the same value was
+            // sampled two different ways and only one of them could report the patch's ΔE spread. The SDK's
+            // editor does both — the frozen frame when the project has a capture target, the screen when it
+            // does not — which is strictly more than either of these two offered.
             case "DIRECTION" -> {
                 DirectionPad pad = new DirectionPad(value);
                 yield new Editor(pad, pad::wire);
@@ -606,43 +608,6 @@ public final class ValueEditors {
     }
 
     // --- colour ---------------------------------------------------------------------------------------------
-
-    /**
-     * A colour as a swatch plus an eyedropper onto the screen.
-     *
-     * <p>The palette alone is not enough for the case this is nearly always used for: game art is shaded,
-     * compressed and anti-aliased, so the red of a health bar is never {@code #FF0000} and no amount of
-     * staring at a colour wheel will produce it. The eyedropper opens the same magnified overlay the point
-     * picker uses — the lens is what makes a one-pixel target hittable — and reports the pixel under the
-     * click.
-     */
-    private static final class ColorRow extends HBox {
-
-        private final ColorPicker picker = new ColorPicker();
-
-        ColorRow(String wire, ProjectConfig project) {
-            super(4);
-            setAlignment(Pos.CENTER_LEFT);
-            picker.setValue(parseColor(wire));
-            HBox.setHgrow(picker, Priority.ALWAYS);
-            picker.setMaxWidth(Double.MAX_VALUE);
-
-            Button eyedropper = new Button("⌖");
-            eyedropper.getStyleClass().add("color-eyedropper");
-            eyedropper.setTooltip(new Tooltip("Pick a colour off the screen, magnified"));
-            eyedropper.setOnAction(e -> ScreenCaptureService.forProjectFiles(project)
-                    .pickColor(window(this), pick -> {
-                        java.awt.Color c = pick.color();
-                        Platform.runLater(() ->
-                                picker.setValue(Color.rgb(c.getRed(), c.getGreen(), c.getBlue())));
-                    }));
-            getChildren().addAll(picker, eyedropper);
-        }
-
-        String wire() {
-            return hex(picker.getValue());
-        }
-    }
 
     // --- direction ------------------------------------------------------------------------------------------
 

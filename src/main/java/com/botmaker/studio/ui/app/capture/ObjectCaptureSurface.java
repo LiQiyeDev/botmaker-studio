@@ -1,5 +1,9 @@
 package com.botmaker.studio.ui.app.capture;
 
+// ZoomPan moved to the SDK with the colour sampler on 2026-08-30 (it has two callers and that one went
+// first). It names nothing of the SDK's API and belongs in botmaker-plugin-toolkit; it cannot go there while
+// this class is Studio's, because Studio source may not name a toolkit type. Both move in the next slice.
+import com.botmaker.sdk.internal.plugin.capture.ZoomPan;
 import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.ui.app.overlay.OverlayToolbars;
 import javafx.application.Platform;
