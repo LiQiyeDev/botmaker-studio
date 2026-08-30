@@ -13,6 +13,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BiPredicate;
 import java.util.stream.Stream;
 
 /**
@@ -45,12 +46,7 @@ public final class BotSources {
 
     /** Visits every {@code .java} file the bot owns exactly once, buffer first. */
     public static void forEach(ProjectConfig config, ProjectState state, Rewrite rewrite) {
-        Map<Path, ProjectFile> open = new LinkedHashMap<>();
-        if (state != null) {
-            for (ProjectFile file : state.getAllFiles()) {
-                if (file.getPath() != null) open.put(file.getPath().toAbsolutePath().normalize(), file);
-            }
-        }
+        Map<Path, ProjectFile> open = openBuffers(state);
         Set<Path> seen = new LinkedHashSet<>();
         Path generated = config.templatesSourceFile().toAbsolutePath().normalize();
 
@@ -71,6 +67,42 @@ public final class BotSources {
             entry.getValue().setContent(rewritten);
             if (Files.isRegularFile(entry.getKey())) write(entry.getKey(), rewritten);
         }
+    }
+
+    /**
+     * The first file whose source {@code matches} accepts, or {@code null} when none does — the read-only
+     * half of {@link #forEach}, walking the same files in the same order, buffer first.
+     *
+     * <p>It exists because something in a bot's code can only be **found**, never assumed to be in a
+     * particular file: nothing writes a user's sources, so where a given call lives is wherever its author
+     * put it. Stopping at the first match is deliberate — a name written twice is a state the user can
+     * create, and picking the first is the same answer the running bot gives.
+     */
+    public static Path firstMatch(ProjectConfig config, ProjectState state, BiPredicate<Path, String> matches) {
+        Map<Path, ProjectFile> open = openBuffers(state);
+        Set<Path> seen = new LinkedHashSet<>();
+
+        for (Path file : javaFiles(config)) {
+            if (!seen.add(file)) continue;
+            ProjectFile buffer = open.get(file);
+            String source = buffer != null ? buffer.getContent() : read(file);
+            if (source != null && matches.test(file, source)) return file;
+        }
+        for (Map.Entry<Path, ProjectFile> entry : open.entrySet()) {
+            if (!seen.add(entry.getKey())) continue;
+            if (matches.test(entry.getKey(), entry.getValue().getContent())) return entry.getKey();
+        }
+        return null;
+    }
+
+    /** The open buffers by absolute path — the copy that wins over the file on disk. */
+    private static Map<Path, ProjectFile> openBuffers(ProjectState state) {
+        Map<Path, ProjectFile> open = new LinkedHashMap<>();
+        if (state == null) return open;
+        for (ProjectFile file : state.getAllFiles()) {
+            if (file.getPath() != null) open.put(file.getPath().toAbsolutePath().normalize(), file);
+        }
+        return open;
     }
 
     /** Every {@code .java} file under the project's source root, absolute and normalized. */

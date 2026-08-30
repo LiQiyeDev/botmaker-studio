@@ -1,5 +1,6 @@
 package com.botmaker.studio.ui.app.overlay;
 
+import com.botmaker.studio.project.ActivityBodies;
 import com.botmaker.studio.project.activity.ActivityDefinition;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.CodeEditorService;
@@ -192,22 +193,30 @@ final class OverlayTargetPicker {
     }
 
     /**
-     * Resolves the picked target to a file and reports it. The file is {@code activities/<name>.java} for an
-     * activity and {@code <name>.java} beside the main source for a scaffold hook — {@link #targetNames} offers
-     * both, so this resolves both. A target with no file on disk reverts the combo to whatever is actually open
-     * and says why on the status line, rather than leaving the combo naming a file nothing switched to.
+     * Resolves the picked target to a file and reports it.
+     *
+     * <p>For an activity that means <b>finding</b> its {@code Activities.define("<name>", …)} call
+     * ({@link ActivityBodies}), because nothing writes a user's sources and so nothing knows where the body
+     * is. For a scaffold hook it is {@code <name>.java} beside the main source — {@link #targetNames} offers
+     * both, so this resolves both.
+     *
+     * <p>An activity with no body yet is an ordinary state, not damage: it takes its {@code DISABLED} wire
+     * and the flow runs without it. So the combo reverts to whatever is actually open and the status line
+     * says what to write, rather than offering to restore a file that was never there.
      */
     private void selectActivity(String name) {
         if (name == null || SCAFFOLD_HEADER.equals(name)) return;
-        Path file = context.getConfig().activitiesPackageDir().resolve(name + ".java");
-        if (!Files.isRegularFile(file)) {
+        Path file = ActivityBodies.find(context.getConfig(), context.getState(), name);
+        if (file == null) {
             Path pkg = context.getConfig().mainSourceFile().getParent();
-            if (pkg != null) file = pkg.resolve(name + ".java");
+            if (pkg != null && Files.isRegularFile(pkg.resolve(name + ".java"))) {
+                file = pkg.resolve(name + ".java");
+            }
         }
-        if (!Files.isRegularFile(file)) {
+        if (file == null || !Files.isRegularFile(file)) {
             activityBox.setValue(openTarget);
-            callbacks.onStatus().accept(
-                    "Couldn't open " + name + ".java — File ▸ Recover Project Files restores it");
+            callbacks.onStatus().accept(name + " has no body yet — write Activities.define(\"" + name
+                    + "\", ctx -> …) anywhere in your code");
             return;
         }
         openTarget = name;

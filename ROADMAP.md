@@ -6,6 +6,13 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-30 — an activity's body is found, not computed.** `project/ActivityBodies.find` scans for
+  `define("<name>"` over `BotSources.firstMatch` (the new read-only half of the sources walk, buffer before
+  disk); `OverlayTargetPicker` and the explorer's *new activity* path both go through it. Nothing writes a
+  user's sources, so the old `activities/<name>.java` path could only have been right by accident. An
+  activity with no body reports *"no body yet"* and names the call to write, where it used to point at
+  *Recover Project Files*.
+
 - **2026-08-30 — a starting point is a published bot.** New Project lists the gallery: an entry tagged
   `template` is a starting template, and Browse Bots stops listing those. A template is an ordinary published
   bot — same repo, release and index entry — so a new starting point needs no Studio release. Studio composes

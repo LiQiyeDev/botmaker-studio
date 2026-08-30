@@ -442,6 +442,15 @@ there are three distinct relationships to keep straight:
     renaming one moves nothing, deleting one leaves whatever the user wrote where it is — an activity's
     behaviour is an `Activities.define("Mining", ctx -> …)` call in a file BotMaker has never known the
     location of.
+  - **So opening an activity is a search, not a path (`project/ActivityBodies`, 2026-08-30).** It matches
+    `define("<name>"` — the method name alone, so a `static import` is found, with the literal matched whole
+    so `Mining` does not open `MiningDeep` — over `BotSources.firstMatch`, the read-only half of the walk
+    `forEach` already did, buffer before disk. **Finding nothing is an ordinary answer**: an activity with no
+    `define` takes its `DISABLED` wire and the flow runs without it, so `OverlayTargetPicker` says *"no body
+    yet"* and names the call to write. What it replaced said *"File ▸ Recover Project Files restores it"* —
+    an offer to write into a user's project, about a file that was never there. The same applies to creating
+    an activity in the explorer: it opens the body if the user has already written one, and otherwise opens
+    nothing.
   - **The lock machinery went on 2026-08-30, and what replaced it is one rule.** `FileRole.GENERATED`,
     `MethodLock`, `GeneratedMembers`, `LockedRegions` and `core/component/MemberVisibility` are deleted;
     `FileRole` is `EDITABLE | LIBRARY` over a path alone, and `LockResolver` refuses exactly three things:

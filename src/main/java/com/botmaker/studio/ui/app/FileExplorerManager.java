@@ -2,6 +2,7 @@ package com.botmaker.studio.ui.app;
 
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
+import com.botmaker.studio.project.ActivityBodies;
 import com.botmaker.studio.project.FileRole;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
@@ -332,15 +333,24 @@ public class FileExplorerManager {
             activityService.update(current.withActivities(updated))
                     .thenRun(() -> Platform.runLater(() -> {
                         refreshTree();
-                        Path stub = config.activitiesPackageDir().resolve(className + ".java");
-                        if (Files.exists(stub)) codeEditorService.switchToFile(stub);
+                        // Creating an activity writes no file — it is a row in activities.json. If the user
+                        // has already written its body somewhere, open that; otherwise there is nothing to
+                        // open, and offering to create one is exactly what this project stopped doing.
+                        Path body = ActivityBodies.find(config, codeEditorService.getState(), className);
+                        if (body != null) codeEditorService.switchToFile(body);
                     }));
         });
     }
 
     /**
-     * An activity name becomes a Java class name and a field on the generated {@code Activities} class, so it
-     * must be a valid identifier: strip non-alphanumerics, then drop any leading digits.
+     * An activity's name is written into the user's code as a string literal — {@code Activities.define("Mining",
+     * …)} — and read back by matching that literal, so it is kept to letters and digits: strip
+     * non-alphanumerics, then drop any leading digits.
+     *
+     * <p>It used to have to be a valid Java identifier, because the name became a class and a field on a
+     * generated {@code Activities} class. Nothing is generated now and a name in quotes could hold anything;
+     * what the restriction still buys is that the name reads the same on the canvas as it does in the code,
+     * with no escaping to get wrong on either side.
      */
     static String sanitizeActivityName(String raw) {
         if (raw == null) return "";
