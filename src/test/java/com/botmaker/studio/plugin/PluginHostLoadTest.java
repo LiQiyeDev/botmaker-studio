@@ -43,6 +43,25 @@ class PluginHostLoadTest {
                         + plugins.stream().map(StudioPlugin::id).toList());
     }
 
+    /**
+     * The companion set loads too, and it is the half that fails <em>most</em> silently.
+     *
+     * <p>A {@link StudioPlugin} that does not load costs the palette, which is visible the moment somebody
+     * opens an insert menu. A {@link com.botmaker.plugin.api.CompanionPlugin} that does not load costs a
+     * toolbar button — and a button that was never drawn looks exactly like a feature that was never
+     * written. The Remote Pilot is declared in its own {@code META-INF/services} file, so a build that
+     * packages one services file and not the other presents here and nowhere else.
+     */
+    @Test
+    void studios_own_classpath_yields_the_bundled_companion() {
+        List<String> ids = PluginHost.companions().stream()
+                .map(com.botmaker.plugin.api.CompanionPlugin::id).toList();
+
+        assertTrue(ids.contains("botmaker-pilot"),
+                "the Remote Pilot did not load as a CompanionPlugin, so its toolbar button is silently"
+                        + " absent; found: " + ids);
+    }
+
     /** The palette is the SDK plugin's largest contribution, and an empty one is a usable-looking Studio. */
     @Test
     void the_bundled_palette_has_facades() {

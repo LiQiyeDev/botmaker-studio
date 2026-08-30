@@ -5,9 +5,13 @@ import com.botmaker.plugin.api.Dialogs;
 import com.botmaker.plugin.api.Region;
 import com.botmaker.plugin.api.StudioServices;
 import com.botmaker.plugin.api.Theme;
+import com.botmaker.plugin.api.ThemeTokens;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.services.ScreenCaptureService;
+import com.botmaker.studio.ui.render.theme.BlockTheme;
+import com.botmaker.studio.ui.render.theme.ColorPalette;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
+import com.botmaker.studio.ui.render.theme.Typography;
 import com.botmaker.studio.util.NativeFileDialog;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
@@ -96,6 +100,44 @@ public final class HostServices implements StudioServices {
     @Override
     public Theme theme() {
         return THEME;
+    }
+
+    /**
+     * The same look {@link #theme()} applies, as data — read live rather than cached, because
+     * {@link BlockTheme#current()} changes whenever the user picks a theme and a plugin asking now wants the
+     * answer now.
+     *
+     * <p><b>{@code dark} is measured from the background, not read off the theme's name.</b> The flag says
+     * which way round a client should render, and deriving it from the colour Studio is actually painting
+     * keeps that true for a theme added later — a name-based switch would report a fifth theme as light by
+     * omission, and a client would draw white on white.
+     */
+    @Override
+    public ThemeTokens themeTokens() {
+        BlockTheme theme = BlockTheme.current();
+        ColorPalette colors = theme.colors();
+        Typography type = theme.typography();
+        return new ThemeTokens(
+                isDark(colors.background()),
+                colors.background(), colors.text(), colors.primary(), colors.hover(),
+                colors.error(), colors.warning(), colors.success(),
+                type.primaryFont(), type.monoFont(), type.normal());
+    }
+
+    /**
+     * Whether a CSS colour is dark enough that a client should render light-on-dark, by perceived luminance
+     * (ITU-R BT.601 weights — green counts for most of what the eye reads as brightness).
+     *
+     * <p>Anything unparsable answers "light", which is the safe way to be wrong: a light client on a dark
+     * ground is merely ugly, a dark one on a dark ground is unreadable.
+     */
+    private static boolean isDark(String cssColor) {
+        try {
+            Color c = Color.web(cssColor);
+            return 0.299 * c.getRed() + 0.587 * c.getGreen() + 0.114 * c.getBlue() < 0.5;
+        } catch (RuntimeException unparsable) {
+            return false;
+        }
     }
 
     @Override

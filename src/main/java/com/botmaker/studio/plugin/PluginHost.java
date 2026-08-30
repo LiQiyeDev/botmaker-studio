@@ -1,5 +1,6 @@
 package com.botmaker.studio.plugin;
 
+import com.botmaker.plugin.api.CompanionPlugin;
 import com.botmaker.plugin.api.ParameterGroup;
 import com.botmaker.plugin.api.SlotEditor;
 import com.botmaker.plugin.api.StudioPlugin;
@@ -11,7 +12,9 @@ import com.botmaker.plugin.api.value.ValueCatalog;
 import com.botmaker.plugin.host.PluginLoader;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -20,6 +23,7 @@ import java.util.Set;
 import java.util.Optional;
 import java.util.ServiceLoader;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 /**
  * The plugins this Studio has loaded, and the one place their contributions are composed.
@@ -72,7 +76,17 @@ public final class PluginHost {
      * also why this phase needed no separate step for "discovery without a project" — the no-project path
      * <em>is</em> plain {@link ServiceLoader}, over the same declaration a project's jar carries.
      */
-    private static final List<StudioPlugin> BUNDLED = discover(PluginHost.class.getClassLoader());
+    private static final List<StudioPlugin> BUNDLED = discover(StudioPlugin.class, PluginHost.class.getClassLoader());
+
+    /**
+     * The {@link CompanionPlugin}s on Studio's own classloader — the same fallback, for the other interface.
+     *
+     * <p>Separate from {@link #BUNDLED} rather than merged into it because the two are unrelated types. A
+     * plugin implementing both appears in both lists and is the same object, which is what makes the SDK's
+     * palette and the Remote Pilot's button one plugin's contributions rather than two plugins'.
+     */
+    private static final List<CompanionPlugin> BUNDLED_COMPANIONS =
+            discover(CompanionPlugin.class, PluginHost.class.getClassLoader());
 
     /**
      * The plugin set answering right now: the bound project's, or {@link #BUNDLED}. Volatile because
@@ -80,6 +94,9 @@ public final class PluginHost {
      * are called from wherever a variable is constructed.
      */
     private static volatile List<StudioPlugin> plugins = BUNDLED;
+
+    /** The companion set answering right now, bound and rebound beside {@link #plugins}. */
+    private static volatile List<CompanionPlugin> companions = BUNDLED_COMPANIONS;
 
     /** The loader behind a bound set, held only so it can be closed. Null whenever {@link #BUNDLED} is live. */
     private static volatile PluginLoader loader;
@@ -116,13 +133,23 @@ public final class PluginHost {
     private static volatile List<SlotEditor> slotEditors = mergeSlotEditors(BUNDLED);
 
     /** Memoised beside the slot editors, rebuilt on the same bind. See {@link #toolbarItems()}. */
-    private static volatile List<ToolbarItem> toolbarItems = mergeToolbarItems(BUNDLED);
+    private static volatile List<ToolbarItem> toolbarItems = mergeToolbarItems(BUNDLED, BUNDLED_COMPANIONS);
 
     /** pinned version → the sections of the Parameters window at it. Cleared with {@link #CACHE}. */
     private static final Map<String, List<ParameterGroup>> GROUPS = new ConcurrentHashMap<>();
 
     public static List<StudioPlugin> plugins() {
         return plugins;
+    }
+
+    /**
+     * The companion plugins answering right now — the ones that do something beside the user's code.
+     *
+     * <p>Beside {@link #plugins()} rather than folded into it: they are an unrelated type, and every caller
+     * wanting one kind would otherwise have to filter for it.
+     */
+    public static List<CompanionPlugin> companions() {
+        return companions;
     }
 
     /**
@@ -137,11 +164,11 @@ public final class PluginHost {
         if (opened == null) {
             // Not unbind(): a classpath that would not open is still a project opening, and the bundled set
             // is about to serve it. Saying "no project" here would leave the next close with nobody to tell.
-            swap(null, BUNDLED);
+            swap(null, BUNDLED, BUNDLED_COMPANIONS);
             serving = true;
             return;
         }
-        swap(opened, opened.plugins());
+        swap(opened, opened.plugins(), opened.companions());
         serving = true;
     }
 
@@ -153,11 +180,11 @@ public final class PluginHost {
      * the <em>next</em> project's dependency resolve rather than this one's.
      */
     public static synchronized void unbind() {
-        swap(null, BUNDLED);
+        swap(null, BUNDLED, BUNDLED_COMPANIONS);
         serving = false;
     }
 
-    private static void swap(PluginLoader opened, List<StudioPlugin> bound) {
+    private static void swap(PluginLoader opened, List<StudioPlugin> bound, List<CompanionPlugin> boundCompanions) {
         ValueCatalog merged;
         try {
             merged = mergeValueTypes(bound);
@@ -167,19 +194,20 @@ public final class PluginHost {
             // where a developer can act on it.
             System.err.println("Warning: the project's plugins do not compose; using the bundled set: " + e);
             if (opened != null) opened.close();
-            if (bound != BUNDLED) swap(null, BUNDLED);
+            if (bound != BUNDLED) swap(null, BUNDLED, BUNDLED_COMPANIONS);
             return;
         }
         // Before anything is replaced, and before the outgoing loader is closed at the end of this method:
         // a plugin releasing a port or a nested display has to be able to run its own code to do it.
-        if (serving) closeOutgoing(plugins);
+        if (serving) closeOutgoing(plugins, companions);
 
         PluginLoader previous = loader;
         loader = opened;
         plugins = bound;
+        companions = boundCompanions;
         valueTypes = merged;
         slotEditors = mergeSlotEditors(bound);
-        toolbarItems = mergeToolbarItems(bound);
+        toolbarItems = mergeToolbarItems(bound, boundCompanions);
         CACHE.clear();
         GROUPS.clear();
         if (previous != null) previous.close();
@@ -201,34 +229,61 @@ public final class PluginHost {
      * <p>Total, like every other pass over plugin code here: one plugin that throws on the way out must not
      * stop the next plugin from being told, and must not stop the project that is opening.
      */
-    static void closeOutgoing(List<StudioPlugin> outgoing) {
+    static void closeOutgoing(List<? extends StudioPlugin> outgoing,
+                              List<? extends CompanionPlugin> outgoingCompanions) {
+        // Identity, not id: one object implementing both interfaces appears in both lists and must be told
+        // exactly once. Comparing ids instead would silence a genuinely duplicated id — two plugins, one
+        // name — which is a state that should still get both of them released.
+        Set<Object> told = Collections.newSetFromMap(new IdentityHashMap<>());
         for (StudioPlugin plugin : outgoing) {
-            try {
-                plugin.projectClosing();
-            } catch (RuntimeException | Error e) {
-                System.err.println("Warning: plugin '" + plugin.id()
-                        + "' failed to release what it held for the closing project: " + e);
-            }
+            if (!told.add(plugin)) continue;
+            close(plugin, plugin::id, plugin::projectClosing);
+        }
+        for (CompanionPlugin companion : outgoingCompanions) {
+            if (!told.add(companion)) continue;
+            close(companion, companion::id, companion::projectClosing);
         }
     }
 
     /**
-     * Every {@link StudioPlugin} {@code classLoader} can see, or an empty list.
+     * Tells one plugin its project is over, containing anything it throws — including from {@code id()},
+     * which is called only to name it in the warning and must not be what stops the next plugin being told.
+     */
+    private static void close(Object plugin, Supplier<String> id, Runnable projectClosing) {
+        try {
+            projectClosing.run();
+        } catch (RuntimeException | Error e) {
+            String name;
+            try {
+                name = id.get();
+            } catch (RuntimeException | Error unnamed) {
+                name = plugin.getClass().getName();
+            }
+            System.err.println("Warning: plugin '" + name
+                    + "' failed to release what it held for the closing project: " + e);
+        }
+    }
+
+    /**
+     * Every provider of {@code service} that {@code classLoader} can see, or an empty list.
      *
      * <p>Total by construction: a missing service file and a provider that will not instantiate are both
      * ordinary states here — a bot's classpath legitimately carries no plugin at all — and neither may take
      * Studio down on the way to a project screen.
+     *
+     * <p>Generic over the two plugin interfaces rather than written twice, for the same reason as its
+     * counterpart in {@code PluginLoader}: the failure handling is the part worth having once.
      */
-    private static List<StudioPlugin> discover(ClassLoader classLoader) {
-        List<StudioPlugin> found = new ArrayList<>();
+    private static <T> List<T> discover(Class<T> service, ClassLoader classLoader) {
+        List<T> found = new ArrayList<>();
         try {
             // An explicit loop, not a stream: providers instantiate lazily and one that throws must not
             // cost the ones already found.
-            for (StudioPlugin plugin : ServiceLoader.load(StudioPlugin.class, classLoader)) {
+            for (T plugin : ServiceLoader.load(service, classLoader)) {
                 found.add(plugin);
             }
         } catch (RuntimeException | Error e) {
-            System.err.println("Warning: could not discover bundled plugins: " + e);
+            System.err.println("Warning: could not discover bundled " + service.getSimpleName() + "s: " + e);
         }
         return List.copyOf(found);
     }
@@ -295,27 +350,39 @@ public final class PluginHost {
     // Package-private rather than private: the three rules below — the STUDIO refusal, the sort's tie-break
     // on the plugin id, and a throwing plugin costing only itself — have no visible symptom when they are
     // wrong. A bar in a slightly different order looks like somebody's preference, not like a bug.
-    static List<ToolbarItem> mergeToolbarItems(List<StudioPlugin> set) {
+    static List<ToolbarItem> mergeToolbarItems(List<? extends StudioPlugin> set,
+                                               List<? extends CompanionPlugin> companionSet) {
         record Owned(String pluginId, ToolbarItem item) {}
         List<Owned> merged = new ArrayList<>();
-        for (StudioPlugin plugin : set) {
+        // Identity again, and here it is not merely tidy: a class implementing both interfaces cannot
+        // inherit two unrelated `toolbarItems()` defaults, so javac forces it to write one — which then
+        // serves both, and asking twice would draw every one of its buttons twice.
+        Set<Object> asked = Collections.newSetFromMap(new IdentityHashMap<>());
+        List<Object> everyone = new ArrayList<>(set);
+        everyone.addAll(companionSet);
+        for (Object plugin : everyone) {
+            if (!asked.add(plugin)) continue;
+            String pluginId;
             List<ToolbarItem> offered;
             try {
-                offered = plugin.toolbarItems();
+                pluginId = plugin instanceof StudioPlugin p ? p.id() : ((CompanionPlugin) plugin).id();
+                offered = plugin instanceof StudioPlugin p ? p.toolbarItems()
+                        : ((CompanionPlugin) plugin).toolbarItems();
             } catch (RuntimeException | Error e) {
                 // A plugin that cannot list its buttons must not cost the ones that can, nor the project.
-                System.err.println("Warning: " + plugin.id() + " could not offer toolbar items: " + e);
+                System.err.println("Warning: " + plugin.getClass().getName()
+                        + " could not offer toolbar items: " + e);
                 continue;
             }
             if (offered == null) continue;
             for (ToolbarItem item : offered) {
                 if (item == null || item.label() == null || item.onClick() == null) continue;
                 if (item.group() == ToolbarGroup.STUDIO) {
-                    System.err.println("Warning: " + plugin.id() + " asked for the STUDIO toolbar group with '"
+                    System.err.println("Warning: " + pluginId + " asked for the STUDIO toolbar group with '"
                             + item.id() + "'; that group is the host's own and the item is dropped.");
                     continue;
                 }
-                merged.add(new Owned(plugin.id(), item));
+                merged.add(new Owned(pluginId, item));
             }
         }
         merged.sort(Comparator.comparing((Owned o) -> o.item().group())
