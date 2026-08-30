@@ -629,12 +629,10 @@ The `ui/` package is split by concern:
   There is **no `PaletteManager`** — this entry named one for a long time and no such file has ever existed;
   the insertable catalogs are `palette/` below, and the overlay's own palette bar is
   `ui/app/overlay/OverlayPalette`.
-- **`ui/app/pilot/`** — **Remote Pilot**: driving the bot from a phone. `RemotePilotUi` is the bring-up state
-  machine and the owner of the two OS resources (`PilotServer`'s bound port, `NestedSessionLauncher`'s nested
-  X display) — it is `AutoCloseable`, and `UIManager.dispose()` is what closes it. `RemotePilotDialog` (the
-  pairing dialog: URL, QR, token reset), `FunnelSetupWizard` (the Tailscale Funnel steps, rendered from a
-  `FunnelDiag`; makes no CLI calls itself) and `BackgroundModeBox` (the private-display controls) are pure
-  rendering over its records.
+- **`ui/app/pilot/` and `services/pilot/` are gone (2026-08-30)** — the Remote Pilot is the SDK plugin's
+  feature, in `botmaker-sdk`'s `internal/plugin/pilot/`, reached through a `ToolbarItem` like any other
+  plugin's contribution. Nothing here calls it and nothing here closes it: the host says the project is
+  closing and the plugin releases its own port and display. See *the Remote Pilot left Studio* below.
 - **`ui/app/capture/`** — the screen-capture feature: `OverlayTemplateCapture` (the on-screen capture toolbar)
   over `CaptureSurface` / `ObjectCaptureSurface` (rect and contour selection), `MagicWand`, `ColorSampler`,
   `ZoomPan`, `CaptureSourcePicker`, `TargetThumbnail`, `GameFrame`, `BatchTemplateNamingDialog`.
@@ -739,6 +737,30 @@ line to stderr. Nothing failed to compile at any point.
 - **The scope is `runtime` so javac never sees the toolkit**: no Studio source may name a
   `com.botmaker.plugin.toolkit` type, and `StudioSourcesTest` refuses a widening to `compile`. The toolkit is
   a *plugin's* widget kit; Studio having a version of its own to keep in step is the thing to avoid.
+**The Remote Pilot left Studio (2026-08-30).** Fifth step of *Studio knows only the contract*, and the one the
+toolbar surface was added for: 17 files and ~3,400 lines, plus the built web client under
+`src/main/resources/pilot/`, moved to `botmaker-sdk`'s `internal/plugin/pilot/`, and Javalin and ZXing left
+this pom with them.
+
+- **What it needed from the host turned out to be four things, all already on the contract.** Which project
+  is open (`resourcesDir`), a line in the status bar (`status`), the look and the owning window (`theme`,
+  `dialogs().owner()`), and the bot as a process (`runs`). It held four editor classes for those — the event
+  bus, `ProjectSettingsService`, `ProjectConfig`, `CodeExecutionService` — and **nothing was added to
+  `StudioServices` to replace them**, which was the standing condition on this whole move.
+- **The default capture target it asks for is the SDK's own `capture.json`**, read through `Authoring` by a
+  small `PilotProject`. That is why the capture store moved first: while the list was in the editor's
+  `settings.json`, the pilot could not have read it without a service on the contract for it, and a capture
+  target is `CaptureSource`'s vocabulary, which is exactly what the 2026-08-27 `Assets` reversal refuses to
+  put there.
+- **Studio keeps one thing it used to get from the pilot**: the live session's host window, for the overlay
+  to draw over. `StudioActions.liveSessionWindow` asks the project's own `BackgroundLauncher` — which is
+  where it always was; `RemotePilotUi` was merely the only thing holding one.
+- **`ProjectPreferences` lost the pilot token and port.** A plugin's state is the plugin's: they are in its
+  own `java.util.prefs` node. An older preferences file still carrying the two keys reads fine.
+- **The `pilot` Maven profile went with it**, so the web client is rebuilt by the module that serves it.
+- The accepted consequence, stated plainly: **a project with no SDK plugin has no Pilot button.** That is
+  the platform's own rule working, and it is worth meeting here rather than in phase 9.
+
 **The capture targets stopped being stored twice (2026-08-30).** Fourth step of *Studio knows only the
 contract*, and the first that changes where a project's data lives: the targets are the SDK's
 `capture.json` now, read and written through `Authoring.readCapture`/`writeCapture`.

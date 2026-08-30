@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-30 — the Remote Pilot left Studio.** `services/pilot/*`, `ui/app/pilot/*`, `ui/util/QrCodes` and
+  `src/main/resources/pilot/` (17 files, ~3,400 lines) are `botmaker-sdk`'s `internal/plugin/pilot/`; the
+  button is a `ToolbarItem` from `SdkPlugin` and the port and nested display are released in its
+  `projectClosing()`. Javalin, ZXing and the `pilot` Maven profile went with it; `ProjectPreferences` lost the
+  pilot token and port; `StudioActions.liveSessionWindow` asks `BackgroundLauncher` directly. The four host
+  facts it needed were already on the contract — `resourcesDir`, `status`, `theme`/`dialogs().owner()` and
+  `runs` — and nothing was added to `StudioServices`.
+
+- **2026-08-30 — one reader for `botmaker-project.properties` from a directory.** `shared.config.ProjectFile`,
+  with `ProjectCreator`'s four path-side readers delegating to it. The classpath-side reader was already
+  shared's; the directory-side one existed in Studio and, now, in a plugin — and what the copies disagreed
+  about was never the happy path but what a missing file or an unparseable number means.
+
 - **2026-08-30 — the capture targets stopped being stored twice.** They live in the SDK's `capture.json`
   now (`Authoring.readCapture`/`writeCapture`); `StudioProjectSettings` keeps `captureTargets` and
   `defaultTargetIndex` as components — every picker asks for them there — but `@JsonIgnore`s them, reads

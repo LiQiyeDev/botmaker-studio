@@ -128,12 +128,19 @@ class ToolbarMergeTest {
         assertTrue(PluginHost.mergeToolbarItems(List.of()).isEmpty());
     }
 
-    /** The bundled SDK plugin offers none yet — its buttons are still Studio's, and phase 13 is where they move. */
+    /**
+     * The bundled SDK plugin contributes the Pilot button, and Studio's own bar no longer builds one.
+     *
+     * <p>This used to assert the opposite — that the bundled set offered nothing — as a guard against the bar
+     * showing the same button twice while the pilot was still Studio's. The pilot moved to the SDK on
+     * 2026-08-30, so the guard is inverted rather than deleted: a bar with no Pilot item at all means the
+     * merge stopped reaching the bundled plugin, which is exactly as invisible as a duplicate would have been.
+     */
     @Test
-    void the_bundled_set_offers_no_toolbar_items_yet() {
+    void the_bundled_set_contributes_the_pilot_button() {
         assertFalse(PluginHost.plugins().isEmpty(), "the bundled set is empty; see PluginHostLoadTest");
-        assertTrue(PluginHost.toolbarItems().isEmpty(),
-                "the SDK plugin has started contributing toolbar items — update this test and the bar's"
-                        + " own Studio-side list, which would otherwise offer the same buttons twice");
+        assertTrue(ids(PluginHost.toolbarItems()).stream().anyMatch(id -> id.contains("pilot")),
+                "the SDK plugin's Pilot item is not in the merged bar — either it stopped contributing it or"
+                        + " the merge stopped reaching the bundled plugins");
     }
 }

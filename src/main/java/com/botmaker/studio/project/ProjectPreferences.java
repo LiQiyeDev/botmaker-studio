@@ -48,11 +48,10 @@ public class ProjectPreferences {
      * so a dialog that has never been opened falls back to the size its caller asked for.
      */
     private Map<String, WindowState> dialogWindows = new LinkedHashMap<>();
-    /** Remote-Pilot pairing token (global to Studio) → stable across restarts so paired phones don't rescan. */
-    private String pilotToken;
-    /** Last Remote-Pilot local bind port (global to Studio) → reused when free so the tailnet-direct URL is
-     *  stable across restarts, completing the "don't rescan" story alongside {@link #pilotToken}. 0 = unset. */
-    private int pilotPort;
+    // The Remote Pilot's pairing token and last bind port lived here until 2026-08-30, when the pilot became
+    // the SDK plugin's feature. A plugin's state is the plugin's to keep, and the editor has no reason to know
+    // a pilot token exists — they are in the plugin's own java.util.prefs node now. An older preferences file
+    // still carrying the two keys reads fine: this class ignores unknown properties.
     /** True once the user ticked "don't show again" on the Wayland → X11 notice. */
     private boolean hideWaylandNotice;
     /** How the project list is sorted, by {@code ProjectSelectionScreen.SortMode} name. Null = the default. */
@@ -77,10 +76,6 @@ public class ProjectPreferences {
     public void setDialogWindows(Map<String, WindowState> states) {
         this.dialogWindows = states == null ? new LinkedHashMap<>() : new LinkedHashMap<>(states);
     }
-    public String getPilotToken() { return pilotToken; }
-    public void setPilotToken(String token) { this.pilotToken = token; }
-    public int getPilotPort() { return pilotPort; }
-    public void setPilotPort(int port) { this.pilotPort = port; }
     public boolean isHideWaylandNotice() { return hideWaylandNotice; }
     public void setHideWaylandNotice(boolean hide) { this.hideWaylandNotice = hide; }
     public String getProjectSortMode() { return projectSortMode; }
@@ -165,30 +160,6 @@ public class ProjectPreferences {
     public static void updateCaptureScreen(int index) {
         ProjectPreferences prefs = load();
         prefs.setCaptureScreenIndex(index);
-        prefs.save();
-    }
-
-    /** The persisted Remote-Pilot pairing token (global), or {@code null} if never generated. */
-    public static String loadPilotToken() {
-        return load().getPilotToken();
-    }
-
-    /** Persists a new Remote-Pilot pairing token (pass {@code null} to clear/revoke). */
-    public static void updatePilotToken(String token) {
-        ProjectPreferences prefs = load();
-        prefs.setPilotToken(token);
-        prefs.save();
-    }
-
-    /** The persisted Remote-Pilot local bind port, or {@code 0} if never bound. */
-    public static int loadPilotPort() {
-        return load().getPilotPort();
-    }
-
-    /** Persists the Remote-Pilot local bind port so the next start reuses it when it's free. */
-    public static void updatePilotPort(int port) {
-        ProjectPreferences prefs = load();
-        prefs.setPilotPort(port);
         prefs.save();
     }
 

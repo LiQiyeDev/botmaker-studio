@@ -30,7 +30,7 @@ import com.botmaker.studio.ui.app.capture.OverlayTemplateCapture;
 import com.botmaker.studio.ui.app.dev.PickerGalleryWindow;
 import com.botmaker.studio.ui.app.overlay.ProgramShapeOverlay;
 import com.botmaker.studio.ui.app.params.ParametersDialog;
-import com.botmaker.studio.ui.app.pilot.RemotePilotUi;
+import com.botmaker.session.launch.BackgroundLauncher;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;
 import javafx.scene.control.Alert;
@@ -61,7 +61,6 @@ final class StudioActions {
     private final ProjectAnalyzer projectAnalyzer;
     private final ActivityService activityService;
     private final LibraryService libraryService;
-    private final RemotePilotUi remotePilot;
     private final MenuBarManager menuBar;
     private final ToolbarManager toolbar;
     private final Runnable recoverProjectFiles;
@@ -80,13 +79,12 @@ final class StudioActions {
     /**
      * Six of the thirteen parameters this took were the project's own services, re-listed here after
      * {@code UIManager} had already listed them; they arrive as one {@link StudioContext} now. What is left is
-     * genuinely the shell's: the window, the two things only the shell builds
-     * ({@link ScreenCaptureService}, {@link RemotePilotUi}) and the two surfaces these actions are wired onto.
+     * genuinely the shell's: the window, the one thing only the shell builds
+     * ({@link ScreenCaptureService}) and the two surfaces these actions are wired onto.
      */
     StudioActions(StudioContext ctx,
                   Stage primaryStage,
                   ScreenCaptureService screenCaptureService,
-                  RemotePilotUi remotePilot,
                   MenuBarManager menuBar,
                   ToolbarManager toolbar,
                   Runnable recoverProjectFiles) {
@@ -100,7 +98,6 @@ final class StudioActions {
         this.projectAnalyzer = ctx.projectAnalyzer();
         this.activityService = ctx.activityService();
         this.libraryService = ctx.libraryService();
-        this.remotePilot = remotePilot;
         this.menuBar = menuBar;
         this.toolbar = toolbar;
         this.recoverProjectFiles = recoverProjectFiles;
@@ -141,9 +138,8 @@ final class StudioActions {
         toolbar.setOnOverlayEditor(() -> openOverlayEditor(false));
         toolbar.setOnRecordMacro(() -> openOverlayEditor(true));
 
-        // --- Remote Pilot ---
-        menuBar.setOnEnableRemotePilot(remotePilot::open);
-        toolbar.setOnEnableRemotePilot(remotePilot::open);
+        // The Remote Pilot used to be wired here. It is the SDK plugin's feature since 2026-08-30 and reaches
+        // the bar as a ToolbarItem like any other plugin's, so there is nothing for the shell to wire.
 
         // --- Sharing / VCS ---
         menuBar.setOnBrowseGallery(this::openGallery);
@@ -322,7 +318,21 @@ final class StudioActions {
      */
     private void openOverlayEditor(boolean startRecording) {
         ProgramShapeOverlay.open(primaryStage, codeEditorService, projectSettingsService, screenCaptureService,
-                activityService, remotePilot::liveSessionWindow, startRecording, this::openLaunchTarget);
+                activityService, this::liveSessionWindow, startRecording, this::openLaunchTarget);
+    }
+
+    /**
+     * The live private session's host window for the overlay to draw over, or {@code 0} when none is running —
+     * revealed first, since a session is brought up minimized and an overlay over a minimized window shows
+     * nothing.
+     *
+     * <p>Asked of the project's one {@link BackgroundLauncher} rather than of the pilot. It used to come from
+     * {@code RemotePilotUi}, which was the only thing holding a launcher; the pilot is a plugin now, and a
+     * host may not reach into one. The launcher is the right source anyway — it is per project and holds the
+     * session whether the pilot, the ▶ Launch button, or nothing at all started it.
+     */
+    private long liveSessionWindow() {
+        return BackgroundLauncher.forProject(config.resourcesRoot()).revealHostWindow();
     }
 
     /**
@@ -340,7 +350,6 @@ final class StudioActions {
                 .on(StudioAction.ACTIVITY_FLOW, this::openActivityFlow)
                 .on(StudioAction.PARAMETERS, this::openParameters)
                 .on(StudioAction.OVERLAY_EDITOR, () -> openOverlayEditor(false))
-                .on(StudioAction.REMOTE_PILOT, remotePilot::open)
                 .on(StudioAction.PUBLISH, this::openPublishDialog)
                 .on(StudioAction.GALLERY, this::openGallery)
                 .build();

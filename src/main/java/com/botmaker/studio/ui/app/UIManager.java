@@ -17,7 +17,6 @@ import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ReviewService;
 import com.botmaker.studio.services.SdkSurfaceService;
 import com.botmaker.studio.services.ScreenCaptureService;
-import com.botmaker.studio.ui.app.pilot.RemotePilotUi;
 import com.botmaker.studio.ui.render.theme.BlockTheme;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import com.botmaker.studio.validation.DiagnosticsManager;
@@ -50,8 +49,8 @@ import java.util.function.Consumer;
  *
  * <p>It is a coordinator, not a container of features. Each area of the window is a collaborator built here and
  * handed callbacks — {@link EditorCanvas}, {@link DiagnosticsPanel}, {@link IdentityCluster},
- * {@link VcsPanel}, {@link RemotePilotUi} — and none of them holds a reference back. The actions behind the
- * menus and the toolbar live in {@link StudioActions}.
+ * {@link VcsPanel} — and none of them holds a reference back. The actions behind the menus and the toolbar
+ * live in {@link StudioActions}.
  */
 public class UIManager implements ProjectWindow {
 
@@ -83,8 +82,6 @@ public class UIManager implements ProjectWindow {
     private final EventLogManager eventLogManager;
     private final MenuBarManager menuBarManager;
     private final FileExplorerManager fileExplorerManager;
-    /** Remote Pilot in full: the server, the private-display launcher, and every dialog they put on screen. */
-    private final RemotePilotUi remotePilot;
     /** Every menu/toolbar action, and the GitHub services that back the sharing ones. */
     private final StudioActions actions;
 
@@ -148,8 +145,6 @@ public class UIManager implements ProjectWindow {
         this.projectSettingsService = ctx.projectSettingsService();
         this.sdkSurfaceService = ctx.sdkSurfaceService();
         ScreenCaptureService screenCaptureService = new ScreenCaptureService(projectSettingsService);
-        this.remotePilot = new RemotePilotUi(
-                primaryStage, eventBus, config, projectSettingsService, ctx.codeExecutionService());
 
         this.toolbarManager = new ToolbarManager(eventBus, projectSettingsService);
         this.eventLogManager = new EventLogManager(eventBus);
@@ -165,7 +160,7 @@ public class UIManager implements ProjectWindow {
         this.fileExplorerManager = new FileExplorerManager(ctx);
 
         this.actions = new StudioActions(ctx, primaryStage, screenCaptureService,
-                remotePilot, menuBarManager, toolbarManager,
+                menuBarManager, toolbarManager,
                 () -> ProjectRecoveryAction.recover(ctx, fileExplorerManager::refreshTree));
         this.actions.wire();
 
@@ -183,8 +178,12 @@ public class UIManager implements ProjectWindow {
      * switch back to the project selector, and on shutdown.
      *
      * <p>A new {@code UIManager} is built for every open <em>and every reload</em>, so without this each VCS
-     * rollback or Reader→Editor switch left behind a bound pilot port, a live nested display with the game
-     * still in it, and two theme listeners pinning the dead scene graph. Idempotent.
+     * rollback or Reader→Editor switch left two theme listeners pinning the dead scene graph. Idempotent.
+     *
+     * <p>What a plugin acquired for the project is <em>not</em> released here: the host tells every plugin
+     * the project is closing ({@code PluginHost.unbind} → {@code StudioPlugin.projectClosing}), and each
+     * releases its own. The Remote Pilot's bound port and nested display used to be freed on this line, when
+     * the pilot was Studio's; it is the SDK plugin's feature now, and it frees them there.
      */
     @Override
     public void dispose() {
@@ -192,7 +191,6 @@ public class UIManager implements ProjectWindow {
             workspaceLayout.save();
             workspaceLayout = null;
         }
-        remotePilot.close();
         BlockTheme.removeThemeChangeListener(themeListener);
         if (identityCluster != null) {
             identityCluster.dispose();

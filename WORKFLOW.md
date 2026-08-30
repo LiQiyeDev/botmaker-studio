@@ -141,7 +141,7 @@ If a bot needs to run without taking over your screen, it can run on a private d
 
 Scan the QR code to pair; no VPN and no port forwarding. Turning on Interact makes the stream two-way, so a tap on your phone lands as a click in the game at the right coordinate whatever the stream is scaled to.
 
-*In Studio:* View ▸ Enable Remote Pilot… (or 🎮 Pilot on the toolbar)
+*In Studio:* 🎮 Pilot on the toolbar (contributed by the BotMaker SDK)
 
 ## 12. Publish and share
 

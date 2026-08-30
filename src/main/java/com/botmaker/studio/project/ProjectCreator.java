@@ -272,32 +272,21 @@ public class ProjectCreator {
      * nested display is created at, and therefore the screen resolution the game inside it sees.
      */
     public static StudioProjectSettings.Resolution readCaptureSize(Path resourcesDir) {
-        try {
-            int w = Integer.parseInt(String.valueOf(readKey(resourcesDir, ProjectProperties.KEY_CAPTURE_WIDTH)));
-            int h = Integer.parseInt(String.valueOf(readKey(resourcesDir, ProjectProperties.KEY_CAPTURE_HEIGHT)));
-            return (w > 0 && h > 0) ? new StudioProjectSettings.Resolution(w, h) : null;
-        } catch (NumberFormatException e) {
-            return null; // a hand-edited or newer-format value must not stop a launch
-        }
+        java.awt.Dimension size = com.botmaker.shared.config.ProjectFile.captureSize(resourcesDir);
+        return size == null ? null : new StudioProjectSettings.Resolution(size.width, size.height);
     }
 
     /**
      * One key's trimmed value from {@code botmaker-project.properties}, or {@code null} when the key, the file
      * or the directory is absent (or the read fails). The single load path behind every {@code read…} below —
      * they were four copies of this same eight lines, each free to disagree about what a missing file means.
+     *
+     * <p>Those eight lines are shared's now ({@link com.botmaker.shared.config.ProjectFile}), because the
+     * editor is no longer the only thing that holds a project directory: a plugin serving one asks the same
+     * questions of the same file, and shared already owns the keys and the classpath-side reader beside it.
      */
     private static String readKey(Path resourcesDir, String key) {
-        if (resourcesDir == null) return null;
-        Path file = resourcesDir.resolve(ProjectProperties.FILE_NAME);
-        if (!Files.exists(file)) return null;
-        java.util.Properties props = new java.util.Properties();
-        try (var in = Files.newInputStream(file)) {
-            props.load(in);
-        } catch (IOException e) {
-            return null;
-        }
-        String value = props.getProperty(key);
-        return (value == null || value.isBlank()) ? null : value.trim();
+        return com.botmaker.shared.config.ProjectFile.value(resourcesDir, key);
     }
 
     /**
@@ -462,19 +451,7 @@ public class ProjectCreator {
      * one rather than an error.
      */
     static java.util.Properties readProjectProperties(Path resourcesDir) {
-        java.util.Properties props = new java.util.Properties();
-        if (resourcesDir == null) {
-            return props;
-        }
-        Path file = resourcesDir.resolve(ProjectProperties.FILE_NAME);
-        if (Files.exists(file)) {
-            try (var in = Files.newInputStream(file)) {
-                props.load(in);
-            } catch (IOException ignored) {
-                // unreadable — same as absent
-            }
-        }
-        return props;
+        return com.botmaker.shared.config.ProjectFile.read(resourcesDir);
     }
 
     /**
@@ -484,12 +461,7 @@ public class ProjectCreator {
      * Target dialog's "Run in background" toggle and to gate the Studio Launch buttons' background path.
      */
     public static boolean readSessionIsolated(Path resourcesDir) {
-        String spec = readKey(resourcesDir, ProjectProperties.KEY_SESSION_ISOLATED);
-        if (spec == null) return true;
-        return switch (spec.toLowerCase()) {
-            case "false", "0", "no", "off" -> false;
-            default -> true;
-        };
+        return com.botmaker.shared.config.ProjectFile.sessionIsolated(resourcesDir);
     }
 
     public boolean projectExists(String projectName) {

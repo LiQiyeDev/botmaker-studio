@@ -103,8 +103,6 @@ public class ToolbarManager {
     private boolean debugOutputInitial = true;
     /** Opens the Input &amp; Clicks dialog over the project's settings; wired by {@link UIManager}. */
     private Runnable onConfigureInput;
-    /** Starts the remote pilot server and shows the pairing dialog; wired by {@link UIManager}. */
-    private Runnable onEnableRemotePilot;
     /** Opens the live overlay template-capture over the default window; wired by {@link UIManager}. */
     private Runnable onCaptureTemplates;
     /** Opens the program-shape overlay authoring editor; wired by {@link UIManager}. */
@@ -225,11 +223,6 @@ public class ToolbarManager {
         this.onConfigureInput = callback;
     }
 
-    /** Sets the callback invoked when the toolbar's Remote Pilot button is clicked. */
-    public void setOnEnableRemotePilot(Runnable callback) {
-        this.onEnableRemotePilot = callback;
-    }
-
     /** Sets the callback invoked when the toolbar's Capture Templates button is clicked. */
     public void setOnCaptureTemplates(Runnable callback) {
         this.onCaptureTemplates = callback;
@@ -335,10 +328,9 @@ public class ToolbarManager {
                 "The project's variables: every value the bot reads, with its tag and its editor",
                 ToolbarGroup.AUTHORING, 20, c -> run(onParameters)));
 
-        place(placed, ctx, ToolbarItem.of("pilot", "🎮 Pilot",
-                "Stream what the bot sees to your phone or browser — watch it, start/stop it, "
-                        + "or turn on Interact to click and drag in the game yourself",
-                ToolbarGroup.RUN, 10, c -> run(onEnableRemotePilot)));
+        // 🎮 Pilot stood here until 2026-08-30 and is the SDK plugin's item now, placed by the same merge as
+        // any other plugin's. It is the case this surface was added for: a whole feature behind one button,
+        // where the host owns the bar and the plugin owns everything the press opens.
 
         ToggleButton debugOutputButton = new ToggleButton(debugOutputText(debugOutputInitial));
         debugOutputButton.getStyleClass().add("toolbar-btn");

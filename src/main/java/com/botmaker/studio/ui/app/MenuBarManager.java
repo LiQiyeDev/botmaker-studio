@@ -52,7 +52,6 @@ public class MenuBarManager {
     private MenuItem undoItem;
     private MenuItem redoItem;
     private MenuItem projectRepoItem;
-    private Runnable onEnableRemotePilot;
     private Runnable onPreviewAsUser;
     private String projectRepoUrl;
     /** The open project's directory, so the About dialog can report the SDK version it pins. May be null. */
@@ -335,8 +334,9 @@ public class MenuBarManager {
         ));
         resetZoomItem.setDisable(true); // Not implemented yet
 
-        MenuItem remotePilotItem = new MenuItem("Enable Remote Pilot…");
-        remotePilotItem.setOnAction(e -> { if (onEnableRemotePilot != null) onEnableRemotePilot.run(); });
+        // View ▸ Enable Remote Pilot… stood here until 2026-08-30. The pilot is the SDK plugin's feature now
+        // and reaches the toolbar as a ToolbarItem; a plugin contributes no menu items, so this one goes
+        // rather than being wired to something the host cannot call.
 
         // Wired here rather than through a callback like its neighbours: the dialog holds no project state —
         // it writes shared's saved-device list, which every picker and every generated bot reads for itself.
@@ -389,7 +389,6 @@ public class MenuBarManager {
                 previewAsUserItem,
                 new SeparatorMenuItem(),
                 connectPhoneItem,
-                remotePilotItem,
                 new SeparatorMenuItem(),
                 themeMenu
         );
@@ -400,11 +399,6 @@ public class MenuBarManager {
     /** Sets the action for View ▸ Preview as user (opens the project in the Runner window for this session). */
     public void setOnPreviewAsUser(Runnable callback) {
         this.onPreviewAsUser = callback;
-    }
-
-    /** Sets the action for View ▸ Enable Remote Pilot (starts the remote BotPilot server over Tailscale). */
-    public void setOnEnableRemotePilot(Runnable callback) {
-        this.onEnableRemotePilot = callback;
     }
 
 
