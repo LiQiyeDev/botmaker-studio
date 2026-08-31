@@ -6,6 +6,22 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-31 — the multi-picture rows are the plugin's, and Studio's writer stops spelling the SDK's API.**
+  Thirteenth step of *Studio knows only the contract*, and the first use of `SlotRun`. The two rows that are
+  genuinely a run of arguments — the image varargs tail in `MethodInvocationBlock` and a `Matches` case in
+  `MatchesSwitchBlock` — are drawn by `TemplateEditors.group` now, reached through the new
+  `plugin/HostSlotRun` and `PickerRegistry.runNodeFor`. What stays here is the only half Studio could ever
+  have known: that these arguments **are** one list (from the resolved signature, or from the shape of the
+  guard), how few of them the code still compiles with, and which of them the enclosing find call permits.
+  **The writer is the real change.** `CodeEditor.setImageTemplateArgs` and `setMatchesCheckTemplates` took
+  template *paths* and built `new ImageTemplate(path)` themselves; they are one `setTrailingArguments`, which
+  puts back whatever expressions it is handed and knows nothing about pictures — and
+  `MatchesGroupScope.allowedSources` is the same change to the narrowing. `allowedPaths` survives with one
+  caller, `StatementFactory`, which is *generating* a seeded switch and genuinely needs a path; that is
+  emission, and emission is where the host still spells this API. **The `ImageTemplateGroup` slot deliberately
+  did not move**: filling one is what triggers `LambdaCallHandler.seedIfReady`, so claiming it before the
+  generation phase moves that seeding would silently delete it. 1180 Studio tests, 542 SDK tests, green.
+
 - **2026-08-31 — the picture editor is the SDK's, and the Parameters window turns out to have three dispatch
   sites.** Twelfth step of *Studio knows only the contract*, phase 3b slice 3 step 3, for the single
   `ImageTemplate`. Gone from here: the `PickerRegistry` entry, `ValueEditors`' `IMAGE_TEMPLATE` case with its

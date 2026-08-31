@@ -31,6 +31,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class MatchesSwitchHandlerTest {
 
+    /**
+     * The expression the SDK plugin's picture row writes for one picture.
+     *
+     * <p>Spelled here because the writer takes expressions since 2026-08-31, not template paths: a check's
+     * pictures are the arguments of one call, and rewriting them is a syntactic edit the host performs
+     * without knowing what the arguments mean. The assertions below are unchanged — the source that comes
+     * out is the same source.
+     */
+    private static String template(String path) {
+        return "new ImageTemplate(\"" + path + "\")";
+    }
+
     private static final String SOURCE = """
             package test;
             public class Subject {
@@ -244,8 +256,9 @@ class MatchesSwitchHandlerTest {
     void growingABranchAddsASecondTemplateToItsGuard() {
         EditorFixture fixture = new EditorFixture(SOURCE);
 
-        fixture.editor.setMatchesCheckTemplates(checkIn(fixture).call(),
-                List.of("popups/mail.png", "popups/gift.png"));
+        fixture.editor.setTrailingArguments(checkIn(fixture).call(), 0,
+                List.of(template("popups/mail.png"), template("popups/gift.png")),
+                "com.botmaker.sdk.api.vision.ImageTemplate");
 
         assertNotNull(fixture.lastCode, "the edit should have produced new source");
         assertTrue(dense(fixture.lastCode).contains(
@@ -517,8 +530,9 @@ class MatchesSwitchHandlerTest {
     @Test
     void anEditedSwitchStillReadsBackAsTheSameBranches() {
         EditorFixture first = new EditorFixture(SOURCE);
-        first.editor.setMatchesCheckTemplates(checkIn(first).call(),
-                List.of("popups/mail.png", "popups/gift.png"));
+        first.editor.setTrailingArguments(checkIn(first).call(), 0,
+                List.of(template("popups/mail.png"), template("popups/gift.png")),
+                "com.botmaker.sdk.api.vision.ImageTemplate");
 
         // Each edit is driven by the fixture that owns the tree it targets — a rewrite validates its nodes
         // belong to its own AST, which is also why reopening is the honest way to chain two edits.

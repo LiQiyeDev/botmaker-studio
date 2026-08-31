@@ -1,6 +1,7 @@
 package com.botmaker.studio.ui.render.components.pickers;
 
 import com.botmaker.plugin.api.SlotEditor;
+import com.botmaker.plugin.api.SlotRun;
 import com.botmaker.studio.plugin.HostServices;
 import com.botmaker.studio.plugin.HostSlotContext;
 import com.botmaker.studio.plugin.PluginHost;
@@ -28,12 +29,17 @@ final class PluginPickers {
 
     /** The first plugin editor that claims {@code ctx}, built; or {@code null} when none does. */
     static Node nodeFor(PickerContext ctx) {
-        return dispatch(ctx, true);
+        return dispatch(ctx, true, null);
+    }
+
+    /** As above, for a slot the host knows to be one of a run of sibling arguments. */
+    static Node nodeFor(PickerContext ctx, SlotRun run) {
+        return dispatch(ctx, true, run);
     }
 
     /** Whether any plugin editor claims {@code ctx}, without building anything. */
     static boolean hasPicker(PickerContext ctx) {
-        return dispatch(ctx, false) != null;
+        return dispatch(ctx, false, null) != null;
     }
 
     /**
@@ -44,13 +50,13 @@ final class PluginPickers {
      * the answer is a sentinel rather than a node, so a matching editor is never constructed just to be
      * discarded — {@code matches} is documented as cheap, {@code create} is not.
      */
-    private static Node dispatch(PickerContext ctx, boolean build) {
+    private static Node dispatch(PickerContext ctx, boolean build, SlotRun run) {
         List<SlotEditor> editors = PluginHost.slotEditors();
         if (editors.isEmpty() || ctx == null) return null;
 
         HostSlotContext context = new HostSlotContext(ctx.context(), ctx.arg(), ctx.paramType(),
                 ctx.className(), ctx.methodName(), ctx.argIndex(),
-                HostServices.forProject(ctx.context() == null ? null : ctx.context().getConfig()));
+                HostServices.forProject(ctx.context() == null ? null : ctx.context().getConfig()), run);
 
         for (SlotEditor editor : editors) {
             try {

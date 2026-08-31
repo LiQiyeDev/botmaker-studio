@@ -29,12 +29,22 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * existed left {@code found.hasAny(coin)} with no affordance that could ever produce
  * {@code found.hasAny(coin, gem)}.
  *
- * <p>{@link CodeEditor#setImageTemplateArgs} is the writer behind that row, and
+ * <p>{@link CodeEditor#setTrailingArguments} is the writer behind that row, and
  * {@link ImageTemplateGroupPicker#templatePath} is the guard deciding whether the row may appear at all.
+ *
+ * <p>The writer takes <b>expressions</b> rather than template paths since 2026-08-31 — the row is the SDK
+ * plugin's now, and it hands over the Java it wants written. These tests still speak in paths and spell the
+ * constructor themselves, which is what the plugin does: the assertions are unchanged, because the source
+ * that comes out is the same source.
  */
 public class ImageTemplateVarargsTest {
 
-    /** Runs {@code setImageTemplateArgs} on the named call and returns the rewritten source. */
+    /** The expression the plugin's row writes for one picture. */
+    private static String template(String path) {
+        return "new ImageTemplate(\"" + path + "\")";
+    }
+
+    /** Runs {@code setTrailingArguments} on the named call and returns the rewritten source. */
     private String setArgs(String source, String call, int fromIndex, List<String> paths) {
         ProjectState state = new ProjectState();
         Path p = Paths.get("Subject.java").toAbsolutePath();
@@ -56,7 +66,8 @@ public class ImageTemplateVarargsTest {
         assertNotNull(target, "test setup: no call named " + call);
 
         new CodeEditor(null, state, bus, new ProjectAnalyzer(null, state))
-                .setImageTemplateArgs(target, fromIndex, paths);
+                .setTrailingArguments(target, fromIndex, paths.stream().map(ImageTemplateVarargsTest::template).toList(),
+                        "com.botmaker.sdk.api.vision.ImageTemplate");
         assertNotNull(lastCode[0], "edit should have produced a code update");
         return lastCode[0];
     }

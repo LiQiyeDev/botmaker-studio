@@ -1,6 +1,7 @@
 package com.botmaker.studio.plugin;
 
 import com.botmaker.plugin.api.SlotContext;
+import com.botmaker.plugin.api.SlotRun;
 import com.botmaker.plugin.api.StudioServices;
 import com.botmaker.plugin.api.TypeRef;
 import com.botmaker.studio.core.ValueSlot;
@@ -37,9 +38,24 @@ public final class HostSlotContext implements SlotContext {
     private final String methodName;
     private final int argIndex;
     private final StudioServices services;
+    private final SlotRun run;
 
     public HostSlotContext(CodeEditorService context, ValueSlot slot, ResolvedType paramType,
                            String className, String methodName, int argIndex, StudioServices services) {
+        this(context, slot, paramType, className, methodName, argIndex, services, null);
+    }
+
+    /**
+     * As above, for a slot the host knows to be one of a <b>run</b> of sibling arguments.
+     *
+     * <p>The run is passed in rather than worked out here, because working it out is not one question: an
+     * image varargs tail is found from the resolved signature, and a {@code Matches} case's pictures from the
+     * shape of the guard around them. Both are decisions the block that draws the row has already taken, and
+     * re-deriving them in the context would be a second answer to each.
+     */
+    public HostSlotContext(CodeEditorService context, ValueSlot slot, ResolvedType paramType,
+                           String className, String methodName, int argIndex, StudioServices services,
+                           SlotRun run) {
         this.context = context;
         this.slot = slot == null ? ValueSlot.empty() : slot;
         this.paramType = paramType;
@@ -47,6 +63,12 @@ public final class HostSlotContext implements SlotContext {
         this.methodName = methodName;
         this.argIndex = argIndex;
         this.services = services;
+        this.run = run;
+    }
+
+    @Override
+    public SlotRun run() {
+        return run;
     }
 
     @Override

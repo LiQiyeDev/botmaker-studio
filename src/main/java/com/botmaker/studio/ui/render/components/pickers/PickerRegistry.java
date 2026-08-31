@@ -1,5 +1,6 @@
 package com.botmaker.studio.ui.render.components.pickers;
 
+import com.botmaker.plugin.api.SlotRun;
 import com.botmaker.sdk.api.capture.CaptureSource;
 import com.botmaker.sdk.api.capture.Window;
 import com.botmaker.sdk.api.launch.LaunchTarget;
@@ -125,6 +126,22 @@ public final class PickerRegistry {
             if (picker.matches(ctx)) return picker.create(ctx);
         }
         return null;
+    }
+
+    /**
+     * The editor for a slot the host knows to be one of a <b>run</b> of sibling arguments, or {@code null}.
+     *
+     * <p>Plugins only, and deliberately: {@link #PICKERS} and {@link #FALLBACKS} are per-slot editors, and
+     * offering one of them a run would draw a single-value control over a list — which is exactly the state
+     * a varargs row was in before this existed, one picker per argument that happened to be there and no way
+     * to add a second.
+     *
+     * <p>The caller supplies the run because knowing that these arguments are one list is <em>its</em>
+     * knowledge: a varargs tail comes from the resolved signature, a {@code Matches} case's pictures from the
+     * shape of the guard around them. Neither is derivable here.
+     */
+    public static Node runNodeFor(PickerContext ctx, SlotRun run) {
+        return PluginPickers.nodeFor(ctx, run);
     }
 
     /** Whether any picker applies to {@code ctx} (detection without building the node). */

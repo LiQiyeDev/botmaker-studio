@@ -531,16 +531,23 @@ public class CodeEditor {
     }
 
     /**
-     * Rewrites the trailing {@code ImageTemplate...} varargs of {@code call} to exactly {@code paths} — the
-     * chip row an image varargs slot renders instead of one fixed picker per existing argument
-     * ({@code Matches.hasAny(a, b, c)}, {@code ImageFinder.findAny(…)}).
+     * Replaces the trailing arguments of {@code call} from {@code fromIndex} with exactly
+     * {@code expressions}, adding {@code importsNeeded}.
      *
-     * <p>It takes the whole desired list and replaces the tail, the same shape as
-     * {@link #setImageTemplateGroup}: add, remove and change are then one uniform rewrite rather than three
-     * argument-list surgeries, and the empty list is a legal state (the call keeps its fixed arguments and
-     * the row falls back to its "Choose images…" prompt). Arguments before {@code fromIndex} are untouched.
+     * <p>This is {@link com.botmaker.studio.plugin.HostSlotRun}'s writer, and it is deliberately <b>ignorant
+     * of what the arguments mean</b>. Its predecessor took a list of template <em>paths</em> and built
+     * {@code new ImageTemplate(path)} nodes itself, which is the host spelling the SDK's API for it; a plugin
+     * hands over the expressions it wants and this puts them where it says. That is the same trade
+     * {@code replaceWithRawExpression} makes for a single slot, and it is why a second plugin with a
+     * multi-valued call of its own needs nothing added here.
+     *
+     * <p>It takes the whole desired list rather than an index, so add, remove and change are one uniform
+     * rewrite instead of three argument-list surgeries — and the empty list is a legal state: the call keeps
+     * its fixed arguments and the row falls back to its prompt. Arguments before {@code fromIndex} are
+     * untouched.
      */
-    public void setImageTemplateArgs(MethodInvocation call, int fromIndex, java.util.List<String> paths) {
+    public void setTrailingArguments(MethodInvocation call, int fromIndex,
+                                     java.util.List<String> expressions, String... importsNeeded) {
         edit(call, EditKind.BODY, true, (cu, code) -> {
             AST ast = cu.getAST();
             ASTRewrite rewriter = ASTRewrite.create(ast);
@@ -550,14 +557,16 @@ public class CodeEditor {
             for (int i = fromIndex; i < existing.size(); i++) {
                 args.remove((ASTNode) existing.get(i), null);
             }
-            for (String path : paths) {
-                ClassInstanceCreation cic = ast.newClassInstanceCreation();
-                cic.setType(SdkNodes.type(ast, ImageTemplate.class));
-                cic.arguments().add(SdkNodes.templateArgument(ast, path));
-                args.insertLast(cic, null);
+            for (String expression : expressions) {
+                if (expression == null || expression.isBlank()) continue;
+                args.insertLast(rewriter.createStringPlaceholder(expression, ASTNode.METHOD_INVOCATION), null);
             }
-            ImportManager.addImport(cu, rewriter, ImageTemplate.class);
-            ImportManager.addTemplatesImport(cu, rewriter);
+            // Only what the caller asked for. The old writer also added the project's Templates class here,
+            // which the expressions a plugin hands over do not name — an import for a vocabulary this method
+            // no longer knows about.
+            if (importsNeeded != null) {
+                for (String type : importsNeeded) ImportManager.addImport(cu, rewriter, type);
+            }
             return AstRewriteHelper.applyRewrite(rewriter, code);
         });
     }
@@ -1346,11 +1355,11 @@ public class CodeEditor {
 
     // --- The Matches switch (guarded arrow rules; see MatchesSwitchHandler) ---
 
-    /** Rewrites one check's templates to exactly {@code paths}, keeping its any/all mode. */
-    public void setMatchesCheckTemplates(MethodInvocation call, List<String> paths) {
-        edit(call, EditKind.BODY, true,
-                (cu, code) -> MatchesSwitchHandler.setCheckTemplates(cu, code, call, paths));
-    }
+    // setMatchesCheckTemplates went on 2026-08-31 with the chip row it wrote for. A check's pictures are the
+    // arguments of one call, so setTrailingArguments (fromIndex 0) writes them, and it does so without
+    // knowing what a picture is: the plugin hands over the expressions. That is the whole difference — this
+    // method took template *paths* and built new ImageTemplate(path) itself, which is the host spelling an
+    // API that is not its own.
 
     /** Flips one check between "any of" ({@code hasAny}) and "all of" ({@code hasAll}). */
     public void setMatchesCheckMode(MethodInvocation call, MatchesCheck check) {

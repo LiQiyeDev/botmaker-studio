@@ -12,11 +12,15 @@ import com.botmaker.studio.project.StudioProjectSettings;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.ui.render.layout.BlockLayout;
 import com.botmaker.studio.ui.render.layout.SentenceLayoutBuilder;
+import com.botmaker.studio.core.ValueSlot;
+import com.botmaker.studio.plugin.HostSlotRun;
 import com.botmaker.studio.ui.render.components.ArgumentEditors;
 import com.botmaker.studio.ui.render.components.BlockUIComponents;
 import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
 import com.botmaker.studio.ui.render.components.PickAllSession;
 import com.botmaker.studio.ui.render.components.pickers.ImageTemplateGroupPicker;
+import com.botmaker.studio.ui.render.components.pickers.PickerContext;
+import com.botmaker.studio.ui.render.components.pickers.PickerRegistry;
 import com.botmaker.studio.ui.render.menu.MenuComponents;
 import com.botmaker.studio.util.MethodSignature;
 import com.botmaker.studio.types.ResolvedType;
@@ -637,13 +641,20 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
         // the pills (e.g. findCompare(good, bad)) instead of the bare type. Empty for non-SDK calls.
         List<SdkDocs.Param> docParams = sdkDocParams(context, targetType, currentSignature);
 
-        int imageVarargsFrom = imageVarargsStart(currentSignature);
+        int imageVarargsStart = imageVarargsStart(currentSignature);
+        // The row is built up front, because whether there is one decides how the whole argument list is
+        // drawn. A null means no plugin claimed the run — an ordinary state for a host with no picture
+        // plugin loaded — and the call falls back to the per-argument slots it had before the row existed.
+        Node imageVarargsRow = imageVarargsStart < 0 || currentSignature == null ? null
+                : imageVarargsRow(context, imageVarargsStart,
+                        currentSignature.paramTypes().get(currentSignature.paramTypes().size() - 1));
+        int imageVarargsFrom = imageVarargsRow == null ? -1 : imageVarargsStart;
         // Everything the image chip row doesn't claim falls back to the generic grow/shrink affordance.
         int varargsFrom = imageVarargsFrom >= 0 ? -1 : varargsTailStart(currentSignature);
 
         for (int i = 0; i < arguments.size(); i++) {
             if (i == imageVarargsFrom) {
-                builder.addNode(imageVarargsRow(context, imageVarargsFrom));
+                builder.addNode(imageVarargsRow);
                 break;
             }
             ExpressionBlock arg = arguments.get(i);
@@ -682,7 +693,7 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
         // because the loop walks the arguments that exist. The row still has to appear, or the slot is
         // unfillable.
         if (imageVarargsFrom == arguments.size()) {
-            builder.addNode(imageVarargsRow(context, imageVarargsFrom));
+            builder.addNode(imageVarargsRow);
         }
     }
 
@@ -749,21 +760,26 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
     }
 
     /**
-     * The multi-image chip row standing in for the whole varargs tail — the same control an
-     * {@code ImageTemplateGroup} slot gets. A varargs slot used to render one single-image picker per
-     * argument that already existed, so {@code found.hasAny(coin)} could never become
+     * The multi-image chip row standing in for the whole varargs tail. A varargs slot used to render one
+     * single-image picker per argument that already existed, so {@code found.hasAny(coin)} could never become
      * {@code found.hasAny(coin, gem)}: the picker was fine, there was simply no affordance that added a
-     * second slot. The row's add/remove hand back the whole list, which
-     * {@code CodeEditor.setImageTemplateArgs} writes over the tail.
+     * second slot.
+     *
+     * <p><b>The row itself is the plugin's since 2026-08-31</b>, reached through a {@link HostSlotRun} over
+     * the tail. What stays here is the only part of it Studio could ever have known — that these arguments
+     * <em>are</em> one list, which comes from the resolved signature and from nothing in the values
+     * themselves. The rest, including what an element means and what it is written as, went with the editor.
+     *
+     * <p>Falls back to {@code null} when no plugin claims the run, which the caller draws as the ordinary
+     * per-argument slots: a host with no picture plugin loaded is an ordinary state, not a broken block.
      */
-    private Node imageVarargsRow(CodeEditorService context, int from) {
-        List<String> paths = new ArrayList<>();
-        for (int i = from; i < arguments.size(); i++) {
-            ImageTemplateGroupPicker.templatePath(arguments.get(i).getAstNode()).ifPresent(paths::add);
-        }
-        return ImageTemplateGroupPicker.chipRow(context, paths,
-                updated -> context.getCodeEditor()
-                        .setImageTemplateArgs((MethodInvocation) this.astNode, from, updated));
+    private Node imageVarargsRow(CodeEditorService context, int from, ResolvedType element) {
+        MethodInvocation call = (MethodInvocation) this.astNode;
+        // An empty tail has no argument to anchor on, and that is the case the row exists for most: the whole
+        // point is being able to add a first picture where the call has none.
+        ValueSlot anchor = from < arguments.size() ? ValueSlot.of(arguments.get(from)) : ValueSlot.empty();
+        PickerContext slot = new PickerContext(context, anchor, element, null, methodName, from);
+        return PickerRegistry.runNodeFor(slot, HostSlotRun.of(context, () -> call, from));
     }
 
     /**

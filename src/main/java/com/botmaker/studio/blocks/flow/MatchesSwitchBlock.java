@@ -5,7 +5,10 @@ import com.botmaker.studio.core.BlockWithChildren;
 import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.BranchingBlock;
 import com.botmaker.studio.core.CodeBlock;
+import com.botmaker.sdk.api.vision.ImageTemplate;
 import com.botmaker.studio.core.ExpressionBlock;
+import com.botmaker.studio.core.ValueSlot;
+import com.botmaker.studio.plugin.HostSlotRun;
 import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.palette.MatchesCheck;
 import com.botmaker.studio.palette.MatchesJoin;
@@ -15,7 +18,8 @@ import com.botmaker.studio.parser.handlers.MatchesSwitchHandler.Guard;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.ui.render.components.BlockUIComponents;
-import com.botmaker.studio.ui.render.components.pickers.ImageTemplateGroupPicker;
+import com.botmaker.studio.ui.render.components.pickers.PickerContext;
+import com.botmaker.studio.ui.render.components.pickers.PickerRegistry;
 import com.botmaker.studio.ui.render.layout.BlockLayout;
 import javafx.css.PseudoClass;
 import javafx.geometry.Side;
@@ -33,6 +37,7 @@ import javafx.scene.input.TransferMode;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import org.eclipse.jdt.core.dom.Expression;
+import org.eclipse.jdt.core.dom.MethodInvocation;
 import org.eclipse.jdt.core.dom.SwitchCase;
 import org.eclipse.jdt.core.dom.SwitchStatement;
 
@@ -229,7 +234,7 @@ public class MatchesSwitchBlock extends AbstractStatementBlock implements BlockW
 
         // Every branch of a switch sees the same group, so the narrowing is resolved once for the whole block
         // rather than per row — it walks out to the enclosing find call, which is the same walk each time.
-        List<String> allowed = MatchesGroupScope.allowedPaths(switchStmt);
+        List<String> allowed = MatchesGroupScope.allowedSources(switchStmt);
 
         for (CaseRow row : rows) {
             branches.getChildren().add(caseRowNode(context, switchStmt, row, allowed));
@@ -387,11 +392,9 @@ public class MatchesSwitchBlock extends AbstractStatementBlock implements BlockW
                 .addNode(dragHandle(row, guard, parent))
                 .addNode(notToggle(context, row, guard));
 
-        if (inner instanceof Guard.Check check) {
-            sentence.addNode(modeToggle(context, check))
-                    .addNode(ImageTemplateGroupPicker.chipRow(context, check.paths(),
-                            ImageTemplateGroupPicker.Restrictions.of(allowed, 1),
-                            paths -> context.getCodeEditor().setMatchesCheckTemplates(check.call(), paths)));
+        Node pictures = inner instanceof Guard.Check check ? picturesRow(context, check, allowed) : null;
+        if (pictures != null) {
+            sentence.addNode(modeToggle(context, (Guard.Check) inner)).addNode(pictures);
         } else {
             // A condition the chip row cannot describe — a check against a template held in a constant, a
             // comparison, anything hand-written. It renders as the ordinary expression slot it is, so it stays
@@ -415,6 +418,29 @@ public class MatchesSwitchBlock extends AbstractStatementBlock implements BlockW
                     () -> apply(context, row, GuardTree.remove(row.guard(), guard))));
         }
         return built;
+    }
+
+    /**
+     * The row of pictures a {@code m.hasAny(a, b)} check tests, or {@code null} when no plugin draws one.
+     *
+     * <p>The check's arguments are a {@link com.botmaker.plugin.api.SlotRun} — several sibling slots edited
+     * as one — and the two things only this block knows travel with it: a branch needs **at least one**
+     * picture (a guard with none is unconditional and would dominate every case after it, i.e. not compile),
+     * and it may only test pictures the enclosing find call was given, or the branch is dead by construction.
+     * Both cross as element source, never as decoded values, so nothing here learns what a picture is.
+     *
+     * <p>A {@code null} answer falls through to the ordinary expression slot below, which is also what a
+     * hand-written or constant-holding condition gets — an honest rendering of something the row cannot
+     * represent, rather than a control that would overwrite it.
+     */
+    private Node picturesRow(CodeEditorService context, Guard.Check check, List<String> allowed) {
+        MethodInvocation call = check.call();
+        if (call == null) return null;
+        PickerContext slot = new PickerContext(context,
+                ValueSlot.at(() -> call.arguments().isEmpty() ? null : (Expression) call.arguments().getFirst()),
+                ResolvedType.of(ImageTemplate.class), null, call.getName().getIdentifier(), 0);
+        return PickerRegistry.runNodeFor(slot,
+                new HostSlotRun(context, () -> call, 0, 1, () -> allowed));
     }
 
     /** Writes a branch's recomposed condition. A null tree is a refused gesture — see {@link GuardTree}. */

@@ -3,6 +3,7 @@ package com.botmaker.studio.blocks.flow;
 import com.botmaker.studio.palette.VisionLoop;
 import com.botmaker.studio.ui.render.components.pickers.ImageTemplateGroupPicker;
 import org.eclipse.jdt.core.dom.ASTNode;
+import org.eclipse.jdt.core.dom.ClassInstanceCreation;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jdt.core.dom.Expression;
 import org.eclipse.jdt.core.dom.FieldDeclaration;
@@ -13,6 +14,7 @@ import org.eclipse.jdt.core.dom.SimpleName;
 import org.eclipse.jdt.core.dom.SingleVariableDeclaration;
 import org.eclipse.jdt.core.dom.VariableDeclarationFragment;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
@@ -59,13 +61,62 @@ public final class MatchesGroupScope {
     }
 
     /**
-     * The template paths reachable from {@code node}'s enclosing find call, or {@code null} when there is no
-     * restriction to apply.
+     * The template <b>paths</b> reachable from {@code node}'s enclosing find call, or {@code null}.
+     *
+     * <p>What is left of this after the chip row moved to the plugin: it has one caller, {@code
+     * StatementFactory}, which is <em>generating</em> a seeded switch and needs a path to write into
+     * {@code new ImageTemplate(…)}. That is emission, and emission is where the host still spells the SDK's
+     * API. The narrowing question — which pictures a branch may offer — is {@link #allowedSources}, and the
+     * two are deliberately separate answers rather than one shape stretched over both.
      */
     public static List<String> allowedPaths(ASTNode node) {
         MethodInvocation call = enclosingGroupCall(node);
         if (call == null || call.arguments().isEmpty()) return null;
         return groupPaths((Expression) call.arguments().getFirst());
+    }
+
+    /**
+     * The <b>element sources</b> reachable from {@code node}'s enclosing find call, or {@code null} when there
+     * is no restriction to apply — what {@link com.botmaker.plugin.api.SlotRun#allowed()} hands a plugin.
+     *
+     * <p>Java source rather than decoded template paths, and that is the whole point of it. Listing the
+     * arguments of the group this branch narrows against is a <em>syntactic</em> operation: it needs no idea
+     * what a picture is, which is what lets the host narrow a set of values whose meaning belongs to a plugin.
+     * The plugin, which does know, decodes them itself. {@link #groupPaths} still answers in paths for
+     * {@code LambdaCallHandler}, which is generating source rather than narrowing a menu — two questions, two
+     * answers, rather than one shape stretched over both.
+     */
+    public static List<String> allowedSources(ASTNode node) {
+        MethodInvocation call = enclosingGroupCall(node);
+        if (call == null || call.arguments().isEmpty()) return null;
+        return groupSources((Expression) call.arguments().getFirst());
+    }
+
+    /**
+     * The argument expressions of a find call's leading image argument, as written, or {@code null}.
+     *
+     * <p>The same three shapes {@link #groupPaths} accepts — an inline {@code ImageTemplateGroup.of(…)}, a
+     * constant holding one, and a bare single template — read without decoding any of them.
+     */
+    private static List<String> groupSources(Expression group) {
+        List<String> inline = elementSources(group);
+        if (inline != null) return inline;
+        if (group instanceof SimpleName name) {
+            Expression initializer = constantInitializer(name);
+            if (initializer != null) return elementSources(initializer);
+        }
+        return null;
+    }
+
+    /** {@code of(a, b)} as {@code [a, b]}; a lone expression as itself; anything else as {@code null}. */
+    private static List<String> elementSources(Expression group) {
+        if (group instanceof MethodInvocation mi && "of".equals(mi.getName().getIdentifier())) {
+            List<String> out = new ArrayList<>();
+            for (Object argument : mi.arguments()) out.add(argument.toString());
+            return out.isEmpty() ? null : out;
+        }
+        // The pre-conversion shape of a whileFind becoming a whileFindAny: one template, not a group yet.
+        return group instanceof ClassInstanceCreation ? List.of(group.toString()) : null;
     }
 
     /**

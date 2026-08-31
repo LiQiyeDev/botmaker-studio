@@ -243,22 +243,10 @@ public final class MatchesSwitchHandler {
     // WRITING — one check
     // =================================================================================
 
-    /** Rewrites one check's templates to exactly {@code paths}, keeping its any/all mode. */
-    public static String setCheckTemplates(CompilationUnit cu, String code, MethodInvocation call,
-                                           List<String> paths) {
-        if (call == null || paths == null || paths.isEmpty()) return null;
-
-        AST ast = cu.getAST();
-        ASTRewrite rewriter = ASTRewrite.create(ast);
-        ListRewrite args = rewriter.getListRewrite(call, MethodInvocation.ARGUMENTS_PROPERTY);
-        for (Object existing : call.arguments()) {
-            args.remove((ASTNode) existing, null);
-        }
-        for (String path : paths) {
-            args.insertLast(newTemplate(ast, path), null);
-        }
-        return AstRewriteHelper.applyRewrite(rewriter, code);
-    }
+    // setCheckTemplates went on 2026-08-31. A check's pictures are the arguments of one call, and rewriting
+    // the arguments of a call is CodeEditor.setTrailingArguments — which takes expressions rather than
+    // template paths, so the picture row that drives it can be the plugin's. What stood here decoded a path
+    // and built new ImageTemplate(path), which is this file knowing an API that belongs to the SDK.
 
     /** Flips one check between {@code hasAny} and {@code hasAll}; its templates are untouched. */
     public static String setCheckMode(CompilationUnit cu, String code, MethodInvocation call,
