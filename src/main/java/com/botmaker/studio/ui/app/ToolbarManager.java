@@ -8,11 +8,6 @@ import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.plugin.HostActionContext;
 import com.botmaker.studio.plugin.PluginHost;
-import com.botmaker.shared.game.GameLibraries;
-import com.botmaker.shared.game.InstalledGame;
-import com.botmaker.sdk.internal.plugin.launch.QuickLaunch;
-import com.botmaker.shared.launch.LaunchKind;
-import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.studio.services.ProjectSettingsService;
 import javafx.geometry.HPos;
 import javafx.geometry.Insets;
@@ -33,19 +28,6 @@ import java.util.function.Consumer;
 
 public class ToolbarManager {
 
-    /** Longest target name shown on the Launch Target button before it is ellipsized. */
-    private static final int CAPTURE_LABEL_MAX = 26;
-    // The launch target's cover thumbnail is sized by ToolbarItems now — one icon box for every item on the
-    // bar, the host's or a plugin's, which is the whole reason a toolbar item is data and not a Node.
-    /**
-     * Ceiling for the button whose label tracks project state (the launch target).
-     * Sized for {@link #CAPTURE_LABEL_MAX} characters plus the icon and padding. These are the buttons that
-     * change text <em>after</em> the bar is laid out — on a target switch, and again when
-     * {@link #resolveLaunchArtwork} 's background scan lands with the real game title — so leaving them to
-     * size themselves makes the toolbar re-wrap at moments the user reads as "the window moved on its own".
-     */
-    private static final int TARGET_BTN_WIDTH = 200;
-
     /**
      * How many rows either toolbar group may wrap onto before the rest goes into its {@code »} menu. Two,
      * because the bar sits between the menu bar and the canvas: a third row is already more toolbar than most
@@ -59,30 +41,10 @@ public class ToolbarManager {
     private Button undoButton, redoButton;
     private Button runButton, debugButton, followButton, unifiedStopButton;
     private Button stepOverButton, continueButton;
-    /** The Launch Target button, whose text + icon track the project's {@code launch.target}. */
-    private Button launchTargetButton;
-    /** The current {@code launch.target} spec, pushed in by {@link UIManager}; null when none is set. */
-    private String launchTargetSpec;
-    /**
-     * The real game title behind {@link #launchTargetSpec}, once the library scan has found it; null until
-     * then, and null again the moment the target changes.
-     *
-     * <p>A field rather than a {@code setText} because the label is a supplier now: the scan lands, this
-     * moves, {@link #refreshItems()} re-reads it. Same for {@link #launchArtworkUri}.
-     */
-    private String launchResolvedName;
-    /** The cover art's URI for the same spec, or null — a plain exe and an uninstalled game both have none. */
-    private String launchArtworkUri;
-    /** "▶ Launch" — starts the configured target without running the bot. Rebound when the target changes. */
-    private Button quickLaunchButton;
-    /** The project's resources dir, pushed in by {@link UIManager}; what quick launch reads its target from. */
-    private java.nio.file.Path resourcesDir;
     private Label resolutionLabel;
 
     /** Opens the Project Settings dialog; the same action the Project menu fires. */
     private Runnable onProjectSettings;
-    /** Opens the Launch Target dialog (what the bot launches); wired by {@link UIManager}. */
-    private Runnable onManageLaunchTarget;
     private Runnable onActivityFlow;
     /** Opens the Parameters dialog; the same action the Project menu fires. */
     private Runnable onParameters;
@@ -175,11 +137,6 @@ public class ToolbarManager {
         this.onProjectSettings = callback;
     }
 
-    /** Sets the callback invoked when the toolbar's Launch Target button is clicked. */
-    public void setOnManageLaunchTarget(Runnable callback) {
-        this.onManageLaunchTarget = callback;
-    }
-
     /** Sets the callback invoked when the toolbar's Activity Flow button is clicked. */
     public void setOnActivityFlow(Runnable callback) {
         this.onActivityFlow = callback;
@@ -264,32 +221,7 @@ public class ToolbarManager {
                 "Project settings: the standard resolution templates are authored at, and favourite methods",
                 ToolbarGroup.PROJECT, 20, c -> run(onProjectSettings)));
 
-        // The launch target's label and icon are suppliers because the answer arrives twice: the spec's own
-        // short label immediately, and the real game title plus its cover art when the library scan lands.
-        // That is why ToolbarItem carries suppliers at all — this bar already worked this way before there
-        // was a surface to describe it, and a record of Strings would have described a toolbar nobody has.
-        launchTargetButton = place(placed, ctx, new ToolbarItem("launch-target",
-                () -> launchTargetText(launchTargetSpec, launchResolvedName),
-                "Choose what the bot launches at startup — a Steam/Epic game, an executable, or an emulator app",
-                () -> launchArtworkUri, ToolbarGroup.PROJECT, 30, EnabledWhen.ALWAYS,
-                c -> run(onManageLaunchTarget)));
-        pinWidth(launchTargetButton);
-        resolveLaunchArtwork(launchTargetSpec);
-
-        // Starts the configured target without compiling and running the bot. Its label is deliberately
-        // constant ("▶ Launch" never becomes "Launching…"), so unlike its two neighbours it cannot change
-        // width mid-session and re-wrap the bar — the reason those two are pinned. Progress is reported on
-        // the status line instead.
-        //
-        // Not a ToolbarItem: QuickLaunch.button builds and rebinds its own control against the target on
-        // disk, so what it contributes is a Node and not a description of one. It sits here as a placed raw
-        // node, which is also what a contract surface has to be able to live beside.
-        quickLaunchButton = QuickLaunch.button(resourcesDir, this::reportQuickLaunch);
-        quickLaunchButton.setText("▶ Launch");
-        quickLaunchButton.getStyleClass().add("toolbar-btn");
-        placed.add(new Placed(ToolbarGroup.PROJECT, 40, "quick-launch", quickLaunchButton, null));
-
-        // 🎯 Capture Targets stood here at PROJECT/50 until 2026-08-31 and is the SDK plugin's item now,
+        // 🎯 Capture Targets stood here at PROJECT/30 until 2026-08-31 and is the SDK plugin's item now,
         // placed by the same merge as any other plugin's. The list it manages is capture.json, which is the
         // plugin's file — so the shell no longer reads it and can no longer put the current default's name on
         // the button. That label is what the move cost: toolbarItems() is called with no StudioServices, so a
@@ -459,19 +391,6 @@ public class ToolbarManager {
     }
 
     /**
-     * Caps a button at {@link #TARGET_BTN_WIDTH}, ellipsizing a label too long to fit rather than growing.
-     *
-     * <p>It used to pin min = pref = max, which stopped the bar re-wrapping when a label changed but made
-     * these two buttons a 200px floor each inside a pane that was supposed to be able to shrink. A ceiling is
-     * what the problem actually asked for: a long game title still can't widen the toolbar, and a short one no
-     * longer holds 200px it isn't using.
-     */
-    private static void pinWidth(Button button) {
-        button.setMaxWidth(TARGET_BTN_WIDTH);
-        button.setTextOverrun(OverrunStyle.ELLIPSIS);
-    }
-
-    /**
      * The debug-output toggle's label for a given state. The two states are deliberately the <em>same
      * length</em> (a filled vs hollow dot, not "on"/"off"): an unequal pair changes the button's width on
      * click, which re-wraps the bar and — because a wrapped row raises the scene root's minimum height —
@@ -491,77 +410,6 @@ public class ToolbarManager {
         } catch (Exception ignored) {
         }
         return (ref != null ? "Std " + ref.width() + "×" + ref.height() + "  ·  " : "") + screen;
-    }
-
-    /**
-     * Points the Launch Target button at {@code spec} (the project's {@code launch.target}, null when unset):
-     * the label becomes the target's name and, once the library scan resolves, its cover art becomes the
-     * button's graphic. Called by {@link UIManager} when the bar is built and from {@link LaunchTargetDialog}'s
-     * change callback — the launch target lives in {@code botmaker-project.properties}, not in
-     * {@link ProjectSettingsService}, so no {@code SettingsChangedEvent} announces it.
-     */
-    public void setLaunchTarget(String spec) {
-        this.launchTargetSpec = (spec == null || spec.isBlank()) ? null : spec.trim();
-        // A new target has not been resolved yet, so the old title and cover must go before the scan runs —
-        // otherwise the button shows the previous game's art for as long as the library walk takes.
-        this.launchResolvedName = null;
-        this.launchArtworkUri = null;
-        if (launchTargetButton == null) return;
-        launchTargetButton.setGraphic(null);
-        refreshItems();
-        resolveLaunchArtwork(launchTargetSpec);
-        // The quick-launch button reads the target off disk, so it has to be rebound whenever it changes —
-        // otherwise it stays disabled after the very first target is set, or launches the previous one.
-        if (quickLaunchButton != null) {
-            QuickLaunch.bind(quickLaunchButton, resourcesDir, this::reportQuickLaunch);
-        }
-    }
-
-    /**
-     * The project's resources dir, needed before {@link #createCaptureGroup()} so quick launch can read
-     * {@code launch.target}. Set by {@link UIManager} when it wires the bar.
-     */
-    public void setResourcesDir(java.nio.file.Path resourcesDir) {
-        this.resourcesDir = resourcesDir;
-    }
-
-    /** Quick launch has no status label of its own up here, so it reports on the shared status line. */
-    private void reportQuickLaunch(boolean ok, String message) {
-        eventBus.publish(new CoreApplicationEvents.StatusMessageEvent((ok ? "" : "⚠ ") + message));
-    }
-
-    /** "🚀 " + the target's short name, or "🚀 Launch Target" when none is set. */
-    private static String launchTargetText(String spec) {
-        return launchTargetText(spec, null);
-    }
-
-    private static String launchTargetText(String spec, String displayName) {
-        String name = LaunchSpec.shortLabel(spec, displayName);
-        if (name.length() > CAPTURE_LABEL_MAX) name = name.substring(0, CAPTURE_LABEL_MAX - 1) + "…";
-        return "🚀 " + name;
-    }
-
-    /**
-     * Resolves a {@code <platform>:<id>} spec to its installed game so the button can show the real title and a
-     * small cover. The scan reads JSON/VDF off disk, so it runs on a daemon thread and hops back to the FX
-     * thread; a spec that resolves to nothing (a plain exe, an uninstalled game) simply leaves the label as-is.
-     */
-    private void resolveLaunchArtwork(String spec) {
-        LaunchSpec parsed = LaunchSpec.parse(spec);
-        if (parsed == null || parsed.kind() == LaunchKind.UNKNOWN) return;
-        Thread scan = new Thread(() -> {
-            InstalledGame game = GameLibraries.findGame(parsed.kind().id(), parsed.token()).orElse(null);
-            if (game == null) return;
-            javafx.application.Platform.runLater(() -> {
-                // A later setLaunchTarget may have won the race; only decorate the spec we were asked about.
-                if (!java.util.Objects.equals(spec, launchTargetSpec)) return;
-                launchResolvedName = game.name();
-                launchArtworkUri = game.artwork() == null ? null : game.artwork().toUri().toString();
-                refreshItems();
-            });
-        }, "launch-target-art");
-        scan.setDaemon(true);
-        scan.start();
     }
 
     /**

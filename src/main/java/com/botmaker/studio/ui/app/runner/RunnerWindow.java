@@ -1,20 +1,17 @@
 package com.botmaker.studio.ui.app.runner;
 
-import com.botmaker.shared.launch.LaunchSpec;
+import com.botmaker.sdk.authoring.CaptureTargetModel;
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.ProjectConfig;
-import com.botmaker.studio.project.ProjectCreator;
 import com.botmaker.studio.project.ProjectMode;
 import com.botmaker.studio.project.StudioContext;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityDefinition;
 import com.botmaker.studio.project.activity.ActivityVariable;
-import com.botmaker.sdk.authoring.CaptureTargetModel;
 import com.botmaker.studio.project.vcs.ProjectVcs;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.ProjectSettingsService;
-import com.botmaker.studio.ui.app.LaunchTargetDialog;
 import com.botmaker.studio.ui.app.ProjectWindow;
 import com.botmaker.studio.ui.app.params.ParamValueWidgets;
 import com.botmaker.studio.ui.render.theme.BlockTheme;
@@ -103,8 +100,6 @@ public final class RunnerWindow implements ProjectWindow {
     private Label status;
     private Button runButton;
     private Button stopButton;
-    private Label launchTargetLabel;
-    private Label captureTargetLabel;
 
     /** One checkbox per live activity, keyed by name — the "which of these do I want" list. */
     private final Map<String, CheckBox> enableBoxes = new LinkedHashMap<>();
@@ -232,14 +227,14 @@ public final class RunnerWindow implements ProjectWindow {
     }
 
     // =========================================================================
-    // BODY — targets, activities, settings
+    // BODY — activities, settings
     // =========================================================================
 
     private Node body() {
         VBox column = new VBox(18);
         column.setPadding(new Insets(18));
         column.setMaxWidth(CONTENT_MAX_WIDTH);
-        column.getChildren().addAll(targetsSection(), activitiesSection(), settingsSection());
+        column.getChildren().addAll(activitiesSection(), settingsSection());
 
         ScrollPane scroll = new ScrollPane(column);
         scroll.setFitToWidth(true);
@@ -262,46 +257,6 @@ public final class RunnerWindow implements ProjectWindow {
         if (contentHeight <= viewHeight) return;
         double y = content.sceneToLocal(target.localToScene(0, 0)).getY();
         bodyScroll.setVvalue(Math.max(0, Math.min(1, y / (contentHeight - viewHeight))));
-    }
-
-    /** What the bot opens, and where it looks — in that order, because you cannot capture a window that is closed. */
-    private Node targetsSection() {
-        launchTargetLabel = new Label();
-        refreshTargets();
-
-        Button changeLaunch = new Button("Change…");
-        changeLaunch.setOnAction(e ->
-                new LaunchTargetDialog(stage, config, spec -> refreshTargets()).show());
-
-        // The "window the bot watches" row is gone since 2026-08-31, not merely buttonless. Reading it meant
-        // reading capture.json, which is the SDK plugin's file, and this window has no way to ask a plugin
-        // what it holds. 📋 Project Setup — that plugin's own checklist — is where the answer lives now.
-        VBox rows = new VBox(8,
-                targetRow("🚀", "Game or app to launch", launchTargetLabel, changeLaunch));
-        return section("Where it runs", "Pick the game first — its window can only be chosen as a target "
-                + "once it is actually open.", rows);
-    }
-
-    /** One target row; {@code change} may be {@code null} for a target this window cannot open an editor for. */
-    private static Node targetRow(String glyph, String what, Label value, Button change) {
-        Label title = new Label(glyph + "  " + what);
-        value.getStyleClass().add("dialog-hint-text");
-        VBox text = new VBox(1, title, value);
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox row = change == null ? new HBox(10, text, spacer) : new HBox(10, text, spacer, change);
-        row.setAlignment(Pos.CENTER_LEFT);
-        row.getStyleClass().add("runner-row");
-        return row;
-    }
-
-    /** Re-reads both targets from the project. Called on open and after either dialog closes. */
-    private void refreshTargets() {
-        String spec = ProjectCreator.readLaunchTarget(config.resourcesRoot());
-        launchTargetLabel.setText(spec == null || spec.isBlank()
-                ? "Nothing chosen yet" : LaunchSpec.shortLabel(spec, null));
-        CaptureTargetModel target = settings.defaultTarget();
-        captureTargetLabel.setText(target == null ? "Nothing chosen yet" : target.shortLabel());
     }
 
     /** The activity checkboxes: the bot's own list of things it can do, each one on or off. */
