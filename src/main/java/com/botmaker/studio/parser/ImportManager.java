@@ -1,6 +1,6 @@
 package com.botmaker.studio.parser;
 
-import com.botmaker.studio.authoring.TemplateNames;
+import com.botmaker.sdk.authoring.TemplateNames;
 import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;

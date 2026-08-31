@@ -10,7 +10,6 @@ import com.botmaker.sdk.authoring.CaptureTargetModel;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.ProjectSettingsService;
-import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;

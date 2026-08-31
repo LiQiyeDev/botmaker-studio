@@ -4,7 +4,7 @@ import com.botmaker.sdk.authoring.Authoring;
 import com.botmaker.sdk.authoring.CaptureModel;
 import com.botmaker.sdk.authoring.CaptureModel.Resolution;
 import com.botmaker.sdk.authoring.CaptureTargetModel;
-import com.botmaker.plugin.api.authoring.SdkVersion;
+import com.botmaker.sdk.authoring.SdkVersion;
 import com.botmaker.studio.project.migration.SchemaFile;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;

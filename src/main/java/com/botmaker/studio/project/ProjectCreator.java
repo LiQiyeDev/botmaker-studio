@@ -3,7 +3,7 @@ package com.botmaker.studio.project;
 import com.botmaker.sdk.authoring.Authoring;
 import com.botmaker.sdk.authoring.AuthoringUnsupported;
 import com.botmaker.sdk.authoring.CaptureModel;
-import com.botmaker.plugin.api.authoring.SdkVersion;
+import com.botmaker.sdk.authoring.SdkVersion;
 import com.botmaker.shared.config.ProjectProperties;
 import com.botmaker.studio.project.launch.SupportedTargets;
 import com.botmaker.studio.project.migration.SchemaFile;
