@@ -1,6 +1,6 @@
 package com.botmaker.studio.sharing;
 
-import com.botmaker.studio.config.BotMakerDirs;
+import com.botmaker.shared.config.CacheDirs;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -35,7 +35,7 @@ public final class GoogleAuth {
     public record DeviceCode(String deviceCode, String userCode, String verificationUri,
                              int intervalSeconds, int expiresInSeconds) {}
 
-    private static final Path CRED_FILE = BotMakerDirs.getCacheDir().resolve("credentials.json");
+    private static final Path CRED_FILE = CacheDirs.cacheRoot().resolve("credentials.json");
     private static final String TOKEN_KEY = "google_token";
 
     private final HttpClient http = HttpClient.newBuilder()

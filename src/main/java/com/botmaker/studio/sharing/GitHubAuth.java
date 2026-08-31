@@ -1,6 +1,6 @@
 package com.botmaker.studio.sharing;
 
-import com.botmaker.studio.config.BotMakerDirs;
+import com.botmaker.shared.config.CacheDirs;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -35,7 +35,7 @@ public final class GitHubAuth {
     public record DeviceCode(String deviceCode, String userCode, String verificationUri,
                              int intervalSeconds, int expiresInSeconds) {}
 
-    private static final Path CRED_FILE = BotMakerDirs.getCacheDir().resolve("credentials.json");
+    private static final Path CRED_FILE = CacheDirs.cacheRoot().resolve("credentials.json");
     private static final String TOKEN_KEY = "github_token";
     /**
      * The signed-in login, cached beside the token. Persisted because it answers an <em>offline</em> question

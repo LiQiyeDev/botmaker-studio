@@ -1,6 +1,6 @@
 package com.botmaker.studio.services;
 
-import com.botmaker.studio.config.BotMakerDirs;
+import com.botmaker.shared.config.CacheDirs;
 import com.botmaker.studio.services.SdkUpgradeService.Break;
 import com.botmaker.studio.services.SdkUpgradeService.BreakKind;
 import com.botmaker.studio.services.SdkUpgradeService.Deprecation;
@@ -36,7 +36,7 @@ class SdkUpgradeServiceTest {
 
     @BeforeAll
     static void theCacheDirIsRedirectedIntoTheBuild() {
-        assumeTrue(BotMakerDirs.getCacheDir().toString().contains("target"),
+        assumeTrue(CacheDirs.cacheRoot().toString().contains("target"),
                 "the BotMaker cache dir is not redirected into target/ (see the pom's environmentVariables); "
                         + "refusing to write jar caches into the developer's real cache dir");
     }

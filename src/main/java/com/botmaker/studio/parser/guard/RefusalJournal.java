@@ -1,6 +1,6 @@
 package com.botmaker.studio.parser.guard;
 
-import com.botmaker.studio.config.BotMakerDirs;
+import com.botmaker.shared.config.CacheDirs;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -54,7 +54,7 @@ public final class RefusalJournal {
 
     /** The journal every {@code CodeEditor} writes to: {@code <cacheDir>/refused-edits}. */
     public static RefusalJournal inCacheDir() {
-        return new RefusalJournal(BotMakerDirs.getCacheDir().resolve("refused-edits"));
+        return new RefusalJournal(CacheDirs.cacheRoot().resolve("refused-edits"));
     }
 
     /** A journal over an explicit directory — for tests, and for anything that must not touch the cache dir. */

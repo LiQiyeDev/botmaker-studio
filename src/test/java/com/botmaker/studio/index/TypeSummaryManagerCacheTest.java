@@ -1,6 +1,6 @@
 package com.botmaker.studio.index;
 
-import com.botmaker.studio.config.BotMakerDirs;
+import com.botmaker.shared.config.CacheDirs;
 import io.github.classgraph.ClassInfo;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -34,7 +34,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * classes are surfaced to the user once it has.
  *
  * <p>The fixture is a real jar, compiled here with the platform compiler and scanned by the real ClassGraph.
- * There is no seam for the cache <em>directory</em> — {@code BotMakerDirs.getCacheDir()} is a static read of
+ * There is no seam for the cache <em>directory</em> — {@code CacheDirs.cacheRoot()} is a static read of
  * the environment — so the suite redirects it into {@code target/} through Surefire's
  * {@code <environmentVariables>}; see the pom. The assumption below is what says so out loud rather than
  * writing into a developer's real cache when that redirect does not apply.
@@ -46,7 +46,7 @@ class TypeSummaryManagerCacheTest {
 
     @BeforeAll
     static void theCacheDirIsRedirectedIntoTheBuild() {
-        assumeTrue(BotMakerDirs.getCacheDir().toString().contains("target"),
+        assumeTrue(CacheDirs.cacheRoot().toString().contains("target"),
                 "the BotMaker cache dir is not redirected into target/ (see the pom's environmentVariables); "
                         + "refusing to write jar caches into the developer's real cache dir");
     }

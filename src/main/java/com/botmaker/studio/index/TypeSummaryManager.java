@@ -1,6 +1,6 @@
 package com.botmaker.studio.index;
 
-import com.botmaker.studio.config.BotMakerDirs;
+import com.botmaker.shared.config.CacheDirs;
 import com.botmaker.studio.util.ClassPathManager;
 import io.github.classgraph.ClassGraph;
 import io.github.classgraph.ClassInfo;
@@ -272,7 +272,7 @@ public class TypeSummaryManager {
      */
     public static Path getCacheFileForJar(String jarPath) {
         String jarFileName = Path.of(jarPath).getFileName().toString();
-        return BotMakerDirs.getCacheDir().resolve("jars").resolve(jarFileName + "." + CACHE_FORMAT + ".json");
+        return CacheDirs.cacheRoot().resolve("jars").resolve(jarFileName + "." + CACHE_FORMAT + ".json");
     }
 
     /**
@@ -351,7 +351,7 @@ public class TypeSummaryManager {
      * Deletes all per-jar cache files under the jars/ subdirectory.
      */
     public static void clearAllCaches() {
-        Path jarsDir = BotMakerDirs.getCacheDir().resolve("jars");
+        Path jarsDir = CacheDirs.cacheRoot().resolve("jars");
         if (!Files.exists(jarsDir)) return;
         try (var stream = Files.walk(jarsDir)) {
             stream.filter(p -> p.toString().endsWith(".json"))
