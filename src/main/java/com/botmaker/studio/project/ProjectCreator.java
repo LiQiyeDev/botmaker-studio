@@ -1,11 +1,8 @@
 package com.botmaker.studio.project;
 
-import com.botmaker.sdk.authoring.Authoring;
-import com.botmaker.sdk.authoring.AuthoringUnsupported;
-import com.botmaker.sdk.authoring.SdkVersion;
 import com.botmaker.shared.config.ProjectProperties;
+import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.launch.SupportedTargets;
-import com.botmaker.studio.project.migration.SchemaFile;
 import com.botmaker.studio.project.vcs.ProjectVcs;
 import com.botmaker.studio.services.MavenService;
 
@@ -13,18 +10,32 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import static com.botmaker.studio.config.Constants.PROJECTS_ROOT;
 
 /**
- * Creates a new user project — the part of it that is about <em>Studio</em>.
+ * Creates a new user project, and since 2026-09-01 <b>writes every byte of it</b>.
  *
- * <p>{@code Authoring.createProject} writes the {@code src/} layout, {@code activities.json},
- * {@code botmaker-project.properties} and the placeholder image — the data a bot reads back at run time, and
- * the only thing the SDK owns. Studio keeps the rest: <b>where</b> projects live, <b>whether the name is one
- * a user may pick</b>, the editor's {@code settings.json}, project history, <b>the pom</b> — and, since
- * 2026-08-29, <b>every {@code .java}</b>.
+ * <p>It used to hand the job to {@code Authoring.createProject}, which owned five directories, an empty
+ * {@code activities.json}, {@code botmaker-project.properties}, a placeholder PNG and the all-or-none
+ * commit — and took Studio's own files as {@code callerFiles} so they landed in the same pass. Every one of
+ * those five has since become something Studio either already owned or should not write at all:
+ *
+ * <ul>
+ *   <li>the directories are a {@code mkdir} list and were never knowledge;
+ *   <li><b>{@code activities.json} is written by Studio on every edit anyway</b> —
+ *       {@link ActivitiesConfig#write}, with Studio's own mapper and its own
+ *       {@code SchemaFile.ACTIVITIES} stamp. Writing an empty one at creation was never a fact the SDK held
+ *       and the editor did not;
+ *   <li>{@code botmaker-project.properties} carried only the capture resolution, which stopped being the
+ *       editor's on 2026-09-01 — a fresh project has neither key, and the capturing plugin seeds them;
+ *   <li>the placeholder picture belongs to whoever offers the type it stands for, so the plugin's own
+ *       picture surfaces call {@code TemplateLibrary.ensurePlaceholder} when they first look at the folder.
+ *       Creation writing it meant a project created without that plugin still got its file;
+ *   <li>the pom and every {@code .java} were already composed here.
+ * </ul>
  *
  * <p>The pom won that argument first, on 2026-08-26 after one day in the SDK. It is not a file about the
  * SDK, it is the file that declares <em>which</em> SDK the project has — and the SDK is the editor's default
@@ -33,12 +44,11 @@ import static com.botmaker.studio.config.Constants.PROJECTS_ROOT;
  * <em>installed</em>. And the argument for every other file is plainer still — a project's structure belongs
  * to the user, so it is written once ({@link StarterSources}) and never read, rewritten or restored.
  *
- * <p>Studio composes both and hands the <em>text</em> to {@code createProject}, which commits them beside the
- * files it owns.
- *
- * <p>That handing-in is what preserves the all-or-none rule rather than trading it away: the refusal still
- * happens where the files are rendered, and one pass writes every byte of the project. What is left here is
- * ordered so nothing Studio writes can precede it.
+ * <p><b>All of it or none of it survives whole</b>, and it is the one thing that had to be carried across
+ * rather than dropped: every file is rendered into a map before the first directory exists, anything that
+ * can refuse refuses while there is nothing to clean up, and whole-file ownership is enforced by a
+ * collision check rather than a merge. A half-created project is worse than no project — the editor lists
+ * it, opening it fails in a different place each time, and the user has to find and delete it by hand.
  */
 public class ProjectCreator {
 
@@ -75,29 +85,20 @@ public class ProjectCreator {
         System.out.println("Location: " + projectPath);
         System.out.println("------------------------------------------------");
 
-        // 0. The version the *bot* will be generated against — its own pin, never Studio's idea of newest.
-        //    It refuses here, before anything exists, because a pin this build has never heard of is
-        //    something the user just chose and can choose differently.
-        SdkVersion sdk;
-        try {
-            sdk = ProjectSpecs.versionFor(effectiveSdkVersion(sdkVersion));
-        } catch (AuthoringUnsupported unsupported) {
-            // Checked on the way out, because creation is a user action with a dialog to show it in.
-            throw new IOException(unsupported.getMessage(), unsupported);
-        }
+        // There is no "can this SDK generate?" question to ask any more. It used to refuse an unrecognised
+        // pin here, before anything existed, because the SDK was about to generate the project's files
+        // against that version. It generates nothing now — the pin is a coordinate in a pom, and a pom
+        // naming a version nobody can resolve fails where the user can read why.
 
         try {
-            // 1. Everything the bot is made of. The SDK writes the src/ layout, activities.json,
-            //    botmaker-project.properties and the placeholder image — the data a bot reads back at run
-            //    time. Every .java is ours, and so is the pom; both are composed here and handed in so all
-            //    of it lands together. All of it or none of it — the refusal lands before a single directory
-            //    exists, so a project that cannot be created never has to be deleted by hand.
+            // 1. Everything the project is made of, in one pass: the src/ layout, activities.json for a game
+            //    bot, the pom and every .java. Rendered first, committed second, so a refusal lands before a
+            //    single directory exists and a project that cannot be created never has to be deleted by
+            //    hand.
             System.out.println("1. Creating the project...");
             Map<String, String> ourFiles = new LinkedHashMap<>(StarterSources.of(cfg));
             ourFiles.put("pom.xml", MavenService.pomXml(cfg, effectiveSdkVersion(sdkVersion)));
-            Authoring.createProject(sdk,
-                    ProjectSpecs.of(cfg, template, effectiveSdkVersion(sdkVersion)),
-                    projectPath, SchemaFile.ACTIVITIES.current(), ourFiles);
+            writeProject(cfg, template, ourFiles);
 
             // 2. Seed settings.json (the chosen template). Studio's own file: no bot reads it, and it
             //    records what the editor chose rather than what the bot needs.
@@ -222,6 +223,57 @@ public class ProjectCreator {
      * (2026-09-01), along with the resolution the editor used to pick. Those keys describe the size the
      * pictures were taken at, so the plugin that takes them writes them.
      */
+    /**
+     * The project's own files, rendered whole and then committed — the half that used to be
+     * {@code Authoring.createProject}, absorbed on 2026-09-01.
+     *
+     * <p>Two rules travelled with it and neither is negotiable.
+     *
+     * <p><b>All of it or none of it.</b> Every file, ours and the caller's alike, is built in memory before
+     * {@code src/main/java} exists. Anything that can refuse — a project already at this path, a game bot
+     * whose model will not serialize — refuses while there is nothing to clean up.
+     *
+     * <p><b>Whole-file ownership, keyed by project-relative path.</b> A caller file colliding with one this
+     * method writes is a hard error and never a merge. Two authors of one file is the mistake the scaffold
+     * contract made and was deleted for, and the check outlives the arrangement that first needed it: it is
+     * how a second plugin contributing files would be told it had claimed a path that is already taken.
+     *
+     * @param callerFiles project-relative path → content, committed in the same pass
+     */
+    static void writeProject(ProjectConfig cfg, ProjectTemplate template, Map<String, String> callerFiles)
+            throws IOException {
+        Path projectDir = cfg.projectPath();
+        if (Files.exists(projectDir.resolve("pom.xml"))) {
+            throw new IOException("There is already a project at " + projectDir + ".");
+        }
+
+        // ---- render ----------------------------------------------------------------------------------
+        Map<String, String> files = new LinkedHashMap<>();
+        if (template == ProjectTemplate.GAME_BOT) {
+            // Empty, but stamped: an unstamped file reads as schema version 0 and the next open re-runs
+            // every migration step against an already-current file.
+            files.put("src/main/resources/" + ActivitiesConfig.FILE_NAME, ActivitiesConfig.empty().json());
+        }
+        for (Map.Entry<String, String> file : callerFiles.entrySet()) {
+            if (files.containsKey(file.getKey())) {
+                throw new IllegalArgumentException(
+                        "Project creation already writes " + file.getKey() + "; a caller cannot also write it.");
+            }
+            files.put(file.getKey(), file.getValue());
+        }
+
+        // ---- commit ----------------------------------------------------------------------------------
+        for (String dir : List.of("src/main/java", "src/main/resources", "src/test/java",
+                "src/test/resources", "src/main/resources/images")) {
+            Files.createDirectories(projectDir.resolve(dir));
+        }
+        for (Map.Entry<String, String> file : files.entrySet()) {
+            Path target = projectDir.resolve(file.getKey());
+            Files.createDirectories(target.getParent());
+            Files.writeString(target, file.getValue());
+        }
+    }
+
     static void seedSettings(ProjectConfig cfg, ProjectTemplate template) throws IOException {
         StudioProjectSettings.empty()
                 .withTemplate(template)

@@ -1,7 +1,5 @@
 package com.botmaker.studio.project;
 
-import com.botmaker.sdk.authoring.Authoring;
-import com.botmaker.sdk.authoring.SdkVersion;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.migration.SchemaFile;
 import com.botmaker.studio.services.MavenService;
@@ -22,6 +20,13 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class ProjectCreatorTest {
 
+    /**
+     * The minimum a caller hands in. {@code writeProject} refuses a directory that already holds a
+     * {@code pom.xml}, so every call needs one to be a realistic creation rather than a special case.
+     */
+    private static final java.util.function.Function<ProjectConfig, Map<String, String>> POM =
+            config -> Map.of("pom.xml", MavenService.pomXml(config, MavenService.SDK_FALLBACK_VERSION));
+
     @Test
     void theChosenTemplateIsPersisted(@TempDir Path root) throws IOException {
         ProjectConfig config = ProjectConfig.forProject("MyBot", root);
@@ -40,32 +45,86 @@ class ProjectCreatorTest {
      * this is the one moment it can be got wrong — and getting it wrong is silent: the project would simply
      * behave like a legacy one for the rest of its life.
      *
-     * <p>Since 2026-08-25 the file is written by the SDK, not seeded here; this asserts the <b>hand-over</b>
-     * (Studio asks for a game bot and one arrives) rather than the writing, which is
-     * {@code ProjectCreateTest}'s in the SDK's own build. It still reads the result through
-     * {@link ActivitiesConfig}, which is the point worth keeping: the two parsers must agree about the file.
+     * <p>Written here since 2026-09-01 rather than handed to {@code Authoring.createProject} — but read back
+     * through {@link ActivitiesConfig}, which is the point worth keeping: the file is written once by
+     * {@link ActivitiesConfig#json} and read by every later open, and a stamp lost between the two would
+     * re-run every migration step against an already-current file.
      */
     @Test
     void aNewGameBotGetsAnActivitiesFile(@TempDir Path root) throws IOException {
         ProjectConfig config = ProjectConfig.forProject("MyBot", root);
-        Authoring.createProject(SdkVersion.latest(),
-                ProjectSpecs.of(config, ProjectTemplate.GAME_BOT, MavenService.SDK_FALLBACK_VERSION),
-                config.projectPath(), SchemaFile.ACTIVITIES.current(),
-                Map.of("pom.xml", MavenService.pomXml(config, MavenService.SDK_FALLBACK_VERSION)));
+        ProjectCreator.writeProject(config, ProjectTemplate.GAME_BOT, POM.apply(config));
 
         assertTrue(Files.exists(config.resourcesRoot().resolve(ActivitiesConfig.FILE_NAME)));
         assertTrue(ActivitiesConfig.read(config.resourcesRoot()).isEmpty());
+        assertEquals(SchemaFile.ACTIVITIES.current(),
+                SchemaFile.ACTIVITIES.versionIn(config.resourcesRoot()).orElse(0),
+                "an unstamped file reads as version 0 and re-runs every migration on the next open");
     }
 
     @Test
     void anEmptyProjectGetsNoActivitiesFile(@TempDir Path root) throws IOException {
         ProjectConfig config = ProjectConfig.forProject("Plain", root);
-        Authoring.createProject(SdkVersion.latest(),
-                ProjectSpecs.of(config, ProjectTemplate.EMPTY, MavenService.SDK_FALLBACK_VERSION),
-                config.projectPath(), SchemaFile.ACTIVITIES.current(),
-                Map.of("pom.xml", MavenService.pomXml(config, MavenService.SDK_FALLBACK_VERSION)));
+        ProjectCreator.writeProject(config, ProjectTemplate.EMPTY, POM.apply(config));
 
         assertFalse(Files.exists(config.resourcesRoot().resolve(ActivitiesConfig.FILE_NAME)));
+    }
+
+    /** Every project gets the five directories, whatever its template. */
+    @Test
+    void theSourceLayoutIsCreated(@TempDir Path root) throws IOException {
+        ProjectConfig config = ProjectConfig.forProject("Plain", root);
+        ProjectCreator.writeProject(config, ProjectTemplate.EMPTY, POM.apply(config));
+
+        for (String dir : List.of("src/main/java", "src/main/resources", "src/test/java",
+                "src/test/resources", "src/main/resources/images")) {
+            assertTrue(Files.isDirectory(config.projectPath().resolve(dir)), dir);
+        }
+    }
+
+    /**
+     * Whole-file ownership: a caller may not claim a path creation already writes.
+     *
+     * <p>Nothing in Studio does today — this is the check that tells a second plugin contributing files that
+     * it has claimed a taken path, rather than silently overwriting or merging. Two authors of one file is
+     * the mistake the scaffold contract made and was deleted for.
+     */
+    @Test
+    void aCallerCannotClaimAFileCreationWrites(@TempDir Path root) {
+        ProjectConfig config = ProjectConfig.forProject("MyBot", root);
+        Map<String, String> colliding = new java.util.LinkedHashMap<>(POM.apply(config));
+        colliding.put("src/main/resources/" + ActivitiesConfig.FILE_NAME, "{}");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> ProjectCreator.writeProject(config, ProjectTemplate.GAME_BOT, colliding));
+    }
+
+    /**
+     * All of it or none of it: the refusal lands before a single directory exists.
+     *
+     * <p>A half-created project is worse than no project — the editor lists it, opening it fails in a
+     * different place each time, and the user has to delete it by hand.
+     */
+    @Test
+    void arefusalLeavesNothingBehind(@TempDir Path root) {
+        ProjectConfig config = ProjectConfig.forProject("MyBot", root);
+        Map<String, String> colliding = new java.util.LinkedHashMap<>(POM.apply(config));
+        colliding.put("src/main/resources/" + ActivitiesConfig.FILE_NAME, "{}");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> ProjectCreator.writeProject(config, ProjectTemplate.GAME_BOT, colliding));
+        assertFalse(Files.exists(config.projectPath().resolve("src")),
+                "nothing may be written before every file has been rendered");
+    }
+
+    /** An existing project is refused rather than written over. */
+    @Test
+    void anExistingProjectIsRefused(@TempDir Path root) throws IOException {
+        ProjectConfig config = ProjectConfig.forProject("MyBot", root);
+        ProjectCreator.writeProject(config, ProjectTemplate.EMPTY, POM.apply(config));
+
+        assertThrows(IOException.class,
+                () -> ProjectCreator.writeProject(config, ProjectTemplate.EMPTY, POM.apply(config)));
     }
 
     @Test
@@ -94,21 +153,10 @@ class ProjectCreatorTest {
         assertTrue(ProjectCreator.readSessionIsolated(resources), "toggling back on reads as on");
     }
 
-    /**
-     * The package Studio hands the SDK is the <b>whole</b> one.
-     *
-     * <p>{@link ProjectConfig#packageName()} is the last segment only ({@code mybot}), and the generated
-     * sources must declare {@code package com.mybot;}. A half-name crossing this boundary produces a project
-     * that compiles into the wrong package and is noticed at run time, which is why the prefixing lives in
-     * {@link ProjectSpecs} rather than at each call site.
-     */
-    @Test
-    void theSpecCarriesTheFullPackage(@TempDir Path root) {
-        ProjectConfig config = ProjectConfig.forProject("MyBot", root);
-        assertEquals("mybot", config.packageName());
-        assertEquals("com.mybot",
-                ProjectSpecs.of(config, ProjectTemplate.GAME_BOT, "1.2.0", null).packageName());
-    }
+    // theSpecCarriesTheFullPackage went on 2026-09-01 with ProjectSpecs. It held that the *whole* package
+    // (com.mybot) crossed to the SDK where ProjectConfig.packageName() is the last segment alone (mybot) —
+    // a half-name that would have compiled the project into the wrong package. There is no boundary left for
+    // it to cross: StarterSources and MavenService.pomXml both take the ProjectConfig itself.
 
     /**
      * The one file a new project starts with is Studio's, and it is the only {@code .java} either half of

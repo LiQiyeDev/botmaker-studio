@@ -340,7 +340,19 @@ public record ActivitiesConfig(List<ActivityDefinition> activities, List<Activit
      */
     public void write(Path resourcesDir) throws IOException {
         Files.createDirectories(resourcesDir);
+        Files.writeString(resourcesDir.resolve(FILE_NAME), json());
+    }
+
+    /**
+     * The exact text {@link #write} would put on disk.
+     *
+     * <p>It exists for creation, which renders every file in memory before the first directory is made so
+     * that a project is written all at once or not at all ({@code ProjectCreator}). Writing through this
+     * rather than beside it is the point: one mapper and one stamp, so the file a project is born with and
+     * the file every later save produces cannot be two shapes.
+     */
+    public String json() throws IOException {
         ObjectNode body = MAPPER.valueToTree(this);
-        MAPPER.writeValue(resourcesDir.resolve(FILE_NAME).toFile(), SchemaFile.ACTIVITIES.stamped(body));
+        return MAPPER.writeValueAsString(SchemaFile.ACTIVITIES.stamped(body));
     }
 }
