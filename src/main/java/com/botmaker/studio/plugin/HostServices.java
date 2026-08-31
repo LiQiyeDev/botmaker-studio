@@ -1,12 +1,9 @@
 package com.botmaker.studio.plugin;
 
-import com.botmaker.plugin.api.Capture;
 import com.botmaker.plugin.api.Dialogs;
-import com.botmaker.plugin.api.Region;
 import com.botmaker.plugin.api.StudioServices;
 import com.botmaker.plugin.api.Theme;
 import com.botmaker.studio.project.ProjectConfig;
-import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import com.botmaker.studio.util.NativeFileDialog;
 import javafx.scene.Parent;
@@ -15,25 +12,21 @@ import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.DialogPane;
-import javafx.scene.image.Image;
-import javafx.scene.paint.Color;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 
-import java.awt.image.BufferedImage;
 import java.io.File;
 import java.nio.file.Path;
 import java.util.Optional;
-import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
  * Studio's own side of {@link StudioServices} — the host capabilities a plugin's editor may reach.
  *
  * <p><b>Everything here already existed; none of it is new capability.</b> The theme is
- * {@link ThemedWindows}, the region and colour pickers are {@link ScreenCaptureService}, the paths are the
+ * {@link ThemedWindows}, the file choosers are {@link NativeFileDialog}, the paths are the
  * open project's {@link ProjectConfig}. What the class adds is the *shape* — a set of interfaces a plugin
  * can compile against without seeing a Studio type, which is the only way an editor written outside this
  * repository can look and behave like one written inside it.
@@ -52,19 +45,16 @@ import java.util.function.Supplier;
 public final class HostServices implements StudioServices {
 
     private final ProjectConfig project;
-    private final ScreenCaptureService capture;
     private final Supplier<Window> owner;
 
-    public HostServices(ProjectConfig project, ScreenCaptureService capture, Supplier<Window> owner) {
+    public HostServices(ProjectConfig project, Supplier<Window> owner) {
         this.project = project;
-        this.capture = capture;
         this.owner = owner == null ? () -> null : owner;
     }
 
     /** The services for the project {@code config} describes, with {@code owner} as the dialog parent. */
     public static HostServices forProject(ProjectConfig config, Supplier<Window> owner) {
-        return new HostServices(config, config == null ? null : ScreenCaptureService.forProjectFiles(config),
-                owner);
+        return new HostServices(config, owner);
     }
 
     /** The same, parented on whichever window has focus when a dialog is actually opened. */
@@ -96,11 +86,6 @@ public final class HostServices implements StudioServices {
     @Override
     public Theme theme() {
         return THEME;
-    }
-
-    @Override
-    public Capture capture() {
-        return new CaptureAdapter();
     }
 
     @Override
@@ -154,58 +139,21 @@ public final class HostServices implements StudioServices {
         @Override public void applyThemeClass(Parent root) { ThemedWindows.applyThemeClass(root); }
     };
 
-    private final class CaptureAdapter implements Capture {
-
-        @Override
-        public void selectRegion(Consumer<Region> onSelected) {
-            if (capture == null || onSelected == null) return;
-            // int[] {x, y, w, h} is the host's own wire for a drag; the contract's Region is the same four
-            // numbers with names on them, which is the whole of the adaptation.
-            capture.selectRegion(owner.get(), r -> onSelected.accept(new Region(r[0], r[1], r[2], r[3])));
-        }
-
-        @Override
-        public void pickPoint(Consumer<Region> onPicked) {
-            if (capture == null || onPicked == null) return;
-            // A Region with no size: the contract has one coordinate type, and a point is a region whose
-            // width and height are nobody's business. Cheaper than a second record for two ints.
-            capture.pickPoint(owner.get(), p -> onPicked.accept(new Region(p[0], p[1], 0, 0)));
-        }
-
-        @Override
-        public void sampleColor(Consumer<Color> onSampled) {
-            if (capture == null || onSampled == null) return;
-            capture.pickColor(owner.get(), pick -> {
-                java.awt.Color c = pick.color();
-                onSampled.accept(Color.rgb(c.getRed(), c.getGreen(), c.getBlue(), c.getAlpha() / 255.0));
-            });
-        }
-
-        @Override
-        public void grabFrame(Consumer<Image> onGrabbed) {
-            if (capture == null || onGrabbed == null) return;
-            capture.captureDefaultTargetAsync(owner.get(), shot -> {
-                if (shot != null && shot.image() != null) onGrabbed.accept(toFxImage(shot.image()));
-            });
-        }
-
-        /**
-         * Through {@link ScreenCaptureService#toFxImage}, which is the one conversion in the application and
-         * is null-tolerant — a plugin passing a capture that did not happen gets null back rather than an
-         * exception, which is the same contract every host caller already relies on.
-         */
-        @Override
-        public Image toFxImage(BufferedImage image) {
-            return ScreenCaptureService.toFxImage(image);
-        }
-
-        // grabTargetFrame, sampleFromTarget, chooseSource and defaultSource were implemented here from phase
-        // 12a until 2026-08-27, and went with the contract members they served. What they described — a
-        // capture source, a sampled colour and its tolerance — is the SDK's own vocabulary, so serving it
-        // through StudioServices made the contract carry one plugin's API on its behalf. A plugin wanting any
-        // of it now enumerates and grabs through botmaker-shared, which is published and which nothing
-        // privileges Studio in reaching.
-    }
+    // CaptureAdapter stood here from the day this class was written until 2026-08-31, implementing the
+    // contract's Capture: selectRegion, pickPoint, sampleColor, grabFrame and toFxImage, over Studio's own
+    // ScreenCaptureService. All of it is gone with that interface.
+    //
+    // Two deletions in one, and they are separate arguments. grabFrame answered "one frame of what the host
+    // looks at" out of a default capture target — capture-target vocabulary written so as not to say the
+    // word — and the host holds no targets any more. The other four went because the maintainer's ruling is
+    // that the overlay and the desktop grab do not belong to the editor either: putting a full-screen surface
+    // over a running game and asking the user to point at something in it is about what a bot sees from end
+    // to end. So the overlay itself moved to the SDK plugin with them, and the toolkit's screen-pick widgets
+    // take theirs from a ScreenPicks the plugin registers.
+    //
+    // grabTargetFrame, sampleFromTarget, chooseSource and defaultSource were implemented here from phase 12a
+    // until 2026-08-27 and went the same way, for the reason recorded on StudioServices: what they described
+    // was the SDK's own vocabulary, which no second plugin could have contributed.
 
     private final class DialogsAdapter implements Dialogs {
 

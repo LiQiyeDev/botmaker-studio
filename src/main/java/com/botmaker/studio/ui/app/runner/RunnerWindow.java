@@ -267,19 +267,17 @@ public final class RunnerWindow implements ProjectWindow {
     /** What the bot opens, and where it looks — in that order, because you cannot capture a window that is closed. */
     private Node targetsSection() {
         launchTargetLabel = new Label();
-        captureTargetLabel = new Label();
         refreshTargets();
 
         Button changeLaunch = new Button("Change…");
         changeLaunch.setOnAction(e ->
                 new LaunchTargetDialog(stage, config, spec -> refreshTargets()).show());
 
-        // No Change… beside the capture target since 2026-08-31: it is the SDK plugin's 🎯 Capture Targets
-        // toolbar item, and this window has no handle on another plugin's item. The row still says what the
-        // bot will watch, which is what somebody about to press Run came here to read.
+        // The "window the bot watches" row is gone since 2026-08-31, not merely buttonless. Reading it meant
+        // reading capture.json, which is the SDK plugin's file, and this window has no way to ask a plugin
+        // what it holds. 📋 Project Setup — that plugin's own checklist — is where the answer lives now.
         VBox rows = new VBox(8,
-                targetRow("🚀", "Game or app to launch", launchTargetLabel, changeLaunch),
-                targetRow("🎯", "Window the bot watches", captureTargetLabel, null));
+                targetRow("🚀", "Game or app to launch", launchTargetLabel, changeLaunch));
         return section("Where it runs", "Pick the game first — its window can only be chosen as a target "
                 + "once it is actually open.", rows);
     }
