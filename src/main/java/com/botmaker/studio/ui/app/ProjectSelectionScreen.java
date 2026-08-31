@@ -478,13 +478,13 @@ public class ProjectSelectionScreen implements ProjectWindow {
 
         // Standard (reference) capture resolution — default Full-HD landscape. No manual typing: a dropdown of
         // common sizes + a landscape/portrait toggle (portrait just swaps width/height).
-        ComboBox<com.botmaker.studio.project.StudioProjectSettings.Resolution> resolutionCombo = new ComboBox<>();
+        ComboBox<com.botmaker.sdk.authoring.CaptureModel.Resolution> resolutionCombo = new ComboBox<>();
         resolutionCombo.getItems().addAll(ResolutionChoices.LANDSCAPE);
         resolutionCombo.setConverter(new javafx.util.StringConverter<>() {
-            @Override public String toString(com.botmaker.studio.project.StudioProjectSettings.Resolution r) {
+            @Override public String toString(com.botmaker.sdk.authoring.CaptureModel.Resolution r) {
                 return ResolutionChoices.label(r);
             }
-            @Override public com.botmaker.studio.project.StudioProjectSettings.Resolution fromString(String s) {
+            @Override public com.botmaker.sdk.authoring.CaptureModel.Resolution fromString(String s) {
                 return null;
             }
         });
@@ -584,7 +584,7 @@ public class ProjectSelectionScreen implements ProjectWindow {
                             .orElse(MavenService.SDK_FALLBACK_VERSION);
                 }
                 // Already in the chosen orientation — the combo's items are what the toggle re-orients.
-                com.botmaker.studio.project.StudioProjectSettings.Resolution resolution = resolutionCombo.getValue();
+                com.botmaker.sdk.authoring.CaptureModel.Resolution resolution = resolutionCombo.getValue();
                 TemplateChoice choice = templateCombo.getValue() == null
                         ? TemplateChoice.blank() : templateCombo.getValue();
                 return new CreateRequest(projectNameField.getText(), version, resolution, choice);
@@ -671,7 +671,7 @@ public class ProjectSelectionScreen implements ProjectWindow {
 
     /** Result of the create-project dialog. */
     private record CreateRequest(String projectName, String sdkVersion,
-                                 com.botmaker.studio.project.StudioProjectSettings.Resolution resolution,
+                                 com.botmaker.sdk.authoring.CaptureModel.Resolution resolution,
                                  TemplateChoice template) {}
 
     private void showGallery() {
@@ -705,7 +705,7 @@ public class ProjectSelectionScreen implements ProjectWindow {
      * was somewhere off-screen. Creating a project <em>is</em> asking to work on it.
      */
     private void createProject(String projectName, String sdkVersion,
-                               com.botmaker.studio.project.StudioProjectSettings.Resolution resolution) {
+                               com.botmaker.sdk.authoring.CaptureModel.Resolution resolution) {
         try {
             projectCreator.createProject(projectName, sdkVersion, resolution,
                     com.botmaker.studio.project.ProjectTemplate.EMPTY);
@@ -726,7 +726,7 @@ public class ProjectSelectionScreen implements ProjectWindow {
      * failed template creation deletes its own directory (see {@code ProjectCreator.createFromTemplate}).
      */
     private void createFromTemplate(String projectName,
-                                    com.botmaker.studio.project.StudioProjectSettings.Resolution resolution,
+                                    com.botmaker.sdk.authoring.CaptureModel.Resolution resolution,
                                     GalleryEntry entry) {
         GitHubGallery gallery = new GitHubGallery(gitHubClient, gitHubAuth);
         BotInstaller installer = new BotInstaller(gitHubClient, gallery);

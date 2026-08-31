@@ -2,6 +2,7 @@ package com.botmaker.studio.project;
 
 import com.botmaker.sdk.authoring.Authoring;
 import com.botmaker.sdk.authoring.AuthoringUnsupported;
+import com.botmaker.sdk.authoring.CaptureModel;
 import com.botmaker.sdk.authoring.ProjectSpec;
 import com.botmaker.sdk.authoring.SdkVersion;
 import com.botmaker.sdk.api.geometry.Size;
@@ -48,7 +49,7 @@ public final class ProjectSpecs {
      *               {@link SdkVersion#latest()} (see {@code MavenService.SDK_FALLBACK_VERSION})
      */
     public static ProjectSpec of(ProjectConfig cfg, ProjectTemplate template, String sdkPin,
-                                 StudioProjectSettings.Resolution referenceResolution) {
+                                 CaptureModel.Resolution referenceResolution) {
         return new ProjectSpec(
                 cfg.projectName(),
                 // The SDK is told the *full* package. Studio stores the last segment and prefixes "com."

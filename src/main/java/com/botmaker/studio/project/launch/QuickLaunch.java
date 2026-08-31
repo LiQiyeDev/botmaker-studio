@@ -179,7 +179,7 @@ public final class QuickLaunch {
         // *is* the screen the game inside sees, so a hardcoded size caps the game's own resolution options at
         // that size no matter what the project is authored at — and makes the capture a scaled copy of what the
         // templates were made from.
-        StudioProjectSettings.Resolution size = ProjectCreator.readCaptureSize(resourcesDir);
+        com.botmaker.sdk.authoring.CaptureModel.Resolution size = ProjectCreator.readCaptureSize(resourcesDir);
         BackgroundLauncher.forProject(resourcesDir).start(
                 backend.get(), spec,
                 size != null ? size.width() : BackgroundLauncher.DEFAULT_WIDTH,

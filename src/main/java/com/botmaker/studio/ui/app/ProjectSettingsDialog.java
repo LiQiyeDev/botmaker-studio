@@ -1,8 +1,8 @@
 package com.botmaker.studio.ui.app;
 
 import com.botmaker.studio.plugin.PluginHost;
+import com.botmaker.sdk.authoring.CaptureModel.Resolution;
 import com.botmaker.studio.project.StudioProjectSettings;
-import com.botmaker.studio.project.StudioProjectSettings.Resolution;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.util.MethodSignature;

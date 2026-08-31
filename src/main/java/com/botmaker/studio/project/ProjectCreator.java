@@ -2,6 +2,7 @@ package com.botmaker.studio.project;
 
 import com.botmaker.sdk.authoring.Authoring;
 import com.botmaker.sdk.authoring.AuthoringUnsupported;
+import com.botmaker.sdk.authoring.CaptureModel;
 import com.botmaker.sdk.authoring.SdkVersion;
 import com.botmaker.shared.config.ProjectProperties;
 import com.botmaker.studio.project.launch.SupportedTargets;
@@ -47,11 +48,11 @@ public class ProjectCreator {
     }
 
     public void createProject(String projectName, String sdkVersion) throws IOException {
-        createProject(projectName, sdkVersion, new StudioProjectSettings.Resolution(1920, 1080));
+        createProject(projectName, sdkVersion, new CaptureModel.Resolution(1920, 1080));
     }
 
     public void createProject(String projectName, String sdkVersion,
-                              StudioProjectSettings.Resolution referenceResolution) throws IOException {
+                              CaptureModel.Resolution referenceResolution) throws IOException {
         createProject(projectName, sdkVersion, referenceResolution, ProjectTemplate.EMPTY);
     }
 
@@ -62,7 +63,7 @@ public class ProjectCreator {
      * {@code template} chooses the starting source files.
      */
     public void createProject(String projectName, String sdkVersion,
-                              StudioProjectSettings.Resolution referenceResolution,
+                              CaptureModel.Resolution referenceResolution,
                               ProjectTemplate template) throws IOException {
         validateProjectName(projectName);
 
@@ -156,7 +157,7 @@ public class ProjectCreator {
      *                    ::unpackTemplate} bound to the chosen entry and tag, passed in so this class keeps
      *                    knowing nothing about GitHub
      */
-    public void createFromTemplate(String projectName, StudioProjectSettings.Resolution referenceResolution,
+    public void createFromTemplate(String projectName, CaptureModel.Resolution referenceResolution,
                                    TemplateUnpack unpack) throws IOException {
         validateProjectName(projectName);
 
@@ -231,7 +232,7 @@ public class ProjectCreator {
      * <p>Settings are written even for a null resolution (left to auto-seed from the window on first capture) —
      * the template must be recorded regardless, or the project is indistinguishable from a legacy one.
      */
-    static void seedSettings(ProjectConfig cfg, StudioProjectSettings.Resolution resolution,
+    static void seedSettings(ProjectConfig cfg, CaptureModel.Resolution resolution,
                              ProjectTemplate template) throws IOException {
         StudioProjectSettings.empty()
                 .withTemplate(template)
@@ -243,7 +244,7 @@ public class ProjectCreator {
     }
 
     /** Writes/updates {@code capture.width}/{@code capture.height} in {@code botmaker-project.properties}. */
-    public static void writeCaptureProperties(Path resourcesDir, StudioProjectSettings.Resolution resolution)
+    public static void writeCaptureProperties(Path resourcesDir, CaptureModel.Resolution resolution)
             throws IOException {
         writeProjectKeys(resourcesDir, new java.util.LinkedHashMap<>(java.util.Map.of(
                 ProjectProperties.KEY_CAPTURE_WIDTH, Integer.toString(resolution.width()),
@@ -271,9 +272,9 @@ public class ProjectCreator {
      * does for {@code launch.target} and {@code session.isolated}. This is the size a background session's
      * nested display is created at, and therefore the screen resolution the game inside it sees.
      */
-    public static StudioProjectSettings.Resolution readCaptureSize(Path resourcesDir) {
+    public static CaptureModel.Resolution readCaptureSize(Path resourcesDir) {
         java.awt.Dimension size = com.botmaker.shared.config.ProjectFile.captureSize(resourcesDir);
-        return size == null ? null : new StudioProjectSettings.Resolution(size.width, size.height);
+        return size == null ? null : new CaptureModel.Resolution(size.width, size.height);
     }
 
     /**

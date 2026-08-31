@@ -118,7 +118,7 @@ class LaunchTargetRoundTripTest {
     void clearingTheTargetRemovesTheKeyAndLeavesTheOtherPropertiesAlone(@TempDir Path dir) throws IOException {
         Path resources = dir.resolve("resources");
         ProjectCreator.writeCaptureProperties(resources,
-                new com.botmaker.studio.project.StudioProjectSettings.Resolution(1280, 720));
+                new com.botmaker.sdk.authoring.CaptureModel.Resolution(1280, 720));
         ProjectCreator.writeLaunchTarget(resources, "steam:570");
         assertEquals("steam:570", ProjectCreator.readLaunchTarget(resources));
 

@@ -1,6 +1,6 @@
 package com.botmaker.studio.ui.app;
 
-import com.botmaker.studio.project.StudioProjectSettings.Resolution;
+import com.botmaker.sdk.authoring.CaptureModel.Resolution;
 
 import java.util.List;
 

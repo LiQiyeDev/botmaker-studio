@@ -76,6 +76,50 @@ class CaptureStoreTest {
         assertNull(read.defaultTarget());
     }
 
+    /**
+     * The capture resolution moved into {@code capture.json} on 2026-08-31, a day after the targets did, so
+     * it needs its own migration and its own test: a project written in that one-day window has
+     * {@code capture.json} with the targets and {@code settings.json} with the size. The targets' rule — "once
+     * the file exists it is the answer" — would have thrown the size away.
+     */
+    @Test
+    void theCaptureSizeMigratesEvenWhenTheCaptureFileAlreadyExists(@TempDir Path dir) throws IOException {
+        Files.writeString(dir.resolve(StudioProjectSettings.FILE_NAME), """
+                {
+                  "schemaVersion": 1,
+                  "referenceResolution": { "width": 1600, "height": 900 }
+                }
+                """);
+        Files.writeString(dir.resolve(CaptureModel.FILE_NAME),
+                "{ \"targets\": [{ \"spec\": \"desktop\" }], \"defaultIndex\": 0 }");
+
+        StudioProjectSettings read = StudioProjectSettings.read(dir);
+        assertEquals(new CaptureModel.Resolution(1600, 900), read.referenceResolution());
+
+        // And the next write moves it across, after which settings.json no longer carries it at all.
+        read.write(dir);
+        assertFalse(Files.readString(dir.resolve(StudioProjectSettings.FILE_NAME))
+                .contains("referenceResolution"));
+        assertEquals(new CaptureModel.Resolution(1600, 900),
+                StudioProjectSettings.read(dir).referenceResolution());
+    }
+
+    /** Once {@code capture.json} names a size it wins, or changing it would be undone by the old file. */
+    @Test
+    void aCaptureSizeInTheCaptureFileWinsOverTheLegacyOne(@TempDir Path dir) throws IOException {
+        Files.writeString(dir.resolve(StudioProjectSettings.FILE_NAME), """
+                {
+                  "schemaVersion": 1,
+                  "referenceResolution": { "width": 1600, "height": 900 }
+                }
+                """);
+        Files.writeString(dir.resolve(CaptureModel.FILE_NAME),
+                "{ \"targets\": [], \"defaultIndex\": null, \"reference\": { \"width\": 1280, \"height\": 720 } }");
+
+        assertEquals(new CaptureModel.Resolution(1280, 720),
+                StudioProjectSettings.read(dir).referenceResolution());
+    }
+
     @Test
     void theDefaultTargetIsProjectedOntoTheSpecARunningBotReads(@TempDir Path dir) throws IOException {
         new StudioProjectSettings(List.of(CaptureTargetModel.desktop(),

@@ -903,6 +903,14 @@ contract*, and the first that changes where a project's data lives: the targets 
 - **`project/capture/CaptureTargets` is the one conversion**, both directions total. A spec in no recognised
   form reads back as the whole desktop, which is the SDK's own fallback. `WindowTarget.windowId` does not
   survive the trip, correctly — its javadoc already says a persisted live handle is meaningless.
+- **The capture resolution followed them on 2026-08-31**, as `CaptureModel.reference`. The maintainer's
+  framing settles it: *the reference resolution is a property of the SDK, not of Studio* — it describes the
+  pictures, every one of which carries it in its sidecar, so the plugin that captures and matches them has to
+  be able to read it. `StudioProjectSettings.Resolution` is **deleted** and its ~25 sites retype onto
+  `CaptureModel.Resolution`, exactly as the four target shapes did the day before. **It needs its own
+  migration read** (`legacyReference`), and that is the trap worth knowing: the targets' rule is *once
+  `capture.json` exists it is the answer*, and applying it here would throw the size away for every project
+  written in the one-day window when that file had the targets and `settings.json` still had the size.
 - **`write` projects the default target onto `capture.source` in the same pass.** A bot cannot read
   `capture.json` (`Authoring` names the contract's value vocabulary, which is off a bot's classpath), so the
   properties key stays the bot's side — one writer, one direction, written with the list it comes from. **A

@@ -1,6 +1,6 @@
 package com.botmaker.studio.ui.fx;
 
-import com.botmaker.studio.project.StudioProjectSettings.Resolution;
+import com.botmaker.sdk.authoring.CaptureModel.Resolution;
 import com.botmaker.studio.ui.app.ResolutionChoices;
 import javafx.scene.control.ComboBox;
 import javafx.stage.Stage;

@@ -1,6 +1,7 @@
 package com.botmaker.studio.ui.app.capture;
 
 import com.botmaker.plugin.api.StudioServices;
+import com.botmaker.sdk.authoring.CaptureModel;
 import com.botmaker.sdk.authoring.CaptureTargetModel;
 // The two drawing surfaces moved to the SDK plugin on 2026-08-30 — they are the overlay's own, and the
 // overlay is a feature of the SDK rather than of Studio. This class follows them when "Capture Templates"
@@ -94,7 +95,7 @@ public final class OverlayTemplateCapture {
     private int objectFrameW, objectFrameH;
     /** The canonical window size to snap to before each capture (project reference resolution), or null.
      *  Only used for a window target — a screen/desktop is never resized. */
-    private StudioProjectSettings.Resolution referenceResolution;
+    private CaptureModel.Resolution referenceResolution;
 
     /**
      * The tag a "Capture many" batch is pre-filled with — the activity that was open when the overlay was
@@ -183,7 +184,7 @@ public final class OverlayTemplateCapture {
                 return;
             }
             if (window != null && referenceResolution == null) {
-                referenceResolution = new StudioProjectSettings.Resolution(shot.bounds().width, shot.bounds().height);
+                referenceResolution = new CaptureModel.Resolution(shot.bounds().width, shot.bounds().height);
                 settings.update(settings.current().withReferenceResolution(referenceResolution));
             }
             showToolbar(shot.bounds());

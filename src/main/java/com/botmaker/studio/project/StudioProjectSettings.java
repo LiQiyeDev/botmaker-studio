@@ -2,6 +2,7 @@ package com.botmaker.studio.project;
 
 import com.botmaker.sdk.authoring.Authoring;
 import com.botmaker.sdk.authoring.CaptureModel;
+import com.botmaker.sdk.authoring.CaptureModel.Resolution;
 import com.botmaker.sdk.authoring.CaptureTargetModel;
 import com.botmaker.sdk.authoring.SdkVersion;
 import com.botmaker.studio.project.migration.SchemaFile;
@@ -27,12 +28,15 @@ import java.util.Map;
  * default used by all on-screen pickers. Modeled on
  * {@link com.botmaker.studio.project.activity.ActivitiesConfig}.
  *
- * <p><b>The capture targets are not in this file.</b> They live in the SDK's own {@code capture.json}, read
- * and written here through {@link Authoring} — see {@link #read} and {@link #write}. They were stored twice
- * (this file's list, and the one {@code capture.source} spec a running bot reads out of
- * {@code botmaker-project.properties}) with nothing keeping the two in step, so the editor and the bot could
- * silently disagree about which window to look at. They stay record components because every picker in the
- * editor asks for them here; only the file underneath them changed.
+ * <p><b>The capture targets are not in this file, and since 2026-08-31 neither is the resolution they are
+ * captured at.</b> All three live in the SDK's own {@code capture.json}, read and written here through
+ * {@link Authoring} — see {@link #read} and {@link #write}. The targets were stored twice (this file's list,
+ * and the one {@code capture.source} spec a running bot reads out of {@code botmaker-project.properties})
+ * with nothing keeping the two in step, so the editor and the bot could silently disagree about which window
+ * to look at. The resolution followed them for the reason that decides every file in this project: it
+ * describes the pictures, and the plugin that captures and matches those pictures has to be able to read it.
+ * All three stay record components because every picker in the editor asks for them here; only the file
+ * underneath them changed.
  *
  * @param captureTargets      the saved screen/window targets (order is the display order); stored in
  *                            {@code capture.json}, not in this file
@@ -46,7 +50,9 @@ import java.util.Map;
  * @param referenceResolution the canonical target-window size (logical px) image templates are captured at.
  *                            The overlay snaps the window to this before capturing so templates share one
  *                            resolution (avoids lossy match-time up/downscaling). {@code null} until the first
- *                            capture seeds it from the window's current size (backward-compatible; absent → null)
+ *                            capture seeds it from the window's current size. <b>Stored in
+ *                            {@code capture.json}, not in this file</b> — it describes the pictures, so it
+ *                            belongs to the SDK version that captures and matches them
  * @param favoriteMethods     per-class preferred methods: {@code className → [methodName, …]}, surfaced first in
  *                            the overlay palette and other pickers (backward-compatible; absent → empty)
  * @param template            the {@link ProjectTemplate} the project was created from, recorded at creation so
@@ -67,12 +73,10 @@ import java.util.Map;
 public record StudioProjectSettings(@JsonIgnore List<CaptureTargetModel> captureTargets,
                                     @JsonIgnore Integer defaultTargetIndex,
                                     List<String> knownWindowTitles, Map<String, String> favoriteOverloads,
-                                    Resolution referenceResolution, Map<String, List<String>> favoriteMethods,
+                                    @JsonIgnore Resolution referenceResolution,
+                                    Map<String, List<String>> favoriteMethods,
                                     ProjectTemplate template, String lastRecordedActivity,
                                     OverlayState overlayState, WorkspaceLayout workspaceLayout) {
-
-    /** A target-window size in logical screen pixels. */
-    public record Resolution(int width, int height) {}
 
     /**
      * The overlay editor HUD's remembered layout: its top-left corner on screen and how many tree rows it
@@ -317,13 +321,18 @@ public record StudioProjectSettings(@JsonIgnore List<CaptureTargetModel> capture
      * written by an older Studio opens with its pickers intact, and the next write moves them across. Once
      * {@code capture.json} exists it is the answer, empty or not: the migration must not resurrect a list the
      * user has since emptied.
+     *
+     * <p>The reference resolution migrates the same way but needs its own read, because {@code capture.json}
+     * may well exist without it — every project written between 2026-08-30 and 2026-08-31 is in exactly that
+     * state. See {@link #legacyReference} and {@link #withCapture}.
      */
     public static StudioProjectSettings read(Path resourcesDir) {
         Path file = resourcesDir.resolve(FILE_NAME);
         StudioProjectSettings settings = empty();
         if (Files.exists(file)) {
             try {
-                settings = MAPPER.readValue(file.toFile(), StudioProjectSettings.class);
+                settings = MAPPER.readValue(file.toFile(), StudioProjectSettings.class)
+                        .withReferenceResolution(legacyReference(file));
             } catch (Exception e) {
                 System.err.println("Failed to read " + FILE_NAME + " in " + resourcesDir + ": " + e.getMessage());
                 return empty();
@@ -376,12 +385,22 @@ public record StudioProjectSettings(@JsonIgnore List<CaptureTargetModel> capture
      */
     @JsonIgnore
     public CaptureModel captureModel() {
-        return new CaptureModel(captureTargets, defaultTargetIndex);
+        return new CaptureModel(captureTargets, defaultTargetIndex, referenceResolution);
     }
 
+    /**
+     * This settings with the three {@code capture.json} components taken from {@code capture}.
+     *
+     * <p>{@code reference} falls back to what this settings already carries, which is the whole of the
+     * resolution's migration: a {@code settings.json} written before 2026-08-31 has it and {@code capture.json}
+     * does not, so the value read out of the legacy field survives into memory and the next write moves it
+     * across. Once {@code capture.json} names one it wins — the same rule the target list migrated under, and
+     * for the same reason: the migration must not resurrect a value the user has since changed.
+     */
     private StudioProjectSettings withCapture(CaptureModel capture) {
+        Resolution reference = capture.reference() != null ? capture.reference() : referenceResolution;
         return new StudioProjectSettings(capture.targets(), capture.defaultIndex(), knownWindowTitles,
-                favoriteOverloads, referenceResolution, favoriteMethods, template, lastRecordedActivity,
+                favoriteOverloads, reference, favoriteMethods, template, lastRecordedActivity,
                 overlayState, workspaceLayout);
     }
 
@@ -424,7 +443,28 @@ public record StudioProjectSettings(@JsonIgnore List<CaptureTargetModel> capture
             if (target != null) targets.add(target);
         }
         JsonNode index = root.path("defaultTargetIndex");
-        return new CaptureModel(targets, index.isInt() ? index.intValue() : null);
+        return new CaptureModel(targets, index.isInt() ? index.intValue() : null, legacyReference(file));
+    }
+
+    /**
+     * The {@code referenceResolution} a pre-2026-08-31 {@code settings.json} carried, or {@code null}.
+     *
+     * <p>Read as a tree for the same reason the legacy targets are: the component is {@link JsonIgnore}d now,
+     * which is what stops a stale copy being written back beside the real one in {@code capture.json}. Unlike
+     * the targets this is read even when {@code capture.json} exists, because that file gained the resolution
+     * a day after it gained the targets — a project written in between has one file with the targets and the
+     * other with the size.
+     */
+    private static Resolution legacyReference(Path settingsFile) {
+        try {
+            if (!Files.exists(settingsFile)) return null;
+            JsonNode node = MAPPER.readTree(settingsFile.toFile()).path("referenceResolution");
+            int width = node.path("width").asInt(0);
+            int height = node.path("height").asInt(0);
+            return width > 0 && height > 0 ? new Resolution(width, height) : null;
+        } catch (Exception unreadable) {
+            return null;
+        }
     }
 
     /** One legacy {@code captureTargets} entry as a spec, or {@code null} when its {@code type} is unknown. */

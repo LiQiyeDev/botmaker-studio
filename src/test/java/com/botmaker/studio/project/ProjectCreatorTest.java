@@ -25,11 +25,15 @@ class ProjectCreatorTest {
     @Test
     void theChosenTemplateIsPersisted(@TempDir Path root) throws IOException {
         ProjectConfig config = ProjectConfig.forProject("MyBot", root);
-        ProjectCreator.seedSettings(config, new StudioProjectSettings.Resolution(1920, 1080),
+        ProjectCreator.seedSettings(config, new com.botmaker.sdk.authoring.CaptureModel.Resolution(1920, 1080),
                 ProjectTemplate.GAME_BOT);
 
-        assertEquals(ProjectTemplate.GAME_BOT,
-                StudioProjectSettings.read(config.resourcesRoot()).template());
+        StudioProjectSettings settings = StudioProjectSettings.read(config.resourcesRoot());
+        assertEquals(ProjectTemplate.GAME_BOT, settings.template());
+        // The resolution is read back out of capture.json, where it has lived since 2026-08-31 — settings.json
+        // no longer carries it, so a round trip that still answers is a round trip through the SDK's file.
+        assertEquals(new com.botmaker.sdk.authoring.CaptureModel.Resolution(1920, 1080),
+                settings.referenceResolution());
     }
 
     @Test

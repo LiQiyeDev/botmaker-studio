@@ -327,9 +327,10 @@ public final class ProgramShapeOverlay {
                     });
                     return;
                 }
-                StudioProjectSettings.Resolution ref = settings.current().referenceResolution();
+                com.botmaker.sdk.authoring.CaptureModel.Resolution ref = settings.current().referenceResolution();
                 if (ref == null) {
-                    ref = new StudioProjectSettings.Resolution(shot.bounds().width, shot.bounds().height);
+                    ref = new com.botmaker.sdk.authoring.CaptureModel.Resolution(
+                            shot.bounds().width, shot.bounds().height);
                     settings.update(settings.current().withReferenceResolution(ref));
                 }
                 // Never resize a private session's host window. gamescope is launched with its output size

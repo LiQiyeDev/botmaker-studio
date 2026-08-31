@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-31 — the capture resolution is the SDK's, and `StudioProjectSettings.Resolution` is deleted.**
+  Fifteenth step of *Studio knows only the contract*, and the second file to change owner after the capture
+  targets. `CaptureModel` gains a `reference` component in `capture.json`; `settings.json` keeps the
+  accessor and `@JsonIgnore`s it, exactly as it does for the targets. The maintainer's framing is the whole
+  argument — *the reference resolution is a property of the SDK, not of Studio*: it describes the pictures,
+  each of which carries it in its own sidecar, so the plugin that captures and matches them must be able to
+  read it. ~25 sites across ten files retype onto `CaptureModel.Resolution`. **The migration needed its own
+  read**, and that is the finding: the targets' rule is *once `capture.json` exists it is the answer*, which
+  would have discarded the size of every project written in the one-day window when that file held the
+  targets and `settings.json` still held the size — `legacyReference` is read regardless, and
+  `withCapture` prefers the new file only when it actually names one. 1182 Studio tests, 543 SDK tests,
+  green.
+
 - **2026-08-31 — naming a captured picture leaves, and a dead event goes with it.** Fourteenth step of
   *Studio knows only the contract*, and the first half of phase 3b slice 3 step 4. `TemplateNaming` and
   `TagPicker` are the SDK's now: `ui/app/capture/BatchTemplateNamingDialog` is **deleted**,

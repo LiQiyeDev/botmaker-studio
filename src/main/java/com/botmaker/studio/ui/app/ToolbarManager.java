@@ -508,7 +508,7 @@ public class ToolbarManager {
     private String resolutionText() {
         javafx.geometry.Rectangle2D sb = javafx.stage.Screen.getPrimary().getBounds();
         String screen = "🖵 " + (int) sb.getWidth() + "×" + (int) sb.getHeight();
-        com.botmaker.studio.project.StudioProjectSettings.Resolution ref = null;
+        com.botmaker.sdk.authoring.CaptureModel.Resolution ref = null;
         try {
             ref = (settings != null) ? settings.current().referenceResolution() : null;
         } catch (Exception ignored) {
