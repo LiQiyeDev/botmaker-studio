@@ -335,10 +335,9 @@ public class MenuBarManager {
         // and reaches the toolbar as a ToolbarItem; a plugin contributes no menu items, so this one goes
         // rather than being wired to something the host cannot call.
 
-        // Wired here rather than through a callback like its neighbours: the dialog holds no project state —
-        // it writes shared's saved-device list, which every picker and every generated bot reads for itself.
-        MenuItem connectPhoneItem = new MenuItem("Connect a phone…");
-        connectPhoneItem.setOnAction(e -> ConnectPhoneDialog.show(primaryStage));
+        // "Connect a phone…" stood here until 2026-08-31 and is the SDK plugin's now, reached from its
+        // emulator picker rather than from a menu. A plugin contributes no menu items — the same reason
+        // Project Setup's entry went — and pairing a device is only ever done on the way to choosing one.
 
         // Theme submenu
         Menu themeMenu = new Menu("Theme");
@@ -384,8 +383,6 @@ public class MenuBarManager {
                 resetZoomItem,
                 new SeparatorMenuItem(),
                 previewAsUserItem,
-                new SeparatorMenuItem(),
-                connectPhoneItem,
                 new SeparatorMenuItem(),
                 themeMenu
         );

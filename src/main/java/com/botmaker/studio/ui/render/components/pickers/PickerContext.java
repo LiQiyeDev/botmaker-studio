@@ -39,21 +39,10 @@ public record PickerContext(CodeEditorService context, ValueSlot arg, ResolvedTy
     // enclosingMethod / argIndex, which is the same three facts this record carries and is what the contract
     // exposes them for.
 
-    /** True when the enclosing call is on the SDK {@code Emulators} facade and names {@code method}. */
-    public boolean isEmulatorMethod(String method) {
-        return method.equals(methodName)
-                && className != null && (className.equals("Emulators") || className.endsWith(".Emulators"));
-    }
-
-    /**
-     * The instance-name argument (index 0) of {@code Emulators.use(name)} / {@code named(name)} /
-     * {@code launch(name)} / {@code stop(name)} — offered the discovered-instance dropdown
-     * ({@code EmulatorArgPicker}).
-     */
-    public boolean isEmulatorNameArg() {
-        return argIndex == 0 && (isEmulatorMethod("use") || isEmulatorMethod("named")
-                || isEmulatorMethod("launch") || isEmulatorMethod("stop"));
-    }
+    // isEmulatorNameArg and isEmulatorMethod went on 2026-08-31 with the picker they selected. The same four
+    // calls are matched by
+    // the SDK's CallSites.EMULATOR_NAME now, through the toolkit's own call-site matcher — which is where a
+    // predicate about somebody else's API belonged all along.
 
     // The Time facade has no entry here: every one of its arguments is a java.time type (LocalTime, DayOfWeek,
     // Month) and dispatches on that. It used to need an isTimeHourArg() hook for the bare hours of

@@ -5,7 +5,6 @@ import com.botmaker.sdk.api.capture.CaptureSource;
 import com.botmaker.sdk.api.capture.Window;
 import com.botmaker.sdk.api.launch.LaunchTarget;
 import com.botmaker.studio.ui.render.components.CaptureSourcePicker;
-import com.botmaker.studio.ui.render.components.EmulatorArgPicker;
 import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
 import com.botmaker.studio.ui.render.components.LaunchTargetArgPicker;
 import javafx.scene.Node;
@@ -38,12 +37,11 @@ public final class PickerRegistry {
             // literal — the Steam picker on Activities.APP_ID, the enum dropdown on Activities.DIRECTION.
             VariablePicker.asSpecialType(),
 
-            // The emulator instance name of Emulators.use / named / launch / stop. The last call-site-matched
-            // picker Studio still owns, and it is here rather than in the SDK — where every other one went in
-            // phase 12c — for one reason: it opens EmulatorPickerDialog, which reaches Studio's own emulator
-            // probe, app cache and phone-pairing dialog. It moves when those do.
-            SpecialTypePicker.of(PickerContext::isEmulatorNameArg,
-                    ctx -> EmulatorArgPicker.create(ctx.context(), ctx.arg())),
+            // The emulator instance name was the last call-site-matched picker Studio owned, kept here on
+            // 2026-08-28 because the dialog behind it reached Studio's own emulator probe, app cache and
+            // phone-pairing dialog. All three moved on 2026-08-31, so it is the SDK's
+            // (internal.plugin.emulator.EmulatorEditors) and reaches this merge through PluginPickers like
+            // every other. Nothing about it ever needed the host: botmaker-shared is published.
 
             // The Steam/Epic launch id, the program path, the trailing launch options and the bounded
             // BotSettings setters were all here until 2026-08-28. They are the SDK's now
