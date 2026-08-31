@@ -7,12 +7,9 @@ import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.ImageTemplateLibrary;
-import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.services.TemplateReferences;
 import com.botmaker.studio.sharing.TemplateArchive;
-import com.botmaker.studio.ui.app.capture.OverlayTemplateCapture;
-import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
 import com.botmaker.studio.ui.render.components.TagPicklist;
 import com.botmaker.studio.ui.render.components.TemplateGallery;
 import com.botmaker.studio.ui.render.components.TemplateGalleryDialog;
@@ -49,7 +46,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -82,7 +78,6 @@ public class ResourceManagerDialog {
     private final ProjectConfig config;
     private final EventBus eventBus;
     private final ScreenCaptureService capture;
-    private final ProjectSettingsService settings;
     private final CodeEditorService editor;
 
     private TemplateGallery gallery;
@@ -110,13 +105,11 @@ public class ResourceManagerDialog {
     private Map<String, List<String>> duplicates = Map.of();
 
     public ResourceManagerDialog(Window owner, ProjectConfig config, EventBus eventBus,
-                                 ScreenCaptureService capture, ProjectSettingsService settings,
-                                 CodeEditorService editor) {
+                                 ScreenCaptureService capture, CodeEditorService editor) {
         this.owner = owner;
         this.config = config;
         this.eventBus = eventBus;
         this.capture = capture;
-        this.settings = settings;
         this.editor = editor;
     }
 
@@ -149,9 +142,6 @@ public class ResourceManagerDialog {
         HBox.setHgrow(gallery, Priority.ALWAYS);
         VBox.setVgrow(content, Priority.ALWAYS);
 
-        Button captureBtn = new Button("Capture new...");
-        captureBtn.setTooltip(new Tooltip("Opens the capture overlay — capture one, or a batch in a row"));
-        captureBtn.setOnAction(e -> captureNew());
         addToTagButton.setOnAction(e -> addTemplatesToCurrentTag());
         removeFromTagButton.setOnAction(e -> removeCurrentTagFromSelection());
         Button manageTagsBtn = new Button("Manage tags...");
@@ -166,7 +156,7 @@ public class ResourceManagerDialog {
 
         HBox spacer = new HBox();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox buttons = new HBox(8, captureBtn, addToTagButton, removeFromTagButton, manageTagsBtn,
+        HBox buttons = new HBox(8, addToTagButton, removeFromTagButton, manageTagsBtn,
                 deleteButton, exportBtn, importBtn, spacer, close);
         buttons.setAlignment(Pos.CENTER_LEFT);
 
@@ -482,23 +472,12 @@ public class ResourceManagerDialog {
     // Capture, replace
     // -------------------------------------------------------------------------
 
-    /**
-     * Opens the same capture overlay the toolbar's "Capture Templates" opens — capture one, capture many, or
-     * capture an object — rather than the single-shot region crop this button used to run. Two flows for the
-     * same act was the whole complaint: only one of them could take a batch, and it wasn't the one behind the
-     * button named "Capture new".
-     *
-     * <p>The manager hides itself first. It is application-modal, so the overlay's toolbar would take no
-     * clicks at all with this window still up; it comes back through the overlay's {@code onClosed}.
-     */
-    private void captureNew() {
-        stage.hide();
-        OverlayTemplateCapture.open(owner, config, settings, capture, gallery.selectedRealTag(),
-                () -> Platform.runLater(() -> {
-                    stage.show();
-                    reload();
-                }));
-    }
+    // "Capture new..." stood here until 2026-08-31. This dialog cannot move — its rename and delete guards
+    // run through TemplateReferences, which reads the editor's open buffers and writes @NeedsReview, both
+    // host work by construction — but the tool it opened did, to the SDK plugin's ✂ Capture Templates
+    // toolbar item, and a dialog has no handle on another plugin's item. So the button goes and the toolbar
+    // is the one way in. What stays is everything about pictures that already exist, including the
+    // per-picture "Capture a new picture…", which is a region crop this window runs itself.
 
     /** Recaptures a template's picture from the screen, keeping everything else about it. */
     private void replaceByCapture(Path file) {

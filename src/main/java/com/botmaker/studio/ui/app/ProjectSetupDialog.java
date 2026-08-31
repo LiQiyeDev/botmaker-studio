@@ -47,7 +47,6 @@ public final class ProjectSetupDialog {
     private final ProjectAnalyzer analyzer;
     private final EventBus eventBus;
     /** Opens the live overlay template capture (owned by {@link UIManager}, which knows the capture service). */
-    private final Runnable onCaptureTemplates;
     /**
      * Where a launch target picked in <em>this</em> dialog is announced — {@code ToolbarManager::setLaunchTarget},
      * the only path that re-labels the toolbar button and resolves its cover art. Without it the checklist row
@@ -67,14 +66,13 @@ public final class ProjectSetupDialog {
     private Label launchStatus;
 
     public ProjectSetupDialog(Stage owner, ProjectConfig config, ProjectSettingsService settings,
-                              ProjectAnalyzer analyzer, EventBus eventBus, Runnable onCaptureTemplates,
+                              ProjectAnalyzer analyzer, EventBus eventBus,
                               Consumer<String> onLaunchTargetChanged) {
         this.owner = owner;
         this.config = config;
         this.settings = settings;
         this.analyzer = analyzer;
         this.eventBus = eventBus;
-        this.onCaptureTemplates = onCaptureTemplates;
         this.onLaunchTargetChanged = onLaunchTargetChanged;
     }
 
@@ -157,11 +155,15 @@ public final class ProjectSetupDialog {
                                 ? s.referenceResolution().width() + "×" + s.referenceResolution().height()
                                 : "Not set — the size templates are captured at (often set on first capture).",
                         "Set…", () -> new ProjectSettingsDialog(owner, settings, analyzer).show()),
+                // No button on this row since 2026-08-31: capturing is the SDK plugin's ✂ Capture Templates
+                // toolbar item, and this dialog has no handle on another plugin's item. The row still counts
+                // the pictures, which is the half of it a checklist is for; it says where to go instead.
                 row(templateCount > 0, true, "Image templates (optional)",
                         templateCount == 0
-                                ? "None yet — only needed for image-matching bots (skip for pixel/OCR/coords)."
+                                ? "None yet — only needed for image-matching bots (skip for pixel/OCR/coords). "
+                                        + "Capture them with ✂ Capture Templates on the toolbar."
                                 : templateCount + (templateCount == 1 ? " template saved." : " templates saved."),
-                        "Capture…", onCaptureTemplates));
+                        null, null));
     }
 
     /**
@@ -231,13 +233,16 @@ public final class ProjectSetupDialog {
         VBox text = new VBox(2, name, sub);
         HBox.setHgrow(text, Priority.ALWAYS);
 
-        Button btn = new Button(btnText);
-        btn.setMinWidth(84);
-        btn.setOnAction(e -> { if (action != null) action.run(); });
-
         HBox row = new HBox(10, glyph, text);
         if (extra != null) row.getChildren().add(extra);
-        row.getChildren().add(btn);
+        // A null label is a row with nothing to press — a step whose destination this dialog cannot open,
+        // which is what a step owned by a plugin's toolbar item is. Its detail text says where to go.
+        if (btnText != null) {
+            Button btn = new Button(btnText);
+            btn.setMinWidth(84);
+            btn.setOnAction(e -> { if (action != null) action.run(); });
+            row.getChildren().add(btn);
+        }
         row.setAlignment(Pos.CENTER_LEFT);
         return row;
     }

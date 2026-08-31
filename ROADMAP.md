@@ -6,6 +6,21 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-31 — Capture Templates is a plugin's toolbar item, and four host entry points go with it.**
+  Sixteenth step of *Studio knows only the contract*, and the second whole feature to leave through the
+  toolbar surface after the Remote Pilot. `ui/app/capture/OverlayTemplateCapture` is **deleted**; the tool is
+  the SDK plugin's `CaptureTemplates`, merged into `ToolbarGroup.TOOLS` at the order Studio's own ✂ Templates
+  item held, so the bar reads unchanged. Gone from here: that item and `setOnCaptureTemplates`,
+  `StudioActions.openOverlayTemplateCapture`, `ProjectSetupDialog`'s **Capture…** button,
+  `GettingStartedDialog`'s **Open Capture Templates ▸**, and `ResourceManagerDialog`'s **Capture new...** —
+  the last being the consequence accepted when this was planned, since that dialog cannot move and *the
+  shell has no handle on another plugin's toolbar item*. Both checklist steps now read without a button and
+  say where to go, which is what the Remote Pilot's step already did. `OverlayToolbars.show` is deleted and
+  `installDrag` delegates to `OverlayStage`. **Nothing was added to `StudioServices`.** **What it cost is one
+  default**: Studio passed the open activity's tag so a picture captured while an activity was open was filed
+  under it, and *which file the editor has open* is host state with no contract member — the tag menu is
+  still on the naming dialog. 1182 Studio tests, 543 SDK tests, green.
+
 - **2026-08-31 — the capture resolution is the SDK's, and `StudioProjectSettings.Resolution` is deleted.**
   Fifteenth step of *Studio knows only the contract*, and the second file to change owner after the capture
   targets. `CaptureModel` gains a `reference` component in `capture.json`; `settings.json` keeps the

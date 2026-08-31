@@ -79,7 +79,7 @@ An overlay opens over your game so you can draw a rectangle or an ellipse, or cu
 
 Templates are organised by tag, not by folder — a template used by two activities carries both tags instead of being copied. Tags render as folders in the pickers and in the Resource Manager, where you can also rename, re-tag or delete a template, and export a set as a .bmtemplates file to import into another project.
 
-*In Studio:* ✂ Templates on the toolbar
+*In Studio:* ✂ Capture Templates on the toolbar (contributed by the BotMaker SDK)
 
 ## 5. Manage your resources
 

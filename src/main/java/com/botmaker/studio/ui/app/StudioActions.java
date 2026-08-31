@@ -11,7 +11,6 @@ import com.botmaker.studio.project.StudioContext;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.JitPackSearch;
-import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.LibraryService;
 import com.botmaker.studio.services.MavenCentralSearch;
 import com.botmaker.studio.services.ProjectSettingsService;
@@ -26,7 +25,6 @@ import com.botmaker.studio.sharing.GitHubGallery;
 import com.botmaker.studio.sharing.PluginRegistry;
 import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
-import com.botmaker.studio.ui.app.capture.OverlayTemplateCapture;
 import com.botmaker.studio.ui.app.dev.PickerGalleryWindow;
 import com.botmaker.studio.ui.app.overlay.ProgramShapeOverlay;
 import com.botmaker.studio.ui.app.params.ParametersDialog;
@@ -134,7 +132,9 @@ final class StudioActions {
         toolbar.setOnManageLaunchTarget(() -> openLaunchTarget(null));
         toolbar.setOnToggleDebugOutput(ProjectCreator.readDebug(config.resourcesRoot()), this::writeDebug);
         toolbar.setOnConfigureInput(() -> new BotSettingsDialog(primaryStage, config, null).show());
-        toolbar.setOnCaptureTemplates(this::openOverlayTemplateCapture);
+        // ✂ Capture Templates stood here until 2026-08-31 and is the SDK plugin's item now, placed by the
+        // same merge as the pilot's. Everything behind it — the capture target, the size to snap to, the
+        // picture folder it writes into — is that plugin's, so there is nothing left for the shell to wire.
         toolbar.setOnOverlayEditor(() -> openOverlayEditor(false));
         toolbar.setOnRecordMacro(() -> openOverlayEditor(true));
 
@@ -161,17 +161,16 @@ final class StudioActions {
 
     /**
      * Opens the Project Setup checklist hub — also the auto-open-on-creation target (reached from
-     * {@code BotMakerStudio.finishOpen} through the shell). Reuses the overlay template capture for its
-     * optional "Image templates" step.
+     * {@code BotMakerStudio.finishOpen} through the shell).
      */
     void openProjectSetup() {
         new ProjectSetupDialog(primaryStage, config, projectSettingsService, projectAnalyzer, eventBus,
-                this::openOverlayTemplateCapture, toolbar::setLaunchTarget).show();
+                toolbar::setLaunchTarget).show();
     }
 
     /** Opens the Resource Manager. Reused by the Project menu, the toolbar and the block image-picker. */
     void openResourceManager() {
-        new ResourceManagerDialog(primaryStage, config, eventBus, screenCaptureService, projectSettingsService,
+        new ResourceManagerDialog(primaryStage, config, eventBus, screenCaptureService,
                 codeEditorService).show();
     }
 
@@ -304,12 +303,6 @@ final class StudioActions {
         }
     }
 
-    /** Opens the live overlay template-capture over the project's default window target. */
-    private void openOverlayTemplateCapture() {
-        OverlayTemplateCapture.open(primaryStage, config, projectSettingsService, screenCaptureService,
-                ImageTemplateLibrary.openActivityTag(config, codeEditorService.getState()));
-    }
-
     /**
      * Opens the program-shape overlay authoring editor (compact clickable block tree + insertion cursor).
      *
@@ -345,7 +338,9 @@ final class StudioActions {
                 .on(StudioAction.PROJECT_SETUP, this::openProjectSetup)
                 .on(StudioAction.CAPTURE_TARGETS, this::openManageCaptureTargets)
                 .on(StudioAction.LAUNCH_TARGET, () -> openLaunchTarget(null))
-                .on(StudioAction.CAPTURE_TEMPLATES, this::openOverlayTemplateCapture)
+                // No CAPTURE_TEMPLATES entry: the tool is the SDK plugin's toolbar item since 2026-08-31 and
+                // the shell has no handle on it. The step still reads, without an Open button — the action's
+                // own text already says where it lives, which is what that field is for.
                 .on(StudioAction.RESOURCES, this::openResourceManager)
                 .on(StudioAction.ACTIVITY_FLOW, this::openActivityFlow)
                 .on(StudioAction.PARAMETERS, this::openParameters)

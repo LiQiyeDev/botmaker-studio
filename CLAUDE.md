@@ -162,6 +162,30 @@ pickers do not have, which is the bug the move exists to prevent.
   re-reads the library when it opens its gallery, which is why nobody noticed in the event's whole life. The
   four publish sites went with it, and `ResourceManagerDialog.published()` now only clears its status line.
 
+**Capture Templates left, and it is the second whole feature to leave through the toolbar surface
+(2026-08-31).** `ui/app/capture/OverlayTemplateCapture` is **deleted**; the tool is
+`com.botmaker.sdk.internal.plugin.capture.CaptureTemplates`, contributed as a `ToolbarItem` into
+`ToolbarGroup.TOOLS` at order 20 — the slot Studio's own ✂ Templates item vacated, so the bar reads the same.
+
+- **Four host entry points went, and each for a different reason.** `ToolbarManager`'s ✂ Templates item and
+  `setOnCaptureTemplates` (the plugin's item takes the slot); `StudioActions.openOverlayTemplateCapture`;
+  `ProjectSetupDialog`'s **Capture…** button and `GettingStartedDialog`'s **Open Capture Templates ▸** —
+  *the shell has no handle on another plugin's toolbar item*, so both steps now read without a button and
+  say where to go instead, exactly as the Remote Pilot's step already did. `ProjectSetupDialog.row` grew a
+  null-label arm for it.
+- **`ResourceManagerDialog`'s "Capture new..." went with them**, the accepted consequence recorded when this
+  was planned: the dialog itself cannot move — its rename and delete guards run through
+  `TemplateReferences`, which reads the editor's open buffers and writes `@NeedsReview`, both host work by
+  construction — so the toolbar is the one way in. Its per-picture **Capture a new picture…** stays: that is
+  a region crop this window runs itself, over a picture that already exists.
+- **`OverlayToolbars.show` is deleted and `installDrag` delegates.** The mini-toolbar factory is
+  `OverlayStage.bar` now; its only caller was the tool that left, and the `ProgramShapeOverlay` HUD builds
+  its own stage and only ever wanted the drag.
+- **What it cost: the suggested tag.** Studio passed the open activity's tag so a picture captured while an
+  activity was open was filed under it. *Which file the editor has open* is host state, there is no contract
+  member for it, and adding one is what the stop condition refuses. The tag menu is still on the naming
+  dialog — a default was lost, not a capability.
+
 **The naming step and the tag menu are the SDK's, and `TagPicklist` is the façade (2026-08-31).**
 `com.botmaker.sdk.internal.plugin.capture.{TemplateNaming, TagPicker}`. Studio's
 `ui/app/capture/BatchTemplateNamingDialog` is **deleted** and `ImageTemplatePicker.promptNewTemplate` is a

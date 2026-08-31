@@ -20,7 +20,8 @@ public enum StudioAction {
     PROJECT_SETUP("Open Project Setup ▸", "Project ▸ Project Setup… (or 🧭 Setup on the toolbar)"),
     CAPTURE_TARGETS("Open Capture Targets ▸", "🎯 Capture Targets on the toolbar — it shows the current one"),
     LAUNCH_TARGET("Open Launch Target ▸", "🚀 on the toolbar — it shows the current target"),
-    CAPTURE_TEMPLATES("Open Capture Templates ▸", "✂ Templates on the toolbar"),
+    CAPTURE_TEMPLATES("Open Capture Templates ▸", "✂ Capture Templates on the toolbar (contributed by the "
+            + "BotMaker SDK)"),
     RESOURCES("Open Resource Manager ▸", "Project ▸ Resource Manager… (or 🗂 Resources on the toolbar)"),
     ACTIVITY_FLOW("Open Activity Flow ▸", "Project ▸ Activity Flow… (or 🔀 Flow on the toolbar)"),
     PARAMETERS("Open Parameters ▸", "Project ▸ Parameters… (or 🎚 Parameters on the toolbar)"),

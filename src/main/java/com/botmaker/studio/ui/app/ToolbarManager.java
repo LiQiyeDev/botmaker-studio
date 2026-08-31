@@ -102,8 +102,6 @@ public class ToolbarManager {
     private boolean debugOutputInitial = true;
     /** Opens the Input &amp; Clicks dialog over the project's settings; wired by {@link UIManager}. */
     private Runnable onConfigureInput;
-    /** Opens the live overlay template-capture over the default window; wired by {@link UIManager}. */
-    private Runnable onCaptureTemplates;
     /** Opens the program-shape overlay authoring editor; wired by {@link UIManager}. */
     private Runnable onOverlayEditor;
     /** Opens the overlay editor already recording; wired by {@link UIManager}. */
@@ -220,11 +218,6 @@ public class ToolbarManager {
      */
     public void setOnConfigureInput(Runnable callback) {
         this.onConfigureInput = callback;
-    }
-
-    /** Sets the callback invoked when the toolbar's Capture Templates button is clicked. */
-    public void setOnCaptureTemplates(Runnable callback) {
-        this.onCaptureTemplates = callback;
     }
 
     /** Sets the callback invoked when the toolbar's Overlay Editor button is clicked. */
@@ -374,9 +367,10 @@ public class ToolbarManager {
         // how a bot clicks belongs to whoever owns the clicking.
         placed.add(new Placed(ToolbarGroup.TOOLS, 10, "input", inputConfigButton, null));
 
-        place(placed, ctx, ToolbarItem.of("templates", "✂ Templates",
-                "Cut and manage the template images the bot matches against",
-                ToolbarGroup.TOOLS, 20, c -> run(onCaptureTemplates)));
+        // ✂ Templates stood here at TOOLS/20 until 2026-08-31 and is the SDK plugin's ✂ Capture Templates
+        // now, merged into this same slot. It is the second whole feature to leave through this surface, and
+        // the clearest case for it: the host owns the bar, the plugin owns the capture target it reads, the
+        // pixels it grabs and the picture folder it writes.
 
         place(placed, ctx, ToolbarItem.of("overlay", "⧉ Overlay",
                 "Build the bot over the running game: a compact block tree on top of the target window",
