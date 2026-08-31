@@ -60,8 +60,12 @@ public final class PickerRegistry {
             // below. Deleting this entry and the PRECISION arm of ValueEditors is what lets one editor draw
             // it in both places — the Parameters window used to show the same three numbers as bare fields,
             // with none of the swatch strip, the blob preview or the frame readout.
-            SpecialTypePicker.of(ctx -> ImageTemplatePicker.isImageTemplateType(ctx.paramType()),
-                    ctx -> ImageTemplatePicker.create(ctx.context(), ctx.arg())),
+            // A single ImageTemplate has no entry here any more, for the same reason: a named picture is
+            // ImageTemplate's own concept, so its editor is the SDK's
+            // (com.botmaker.sdk.internal.plugin.editors.TemplateEditors), reached through PluginPickers
+            // below. Deleting this entry and the IMAGE_TEMPLATE arm of ValueEditors is what lets one editor
+            // draw it in both places. ImageTemplateGroup keeps its entry for now: its chip row spans a run
+            // of arguments rather than one slot, and moves once it is written against SlotRun.
             ImageTemplateGroupPicker.asSpecialType(),
             // CaptureSource is an SDK interface — never a `new` ctor; always the visual chooser popup.
             SpecialTypePicker.of(ctx -> ctx.isType(CaptureSource.class) || ctx.isType(Window.class),

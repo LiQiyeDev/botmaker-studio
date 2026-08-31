@@ -114,16 +114,23 @@ Three things are worth knowing before touching any of it.
   and the legacy `settings.json` reader is deliberately a **tree walk** rather than a resurrected record set
   — four lines mapping an old node to a spec, so no second vocabulary survives to serve one file format.
 
-**Two of Studio's value editors are the SDK plugin's now, and deleting *both* dispatch arms is what let them
-be (2026-08-30).** A `java.awt.Color` and an `api.vision.Precision` are drawn by
-`com.botmaker.sdk.internal.plugin.editors.{ColorEditors, PrecisionEditors}`; gone from here are
-`ui/render/components/{ColorArgPicker, PrecisionArgPicker}`, `ui/app/capture/{ColorSampler, ZoomPan,
-GameFrame}` and `ValueEditors`' `ColorRow` and `PrecisionRow`.
+**Three of Studio's value editors are the SDK plugin's now, and deleting *every* dispatch arm is what let them
+be (2026-08-30/31).** A `java.awt.Color`, an `api.vision.Precision` and an `api.vision.ImageTemplate` are drawn
+by `com.botmaker.sdk.internal.plugin.editors.{ColorEditors, PrecisionEditors, TemplateEditors}`; gone from
+here are `ui/render/components/{ColorArgPicker, PrecisionArgPicker}`, `ui/app/capture/{ColorSampler, ZoomPan,
+GameFrame}` and `ValueEditors`' `ColorRow`, `PrecisionRow` and `TemplateChip`.
 
 - **A type the host answers is a type no plugin is ever offered**, and there are two places the host answers
   one: a `PickerRegistry` entry for a slot on the canvas, and a `case` in `ValueEditors` for a row in the
   Parameters window. Removing one leaves the plugin shut out of half the app, so each move removes both.
   `DurationEditor` is the precedent, and the standing comments at both sites say so.
+- **There is a third, and `ImageTemplate` is what found it (2026-08-31): `ValueEditors.optionGraphic`**, the
+  tile drawn beside a *declared choice* in the Parameters window. It is not an editor — the value is being
+  listed, not edited — so no `SlotEditor` could reach it, and a plugin's type listed as raw text puts the
+  decoding back on the person the choices exist for. The contract's `SlotEditor.preview` is the hook, and
+  `previewFromPlugin` is this side of it: it reuses the editor's own `matches`, and its `default null` means
+  every type that does not implement it lists exactly as it did before. **The rule to apply when the next
+  editor moves is that this window shows a value in three places, not two.**
 - **The gain is not tidiness, it is that the two halves stop disagreeing.** Studio sampled a colour off a
   frozen frame on a block and off the live screen in a row — same value, two answers, and only one could
   report the patch's ΔE spread. It drew a `Precision` as a dialog explaining each number on a block and as

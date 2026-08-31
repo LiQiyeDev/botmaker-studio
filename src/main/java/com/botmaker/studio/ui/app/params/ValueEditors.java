@@ -9,10 +9,7 @@ import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.activity.Bounds;
 import com.botmaker.studio.project.activity.ValueWire;
-import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.ScreenCaptureService;
-import com.botmaker.studio.ui.render.components.TemplateGallery;
-import com.botmaker.studio.ui.render.components.TemplateGalleryDialog;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -35,19 +32,15 @@ import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
 import javafx.scene.control.Tooltip;
 import javafx.scene.image.Image;
-import javafx.scene.image.ImageView;
 import javafx.scene.layout.Background;
 import javafx.scene.layout.BackgroundFill;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
-import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.stage.Window;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
@@ -170,10 +163,10 @@ public final class ValueEditors {
                 yield new Editor(diagram, diagram::wire);
             }
             case "KEY" -> keySearch(ValueWire.fixedOptions(type), value);
-            case "IMAGE_TEMPLATE" -> {
-                TemplateChip chip = new TemplateChip(value, ctx.project());
-                yield new Editor(chip, chip::wire);
-            }
+            // IMAGE_TEMPLATE has no arm here any more, on the same reasoning as COLOR and PRECISION above: a
+            // named picture is ImageTemplate's concept, so its editor is the SDK's, and it arrives through
+            // fromPlugin below. The chip this replaced opened a different dialog from the one a block's slot
+            // opened, with its own idea of what a deleted picture looks like.
             case "POINT" -> {
                 GeometryRow row = new GeometryRow(value, GeometryRow.Kind.POINT, ctx.project());
                 yield new Editor(row, row::wire);
@@ -251,6 +244,35 @@ public final class ValueEditors {
         return null;
     }
 
+    /**
+     * The picture a plugin draws beside one declared choice of its own type, or {@code null}.
+     *
+     * <p>The third place this window shows a value, and the last one the host answered for a plugin's type.
+     * {@link SlotEditor#preview} is asked with a context that is deliberately inert — {@code set} goes
+     * nowhere, because a declared choice is a value being <em>listed</em>, not one being edited — and its
+     * default is {@code null}, so a type whose editor does not implement it lists as plain text exactly as
+     * before.
+     */
+    private static Node previewFromPlugin(ValueType type, String wire, Context ctx) {
+        List<SlotEditor> editors = PluginHost.slotEditors();
+        if (editors.isEmpty()) return null;
+        HostValueContext context = HostValueContext.of(type, List.of(wire == null ? "" : wire),
+                HostServices.forProject(ctx.project()), null);
+        for (SlotEditor editor : editors) {
+            try {
+                if (!editor.matches(context)) continue;
+                Node node = editor.preview(context);
+                if (node != null) return node;
+            } catch (RuntimeException | LinkageError e) {
+                // Same rule as fromPlugin: a plugin's node is third-party code drawn inside our dialog, and
+                // one that throws costs this option its picture, never the window.
+                System.err.println("Plugin preview failed for type " + (type == null ? "?" : type.id())
+                                   + ": " + e);
+            }
+        }
+        return null;
+    }
+
     // --- one declared option --------------------------------------------------------------------------------
 
     /**
@@ -267,12 +289,10 @@ public final class ValueEditors {
         String value = wire == null ? "" : wire.trim();
         if (value.isEmpty()) return null;
         return switch (type == null ? "" : type.id()) {
-            case "IMAGE_TEMPLATE" -> {
-                Path file = templateFile(ctx.project(), value);
-                // A name that no longer resolves keeps the plain label: "this template was deleted" is the
-                // honest reading, and it is the same one TemplateChip gives.
-                yield file == null ? null : TemplateGallery.plainTile(file, 48);
-            }
+            // IMAGE_TEMPLATE has no arm here either. It was the third and last place the host answered for
+            // this type, and the one the contract had no hook for — SlotEditor.preview is that hook, and the
+            // SDK's TemplateEditors draws the tile now. A name that no longer resolves still keeps the plain
+            // label, because the plugin's preview answers null for it, exactly as this arm did.
             case "COLOR" -> {
                 Region swatch = new Region();
                 swatch.setPrefSize(14, 14);
@@ -293,27 +313,16 @@ public final class ValueEditors {
                         .findFirst().orElse(null);
                 yield arrow == null ? null : new Label(arrow);
             }
-            default -> null;
+            // Every type the host does not answer itself, which since IMAGE_TEMPLATE left is every plugin's.
+            default -> previewFromPlugin(type, value, ctx);
         };
     }
 
-    /**
-     * The file behind a template name, or null when the project has no such template any more.
-     *
-     * <p>Through {@link ImageTemplateLibrary#fileForName}, which is where the images directory lives. It used
-     * to go through {@code pathForName} — the <em>project-relative</em> string that gets stored — and hand
-     * that to {@code Path.of}, so the lookup resolved against Studio's working directory, found nothing, and
-     * every template drew as a bare name with no picture beside it.
-     */
-    private static Path templateFile(ProjectConfig project, String name) {
-        if (project == null || name.isBlank()) return null;
-        try {
-            Path file = ImageTemplateLibrary.fileForName(project, name);
-            return Files.isRegularFile(file) ? file : null;
-        } catch (RuntimeException e) {
-            return null;
-        }
-    }
+    // templateFile went with TemplateChip and the IMAGE_TEMPLATE arms. One thing it knew is worth carrying,
+    // because it was a real bug once: the lookup has to go through the images directory, not through the
+    // project-relative string that gets *stored*. Handing that string to Path.of resolves it against
+    // Studio's own working directory, finds nothing, and draws every template as a bare name with no
+    // picture. The SDK's TemplateEditors resolves through TemplateLibrary.fileForName for the same reason.
 
     // --- numbers --------------------------------------------------------------------------------------------
 
@@ -743,79 +752,13 @@ public final class ValueEditors {
         }
     }
 
-    // --- image template -------------------------------------------------------------------------------------
-
-    /**
-     * An image template as its picture and its name, opening the same gallery a template slot in the block
-     * editor opens.
-     *
-     * <p>The thumbnail is the whole reason this is not a dropdown. A template's name is something the person
-     * who imported it chose, often in a hurry and often for a batch of twenty; the picture is what says
-     * whether this is the right one, and having to open the gallery to find out is the check nobody performs.
-     */
-    private static final class TemplateChip extends HBox {
-
-        private static final double THUMB = 34;
-
-        private final Button button = new Button();
-        private final ImageView thumb = new ImageView();
-        private final ProjectConfig project;
-        private String name;
-
-        TemplateChip(String initial, ProjectConfig project) {
-            super(6);
-            setAlignment(Pos.CENTER_LEFT);
-            this.project = project;
-            this.name = initial == null ? "" : initial.trim();
-
-            thumb.setFitWidth(THUMB);
-            thumb.setFitHeight(THUMB);
-            thumb.setPreserveRatio(true);
-            button.setMaxWidth(Double.MAX_VALUE);
-            HBox.setHgrow(button, Priority.ALWAYS);
-            button.setOnAction(e -> pick());
-
-            Button clear = new Button("✕");
-            clear.getStyleClass().add("row-icon-button");
-            clear.setOnAction(e -> {
-                name = "";
-                refresh();
-            });
-            getChildren().addAll(thumb, button, clear);
-            refresh();
-        }
-
-        String wire() {
-            return name;
-        }
-
-        private void pick() {
-            if (project == null) return;
-            TemplateGalleryDialog.open(window(this), project,
-                    TemplateGalleryDialog.Options.pickOne("Choose an image"), chosen -> {
-                        if (chosen == null || chosen.isEmpty()) return;
-                        name = ImageTemplateLibrary.baseName(chosen.getFirst());
-                        refresh();
-                    });
-        }
-
-        private void refresh() {
-            button.setText(name.isBlank() ? "Choose an image…" : name);
-            thumb.setImage(preview());
-            thumb.setVisible(thumb.getImage() != null);
-            thumb.setManaged(thumb.getImage() != null);
-        }
-
-        /**
-         * The template's picture, or nothing at all — a name that no longer resolves shows as a name with no
-         * thumbnail, which is the honest reading of "this template was deleted".
-         */
-        private Image preview() {
-            Path file = templateFile(project, name);
-            if (file == null) return null;
-            return new Image(file.toUri().toString(), THUMB * 2, THUMB * 2, true, true);
-        }
-    }
+    // --- image template: gone, and worth saying where -----------------------------------------------------
+    //
+    // TemplateChip drew a picture and a name here while a block's slot drew its own, through a different
+    // dialog. Both are the SDK's TemplateEditors now, and the argument the chip was built on survives intact
+    // in it: the thumbnail is the whole reason this is not a dropdown, because a template's name is something
+    // the person who imported it chose, often in a hurry and often for a batch of twenty, and the picture is
+    // what says whether this is the right one.
 
     // --- small helpers --------------------------------------------------------------------------------------
 

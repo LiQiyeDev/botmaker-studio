@@ -6,6 +6,19 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-31 — the picture editor is the SDK's, and the Parameters window turns out to have three dispatch
+  sites.** Twelfth step of *Studio knows only the contract*, phase 3b slice 3 step 3, for the single
+  `ImageTemplate`. Gone from here: the `PickerRegistry` entry, `ValueEditors`' `IMAGE_TEMPLATE` case with its
+  `TemplateChip` and the orphaned `templateFile`, and — the new one — `optionGraphic`'s `IMAGE_TEMPLATE` arm.
+  What replaces all three is `com.botmaker.sdk.internal.plugin.editors.TemplateEditors`, drawn in both places
+  a picture is edited and in the one place it is merely shown. **That third site is the finding worth
+  carrying**: the tile beside a declared choice is not an editor, so no `SlotEditor` could reach it, and it
+  is what forced the contract's `SlotEditor.preview` yesterday; `previewFromPlugin` is Studio's side of it,
+  reusing each editor's own `matches` and defaulting to today's behaviour for every type that does not
+  implement it. `ImageTemplateGroup` deliberately did **not** move: its chip row spans a run of arguments
+  rather than one slot, which is what `SlotRun` exists for, and it needs `HostSlotContext.run()` at the three
+  places Studio composes such a row. 1180 Studio tests, 542 SDK tests, green.
+
 - **2026-08-30 — the capture surfaces are the SDK's, and the overlay is its feature.** Eleventh step of
   *Studio knows only the contract*, phase 3b slice 3. Gone from here:
   `ui/app/capture/{CaptureSurface, ObjectCaptureSurface, MagicWand}` and the body of
