@@ -4,7 +4,7 @@ import com.botmaker.sdk.authoring.Authoring;
 import com.botmaker.sdk.authoring.AuthoringUnsupported;
 import com.botmaker.sdk.authoring.CaptureModel;
 import com.botmaker.sdk.authoring.ProjectSpec;
-import com.botmaker.sdk.authoring.SdkVersion;
+import com.botmaker.plugin.api.authoring.SdkVersion;
 import com.botmaker.sdk.api.geometry.Size;
 import com.botmaker.studio.services.MavenService;
 

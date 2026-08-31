@@ -3,7 +3,7 @@ package com.botmaker.studio.services;
 import com.botmaker.sdk.authoring.TagCatalog;
 import com.botmaker.sdk.authoring.TemplateLibrary;
 import com.botmaker.sdk.authoring.TemplateManifest;
-import com.botmaker.sdk.authoring.TemplateNames;
+import com.botmaker.studio.authoring.TemplateNames;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
 

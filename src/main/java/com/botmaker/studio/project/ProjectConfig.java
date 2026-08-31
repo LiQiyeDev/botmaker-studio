@@ -1,6 +1,6 @@
 package com.botmaker.studio.project;
 
-import com.botmaker.sdk.authoring.TemplateNames;
+import com.botmaker.studio.authoring.TemplateNames;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
