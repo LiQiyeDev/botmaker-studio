@@ -6,6 +6,20 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-31 — naming a captured picture leaves, and a dead event goes with it.** Fourteenth step of
+  *Studio knows only the contract*, and the first half of phase 3b slice 3 step 4. `TemplateNaming` and
+  `TagPicker` are the SDK's now: `ui/app/capture/BatchTemplateNamingDialog` is **deleted**,
+  `ImageTemplatePicker.promptNewTemplate` is a one-line delegation, and `TagPicklist` is a two-line subclass
+  of `TagPicker`, kept because the tag manager, the parameters screen and the resource manager are host work
+  that is not moving. The two naming dialogs were one class's worth of rules split across two files, and the
+  split had cost something real: the single-capture prompt had **no tag field**, so a picture captured on its
+  own could only be filed later. **`ResourcesChangedEvent` is deleted** — four publishers, never a
+  subscriber, and a javadoc claiming pickers refreshed on it that was simply untrue; `OverlayTemplateCapture`
+  lost its `EventBus` parameter as a result. Nothing was added to `StudioServices`. **The overlay itself did
+  not move**: it still needs the host's `TargetCapture` for the target's bounds, whether the pixels are on
+  screen, and the reference-resolution snap — none of which `EditorFrame` answers yet. 1180 Studio tests,
+  542 SDK tests, green.
+
 - **2026-08-31 — the multi-picture rows are the plugin's, and Studio's writer stops spelling the SDK's API.**
   Thirteenth step of *Studio knows only the contract*, and the first use of `SlotRun`. The two rows that are
   genuinely a run of arguments — the image varargs tail in `MethodInvocationBlock` and a `Matches` case in

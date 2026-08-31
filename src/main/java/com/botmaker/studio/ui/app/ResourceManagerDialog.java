@@ -1,7 +1,6 @@
 package com.botmaker.studio.ui.app;
 
 import com.botmaker.sdk.authoring.TemplateManifest;
-import com.botmaker.studio.events.CoreApplicationEvents.ResourcesChangedEvent;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.parser.refactor.ReviewMarker;
 import com.botmaker.studio.project.ProjectConfig;
@@ -57,7 +56,7 @@ import java.util.TreeSet;
 /**
  * Manages the project's saved image templates (PNGs under {@code src/main/resources/images}): preview, rename,
  * replace, delete, tag, import/export, and capture new ones through the same on-screen overlay the toolbar
- * opens. Publishes {@link ResourcesChangedEvent} after any change so open template pickers can refresh.
+ * opens.
  *
  * <p><b>Everything that acts on one template lives under its preview</b> — its name, its tags, its picture —
  * because those three are answered by looking at it. The buttons along the bottom are the ones that act on the
@@ -494,7 +493,7 @@ public class ResourceManagerDialog {
      */
     private void captureNew() {
         stage.hide();
-        OverlayTemplateCapture.open(owner, config, settings, capture, eventBus, gallery.selectedRealTag(),
+        OverlayTemplateCapture.open(owner, config, settings, capture, gallery.selectedRealTag(),
                 () -> Platform.runLater(() -> {
                     stage.show();
                     reload();
@@ -703,7 +702,6 @@ public class ResourceManagerDialog {
         if (source == null) return;
         try {
             TemplateArchive.ImportResult result = TemplateArchive.importInto(config, source.toPath());
-            if (result.count() > 0) eventBus.publish(new ResourcesChangedEvent());
             reload();
             gallery.setSelection(result.imported().stream()
                     .map(name -> config.imagesRoot().resolve(name + ".png")).toList());
@@ -874,8 +872,15 @@ public class ResourceManagerDialog {
                 state.getActiveFile().getContent()));
     }
 
+    /**
+     * Clears the status line after a change went through.
+     *
+     * <p>It used to publish a {@code ResourcesChangedEvent} as well, so that "open template pickers can
+     * refresh". Nothing ever subscribed to it — the event was deleted on 2026-08-31 along with its three
+     * other publishers — and no picker ever refreshed: every one of them re-reads the library when it opens
+     * its gallery, which is why the gap was never noticed.
+     */
     private void published() {
         statusLabel.setText("");
-        eventBus.publish(new ResourcesChangedEvent());
     }
 }

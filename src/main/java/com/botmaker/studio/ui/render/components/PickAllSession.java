@@ -2,17 +2,17 @@ package com.botmaker.studio.ui.render.components;
 
 import com.botmaker.sdk.api.geometry.Point;
 import com.botmaker.sdk.api.geometry.Rect;
+import com.botmaker.sdk.internal.plugin.capture.TemplateNaming;
+import com.botmaker.sdk.internal.plugin.capture.TemplateNaming.NamedTemplate;
 import com.botmaker.studio.core.ExpressionBlock;
-import com.botmaker.studio.events.CoreApplicationEvents.ResourcesChangedEvent;
 import com.botmaker.studio.parser.CodeEditor;
+import com.botmaker.studio.plugin.HostServices;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.capture.ScreenOverlay.CapturedCrop;
 import com.botmaker.studio.services.capture.ScreenOverlay.PickStep;
 import com.botmaker.studio.services.ScreenCaptureService;
 import com.botmaker.studio.types.ResolvedType;
-import com.botmaker.studio.ui.app.capture.BatchTemplateNamingDialog;
-import com.botmaker.studio.ui.app.capture.BatchTemplateNamingDialog.NamedTemplate;
 import com.botmaker.studio.util.MethodSignature;
 import javafx.stage.Window;
 import org.eclipse.jdt.core.dom.MethodInvocation;
@@ -36,7 +36,7 @@ import java.util.Map;
  * after the first re-parse, hence the batch.
  *
  * <p>Image arguments finish through the same tail as {@code Capture many}
- * ({@link BatchTemplateNamingDialog}): the crops are held until the overlay is gone, then named or discarded
+ * ({@link TemplateNaming#showBatch}): the crops are held until the overlay is gone, then named or discarded
  * in one dialog. The naming cannot happen <em>during</em> the pass — a modal dialog over a full-screen,
  * application-modal capture overlay is fragile — but it does not have to, and auto-naming (what this used to
  * do) only moved the work to the Resource Manager.
@@ -114,7 +114,8 @@ public final class PickAllSession {
         List<BufferedImage> crops = new ArrayList<>();
         for (PendingImage p : pending) crops.add(p.crop().image());
 
-        BatchTemplateNamingDialog.Batch batch = BatchTemplateNamingDialog.show(owner, context.getConfig(), crops,
+        TemplateNaming.Batch batch = TemplateNaming.showBatch(
+                HostServices.forProject(context.getConfig()), owner, crops,
                 ImageTemplateLibrary.openActivityTag(context.getConfig(), context.getState()));
         List<String> saved = new ArrayList<>();
         for (NamedTemplate t : batch.templates()) {
@@ -130,6 +131,5 @@ public final class PickAllSession {
             }
         }
         ImageTemplateLibrary.applyTags(context.getConfig(), batch.tagsFor(saved));
-        if (!saved.isEmpty()) context.getEventBus().publish(new ResourcesChangedEvent());
     }
 }

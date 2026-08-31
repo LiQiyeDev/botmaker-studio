@@ -157,9 +157,25 @@ pickers do not have, which is the bug the move exists to prevent.
   work, which is why `ResourceManagerDialog`'s rename and delete guards stay here.
 - **`openActivityTag` stayed** for the narrower version of the same reason — *which file is open* is editor
   state. `TemplateLibrary.declaredTag` is the half that travelled.
-- **`ResourcesChangedEvent` has four publishers and no subscriber.** Its javadoc says open template pickers
-  refresh on it; nothing subscribes, and nothing ever did in this repository's history of the event. Delete
-  it rather than wiring the capture flow to it.
+- **`ResourcesChangedEvent` is deleted (2026-08-31).** It had four publishers and never a subscriber, and its
+  javadoc claimed open template pickers refreshed on it. They did not, and did not need to: every picker
+  re-reads the library when it opens its gallery, which is why nobody noticed in the event's whole life. The
+  four publish sites went with it, and `ResourceManagerDialog.published()` now only clears its status line.
+
+**The naming step and the tag menu are the SDK's, and `TagPicklist` is the façade (2026-08-31).**
+`com.botmaker.sdk.internal.plugin.capture.{TemplateNaming, TagPicker}`. Studio's
+`ui/app/capture/BatchTemplateNamingDialog` is **deleted** and `ImageTemplatePicker.promptNewTemplate` is a
+one-line delegation; `TagPicklist` is a two-line subclass of `TagPicker` taking a `ProjectConfig`.
+
+- **A tag is a tag of a picture**, and a picture is `ImageTemplate`'s concept — the catalog comes out of the
+  plugin's own manifest under `resourcesDir()`, so the whole control travelled. The façade stays because
+  three callers that are **not** moving (`TagManagerDialog`, `ParametersDialog`, `ResourceManagerDialog`)
+  should not each build a `StudioServices` to open a menu.
+- **Two dialogs became one class, and it fixed a real gap.** The single-capture prompt had no tag field at
+  all — a picture captured on its own could only be filed later, from the resource manager — while the batch
+  dialog had one. They enforced the same three refusals in two places and had already drifted in wording.
+- **Nothing was added to `StudioServices`**, the standing condition: theming is `services.theme()`, the
+  thumbnails are `services.capture().toFxImage`, and the rest is a folder.
 
 ## Setup
 

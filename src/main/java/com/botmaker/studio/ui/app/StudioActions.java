@@ -306,7 +306,7 @@ final class StudioActions {
 
     /** Opens the live overlay template-capture over the project's default window target. */
     private void openOverlayTemplateCapture() {
-        OverlayTemplateCapture.open(primaryStage, config, projectSettingsService, screenCaptureService, eventBus,
+        OverlayTemplateCapture.open(primaryStage, config, projectSettingsService, screenCaptureService,
                 ImageTemplateLibrary.openActivityTag(config, codeEditorService.getState()));
     }
 

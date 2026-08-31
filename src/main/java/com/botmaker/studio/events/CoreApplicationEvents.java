@@ -83,8 +83,9 @@ public class CoreApplicationEvents {
     public record SettingsChangedEvent(com.botmaker.studio.project.StudioProjectSettings settings)
             implements ApplicationEvent {}
 
-    /** Published after the project's saved image templates change (added / renamed / deleted). */
-    public record ResourcesChangedEvent() implements ApplicationEvent {}
+    // ResourcesChangedEvent was published after a picture was added, renamed or deleted, "so open template
+    // pickers can refresh". It was deleted on 2026-08-31: it had four publishers and never a subscriber, and
+    // no picker needed one — each re-reads the library when it opens its gallery.
 
     /** Request to open the Resource Manager dialog (e.g. from a block's image-template picker). */
     public record OpenResourceManagerEvent() implements ApplicationEvent {}

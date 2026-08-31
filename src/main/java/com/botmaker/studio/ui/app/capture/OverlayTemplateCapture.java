@@ -8,8 +8,6 @@ import com.botmaker.sdk.authoring.CaptureTargetModel;
 import com.botmaker.sdk.internal.plugin.capture.CaptureSurface;
 import com.botmaker.sdk.internal.plugin.capture.CaptureSurface.Region;
 import com.botmaker.sdk.internal.plugin.capture.ObjectCaptureSurface;
-import com.botmaker.studio.events.CoreApplicationEvents.ResourcesChangedEvent;
-import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.StudioProjectSettings;
 import com.botmaker.studio.services.ImageTemplateLibrary;
@@ -19,14 +17,14 @@ import com.botmaker.studio.services.capture.TargetCapture;
 import com.botmaker.studio.services.capture.TargetCapture.TargetShot;
 import com.botmaker.studio.services.capture.TargetCapture.WindowShot;
 import com.botmaker.studio.plugin.HostServices;
-import com.botmaker.studio.ui.app.capture.BatchTemplateNamingDialog.NamedTemplate;
+import com.botmaker.sdk.internal.plugin.capture.TemplateNaming;
+import com.botmaker.sdk.internal.plugin.capture.TemplateNaming.NamedTemplate;
 import com.botmaker.studio.ui.app.overlay.OverlayStyles;
 import com.botmaker.studio.ui.app.overlay.OverlayToolbars;
 import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
-import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ToggleButton;
@@ -58,7 +56,7 @@ import java.util.function.Consumer;
  * <ul>
  *   <li><b>Capture one</b> — draw a single region, name it (unique, non-blank), save.</li>
  *   <li><b>Capture many</b> — draw several regions in one pass, then name/discard them all at once
- *       ({@link BatchTemplateNamingDialog}).</li>
+ *       ({@link TemplateNaming#showBatch}).</li>
  * </ul>
  *
  * <p>At save time the window's pixels are re-captured fresh via {@link ScreenCaptureService#captureWindow}
@@ -81,7 +79,6 @@ public final class OverlayTemplateCapture {
     private final StudioServices services;
     private final ScreenCaptureService capture;
     private final ProjectSettingsService settings;
-    private final EventBus eventBus;
     /** The default capture target: a window, a monitor, or the whole desktop. */
     private final CaptureTargetModel target;
 
@@ -112,19 +109,18 @@ public final class OverlayTemplateCapture {
      * there was no target. A caller that got out of the way to make room for it (the resource manager hides
      * itself: it is application-modal, so the overlay's toolbar would take no clicks otherwise) uses this to
      * come back. Never null internally; {@link #open(Window, ProjectConfig, ProjectSettingsService,
-     * ScreenCaptureService, EventBus, String)} passes a no-op.
+     * ScreenCaptureService, String)} passes a no-op.
      */
     private final Runnable onClosed;
 
     private OverlayTemplateCapture(Window owner, ProjectConfig config, ScreenCaptureService capture,
-                                   ProjectSettingsService settings, EventBus eventBus,
+                                   ProjectSettingsService settings,
                                    CaptureTargetModel target, String suggestedTag, Runnable onClosed) {
         this.owner = owner;
         this.config = config;
         this.services = HostServices.forProject(config);
         this.capture = capture;
         this.settings = settings;
-        this.eventBus = eventBus;
         this.target = target;
         this.window = TargetCapture.WindowRef.of(target);
         this.suggestedTag = suggestedTag;
@@ -136,17 +132,17 @@ public final class OverlayTemplateCapture {
      * else) when the default target isn't a window, or the window can't be found. Must be called on the FX thread.
      */
     public static void open(Window owner, ProjectConfig config, ProjectSettingsService settings,
-                            ScreenCaptureService capture, EventBus eventBus, String suggestedTag) {
-        open(owner, config, settings, capture, eventBus, suggestedTag, () -> {});
+                            ScreenCaptureService capture, String suggestedTag) {
+        open(owner, config, settings, capture, suggestedTag, () -> {});
     }
 
     /**
-     * As {@link #open(Window, ProjectConfig, ProjectSettingsService, ScreenCaptureService, EventBus, String)},
+     * As {@link #open(Window, ProjectConfig, ProjectSettingsService, ScreenCaptureService, String)},
      * running {@code onClosed} once the overlay is done with the screen — including the two paths where it
      * never opens (no capture target, or one is already up), so a caller that hid itself always comes back.
      */
     public static void open(Window owner, ProjectConfig config, ProjectSettingsService settings,
-                            ScreenCaptureService capture, EventBus eventBus, String suggestedTag,
+                            ScreenCaptureService capture, String suggestedTag,
                             Runnable onClosed) {
         Runnable done = onClosed == null ? () -> {} : onClosed;
         CaptureTargetModel target = null;
@@ -167,7 +163,7 @@ public final class OverlayTemplateCapture {
             done.run();
             return;
         }
-        new OverlayTemplateCapture(owner, config, capture, settings, eventBus, target, suggestedTag, done).start();
+        new OverlayTemplateCapture(owner, config, capture, settings, target, suggestedTag, done).start();
     }
 
     private void start() {
@@ -292,13 +288,12 @@ public final class OverlayTemplateCapture {
                 BufferedImage full = shot.image();
                 BufferedImage cropped = cropToImage(full, region);
                 if (cropped == null) return;
-                Optional<ImageTemplatePicker.NamedCapture> named =
+                Optional<TemplateNaming.NamedCapture> named =
                         ImageTemplatePicker.promptNewTemplate(owner, config, cropped, suggestedTag);
                 if (named.isEmpty()) return;
                 ImageTemplateLibrary.saveTemplate(config, cropped, named.get().name(),
                         full.getWidth(), full.getHeight(), windowTitleOrNull());
                 ImageTemplateLibrary.applyTags(config, Map.of(named.get().name(), named.get().tags()));
-                eventBus.publish(new ResourcesChangedEvent());
             } catch (Exception ex) {
                 warn(owner, "Failed to save template: " + ex.getMessage());
             } finally {
@@ -331,8 +326,8 @@ public final class OverlayTemplateCapture {
                     if (c != null) crops.add(c);
                 }
                 if (crops.isEmpty()) return;
-                BatchTemplateNamingDialog.Batch batch =
-                        BatchTemplateNamingDialog.show(owner, config, crops, suggestedTag);
+                TemplateNaming.Batch batch =
+                        TemplateNaming.showBatch(services, owner, crops, suggestedTag);
                 List<String> saved = new ArrayList<>();
                 for (NamedTemplate t : batch.templates()) {
                     ImageTemplateLibrary.saveTemplate(config, t.image(), t.name(),
@@ -340,7 +335,6 @@ public final class OverlayTemplateCapture {
                     saved.add(t.name());
                 }
                 ImageTemplateLibrary.applyTags(config, batch.tagsFor(saved));
-                if (!saved.isEmpty()) eventBus.publish(new ResourcesChangedEvent());
             } catch (Exception ex) {
                 warn(owner, "Failed to save templates: " + ex.getMessage());
             } finally {
@@ -366,7 +360,7 @@ public final class OverlayTemplateCapture {
     private void onObjectExtracted(BufferedImage cut) {
         if (objectSurface != null) objectSurface.hide();
         try {
-            Optional<ImageTemplatePicker.NamedCapture> named =
+            Optional<TemplateNaming.NamedCapture> named =
                     ImageTemplatePicker.promptNewTemplate(owner, config, cut, suggestedTag);
             if (named.isEmpty()) { endSession(); return; }
             // The sidecar's capture resolution is the full frame the object was cut from (drives runtime scaling),
@@ -374,7 +368,6 @@ public final class OverlayTemplateCapture {
             ImageTemplateLibrary.saveTemplate(config, cut, named.get().name(),
                     objectFrameW, objectFrameH, windowTitleOrNull());
             ImageTemplateLibrary.applyTags(config, Map.of(named.get().name(), named.get().tags()));
-            eventBus.publish(new ResourcesChangedEvent());
         } catch (Exception ex) {
             warn(owner, "Failed to save object: " + ex.getMessage());
         } finally {
