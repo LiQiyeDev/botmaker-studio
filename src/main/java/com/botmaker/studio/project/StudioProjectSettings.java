@@ -1,15 +1,9 @@
 package com.botmaker.studio.project;
 
-import com.botmaker.sdk.authoring.Authoring;
-import com.botmaker.sdk.authoring.CaptureModel;
-import com.botmaker.sdk.authoring.CaptureModel.Resolution;
-import com.botmaker.sdk.authoring.CaptureTargetModel;
-import com.botmaker.sdk.authoring.SdkVersion;
 import com.botmaker.studio.project.migration.SchemaFile;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -17,42 +11,32 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
  * Per-project editor settings, persisted as {@code settings.json} under the project's
- * {@code src/main/resources}. Currently holds the saved {@link CaptureTargetModel}s and which one is the
- * default used by all on-screen pickers. Modeled on
- * {@link com.botmaker.studio.project.activity.ActivitiesConfig}.
+ * {@code src/main/resources}. Modeled on {@link com.botmaker.studio.project.activity.ActivitiesConfig}.
  *
- * <p><b>The capture targets are not in this file, and since 2026-08-31 neither is the resolution they are
- * captured at.</b> All three live in the SDK's own {@code capture.json}, read and written here through
- * {@link Authoring} — see {@link #read} and {@link #write}. The targets were stored twice (this file's list,
- * and the one {@code capture.source} spec a running bot reads out of {@code botmaker-project.properties})
- * with nothing keeping the two in step, so the editor and the bot could silently disagree about which window
- * to look at. The resolution followed them for the reason that decides every file in this project: it
- * describes the pictures, and the plugin that captures and matches those pictures has to be able to read it.
- * All three stay record components because every picker in the editor asks for them here; only the file
- * underneath them changed.
+ * <p><b>Nothing about capture is in this record any more (2026-09-01).</b> It carried three components that
+ * were read from and written to the SDK's {@code capture.json} through {@code Authoring} — the saved capture
+ * targets, which of them is the default, and the reference resolution the pictures were captured at. All
+ * three describe what a bot looks at and what its templates mean, so all three belong to the plugin that
+ * captures and matches them; the plugin's own toolbar item and target manager own them now, and this file
+ * neither reads nor writes {@code capture.json}. What is left here is what only the editor has an opinion
+ * about: remembered window titles, the overload and method preferences the pickers surface first, the
+ * template the project was created from, and where the windows sat.
  *
- * @param captureTargets      the saved screen/window targets (order is the display order); stored in
- *                            {@code capture.json}, not in this file
- * @param defaultTargetIndex  index into {@code captureTargets} of the default, or {@code null} for none;
- *                            stored in {@code capture.json}, not in this file
+ * <p>The eight telescoping convenience constructors went with them. They existed because the capture triple
+ * sat in the middle of the component list, so every caller that wanted a later component had to spell the
+ * earlier ones; with the triple gone there is one constructor and the {@code with…} methods.
+ *
  * @param knownWindowTitles   window titles seen/used before, remembered so a window can be picked as a
  *                            target without the app being currently open (backward-compatible; absent → empty)
  * @param favoriteOverloads   per-method chosen overload: {@code methodKey → signatureKey} (see
  *                            {@code ExpressionMenu}); the favorite is created by default when clicking
  *                            the method (backward-compatible; absent → empty)
- * @param referenceResolution the canonical target-window size (logical px) image templates are captured at.
- *                            The overlay snaps the window to this before capturing so templates share one
- *                            resolution (avoids lossy match-time up/downscaling). {@code null} until the first
- *                            capture seeds it from the window's current size. <b>Stored in
- *                            {@code capture.json}, not in this file</b> — it describes the pictures, so it
- *                            belongs to the SDK version that captures and matches them
  * @param favoriteMethods     per-class preferred methods: {@code className → [methodName, …]}, surfaced first in
  *                            the overlay palette and other pickers (backward-compatible; absent → empty)
  * @param template            the {@link ProjectTemplate} the project was created from, recorded at creation so
@@ -70,10 +54,7 @@ import java.util.Map;
  *                            the next time the project opens (backward-compatible; absent → null)
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record StudioProjectSettings(@JsonIgnore List<CaptureTargetModel> captureTargets,
-                                    @JsonIgnore Integer defaultTargetIndex,
-                                    List<String> knownWindowTitles, Map<String, String> favoriteOverloads,
-                                    @JsonIgnore Resolution referenceResolution,
+public record StudioProjectSettings(List<String> knownWindowTitles, Map<String, String> favoriteOverloads,
                                     Map<String, List<String>> favoriteMethods,
                                     ProjectTemplate template, String lastRecordedActivity,
                                     OverlayState overlayState, WorkspaceLayout workspaceLayout) {
@@ -138,14 +119,9 @@ public record StudioProjectSettings(@JsonIgnore List<CaptureTargetModel> capture
             .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
 
     public StudioProjectSettings {
-        captureTargets = captureTargets == null ? List.of() : List.copyOf(captureTargets);
         knownWindowTitles = knownWindowTitles == null ? List.of() : List.copyOf(knownWindowTitles);
         favoriteOverloads = favoriteOverloads == null ? Map.of() : Map.copyOf(favoriteOverloads);
         favoriteMethods = favoriteMethods == null ? Map.of() : deepCopy(favoriteMethods);
-        if (defaultTargetIndex != null
-                && (defaultTargetIndex < 0 || defaultTargetIndex >= captureTargets.size())) {
-            defaultTargetIndex = null;
-        }
     }
 
     private static Map<String, List<String>> deepCopy(Map<String, List<String>> src) {
@@ -154,113 +130,38 @@ public record StudioProjectSettings(@JsonIgnore List<CaptureTargetModel> capture
         return Map.copyOf(out);
     }
 
-    /** Convenience constructor for callers that manage the overlay's layout but not the window's. */
-    public StudioProjectSettings(List<CaptureTargetModel> captureTargets, Integer defaultTargetIndex,
-                                 List<String> knownWindowTitles, Map<String, String> favoriteOverloads,
-                                 Resolution referenceResolution, Map<String, List<String>> favoriteMethods,
-                                 ProjectTemplate template, String lastRecordedActivity,
-                                 OverlayState overlayState) {
-        this(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads, referenceResolution,
-                favoriteMethods, template, lastRecordedActivity, overlayState, null);
-    }
-
-    /** Convenience constructor for callers that manage the last activity but not the overlay's layout. */
-    public StudioProjectSettings(List<CaptureTargetModel> captureTargets, Integer defaultTargetIndex,
-                                 List<String> knownWindowTitles, Map<String, String> favoriteOverloads,
-                                 Resolution referenceResolution, Map<String, List<String>> favoriteMethods,
-                                 ProjectTemplate template, String lastRecordedActivity) {
-        this(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads, referenceResolution,
-                favoriteMethods, template, lastRecordedActivity, null);
-    }
-
-    /** Convenience constructor for callers that manage the template but not the overlay's last activity. */
-    public StudioProjectSettings(List<CaptureTargetModel> captureTargets, Integer defaultTargetIndex,
-                                 List<String> knownWindowTitles, Map<String, String> favoriteOverloads,
-                                 Resolution referenceResolution, Map<String, List<String>> favoriteMethods,
-                                 ProjectTemplate template) {
-        this(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads, referenceResolution,
-                favoriteMethods, template, null, null);
-    }
-
-    /** Convenience constructor for callers that manage favorite methods but not the template. */
-    public StudioProjectSettings(List<CaptureTargetModel> captureTargets, Integer defaultTargetIndex,
-                                 List<String> knownWindowTitles, Map<String, String> favoriteOverloads,
-                                 Resolution referenceResolution, Map<String, List<String>> favoriteMethods) {
-        this(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads, referenceResolution,
-                favoriteMethods, null, null);
-    }
-
-    /** Convenience constructor for callers that manage favorite overloads + resolution but not favorite methods. */
-    public StudioProjectSettings(List<CaptureTargetModel> captureTargets, Integer defaultTargetIndex,
-                                 List<String> knownWindowTitles, Map<String, String> favoriteOverloads,
-                                 Resolution referenceResolution) {
-        this(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads, referenceResolution, Map.of(), null);
-    }
-
-    /** Convenience constructor for callers that manage favorite overloads but not the reference resolution. */
-    public StudioProjectSettings(List<CaptureTargetModel> captureTargets, Integer defaultTargetIndex,
-                                 List<String> knownWindowTitles, Map<String, String> favoriteOverloads) {
-        this(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads, null, Map.of(), null);
-    }
-
-    /** Convenience constructor for callers that don't manage favorite overloads. */
-    public StudioProjectSettings(List<CaptureTargetModel> captureTargets, Integer defaultTargetIndex,
-                                 List<String> knownWindowTitles) {
-        this(captureTargets, defaultTargetIndex, knownWindowTitles, Map.of(), null, Map.of(), null);
-    }
-
-    /** Convenience constructor for callers that don't manage the remembered window titles. */
-    public StudioProjectSettings(List<CaptureTargetModel> captureTargets, Integer defaultTargetIndex) {
-        this(captureTargets, defaultTargetIndex, List.of(), Map.of(), null, Map.of(), null);
-    }
-
-    /**
-     * A fresh project's settings: the whole desktop is seeded as the sole capture target and the default,
-     * so every picker/toolbar already shows "Whole desktop" instead of an empty "no default set" state.
-     */
+    /** A fresh project's settings — nothing remembered yet, and no template recorded until one is chosen. */
     public static StudioProjectSettings empty() {
-        return new StudioProjectSettings(List.of(CaptureTargetModel.desktop()), 0, List.of(), Map.of(), null,
-                Map.of(), null);
+        return new StudioProjectSettings(List.of(), Map.of(), Map.of(), null, null, null, null);
     }
 
-    /** The default target, or {@code null} if none is set (pickers then show the chooser). */
-    @JsonIgnore
-    public CaptureTargetModel defaultTarget() {
-        return defaultTargetIndex == null ? null : captureTargets.get(defaultTargetIndex);
-    }
-
-    // withTargets, withDefaultIndex and withKnownWindowTitles are deleted (2026-08-31). Their one caller was
-    // the targets dialog, which is the SDK plugin's now — so the editor has no way left to change a target
-    // list it does not own, which is the point rather than a side effect.
-
-    /** This settings with the capture reference resolution replaced ({@code null} clears it). */
-    public StudioProjectSettings withReferenceResolution(Resolution resolution) {
-        return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
-                resolution, favoriteMethods, template, lastRecordedActivity, overlayState, workspaceLayout);
-    }
+    // withTargets, withDefaultIndex, withKnownWindowTitles and withReferenceResolution are deleted
+    // (2026-08-31 / 2026-09-01). Their callers were the targets dialog and the capture resolution row, both
+    // of which are the SDK plugin's now — so the editor has no way left to change a capture setting it does
+    // not own, which is the point rather than a side effect.
 
     /** This settings with the originating template recorded ({@code null} clears it). */
     public StudioProjectSettings withTemplate(ProjectTemplate template) {
-        return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
-                referenceResolution, favoriteMethods, template, lastRecordedActivity, overlayState, workspaceLayout);
+        return new StudioProjectSettings(knownWindowTitles, favoriteOverloads, favoriteMethods, template,
+                lastRecordedActivity, overlayState, workspaceLayout);
     }
 
     /** This settings with the overlay editor's last authored activity recorded ({@code null} clears it). */
     public StudioProjectSettings withLastRecordedActivity(String activityName) {
-        return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
-                referenceResolution, favoriteMethods, template, activityName, overlayState, workspaceLayout);
+        return new StudioProjectSettings(knownWindowTitles, favoriteOverloads, favoriteMethods, template,
+                activityName, overlayState, workspaceLayout);
     }
 
     /** This settings with the overlay HUD's remembered layout replaced ({@code null} clears it). */
     public StudioProjectSettings withOverlayState(OverlayState state) {
-        return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
-                referenceResolution, favoriteMethods, template, lastRecordedActivity, state, workspaceLayout);
+        return new StudioProjectSettings(knownWindowTitles, favoriteOverloads, favoriteMethods, template,
+                lastRecordedActivity, state, workspaceLayout);
     }
 
     /** This settings with the main window's remembered layout replaced ({@code null} clears it). */
     public StudioProjectSettings withWorkspaceLayout(WorkspaceLayout layout) {
-        return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
-                referenceResolution, favoriteMethods, template, lastRecordedActivity, overlayState, layout);
+        return new StudioProjectSettings(knownWindowTitles, favoriteOverloads, favoriteMethods, template,
+                lastRecordedActivity, overlayState, layout);
     }
 
     /**
@@ -271,8 +172,8 @@ public record StudioProjectSettings(@JsonIgnore List<CaptureTargetModel> capture
         Map<String, String> next = new LinkedHashMap<>(favoriteOverloads);
         if (signatureKey == null) next.remove(methodKey);
         else next.put(methodKey, signatureKey);
-        return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, next,
-                referenceResolution, favoriteMethods, template, lastRecordedActivity, overlayState, workspaceLayout);
+        return new StudioProjectSettings(knownWindowTitles, next, favoriteMethods, template,
+                lastRecordedActivity, overlayState, workspaceLayout);
     }
 
     /** The chosen overload signature key for {@code methodKey}, or {@code null} if no favorite is set. */
@@ -289,8 +190,8 @@ public record StudioProjectSettings(@JsonIgnore List<CaptureTargetModel> capture
         Map<String, List<String>> next = new LinkedHashMap<>(favoriteMethods);
         if (methods == null || methods.isEmpty()) next.remove(className);
         else next.put(className, List.copyOf(methods));
-        return new StudioProjectSettings(captureTargets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
-                referenceResolution, next, template, lastRecordedActivity, overlayState, workspaceLayout);
+        return new StudioProjectSettings(knownWindowTitles, favoriteOverloads, next, template,
+                lastRecordedActivity, overlayState, workspaceLayout);
     }
 
     /** The favorite method names for {@code className} (preference order), or an empty list if none. */
@@ -299,33 +200,16 @@ public record StudioProjectSettings(@JsonIgnore List<CaptureTargetModel> capture
         return favoriteMethods.getOrDefault(className, List.of());
     }
 
-    /**
-     * Reads {@code settings.json} from {@code resourcesDir}; returns {@link #empty()} if absent/invalid.
-     *
-     * <p>The capture targets come from {@code capture.json} beside it. When that file does not exist the
-     * targets this settings file itself used to hold are read instead and carried in memory — so a project
-     * written by an older Studio opens with its pickers intact, and the next write moves them across. Once
-     * {@code capture.json} exists it is the answer, empty or not: the migration must not resurrect a list the
-     * user has since emptied.
-     *
-     * <p><b>Neither migration is here any more (2026-08-31).</b> Both were reads of <em>this</em> file on
-     * behalf of the SDK's, and they had a hole with no symptom: the editor has stopped writing the targets,
-     * so a migration that only ran here would never move them across and the first reader that asked the
-     * plugin would be told a configured project had none. The reader of a file owns its migration, so both
-     * live in {@code Authoring.readCapture} and this simply asks it.
-     */
+    /** Reads {@code settings.json} from {@code resourcesDir}; returns {@link #empty()} if absent/invalid. */
     public static StudioProjectSettings read(Path resourcesDir) {
         Path file = resourcesDir.resolve(FILE_NAME);
-        StudioProjectSettings settings = empty();
-        if (Files.exists(file)) {
-            try {
-                settings = MAPPER.readValue(file.toFile(), StudioProjectSettings.class);
-            } catch (Exception e) {
-                System.err.println("Failed to read " + FILE_NAME + " in " + resourcesDir + ": " + e.getMessage());
-                return empty();
-            }
+        if (!Files.exists(file)) return empty();
+        try {
+            return MAPPER.readValue(file.toFile(), StudioProjectSettings.class);
+        } catch (Exception e) {
+            System.err.println("Failed to read " + FILE_NAME + " in " + resourcesDir + ": " + e.getMessage());
+            return empty();
         }
-        return settings.withCapture(readCapture(resourcesDir));
     }
 
     /**
@@ -333,57 +217,14 @@ public record StudioProjectSettings(@JsonIgnore List<CaptureTargetModel> capture
      * the file's {@code schemaVersion} — see {@link SchemaFile#stamped} and the same note on
      * {@link com.botmaker.studio.project.activity.ActivitiesConfig#write}.
      *
-     * <p><b>Only the reference resolution reaches {@code capture.json}, and it is merged rather than
-     * written (2026-08-31).</b> The target list in that file belongs to the SDK plugin's own manager, which
-     * writes it while this editor is not looking; writing {@link #captureModel()} whole would put whatever
-     * this settings was read with back over the top of it. So the file is re-read and only the component the
-     * editor still owns is replaced.
-     *
-     * <p>The {@code capture.source} projection went with the list. Its writer is the plugin that owns the
-     * default target, because two authors of one projection is exactly the disagreement moving the targets
-     * out was meant to end.
+     * <p>It writes one file and no longer merges a second. The {@code Authoring.writeCapture} call that used
+     * to sit here re-read {@code capture.json} to replace the one component the editor still owned, precisely
+     * because the plugin writes the rest of that file while the editor is not looking. With no component left
+     * to own, the merge and the reason for it both go.
      */
     public void write(Path resourcesDir) throws IOException {
         Files.createDirectories(resourcesDir);
         ObjectNode body = MAPPER.valueToTree(this);
         MAPPER.writeValue(resourcesDir.resolve(FILE_NAME).toFile(), SchemaFile.SETTINGS.stamped(body));
-        Authoring.writeCapture(SdkVersion.latest(), resourcesDir,
-                readCapture(resourcesDir).withReference(referenceResolution));
-    }
-
-    /**
-     * Projects the default target onto {@code botmaker-project.properties}' {@code capture.source} — the one
-     * spec a <em>running</em> bot resolves.
-     *
-     * <p>It is a projection with one writer and one direction, written in the same pass as the list it comes
-     * from, which is what makes it a cache rather than a second answer. A bot cannot read {@code capture.json}
-     * itself: {@link Authoring} reaches the value vocabulary in {@code botmaker-studio-api}, which is
-     * deliberately off a bot's classpath, so the properties file stays the bot's side of this.
-     *
-     * <p>A project with no default target is left alone rather than cleared. The property is also written
-     * directly by the launch-target dialog and the emulator picker for a project that has no target list at
-     * all, and clearing it here would silently un-configure those.
-     */
-    /** This settings with the three {@code capture.json} components taken from {@code capture}. */
-    private StudioProjectSettings withCapture(CaptureModel capture) {
-        return new StudioProjectSettings(capture.targets(), capture.defaultIndex(), knownWindowTitles,
-                favoriteOverloads, capture.reference(), favoriteMethods, template, lastRecordedActivity,
-                overlayState, workspaceLayout);
-    }
-
-    /**
-     * The project's capture model, asked of the SDK rather than parsed here.
-     *
-     * <p>Including the migration off this very file, which used to be read here: whoever reads a file owns
-     * what to do with its older shapes, and the editor is no longer that reader.
-     */
-    private static CaptureModel readCapture(Path resourcesDir) {
-        try {
-            return Authoring.readCapture(SdkVersion.latest(), resourcesDir);
-        } catch (Exception e) {
-            System.err.println("Failed to read " + CaptureModel.FILE_NAME + " in " + resourcesDir + ": "
-                    + e.getMessage());
-            return CaptureModel.empty();
-        }
     }
 }

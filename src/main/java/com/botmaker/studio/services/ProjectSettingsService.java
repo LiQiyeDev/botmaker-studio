@@ -1,6 +1,5 @@
 package com.botmaker.studio.services;
 
-import com.botmaker.sdk.authoring.CaptureTargetModel;
 import com.botmaker.studio.events.CoreApplicationEvents.SettingsChangedEvent;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.ProjectConfig;
@@ -13,9 +12,9 @@ import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Orchestrates the project's editor {@link StudioProjectSettings} — currently the saved
- * {@link CaptureTargetModel}s and which one is the default used by every on-screen picker. Persistence is a
- * single {@code settings.json} under {@code src/main/resources}. All I/O lives here at the service edge;
+ * Orchestrates the project's editor {@link StudioProjectSettings} — the remembered window titles, the
+ * picker preferences, the originating template and the two window layouts. Persistence is a single
+ * {@code settings.json} under {@code src/main/resources}. All I/O lives here at the service edge;
  * {@link #update} runs off the calling thread and publishes {@link SettingsChangedEvent} once state is
  * refreshed. Modeled on {@link ActivityService}.
  */
@@ -87,19 +86,16 @@ public final class ProjectSettingsService {
     /**
      * Persists {@code newSettings} ({@code settings.json}), refreshes project state and publishes
      * {@link SettingsChangedEvent}. Runs asynchronously; the returned future completes exceptionally if
-     * writing fails. Capture-source blocks emit inline expressions (see
-     * {@link com.botmaker.studio.project.capture.CaptureExpr}), so there is no generated sidecar to sync.
+     * writing fails.
+     *
+     * <p>One file and no mirror. The {@code capture.width}/{@code capture.height} write that used to follow
+     * every save went with the reference resolution on 2026-09-01: those keys say what size the pictures
+     * were taken at, which is the capturing plugin's answer and never the editor's.
      */
     public CompletableFuture<Void> update(StudioProjectSettings newSettings) {
         return CompletableFuture.runAsync(() -> {
             try {
                 newSettings.write(config.resourcesRoot());
-                // Mirror the standard resolution into botmaker-project.properties so the generated bot's runtime
-                // scaling default (ProjectDefaults/ResolutionScaler) tracks the editor's standard resolution.
-                if (newSettings.referenceResolution() != null) {
-                    com.botmaker.studio.project.ProjectCreator.writeCaptureProperties(
-                            config.resourcesRoot(), newSettings.referenceResolution());
-                }
             } catch (IOException e) {
                 throw new RuntimeException("Failed to save settings: " + e.getMessage(), e);
             }

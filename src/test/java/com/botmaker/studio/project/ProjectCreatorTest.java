@@ -25,29 +25,15 @@ class ProjectCreatorTest {
     @Test
     void theChosenTemplateIsPersisted(@TempDir Path root) throws IOException {
         ProjectConfig config = ProjectConfig.forProject("MyBot", root);
-        ProjectCreator.seedSettings(config, new com.botmaker.sdk.authoring.CaptureModel.Resolution(1920, 1080),
-                ProjectTemplate.GAME_BOT);
+        ProjectCreator.seedSettings(config, ProjectTemplate.GAME_BOT);
 
         StudioProjectSettings settings = StudioProjectSettings.read(config.resourcesRoot());
         assertEquals(ProjectTemplate.GAME_BOT, settings.template());
-        // The resolution is read back out of capture.json, where it has lived since 2026-08-31 — settings.json
-        // no longer carries it, so a round trip that still answers is a round trip through the SDK's file.
-        assertEquals(new com.botmaker.sdk.authoring.CaptureModel.Resolution(1920, 1080),
-                settings.referenceResolution());
     }
 
-    @Test
-    void theTemplateIsRecordedEvenWithoutAResolution(@TempDir Path root) throws IOException {
-        // seedResolution used to bail out early on a null resolution. The resolution is optional (it
-        // auto-seeds from the window on first capture); the template is not — losing it would make the
-        // project indistinguishable from a legacy one and unlock its generated scaffolding.
-        ProjectConfig config = ProjectConfig.forProject("MyBot", root);
-        ProjectCreator.seedSettings(config, null, ProjectTemplate.GAME_BOT);
-
-        StudioProjectSettings settings = StudioProjectSettings.read(config.resourcesRoot());
-        assertEquals(ProjectTemplate.GAME_BOT, settings.template());
-        assertNull(settings.referenceResolution());
-    }
+    // theTemplateIsRecordedEvenWithoutAResolution went on 2026-09-01 with the resolution it was about. It
+    // held that a null resolution must not stop the template being written; seedSettings takes no resolution
+    // now, so there is no early-return left for it to guard.
 
     /**
      * A new game bot keeps its values in Java. The model is recorded at creation and never inferred later, so
@@ -63,7 +49,7 @@ class ProjectCreatorTest {
     void aNewGameBotGetsAnActivitiesFile(@TempDir Path root) throws IOException {
         ProjectConfig config = ProjectConfig.forProject("MyBot", root);
         Authoring.createProject(SdkVersion.latest(),
-                ProjectSpecs.of(config, ProjectTemplate.GAME_BOT, MavenService.SDK_FALLBACK_VERSION, null),
+                ProjectSpecs.of(config, ProjectTemplate.GAME_BOT, MavenService.SDK_FALLBACK_VERSION),
                 config.projectPath(), SchemaFile.ACTIVITIES.current(),
                 Map.of("pom.xml", MavenService.pomXml(config, MavenService.SDK_FALLBACK_VERSION)));
 
@@ -75,7 +61,7 @@ class ProjectCreatorTest {
     void anEmptyProjectGetsNoActivitiesFile(@TempDir Path root) throws IOException {
         ProjectConfig config = ProjectConfig.forProject("Plain", root);
         Authoring.createProject(SdkVersion.latest(),
-                ProjectSpecs.of(config, ProjectTemplate.EMPTY, MavenService.SDK_FALLBACK_VERSION, null),
+                ProjectSpecs.of(config, ProjectTemplate.EMPTY, MavenService.SDK_FALLBACK_VERSION),
                 config.projectPath(), SchemaFile.ACTIVITIES.current(),
                 Map.of("pom.xml", MavenService.pomXml(config, MavenService.SDK_FALLBACK_VERSION)));
 

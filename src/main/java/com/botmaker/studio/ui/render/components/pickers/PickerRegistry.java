@@ -29,7 +29,7 @@ public final class PickerRegistry {
             // First of all, and regardless of type: a slot that already holds a project variable stays a
             // variable. Every picker below would otherwise claim it by type and offer to overwrite it with a
             // literal — the Steam picker on Activities.APP_ID, the enum dropdown on Activities.DIRECTION.
-            VariablePicker.asSpecialType(),
+            VariablePicker.asSpecialType()
 
             // The emulator instance name was the last call-site-matched picker Studio owned, kept here on
             // 2026-08-28 because the dialog behind it reached Studio's own emulator probe, app cache and

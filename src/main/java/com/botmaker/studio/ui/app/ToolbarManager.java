@@ -400,16 +400,16 @@ public class ToolbarManager {
         return on ? "🐞 Debug ●" : "🐞 Debug ○";
     }
 
-    /** "Std W×H · 🖵 W×H": the project standard resolution (if set) and the primary screen resolution. */
+    /**
+     * "🖵 W×H": the primary screen's resolution.
+     *
+     * <p>It used to lead with "Std W×H", the project's standard capture resolution, which the editor has
+     * stopped holding (2026-09-01) — that size describes the pictures, so the plugin that takes them owns it
+     * and states it on its own toolbar item. What is left is a fact about this machine, which is the host's.
+     */
     private String resolutionText() {
         javafx.geometry.Rectangle2D sb = javafx.stage.Screen.getPrimary().getBounds();
-        String screen = "🖵 " + (int) sb.getWidth() + "×" + (int) sb.getHeight();
-        com.botmaker.sdk.authoring.CaptureModel.Resolution ref = null;
-        try {
-            ref = (settings != null) ? settings.current().referenceResolution() : null;
-        } catch (Exception ignored) {
-        }
-        return (ref != null ? "Std " + ref.width() + "×" + ref.height() + "  ·  " : "") + screen;
+        return "🖵 " + (int) sb.getWidth() + "×" + (int) sb.getHeight();
     }
 
     /**

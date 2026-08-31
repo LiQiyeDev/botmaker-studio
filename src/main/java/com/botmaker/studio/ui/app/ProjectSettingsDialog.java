@@ -1,7 +1,6 @@
 package com.botmaker.studio.ui.app;
 
 import com.botmaker.studio.plugin.PluginHost;
-import com.botmaker.sdk.authoring.CaptureModel.Resolution;
 import com.botmaker.studio.project.StudioProjectSettings;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
@@ -57,11 +56,9 @@ public class ProjectSettingsDialog {
     private final ProgressIndicator progress = new ProgressIndicator();
     private Stage stage;
 
-    // Reference (standard) resolution: a dropdown of standard sizes + a landscape/portrait toggle.
-    private final ComboBox<Resolution> resolutionCombo = new ComboBox<>();
-    private final ToggleGroup orientationGroup = new ToggleGroup();
-    private final ToggleButton landscapeToggle = new ToggleButton("Landscape");
-    private final ToggleButton portraitToggle = new ToggleButton("Portrait");
+    // The Reference Resolution pane was here until 2026-09-01 — a dropdown of standard sizes and a
+    // landscape/portrait toggle. It set the size image templates are captured at, which is the capturing
+    // plugin's own setting; its toolbar item owns it now, and this dialog no longer names a capture concept.
 
     // Favourite methods per class: className -> mutable ordered method list.
     private final ObservableList<FavMethodRow> favMethodRows = FXCollections.observableArrayList();
@@ -99,65 +96,9 @@ public class ProjectSettingsDialog {
 
         VBox root = new VBox(12);
         root.setPadding(new Insets(16));
-        // Built before it is seeded: buildResolutionPane replaces the combo's items wholesale, which would drop
-        // a selection made ahead of it — the reference resolution used to come up blank for exactly that reason.
-        TitledPane resolutionPane = buildResolutionPane();
-        seedResolution(s.referenceResolution());
-        root.getChildren().addAll(resolutionPane, buildFavMethodsPane(), buildFavOverloadsPane(), buildButtonBar());
+        root.getChildren().addAll(buildFavMethodsPane(), buildFavOverloadsPane(), buildButtonBar());
 
         window.show(root);
-    }
-
-    private TitledPane buildResolutionPane() {
-        resolutionCombo.setItems(FXCollections.observableArrayList(ResolutionChoices.LANDSCAPE));
-        resolutionCombo.setConverter(new StringConverter<>() {
-            @Override public String toString(Resolution r) { return ResolutionChoices.label(r); }
-            @Override public Resolution fromString(String s) { return null; }
-        });
-        landscapeToggle.setToggleGroup(orientationGroup);
-        portraitToggle.setToggleGroup(orientationGroup);
-        // The catalog itself follows the toggle, so every label reads as the project will be saved: a portrait
-        // project says "1080 × 1920", not the landscape pair it is derived from.
-        portraitToggle.selectedProperty().addListener(
-                (o, was, portrait) -> ResolutionChoices.orient(resolutionCombo, !portrait));
-        Button clear = new Button("Clear");
-        clear.setOnAction(e -> { resolutionCombo.getSelectionModel().clearSelection(); });
-
-        HBox row = new HBox(8, new Label("Standard resolution:"), resolutionCombo,
-                landscapeToggle, portraitToggle, clear);
-        row.setAlignment(Pos.CENTER_LEFT);
-        Label hint = new Label("The canonical target-window size image templates are captured at. "
-                + "Leave empty to auto-seed from the window's size on first capture.");
-        hint.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
-        hint.setWrapText(true);
-        TitledPane pane = new TitledPane("Reference Resolution", new VBox(6, row, hint));
-        pane.setCollapsible(false);
-        return pane;
-    }
-
-    /** Selects the combo entry + orientation toggle matching {@code ref} (clears the selection when null). */
-    private void seedResolution(Resolution ref) {
-        if (ref == null) {
-            resolutionCombo.getSelectionModel().clearSelection();
-            landscapeToggle.setSelected(true);
-            return;
-        }
-        boolean landscape = ResolutionChoices.isLandscape(ref);
-        // Selecting the toggle re-orients the catalog, so from here on the entries are in ref's own orientation
-        // and it can be matched as it is stored — no landscape round-trip, and no label to un-swap later.
-        (landscape ? landscapeToggle : portraitToggle).setSelected(true);
-        resolutionCombo.getItems().stream()
-                .filter(r -> r.equals(ref))
-                .findFirst()
-                .ifPresentOrElse(resolutionCombo.getSelectionModel()::select,
-                        () -> { resolutionCombo.getItems().add(ref);
-                                resolutionCombo.getSelectionModel().select(ref); });
-    }
-
-    /** The chosen reference resolution (null when the selection was cleared), in the chosen orientation. */
-    private Resolution selectedResolution() {
-        // Already oriented: the items follow the toggle, which is what the labels are read from too.
-        return resolutionCombo.getSelectionModel().getSelectedItem();
     }
 
     private TitledPane buildFavMethodsPane() {
@@ -364,9 +305,7 @@ public class ProjectSettingsDialog {
         statusLabel.setStyle("-fx-text-fill: #b00020;");
         statusLabel.setText("");
 
-        Resolution resolution = selectedResolution();
-
-        StudioProjectSettings s = settingsService.current().withReferenceResolution(resolution);
+        StudioProjectSettings s = settingsService.current();
 
         // Rebuild favourite methods: drop any classes removed in the UI, then apply the current rows.
         for (String existing : new ArrayList<>(s.favoriteMethods().keySet())) {

@@ -2,10 +2,8 @@ package com.botmaker.studio.project;
 
 import com.botmaker.sdk.authoring.Authoring;
 import com.botmaker.sdk.authoring.AuthoringUnsupported;
-import com.botmaker.sdk.authoring.CaptureModel;
 import com.botmaker.sdk.authoring.ProjectSpec;
 import com.botmaker.sdk.authoring.SdkVersion;
-import com.botmaker.sdk.api.geometry.Size;
 import com.botmaker.studio.services.MavenService;
 
 /**
@@ -20,9 +18,9 @@ import com.botmaker.studio.services.MavenService;
  * only noticed at run time.
  *
  * <p>This is not the adapter that was rejected in phase 1. That one mirrored the SDK's <em>data model</em>
- * record for record, giving {@code activities.json} two owners; this converts three identifiers and a size at
- * the one boundary where Studio hands work over, and it disappears when nothing on this side is spelled
- * differently any more.
+ * record for record, giving {@code activities.json} two owners; this converts three identifiers at the one
+ * boundary where Studio hands work over, and it disappears when nothing on this side is spelled differently
+ * any more.
  *
  * <h2>What used to be here, and is not coming back</h2>
  *
@@ -48,8 +46,7 @@ public final class ProjectSpecs {
      *               <em>new</em> pom pins is Studio's call, and deliberately not derived from
      *               {@link SdkVersion#latest()} (see {@code MavenService.SDK_FALLBACK_VERSION})
      */
-    public static ProjectSpec of(ProjectConfig cfg, ProjectTemplate template, String sdkPin,
-                                 CaptureModel.Resolution referenceResolution) {
+    public static ProjectSpec of(ProjectConfig cfg, ProjectTemplate template, String sdkPin) {
         return new ProjectSpec(
                 cfg.projectName(),
                 // The SDK is told the *full* package. Studio stores the last segment and prefixes "com."
@@ -59,8 +56,9 @@ public final class ProjectSpecs {
                 cfg.className(),
                 template == ProjectTemplate.GAME_BOT ? ProjectSpec.Kind.GAME_BOT : ProjectSpec.Kind.EMPTY,
                 sdkPin == null || sdkPin.isBlank() ? MavenService.SDK_FALLBACK_VERSION : sdkPin.trim(),
-                referenceResolution == null
-                        ? null : new Size(referenceResolution.width(), referenceResolution.height()));
+                // No reference size. The editor stopped choosing one on 2026-09-01 — it describes the
+                // pictures, so the plugin that takes them seeds it on the first capture.
+                null);
     }
 
     /**

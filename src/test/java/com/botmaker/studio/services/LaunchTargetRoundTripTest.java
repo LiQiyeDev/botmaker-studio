@@ -111,22 +111,22 @@ class LaunchTargetRoundTripTest {
 
     /**
      * A null spec removes the key rather than writing an empty one, and the other project properties survive
-     * — the write is a read-modify-write of a shared file, so "clear the target" must not clear the capture
-     * resolution the same file holds.
+     * — the write is a read-modify-write of a shared file shared with the capturing plugin, so "clear the
+     * target" must not clear a key it did not write.
+     *
+     * <p>It used to seed that other key here, with {@code ProjectCreator.writeCaptureProperties}, and assert
+     * the capture resolution survived. Both of those went to the plugin on 2026-09-01; what is asserted now
+     * is the property this file's own writer owns, which is the half this test was ever able to prove.
      */
     @Test
     void clearingTheTargetRemovesTheKeyAndLeavesTheOtherPropertiesAlone(@TempDir Path dir) throws IOException {
         Path resources = dir.resolve("resources");
-        ProjectCreator.writeCaptureProperties(resources,
-                new com.botmaker.sdk.authoring.CaptureModel.Resolution(1280, 720));
         ProjectCreator.writeLaunchTarget(resources, "steam:570");
         assertEquals("steam:570", ProjectCreator.readLaunchTarget(resources));
 
         ProjectCreator.writeLaunchTarget(resources, null);
 
         assertNull(ProjectCreator.readLaunchTarget(resources), "the key must be gone, not blank");
-        assertNotNull(ProjectCreator.readCaptureSize(resources),
-                "clearing the launch target must not take the capture resolution with it");
 
         String file = Files.readString(resources.resolve(
                 com.botmaker.shared.config.ProjectProperties.FILE_NAME));

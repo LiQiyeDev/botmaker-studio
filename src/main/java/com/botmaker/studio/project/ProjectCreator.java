@@ -2,7 +2,6 @@ package com.botmaker.studio.project;
 
 import com.botmaker.sdk.authoring.Authoring;
 import com.botmaker.sdk.authoring.AuthoringUnsupported;
-import com.botmaker.sdk.authoring.CaptureModel;
 import com.botmaker.sdk.authoring.SdkVersion;
 import com.botmaker.shared.config.ProjectProperties;
 import com.botmaker.studio.project.launch.SupportedTargets;
@@ -48,22 +47,19 @@ public class ProjectCreator {
     }
 
     public void createProject(String projectName, String sdkVersion) throws IOException {
-        createProject(projectName, sdkVersion, new CaptureModel.Resolution(1920, 1080));
-    }
-
-    public void createProject(String projectName, String sdkVersion,
-                              CaptureModel.Resolution referenceResolution) throws IOException {
-        createProject(projectName, sdkVersion, referenceResolution, ProjectTemplate.EMPTY);
+        createProject(projectName, sdkVersion, ProjectTemplate.EMPTY);
     }
 
     /**
      * Creates a new project, pinning the BotMaker SDK to {@code sdkVersion}
-     * (blank → {@link MavenService#SDK_FALLBACK_VERSION}) and seeding its standard capture resolution
-     * {@code referenceResolution} (null leaves it unseeded — auto-seeded from the window on first capture).
-     * {@code template} chooses the starting source files.
+     * (blank → {@link MavenService#SDK_FALLBACK_VERSION}). {@code template} chooses the starting source
+     * files.
+     *
+     * <p><b>No capture resolution is chosen here (2026-09-01).</b> The size templates are captured at is
+     * the capturing plugin's, seeded by its own toolbar item the first time a picture is taken; a project
+     * is created without one and {@code capture.width}/{@code capture.height} stay absent until then.
      */
     public void createProject(String projectName, String sdkVersion,
-                              CaptureModel.Resolution referenceResolution,
                               ProjectTemplate template) throws IOException {
         validateProjectName(projectName);
 
@@ -100,16 +96,13 @@ public class ProjectCreator {
             Map<String, String> ourFiles = new LinkedHashMap<>(StarterSources.of(cfg));
             ourFiles.put("pom.xml", MavenService.pomXml(cfg, effectiveSdkVersion(sdkVersion)));
             Authoring.createProject(sdk,
-                    ProjectSpecs.of(cfg, template, effectiveSdkVersion(sdkVersion), referenceResolution),
+                    ProjectSpecs.of(cfg, template, effectiveSdkVersion(sdkVersion)),
                     projectPath, SchemaFile.ACTIVITIES.current(), ourFiles);
 
-            // 2. Seed settings.json (the chosen template + the standard capture resolution). Studio's own
-            //    file: no bot reads it, and it records what the editor chose rather than what the bot needs.
-            //    It also stamps the capture resolution into botmaker-project.properties — a merge into the
-            //    file the SDK just wrote, which is why it goes through writeProjectKeys rather than a
-            //    second store().
+            // 2. Seed settings.json (the chosen template). Studio's own file: no bot reads it, and it
+            //    records what the editor chose rather than what the bot needs.
             System.out.println("2. Generating settings...");
-            seedSettings(cfg, referenceResolution, template);
+            seedSettings(cfg, template);
 
             // 5b. Seed the runtime tuning — delays, confidence, real input, and background isolation (a private
             //     :N display). A game bot starts with real input on; that is the whole difference between
@@ -142,10 +135,9 @@ public class ProjectCreator {
      * demonstrably built for its author. Changing the SDK pin afterwards is <b>Project ▸ Manage Libraries</b>,
      * which is the same path any other version change takes.
      *
-     * <p>The only things written are the two Studio owns and the template cannot know: {@code settings.json}
-     * (its {@code template} is {@link ProjectTemplate#FROM_TEMPLATE}) and the capture resolution, and the
-     * latter is merged into whatever {@code botmaker-project.properties} the template shipped rather than
-     * replacing it.
+     * <p>The only thing written is the one Studio owns and the template cannot know: {@code settings.json},
+     * whose {@code template} is {@link ProjectTemplate#FROM_TEMPLATE}. Whatever
+     * {@code botmaker-project.properties} the template shipped is left exactly as its author wrote it.
      *
      * <p>All-or-none is kept the crude way rather than the {@code createProject} way: the unpack writes a
      * whole directory tree that {@code Authoring} never sees, so a failure anywhere in here deletes the
@@ -157,8 +149,7 @@ public class ProjectCreator {
      *                    ::unpackTemplate} bound to the chosen entry and tag, passed in so this class keeps
      *                    knowing nothing about GitHub
      */
-    public void createFromTemplate(String projectName, CaptureModel.Resolution referenceResolution,
-                                   TemplateUnpack unpack) throws IOException {
+    public void createFromTemplate(String projectName, TemplateUnpack unpack) throws IOException {
         validateProjectName(projectName);
 
         ProjectConfig cfg = ProjectConfig.forProject(projectName, PROJECTS_ROOT);
@@ -180,7 +171,7 @@ public class ProjectCreator {
             TemplateProject.read(projectPath).renameInto(projectPath, "com." + cfg.packageName());
 
             System.out.println("3. Generating settings...");
-            seedSettings(cfg, referenceResolution, ProjectTemplate.FROM_TEMPLATE);
+            seedSettings(cfg, ProjectTemplate.FROM_TEMPLATE);
 
             new ProjectVcs(projectPath).init();
 
@@ -223,32 +214,18 @@ public class ProjectCreator {
     }
 
     /**
-     * Writes {@code settings.json} — the originating {@code template} (which {@link FileRole} and
-     * {@code ProjectRepair} read to tell scaffolding from user code) plus the editor's standard/reference
-     * resolution — and mirrors the resolution into {@code botmaker-project.properties}
-     * ({@code capture.width}/{@code capture.height}) so the generated bot's runtime resolution scaling
-     * ({@code ProjectDefaults}/{@code ResolutionScaler}) defaults to the same size.
+     * Writes {@code settings.json} — the originating {@code template}, which {@link FileRole} and
+     * {@code ProjectRepair} read to tell scaffolding from user code. A project must record it or it is
+     * indistinguishable from a legacy one.
      *
-     * <p>Settings are written even for a null resolution (left to auto-seed from the window on first capture) —
-     * the template must be recorded regardless, or the project is indistinguishable from a legacy one.
+     * <p>The {@code capture.width}/{@code capture.height} mirror that used to go with it is gone
+     * (2026-09-01), along with the resolution the editor used to pick. Those keys describe the size the
+     * pictures were taken at, so the plugin that takes them writes them.
      */
-    static void seedSettings(ProjectConfig cfg, CaptureModel.Resolution resolution,
-                             ProjectTemplate template) throws IOException {
+    static void seedSettings(ProjectConfig cfg, ProjectTemplate template) throws IOException {
         StudioProjectSettings.empty()
                 .withTemplate(template)
-                .withReferenceResolution(resolution)
                 .write(cfg.resourcesRoot());
-        if (resolution != null) {
-            writeCaptureProperties(cfg.resourcesRoot(), resolution);
-        }
-    }
-
-    /** Writes/updates {@code capture.width}/{@code capture.height} in {@code botmaker-project.properties}. */
-    public static void writeCaptureProperties(Path resourcesDir, CaptureModel.Resolution resolution)
-            throws IOException {
-        writeProjectKeys(resourcesDir, new java.util.LinkedHashMap<>(java.util.Map.of(
-                ProjectProperties.KEY_CAPTURE_WIDTH, Integer.toString(resolution.width()),
-                ProjectProperties.KEY_CAPTURE_HEIGHT, Integer.toString(resolution.height()))));
     }
 
     /**
@@ -263,19 +240,9 @@ public class ProjectCreator {
                 spec == null || spec.isBlank() ? null : spec.trim());
     }
 
-    /**
-     * The project's standard capture resolution from {@code botmaker-project.properties}, or {@code null} when
-     * either key is absent or unparseable. The inverse of {@link #writeCaptureProperties}.
-     *
-     * <p>It reads the properties file rather than {@code settings.json} so a caller holding nothing but a
-     * resources dir — {@link com.botmaker.studio.project.launch.QuickLaunch} — can ask, exactly as it already
-     * does for {@code launch.target} and {@code session.isolated}. This is the size a background session's
-     * nested display is created at, and therefore the screen resolution the game inside it sees.
-     */
-    public static CaptureModel.Resolution readCaptureSize(Path resourcesDir) {
-        java.awt.Dimension size = com.botmaker.shared.config.ProjectFile.captureSize(resourcesDir);
-        return size == null ? null : new CaptureModel.Resolution(size.width, size.height);
-    }
+    // readCaptureSize was here until 2026-09-01. Its javadoc named QuickLaunch as the caller that needed the
+    // size a background session's nested display is created at — and QuickLaunch is the plugin's now, asking
+    // shared's ProjectFile.captureSize directly. Nothing in the editor was left calling it.
 
     /**
      * One key's trimmed value from {@code botmaker-project.properties}, or {@code null} when the key, the file

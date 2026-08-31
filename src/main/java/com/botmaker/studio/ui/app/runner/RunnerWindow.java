@@ -1,6 +1,5 @@
 package com.botmaker.studio.ui.app.runner;
 
-import com.botmaker.sdk.authoring.CaptureTargetModel;
 import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.ProjectConfig;
