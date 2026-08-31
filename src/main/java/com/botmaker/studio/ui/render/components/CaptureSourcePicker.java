@@ -1,6 +1,8 @@
 package com.botmaker.studio.ui.render.components;
 
+import com.botmaker.sdk.internal.plugin.capture.SourcePicker;
 import com.botmaker.studio.core.ValueSlot;
+import com.botmaker.studio.plugin.HostServices;
 import com.botmaker.studio.project.capture.CaptureExpr;
 import com.botmaker.studio.services.CodeEditorService;
 import javafx.scene.Node;
@@ -10,8 +12,8 @@ import org.eclipse.jdt.core.dom.Expression;
 
 /**
  * A control standing in for a {@code CaptureSource} (or {@code Window}) argument. Shows the current source
- * and, on click, opens the visual {@link com.botmaker.studio.ui.app.capture.CaptureSourcePicker Steam-style
- * chooser} (screens + windows with live thumbnails, plus "Project default"). A pick rewrites the backing
+ * and, on click, opens the SDK plugin's visual chooser ({@link SourcePicker} — screens, windows and emulator
+ * instances with live thumbnails, plus "Project default"). A pick rewrites the backing
  * expression to an inline, fully-qualified SDK call ({@code CaptureSource.screen()} / {@code Screen.at(i)} /
  * {@code CaptureSource.window("t")}, from {@link CaptureExpr}) via
  * {@link com.botmaker.studio.parser.CodeEditor#replaceWithRawExpression}. "Project default" is emitted as the
@@ -31,7 +33,7 @@ public final class CaptureSourcePicker {
         button.getStyleClass().add("capture-source-picker");
         button.setOnAction(e -> {
             Window owner = button.getScene() != null ? button.getScene().getWindow() : null;
-            new com.botmaker.studio.ui.app.capture.CaptureSourcePicker(owner, true).showAndWait()
+            new SourcePicker(HostServices.forProject(context.getConfig()), owner, true).showAndWait()
                     .ifPresent(sel ->
                         context.getCodeEditor().replaceWithRawExpression(arg.node(), sourceCode(sel)));
         });
@@ -43,12 +45,10 @@ public final class CaptureSourcePicker {
      * "Project default" choice emits {@code Source.current()} — the SDK's ambient source — rather than a
      * snapshot of today's default, so the bot follows the project's configured source if it later changes.
      */
-    private static String sourceCode(com.botmaker.studio.ui.app.capture.CaptureSourcePicker.Selection sel) {
+    private static String sourceCode(SourcePicker.Selection sel) {
         return switch (sel) {
-            case com.botmaker.studio.ui.app.capture.CaptureSourcePicker.Selection.ProjectDefault ignored ->
-                    CaptureExpr.projectDefault();
-            case com.botmaker.studio.ui.app.capture.CaptureSourcePicker.Selection.Concrete c ->
-                    CaptureExpr.of(c.target(), c.region());
+            case SourcePicker.Selection.ProjectDefault ignored -> CaptureExpr.projectDefault();
+            case SourcePicker.Selection.Concrete c -> CaptureExpr.of(c.target(), c.region());
         };
     }
 

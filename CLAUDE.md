@@ -162,6 +162,36 @@ pickers do not have, which is the bug the move exists to prevent.
   re-reads the library when it opens its gallery, which is why nobody noticed in the event's whole life. The
   four publish sites went with it, and `ResourceManagerDialog.published()` now only clears its status line.
 
+**Capture Targets left too, and with it the editor's last claim on `capture.json` (2026-08-31).**
+`ui/app/ManageCaptureTargetsDialog`, `ui/app/capture/{CaptureSourcePicker, TargetThumbnail}`,
+`project/launch/QuickLaunch` and `project/capture/CaptureRegion` are **deleted**; they are
+`com.botmaker.sdk.internal.plugin.capture.{CaptureTargets, SourcePicker, TargetThumbnail}` and
+`internal.plugin.launch.QuickLaunch`, reached through a `ToolbarItem` in `ToolbarGroup.PROJECT` at order 50.
+
+- **The maintainer's rule is stronger than "the SDK stores the targets": *whatever the SDK writes, the SDK
+  reads*.** So the migration off this editor's own older `settings.json` shape went with them, into
+  `Authoring.readCapture`, and so did the `capture.source` projection. `StudioProjectSettings.legacyCapture`,
+  `legacyTarget`, `legacyReference`, `captureModel()` and `projectDefaultSource` are gone.
+- **The one thing `write` still touches in that file is the reference resolution, and it is *merged*.** The
+  plugin's manager writes the target list while the editor is open, so writing the model whole would put the
+  list this settings was read with back over the top of it. `CaptureStoreTest` holds exactly that case, which
+  is the only one here that would have failed silently.
+- **`withTargets`, `withDefaultIndex` and `withKnownWindowTitles` are deleted** — their one caller was the
+  dialog. `knownWindowTitles` survives as a component nothing reads; it was only ever accumulated by that
+  dialog, and it goes when the components do.
+- **`ProjectSettingsService.defaultTarget()` reads off disk on every call.** Nothing tells the editor when a
+  plugin writes, so a cached copy would be stale from the moment the user pressed Apply. Every remaining
+  reader here is on its way out with 3d.
+- **Three host entry points went**: the toolbar item and `setOnManageCaptureTargets`,
+  `StudioActions.openManageCaptureTargets`, and the **Change…** buttons in `ProjectSetupDialog` and
+  `RunnerWindow` — the shell has no handle on another plugin's toolbar item, the same reason the Capture
+  Templates steps lost theirs. Both rows still *report* the target and say where to change it.
+- **What it cost: the toolbar button's label.** It used to read "🎯 " + the current default target's name.
+  `toolbarItems()` is called with no `StudioServices`, so a plugin's item has no project to name.
+- **Still owed**: `ui/render/components/CaptureSourcePicker` and `ExpressionMenu` now call the plugin's picker
+  directly. That is a transitional Studio→SDK import which phase 6 removes by making the picker a
+  `SlotEditor` the plugin contributes.
+
 **Capture Templates left, and it is the second whole feature to leave through the toolbar surface
 (2026-08-31).** `ui/app/capture/OverlayTemplateCapture` is **deleted**; the tool is
 `com.botmaker.sdk.internal.plugin.capture.CaptureTemplates`, contributed as a `ToolbarItem` into

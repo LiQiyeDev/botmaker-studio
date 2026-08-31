@@ -310,8 +310,10 @@ class ScreenCaptureServiceTest {
         Files.createDirectories(config.resourcesRoot());
         com.botmaker.sdk.authoring.CaptureTargetModel window =
                 com.botmaker.sdk.authoring.CaptureTargetModel.window("RuneLite");
-        new com.botmaker.studio.project.StudioProjectSettings(List.of(window), 0, List.of(), java.util.Map.of(),
-                null, null).write(config.resourcesRoot());
+        // Through the SDK's own writer: the target list stopped being the editor's on 2026-08-31.
+        com.botmaker.sdk.authoring.Authoring.writeCapture(
+                com.botmaker.sdk.authoring.SdkVersion.latest(), config.resourcesRoot(),
+                new com.botmaker.sdk.authoring.CaptureModel(List.of(window), 0, null));
 
         assertEquals(window, ScreenCaptureService.forProjectFiles(config).defaultTarget());
         assertNull(ScreenCaptureService.forProjectFiles(null).defaultTarget(),

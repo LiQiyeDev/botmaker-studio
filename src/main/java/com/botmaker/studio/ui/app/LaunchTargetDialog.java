@@ -11,7 +11,7 @@ import com.botmaker.studio.project.ProjectCreator;
 import com.botmaker.studio.project.ProjectMode;
 import com.botmaker.studio.project.ProjectPreferences;
 import com.botmaker.studio.project.SessionSetting;
-import com.botmaker.studio.project.launch.QuickLaunch;
+import com.botmaker.sdk.internal.plugin.launch.QuickLaunch;
 import com.botmaker.studio.project.launch.SupportedTargets;
 import com.botmaker.shared.launch.LaunchKind;
 import com.botmaker.shared.launch.LaunchSpec;
@@ -46,8 +46,9 @@ import java.util.function.Consumer;
  * reusable picker dialog the in-block {@code LaunchTarget} picker uses ({@link GameLibraryPickerDialog} / OS file
  * chooser / {@link EmulatorPickerDialog}).
  *
- * <p>Opened from the toolbar's Launch Target button — the project-target sibling of the Capture Targets button
- * ({@link ManageCaptureTargetsDialog}).
+ * <p>Opened from the toolbar's Launch Target button — the project-target sibling of the Capture Targets
+ * button, which is the SDK plugin's since 2026-08-31 (what a bot <em>looks at</em> is that plugin's
+ * vocabulary; what it <em>launches</em> is still the editor's, until the launch pickers follow).
  *
  * <p><b>Two things here belong to two different people.</b> A published bot declares the launch kinds it
  * <em>was tested on</em> ({@link SupportedTargets}); which of them this machine actually runs, and what this
@@ -104,7 +105,7 @@ public final class LaunchTargetDialog {
 
     /**
      * As {@link #show()}, additionally running {@code onClosed} on the FX thread once the window is gone.
-     * Mirrors {@link ManageCaptureTargetsDialog#show(Runnable)} and exists for the same reason: the stage is
+     * Exists for the reason the plugin's targets manager has the same overload: the stage is
      * modal but {@code show()} does not block, so a caller that sent the user here to fix something — the
      * overlay editor, which has no window to draw over until a target exists — has no other way to know when
      * to look again.

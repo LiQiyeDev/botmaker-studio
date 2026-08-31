@@ -69,7 +69,7 @@ Everything visual is relative to this one choice. Image search, OCR, colour samp
 
 Like the launch target, this belongs to the machine that runs the bot, not to the bot. It is not published: when you install someone else's bot you pick your own.
 
-*In Studio:* 🎯 Capture Targets on the toolbar — it shows the current one
+*In Studio:* 🎯 Capture Targets on the toolbar (contributed by the BotMaker SDK)
 
 ## 4. Capture image templates
 

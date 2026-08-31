@@ -127,7 +127,8 @@ final class StudioActions {
 
         // --- Capture / launch / input ---
         toolbar.setResourcesDir(config.resourcesRoot());
-        toolbar.setOnManageCaptureTargets(this::openManageCaptureTargets);
+        // Nothing to wire for the capture targets: that button is the SDK plugin's item, and its dialog is
+        // the plugin's too. The shell supplies the bar it is placed on and nothing else.
         toolbar.setLaunchTarget(ProjectCreator.readLaunchTarget(config.resourcesRoot()));
         toolbar.setOnManageLaunchTarget(() -> openLaunchTarget(null));
         toolbar.setOnToggleDebugOutput(ProjectCreator.readDebug(config.resourcesRoot()), this::writeDebug);
@@ -279,10 +280,6 @@ final class StudioActions {
         new ProjectSettingsDialog(primaryStage, projectSettingsService, projectAnalyzer).show();
     }
 
-    private void openManageCaptureTargets() {
-        new ManageCaptureTargetsDialog(primaryStage, projectSettingsService, config.resourcesRoot()).show();
-    }
-
     /**
      * Shows the Launch Target dialog, running {@code then} once it closes when there is one — the recovery the
      * overlay editor takes when there is nothing to draw over (no private session up, no default capture
@@ -336,7 +333,8 @@ final class StudioActions {
     private void openGettingStarted() {
         GettingStartedDialog.Actions actions = GettingStartedDialog.Actions.builder()
                 .on(StudioAction.PROJECT_SETUP, this::openProjectSetup)
-                .on(StudioAction.CAPTURE_TARGETS, this::openManageCaptureTargets)
+                // No CAPTURE_TARGETS entry either, and for the same reason as CAPTURE_TEMPLATES below: the
+                // targets manager is the SDK plugin's toolbar item since 2026-08-31.
                 .on(StudioAction.LAUNCH_TARGET, () -> openLaunchTarget(null))
                 // No CAPTURE_TEMPLATES entry: the tool is the SDK plugin's toolbar item since 2026-08-31 and
                 // the shell has no handle on it. The step still reads, without an Open button — the action's

@@ -229,23 +229,9 @@ public record StudioProjectSettings(@JsonIgnore List<CaptureTargetModel> capture
         return defaultTargetIndex == null ? null : captureTargets.get(defaultTargetIndex);
     }
 
-    /** This settings with the target list replaced (keeps the default if still in range). */
-    public StudioProjectSettings withTargets(List<CaptureTargetModel> targets) {
-        return new StudioProjectSettings(targets, defaultTargetIndex, knownWindowTitles, favoriteOverloads,
-                referenceResolution, favoriteMethods, template, lastRecordedActivity, overlayState, workspaceLayout);
-    }
-
-    /** This settings with the default index replaced. */
-    public StudioProjectSettings withDefaultIndex(Integer index) {
-        return new StudioProjectSettings(captureTargets, index, knownWindowTitles, favoriteOverloads,
-                referenceResolution, favoriteMethods, template, lastRecordedActivity, overlayState, workspaceLayout);
-    }
-
-    /** This settings with the remembered window titles replaced. */
-    public StudioProjectSettings withKnownWindowTitles(List<String> titles) {
-        return new StudioProjectSettings(captureTargets, defaultTargetIndex, titles, favoriteOverloads,
-                referenceResolution, favoriteMethods, template, lastRecordedActivity, overlayState, workspaceLayout);
-    }
+    // withTargets, withDefaultIndex and withKnownWindowTitles are deleted (2026-08-31). Their one caller was
+    // the targets dialog, which is the SDK plugin's now — so the editor has no way left to change a target
+    // list it does not own, which is the point rather than a side effect.
 
     /** This settings with the capture reference resolution replaced ({@code null} clears it). */
     public StudioProjectSettings withReferenceResolution(Resolution resolution) {
@@ -322,17 +308,18 @@ public record StudioProjectSettings(@JsonIgnore List<CaptureTargetModel> capture
      * {@code capture.json} exists it is the answer, empty or not: the migration must not resurrect a list the
      * user has since emptied.
      *
-     * <p>The reference resolution migrates the same way but needs its own read, because {@code capture.json}
-     * may well exist without it — every project written between 2026-08-30 and 2026-08-31 is in exactly that
-     * state. See {@link #legacyReference} and {@link #withCapture}.
+     * <p><b>Neither migration is here any more (2026-08-31).</b> Both were reads of <em>this</em> file on
+     * behalf of the SDK's, and they had a hole with no symptom: the editor has stopped writing the targets,
+     * so a migration that only ran here would never move them across and the first reader that asked the
+     * plugin would be told a configured project had none. The reader of a file owns its migration, so both
+     * live in {@code Authoring.readCapture} and this simply asks it.
      */
     public static StudioProjectSettings read(Path resourcesDir) {
         Path file = resourcesDir.resolve(FILE_NAME);
         StudioProjectSettings settings = empty();
         if (Files.exists(file)) {
             try {
-                settings = MAPPER.readValue(file.toFile(), StudioProjectSettings.class)
-                        .withReferenceResolution(legacyReference(file));
+                settings = MAPPER.readValue(file.toFile(), StudioProjectSettings.class);
             } catch (Exception e) {
                 System.err.println("Failed to read " + FILE_NAME + " in " + resourcesDir + ": " + e.getMessage());
                 return empty();
@@ -346,14 +333,22 @@ public record StudioProjectSettings(@JsonIgnore List<CaptureTargetModel> capture
      * the file's {@code schemaVersion} — see {@link SchemaFile#stamped} and the same note on
      * {@link com.botmaker.studio.project.activity.ActivitiesConfig#write}.
      *
-     * <p>The capture targets go to {@code capture.json} in the same pass, through {@link Authoring}.
+     * <p><b>Only the reference resolution reaches {@code capture.json}, and it is merged rather than
+     * written (2026-08-31).</b> The target list in that file belongs to the SDK plugin's own manager, which
+     * writes it while this editor is not looking; writing {@link #captureModel()} whole would put whatever
+     * this settings was read with back over the top of it. So the file is re-read and only the component the
+     * editor still owns is replaced.
+     *
+     * <p>The {@code capture.source} projection went with the list. Its writer is the plugin that owns the
+     * default target, because two authors of one projection is exactly the disagreement moving the targets
+     * out was meant to end.
      */
     public void write(Path resourcesDir) throws IOException {
         Files.createDirectories(resourcesDir);
         ObjectNode body = MAPPER.valueToTree(this);
         MAPPER.writeValue(resourcesDir.resolve(FILE_NAME).toFile(), SchemaFile.SETTINGS.stamped(body));
-        Authoring.writeCapture(SdkVersion.latest(), resourcesDir, captureModel());
-        projectDefaultSource(resourcesDir);
+        Authoring.writeCapture(SdkVersion.latest(), resourcesDir,
+                readCapture(resourcesDir).withReference(referenceResolution));
     }
 
     /**
@@ -369,112 +364,26 @@ public record StudioProjectSettings(@JsonIgnore List<CaptureTargetModel> capture
      * directly by the launch-target dialog and the emulator picker for a project that has no target list at
      * all, and clearing it here would silently un-configure those.
      */
-    private void projectDefaultSource(Path resourcesDir) throws IOException {
-        CaptureTargetModel target = defaultTarget();
-        if (target == null) return;
-        ProjectCreator.writeCaptureSource(resourcesDir, target.spec());
-    }
-
-    /**
-     * This settings' capture targets as the SDK stores them.
-     *
-     * <p>A copy of the list and the index and nothing else since 2026-08-30: the editor holds the SDK's own
-     * {@link CaptureTargetModel} now, so there is no conversion left to get wrong. It went through one —
-     * {@code project.capture.CaptureTargets}, mapping four Studio record shapes onto the spec grammar and back
-     * — and the shapes are deleted because a target's identity is its spec on both sides of the boundary.
-     */
-    @JsonIgnore
-    public CaptureModel captureModel() {
-        return new CaptureModel(captureTargets, defaultTargetIndex, referenceResolution);
-    }
-
-    /**
-     * This settings with the three {@code capture.json} components taken from {@code capture}.
-     *
-     * <p>{@code reference} falls back to what this settings already carries, which is the whole of the
-     * resolution's migration: a {@code settings.json} written before 2026-08-31 has it and {@code capture.json}
-     * does not, so the value read out of the legacy field survives into memory and the next write moves it
-     * across. Once {@code capture.json} names one it wins — the same rule the target list migrated under, and
-     * for the same reason: the migration must not resurrect a value the user has since changed.
-     */
+    /** This settings with the three {@code capture.json} components taken from {@code capture}. */
     private StudioProjectSettings withCapture(CaptureModel capture) {
-        Resolution reference = capture.reference() != null ? capture.reference() : referenceResolution;
         return new StudioProjectSettings(capture.targets(), capture.defaultIndex(), knownWindowTitles,
-                favoriteOverloads, reference, favoriteMethods, template, lastRecordedActivity,
+                favoriteOverloads, capture.reference(), favoriteMethods, template, lastRecordedActivity,
                 overlayState, workspaceLayout);
     }
 
+    /**
+     * The project's capture model, asked of the SDK rather than parsed here.
+     *
+     * <p>Including the migration off this very file, which used to be read here: whoever reads a file owns
+     * what to do with its older shapes, and the editor is no longer that reader.
+     */
     private static CaptureModel readCapture(Path resourcesDir) {
         try {
-            if (Files.exists(resourcesDir.resolve(CaptureModel.FILE_NAME))) {
-                return Authoring.readCapture(SdkVersion.latest(), resourcesDir);
-            }
-            return legacyCapture(resourcesDir);
+            return Authoring.readCapture(SdkVersion.latest(), resourcesDir);
         } catch (Exception e) {
             System.err.println("Failed to read " + CaptureModel.FILE_NAME + " in " + resourcesDir + ": "
                     + e.getMessage());
             return CaptureModel.empty();
         }
-    }
-
-    /**
-     * The capture targets a pre-{@code capture.json} {@code settings.json} carried, in the shape they were
-     * stored in — four polymorphic JSON forms under {@code captureTargets}, discriminated by {@code "type"}.
-     *
-     * <p>Read here rather than by the record itself because the components are {@link JsonIgnore}d now, which
-     * is what stops a stale copy being written back beside the real one.
-     *
-     * <p><b>Walked as a tree rather than bound to records, and that is the point of the shape being gone.</b>
-     * The four records were the editor's vocabulary and were deleted on 2026-08-30 when the editor moved onto
-     * {@link CaptureTargetModel}; keeping them alive here — as a nested legacy type with its Jackson subtypes
-     * intact — would leave a second spelling of a capture target in the codebase to serve a file format with
-     * one job left. What is actually needed is the mapping from an old node to a spec, and that is four lines.
-     * An entry whose {@code type} nothing recognises is skipped: this runs once, against a file written by an
-     * older Studio, and a target it cannot read is one the user re-adds rather than a reason a project will
-     * not open.
-     */
-    private static CaptureModel legacyCapture(Path resourcesDir) throws IOException {
-        Path file = resourcesDir.resolve(FILE_NAME);
-        if (!Files.exists(file)) return CaptureModel.empty();
-        JsonNode root = MAPPER.readTree(file.toFile());
-        List<CaptureTargetModel> targets = new ArrayList<>();
-        for (JsonNode node : root.path("captureTargets")) {
-            CaptureTargetModel target = legacyTarget(node);
-            if (target != null) targets.add(target);
-        }
-        JsonNode index = root.path("defaultTargetIndex");
-        return new CaptureModel(targets, index.isInt() ? index.intValue() : null, legacyReference(file));
-    }
-
-    /**
-     * The {@code referenceResolution} a pre-2026-08-31 {@code settings.json} carried, or {@code null}.
-     *
-     * <p>Read as a tree for the same reason the legacy targets are: the component is {@link JsonIgnore}d now,
-     * which is what stops a stale copy being written back beside the real one in {@code capture.json}. Unlike
-     * the targets this is read even when {@code capture.json} exists, because that file gained the resolution
-     * a day after it gained the targets — a project written in between has one file with the targets and the
-     * other with the size.
-     */
-    private static Resolution legacyReference(Path settingsFile) {
-        try {
-            if (!Files.exists(settingsFile)) return null;
-            JsonNode node = MAPPER.readTree(settingsFile.toFile()).path("referenceResolution");
-            int width = node.path("width").asInt(0);
-            int height = node.path("height").asInt(0);
-            return width > 0 && height > 0 ? new Resolution(width, height) : null;
-        } catch (Exception unreadable) {
-            return null;
-        }
-    }
-
-    /** One legacy {@code captureTargets} entry as a spec, or {@code null} when its {@code type} is unknown. */
-    private static CaptureTargetModel legacyTarget(JsonNode node) {
-        return switch (node.path("type").asText("")) {
-            case "screen" -> CaptureTargetModel.monitor(node.path("index").asInt(0));
-            case "window" -> CaptureTargetModel.window(node.path("titleSubstring").asText(""));
-            case "desktop" -> CaptureTargetModel.desktop();
-            case "emulator" -> CaptureTargetModel.emulator(node.path("instanceName").asText(""));
-            default -> null;
-        };
     }
 }

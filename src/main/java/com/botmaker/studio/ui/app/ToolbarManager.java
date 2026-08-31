@@ -10,8 +10,7 @@ import com.botmaker.studio.plugin.HostActionContext;
 import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.shared.game.GameLibraries;
 import com.botmaker.shared.game.InstalledGame;
-import com.botmaker.sdk.authoring.CaptureTargetModel;
-import com.botmaker.studio.project.launch.QuickLaunch;
+import com.botmaker.sdk.internal.plugin.launch.QuickLaunch;
 import com.botmaker.shared.launch.LaunchKind;
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.studio.services.ProjectSettingsService;
@@ -34,12 +33,12 @@ import java.util.function.Consumer;
 
 public class ToolbarManager {
 
-    /** Longest window title shown on the Capture button before it's ellipsized. */
+    /** Longest target name shown on the Launch Target button before it is ellipsized. */
     private static final int CAPTURE_LABEL_MAX = 26;
     // The launch target's cover thumbnail is sized by ToolbarItems now — one icon box for every item on the
     // bar, the host's or a plugin's, which is the whole reason a toolbar item is data and not a Node.
     /**
-     * Ceiling for the two buttons whose label tracks project state (capture target, launch target).
+     * Ceiling for the button whose label tracks project state (the launch target).
      * Sized for {@link #CAPTURE_LABEL_MAX} characters plus the icon and padding. These are the buttons that
      * change text <em>after</em> the bar is laid out — on a target switch, and again when
      * {@link #resolveLaunchArtwork} 's background scan lands with the real game title — so leaving them to
@@ -60,8 +59,6 @@ public class ToolbarManager {
     private Button undoButton, redoButton;
     private Button runButton, debugButton, followButton, unifiedStopButton;
     private Button stepOverButton, continueButton;
-    /** The Capture Targets button, whose text tracks the current project default. */
-    private Button captureButton;
     /** The Launch Target button, whose text + icon track the project's {@code launch.target}. */
     private Button launchTargetButton;
     /** The current {@code launch.target} spec, pushed in by {@link UIManager}; null when none is set. */
@@ -86,8 +83,6 @@ public class ToolbarManager {
     private Runnable onProjectSetup;
     /** Opens the Project Settings dialog; the same action the Project menu fires. */
     private Runnable onProjectSettings;
-    /** Opens the Manage Capture Targets dialog; wired by {@link UIManager}. */
-    private Runnable onManageCaptureTargets;
     /** Opens the Launch Target dialog (what the bot launches); wired by {@link UIManager}. */
     private Runnable onManageLaunchTarget;
     private Runnable onActivityFlow;
@@ -185,11 +180,6 @@ public class ToolbarManager {
     /** Sets the callback invoked when the toolbar's Project Settings button is clicked. */
     public void setOnProjectSettings(Runnable callback) {
         this.onProjectSettings = callback;
-    }
-
-    /** Sets the callback invoked when the toolbar's Capture Targets button is clicked. */
-    public void setOnManageCaptureTargets(Runnable callback) {
-        this.onManageCaptureTargets = callback;
     }
 
     /** Sets the callback invoked when the toolbar's Launch Target button is clicked. */
@@ -306,11 +296,11 @@ public class ToolbarManager {
         quickLaunchButton.getStyleClass().add("toolbar-btn");
         placed.add(new Placed(ToolbarGroup.PROJECT, 40, "quick-launch", quickLaunchButton, null));
 
-        captureButton = place(placed, ctx, new ToolbarItem("capture-target",
-                this::captureButtonText,
-                "Manage screen / window capture targets (current default shown)",
-                null, ToolbarGroup.PROJECT, 50, EnabledWhen.ALWAYS, c -> run(onManageCaptureTargets)));
-        pinWidth(captureButton);
+        // 🎯 Capture Targets stood here at PROJECT/50 until 2026-08-31 and is the SDK plugin's item now,
+        // placed by the same merge as any other plugin's. The list it manages is capture.json, which is the
+        // plugin's file — so the shell no longer reads it and can no longer put the current default's name on
+        // the button. That label is what the move cost: toolbarItems() is called with no StudioServices, so a
+        // plugin's item has no project to name.
 
         place(placed, ctx, ToolbarItem.of("flow", "🔀 Flow",
                 "Define the bot's activities and wire the order they run in",
@@ -508,19 +498,6 @@ public class ToolbarManager {
         } catch (Exception ignored) {
         }
         return (ref != null ? "Std " + ref.width() + "×" + ref.height() + "  ·  " : "") + screen;
-    }
-
-    /** "🎯 " + the current default target's short name, or "🎯 Capture Targets" when no default is set. */
-    private String captureButtonText() {
-        CaptureTargetModel def = null;
-        try {
-            def = (settings != null) ? settings.defaultTarget() : null;
-        } catch (Exception ignored) {
-        }
-        if (def == null) return "🎯 Capture Targets";
-        String name = def.shortLabel();
-        if (name.length() > CAPTURE_LABEL_MAX) name = name.substring(0, CAPTURE_LABEL_MAX - 1) + "…";
-        return "🎯 " + name;
     }
 
     /**

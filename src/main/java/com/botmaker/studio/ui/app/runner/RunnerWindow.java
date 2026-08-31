@@ -15,7 +15,6 @@ import com.botmaker.studio.project.vcs.ProjectVcs;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.ui.app.LaunchTargetDialog;
-import com.botmaker.studio.ui.app.ManageCaptureTargetsDialog;
 import com.botmaker.studio.ui.app.ProjectWindow;
 import com.botmaker.studio.ui.app.params.ParamValueWidgets;
 import com.botmaker.studio.ui.render.theme.BlockTheme;
@@ -275,24 +274,24 @@ public final class RunnerWindow implements ProjectWindow {
         changeLaunch.setOnAction(e ->
                 new LaunchTargetDialog(stage, config, spec -> refreshTargets()).show());
 
-        Button changeCapture = new Button("Change…");
-        changeCapture.setOnAction(e -> new ManageCaptureTargetsDialog(stage, settings, config.resourcesRoot())
-                .show(this::refreshTargets));
-
+        // No Change… beside the capture target since 2026-08-31: it is the SDK plugin's 🎯 Capture Targets
+        // toolbar item, and this window has no handle on another plugin's item. The row still says what the
+        // bot will watch, which is what somebody about to press Run came here to read.
         VBox rows = new VBox(8,
                 targetRow("🚀", "Game or app to launch", launchTargetLabel, changeLaunch),
-                targetRow("🎯", "Window the bot watches", captureTargetLabel, changeCapture));
+                targetRow("🎯", "Window the bot watches", captureTargetLabel, null));
         return section("Where it runs", "Pick the game first — its window can only be chosen as a target "
                 + "once it is actually open.", rows);
     }
 
+    /** One target row; {@code change} may be {@code null} for a target this window cannot open an editor for. */
     private static Node targetRow(String glyph, String what, Label value, Button change) {
         Label title = new Label(glyph + "  " + what);
         value.getStyleClass().add("dialog-hint-text");
         VBox text = new VBox(1, title, value);
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox row = new HBox(10, text, spacer, change);
+        HBox row = change == null ? new HBox(10, text, spacer) : new HBox(10, text, spacer, change);
         row.setAlignment(Pos.CENTER_LEFT);
         row.getStyleClass().add("runner-row");
         return row;

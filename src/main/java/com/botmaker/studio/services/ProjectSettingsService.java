@@ -47,9 +47,18 @@ public final class ProjectSettingsService {
         return s != null ? s : StudioProjectSettings.empty();
     }
 
-    /** The default capture target, or {@code null} if none is set (pickers then show the chooser). */
+    /**
+     * The default capture target, or {@code null} if none is set (pickers then show the chooser).
+     *
+     * <p><b>Read off disk on every call since 2026-08-31, not out of project state.</b> The targets live in
+     * {@code capture.json} and their one writer is the SDK plugin's own manager — the editor neither stores
+     * them nor is told when they change, so a cached copy here would be stale from the moment the user
+     * applied a new default. It is a small JSON file and this is asked when a picker opens, never in a loop.
+     *
+     * <p>Every remaining caller of this is on its way out with phase 3d; when the last one goes, so does this.
+     */
     public CaptureTargetModel defaultTarget() {
-        return current().defaultTarget();
+        return StudioProjectSettings.read(config.resourcesRoot()).defaultTarget();
     }
 
     /**

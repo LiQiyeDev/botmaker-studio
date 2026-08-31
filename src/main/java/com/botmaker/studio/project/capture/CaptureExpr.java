@@ -6,8 +6,10 @@ import com.botmaker.sdk.api.geometry.Rect;
 import com.botmaker.sdk.authoring.CaptureTargetModel;
 import com.botmaker.shared.config.CaptureSourceKind;
 
+import java.awt.Rectangle;
+
 /**
- * Maps a {@link CaptureTargetModel} (+ optional {@link CaptureRegion}) to the inline Java expression a
+ * Maps a {@link CaptureTargetModel} (+ an optional region of it) to the inline Java expression a
  * capture-source block emits. Expressions are <b>fully qualified</b> against the SDK's {@code api.capture}
  * facades so they compile with no import management and no generated sidecar — the block source is
  * self-contained.
@@ -44,14 +46,19 @@ public final class CaptureExpr {
     }
 
     /**
-     * The inline expression for {@code target}, narrowed to {@code region} when it is a valid (positive-area)
-     * rectangle of that source. {@code region} is in the source's own pixel coordinates.
+     * The inline expression for {@code target}, narrowed to {@code region} when it is a positive-area
+     * rectangle of that source.
+     *
+     * <p>{@code region} is in the source's <em>own</em> pixel coordinates — {@code (0,0)} is its top-left, so
+     * the narrowing survives the window moving — and it is a plain {@link Rectangle} since the picker that
+     * produces one moved to the SDK on 2026-08-31. It was a {@code CaptureRegion} record whose only job was to
+     * say that, which the javadoc says as well and without a type nobody else names.
      */
-    public static String of(CaptureTargetModel target, CaptureRegion region) {
+    public static String of(CaptureTargetModel target, Rectangle region) {
         String base = baseOf(target);
-        if (region != null && region.isValid()) {
-            return base + ".region(new " + RECT + "(" + region.x() + ", " + region.y() + ", "
-                    + region.width() + ", " + region.height() + "))";
+        if (region != null && region.width > 0 && region.height > 0) {
+            return base + ".region(new " + RECT + "(" + region.x + ", " + region.y + ", "
+                    + region.width + ", " + region.height + "))";
         }
         return base;
     }

@@ -14,7 +14,8 @@ import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.SdkSurfaceService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.types.ResolvedType;
-import com.botmaker.studio.ui.app.capture.CaptureSourcePicker;
+import com.botmaker.sdk.internal.plugin.capture.SourcePicker;
+import com.botmaker.studio.plugin.HostServices;
 import com.botmaker.studio.util.MethodSignature;
 import com.botmaker.studio.util.VariableScopeVisitor;
 import io.github.classgraph.ClassInfo;
@@ -279,14 +280,16 @@ public final class ExpressionMenu {
                     if (name.toLowerCase().contains(q)) matches.add(0, activityNameItem(name, onSelect));
                 }
             }
-            if (captureSlot && "choose capture source".contains(q)) matches.add(0, captureSourceItem(onSelect));
+            if (captureSlot && "choose capture source".contains(q)) {
+                matches.add(0, captureSourceItem(context, onSelect));
+            }
             if (matches.isEmpty()) menu.getItems().add(MenuBuilders.disabledItem("No matches"));
             else menu.getItems().addAll(matches);
             return;
         }
 
         if (activitySlot) menu.getItems().add(activityNameSubmenu(context, onSelect));
-        if (captureSlot) menu.getItems().add(captureSourceItem(onSelect));
+        if (captureSlot) menu.getItems().add(captureSourceItem(context, onSelect));
 
         // Parity with the statement menu: lead with a submenu per SDK facade (in catalog order), each listing
         // that facade's static members whose return type fits this slot (buildScopeMenu drops empty facades).
@@ -709,26 +712,34 @@ public final class ExpressionMenu {
                 || expectedType.leafType().is(Window.class);
     }
 
-    /** The "Choose capture source…" entry: opens the visual picker and emits the helper-call snippet. */
-    private static MenuItem captureSourceItem(Consumer<Object> onSelect) {
+    /**
+     * The "Choose capture source…" entry: opens the SDK plugin's visual picker and emits the snippet.
+     *
+     * <p>It takes the editor context only to reach the open project — the picker is the plugin's and asks for
+     * a {@code StudioServices}. With no project in hand the entry is not offered at all, since a capture
+     * source is a thing a project has.
+     */
+    private static MenuItem captureSourceItem(CodeEditorService context, Consumer<Object> onSelect) {
         MenuItem item = MenuIcons.decorate(new MenuItem("Choose capture source…"), MenuIcons.CAPTURE);
-        item.setOnAction(e -> new CaptureSourcePicker(null, true).showAndWait()
+        item.setDisable(context == null);
+        item.setOnAction(e -> new SourcePicker(HostServices.forProject(context.getConfig()), null, true)
+                .showAndWait()
                 .ifPresent(sel -> onSelect.accept(new ExpressionChoice.RawExpression(captureSourceCode(sel)))));
         return item;
     }
 
     /**
-     * Maps a picker {@link CaptureSourcePicker.Selection} to an inline, fully-qualified capture-source
+     * Maps a picker {@link SourcePicker.Selection} to an inline, fully-qualified capture-source
      * expression (see {@link com.botmaker.studio.project.capture.CaptureExpr}) that resolves from any file
      * without import management: {@code …CaptureSource.desktop()} / {@code …CaptureSource.monitor(i)} /
      * {@code …CaptureSource.window("t")}, optionally narrowed with a trailing {@code .region(new Rect(...))}.
      * "Project default" emits the live {@code Source.current()} call, not a snapshot of today's default target.
      */
-    private static String captureSourceCode(CaptureSourcePicker.Selection sel) {
+    private static String captureSourceCode(SourcePicker.Selection sel) {
         return switch (sel) {
-            case CaptureSourcePicker.Selection.ProjectDefault ignored ->
+            case SourcePicker.Selection.ProjectDefault ignored ->
                     com.botmaker.studio.project.capture.CaptureExpr.projectDefault();
-            case CaptureSourcePicker.Selection.Concrete c ->
+            case SourcePicker.Selection.Concrete c ->
                     com.botmaker.studio.project.capture.CaptureExpr.of(c.target(), c.region());
         };
     }

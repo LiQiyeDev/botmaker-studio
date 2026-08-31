@@ -7,7 +7,7 @@ import com.botmaker.studio.project.ProjectCreator;
 import com.botmaker.shared.launch.LaunchSpec;
 import com.botmaker.studio.project.StudioProjectSettings;
 import com.botmaker.sdk.authoring.CaptureTargetModel;
-import com.botmaker.studio.project.launch.QuickLaunch;
+import com.botmaker.sdk.internal.plugin.launch.QuickLaunch;
 import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
@@ -29,7 +29,7 @@ import java.util.function.Consumer;
 /**
  * The "Project Setup" hub — a single checklist that walks the user through everything a fresh project needs
  * to actually run: <b>what to launch</b> ({@link LaunchTargetDialog}), <b>what to capture</b>
- * ({@link ManageCaptureTargetsDialog}), and the <b>reference resolution</b> ({@link ProjectSettingsDialog}),
+ * (the SDK plugin's 🎯 Capture Targets), and the <b>reference resolution</b> ({@link ProjectSettingsDialog}),
  * plus an optional nudge to capture image templates. Each row shows a ✓/✗ status read live from the project
  * and a button that opens the existing config dialog for that step; the list re-ticks itself as settings change
  * (via {@link CoreApplicationEvents.SettingsChangedEvent}) and whenever the window regains focus after a child
@@ -146,10 +146,12 @@ public final class ProjectSetupDialog {
                             refresh();
                         }).show(),
                         quickLaunchButton()),
+                // Buttonless for the same reason as the pictures row below: the targets manager is the SDK
+                // plugin's 🎯 Capture Targets toolbar item since 2026-08-31, and this dialog has no handle on
+                // another plugin's item. The row still reports the state, which is what a checklist is for.
                 row(captureDone, false, "Capture target",
-                        describeCapture(s),
-                        captureDone ? "Change…" : "Set…",
-                        () -> new ManageCaptureTargetsDialog(owner, settings, config.resourcesRoot()).show()),
+                        describeCapture(s) + " Choose it with 🎯 Capture Targets on the toolbar.",
+                        null, null),
                 row(resolutionDone, false, "Reference resolution",
                         resolutionDone
                                 ? s.referenceResolution().width() + "×" + s.referenceResolution().height()

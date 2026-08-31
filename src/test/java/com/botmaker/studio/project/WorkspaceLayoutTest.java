@@ -47,7 +47,7 @@ class WorkspaceLayoutTest {
                 .withWorkspaceLayout(new WorkspaceLayout(0.3, 0.6, "VCS"));
 
         StudioProjectSettings after = settings
-                .withKnownWindowTitles(List.of("Some Game"))
+                .withTemplate(null)
                 .withLastRecordedActivity("Mining");
 
         assertNotNull(after.workspaceLayout());

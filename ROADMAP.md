@@ -6,6 +6,23 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-31 — Capture Targets is a plugin's toolbar item, and the capture file's *reader* goes with it.**
+  Seventeenth step of *Studio knows only the contract*. Deleted here: `ui/app/ManageCaptureTargetsDialog`,
+  `ui/app/capture/{CaptureSourcePicker, TargetThumbnail}`, `project/launch/QuickLaunch` and
+  `project/capture/CaptureRegion` (a region is a plain `java.awt.Rectangle` at the one boundary that carries
+  one). They are the SDK plugin's `internal/plugin/capture/{CaptureTargets, SourcePicker, TargetThumbnail}`
+  and `internal/plugin/launch/QuickLaunch`, contributed at `ToolbarGroup.PROJECT`/50 — the slot the shell's
+  own 🎯 button held. The maintainer's rule for it is stronger than storage: **whatever the SDK writes, the
+  SDK reads**, so the migration off this editor's older `settings.json` shape and the `capture.source`
+  projection both moved into `Authoring`; `StudioProjectSettings` loses `legacyCapture`, `legacyTarget`,
+  `legacyReference`, `captureModel()`, `projectDefaultSource` and the three target mutators. The only
+  component it still writes to `capture.json` is the reference resolution, **merged** into whatever the
+  plugin has since put there. Three host entry points went with the dialog (the toolbar item and its setter,
+  `StudioActions.openManageCaptureTargets`, and the **Change…** buttons in Project Setup and the Runner
+  window, both rows still reporting the target and saying where to change it). **Nothing was added to
+  `StudioServices`.** **What it cost**: the toolbar button no longer names the current default target —
+  `toolbarItems()` is called with no services, so a plugin's item has no project to read.
+
 - **2026-08-31 — Capture Templates is a plugin's toolbar item, and four host entry points go with it.**
   Sixteenth step of *Studio knows only the contract*, and the second whole feature to leave through the
   toolbar surface after the Remote Pilot. `ui/app/capture/OverlayTemplateCapture` is **deleted**; the tool is

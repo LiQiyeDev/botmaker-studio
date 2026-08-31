@@ -18,7 +18,8 @@ package com.botmaker.studio.docs;
 public enum StudioAction {
 
     PROJECT_SETUP("Open Project Setup ▸", "Project ▸ Project Setup… (or 🧭 Setup on the toolbar)"),
-    CAPTURE_TARGETS("Open Capture Targets ▸", "🎯 Capture Targets on the toolbar — it shows the current one"),
+    CAPTURE_TARGETS("Open Capture Targets ▸", "🎯 Capture Targets on the toolbar (contributed by the "
+            + "BotMaker SDK)"),
     LAUNCH_TARGET("Open Launch Target ▸", "🚀 on the toolbar — it shows the current target"),
     CAPTURE_TEMPLATES("Open Capture Templates ▸", "✂ Capture Templates on the toolbar (contributed by the "
             + "BotMaker SDK)"),
