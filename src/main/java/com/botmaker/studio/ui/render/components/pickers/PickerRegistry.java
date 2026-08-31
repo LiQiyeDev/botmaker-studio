@@ -1,12 +1,6 @@
 package com.botmaker.studio.ui.render.components.pickers;
 
 import com.botmaker.plugin.api.SlotRun;
-import com.botmaker.sdk.api.capture.CaptureSource;
-import com.botmaker.sdk.api.capture.Window;
-import com.botmaker.sdk.api.launch.LaunchTarget;
-import com.botmaker.studio.ui.render.components.CaptureSourcePicker;
-import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
-import com.botmaker.studio.ui.render.components.LaunchTargetArgPicker;
 import javafx.scene.Node;
 
 import java.util.List;
@@ -50,9 +44,6 @@ public final class PickerRegistry {
             // written first, which is the same reasoning that emptied the contract of the SDK's vocabulary.
 
             // Type-based.
-            // LaunchTarget slot → the Steam/Epic/Exe/Emulator target builder (replaces the plain ctor pill).
-            SpecialTypePicker.of(ctx -> ctx.isType(LaunchTarget.class),
-                    ctx -> LaunchTargetArgPicker.create(ctx.context(), ctx.arg())),
             // The Pixel facade's strictness argument has no entry here any more either, on the same reasoning
             // as DURATION and COLOR: it is the SDK's own value type, so its editor is the SDK's
             // (com.botmaker.sdk.internal.plugin.editors.PrecisionEditors), reached through PluginPickers
@@ -63,12 +54,7 @@ public final class PickerRegistry {
             // ImageTemplate's own concept, so its editor is the SDK's
             // (com.botmaker.sdk.internal.plugin.editors.TemplateEditors), reached through PluginPickers
             // below. Deleting this entry and the IMAGE_TEMPLATE arm of ValueEditors is what lets one editor
-            // draw it in both places. ImageTemplateGroup keeps its entry for now: its chip row spans a run
-            // of arguments rather than one slot, and moves once it is written against SlotRun.
-            ImageTemplateGroupPicker.asSpecialType(),
-            // CaptureSource is an SDK interface — never a `new` ctor; always the visual chooser popup.
-            SpecialTypePicker.of(ctx -> ctx.isType(CaptureSource.class) || ctx.isType(Window.class),
-                    ctx -> CaptureSourcePicker.create(ctx.context(), ctx.arg()))
+            // draw it in both places.
     );
 
     /**

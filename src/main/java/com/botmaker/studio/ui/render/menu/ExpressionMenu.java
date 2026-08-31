@@ -4,8 +4,6 @@ import com.botmaker.studio.palette.BotType;
 import com.botmaker.studio.palette.ExpressionCatalog;
 import com.botmaker.studio.palette.ExpressionCategory;
 import com.botmaker.studio.palette.ExpressionType;
-import com.botmaker.sdk.api.capture.CaptureSource;
-import com.botmaker.sdk.api.capture.Window;
 import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.studio.parser.ExpressionChoice;
 import com.botmaker.studio.project.ProjectState;
@@ -14,7 +12,6 @@ import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.SdkSurfaceService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.types.ResolvedType;
-import com.botmaker.sdk.internal.plugin.capture.SourcePicker;
 import com.botmaker.studio.plugin.HostServices;
 import com.botmaker.studio.util.MethodSignature;
 import com.botmaker.studio.util.VariableScopeVisitor;
@@ -261,10 +258,6 @@ public final class ExpressionMenu {
 
         String q = query == null ? "" : query.trim().toLowerCase();
 
-        // A CaptureSource / Window slot is picked visually (the SDK CaptureSource is an interface — it must not
-        // be offered a `new` constructor). Surface the picker at the top of both the search and categorized views.
-        boolean captureSlot = isCaptureSourceType(expectedType);
-
         // The name argument of Activity.enable("…")/disable("…"): offer the project's defined activity names as a
         // dropdown instead of a free-typed string, so the name always matches a real activity.
         boolean activitySlot = context != null && isActivityNameSlot(contextNode);
@@ -280,16 +273,12 @@ public final class ExpressionMenu {
                     if (name.toLowerCase().contains(q)) matches.add(0, activityNameItem(name, onSelect));
                 }
             }
-            if (captureSlot && "choose capture source".contains(q)) {
-                matches.add(0, captureSourceItem(context, onSelect));
-            }
             if (matches.isEmpty()) menu.getItems().add(MenuBuilders.disabledItem("No matches"));
             else menu.getItems().addAll(matches);
             return;
         }
 
         if (activitySlot) menu.getItems().add(activityNameSubmenu(context, onSelect));
-        if (captureSlot) menu.getItems().add(captureSourceItem(context, onSelect));
 
         // Parity with the statement menu: lead with a submenu per SDK facade (in catalog order), each listing
         // that facade's static members whose return type fits this slot (buildScopeMenu drops empty facades).
@@ -328,7 +317,7 @@ public final class ExpressionMenu {
             } else if (expr == ExpressionCatalog.ENUM_CONSTANT && expectedType.isEnum()) {
                 Menu sub = specificEnumSubmenu(expectedType, onSelect);
                 if (sub != null) MenuBuilders.collectMenuLeaves(sub, leaves);
-            } else if (expr == ExpressionCatalog.INSTANTIATION && !expectedType.isUnknown() && !isCaptureSourceType(expectedType) && state != null) {
+            } else if (expr == ExpressionCatalog.INSTANTIATION && !expectedType.isUnknown() && state != null) {
                 for (MethodSignature sig : context.getProjectAnalyzer().getConstructors(expectedType.simpleName())) {
                     MenuItem item = new MenuItem("New " + sig);
                     item.setOnAction(e -> onSelect.accept(new ExpressionChoice.Constructor(expectedType.simpleName(), sig.paramTypes())));
@@ -374,7 +363,7 @@ public final class ExpressionMenu {
                                                Consumer<Object> onSelect) {
         Menu subMenu = MenuIcons.decorate(new Menu(cat.getLabel()), MenuIcons.iconFor(cat));
         for (ExpressionType expr : items) {
-            if (expr == ExpressionCatalog.INSTANTIATION && !expectedType.isUnknown() && !isCaptureSourceType(expectedType) && state != null) {
+            if (expr == ExpressionCatalog.INSTANTIATION && !expectedType.isUnknown() && state != null) {
                 for (MethodSignature sig : context.getProjectAnalyzer().getConstructors(expectedType.simpleName())) {
                     MenuItem item = new MenuItem("New " + sig);
                     item.setOnAction(e -> onSelect.accept(new ExpressionChoice.Constructor(expectedType.simpleName(), sig.paramTypes())));
@@ -703,45 +692,6 @@ public final class ExpressionMenu {
             if (!pkgMenu.getItems().isEmpty()) libMenu.getItems().add(pkgMenu); // skip jars/packages with nothing compatible
         });
         if (libMenu.getItems().isEmpty()) libMenu.getItems().add(MenuBuilders.disabledItem("(None compatible)"));
-    }
-
-    /** True when a slot expects the SDK's {@code CaptureSource} (or a {@code Window} used as one). */
-    private static boolean isCaptureSourceType(ResolvedType expectedType) {
-        if (expectedType == null || expectedType.isUnknown()) return false;
-        return expectedType.leafType().is(CaptureSource.class)
-                || expectedType.leafType().is(Window.class);
-    }
-
-    /**
-     * The "Choose capture source…" entry: opens the SDK plugin's visual picker and emits the snippet.
-     *
-     * <p>It takes the editor context only to reach the open project — the picker is the plugin's and asks for
-     * a {@code StudioServices}. With no project in hand the entry is not offered at all, since a capture
-     * source is a thing a project has.
-     */
-    private static MenuItem captureSourceItem(CodeEditorService context, Consumer<Object> onSelect) {
-        MenuItem item = MenuIcons.decorate(new MenuItem("Choose capture source…"), MenuIcons.CAPTURE);
-        item.setDisable(context == null);
-        item.setOnAction(e -> new SourcePicker(HostServices.forProject(context.getConfig()), null, true)
-                .showAndWait()
-                .ifPresent(sel -> onSelect.accept(new ExpressionChoice.RawExpression(captureSourceCode(sel)))));
-        return item;
-    }
-
-    /**
-     * Maps a picker {@link SourcePicker.Selection} to an inline, fully-qualified capture-source
-     * expression (see {@link com.botmaker.studio.project.capture.CaptureExpr}) that resolves from any file
-     * without import management: {@code …CaptureSource.desktop()} / {@code …CaptureSource.monitor(i)} /
-     * {@code …CaptureSource.window("t")}, optionally narrowed with a trailing {@code .region(new Rect(...))}.
-     * "Project default" emits the live {@code Source.current()} call, not a snapshot of today's default target.
-     */
-    private static String captureSourceCode(SourcePicker.Selection sel) {
-        return switch (sel) {
-            case SourcePicker.Selection.ProjectDefault ignored ->
-                    com.botmaker.studio.project.capture.CaptureExpr.projectDefault();
-            case SourcePicker.Selection.Concrete c ->
-                    com.botmaker.studio.project.capture.CaptureExpr.of(c.target(), c.region());
-        };
     }
 
     private static MenuItem createItem(ExpressionType expr, Consumer<Object> onSelect) {
