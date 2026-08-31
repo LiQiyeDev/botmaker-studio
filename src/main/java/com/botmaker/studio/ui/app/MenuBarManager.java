@@ -41,7 +41,6 @@ public class MenuBarManager {
     private Runnable onReviewChanges;
     private Runnable onManageResources;
     private Runnable onProjectSettings;
-    private Runnable onProjectSetup;
     private Runnable onGettingStarted;
     /** Help ▸ Picker Gallery — present only in a dev build. See {@link #createHelpMenu()}. */
     private Runnable onPickerGallery;
@@ -190,10 +189,9 @@ public class MenuBarManager {
     private Menu createProjectMenu() {
         Menu projectMenu = new Menu("Project");
 
-        MenuItem projectSetupItem = new MenuItem("Project Setup...");
-        projectSetupItem.setOnAction(e -> {
-            if (onProjectSetup != null) onProjectSetup.run();
-        });
+        // "Project Setup..." led this menu until 2026-08-31. It is the SDK plugin's 📋 Project Setup toolbar
+        // item now, and a menu is not a surface a plugin contributes to — a bar item is. The checklist reads
+        // only files that plugin owns, so there is nothing here to open it with.
 
         MenuItem manageLibrariesItem = new MenuItem("Manage Libraries...");
         manageLibrariesItem.setOnAction(e -> {
@@ -293,7 +291,6 @@ public class MenuBarManager {
         });
 
         projectMenu.getItems().addAll(
-                projectSetupItem, new SeparatorMenuItem(),
                 manageLibrariesItem, managePluginsItem, reloadPluginsItem, upgradeSdkItem, moderniseItem,
                 manageImportsItem,
                 new SeparatorMenuItem(),
@@ -708,11 +705,6 @@ public class MenuBarManager {
     /** Sets the callback for when "Project Settings..." is clicked. */
     public void setOnProjectSettings(Runnable callback) {
         this.onProjectSettings = callback;
-    }
-
-    /** Sets the callback for when Project ▸ "Project Setup..." is clicked. */
-    public void setOnProjectSetup(Runnable callback) {
-        this.onProjectSetup = callback;
     }
 
     /** Sets the callback for when Help ▸ "Getting Started" is clicked. */

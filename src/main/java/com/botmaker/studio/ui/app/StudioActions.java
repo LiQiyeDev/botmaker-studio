@@ -112,8 +112,9 @@ final class StudioActions {
         menuBar.setOnReloadPlugins(this::reloadPlugins);
         menuBar.setOnUpgradeSdk(this::openSdkUpgrade);
         menuBar.setOnModernise(this::openModernise);
-        menuBar.setOnProjectSetup(this::openProjectSetup);
-        toolbar.setOnProjectSetup(this::openProjectSetup);
+        // Nothing to wire for Project Setup: that checklist is the SDK plugin's 📋 Project Setup item since
+        // 2026-08-31. Every row of it reads a file the plugin owns, so the shell could only ever have shown
+        // it by asking the plugin for the answers.
         menuBar.setOnManageImports(this::openManageImports);
         menuBar.setOnActivityFlow(this::openActivityFlow);
         toolbar.setOnActivityFlow(this::openActivityFlow);
@@ -160,15 +161,6 @@ final class StudioActions {
 
     BotPublisher botPublisher() { return botPublisher; }
 
-    /**
-     * Opens the Project Setup checklist hub — also the auto-open-on-creation target (reached from
-     * {@code BotMakerStudio.finishOpen} through the shell).
-     */
-    void openProjectSetup() {
-        new ProjectSetupDialog(primaryStage, config, projectSettingsService, projectAnalyzer, eventBus,
-                toolbar::setLaunchTarget).show();
-    }
-
     /** Opens the Resource Manager. Reused by the Project menu, the toolbar and the block image-picker. */
     void openResourceManager() {
         new ResourceManagerDialog(primaryStage, config, eventBus, screenCaptureService,
@@ -192,7 +184,7 @@ final class StudioActions {
     /**
      * Public because the SDK-floor banner on the canvas offers it too, not only the Project menu — that
      * banner exists precisely to send the user here, and routing it through the menu callback would mean the
-     * banner could silently stop working if the wiring changed. Same reason {@code openProjectSetup} is public.
+     * banner could silently stop working if the wiring changed.
      */
     public void openManageLibraries() {
         new ManageLibrariesDialog(primaryStage, libraryService, mavenCentralSearch, jitPackSearch).show();
@@ -332,9 +324,8 @@ final class StudioActions {
      */
     private void openGettingStarted() {
         GettingStartedDialog.Actions actions = GettingStartedDialog.Actions.builder()
-                .on(StudioAction.PROJECT_SETUP, this::openProjectSetup)
-                // No CAPTURE_TARGETS entry either, and for the same reason as CAPTURE_TEMPLATES below: the
-                // targets manager is the SDK plugin's toolbar item since 2026-08-31.
+                // No PROJECT_SETUP entry, and no CAPTURE_TARGETS one, for the same reason as CAPTURE_TEMPLATES
+                // below: all three are the SDK plugin's toolbar items since 2026-08-31.
                 .on(StudioAction.LAUNCH_TARGET, () -> openLaunchTarget(null))
                 // No CAPTURE_TEMPLATES entry: the tool is the SDK plugin's toolbar item since 2026-08-31 and
                 // the shell has no handle on it. The step still reads, without an Open button — the action's

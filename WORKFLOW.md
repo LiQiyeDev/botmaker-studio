@@ -45,9 +45,9 @@ The driver follows the wire leaving that outcome and runs whatever is on the oth
 
 Studio generates the sources, the pom.xml and the scaffolding a bot needs — an entry point, an activity registry, a popup guard. You never have to edit those by hand; they are marked read-only in the editor precisely because Studio maintains them.
 
-Project Setup is also where you come back to later: it collects the project's targets, its SDK version and its run settings in one place.
+Project Setup is also where you come back to later: it is a checklist of what the project still needs — something to launch, something to capture, a reference resolution and the pictures it looks for — and it says where to set each one.
 
-*In Studio:* Project ▸ Project Setup… (or 🧭 Setup on the toolbar)
+*In Studio:* 📋 Project Setup on the toolbar (contributed by the BotMaker SDK)
 
 ## 2. Tell the bot what to launch — the launch target
 

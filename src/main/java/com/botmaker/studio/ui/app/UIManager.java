@@ -200,14 +200,6 @@ public class UIManager implements ProjectWindow {
     }
 
     /**
-     * Opens the Project Setup checklist hub — the auto-open-on-creation target, called from
-     * {@code BotMakerStudio.finishOpen}, which is why it is public here as well as on {@link StudioActions}.
-     */
-    public void openProjectSetup() {
-        actions.openProjectSetup();
-    }
-
-    /**
      * Bounds how far the explorer/canvas divider can be dragged, in pixels.
      *
      * <p>A {@code SplitPane} divider is otherwise unbounded: because the explorer intentionally has no

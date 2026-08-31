@@ -41,8 +41,9 @@ public final class Workflow {
                         "Studio generates the sources, the pom.xml and the scaffolding a bot needs — an entry "
                         + "point, an activity registry, a popup guard. You never have to edit those by hand; "
                         + "they are marked read-only in the editor precisely because Studio maintains them.",
-                        "Project Setup is also where you come back to later: it collects the project's targets, "
-                        + "its SDK version and its run settings in one place."),
+                        "Project Setup is also where you come back to later: it is a checklist of what the "
+                        + "project still needs — something to launch, something to capture, a reference "
+                        + "resolution and the pictures it looks for — and it says where to set each one."),
 
                 WorkflowStep.of("Tell the bot what to launch — the launch target",
                         "What gets started before the bot runs: a Steam, Epic, Heroic or Faugus game, an "

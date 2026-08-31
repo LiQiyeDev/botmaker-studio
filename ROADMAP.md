@@ -6,6 +6,27 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-08-31 — Project Setup is a plugin's toolbar item, and the shell stops opening it for you.**
+  Eighteenth step of *Studio knows only the contract*, and the maintainer's instruction mid-seventeenth:
+  *"projectsetup is also handled by sdk"*. `ui/app/ProjectSetupDialog` is **deleted**; the checklist is the
+  SDK plugin's `internal/plugin/setup/ProjectSetup` at `ToolbarGroup.PROJECT`/40, just before its 🎯 Capture
+  Targets — which is where that checklist sends people. All four rows read files the plugin owns (the launch
+  target and the capture size out of `botmaker-project.properties`, the capture target and the reference
+  resolution out of `capture.json`, the pictures out of the images folder), so this editor could only ever
+  have answered them by asking the SDK. **Five host entry points went**: the 🧭 Setup toolbar item and
+  `ToolbarManager.setOnProjectSetup`, Project ▸ Project Setup… and `MenuBarManager.setOnProjectSetup`,
+  `StudioActions.openProjectSetup`, `UIManager.openProjectSetup`, and the **auto-open on project creation**
+  in `BotMakerStudio.finishOpen` — the shell has no handle on another plugin's item, the same precedent the
+  two capture steps set. `StudioAction.PROJECT_SETUP` survives and now names the toolbar item in both
+  renderings, so the Getting Started step still reads with no Open button, like Capture Templates'.
+  **Nothing was added to `StudioServices`.**
+
+  **From here the execution rules change** (maintainer, 2026-08-31): *"I don't need to test phase by phase I
+  don't care if it doesn't compile, you're rewriting code that will disappear by the end of the plan."* The
+  remaining phases land as moves with no transitional repair — a class whose subject moves is deleted rather
+  than re-pointed, a test whose subject moves is deleted with it, and the reactor is brought green once, in
+  the last phase. See `~/.claude/plans/graceful-bouncing-map.md`.
+
 - **2026-08-31 — Capture Targets is a plugin's toolbar item, and the capture file's *reader* goes with it.**
   Seventeenth step of *Studio knows only the contract*. Deleted here: `ui/app/ManageCaptureTargetsDialog`,
   `ui/app/capture/{CaptureSourcePicker, TargetThumbnail}`, `project/launch/QuickLaunch` and

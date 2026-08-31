@@ -277,10 +277,10 @@ public class BotMakerStudio extends Application {
                         ForceX11Notice.maybeShow(primaryStage);
                     }
 
-                    // A brand-new project has nothing configured yet — walk the user through setup right away.
-                    if (freshlyCreated) {
-                        uiManager.openProjectSetup();
-                    }
+                    // A brand-new project used to auto-open the Project Setup checklist here. That checklist
+                    // is the SDK plugin's 📋 Project Setup toolbar item since 2026-08-31, and the shell has
+                    // no handle on another plugin's item — the same precedent the Capture Templates and
+                    // Capture Targets steps set. The button is on the bar the moment the project opens.
                 } catch (Exception e) {
                     e.printStackTrace();
                     showErrorDialog("Error opening project: " + e.getMessage());

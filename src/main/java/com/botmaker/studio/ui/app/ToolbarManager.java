@@ -79,8 +79,6 @@ public class ToolbarManager {
     private java.nio.file.Path resourcesDir;
     private Label resolutionLabel;
 
-    /** Opens the Project Setup checklist hub; wired by {@link UIManager}. */
-    private Runnable onProjectSetup;
     /** Opens the Project Settings dialog; the same action the Project menu fires. */
     private Runnable onProjectSettings;
     /** Opens the Launch Target dialog (what the bot launches); wired by {@link UIManager}. */
@@ -172,11 +170,6 @@ public class ToolbarManager {
         return group;
     }
 
-    /** Sets the callback invoked when the toolbar's Project Setup button is clicked. */
-    public void setOnProjectSetup(Runnable callback) {
-        this.onProjectSetup = callback;
-    }
-
     /** Sets the callback invoked when the toolbar's Project Settings button is clicked. */
     public void setOnProjectSettings(Runnable callback) {
         this.onProjectSettings = callback;
@@ -263,9 +256,9 @@ public class ToolbarManager {
         List<Placed> placed = new ArrayList<>();
         ActionContext ctx = actionContext();
 
-        place(placed, ctx, ToolbarItem.of("setup", "🧭 Setup",
-                "Set the project up to run: launch target, capture target, resolution and templates in one checklist",
-                ToolbarGroup.PROJECT, 10, c -> run(onProjectSetup)));
+        // 🧭 Setup stood first in this group until 2026-08-31 and is the SDK plugin's 📋 Project Setup item
+        // now, placed by the same merge as the pilot's and the capture items'. Every row of that checklist
+        // reads a file the plugin owns, so there is nothing left for the shell to wire.
 
         place(placed, ctx, ToolbarItem.of("settings", "⚙ Settings",
                 "Project settings: the standard resolution templates are authored at, and favourite methods",
