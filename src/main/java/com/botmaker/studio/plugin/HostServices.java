@@ -108,6 +108,11 @@ public final class HostServices implements StudioServices {
     }
 
     @Override
+    public com.botmaker.plugin.api.Sources sources() {
+        return HostSources.live();
+    }
+
+    @Override
     public void status(String message) {
         HostRuns.status(message);
     }

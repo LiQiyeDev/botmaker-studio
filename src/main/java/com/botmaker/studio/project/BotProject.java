@@ -4,6 +4,7 @@ import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.index.TypeSummaryManager;
 import com.botmaker.studio.parser.BlockConverter;
 import com.botmaker.studio.plugin.HostRuns;
+import com.botmaker.studio.plugin.HostSources;
 import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.studio.runtime.CodeExecutionService;
 import com.botmaker.studio.services.ActivityService;
@@ -259,6 +260,11 @@ public class BotProject {
         // process; cleared in close(), so a plugin between projects reaches Runs.NONE rather than a channel
         // into the project the user just left.
         HostRuns.install(eventBus, codeExec);
+
+        // The bot's own sources, as a plugin is allowed to rewrite them. Same lifetime and same reason: a
+        // plugin renaming something it owns between projects must find nothing rather than repoint the code
+        // of the project the user just left.
+        HostSources.install(config, state);
     }
 
     // =========================================================================
@@ -316,5 +322,6 @@ public class BotProject {
         // URLClassLoader holds every jar it read, which on Windows makes the file unreplaceable.
         PluginHost.unbind();
         HostRuns.clear();
+        HostSources.clear();
     }
 }
