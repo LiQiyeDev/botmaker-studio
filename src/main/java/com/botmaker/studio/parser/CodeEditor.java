@@ -9,13 +9,6 @@ import com.botmaker.studio.palette.ExpressionCatalog;
 import com.botmaker.studio.palette.ExpressionType;
 import com.botmaker.studio.palette.FunctionDraft;
 import com.botmaker.studio.palette.MatchesCheck;
-import com.botmaker.sdk.api.capture.Window;
-import com.botmaker.sdk.api.geometry.Point;
-import com.botmaker.sdk.api.geometry.Rect;
-import com.botmaker.sdk.api.geometry.Size;
-import com.botmaker.sdk.api.vision.ImageFinder;
-import com.botmaker.sdk.api.vision.ImageTemplate;
-import com.botmaker.sdk.api.vision.ImageTemplateGroup;
 import com.botmaker.studio.parser.factories.InitializerFactory;
 import com.botmaker.studio.parser.factories.StatementFactory;
 import com.botmaker.studio.parser.handlers.EnumManipulationHandler;
@@ -440,95 +433,18 @@ public class CodeEditor {
         return null;
     }
 
-    /** Replaces {@code toReplace} with {@code new ImageTemplate("<path>")} — the image-template arg picker. */
-    public void setImageTemplate(Expression toReplace, String path) {
-        setImageTemplate(toReplace, path, null);
-    }
-
-    /**
-     * Like {@link #setImageTemplate(Expression, String)}, but when {@code windowTitle} is non-null and the
-     * template is the sole argument of an {@code ImageFinder.find(...)} call, also injects
-     * {@code Window.find("<windowTitle>").orElseThrow()} as the capture source — so a project whose default
-     * capture target is a window finds inside that window automatically, with no per-call window choice
-     * (Phase 5a). When {@code windowTitle} is null or the enclosing call isn't a single-argument
-     * {@code ImageFinder.find}, it behaves exactly like the plain setter (whole-screen search).
-     */
-    public void setImageTemplate(Expression toReplace, String path, String windowTitle) {
-        edit(toReplace, EditKind.BODY, true, (cu, code) -> {
-            AST ast = cu.getAST();
-            ASTRewrite rewriter = ASTRewrite.create(ast);
-            ClassInstanceCreation cic = ast.newClassInstanceCreation();
-            cic.setType(SdkNodes.type(ast, ImageTemplate.class));
-            cic.arguments().add(SdkNodes.templateArgument(ast, path));
-            ImportManager.addImport(cu, rewriter, ImageTemplate.class);
-            ImportManager.addTemplatesImport(cu, rewriter);
-            rewriter.replace(toReplace, cic, null);
-
-            if (windowTitle != null && isSoleFindArgument(toReplace)) {
-                MethodInvocation find = (MethodInvocation) toReplace.getParent();
-                rewriter.getListRewrite(find, MethodInvocation.ARGUMENTS_PROPERTY)
-                        .insertLast(windowFindOrElseThrow(ast, windowTitle), null);
-                ImportManager.addImport(cu, rewriter, Window.class);
-            }
-            return AstRewriteHelper.applyRewrite(rewriter, code);
-        });
-    }
-
-    /** True when {@code templateSlot} is the only argument of an {@code ImageFinder.find(...)} call. */
-    private static boolean isSoleFindArgument(Expression templateSlot) {
-        if (!(templateSlot.getParent() instanceof MethodInvocation mi)) return false;
-        if (!"find".equals(mi.getName().getIdentifier())) return false;
-        if (!SdkNodes.isCallOn(mi, ImageFinder.class)) return false;
-        return mi.arguments().size() == 1 && mi.arguments().get(0) == templateSlot;
-    }
-
-    /** Builds the AST for {@code Window.find("<title>").orElseThrow()} (a window-targeted capture source). */
-    private static Expression windowFindOrElseThrow(AST ast, String title) {
-        MethodInvocation find = ast.newMethodInvocation();
-        find.setExpression(SdkNodes.name(ast, Window.class));
-        find.setName(ast.newSimpleName("find"));
-        StringLiteral t = ast.newStringLiteral();
-        t.setLiteralValue(title);
-        find.arguments().add(t);
-        MethodInvocation orElseThrow = ast.newMethodInvocation();
-        orElseThrow.setExpression(find);
-        orElseThrow.setName(ast.newSimpleName("orElseThrow"));
-        return orElseThrow;
-    }
-
-    /**
-     * Replaces {@code toReplace} with {@code ImageTemplateGroup.of(new ImageTemplate("p1"), …)} — the
-     * multi-template group picker. Passing the full desired path list each time (rather than mutating
-     * in place) keeps the picker's add/remove/change operations a single, uniform rewrite.
-     *
-     * <p>It is also where a group find's body gets seeded with its combination switch, because filling this
-     * slot is the second of the two edits that can make the seed possible — see
-     * {@link LambdaCallHandler#seedIfReady}. Hooked here rather than generically after every expression
-     * replacement: this is the only write that puts a group into an argument slot, so a generic hook would
-     * pay a walk up the tree on every edit in the file to answer a question only this one can answer yes to.
-     */
-    public void setImageTemplateGroup(Expression toReplace, java.util.List<String> paths) {
-        edit(toReplace, EditKind.BODY, true, (cu, code) -> {
-            AST ast = cu.getAST();
-            ASTRewrite rewriter = ASTRewrite.create(ast);
-            MethodInvocation call = ast.newMethodInvocation();
-            call.setExpression(SdkNodes.name(ast, ImageTemplateGroup.class));
-            call.setName(ast.newSimpleName("of"));
-            for (String path : paths) {
-                ClassInstanceCreation cic = ast.newClassInstanceCreation();
-                cic.setType(SdkNodes.type(ast, ImageTemplate.class));
-                cic.arguments().add(SdkNodes.templateArgument(ast, path));
-                call.arguments().add(cic);
-            }
-            ImportManager.addImport(cu, rewriter, ImageTemplate.class);
-            ImportManager.addTemplatesImport(cu, rewriter);
-            ImportManager.addImport(cu, rewriter, ImageTemplateGroup.class);
-            rewriter.replace(toReplace, call, null);
-            LambdaCallHandler.seedIfReady(EditContext.of(cu, rewriter, analyzer, state), toReplace,
-                    paths.isEmpty() ? null : paths.getFirst());
-            return AstRewriteHelper.applyRewrite(rewriter, code);
-        });
-    }
+    // setImageTemplate, setImageTemplateGroup, isSoleFindArgument and windowFindOrElseThrow went on
+    // 2026-09-01. Every one of them was the host spelling one plugin's API for it — `new ImageTemplate(path)`,
+    // `ImageTemplateGroup.of(…)`, `Window.find(title).orElseThrow()` — and the surface that replaces them was
+    // already here, two methods down: setTrailingArguments takes the expressions a plugin built and puts them
+    // where it says. The SDK's own TemplateEditors has claimed an ImageTemplate slot since 2026-08-27, so the
+    // one caller these had left (ui/render/components/ImageTemplatePicker) was a picker PickerRegistry had
+    // already stopped consulting.
+    //
+    // What went with them and is worth naming: the group writer also called LambdaCallHandler.seedIfReady,
+    // so filling a group slot no longer seeds the combination switch in the loop body. That seam has to be
+    // re-made on the plugin's side of the boundary — see the phase C note in the plan about the writing
+    // half of the Matches vocabulary, which is the same unresolved question.
 
     /**
      * Replaces the trailing arguments of {@code call} from {@code fromIndex} with exactly
@@ -613,82 +529,16 @@ public class CodeEditor {
         });
     }
 
-    /** Replaces {@code toReplace} with {@code new Rect(x, y, w, h)} — the screen-region arg picker. */
-    public void setRect(Expression toReplace, int x, int y, int w, int h) {
-        replaceWithIntCtor(toReplace, Rect.class, x, y, w, h);
-    }
-
-    /** Replaces {@code toReplace} with {@code new Point(x, y)} — the cursor-position arg picker. */
-    public void setPoint(Expression toReplace, int x, int y) {
-        replaceWithIntCtor(toReplace, Point.class, x, y);
-    }
-
-    /** Replaces {@code toReplace} with {@code new Size(width, height)} — the measure-on-screen arg picker. */
-    public void setSize(Expression toReplace, int width, int height) {
-        replaceWithIntCtor(toReplace, Size.class, width, height);
-    }
-
-    /** A value to drop into a call argument slot by the multi-argument "Pick all on screen" session. */
-    public sealed interface ArgValue {
-        record RectVal(int x, int y, int w, int h) implements ArgValue {}
-        record PointVal(int x, int y) implements ArgValue {}
-        record ImageVal(String path) implements ArgValue {}
-    }
-
-    /**
-     * Replaces several arguments of {@code mi} in a single rewrite — used by the "Pick all on screen"
-     * session so a whole call's on-screen args are set atomically (applying them one-by-one would
-     * invalidate the other cached argument nodes after the first re-parse). Keys are argument indices.
-     */
-    public void setCallArguments(MethodInvocation mi, java.util.Map<Integer, ArgValue> values) {
-        if (values == null || values.isEmpty()) return;
-        edit(mi, EditKind.BODY, true, (cu, code) -> {
-            AST ast = cu.getAST();
-            ASTRewrite rewriter = ASTRewrite.create(ast);
-            List<?> args = mi.arguments();
-            for (var e : values.entrySet()) {
-                int idx = e.getKey();
-                if (idx < 0 || idx >= args.size()) continue;
-                Expression slot = (Expression) args.get(idx);
-                Expression replacement;
-                Class<?> imported;
-                switch (e.getValue()) {
-                    case ArgValue.RectVal r -> {
-                        replacement = SdkNodes.intCtor(ast, Rect.class, r.x(), r.y(), r.w(), r.h());
-                        imported = Rect.class;
-                    }
-                    case ArgValue.PointVal p -> {
-                        replacement = SdkNodes.intCtor(ast, Point.class, p.x(), p.y());
-                        imported = Point.class;
-                    }
-                    case ArgValue.ImageVal im -> {
-                        ClassInstanceCreation cic = ast.newClassInstanceCreation();
-                        cic.setType(SdkNodes.type(ast, ImageTemplate.class));
-                        cic.arguments().add(SdkNodes.templateArgument(ast, im.path()));
-                        ImportManager.addTemplatesImport(cu, rewriter);
-                        replacement = cic;
-                        imported = ImageTemplate.class;
-                    }
-                    default -> { continue; }
-                }
-                ImportManager.addImport(cu, rewriter, imported);
-                rewriter.replace(slot, replacement, null);
-            }
-            return AstRewriteHelper.applyRewrite(rewriter, code);
-        });
-    }
-
-    /** {@code new <typeName>(a, b, …)} with int-literal arguments (helper for the batch rewrite). */
-    /** Replaces {@code toReplace} with {@code new <type>(a, b, …)} using int-literal arguments. */
-    private void replaceWithIntCtor(Expression toReplace, Class<?> type, int... args) {
-        edit(toReplace, EditKind.BODY, true, (cu, code) -> {
-            AST ast = cu.getAST();
-            ASTRewrite rewriter = ASTRewrite.create(ast);
-            ImportManager.addImport(cu, rewriter, type);
-            rewriter.replace(toReplace, SdkNodes.intCtor(ast, type, args), null);
-            return AstRewriteHelper.applyRewrite(rewriter, code);
-        });
-    }
+    // setRect, setPoint, setSize and replaceWithIntCtor went on 2026-09-01, and they had already had no
+    // caller since 2026-08-27: the SDK's GeometryEditors claims a Rect, Point or Size slot and writes the
+    // constructor itself through SlotContext.replaceWith. They are the same mistake as the template writers
+    // above, caught later only because nothing was left calling them to notice.
+    //
+    // setCallArguments and its ArgValue went with them. Its one caller was the "Pick all on screen" session
+    // (ui/render/components/PickAllSession), deleted the same day. The atomicity it existed for is real and
+    // is not lost — setTrailingArguments below replaces a run of arguments in one rewrite for exactly that
+    // reason — but a batch keyed by argument index, whose values were three of one plugin's types, is not
+    // something the host can offer generically. When a plugin wants it back, it wants SlotRun, which it has.
 
     // =================================================================================
     // METHODS

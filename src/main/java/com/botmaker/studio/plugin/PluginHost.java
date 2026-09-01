@@ -2,6 +2,7 @@ package com.botmaker.studio.plugin;
 
 import com.botmaker.plugin.api.ParameterGroup;
 import com.botmaker.plugin.api.SlotEditor;
+import com.botmaker.plugin.api.SourceSeed;
 import com.botmaker.plugin.api.StudioPlugin;
 import com.botmaker.plugin.api.ToolbarGroup;
 import com.botmaker.plugin.api.ToolbarItem;
@@ -290,6 +291,54 @@ public final class PluginHost {
      */
     public static List<ToolbarItem> toolbarItems() {
         return toolbarItems;
+    }
+
+    /**
+     * The Java a fresh value of a plugin-owned type should be written as — asked on every seed, never
+     * memoised, which is the one place this class deliberately does not cache.
+     *
+     * <p>{@link SourceSeed} is contributed as data, and a seed may read the project's live state: the SDK's
+     * capture-source seed is the project's <em>current</em> default target. Memoising it beside the slot
+     * editors would freeze a slot onto whatever that was at project open — the bug the SDK's own
+     * {@code CaptureExpr.projectDefault()} exists to prevent. The lists are two entries long and a seed is
+     * built when a user drops a block, so there is nothing here worth caching anyway.
+     *
+     * <p>A plugin that throws costs only itself, exactly as in {@link #mergeToolbarItems}: an uncompilable
+     * default in one slot must not stop the others being seeded.
+     */
+    public static List<SourceSeed> sourceSeeds() {
+        List<SourceSeed> merged = new ArrayList<>();
+        for (StudioPlugin plugin : plugins) {
+            List<SourceSeed> offered;
+            try {
+                offered = plugin.sourceSeeds();
+            } catch (RuntimeException | Error e) {
+                System.err.println("Warning: " + plugin.id() + " could not offer source seeds: " + e);
+                continue;
+            }
+            if (offered == null) continue;
+            for (SourceSeed seed : offered) {
+                if (seed != null && seed.typeName() != null && seed.expression() != null
+                        && !seed.expression().isBlank()) {
+                    merged.add(seed);
+                }
+            }
+        }
+        return List.copyOf(merged);
+    }
+
+    /**
+     * The seed for a slot whose type is written {@code typeName}, or {@code null} for none.
+     *
+     * <p>First match wins, in plugin load order, which is the same rule the slot editors follow and for the
+     * same reason: a plugin that ships a type ships the answer for it, and two plugins claiming one name is
+     * a collision the host cannot adjudicate.
+     */
+    public static SourceSeed sourceSeedFor(String typeName) {
+        for (SourceSeed seed : sourceSeeds()) {
+            if (seed.claims(typeName)) return seed;
+        }
+        return null;
     }
 
     // Package-private rather than private: the three rules below — the STUDIO refusal, the sort's tie-break

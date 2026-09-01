@@ -1,13 +1,12 @@
 package com.botmaker.studio.parser.factories;
 
-import com.botmaker.sdk.api.capture.CaptureSource;
-import com.botmaker.sdk.api.vision.Precision;
+import com.botmaker.plugin.api.SourceSeed;
 import com.botmaker.studio.parser.EditContext;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
 import com.botmaker.studio.parser.helpers.DefaultValueHelper;
 import com.botmaker.studio.parser.helpers.SdkNodes;
+import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.studio.project.ProjectState;
-import com.botmaker.studio.project.capture.CaptureExpr;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.types.ResolvedType;
 import com.botmaker.studio.util.MethodSignature;
@@ -99,19 +98,25 @@ public class InitializerFactory {
             return primitiveDefault;
         }
 
-        // 2b. CaptureSource is an SDK *interface* — `new CaptureSource()` won't compile. Seed a slot of that type
-        // with the project default, emitted as the LIVE `Source.current()` call (CaptureExpr.projectDefault(),
-        // fully qualified so it needs no import) — the same text the capture-source picker produces. It must not
-        // be CaptureExpr.of(<today's default>): switching overload through the ⚙ picker runs this path, and a
-        // snapshot would silently freeze the argument into a `CaptureSource.window("…")` literal that stops
-        // following the project's source. Falls back to the whole desktop if the snippet fails to parse.
-        if (richType.leafType().is(CaptureSource.class)) {
-            Expression seeded = parseExpr(ast, CaptureExpr.projectDefault());
+        // 2b. A plugin's own answer for a type the generic `new T()` below cannot fill — an interface, a
+        // record with required components, or a type whose meaning is a named constant. Asked before the JDK
+        // arms below and before that fallback, and asked *every time*, because a seed may read the project's
+        // live state: the SDK's CaptureSource seed is the project's current default target emitted as the
+        // live `Source.current()` call, and a value cached at load would silently freeze the argument into a
+        // `CaptureSource.window("…")` literal that stops following the project's source.
+        //
+        // Two arms lived here until 2026-09-01, naming CaptureSource and Precision — the host holding one
+        // plugin's vocabulary because the host was written first. What replaced them is StudioPlugin's
+        // sourceSeeds(): the same two expressions, contributed by the plugin that owns the types, and a
+        // second plugin's interface-typed slot now gets an answer where before it got `new T()`.
+        SourceSeed seed = PluginHost.sourceSeedFor(richType.leafType().simpleName());
+        if (seed == null) seed = PluginHost.sourceSeedFor(richType.leafType().qualifiedName());
+        if (seed != null) {
+            Expression seeded = parseExpr(ast, seed.expression());
             if (seeded != null) return seeded;
-            MethodInvocation desktop = ast.newMethodInvocation();
-            desktop.setExpression(SdkNodes.qualifiedName(ast, CaptureSource.class));
-            desktop.setName(ast.newSimpleName("desktop"));
-            return desktop;
+            // A seed that will not parse is skipped, never written: the generic paths below are wrong for
+            // this type but they compile, and source that does not is the one outcome worse than a bad
+            // default. The plugin's mistake costs it a good seed, not the user's project.
         }
 
         // 2c. java.awt.Color has no no-arg constructor, so the generic `new T()` below produced a
@@ -127,18 +132,10 @@ public class InitializerFactory {
             if (seeded != null) return seeded;
         }
 
-        // 2d. Precision is a record with required components, so the generic `new T()` below is uncompilable
-        // for exactly the reason Color is (2c). It ships a named default that says what the slot means before
-        // the user touches it — Precision.DEFAULT rather than a bare 12.0 is the entire point of the type, so
-        // the seed has to be the constant, not a number. Simple name: the two paths that build argument
-        // defaults (palette insert, overload switch) import each parameter's type alongside this call, and
-        // unlike java.awt.Color it resolves through the analyzer's SDK index.
-        // Not a `case` below only because a switch label must be a compile-time constant, and the name comes
-        // from the type identity rather than a literal.
-        if (richType.leafType().is(Precision.class)) {
-            Expression seeded = parseExpr(ast, Precision.class.getSimpleName() + ".DEFAULT");
-            if (seeded != null) return seeded;
-        }
+        // 2d. Precision's arm went to the plugin with 2b's on 2026-09-01, and it is the clearer of the two
+        // about why the surface is data rather than a Node: "a fresh Precision is written Precision.DEFAULT"
+        // is one line, and the reason it is the constant and not a bare 12.0 — the named default is the whole
+        // point of the type — is the plugin's knowledge, not the host's.
         String seededConstant = switch (richType.leafType().simpleName()) {
             // java.time.Duration has no public constructor either, and no meaningful "named default", so the
             // seed is a plausible literal wait instead — one second, in the unit the picker will show it in,

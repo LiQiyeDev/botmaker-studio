@@ -1,7 +1,6 @@
 package com.botmaker.studio.services;
 
-import com.botmaker.sdk.authoring.TemplateNames;
-import com.botmaker.sdk.authoring.WireText;
+import com.botmaker.shared.project.TemplateNames;
 import com.botmaker.studio.parser.refactor.ReviewMarker;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
@@ -113,7 +112,7 @@ public final class TemplateReferences {
         Pattern constant = constantReferenceTo(oldName);
         Pattern literal = literalReferenceTo(oldName);
         String newConstant = TemplateNames.constantFor(newName);
-        String newLiteral = '"' + WireText.IMAGE_PREFIX + newName + ".png\"";
+        String newLiteral = '"' + TemplateNames.IMAGE_PREFIX + newName + ".png\"";
         String constantReplacement = Matcher.quoteReplacement(
                 newConstant == null ? newLiteral : TemplateNames.CLASS_NAME + "." + newConstant);
         String literalReplacement = Matcher.quoteReplacement(newLiteral);
@@ -154,7 +153,7 @@ public final class TemplateReferences {
 
     /** The project-relative path as a whole string literal — how a template with no constant is written. */
     private static Pattern literalReferenceTo(String baseName) {
-        return Pattern.compile(Pattern.quote('"' + WireText.IMAGE_PREFIX + baseName + ".png\""));
+        return Pattern.compile(Pattern.quote('"' + TemplateNames.IMAGE_PREFIX + baseName + ".png\""));
     }
 
     /** Either spelling, for the read-only scan. */

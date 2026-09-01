@@ -2,7 +2,6 @@ package com.botmaker.studio.ui.app.params;
 
 import com.botmaker.plugin.api.SlotEditor;
 import com.botmaker.plugin.api.value.ValueType;
-import com.botmaker.sdk.authoring.WireText;
 import com.botmaker.studio.plugin.HostServices;
 import com.botmaker.studio.plugin.HostValueContext;
 import com.botmaker.studio.plugin.PluginHost;
@@ -301,11 +300,11 @@ public final class ValueEditors {
                 swatch.getStyleClass().add("option-color-swatch");
                 yield swatch;
             }
-            case "DURATION" -> {
-                Label spelled = new Label(WireText.spellDuration(WireText.duration(value).toMillis()));
-                spelled.getStyleClass().add("dialog-hint-text");
-                yield spelled;
-            }
+            // DURATION's preview went on 2026-09-01. It spelled the stored milliseconds back out through the
+            // SDK's WireText — the host reading one plugin's wire format to draw a caption — and the arm
+            // above it records the rule that decides this: a preview a plugin's own editor can draw is the
+            // plugin's. The SDK's DurationEditor already owns both halves of this value, so if the caption is
+            // wanted back it comes through SlotEditor's preview, as COLOR's did.
             case "DIRECTION" -> {
                 String arrow = DirectionPad.CELLS.stream()
                         .filter(cell -> cell.name().equals(value))
