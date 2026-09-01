@@ -23,6 +23,7 @@ import com.botmaker.studio.blocks.var.VariableDeclarationBlock;
 import com.botmaker.studio.core.*;
 import com.botmaker.studio.palette.BotMakerApi;
 import com.botmaker.studio.palette.InputKind;
+import com.botmaker.studio.parser.handlers.BranchChainHandler;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
 import com.botmaker.studio.parser.helpers.FileTypeDetector;
 import com.botmaker.studio.parser.handlers.MatchesSwitchHandler;
@@ -344,6 +345,14 @@ public class BlockConverter {
             return Optional.of(block);
         }
         if (expr instanceof MethodInvocation mi) {
+            // Ahead of everything else a method invocation can be: a branch chain is a call whose arguments
+            // are all lambdas, chained leftward, and every arm below would draw only its outermost link —
+            // LibraryCallBlock its receiver as a scope string, MethodInvocationBlock its two lambdas as
+            // arguments. Anything that is not exactly that shape falls through unchanged.
+            if (BranchChainHandler.isBranchChain(mi)) {
+                return parseBranchChain(stmt, mi, ctx);
+            }
+
             String scope = mi.getExpression() != null ? mi.getExpression().toString() : "";
 
             // Activity.disable/enable("X") and Bot.stop() are ordinary SDK facade calls — they fall through to
@@ -369,6 +378,30 @@ public class BlockConverter {
             return Optional.of(block);
         }
         return Optional.empty();
+    }
+
+    /**
+     * A branch chain ({@code found.when(m -> m.hasAny(ORE), () -> { … }).otherwise(() -> { … })}) as one
+     * {@link BranchChainBlock} with a row per link — the condition as an ordinary boolean expression slot, the
+     * body as a droppable {@link BodyBlock}, both recursed exactly as every other block's are.
+     *
+     * <p>Nothing here knows what the chain is over. {@code BranchChainHandler} reads the shape and the source
+     * supplies the captions, which is what lets one block draw any plugin's chain — see that class for why the
+     * guarded-switch machinery this replaced could not be written that way.
+     */
+    private Optional<StatementBlock> parseBranchChain(ExpressionStatement stmt, MethodInvocation mi,
+                                                      ParseContext ctx) {
+        BranchChainBlock block =
+                new BranchChainBlock(BlockId.of(stmt), stmt, BranchChainHandler.subjectOf(mi));
+        ctx.nodeToBlockMap().put(stmt, block);
+
+        for (BranchChainHandler.Link link : BranchChainHandler.read(mi)) {
+            BranchChainBlock.LinkView view = block.addLink(link.method(), link.isTerminal());
+            Expression condition = link.conditionExpression();
+            if (condition != null) parseExpression(condition, ctx).ifPresent(view::setCondition);
+            view.setBody(parseBodyBlock(link.body(), ctx));
+        }
+        return Optional.of(block);
     }
 
     /**

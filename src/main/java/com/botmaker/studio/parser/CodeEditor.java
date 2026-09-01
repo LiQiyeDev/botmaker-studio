@@ -11,6 +11,7 @@ import com.botmaker.studio.palette.FunctionDraft;
 import com.botmaker.studio.palette.MatchesCheck;
 import com.botmaker.studio.parser.factories.InitializerFactory;
 import com.botmaker.studio.parser.factories.StatementFactory;
+import com.botmaker.studio.parser.handlers.BranchChainHandler;
 import com.botmaker.studio.parser.handlers.EnumManipulationHandler;
 import com.botmaker.studio.parser.handlers.InstantiationHandler;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
@@ -815,6 +816,24 @@ public class CodeEditor {
     }
 
     /** Moves the list element at {@code fromIndex} to {@code toIndex} (used by the per-row up/down buttons). */
+    /**
+     * Inserts another branch into a chain, after the link at {@code afterIndex}.
+     *
+     * <p>{@code markUnedited} is true for the same reason every other insert sets it: the statement now holds
+     * a branch that tests {@code false} and does nothing, which is a shape the user has to finish rather than
+     * a change to what the bot does.
+     */
+    public void addBranchLink(Statement chain, int afterIndex) {
+        edit(chain, EditKind.BODY, true,
+                (cu, code) -> BranchChainHandler.applyAddLink(ctx(cu), code, chain, afterIndex));
+    }
+
+    /** Removes one branch from a chain, closing it over the gap. Refused for the last remaining link. */
+    public void removeBranchLink(Statement chain, int index) {
+        edit(chain, EditKind.BODY, false,
+                (cu, code) -> BranchChainHandler.applyRemoveLink(ctx(cu), code, chain, index));
+    }
+
     public void moveListElement(ASTNode listNode, int fromIndex, int toIndex) {
         edit(listNode, EditKind.BODY, false, (cu, code) -> ListHandler.moveElement(cu, code, listNode, fromIndex, toIndex));
     }

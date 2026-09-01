@@ -6,6 +6,45 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-09-01 — a branch chain is a block, and it knows nobody's vocabulary. NOT COMPILED — see the
+  warning at the end of this entry.** `parser/handlers/BranchChainHandler` and
+  `blocks/flow/BranchChainBlock` draw `subject.when(m -> test, () -> { … }).otherwise(() -> { … })` as one
+  row per link: the method name as written, the condition as an ordinary boolean expression slot, the body as
+  a droppable `BodyBlock`, with `+`/`×` per row. `BlockConverter.parseExprStmt` dispatches to it ahead of
+  every other `MethodInvocation` arm, and `CodeEditor` gains `addBranchLink`/`removeBranchLink`.
+
+  **Why it exists.** It is the replacement for `MatchesSwitchBlock`/`MatchesSwitchHandler`/`MatchesGroupScope`
+  /`GuardTree` — roughly 1,550 lines that existed only to edit a guarded `switch (matches)`. Those had to
+  spell the SDK's `Matches`, its guard methods, the pattern variable and the mandatory `default`, because a
+  `switch` is a *language construct* and an editor cannot compose one out of a catalogue of methods. The SDK
+  replaced the construct with a chain of ordinary calls (`Matches.when`/`MatchBranch`, 2026-09-01), and a
+  chain can be recognised by **shape alone**.
+
+  **The recognition rule, which is the whole design.** A *link* is a call whose arguments are all lambdas;
+  its trailing block-bodied lambda is the body and any expression-bodied lambda before it is a condition; a
+  link with no condition is the fallback; links nest leftward down to the subject. At least one condition is
+  required, which is what keeps an ordinary `runner.submit(() -> { … })` rendering as the method-invocation
+  block it always did. **A new branch copies the method name of an existing one**, so `when` is never written
+  down here — a chain already says what its branch method is called, and a chain of only a fallback has
+  nothing to copy, so the `+` is absent rather than guessing.
+
+  **Two things the plan asked for and this does not do.** It does not consult the palette catalog for
+  functional-interface parameters: that needs the receiver's *resolved type* (the subject is a lambda
+  parameter, and the machinery this replaces deliberately avoided binding resolution) and it reflects on a
+  `Class<?>` from a plugin's loader, which `docs/refactor/25-compatibility.md` §4 warns against. And it makes
+  no change to `PluginHost`. The structural rule is both smaller and more general.
+
+  **`BranchChainHandlerTest` is written in a deliberately non-SDK vocabulary** — `found.pick(…).fallback(…)`
+  — so a regression that reintroduces SDK knowledge into the handler fails it.
+
+  **⚠ This landed unverified, by decision, and the reason is not this work.** `botmaker-studio` does not
+  compile at its parent commit: 95 errors across 43 files, the tail of several unfinished migrations —
+  `palette/BotType` deleted with its ~94-file retype not done, `services.capture` and `project.launch` moved
+  to the SDK plugin with call sites left behind, `FunctionDraft`/`Parameter` ambiguous in
+  `MethodDeclarationBlock`. Exactly one of those 95 is in a file the switch deletion removes, so that
+  deletion does not help. **Nothing here has been compiled or run**; the 12 tests need no UI and no project
+  and are the first thing to run once the module builds.
+
 - **2026-08-31 — Project Setup is a plugin's toolbar item, and the shell stops opening it for you.**
   Eighteenth step of *Studio knows only the contract*, and the maintainer's instruction mid-seventeenth:
   *"projectsetup is also handled by sdk"*. `ui/app/ProjectSetupDialog` is **deleted**; the checklist is the
