@@ -1,6 +1,5 @@
 package com.botmaker.studio.parser;
 
-import com.botmaker.sdk.authoring.TemplateNames;
 import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
@@ -143,22 +142,13 @@ public class ImportManager {
         addImport(cu, rewriter, type.getName());
     }
 
-    /**
-     * Imports the project's generated {@code Templates} class when the file being edited needs it — i.e. when
-     * it isn't already in the base package the class lives in.
-     *
-     * <p>The base package is read off the file itself rather than passed in, because these rewrites run from
-     * both the main class and an activity stub and only one of them has the project config to hand. An
-     * activity lives in {@code com.<pkg>.activities}, so the base package is this file's own minus that one
-     * trailing segment — the layout {@code ProjectConfig} creates and the only one Studio generates.
-     */
-    public static void addTemplatesImport(CompilationUnit cu, ASTRewrite rewriter) {
-        if (cu == null || cu.getPackage() == null) return;
-        String pkg = cu.getPackage().getName().getFullyQualifiedName();
-        String base = pkg.endsWith(".activities") ? pkg.substring(0, pkg.length() - ".activities".length()) : pkg;
-        if (base.equals(pkg)) return;   // same package — the class is already visible
-        addImport(cu, rewriter, base + "." + TemplateNames.CLASS_NAME);
-    }
+    // addTemplatesImport stood here until 2026-09-01. It imported the project's generated `Templates` class,
+    // deriving the base package from the file's own — and it existed because Studio wrote `Templates.YTUJ`
+    // into bot source itself, at three call sites that are all gone now: the guarded switch's seed, its
+    // factory, and ListHandler's ImageTemplate arm. A picture is the SDK plugin's concept, so a reference to
+    // one is written by that plugin, through SlotContext.replaceWith, which carries its own imports.
+    //
+    // This was the last thing in Studio that named com.botmaker.sdk.authoring.TemplateNames.
 
     /**
      * Raw add import (expects FQN).

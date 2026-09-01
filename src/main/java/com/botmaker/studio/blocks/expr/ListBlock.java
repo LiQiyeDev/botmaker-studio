@@ -10,7 +10,7 @@ import javafx.geometry.Pos;
 import javafx.scene.Node;
 import com.botmaker.studio.ui.render.components.ArgumentEditors;
 import com.botmaker.studio.ui.render.components.BlockUIComponents;
-import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
+import com.botmaker.studio.plugin.PluginHost;
 import javafx.scene.control.Button;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
@@ -121,10 +121,12 @@ public class ListBlock extends AbstractExpressionBlock {
     }
 
     private void showAddElementMenu(Button button, CodeEditorService context, int insertIndex, ResolvedType targetType) {
-        // For an ImageTemplate list, skip the generic expression menu — add a template element directly and
-        // let its per-element image picker drive the actual choice.
-        if (ImageTemplatePicker.isImageTemplateType(targetType)) {
-            context.getCodeEditor().addImageTemplateToList(this.astNode, insertIndex);
+        // A type whose owning plugin says what a fresh one looks like skips the generic expression menu: the
+        // seed is added straight away and the element's own editor drives the real choice. This arm named
+        // ImageTemplate until 2026-09-01 — the host deciding, for one library, that "+" on its lists means
+        // something else — and the question it was really asking is the one SourceSeed answers for everybody.
+        if (PluginHost.sourceSeedFor(targetType == null ? null : targetType.simpleName()) != null) {
+            context.getCodeEditor().addSeededElementToList(this.astNode, insertIndex, targetType);
             return;
         }
         // Reuse the same type-aware menu the "change" path uses (variable / method / constructor / enum

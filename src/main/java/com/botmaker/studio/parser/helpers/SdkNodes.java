@@ -1,18 +1,12 @@
 package com.botmaker.studio.parser.helpers;
 
-import com.botmaker.sdk.authoring.TemplateNames;
-import com.botmaker.sdk.api.vision.ImageTemplate;
 import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.ClassInstanceCreation;
 import org.eclipse.jdt.core.dom.Expression;
 import org.eclipse.jdt.core.dom.MethodInvocation;
 import org.eclipse.jdt.core.dom.Name;
-import org.eclipse.jdt.core.dom.QualifiedName;
 import org.eclipse.jdt.core.dom.SimpleName;
-import org.eclipse.jdt.core.dom.StringLiteral;
 import org.eclipse.jdt.core.dom.Type;
-
-import java.util.Optional;
 
 /**
  * The bridge between an SDK class and the JDT nodes that name it — so a rewrite writes
@@ -83,30 +77,12 @@ public final class SdkNodes {
 
     // --- the argument of a new ImageTemplate(…) -------------------------------------------------------
     //
-    // Two spellings, one meaning. `Templates.YTUJ` is what Studio writes now — the path declared once in the
-    // generated constants class instead of repeated at every use site — and `"src/main/resources/images/…"`
-    // is what it wrote before and what a hand-written bot may still say. Both are read here, in one place,
-    // so no picker has to know there are two; and both round-trip, so opening an old project and editing one
-    // block doesn't rewrite the others.
-
-    // templatePathOf and imageTemplatePathOf stood here until 2026-09-01. Both existed to *read* a template
-    // argument back — which only the guarded switch ever asked for, so they went out with it. The reading
-    // half of "two spellings, one meaning" is therefore gone; the writing half is templateArgument below,
-    // and it has one caller left (ListHandler), which is the next thing to leave.
-
-    /**
-     * How to write {@code path} as the argument of a {@code new ImageTemplate(…)}: {@code Templates.YTUJ} when
-     * the template has a constant, the raw path otherwise. The fallback is what keeps a template named before
-     * the lowercase-identifier rule editable — it has no constant to name it by, so it keeps its literal.
-     */
-    public static Expression templateArgument(AST ast, String path) {
-        String constant = TemplateNames.constantForPath(path);
-        if (constant != null) {
-            return ast.newQualifiedName(ast.newSimpleName(TemplateNames.CLASS_NAME),
-                    ast.newSimpleName(constant));
-        }
-        StringLiteral literal = ast.newStringLiteral();
-        literal.setLiteralValue(path == null ? "" : path);
-        return literal;
-    }
+    // "Two spellings, one meaning" lived here — reading and writing a picture argument as either
+    // `Templates.YTUJ` or `"src/main/resources/images/…"`. templatePathOf and imageTemplatePathOf (the
+    // reading half) went on 2026-09-01 with the guarded switch that was their only caller, and
+    // templateArgument (the writing half) went the same day with ListHandler's arm for it.
+    //
+    // Nothing in this class knows what a picture is now, which is the point: both spellings belong to the
+    // plugin that owns ImageTemplate, and both are its to write — as a SourceSeed for a fresh one and
+    // through its own slot editors for an existing one. TemplateNames leaves Studio entirely with them.
 }

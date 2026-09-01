@@ -1,11 +1,10 @@
 package com.botmaker.studio.parser.handlers;
 
-import com.botmaker.sdk.api.vision.ImageTemplate;
 import com.botmaker.studio.palette.ExpressionType;
 import com.botmaker.studio.parser.EditContext;
 import com.botmaker.studio.parser.NodeCreator;
+import com.botmaker.studio.parser.factories.InitializerFactory;
 import com.botmaker.studio.parser.helpers.AstRewriteHelper;
-import com.botmaker.studio.parser.helpers.SdkNodes;
 import com.botmaker.studio.types.ResolvedType;
 import org.eclipse.jdt.core.dom.*;
 import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
@@ -32,20 +31,24 @@ public class ListHandler {
     }
 
     /**
-     * Inserts a {@code new ImageTemplate("")} element into the list — the list-aware counterpart of the
-     * inline image-template picker. The empty path opens the per-element picker on the freshly added element.
+     * Inserts an element of {@code elementType}, built the way that type's owning plugin says a fresh one is
+     * written — the list-aware counterpart of the inline picker, which the freshly added element then opens.
+     *
+     * <p>This was {@code addImageTemplateElement} until 2026-09-01, and it assembled
+     * {@code new ImageTemplate(Templates…)} by hand: two SDK class names and the generated constants class,
+     * in a handler whose subject is lists. {@link InitializerFactory#createDefaultInitializer} already asks
+     * {@code PluginHost.sourceSeedFor} for exactly this, so the arm was a second answer to a question the
+     * generic path answers for every plugin at once.
+     *
+     * <p>A type nothing seeds still gets the generic {@code new T()} from that same call, which is why this
+     * needs no fallback of its own.
      */
-    public static String addImageTemplateElement(EditContext ctx, String originalCode,
-                                                 ASTNode listNode, int insertIndex) {
-        AST ast = ctx.ast();
+    public static String addSeededElement(EditContext ctx, String originalCode, ASTNode listNode,
+                                          int insertIndex, ResolvedType elementType) {
+        Expression seeded = InitializerFactory.createDefaultInitializer(ctx, elementType);
+        if (seeded == null) return originalCode;
 
-        ClassInstanceCreation cic = ast.newClassInstanceCreation();
-        cic.setType(SdkNodes.type(ast, ImageTemplate.class));
-        cic.arguments().add(SdkNodes.templateArgument(ast, ""));
-        ctx.addImport(ImageTemplate.class);
-        ctx.addTemplatesImport();
-
-        insertElement(ctx.rewriter(), listNode, cic, insertIndex);
+        insertElement(ctx.rewriter(), listNode, seeded, insertIndex);
         return ctx.applyTo(originalCode);
     }
 

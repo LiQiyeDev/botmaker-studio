@@ -6,6 +6,34 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-09-01 — `TemplateNames` leaves Studio's parser, and the last hand-built SDK node with it.**
+  `ListHandler.addImageTemplateElement` assembled `new ImageTemplate(Templates…)` by hand — two SDK class
+  names and the generated constants class, in a handler whose subject is lists — and it is replaced by
+  `addSeededElement`, which asks `InitializerFactory.createDefaultInitializer` and therefore
+  `PluginHost.sourceSeedFor`. The SDK plugin contributes
+  `SourceSeed.of("…ImageTemplate", "new …ImageTemplate(\"\")")`; the empty path is what opens the per-element
+  picture picker, so nothing is lost.
+
+  **`ListBlock`'s "+" is generic now.** It asked `ImageTemplatePicker.isImageTemplateType(targetType)` — the
+  host deciding, for one library, that adding to its lists means something other than the expression menu.
+  It asks whether *any* plugin seeds that type, which is the question it was really asking, and a second
+  plugin's list type gets the same treatment without a line of host code.
+
+  **Four things fell out as dead.** `SdkNodes.templateArgument` (the writing half of "two spellings, one
+  meaning"; its reading half went with the guarded switch), `ImportManager.addTemplatesImport`,
+  `EditContext.addTemplatesImport`, and `CodeEditor.addImageTemplateToList`. `SdkNodes` no longer knows what
+  a picture is at all — both spellings belong to the plugin that owns `ImageTemplate`, written as a
+  `SourceSeed` for a fresh one and through its own slot editors for an existing one.
+
+  **`grep -rn TemplateNames src/` is down to `services/TemplateReferences` and two comments.** That file is
+  the rename-and-repoint engine over the bot's own sources, and it stays until the host capability it needs
+  (`Sources`, on the contract) exists — the next phase. Everything else that named the SDK's picture
+  vocabulary is gone.
+
+  **Verified against the running baseline**, since the module still does not compile for reasons predating
+  this plan: 95 errors before the plan, 93 after the deletions, **92 now, with none introduced**.
+  **Nothing here has been run.**
+
 - **2026-09-01 — the guarded switch is deleted, and 2,868 lines with it.** `blocks/flow/MatchesSwitchBlock`
   (632), `parser/handlers/MatchesSwitchHandler` (492), `blocks/flow/MatchesGroupScope` (219),
   `parser/handlers/GuardTree` (203), `palette/MatchesCheck`, `palette/MatchesJoin`, and four tests

@@ -836,9 +836,16 @@ public class CodeEditor {
         edit(listNode, EditKind.BODY, false, (cu, code) -> ListHandler.moveElement(cu, code, listNode, fromIndex, toIndex));
     }
 
-    /** Adds a {@code new ImageTemplate("")} element to the list — drives the per-element image picker. */
-    public void addImageTemplateToList(ASTNode listNode, int insertIndex) {
-        edit(listNode, EditKind.BODY, true, (cu, code) -> ListHandler.addImageTemplateElement(ctx(cu), code, listNode, insertIndex));
+    /**
+     * Adds an element of {@code elementType} to the list, seeded by whichever plugin owns that type.
+     *
+     * <p>{@code addImageTemplateToList} stood here until 2026-09-01 and built {@code new ImageTemplate("")}
+     * itself. What a fresh value of a plugin's type looks like is that plugin's sentence to write, and it
+     * writes it as a {@code SourceSeed}; the host's job is only to put the element in the list.
+     */
+    public void addSeededElementToList(ASTNode listNode, int insertIndex, ResolvedType elementType) {
+        edit(listNode, EditKind.BODY, true,
+                (cu, code) -> ListHandler.addSeededElement(ctx(cu), code, listNode, insertIndex, elementType));
     }
 
     public void deleteElementFromList(ASTNode listNode, int elementIndex) {

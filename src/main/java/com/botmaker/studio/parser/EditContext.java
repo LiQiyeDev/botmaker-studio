@@ -61,10 +61,9 @@ public record EditContext(AST ast, CompilationUnit cu, ASTRewrite rewriter,
         return newState == state ? this : new EditContext(ast, cu, rewriter, analyzer, newState, surface);
     }
 
-    /** Imports the project's generated {@code Templates} class if this file isn't already in its package. */
-    public void addTemplatesImport() {
-        ImportManager.addTemplatesImport(cu, rewriter);
-    }
+    // addTemplatesImport() went on 2026-09-01 with the ImportManager method behind it. Nothing in Studio
+    // writes a reference to the generated Templates class any more, so nothing needs it imported: a picture
+    // is the SDK plugin's concept and its editors carry their own imports through SlotContext.replaceWith.
 
     /** Imports a type by identity — cannot fail to resolve. See {@link ImportManager#addImport}. */
     public void addImport(Class<?> type) {
