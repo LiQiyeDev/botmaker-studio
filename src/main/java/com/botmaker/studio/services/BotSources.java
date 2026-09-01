@@ -38,6 +38,9 @@ public final class BotSources {
 
     private BotSources() {}
 
+    /** The generated constants class, which every sweep here skips. See {@link #forEach}. */
+    private static final String GENERATED_TEMPLATES_FILE = "Templates.java";
+
     /** What to do with one source file; return the rewritten text, or null to leave it alone. */
     @FunctionalInterface
     public interface Rewrite {
@@ -48,7 +51,12 @@ public final class BotSources {
     public static void forEach(ProjectConfig config, ProjectState state, Rewrite rewrite) {
         Map<Path, ProjectFile> open = openBuffers(state);
         Set<Path> seen = new LinkedHashSet<>();
-        Path generated = config.templatesSourceFile().toAbsolutePath().normalize();
+        // ProjectConfig.templatesSourceFile() answered this until it was deleted with Studio's copy of the
+        // picture vocabulary. The file is still skipped for the reason it always was — it *declares* the
+        // constants rather than using them, and it is rewritten from the images folder anyway — so the name
+        // is spelled here, as a string, which is the one place left in this module that names the SDK's
+        // generated class. It goes when this walk becomes a host capability and the plugin says what to skip.
+        Path generated = config.mainPackageDir().resolve(GENERATED_TEMPLATES_FILE).toAbsolutePath().normalize();
 
         for (Path file : javaFiles(config)) {
             if (file.equals(generated) || !seen.add(file)) continue;

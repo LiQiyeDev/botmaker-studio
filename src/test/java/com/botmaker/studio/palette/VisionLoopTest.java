@@ -1,6 +1,5 @@
 package com.botmaker.studio.palette;
 
-import com.botmaker.studio.blocks.flow.MatchesGroupScope;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -30,25 +29,11 @@ class VisionLoopTest {
                 "the dropdown lists values() in order, so a reordering is a UI change");
     }
 
-    @Test
-    void theGroupLambdaSetIsExactlyWhatMatchesGroupScopeUsedToHardcode() {
-        // The literal that lived in MatchesGroupScope, kept here as the assertion it never had.
-        Set<String> hardcoded = Set.of("ifFindAny", "whileFindAny", "ifFindAll", "whileFindAll");
-
-        Set<String> derived = java.util.Arrays.stream(VisionLoop.values())
-                .filter(VisionLoop::handsOverMatches)
-                .map(VisionLoop::methodName)
-                .collect(Collectors.toSet());
-
-        assertEquals(hardcoded, derived);
-        for (String method : hardcoded) {
-            assertTrue(MatchesGroupScope.isGroupLambdaCall(method), method + " hands over a Matches");
-        }
-        assertAll(
-                () -> assertFalse(MatchesGroupScope.isGroupLambdaCall("whileFind"), "a single hit is not a Matches"),
-                () -> assertFalse(MatchesGroupScope.isGroupLambdaCall("untilFindAll"), "until… hands over nothing"),
-                () -> assertFalse(MatchesGroupScope.isGroupLambdaCall("hasAny"), "not a find call at all"));
-    }
+    // theGroupLambdaSetIsExactlyWhatMatchesGroupScopeUsedToHardcode stood here until 2026-09-01. It held
+    // VisionLoop.handsOverMatches() against the four method names MatchesGroupScope hardcoded, and both
+    // sides of that agreement are gone: the guarded switch the flag existed to seed was deleted, and
+    // MatchesGroupScope with it. What replaced the construct is a chain of ordinary catalogued calls, which
+    // needs nothing from this enum.
 
     @Test
     void theShapeOfEachFormFollowsItsName() {
@@ -75,28 +60,8 @@ class VisionLoopTest {
         assertEquals(Optional.empty(), VisionLoop.fromMethodName(null));
     }
 
-    @Test
-    void aMatchesCheckKnowsItsMethodAndItsWords() {
-        assertAll(
-                () -> assertEquals("hasAny", MatchesCheck.ANY.methodName()),
-                () -> assertEquals("hasAll", MatchesCheck.ALL.methodName()),
-                () -> assertEquals("any of", MatchesCheck.ANY.label()),
-                () -> assertSame(MatchesCheck.ALL, MatchesCheck.of(true)),
-                () -> assertSame(MatchesCheck.ANY, MatchesCheck.of(false)),
-                () -> assertSame(MatchesCheck.ALL, MatchesCheck.fromMethodName("hasAll").orElseThrow()),
-                () -> assertEquals(Optional.empty(), MatchesCheck.fromMethodName("has")));
-    }
-
-    /** The companion of the check: how several of them combine into one branch's condition. */
-    @Test
-    void aMatchesJoinKnowsItsWordAndItsOperator() {
-        assertAll(
-                () -> assertEquals("and", MatchesJoin.AND.label()),
-                () -> assertEquals("&&", MatchesJoin.AND.symbol()),
-                () -> assertEquals("||", MatchesJoin.OR.symbol()),
-                () -> assertSame(MatchesJoin.OR, MatchesJoin.AND.flipped()),
-                () -> assertSame(MatchesJoin.AND, MatchesJoin.OR.flipped()),
-                () -> assertSame(MatchesJoin.OR, MatchesJoin.fromSymbol("||").orElseThrow()),
-                () -> assertEquals(Optional.empty(), MatchesJoin.fromSymbol("&")));
-    }
+    // aMatchesCheckKnowsItsMethodAndItsWords and aMatchesJoinKnowsItsWordAndItsOperator stood here until
+    // 2026-09-01. MatchesCheck and MatchesJoin were the vocabulary of the guard editor — hasAny/hasAll and
+    // &&/|| as things a dropdown could offer — and they went with the switch block that offered them. A
+    // predicate is written as ordinary Java in a slot now, so there is no closed set left to describe.
 }

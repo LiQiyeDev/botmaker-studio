@@ -1,6 +1,7 @@
 package com.botmaker.studio.ui.app;
 
 import com.botmaker.studio.project.ProjectConfig;
+import com.botmaker.studio.project.ProjectCreator;
 import com.botmaker.studio.project.TemplateProject;
 import com.botmaker.studio.sharing.GalleryEntry;
 import com.botmaker.studio.sharing.BotPublisher;
@@ -315,8 +316,12 @@ public class PublishDialog {
         CompletableFuture
                 .supplyAsync(() -> {
                     try {
+                        // The declared launch kinds used to come from a row in this dialog. That row went with
+                        // the launch-target dialog, but the declaration itself did not: it lives in
+                        // botmaker-project.properties and it is what travels with the published bot, so it is
+                        // read from the project rather than asked for again.
                         return publisher.publish(projectDir, projectName, repo, description, version, tags,
-                                listInGallery);
+                                ProjectCreator.readSupportedTargets(config.resourcesRoot()), listInGallery);
                     } catch (Exception ex) {
                         throw new RuntimeException(ex.getMessage(), ex);
                     }

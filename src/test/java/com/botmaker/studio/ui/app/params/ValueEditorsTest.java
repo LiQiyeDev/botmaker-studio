@@ -1,7 +1,6 @@
 package com.botmaker.studio.ui.app.params;
 
 import com.botmaker.studio.project.ProjectConfig;
-import com.botmaker.studio.services.ImageTemplateLibrary;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -56,19 +55,9 @@ public class ValueEditorsTest {
         assertEquals("", ValueEditors.keyWire(KEYS, "esc", null));
     }
 
-    /**
-     * {@code pathForName} is what gets stored and {@code fileForName} is what can be opened. Handing the
-     * first to {@code Path.of} resolved it against Studio's working directory, which is why a template's
-     * thumbnail was missing everywhere outside the gallery.
-     */
-    @Test
-    void aTemplateResolvesUnderTheProjectAndNotTheWorkingDirectory() {
-        ProjectConfig project = ProjectConfig.forProject("demo", Path.of("/tmp/projects"));
-        Path file = ImageTemplateLibrary.fileForName(project, "button");
-
-        assertTrue(file.isAbsolute());
-        assertTrue(file.startsWith(project.projectPath()));
-        assertEquals("button.png", file.getFileName().toString());
-        assertFalse(Path.of(ImageTemplateLibrary.pathForName(project, "button")).isAbsolute());
-    }
+    // aTemplateResolvesUnderTheProjectAndNotTheWorkingDirectory stood here until 2026-09-01. It held
+    // ImageTemplateLibrary's pathForName (what is stored) against its fileForName (what can be opened),
+    // because handing the first to Path.of resolved it against Studio's working directory and lost every
+    // thumbnail outside the gallery. Both methods are the SDK's TemplateLibrary now, and so is the rule —
+    // the test belongs beside them, in the module that can break them.
 }

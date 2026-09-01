@@ -8,7 +8,6 @@ import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.activity.Bounds;
 import com.botmaker.studio.project.activity.ValueWire;
-import com.botmaker.studio.services.ScreenCaptureService;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -166,18 +165,9 @@ public final class ValueEditors {
             // named picture is ImageTemplate's concept, so its editor is the SDK's, and it arrives through
             // fromPlugin below. The chip this replaced opened a different dialog from the one a block's slot
             // opened, with its own idea of what a deleted picture looks like.
-            case "POINT" -> {
-                GeometryRow row = new GeometryRow(value, GeometryRow.Kind.POINT, ctx.project());
-                yield new Editor(row, row::wire);
-            }
-            case "SIZE" -> {
-                GeometryRow row = new GeometryRow(value, GeometryRow.Kind.SIZE, ctx.project());
-                yield new Editor(row, row::wire);
-            }
-            case "RECT" -> {
-                GeometryRow row = new GeometryRow(value, GeometryRow.Kind.RECT, ctx.project());
-                yield new Editor(row, row::wire);
-            }
+            // POINT, SIZE and RECT have no arms here any more either, and for the same reason: all three are
+            // the SDK's GeometryEditors, drawn through one Editors.tuplePill, and the screen pick they hung
+            // on belongs to the plugin that owns the capture stack. See the note where GeometryRow stood.
             case "CHARACTER" -> {
                 // One character is the whole value, so the field is one character wide rather than letting
                 // somebody type a word that would silently become its first letter.
@@ -676,80 +666,20 @@ public final class ValueEditors {
         }
     }
 
-    // --- geometry -------------------------------------------------------------------------------------------
+    // --- geometry: gone, and worth saying where -----------------------------------------------------------
+    //
+    // GeometryRow drew two or four labelled number fields and a "Pick on screen..." button for POINT, SIZE
+    // and RECT. It is deleted on exactly the reasoning stated for the image template below: a point and a
+    // region are the SDK's concepts, its GeometryEditors draws all three through Editors.tuplePill, and the
+    // screen pick behind the button belongs to the plugin that owns the capture stack -- which is why
+    // ScreenCaptureService left this module in the first place. The three arms above now fall through to
+    // fromPlugin, so the Parameters window and a block's slot open the same editor instead of two.
+    //
+    // What the row argued and the tuple pill keeps: labelled fields, because 0,0,64,32 is four numbers
+    // nobody can tell apart and a region typed into the wrong pair is a bot that looks in the wrong place
+    // and says nothing about it -- and the screen pick as the point of the whole control, because nobody
+    // knows the coordinates of anything, they know where it is.
 
-    /**
-     * The two or four whole numbers a point, a size or a rectangle is: one labelled field each, plus the
-     * button that takes them off the screen instead.
-     *
-     * <p>Labelled because {@code 0,0,64,32} is four numbers nobody can tell apart, and a region typed into the
-     * wrong pair is a bot that looks in the wrong place and says nothing about it. The screen pick is the
-     * point of the whole control though — nobody knows the coordinates of anything, they know where it is.
-     */
-    private static final class GeometryRow extends HBox {
-
-        enum Kind {
-            POINT("Pick on screen…", "x", "y"),
-            SIZE("Measure on screen…", "width", "height"),
-            RECT("Select on screen…", "x", "y", "width", "height");
-
-            final String pickLabel;
-            final String[] labels;
-
-            Kind(String pickLabel, String... labels) {
-                this.pickLabel = pickLabel;
-                this.labels = labels;
-            }
-        }
-
-        private final List<TextField> fields = new ArrayList<>();
-        private final ProjectConfig project;
-
-        GeometryRow(String wire, Kind kind, ProjectConfig project) {
-            super(6);
-            this.project = project;
-            setAlignment(Pos.BOTTOM_LEFT);
-            String[] parts = (wire == null ? "" : wire).split(",");
-            for (int i = 0; i < kind.labels.length; i++) {
-                TextField field = new TextField(i < parts.length ? parts[i].trim() : "0");
-                field.setPrefColumnCount(4);
-                fields.add(field);
-                getChildren().add(labelled(kind.labels[i], field));
-            }
-            Button pick = new Button(kind.pickLabel);
-            pick.setOnAction(e -> pick(kind));
-            getChildren().add(pick);
-        }
-
-        String wire() {
-            return String.join(",", fields.stream().map(ValueEditors::text).toList());
-        }
-
-        /**
-         * A point comes from the magnified point overlay; a size and a rectangle both come from the
-         * rubber-band region selection — a size is that selection with the origin thrown away, which is
-         * exactly how a person measures something on screen.
-         */
-        private void pick(Kind kind) {
-            ScreenCaptureService capture = ScreenCaptureService.forProjectFiles(project);
-            Window owner = window(this);
-            if (kind == Kind.POINT) {
-                capture.pickPoint(owner, p -> set(p[0], p[1]));
-            } else if (kind == Kind.SIZE) {
-                capture.selectRegion(owner, r -> set(r[2], r[3]));
-            } else {
-                capture.selectRegion(owner, r -> set(r[0], r[1], r[2], r[3]));
-            }
-        }
-
-        private void set(int... values) {
-            Platform.runLater(() -> {
-                for (int i = 0; i < values.length && i < fields.size(); i++) {
-                    fields.get(i).setText(Integer.toString(values[i]));
-                }
-            });
-        }
-    }
 
     // --- image template: gone, and worth saying where -----------------------------------------------------
     //

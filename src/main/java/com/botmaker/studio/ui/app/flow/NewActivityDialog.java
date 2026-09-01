@@ -203,7 +203,7 @@ public final class NewActivityDialog {
         // An id of its own from the moment it is created, so the very first rename is already a rename.
         created = new ActivityDraft(candidate, text, true, List.of(), List.copyOf(outcomes),
                 goHome.isSelected(), popupCheck.isSelected(), x, y,
-                com.botmaker.sdk.authoring.ActivityModel.newId());
+                com.botmaker.plugin.api.authoring.ActivityModel.newId());
         stage.close();
     }
 

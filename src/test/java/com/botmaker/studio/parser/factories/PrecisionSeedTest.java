@@ -30,6 +30,9 @@ class PrecisionSeedTest {
         // `new Precision()` would not compile — the record has required components. It also has to be the
         // *constant*: seeding a bare 12.0 would defeat the type, which exists so the call site says what the
         // number means.
-        assertEquals("Precision.DEFAULT", seedFor("Precision"));
+        // Fully qualified because the seed is the plugin's sentence now (SdkPlugin.sourceSeeds), and a
+        // plugin cannot know what the target file imports — the same reason the java.awt.Color seed beside
+        // it in InitializerFactory has always been written out in full.
+        assertEquals("com.botmaker.sdk.api.vision.Precision.DEFAULT", seedFor("Precision"));
     }
 }

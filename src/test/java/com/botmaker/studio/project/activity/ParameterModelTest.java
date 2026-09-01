@@ -69,7 +69,7 @@ class ParameterModelTest {
     /** A fresh image variable names the template every project ships, not an empty chip nothing can run on. */
     @Test
     void aFreshImageVariablePointsAtTheDefaultTemplate() {
-        assertEquals(List.of(com.botmaker.studio.services.ImageTemplateLibrary.DEFAULT_TEMPLATE_NAME),
+        assertEquals(List.of(com.botmaker.sdk.authoring.TemplateLibrary.DEFAULT_TEMPLATE_NAME),
                 variable("target", IMAGE_TEMPLATE).value());
     }
 

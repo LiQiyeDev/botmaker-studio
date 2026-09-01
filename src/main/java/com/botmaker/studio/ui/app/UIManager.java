@@ -229,8 +229,9 @@ public class UIManager implements ProjectWindow {
     }
 
     private void setupEventHandlers() {
-        eventBus.subscribe(CoreApplicationEvents.OpenResourceManagerEvent.class,
-                e -> actions.openResourceManager(), true);
+        // OpenResourceManagerEvent had its one subscriber here until 2026-09-01. The manager is the SDK
+        // plugin's now, and a host event no host handler answers is worse than no event: it fires, nothing
+        // happens, and nothing says so. The event type stays for a publisher that has not been repointed yet.
         eventBus.subscribe(CoreApplicationEvents.UIBlocksUpdatedEvent.class, event -> {
             if (editorCanvas != null) editorCanvas.handleBlocksUpdate(event);
         }, true);

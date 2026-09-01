@@ -4,7 +4,6 @@ import com.botmaker.studio.events.CoreApplicationEvents;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.migration.ProjectSchema;
-import com.botmaker.studio.services.ImageTemplateLibrary;
 
 import java.io.IOException;
 import java.nio.file.Path;

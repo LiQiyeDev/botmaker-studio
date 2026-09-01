@@ -91,7 +91,7 @@ public record ActivityDefinition(String name, boolean enabled, String descriptio
     /** A fresh activity with the given name/description, disabled, and an id of its own from the start. */
     public static ActivityDefinition create(String name, String description) {
         return new ActivityDefinition(name, false, description, List.of(), Boolean.TRUE, Boolean.TRUE,
-                com.botmaker.sdk.authoring.ActivityModel.newId());
+                com.botmaker.plugin.api.authoring.ActivityModel.newId());
     }
 
     /**

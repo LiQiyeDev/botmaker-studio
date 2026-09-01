@@ -4,7 +4,7 @@ import com.botmaker.shared.config.ProjectProperties;
 import com.botmaker.studio.parser.helpers.SourceParser;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityDefinition;
-import com.botmaker.studio.services.ImageTemplateLibrary;
+import com.botmaker.sdk.authoring.TemplateLibrary;
 import com.botmaker.studio.services.MavenService;
 import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.ASTNode;
@@ -212,9 +212,9 @@ public final class ProjectRepair {
                     "editor settings"));
         }
 
-        Path placeholder = config.imagesRoot().resolve(ImageTemplateLibrary.DEFAULT_TEMPLATE_FILE);
+        Path placeholder = config.imagesRoot().resolve(TemplateLibrary.DEFAULT_TEMPLATE_FILE);
         if (!Files.exists(placeholder)) {
-            missing.add(new Missing(placeholder, ImageTemplateLibrary::writePlaceholderAt, "image templates"));
+            missing.add(new Missing(placeholder, TemplateLibrary::writePlaceholderAt, "image templates"));
         }
         return missing;
     }

@@ -121,17 +121,20 @@ final class StudioActions {
         menuBar.setOnParameters(this::openParameters);
         toolbar.setOnParameters(this::openParameters);
         menuBar.setOnRecoverProjectFiles(recoverProjectFiles);
-        menuBar.setOnManageResources(this::openResourceManager);
-        toolbar.setOnAccessResources(this::openResourceManager);
+        // Nothing to wire for the Resource Manager: the picture library is the SDK plugin's, and the manager
+        // went to it on 2026-09-01 with the gallery, the archive and the tag rules it is built on. Leaving
+        // the menu entry and the toolbar button unwired keeps them visible and dead, so both are gone; the
+        // way in is the plugin's own toolbar item.
         menuBar.setOnProjectSettings(this::openProjectSettings);
         toolbar.setOnProjectSettings(this::openProjectSettings);
 
         // --- Capture / launch / input ---
-        toolbar.setResourcesDir(config.resourcesRoot());
         // Nothing to wire for the capture targets: that button is the SDK plugin's item, and its dialog is
         // the plugin's too. The shell supplies the bar it is placed on and nothing else.
-        toolbar.setLaunchTarget(ProjectCreator.readLaunchTarget(config.resourcesRoot()));
-        toolbar.setOnManageLaunchTarget(() -> openLaunchTarget(null));
+        //
+        // Nor for the launch target, since 2026-09-01: the 🚀 button and its dialog went together, so there
+        // is no control left to seed with the current target and no manage callback to answer. The key
+        // itself stays in botmaker-project.properties, written by whoever installs a published bot.
         toolbar.setOnToggleDebugOutput(ProjectCreator.readDebug(config.resourcesRoot()), this::writeDebug);
         toolbar.setOnConfigureInput(() -> new BotSettingsDialog(primaryStage, config, null).show());
         // ✂ Capture Templates stood here until 2026-08-31 and is the SDK plugin's item now, placed by the
@@ -160,12 +163,6 @@ final class StudioActions {
     GitHubClient gitHubClient() { return gitHubClient; }
 
     BotPublisher botPublisher() { return botPublisher; }
-
-    /** Opens the Resource Manager. Reused by the Project menu, the toolbar and the block image-picker. */
-    void openResourceManager() {
-        new ResourceManagerDialog(primaryStage, config, eventBus, screenCaptureService,
-                codeEditorService).show();
-    }
 
     /** Opens the Publish-to-gallery dialog. Shared with the VCS panel's "publish" button. */
     void openPublishDialog() {
@@ -272,17 +269,12 @@ final class StudioActions {
         new ProjectSettingsDialog(primaryStage, projectSettingsService, projectAnalyzer).show();
     }
 
-    /**
-     * Shows the Launch Target dialog, running {@code then} once it closes when there is one — the recovery the
-     * overlay editor takes when there is nothing to draw over (no private session up, no default capture
-     * target). The dialog is where the game is both chosen and started ("▶ Launch now"), so it is the one
-     * place that can turn "no window" into a window.
-     */
-    private void openLaunchTarget(Runnable then) {
-        LaunchTargetDialog dialog = new LaunchTargetDialog(primaryStage, config, toolbar::setLaunchTarget);
-        if (then == null) dialog.show();
-        else dialog.show(then);
-    }
+    // openLaunchTarget stood here until 2026-09-01, showing the Launch Target dialog and — when the overlay
+    // editor had nothing to draw over — running a callback once it closed. The dialog went with the launch
+    // rows, so there is no recovery to offer: the overlay now says what to do instead of opening the one
+    // place that could have fixed it. That is a real loss of an affordance, recorded rather than papered
+    // over, and the thing that would restore it is the launcher becoming a plugin's toolbar item like the
+    // capture tools already are.
 
     private void writeDebug(boolean on) {
         try {
@@ -300,7 +292,7 @@ final class StudioActions {
      */
     private void openOverlayEditor(boolean startRecording) {
         ProgramShapeOverlay.open(primaryStage, codeEditorService, projectSettingsService, screenCaptureService,
-                activityService, this::liveSessionWindow, startRecording, this::openLaunchTarget);
+                activityService, this::liveSessionWindow, startRecording, null);
     }
 
     /**
@@ -326,11 +318,13 @@ final class StudioActions {
         GettingStartedDialog.Actions actions = GettingStartedDialog.Actions.builder()
                 // No PROJECT_SETUP entry, and no CAPTURE_TARGETS one, for the same reason as CAPTURE_TEMPLATES
                 // below: all three are the SDK plugin's toolbar items since 2026-08-31.
-                .on(StudioAction.LAUNCH_TARGET, () -> openLaunchTarget(null))
+                // No LAUNCH_TARGET entry either, since 2026-09-01: the 🚀 dialog is gone and the shell has
+                // nothing to open. The step still reads, without an Open button.
                 // No CAPTURE_TEMPLATES entry: the tool is the SDK plugin's toolbar item since 2026-08-31 and
                 // the shell has no handle on it. The step still reads, without an Open button — the action's
                 // own text already says where it lives, which is what that field is for.
-                .on(StudioAction.RESOURCES, this::openResourceManager)
+                // No RESOURCES entry, for the same reason as CAPTURE_TEMPLATES: the Resource Manager is the
+                // SDK plugin's since 2026-09-01 and the shell has no handle on it.
                 .on(StudioAction.ACTIVITY_FLOW, this::openActivityFlow)
                 .on(StudioAction.PARAMETERS, this::openParameters)
                 .on(StudioAction.OVERLAY_EDITOR, () -> openOverlayEditor(false))

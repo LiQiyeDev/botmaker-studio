@@ -189,7 +189,11 @@ class UIManagerSceneTest extends FxHeadlessTest {
     void theToolbarCarriesTheRunClusterAndTheProjectActions() {
         List<String> labels = allLabels();
 
-        for (String expected : List.of("Run", "Debug", "Compile", "Stop", "Launch", "Flow", "Pilot")) {
+        // No "Launch": the 🚀 launch-target button and its dialog went together on 2026-09-01. This list is
+        // what the shell still assembles by hand plus what plugins place on it — Pilot is the SDK plugin's,
+        // and it is here on purpose, because a bar that silently loses a plugin's item is the failure this
+        // test exists to catch.
+        for (String expected : List.of("Run", "Debug", "Compile", "Stop", "Flow", "Pilot")) {
             assertTrue(labels.stream().anyMatch(l -> l.contains(expected)),
                     "the toolbar lost '" + expected + "'; it has: " + labels);
         }

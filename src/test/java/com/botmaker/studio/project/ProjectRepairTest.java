@@ -4,7 +4,7 @@ import com.botmaker.shared.config.ProjectProperties;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityDefinition;
 import com.botmaker.studio.services.ActivityService;
-import com.botmaker.studio.services.ImageTemplateLibrary;
+import com.botmaker.sdk.authoring.TemplateLibrary;
 import com.botmaker.studio.services.MavenService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -82,8 +82,8 @@ class ProjectRepairTest {
         MavenService.writePom(config.projectPath(), config, MavenService.SDK_FALLBACK_VERSION);
         BotSettings.write(config.resourcesRoot(), BotSettings.GAME_DEFAULTS);
         StudioProjectSettings.empty().withTemplate(ProjectTemplate.GAME_BOT).write(config.resourcesRoot());
-        ImageTemplateLibrary.writePlaceholderAt(
-                config.imagesRoot().resolve(ImageTemplateLibrary.DEFAULT_TEMPLATE_FILE));
+        TemplateLibrary.writePlaceholderAt(
+                config.imagesRoot().resolve(TemplateLibrary.DEFAULT_TEMPLATE_FILE));
     }
 
     @Test
@@ -170,7 +170,7 @@ class ProjectRepairTest {
     void deletedResourceFilesAreFoundAndRestored() throws IOException {
         Path properties = config.resourcesRoot().resolve(ProjectProperties.FILE_NAME);
         Path settings = config.resourcesRoot().resolve(StudioProjectSettings.FILE_NAME);
-        Path placeholder = config.imagesRoot().resolve(ImageTemplateLibrary.DEFAULT_TEMPLATE_FILE);
+        Path placeholder = config.imagesRoot().resolve(TemplateLibrary.DEFAULT_TEMPLATE_FILE);
         Files.delete(properties);
         Files.delete(settings);
         Files.delete(placeholder);

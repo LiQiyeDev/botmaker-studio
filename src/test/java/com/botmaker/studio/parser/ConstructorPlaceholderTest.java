@@ -74,7 +74,10 @@ class ConstructorPlaceholderTest {
         AST ast = AST.newAST(AST.getJLSLatest(), false);
         ProjectAnalyzer analyzer = analyzer();
 
-        assertEquals("Precision.DEFAULT",
+        // Fully qualified since the seed became the plugin's (SdkPlugin.sourceSeeds), for the reason the
+        // Color line below has always been: an expression the host drops into a file it is not importing
+        // into has to name its type completely. Studio's ImportManager shortens it on the next pass.
+        assertEquals("com.botmaker.sdk.api.vision.Precision.DEFAULT",
                 InitializerFactory.createDefaultInitializer(ast, ResolvedType.named("Precision"), null, null, analyzer).toString());
         assertEquals("new java.awt.Color(255,255,255)",
                 InitializerFactory.createDefaultInitializer(ast, ResolvedType.named("Color"), null, null, analyzer).toString());

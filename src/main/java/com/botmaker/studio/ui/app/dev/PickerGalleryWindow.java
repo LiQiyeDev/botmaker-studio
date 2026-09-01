@@ -8,7 +8,7 @@ import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.project.activity.Bounds;
 import com.botmaker.studio.project.activity.ParamVisibility;
 import com.botmaker.studio.project.activity.ValueWire;
-import com.botmaker.studio.services.ImageTemplateLibrary;
+import com.botmaker.sdk.authoring.TemplateLibrary;
 import com.botmaker.studio.ui.app.params.ParamValueWidgets;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.animation.Animation;
@@ -327,9 +327,9 @@ public final class PickerGalleryWindow {
     /** The project's own templates, so the chips resolve to real pictures; empty when nothing is open. */
     private List<String> templateNames() {
         if (project == null) return List.of();
-        return ImageTemplateLibrary.list(project).stream()
+        return TemplateLibrary.list(project.resourcesRoot()).stream()
                 .limit(3)
-                .map(ImageTemplateLibrary::baseName)
+                .map(TemplateLibrary::baseName)
                 .toList();
     }
 }

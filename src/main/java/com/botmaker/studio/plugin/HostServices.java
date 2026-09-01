@@ -20,6 +20,7 @@ import javafx.stage.Window;
 import java.io.File;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**

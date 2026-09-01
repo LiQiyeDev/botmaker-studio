@@ -1,6 +1,5 @@
 package com.botmaker.studio.ui.app.overlay;
 
-import com.botmaker.sdk.authoring.CaptureTargetModel;
 import com.botmaker.studio.blocks.func.MethodInvocationBlock;
 import com.botmaker.studio.core.BodyBlock;
 import com.botmaker.studio.core.CodeBlock;
@@ -9,6 +8,7 @@ import com.botmaker.studio.project.StudioProjectSettings;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.ProjectSettingsService;
 import com.botmaker.studio.services.ScreenCaptureService;
+import com.botmaker.studio.services.capture.CaptureTarget;
 import com.botmaker.studio.services.capture.ScreenOverlay;
 import com.botmaker.studio.services.capture.TargetCapture;
 import com.botmaker.studio.services.capture.TargetCapture.WindowShot;
@@ -21,6 +21,7 @@ import com.botmaker.studio.project.InsertionCursor;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.services.CodeEditorService;
 import com.botmaker.studio.services.CursorNavigator;
+import com.botmaker.studio.ui.app.ResolutionChoices;
 import com.botmaker.studio.ui.render.menu.StatementMenu;
 import com.botmaker.studio.util.MethodSignature;
 import javafx.application.Platform;
@@ -113,7 +114,7 @@ public final class ProgramShapeOverlay {
     private final ScreenCaptureService capture;
     private final ActivityService activities;
     /** The default capture target: a window, a monitor, or the whole desktop. */
-    private final CaptureTargetModel target;
+    private final CaptureTarget target;
 
     /**
      * The same target as a window to act on, or {@code null} when it names no window.
@@ -134,6 +135,17 @@ public final class ProgramShapeOverlay {
     private CodeBlock indexedRoot;
     private BlockTree.Index index;
     private java.awt.Rectangle windowBounds;
+
+    /**
+     * The size the recorded coordinates are authored against, so the header can flag a target window that has
+     * drifted off it.
+     *
+     * <p>It was {@code StudioProjectSettings.referenceResolution}, persisted in the project. That setting
+     * describes what the <em>bot</em> replays at, which is the SDK plugin's concept and left with
+     * {@code capture.json}; what the overlay needs is only "the size I opened at", which is a fact about this
+     * session of this window. So it is a field, not a setting, and it is set once from the first grab.
+     */
+    private volatile ResolutionChoices.Resolution reference;
 
     /** A specific overload requested from the palette bar, applied once the inserted call is re-parsed. */
     private MethodSignature pendingOverload;
@@ -212,7 +224,7 @@ public final class ProgramShapeOverlay {
 
     private ProgramShapeOverlay(CodeEditorService context, ProjectSettingsService settings,
                                 ScreenCaptureService capture, ActivityService activities,
-                                CaptureTargetModel target, TargetCapture.WindowRef window) {
+                                CaptureTarget target, TargetCapture.WindowRef window) {
         this.context = context;
         this.state = context.getState();
         this.settings = settings;
@@ -258,10 +270,13 @@ public final class ProgramShapeOverlay {
             return;
         }
         TargetCapture.WindowRef session = sessionTarget(sessionWindow);
-        CaptureTargetModel target = session == null ? null : CaptureTargetModel.window(session.titleSubstring());
+        CaptureTarget target = session == null ? null : CaptureTarget.window(session.titleSubstring());
         if (target == null) {
+            // Was ProjectSettingsService.defaultTarget() — capture.json, which is the SDK plugin's file and
+            // which the editor no longer reads. TargetCapture answers the same question for whatever default
+            // the host itself has, and answers null when there is none, which is the branch below.
             try {
-                target = settings.defaultTarget();
+                target = capture.defaultTarget();
             } catch (Exception ignored) {
                 // no default configured
             }
@@ -327,11 +342,10 @@ public final class ProgramShapeOverlay {
                     });
                     return;
                 }
-                com.botmaker.sdk.authoring.CaptureModel.Resolution ref = settings.current().referenceResolution();
+                ResolutionChoices.Resolution ref = reference;
                 if (ref == null) {
-                    ref = new com.botmaker.sdk.authoring.CaptureModel.Resolution(
-                            shot.bounds().width, shot.bounds().height);
-                    settings.update(settings.current().withReferenceResolution(ref));
+                    ref = new ResolutionChoices.Resolution(shot.bounds().width, shot.bounds().height);
+                    reference = ref;
                 }
                 // Never resize a private session's host window. gamescope is launched with its output size
                 // (-W/-H) and its internal size (-w/-h) both set to the project resolution, which is what makes
@@ -531,14 +545,14 @@ public final class ProgramShapeOverlay {
 
     private HBox buildHeader() {
         header = new OverlayHeader(() -> { if (stage != null) stage.close(); });
-        header.showSize(windowBounds, settings.current().referenceResolution());
+        header.showSize(windowBounds, reference);
         return header.node();
     }
 
     /** Fresh target-window bounds re-probed by the recorder when a session starts (see {@link OverlayRecorder}). */
     private void onRecordWindowBounds(java.awt.Rectangle bounds) {
         windowBounds = bounds;
-        header.showSize(bounds, settings.current().referenceResolution());
+        header.showSize(bounds, reference);
     }
 
     /** Palette (SDK category bar) + step nav + record controls + options, all in one translucent panel. */

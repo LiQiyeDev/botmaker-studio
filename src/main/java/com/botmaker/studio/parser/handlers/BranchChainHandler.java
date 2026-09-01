@@ -173,25 +173,29 @@ public final class BranchChainHandler {
     // ---- edit entry points ------------------------------------------------------------------------------
 
     /**
-     * Inserts a branch after the link at {@code afterIndex} and returns the rewritten source, or
-     * {@code originalCode} when the statement is not a chain, the index is out of range, or the chain has no
-     * branch method to copy.
+     * Inserts a branch after the link at {@code afterIndex} and returns the rewritten source, or {@code null}
+     * when the statement is not a chain, the index is out of range, or the chain has no branch method to copy.
+     *
+     * <p><b>{@code null} and not {@code originalCode}</b>, which is {@link CodeEditor}'s convention and not a
+     * style choice: {@code edit} publishes a {@code CodeUpdatedEvent} for any non-null return, so handing back
+     * the unchanged source announces an edit that did not happen — repainting the canvas and leaving an undo
+     * entry that undoes nothing.
      *
      * <p>Indexed rather than node-addressed for the reason the block is: an index survives a re-parse, and the
      * block that raised the edit may be one repaint behind the tree.
      */
     public static String applyAddLink(EditContext ctx, String originalCode, Statement stmt, int afterIndex) {
         List<Link> links = linksOf(stmt);
-        if (afterIndex < 0 || afterIndex >= links.size()) return originalCode;
-        if (!addLink(ctx, links, links.get(afterIndex))) return originalCode;
+        if (afterIndex < 0 || afterIndex >= links.size()) return null;
+        if (!addLink(ctx, links, links.get(afterIndex))) return null;
         return AstRewriteHelper.applyRewrite(ctx.rewriter(), originalCode);
     }
 
-    /** Removes the link at {@code index}, closing the chain over it; unchanged source when it cannot. */
+    /** Removes the link at {@code index}, closing the chain over it; {@code null} when it cannot. */
     public static String applyRemoveLink(EditContext ctx, String originalCode, Statement stmt, int index) {
         List<Link> links = linksOf(stmt);
-        if (index < 0 || index >= links.size()) return originalCode;
-        if (!removeLink(ctx, links, links.get(index))) return originalCode;
+        if (index < 0 || index >= links.size()) return null;
+        if (!removeLink(ctx, links, links.get(index))) return null;
         return AstRewriteHelper.applyRewrite(ctx.rewriter(), originalCode);
     }
 

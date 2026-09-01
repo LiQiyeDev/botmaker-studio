@@ -53,7 +53,7 @@ final class OverlayHeader {
     }
 
     /** Re-states the size being authored against, flagged when it isn't the reference the bot replays at. */
-    void showSize(java.awt.Rectangle windowBounds, com.botmaker.sdk.authoring.CaptureModel.Resolution reference) {
+    void showSize(java.awt.Rectangle windowBounds, ResolutionChoices.Resolution reference) {
         resolution.setText(ResolutionChoices.readout(windowBounds, reference));
         resolution.setStyle(ResolutionChoices.mismatched(windowBounds, reference) ? MISMATCH_STYLE : OK_STYLE);
     }

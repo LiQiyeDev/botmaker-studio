@@ -12,6 +12,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -227,18 +228,31 @@ class BranchChainHandlerTest {
     @Test
     void theLastLinkIsRefusedRatherThanLeavingABareExpression() {
         EditorFixture fixture = new EditorFixture(ONE_BRANCH);
-        String before = fixture.lastCode;
         fixture.editor.removeBranchLink(chainStatement(fixture), 0);
 
-        assertEquals(dense(before), dense(fixture.lastCode), "nothing was written");
+        assertRefused(fixture, ONE_BRANCH);
     }
 
     @Test
     void anOutOfRangeIndexWritesNothing() {
         EditorFixture fixture = new EditorFixture(CHAIN);
-        String before = fixture.lastCode;
         fixture.editor.addBranchLink(chainStatement(fixture), 9);
 
-        assertEquals(dense(before), dense(fixture.lastCode));
+        assertRefused(fixture, CHAIN);
+    }
+
+    /**
+     * A refused edit changed neither the buffer nor anything the canvas was told about.
+     *
+     * <p>Both halves are asserted because either alone passes for the wrong reason: {@code lastCode} is only
+     * ever set by a {@code CodeUpdatedEvent}, so a refusal leaves it {@code null} — comparing it against
+     * itself would "pass" on a handler that never ran at all — while the buffer alone would miss an edit
+     * that published a rewrite and then failed to apply it.
+     */
+    private static void assertRefused(EditorFixture fixture, String original) {
+        assertAll(
+                () -> assertNull(fixture.lastCode, "a refused edit publishes no code update"),
+                () -> assertEquals(dense(original), dense(fixture.state.getCurrentCode()),
+                        "the buffer is untouched"));
     }
 }

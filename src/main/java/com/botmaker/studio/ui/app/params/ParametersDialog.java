@@ -13,14 +13,13 @@ import com.botmaker.studio.project.activity.ValueWire;
 import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.MavenService;
-import com.botmaker.studio.services.ImageTemplateLibrary;
+import com.botmaker.sdk.authoring.TemplateLibrary;
 import com.botmaker.studio.services.VariableRailModel;
 import com.botmaker.studio.state.SnapshotHistory;
 import com.botmaker.studio.ui.app.ActivityFlowDialog;
 import com.botmaker.studio.ui.app.StudioWindow;
 import com.botmaker.studio.ui.app.flow.FlowNames;
 import com.botmaker.studio.ui.app.params.ParamValueWidgets.ValueEditor;
-import com.botmaker.studio.ui.render.components.TagPicklist;
 import com.botmaker.studio.ui.render.components.ValueTypePicker;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.animation.Animation;
@@ -170,7 +169,7 @@ public final class ParametersDialog {
         ActivitiesConfig cfg = activityService.current();
         variables.addAll(cfg.variables());
         // The very catalog the template gallery reads, so a tag means the same thing in both places.
-        catalog = ImageTemplateLibrary.tagCatalog(config);
+        catalog = TemplateLibrary.tagCatalog(config.resourcesRoot());
 
         StudioWindow window = StudioWindow.modal("parameters", "Parameters", owner)
                 .size(900, 640).minSize(700, 460);
@@ -281,10 +280,12 @@ public final class ParametersDialog {
             }
         });
 
-        newCategory.setMaxWidth(Double.MAX_VALUE);
-        newCategory.setTooltip(new Tooltip("Declare a category. It is the same vocabulary the template "
-                + "gallery uses, so it appears there too."));
-        newCategory.setOnAction(e -> createCategory());
+        // "＋ New category" stood here until 2026-09-01. Declaring one meant prompting for a tag name, and
+        // what a tag may be called — the sanitizing, the clash check, the wording — is the picture library's
+        // rule, which left with it. The rail still shows and files under every declared category; declaring a
+        // new one is the Tag Manager's job, where that rule lives.
+        newCategory.setVisible(false);
+        newCategory.setManaged(false);
 
         moveHere.setMaxWidth(Double.MAX_VALUE);
         moveHere.setTooltip(new Tooltip("File several variables under this category at once, instead of "
@@ -301,19 +302,6 @@ public final class ParametersDialog {
         boolean real = !VariableRailModel.ALL.equals(selectedTag);
         moveHere.setText(real ? "Move variables to \u201c" + selectedTag + "\u201d\u2026" : "Move variables here\u2026");
         moveHere.setDisable(!real);
-    }
-
-    /**
-     * Declares a new custom category and selects it — the affordance this dialog had none of, which meant
-     * filing a variable under a group that did not exist yet was a trip to the Resource Manager and back.
-     * The prompt is {@link TagPicklist#promptNewTag} so "what may a tag be called" keeps one answer.
-     */
-    private void createCategory() {
-        TagPicklist.promptNewTag(stage, config).ifPresent(tag -> {
-            catalog = ImageTemplateLibrary.declareTag(config, tag);
-            selectedTag = tag;
-            rebuildRail();
-        });
     }
 
     /**

@@ -16,9 +16,6 @@ import com.botmaker.studio.core.ValueSlot;
 import com.botmaker.studio.plugin.HostSlotRun;
 import com.botmaker.studio.ui.render.components.ArgumentEditors;
 import com.botmaker.studio.ui.render.components.BlockUIComponents;
-import com.botmaker.studio.ui.render.components.ImageTemplatePicker;
-import com.botmaker.studio.ui.render.components.PickAllSession;
-import com.botmaker.studio.ui.render.components.pickers.ImageTemplateGroupPicker;
 import com.botmaker.studio.ui.render.components.pickers.PickerContext;
 import com.botmaker.studio.ui.render.components.pickers.PickerRegistry;
 import com.botmaker.studio.ui.render.menu.MenuComponents;
@@ -262,9 +259,6 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
 
             // Signature Button (explicit overload picker) — argument sync is automatic on method change.
             addSignatureButton(sentenceBuilder, context, currentScopeGetter, methodSelector, finalCurrentFileClass);
-
-            // "Pick all on screen" — one overlay pass over every on-screen-pickable argument of this call.
-            addPickAllButton(sentenceBuilder, context, currentScopeGetter);
         }
 
         sentenceBuilder.addLabel("(");
@@ -608,29 +602,12 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
         items.add(favMenu);
     }
 
-    /**
-     * "📸 Pick all" button — captures the target once and walks every on-screen-pickable argument
-     * ({@code ImageTemplate}/{@code Rect}/{@code Point}) of this call through a single overlay, applying them
-     * in one rewrite (see {@link PickAllSession}). Added only when at least one such argument exists, so
-     * ordinary calls stay uncluttered. The overload is resolved the same way {@code renderArguments} resolves
-     * per-argument types, so the button and the typed pickers agree.
-     */
-    private void addPickAllButton(SentenceLayoutBuilder builder, CodeEditorService context,
-                                  java.util.function.Supplier<String> scopeGetter) {
-        String currentScope = scopeGetter.get();
-        String targetType = (currentScope != null) ? resolveTargetType(currentScope, context) : "";
-        MethodSignature signature = determineCurrentSignature(context, targetType, methodName);
-        if (!PickAllSession.hasPickableArgs(signature, arguments.size())) return;
-
-        Button pickAll = new Button("📸 Pick all");
-        pickAll.setTooltip(new Tooltip("Capture every image & region argument of this call in one screen selection"));
-        pickAll.getStyleClass().addAll("block-action-button", "block-action-button--mini");
-        pickAll.setOnAction(e -> {
-            Window owner = pickAll.getScene() != null ? pickAll.getScene().getWindow() : null;
-            PickAllSession.run(context, (MethodInvocation) this.astNode, arguments, signature, owner);
-        });
-        builder.addNode(pickAll);
-    }
+    // The "📸 Pick all" button stood here until 2026-09-01. It captured the target once and walked every
+    // on-screen-pickable argument of the call — ImageTemplate, Rect, Point — through a single overlay,
+    // applying them in one rewrite. Every one of those three is a plugin's type, and deciding that an
+    // argument is pickable at all meant naming them: the button was Studio holding one plugin's vocabulary
+    // so it could offer a shortcut across it. The per-argument pickers are unaffected — they come from
+    // PickerRegistry, and each one still opens the same overlay for its own argument.
 
     private void renderArguments(SentenceLayoutBuilder builder, CodeEditorService context, java.util.function.Supplier<String> scopeGetter, ComboBox<String> methodSelector) {
         String currentScope = scopeGetter.get();
@@ -738,24 +715,21 @@ public class MethodInvocationBlock extends AbstractExpressionBlock implements St
     }
 
     /**
-     * The argument index at which this call's trailing {@code ImageTemplate...} varargs begin, or {@code -1}
-     * when it has none — or when the templates already there are not all plain
-     * {@code new ImageTemplate("…")} literals.
+     * The argument index at which a trailing varargs tail a plugin might draw as one run begins, or
+     * {@code -1} when the resolved overload is not varargs.
      *
-     * <p>That last condition is the guard: the chip row edits the tail as a list of paths, so an argument
-     * holding a variable, a field or a call has no path to show and would be overwritten by the next chip
-     * edit. Those calls keep the ordinary one-picker-per-argument rendering, which represents them
-     * faithfully.
+     * <p>It used to demand that the element type be {@code ImageTemplate} and that every argument already
+     * there be a plain {@code new ImageTemplate("…")} literal, because Studio drew the chip row itself and
+     * the row edits the tail as a list of paths. Both demands were about one plugin's type and one plugin's
+     * spelling, and both left with the row: {@link #imageVarargsRow} offers the run to
+     * {@link PickerRegistry} and draws the ordinary per-argument slots when nobody claims it. So the
+     * question Studio can still answer — <em>are these arguments one list?</em> — is all that is asked here,
+     * and whether a run is drawable is the claimant's answer to give.
      */
     private int imageVarargsStart(MethodSignature signature) {
         if (signature == null || !signature.varargs() || signature.paramTypes().isEmpty()) return -1;
         int from = signature.paramTypes().size() - 1;
-        ResolvedType element = signature.paramTypes().get(from);
-        if (element == null || !ImageTemplatePicker.isImageTemplateType(element)) return -1;
-        if (from > arguments.size()) return -1;
-        for (int i = from; i < arguments.size(); i++) {
-            if (ImageTemplateGroupPicker.templatePath(arguments.get(i).getAstNode()).isEmpty()) return -1;
-        }
+        if (signature.paramTypes().get(from) == null || from > arguments.size()) return -1;
         return from;
     }
 
