@@ -1,6 +1,5 @@
 package com.botmaker.studio.project;
 
-import com.botmaker.shared.project.TemplateNames;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -144,10 +143,9 @@ public record ProjectConfig(
         return sourceRoot.resolve("com").resolve(packageName).resolve("Parameters.java");
     }
 
-    /** The generated {@code Templates.java} sidecar — one String constant per image template. */
-    public Path templatesSourceFile() {
-        return sourceRoot.resolve("com").resolve(packageName).resolve(TemplateNames.CLASS_NAME + ".java");
-    }
+    // templatesSourceFile() went on 2026-09-01 with no caller and none since the SDK stopped writing source
+    // into a project (2026-08-29). It named the generated Templates.java, which is the picture library's
+    // file: the plugin that writes it is the one entitled to say where it goes.
 
     /** The generated {@code ActivityRegistry.java} sidecar (sibling of the main class). */
     public Path activityRegistrySourceFile() {
