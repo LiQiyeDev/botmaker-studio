@@ -14,7 +14,7 @@ import java.util.List;
  * blocks are body statements, {@link MethodMember} is class-only, and {@link EnumDecl} is both.
  */
 public sealed interface BlockType
-        permits BlockType.ControlFlow, BlockType.VarDecl, BlockType.ScannerRead,
+        permits BlockType.ControlFlow, BlockType.VarDecl,
                 BlockType.LibraryCall, BlockType.LambdaCall, BlockType.EnumDecl, BlockType.MethodMember {
 
     String id();
@@ -60,14 +60,10 @@ public sealed interface BlockType
     record VarDecl(String id, String displayName, BlockCategory category,
                    String typeName, boolean primitive, String varName, Initializer init) implements BlockType {}
 
-    /**
-     * A console read: {@code <type> <varName> = BotMaker.<method>()} (e.g. {@code BotMaker.readInt()}). The
-     * method, the declared type and whether that type is primitive all come off the {@link InputKind} — they
-     * were three independent constructor arguments, and nothing stopped an entry pairing {@code readInt} with
-     * {@code String}.
-     */
-    record ScannerRead(String id, String displayName, BlockCategory category,
-                       InputKind input, String varName) implements BlockType {}
+    // ScannerRead — `<type> <varName> = BotMaker.readInt()` — went on 2026-09-01. It was a palette entry
+    // whose whole content was one SDK facade's method name, which is a call the plugin owning that facade
+    // offers through the member menus like any other. InputKind survives it: the BM-INPUT marker it also
+    // carries is a running-bot protocol, not a palette entry.
 
     /**
      * A static library call statement: {@code <facade>.<method>(args...)}.

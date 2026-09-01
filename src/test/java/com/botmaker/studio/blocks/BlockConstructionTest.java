@@ -63,28 +63,28 @@ class BlockConstructionTest {
     @Test
     void theMiscBlocksAreBuiltFromTheShapesTheyName() {
         assertAll(
-                () -> assertProduces("BotMaker.print(\"hello\");", "PrintBlock"),
-                () -> assertProduces("int n = BotMaker.readInt();", "ReadInputBlock"),
+                () -> assertProduces("System.out.println(\"hello\");", "PrintBlock"),
                 () -> assertProduces("// a note", "CommentBlock"));
+        // The ReadInputBlock arm — `int n = BotMaker.readInt();` — went on 2026-09-01 with the block, which
+        // was the rendering of one SDK facade's four read methods.
     }
 
     /**
-     * {@code BotMaker.print} is a facade call like any other, and the converter deliberately routes it to a
+     * {@code System.out.println} is a call like any other, and the converter deliberately routes it to a
      * dedicated block before the generic library-call branch. Asserted from the other side too, because the
      * failure mode is silent: a reordered {@code instanceof} chain gives a working block with the wrong chrome.
+     *
+     * <p>It matched {@code BotMaker.print} until 2026-09-01 — the editor recognising one library's facade by
+     * name, which is the same coupling as writing it. Print emits {@code System.out.println} now, so both
+     * halves of the round trip name the JDK and nobody's plugin.
      */
     @Test
     void printIsNotJustAnotherLibraryCall() {
-        assertTrue(blockKinds("BotMaker.print(\"hello\");").contains("PrintBlock"));
+        assertTrue(blockKinds("System.out.println(\"hello\");").contains("PrintBlock"));
         assertTrue(!blockKinds("Mouse.click(1, 2);").contains("PrintBlock"),
                 "an ordinary facade call must not become a print block");
-    }
-
-    /** A read is a variable declaration whose initializer is a {@code BotMaker.readX()} — not a plain one. */
-    @Test
-    void aReadInputIsDistinguishedFromAPlainDeclaration() {
-        assertTrue(blockKinds("int n = BotMaker.readInt();").contains("ReadInputBlock"));
-        assertTrue(!blockKinds("int n = 4;").contains("ReadInputBlock"));
+        assertTrue(!blockKinds("BotMaker.print(\"hello\");").contains("PrintBlock"),
+                "a library's own print is that library's call, not the editor's print block");
     }
 
     // ---- blocks.var ----
@@ -117,23 +117,18 @@ class BlockConstructionTest {
                 "the fixture's `private int field = 7;` must render as a class variable");
     }
 
-    // ---- Dead code, asserted as dead ----
-
     /**
-     * {@code blocks.misc.ClickBlock} has <b>no construction site</b> anywhere in the module: the converter
-     * routes {@code Mouse.click(…)} through the generic {@code LibraryCallBlock} path like every other facade
-     * call, which is what the code comment above that branch says it deliberately does. 45 lines that can
-     * never render.
+     * A facade call renders through the generic {@code LibraryCallBlock}, whatever library it is on.
      *
-     * <p>Asserted rather than just deleted so the deletion is a decision with a record: if a future change
-     * wants a bespoke click block, this test fails and says why the class was empty-handed.
+     * <p>This used to assert the reverse of a deletion: {@code blocks.misc.ClickBlock} existed, had no
+     * construction site anywhere in the module, and the test held it dead so that a future change wanting a
+     * bespoke click block would fail here and read why. The class is deleted (2026-09-01), with every other
+     * file that spelled a {@code com.botmaker.sdk} type — it named {@code api.geometry.Point} to type a slot
+     * nothing ever filled. What the test is for now is the generic path itself: a call on <em>anyone's</em>
+     * library gets the standard block, and nothing here knows whose library it is.
      */
     @Test
     void aMouseClickUsesTheGenericLibraryCallBlock() {
-        List<String> kinds = blockKinds("Mouse.click(1, 2);");
-
-        assertTrue(kinds.contains("LibraryCallBlock"), kinds.toString());
-        assertEquals(0, kinds.stream().filter("ClickBlock"::equals).count(),
-                "ClickBlock is unreachable — nothing in the module constructs it");
+        assertTrue(blockKinds("Mouse.click(1, 2);").contains("LibraryCallBlock"));
     }
 }

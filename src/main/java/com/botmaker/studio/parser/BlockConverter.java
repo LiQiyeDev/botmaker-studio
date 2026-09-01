@@ -14,14 +14,11 @@ import com.botmaker.studio.blocks.loop.WhileBlock;
 import com.botmaker.studio.blocks.misc.CommentBlock;
 import com.botmaker.studio.blocks.misc.InitializerBlock;
 import com.botmaker.studio.blocks.misc.PrintBlock;
-import com.botmaker.studio.blocks.misc.ReadInputBlock;
-import com.botmaker.studio.blocks.vision.LambdaCallBlock;
 import com.botmaker.studio.blocks.var.AssignmentBlock;
 import com.botmaker.studio.blocks.var.DeclareClassVariableBlock;
 import com.botmaker.studio.blocks.var.DeclareEnumBlock;
 import com.botmaker.studio.blocks.var.VariableDeclarationBlock;
 import com.botmaker.studio.core.*;
-import com.botmaker.studio.palette.BotMakerApi;
 import com.botmaker.studio.palette.InputKind;
 import com.botmaker.studio.parser.handlers.BranchChainHandler;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
@@ -349,15 +346,21 @@ public class BlockConverter {
                 return parseBranchChain(stmt, mi, ctx);
             }
 
+            // A call whose last argument is a { … } lambda, on any receiver at all. It sits outside the
+            // isLibraryClass arm below on purpose: the block it builds reads its captions and its slot types
+            // out of the source and the bot's own classpath, so it has no reason to require that the receiver
+            // be a class some plugin catalogues. Before 2026-09-01 it was inside that arm, because the block
+            // it built hardcoded one SDK facade and could not have drawn anything else.
+            if (LambdaCallHandler.isLambdaCall(mi)) {
+                return parseBodyCall(stmt, mi, ctx);
+            }
+
             String scope = mi.getExpression() != null ? mi.getExpression().toString() : "";
 
             // Activity.disable/enable("X") and Bot.stop() are ordinary SDK facade calls — they fall through to
             // the standardized LibraryCallBlock path below (same chrome as every other SDK block), rather than
             // being special-cased into a bespoke fixed-label block.
             if (isLibraryClass(scope)) {
-                if (LambdaCallHandler.isLambdaCall(mi)) {
-                    return parseLambdaCall(stmt, mi, ctx);
-                }
                 LibraryCallBlock block = new LibraryCallBlock(BlockId.of(stmt), stmt, scope);
                 ctx.nodeToBlockMap().put(stmt, block);
                 for (Object arg : mi.arguments()) {
@@ -401,39 +404,35 @@ public class BlockConverter {
     }
 
     /**
-     * A facade call with a trailing body lambda ({@code ImageFinder.whileFind(img, m -> { … })}). Builds a
-     * {@link LambdaCallBlock} exposing the leading image argument as a fillable slot and the lambda body as a
+     * A call with a trailing body lambda ({@code ImageFinder.whileFind(img, m -> { … })}) as a
+     * {@link BodyCallBlock}: every argument before the lambda as a fillable slot, the lambda's body as a
      * droppable {@link BodyBlock} (recursed via {@link #parseBodyBlock}), so the block round-trips.
+     *
+     * <p>Every leading argument is parsed, not just the first. The block this replaced took exactly one,
+     * because the nine methods it could draw all had exactly one — a limit that came from the enum rather than
+     * from the shape.
      */
-    private Optional<StatementBlock> parseLambdaCall(ExpressionStatement stmt, MethodInvocation mi, ParseContext ctx) {
+    private Optional<StatementBlock> parseBodyCall(ExpressionStatement stmt, MethodInvocation mi, ParseContext ctx) {
         LambdaExpression lambda = LambdaCallHandler.lambdaArg(mi);
-        LambdaCallBlock block = new LambdaCallBlock(BlockId.of(stmt), stmt, mi.getName().getIdentifier());
+        String receiver = mi.getExpression() != null ? mi.getExpression().toString() : "";
+        BodyCallBlock block =
+                new BodyCallBlock(BlockId.of(stmt), stmt, receiver, mi.getName().getIdentifier());
         ctx.nodeToBlockMap().put(stmt, block);
 
         List<?> args = mi.arguments();
-        if (args.size() > 1) {
-            // leading image argument (everything before the trailing lambda; the vision helpers have exactly one)
-            parseExpression((Expression) args.get(0), ctx).ifPresent(block::setImage);
+        for (int i = 0; i < args.size() - 1; i++) {
+            parseExpression((Expression) args.get(i), ctx).ifPresent(block::addArgument);
         }
         if (lambda.getBody() instanceof Block b) block.setBody(parseBodyBlock(b, ctx));
         return Optional.of(block);
     }
 
     private Optional<StatementBlock> parseVariableDecl(VariableDeclarationStatement stmt, ParseContext ctx) {
-        if (isReadInputStatement(stmt)) {
-            VariableDeclarationFragment frag = (VariableDeclarationFragment) stmt.fragments().getFirst();
-            MethodInvocation mi = (MethodInvocation) frag.getInitializer();
-            ReadInputBlock block = new ReadInputBlock(BlockId.of(stmt), stmt,
-                    InputKind.fromMethod(mi.getName().getIdentifier()).orElse(null));
-            ctx.nodeToBlockMap().put(stmt, block);
-            return Optional.of(block);
-        } else {
-            VariableDeclarationBlock block = new VariableDeclarationBlock(BlockId.of(stmt), stmt);
-            ctx.nodeToBlockMap().put(stmt, block);
-            VariableDeclarationFragment frag = (VariableDeclarationFragment) stmt.fragments().getFirst();
-            if (frag.getInitializer() != null) parseExpression(frag.getInitializer(), ctx).ifPresent(block::setInitializer);
-            return Optional.of(block);
-        }
+        VariableDeclarationBlock block = new VariableDeclarationBlock(BlockId.of(stmt), stmt);
+        ctx.nodeToBlockMap().put(stmt, block);
+        VariableDeclarationFragment frag = (VariableDeclarationFragment) stmt.fragments().getFirst();
+        if (frag.getInitializer() != null) parseExpression(frag.getInitializer(), ctx).ifPresent(block::setInitializer);
+        return Optional.of(block);
     }
 
     private Optional<StatementBlock> parseIf(IfStatement stmt, ParseContext ctx) {
@@ -742,17 +741,25 @@ public class BlockConverter {
 
     public static boolean isPrintStatement(Expression expression) {
         if (!(expression instanceof MethodInvocation method)) return false;
-        if (!method.getName().getIdentifier().equals(BotMakerApi.PRINT)) return false;
-        return method.getExpression() instanceof SimpleName sn && sn.getIdentifier().equals("BotMaker");
+        if (!method.getName().getIdentifier().equals("println")) return false;
+        // `System.out` is a QualifiedName here, not a FieldAccess: with no bindings resolved, JDT cannot tell
+        // a field selection from a package qualification, so it parses the whole dotted form as a name. The
+        // FieldAccess arm is kept because a `this`- or cast-qualified form does produce one, and because
+        // reading only the QualifiedName case would silently stop matching the day bindings are switched on.
+        Expression receiver = method.getExpression();
+        if (receiver instanceof QualifiedName qn) {
+            return qn.getFullyQualifiedName().equals("System.out");
+        }
+        return receiver instanceof FieldAccess fa
+                && fa.getName().getIdentifier().equals("out")
+                && fa.getExpression() instanceof SimpleName sn
+                && sn.getIdentifier().equals("System");
     }
 
-    public static boolean isReadInputStatement(VariableDeclarationStatement varDecl) {
-        if (varDecl.fragments().isEmpty()) return false;
-        VariableDeclarationFragment fragment = (VariableDeclarationFragment) varDecl.fragments().getFirst();
-        if (!(fragment.getInitializer() instanceof MethodInvocation mi)) return false;
-        if (!(mi.getExpression() instanceof SimpleName sn && sn.getIdentifier().equals("BotMaker"))) return false;
-        return mi.getName().getIdentifier().startsWith("read");
-    }
+    // isReadInputStatement went on 2026-09-01 with the Read blocks. It matched `BotMaker.readX()`, which is
+    // to say the editor recognised one library's facade by name — the same coupling as writing it. A bot
+    // still calling it renders as an ordinary variable declaration holding a library call, which is what it
+    // is.
 
     public static boolean isListStructure(Expression expr) {
         if (expr instanceof ArrayInitializer) return true;

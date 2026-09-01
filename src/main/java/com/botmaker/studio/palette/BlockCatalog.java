@@ -4,7 +4,6 @@ import com.botmaker.studio.palette.BlockType.ControlFlow;
 import com.botmaker.studio.palette.BlockType.ControlFlow.Kind;
 import com.botmaker.studio.palette.BlockType.EnumDecl;
 import com.botmaker.studio.palette.BlockType.MethodMember;
-import com.botmaker.studio.palette.BlockType.ScannerRead;
 import com.botmaker.studio.palette.BlockType.VarDecl;
 import com.botmaker.studio.palette.Initializer.BoolLit;
 import com.botmaker.studio.palette.Initializer.DoubleLit;
@@ -66,14 +65,12 @@ public final class BlockCatalog {
     public static final BlockType ASSIGNMENT = cf("ASSIGNMENT", "Set Variable", VARIABLES, Kind.ASSIGNMENT);
 
     // --- Input & interaction ---
-    // CLICK, TYPE_TEXT and PRESS_KEY stood here as hand-written calls on Mouse and Keyboard. The three that
-    // remain read a Scanner, which is the JDK and nobody's plugin.
-    public static final BlockType READ_LINE =
-            new ScannerRead("READ_LINE", "Read Text", INPUT, InputKind.LINE, "input");
-    public static final BlockType READ_INT =
-            new ScannerRead("READ_INT", "Read Int", INPUT, InputKind.INT, "num");
-    public static final BlockType READ_DOUBLE =
-            new ScannerRead("READ_DOUBLE", "Read Double", INPUT, InputKind.DOUBLE, "num");
+    // Empty, and the INPUT category with it. CLICK, TYPE_TEXT and PRESS_KEY stood here as hand-written calls
+    // on Mouse and Keyboard, and went with the rest of the SDK entries. READ_LINE, READ_INT and READ_DOUBLE
+    // outlived them by a few hours on a comment that claimed they "read a Scanner, which is the JDK and
+    // nobody's plugin" — which was simply false: they emitted `BotMaker.readLine()`, an SDK facade call, and
+    // the editor recognised it by name to read one back. Nothing in the JDK is a one-line replacement (a
+    // Scanner needs a field), so they went rather than being rewritten.
 
     // --- Functions ---
     public static final BlockType FUNCTION_CALL = cf("FUNCTION_CALL", "Call Function", FUNCTIONS, Kind.FUNCTION_CALL);
@@ -137,7 +134,6 @@ public final class BlockCatalog {
                             BREAK, CONTINUE, RETURN,
                             DECLARE_INT, DECLARE_DOUBLE, DECLARE_BOOLEAN, DECLARE_STRING, DECLARE_ARRAY,
                             ASSIGNMENT,
-                            READ_LINE, READ_INT, READ_DOUBLE,
                             FUNCTION_CALL, METHOD_DECLARATION, DECLARE_ENUM),
                     BOT_VARIABLES,
                     List.of(COMMENT))

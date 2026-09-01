@@ -486,47 +486,13 @@ public class CodeEditor {
         });
     }
 
-    /**
-     * Switches a vision loop statement between its single / {@code …Any} / {@code …All} variants (the method
-     * dropdown on {@code LambdaCallBlock}). Delegates to {@link LambdaCallHandler#switchVariant}: renames the
-     * method, converts the image arg single↔group, and adds/removes/renames the lambda parameter — a group
-     * variant's body receives a {@code Matches}, a single one's a {@code MatchResult}.
-     *
-     * @param lambdaParam the name the body receives the value under, or {@code null} for a {@code () -> {}} body
-     */
-    public void switchLambdaVariant(Statement lambdaStmt, String newMethod, boolean group, String lambdaParam) {
-        edit(lambdaStmt, EditKind.BODY, true, (cu, code) -> {
-            if (!(lambdaStmt instanceof ExpressionStatement es
-                    && es.getExpression() instanceof MethodInvocation mi)) {
-                return code;
-            }
-            EditContext ctx = EditContext.of(cu, analyzer, state);
-            LambdaCallHandler.switchVariant(ctx, mi, newMethod, group, lambdaParam);
-            return ctx.applyTo(code);
-        });
-    }
-
-    /**
-     * Re-points a vision-loop statement at a different SDK facade — the class dropdown on
-     * {@code LambdaCallBlock}. The whole call is <em>replaced</em>, not edited: the lambda body means nothing
-     * on another facade (only {@code ImageFinder}'s loop helpers take one), so the trailing lambda and the
-     * image argument both go, and the target's arguments are seeded from its own parameter types the same way
-     * an inserted call's are. {@code updateMethodInvocation} is deliberately not reused — it syncs arguments
-     * positionally and would try to fit the old image and lambda into the new signature's slots.
-     *
-     * <p>The caller warns before discarding a non-empty body; by the time this runs, that is decided.
-     */
-    public void replaceLambdaCallWithFacadeCall(Statement lambdaStmt, ExpressionChoice.Method choice) {
-        edit(lambdaStmt, EditKind.BODY, true, (cu, code) -> {
-            if (!(lambdaStmt instanceof ExpressionStatement es
-                    && es.getExpression() instanceof MethodInvocation mi)) {
-                return code;
-            }
-            EditContext ctx = EditContext.of(cu, analyzer, state);
-            ctx.rewriter().replace(mi, MethodHandler.createMethodInvocation(ctx, choice), null);
-            return ctx.applyTo(code);
-        });
-    }
+    // switchLambdaVariant and replaceLambdaCallWithFacadeCall went on 2026-09-01, with the block that was
+    // their only caller. Both existed to drive a dropdown that could only be written by a file holding one
+    // library's vocabulary: the first switched a vision loop between its single / …Any / …All variants and
+    // converted the leading argument ImageTemplate↔ImageTemplateGroup with it; the second repointed the call
+    // at another SDK facade and threw the body away, since only ImageFinder's helpers took one. BodyCallBlock
+    // draws a body-taking call on any receiver and offers neither: changing which method a call is on is the
+    // member menus' job, served by whichever plugin owns the type.
 
     // setRect, setPoint, setSize and replaceWithIntCtor went on 2026-09-01, and they had already had no
     // caller since 2026-08-27: the SDK's GeometryEditors claims a Rect, Point or Size slot and writes the

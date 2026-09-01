@@ -85,7 +85,7 @@ class ExpressionDragOutTest {
 
                 public class Subject {
                     public void run() {
-                        BotMaker.print(name());
+                        System.out.println(name());
                     }
 
                     String name() { return "x"; }
@@ -96,7 +96,7 @@ class ExpressionDragOutTest {
         fx.editor.moveExpressionToStatement((Expression) print.arguments().getFirst(), fx.body("run"), 1);
 
         assertNotNull(fx.lastCode, "the drag-out should have produced a code update");
-        assertTrue(fx.lastCode.contains("BotMaker.print();"),
+        assertTrue(fx.lastCode.contains("System.out.println();"),
                 "the print keeps its empty slot:\n" + fx.lastCode);
         assertTrue(fx.lastCode.contains("name();"), fx.lastCode);
     }
@@ -111,7 +111,7 @@ class ExpressionDragOutTest {
 
                 public class Subject {
                     public void run() {
-                        BotMaker.print();
+                        System.out.println();
                     }
 
                     String name() { return "x"; }
@@ -123,7 +123,7 @@ class ExpressionDragOutTest {
                 new ExpressionChoice.Method("", "name", List.of(), false), ResolvedType.UNKNOWN);
 
         assertNotNull(fx.lastCode, "filling the empty slot should have produced a code update");
-        assertTrue(fx.lastCode.contains("BotMaker.print(name())"),
+        assertTrue(fx.lastCode.contains("System.out.println(name())"),
                 "the pick lands in the hole:\n" + fx.lastCode);
     }
 
@@ -135,7 +135,7 @@ class ExpressionDragOutTest {
                 public class Subject {
                     public void run() {
                         String name = greeting();
-                        BotMaker.print("hello");
+                        System.out.println("hello");
                     }
 
                     String greeting() { return "hi"; }
@@ -149,7 +149,7 @@ class ExpressionDragOutTest {
         fx.editor.moveExpressionBetweenSlots((Expression) print.arguments().getFirst(), fragment.getInitializer());
 
         assertNotNull(fx.lastCode, "the move should have produced a code update");
-        assertTrue(fx.lastCode.contains("BotMaker.print(greeting());"),
+        assertTrue(fx.lastCode.contains("System.out.println(greeting());"),
                 "the target slot takes the value:\n" + fx.lastCode);
         assertTrue(fx.lastCode.contains("String name;"),
                 "a declaration may have no initialiser, so the slot it left is empty:\n" + fx.lastCode);

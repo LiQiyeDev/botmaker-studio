@@ -211,7 +211,7 @@ class CodeEditorLockTest {
         Fixture f = activity();
         f.editor.addStatement(f.body("run"), BlockCatalog.PRINT, 0);
         assertNotNull(f.lastCode, "this is what the user came to write");
-        assertTrue(f.lastCode.contains("BotMaker.print("), "the print should be in run():\n" + f.lastCode);
+        assertTrue(f.lastCode.contains("System.out.println("), "the print should be in run():\n" + f.lastCode);
     }
 
     @Test
@@ -224,7 +224,7 @@ class CodeEditorLockTest {
         f.editor.addStatement(f.body("run"), BlockCatalog.PRINT, 1);
 
         assertNotNull(f.lastCode, "adding a statement below a comment must not crash");
-        assertTrue(f.lastCode.contains("BotMaker.print("), "the print should land in run():\n" + f.lastCode);
+        assertTrue(f.lastCode.contains("System.out.println("), "the print should land in run():\n" + f.lastCode);
     }
 
     @Test
@@ -357,7 +357,7 @@ class CodeEditorLockTest {
         Fixture f = new Fixture(CONFIG.mainSourceFile(), ENTRY_POINT);
         f.editor.addStatement(f.body("main"), BlockCatalog.PRINT, 0);
         assertNotNull(f.lastCode, "main()'s body is where the bot is assembled:\n" + f.lastCode);
-        assertTrue(f.lastCode.contains("BotMaker.print("), "the print should land in main():\n" + f.lastCode);
+        assertTrue(f.lastCode.contains("System.out.println("), "the print should land in main():\n" + f.lastCode);
     }
 
     /** The rest of the entry point file is ordinary user code too. */

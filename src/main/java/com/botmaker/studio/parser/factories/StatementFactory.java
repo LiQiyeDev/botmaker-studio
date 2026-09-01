@@ -1,8 +1,6 @@
 package com.botmaker.studio.parser.factories;
 
-import com.botmaker.sdk.api.util.BotMaker;
 import com.botmaker.studio.palette.BlockType;
-import com.botmaker.studio.palette.BotMakerApi;
 import com.botmaker.studio.palette.Initializer;
 import com.botmaker.studio.parser.EditContext;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
@@ -35,7 +33,6 @@ public class StatementFactory {
         return switch (type) {
             case BlockType.ControlFlow cf -> createControlFlow(ctx, cf.kind(), context);
             case BlockType.VarDecl v -> buildVarDecl(ctx, v, context);
-            case BlockType.ScannerRead r -> buildScannerRead(ctx, r, context);
             case BlockType.LibraryCall l -> buildLibraryCall(ctx, l);
             case BlockType.LambdaCall l -> buildLambdaCall(ctx, l);
             case BlockType.EnumDecl ignored -> createEnumDeclaration(ctx.ast());
@@ -164,19 +161,11 @@ public class StatementFactory {
         return varDecl;
     }
 
-    private static Statement buildScannerRead(EditContext ctx, BlockType.ScannerRead r, ASTNode context) {
-        AST ast = ctx.ast();
-        ctx.addImport(BotMaker.class);
-        VariableDeclarationFragment fragment = ast.newVariableDeclarationFragment();
-        fragment.setName(ast.newSimpleName(uniqueName(ctx.analyzer(), context, r.varName())));
-        MethodInvocation readCall = ast.newMethodInvocation();
-        readCall.setExpression(ast.newSimpleName("BotMaker"));
-        readCall.setName(ast.newSimpleName(r.input().method()));
-        fragment.setInitializer(readCall);
-        VariableDeclarationStatement varDecl = ast.newVariableDeclarationStatement(fragment);
-        varDecl.setType(typeNode(ast, r.input().typeName(), r.input().isPrimitiveType()));
-        return varDecl;
-    }
+    // buildScannerRead went on 2026-09-01 with the three Read blocks it built. It wrote
+    // `String s = BotMaker.readLine();` — an SDK facade call, emitted by the editor on the SDK's behalf, which
+    // is exactly what this pass removes. There is no JDK one-liner to put in its place (a Scanner needs a
+    // field), so the blocks went rather than being rewritten; a bot that wants to read stdin calls whatever
+    // its own libraries offer, through the member menus.
 
     private static Statement buildLibraryCall(EditContext ctx, BlockType.LibraryCall l) {
         AST ast = ctx.ast();
@@ -323,12 +312,23 @@ public class StatementFactory {
 
     // --- Bespoke one-off statement creators ---
 
+    /**
+     * {@code System.out.println("")}.
+     *
+     * <p>It emitted {@code BotMaker.print("")} until 2026-09-01 — an SDK facade call written by the editor,
+     * needing an import the editor had to know the package of. The JDK does this, and Studio's own
+     * {@code StarterSources} has printed with {@code System.out.println} since 2026-08-30 for the reason
+     * recorded there: teaching a BotMaker spelling of a Java call spends a user's first line on nothing.
+     * Nothing is imported — {@code java.lang.System} needs none.
+     */
     private static Statement createPrintStatement(EditContext ctx) {
         AST ast = ctx.ast();
-        ctx.addImport(BotMaker.class);
         MethodInvocation print = ast.newMethodInvocation();
-        print.setExpression(ast.newSimpleName("BotMaker"));
-        print.setName(ast.newSimpleName(BotMakerApi.PRINT));
+        FieldAccess out = ast.newFieldAccess();
+        out.setExpression(ast.newSimpleName("System"));
+        out.setName(ast.newSimpleName("out"));
+        print.setExpression(out);
+        print.setName(ast.newSimpleName("println"));
         StringLiteral emptyString = ast.newStringLiteral();
         emptyString.setLiteralValue("");
         print.arguments().add(emptyString);

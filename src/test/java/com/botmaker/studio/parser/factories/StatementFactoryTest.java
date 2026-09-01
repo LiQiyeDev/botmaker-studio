@@ -152,11 +152,9 @@ class StatementFactoryTest {
         assertTrue(source.endsWith(";"), source);
     }
 
-    @Test
-    void aScannerReadBecomesTheBotMakerCallItNames() {
-        String source = text(BlockCatalog.READ_INT);
-        assertTrue(source.contains("BotMaker.read"), source);
-    }
+    // aScannerReadBecomesTheBotMakerCallItNames went on 2026-09-01 with READ_INT and the whole ScannerRead
+    // variant. It asserted the factory wrote `BotMaker.readInt()` — which was the defect, not the contract:
+    // the editor was emitting one library's facade call from a palette entry of its own.
 
     /**
      * The fixtures are built here rather than taken from {@link BlockCatalog}, and the reason is the point of

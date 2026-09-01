@@ -88,23 +88,21 @@ public class BlockDragDropEditTest {
         editor.addStatement(body, BlockCatalog.PRINT, body.getStatements().size());
 
         assertNotNull(lastCode, "Drop should have produced a code update");
-        assertTrue(lastCode.contains("BotMaker.print("), "Added Print block should appear in the source:\n" + lastCode);
+        assertTrue(lastCode.contains("System.out.println("),
+                "Added Print block should appear in the source:\n" + lastCode);
     }
 
     @Test
     void dropDataDrivenVariants_buildTheRightSource() {
-        // Exercises the data-carrying BlockType variants (VarDecl with a NewInstance initializer, ScannerRead),
-        // proving the source comes from the block's data rather than a name-decoding switch.
+        // Exercises the data-carrying BlockType variants — VarDecl with a NewInstance initializer — proving
+        // the source comes from the block's data rather than a name-decoding switch. The ScannerRead arm
+        // (READ_INT, asserting `BotMaker.readInt()`) went on 2026-09-01 with the variant itself.
         BodyBlock body = firstBodyWithStatements();
 
         editor.addStatement(body, BlockCatalog.DECLARE_RECT, body.getStatements().size());
         assertNotNull(lastCode, "Drop should have produced a code update");
         assertTrue(lastCode.contains("new Rect(0, 0, 0, 0)"),
                 "DECLARE_RECT should build a Rect constructor:\n" + lastCode);
-
-        editor.addStatement(body, BlockCatalog.READ_INT, body.getStatements().size());
-        assertTrue(lastCode.contains("BotMaker.readInt()"),
-                "READ_INT should build a BotMaker.readInt() read:\n" + lastCode);
     }
 
     @Test

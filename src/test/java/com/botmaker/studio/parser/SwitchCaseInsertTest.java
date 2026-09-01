@@ -101,9 +101,9 @@ class SwitchCaseInsertTest {
 
         assertNotNull(fixture.lastCode, "nothing was inserted");
         assertParses(fixture.lastCode);
-        assertTrue(fixture.lastCode.contains("BotMaker.print"), fixture.lastCode);
+        assertTrue(fixture.lastCode.contains("System.out.println"), fixture.lastCode);
         // Before the case's own closing break, which is chrome the body doesn't contain.
-        assertTrue(fixture.lastCode.indexOf("BotMaker.print") < fixture.lastCode.indexOf("break"),
+        assertTrue(fixture.lastCode.indexOf("System.out.println") < fixture.lastCode.indexOf("break"),
                 () -> "inserted after the case ended: " + fixture.lastCode);
     }
 
@@ -118,10 +118,10 @@ class SwitchCaseInsertTest {
 
         assertNotNull(fixture.lastCode, "nothing was inserted — the edit was refused or dropped");
         assertParses(fixture.lastCode);
-        assertTrue(fixture.lastCode.contains("BotMaker.print"), fixture.lastCode);
+        assertTrue(fixture.lastCode.contains("System.out.println"), fixture.lastCode);
         // The statement has to be between the arrow and the brace that closes the rule, not after it.
         int arrow = fixture.lastCode.indexOf("->");
-        int inserted = fixture.lastCode.indexOf("BotMaker.print");
+        int inserted = fixture.lastCode.indexOf("System.out.println");
         int defaultRule = fixture.lastCode.indexOf("default");
         assertTrue(arrow < inserted && inserted < defaultRule,
                 () -> "landed outside the branch it was dropped in: " + fixture.lastCode);
