@@ -53,7 +53,7 @@ class FunctionDraftTest {
     void anOverloadIsNotADuplicate() {
         Set<String> taken = Set.of("click(int,int)");
         FunctionDraft overload = new FunctionDraft("click", BotType.Choice.of(BotType.NOTHING),
-                List.of(new FunctionDraft.Parameter("where", BotType.Choice.of(BotType.POINT))));
+                List.of(new FunctionDraft.Parameter("where", BotType.Choice.of(BotType.DATE))));
         FunctionDraft duplicate = new FunctionDraft("click", BotType.Choice.of(BotType.NOTHING),
                 List.of(new FunctionDraft.Parameter("x", BotType.Choice.of(BotType.WHOLE_NUMBER)),
                         new FunctionDraft.Parameter("y", BotType.Choice.of(BotType.WHOLE_NUMBER))));
@@ -104,19 +104,19 @@ class FunctionDraftTest {
     @Test
     void twoParametersCannotShareAName() {
         FunctionDraft draft = new FunctionDraft("go", BotType.Choice.of(BotType.NOTHING), List.of(
-                new FunctionDraft.Parameter("where", BotType.Choice.of(BotType.POINT)),
-                new FunctionDraft.Parameter("where", BotType.Choice.of(BotType.RECT))));
+                new FunctionDraft.Parameter("where", BotType.Choice.of(BotType.DATE)),
+                new FunctionDraft.Parameter("where", BotType.Choice.of(BotType.DURATION))));
 
         assertTrue(draft.problem(TAKEN).orElse("").contains("Two parameters"));
     }
 
     @Test
     void theSignaturePreviewIsWhatWillBeWritten() {
-        FunctionDraft draft = new FunctionDraft("findAll", BotType.Choice.listOf(BotType.MATCH_RESULT), List.of(
-                new FunctionDraft.Parameter("target", BotType.Choice.of(BotType.IMAGE_TEMPLATE)),
+        FunctionDraft draft = new FunctionDraft("findAll", BotType.Choice.listOf(BotType.DATE), List.of(
+                new FunctionDraft.Parameter("target", BotType.Choice.of(BotType.TEXT)),
                 new FunctionDraft.Parameter("tries", BotType.Choice.of(BotType.WHOLE_NUMBER))));
 
-        assertEquals("List<MatchResult> findAll(ImageTemplate target, int tries)", draft.signature());
+        assertEquals("List<java.time.LocalDate> findAll(String target, int tries)", draft.signature());
     }
 
     @Test

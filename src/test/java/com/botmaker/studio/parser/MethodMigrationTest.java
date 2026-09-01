@@ -37,13 +37,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class MethodMigrationTest {
 
+    // The fixture parameter was the SDK's Point until 2026-09-01. It is java.time.LocalDate now, for the
+    // reason EditFunctionSignatureTest states at length: this file must keep passing once botmaker-studio
+    // stops depending on botmaker-sdk, and at that point a headless test loads no plugin, so BotType offers
+    // only the ten types the editor declares for itself. Nothing here is about the type — it is a
+    // non-primitive a null can be passed for and an int cannot.
     private static final String BOT = """
             package test;
 
-            import com.botmaker.sdk.api.Point;
-
             public class Bot {
-                public boolean clickAt(Point where, int tries) {
+                public boolean clickAt(java.time.LocalDate where, int tries) {
                     System.out.println(tries);
                     return where != null;
                 }
@@ -53,7 +56,7 @@ class MethodMigrationTest {
                     boolean ok = clickAt(null, 4);
                 }
 
-                public void hover(Point spot) {
+                public void hover(java.time.LocalDate spot) {
                 }
             }
             """;
@@ -136,7 +139,7 @@ class MethodMigrationTest {
 
     @Test
     void anOverloadOfADifferentShapeIsNotThisMethod() {
-        // Java allows clickAt(Point) beside clickAt(Point, int); renaming one must not touch the other.
+        // Java allows clickAt(LocalDate) beside clickAt(LocalDate, int); renaming one must not touch the other.
         otherFile(GO_HOME.replace("Bot.clickAt(null, 1);", "Bot.clickAt(null);"));
 
         MethodReferences.Result found = MethodReferences.find(state, clickAt());
@@ -192,10 +195,8 @@ class MethodMigrationTest {
         otherFile("""
                 package test;
 
-                import com.botmaker.sdk.api.Point;
-
                 public class GoHome {
-                    public boolean clickAt(Point where, int tries) {
+                    public boolean clickAt(java.time.LocalDate where, int tries) {
                         return false;
                     }
 
@@ -216,7 +217,7 @@ class MethodMigrationTest {
     @Test
     void aRenameIsCarriedToEveryCallAndNothingElseMoves() {
         SignatureMigration.Plan plan = planFor(draft("tapAt", BotType.YES_NO,
-                List.of(param("where", BotType.POINT, 0), param("tries", BotType.WHOLE_NUMBER, 1))));
+                List.of(param("where", BotType.DATE, 0), param("tries", BotType.WHOLE_NUMBER, 1))));
 
         assertEquals(3, plan.calls().size());
         for (SignatureMigration.CallChange change : plan.calls()) {
@@ -233,8 +234,8 @@ class MethodMigrationTest {
     @Test
     void anAddedParameterIsFilledInAtEveryCall() {
         SignatureMigration.Plan plan = planFor(draft("clickAt", BotType.YES_NO,
-                List.of(param("where", BotType.POINT, 0), param("tries", BotType.WHOLE_NUMBER, 1),
-                        added("area", BotType.RECT))));
+                List.of(param("where", BotType.DATE, 0), param("tries", BotType.WHOLE_NUMBER, 1),
+                        added("area", BotType.TIME_OF_DAY))));
 
         List<SignatureMigration.ArgumentEdit> arguments = argumentsOf(plan, 0);
         assertEquals(3, arguments.size());
@@ -247,7 +248,7 @@ class MethodMigrationTest {
     void aRemovedParameterIsDroppedAtTheCallsAndRescuedInTheBody() {
         // `tries` is printed in the body, so removing it would leave a name with nothing behind it.
         SignatureMigration.Plan plan = planFor(draft("clickAt", BotType.YES_NO,
-                List.of(param("where", BotType.POINT, 0))));
+                List.of(param("where", BotType.DATE, 0))));
 
         assertEquals(List.of(new SignatureMigration.ArgumentEdit.Keep(0)), argumentsOf(plan, 0));
         assertEquals(1, plan.rescued().size());
@@ -257,7 +258,7 @@ class MethodMigrationTest {
 
     @Test
     void aRemovedParameterTheBodyNeverUsedIsNotRescued() {
-        // `hover(Point spot)` never mentions `spot`, so dropping it owes the body nothing — a local declared
+        // `hover(LocalDate spot)` never mentions `spot`, so dropping it owes the body nothing — a local declared
         // for a name nobody reads would be a leftover the user has to delete by hand.
         TypeDeclaration bot = (TypeDeclaration) state.getCompilationUnit().orElseThrow().types().getFirst();
         MethodDeclaration hover = bot.getMethods()[2];
@@ -272,7 +273,7 @@ class MethodMigrationTest {
     @Test
     void reorderingPermutesTheArgumentsRatherThanRetypingThem() {
         SignatureMigration.Plan plan = planFor(draft("clickAt", BotType.YES_NO,
-                List.of(param("tries", BotType.WHOLE_NUMBER, 1), param("where", BotType.POINT, 0))));
+                List.of(param("tries", BotType.WHOLE_NUMBER, 1), param("where", BotType.DATE, 0))));
 
         assertEquals(List.of(new SignatureMigration.ArgumentEdit.Keep(1),
                 new SignatureMigration.ArgumentEdit.Keep(0)), argumentsOf(plan, 0));
@@ -281,10 +282,10 @@ class MethodMigrationTest {
 
     @Test
     void aRetypedParameterKeepsWhatStillFitsAndReplacesWhatDoesNot() {
-        // `clickAt(null, 3)`: the 3 cannot be a Point and is replaced by that type's default; the null says
+        // `clickAt(null, 3)`: the 3 cannot be a LocalDate and is replaced by that type's default; the null says
         // nothing about itself, and doubt keeps what the user wrote.
         SignatureMigration.Plan plan = planFor(draft("clickAt", BotType.YES_NO,
-                List.of(param("where", BotType.RECT, 0), param("tries", BotType.POINT, 1))));
+                List.of(param("where", BotType.TIME_OF_DAY, 0), param("tries", BotType.DATE, 1))));
 
         List<SignatureMigration.ArgumentEdit> arguments = argumentsOf(plan, 0);
         assertEquals(new SignatureMigration.ArgumentEdit.Keep(0), arguments.getFirst());
@@ -294,7 +295,7 @@ class MethodMigrationTest {
     @Test
     void aChangedReturnTypeReplacesTheUseButLeavesALineOfItsOwnAlone() {
         SignatureMigration.Plan plan = planFor(draft("clickAt", BotType.NOTHING,
-                List.of(param("where", BotType.POINT, 0), param("tries", BotType.WHOLE_NUMBER, 1))));
+                List.of(param("where", BotType.DATE, 0), param("tries", BotType.WHOLE_NUMBER, 1))));
 
         List<SignatureMigration.CallChange> inBot = new ArrayList<>(plan.calls().stream()
                 .filter(change -> change.site().className().equals("Bot")).toList());
@@ -327,7 +328,7 @@ class MethodMigrationTest {
                 """);
 
         SignatureMigration.Plan plan = planFor(draft("clickAt", BotType.WHOLE_NUMBER,
-                List.of(param("where", BotType.POINT, 0), param("tries", BotType.WHOLE_NUMBER, 1))));
+                List.of(param("where", BotType.DATE, 0), param("tries", BotType.WHOLE_NUMBER, 1))));
 
         SignatureMigration.CallChange inGoHome = plan.calls().stream()
                 .filter(change -> change.site().className().equals("GoHome")).findFirst().orElseThrow();
@@ -350,7 +351,7 @@ class MethodMigrationTest {
                 """);
 
         SignatureMigration.Plan plan = planFor(draft("clickAt", BotType.WHOLE_NUMBER,
-                List.of(param("where", BotType.POINT, 0), param("tries", BotType.WHOLE_NUMBER, 1))));
+                List.of(param("where", BotType.DATE, 0), param("tries", BotType.WHOLE_NUMBER, 1))));
 
         SignatureMigration.CallChange inGoHome = plan.calls().stream()
                 .filter(change -> change.site().className().equals("GoHome")).findFirst().orElseThrow();

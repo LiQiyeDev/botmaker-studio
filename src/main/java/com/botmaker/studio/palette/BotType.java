@@ -1,183 +1,142 @@
 package com.botmaker.studio.palette;
 
-import com.botmaker.sdk.api.capture.CaptureSource;
-import com.botmaker.sdk.api.capture.Source;
-import com.botmaker.sdk.api.geometry.Direction;
-import com.botmaker.sdk.api.geometry.Point;
-import com.botmaker.sdk.api.geometry.Rect;
-import com.botmaker.sdk.api.geometry.Size;
-import com.botmaker.sdk.api.interaction.Key;
-import com.botmaker.sdk.api.interaction.MouseButton;
-import com.botmaker.sdk.api.vision.ColorMatch;
-import com.botmaker.sdk.api.vision.ImageTemplate;
-import com.botmaker.sdk.api.vision.ImageTemplateGroup;
-import com.botmaker.sdk.api.vision.MatchResult;
-import com.botmaker.sdk.api.vision.Matches;
-import com.botmaker.sdk.api.vision.Precision;
-import com.botmaker.sdk.api.vision.TextMatch;
-import com.botmaker.sdk.api.vision.Vision;
+import com.botmaker.plugin.api.SourceSeed;
 import com.botmaker.studio.palette.Initializer.BoolLit;
 import com.botmaker.studio.palette.Initializer.CharLit;
 import com.botmaker.studio.palette.Initializer.DoubleLit;
-import com.botmaker.studio.palette.Initializer.EnumConst;
 import com.botmaker.studio.palette.Initializer.IntLit;
 import com.botmaker.studio.palette.Initializer.NewInstance;
+import com.botmaker.studio.palette.Initializer.Raw;
 import com.botmaker.studio.palette.Initializer.StaticCall;
 import com.botmaker.studio.palette.Initializer.StrLit;
+import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.studio.types.JdkType;
 import com.botmaker.studio.types.PrimitiveKind;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 /**
  * The types a bot author can <b>write into source</b>: what "Declare Bot Variable" offers, and what the Add
- * Function dialog offers as a return type or a parameter type. One curated list, in one place, because the two
+ * Function dialog offers as a return type or a parameter type. One list, in one place, because the two
  * features are the same question asked twice — "which types does this editor let you write down?" — and they
- * answered it differently: the declare menu knew five ({@code Point}, {@code Rect}, {@code Size},
- * {@code MatchResult}, {@code ImageTemplate}) and Add Function knew one ({@code void}, hard-coded, with no
- * dialog to change it).
+ * answered it differently: the declare menu knew five and Add Function knew one ({@code void}, hard-coded).
  *
- * <h2>What this is <em>not</em>, since phase 10b</h2>
+ * <h2>It is not an enum any more, and that is the whole of the 2026-09-01 change</h2>
  *
- * <p>It is no longer the vocabulary a <em>project variable</em> is typed by. That is
- * {@link com.botmaker.plugin.api.value.ValueType} — an open registry the loaded plugins fill — and this enum
- * was two things wearing one name until they were separated: the persisted vocabulary, and the editor's list
- * of types a signature may name. The second is what is left, and it stays Studio's, because it is a list
- * <em>Studio</em> curates about the source <em>Studio</em> writes; nothing here is stored in a project file,
- * so nothing here has to be extensible by a plugin. The members that answered the first question —
- * {@code storable()}, {@code storableTypes()}, {@code isClosedSet()}, {@code shapeable()} — are gone, and with
- * them the two set-shapes: fixing the set a value may come from is a project-variable idea, and a signature has
- * nobody to ask.
+ * <p>Fourteen of these constants were SDK class literals — {@code Point.class}, {@code Precision.class},
+ * {@code ImageTemplate.class} and eleven more — which made this file the largest single reason
+ * {@code botmaker-studio} compiled against {@code botmaker-sdk} at all. They are gone. What is left as
+ * <em>constants</em> is the JDK: four literals, a colour, {@code void}, and the three {@code java.time}
+ * values. Everything else is <b>contributed</b>, from the loaded plugins' {@link SourceSeed}s, and joins the
+ * list at {@link #values()}.
  *
- * <h2>An allow-list, not a filter</h2>
+ * <p>So this became a final class with static instances rather than an enum, for exactly the reason
+ * {@code com.botmaker.plugin.api.value.ValueType} did in phase 10a: a closed set is right for one plugin and
+ * wrong for two. A plugin wanting its type declarable would otherwise need a constant granted to it here,
+ * which is the back door the platform exists to close.
  *
- * <p>Every SDK entry names a real class literal, so the set is checked by the compiler: a type that leaves
- * the SDK breaks this file, and a type that <em>joins</em> the SDK appears here only when someone adds it.
- * That direction matters more than it sounds — deriving the list from the plugin catalog would have put
- * every new class in front of the user automatically, and most of what the SDK ships is not something a bot
- * author should be declaring a variable of.
+ * <h2>Why {@code SourceSeed} and not a new contribution surface</h2>
  *
- * <p><b>What is deliberately absent.</b> {@code BotMaker}, {@code BotStuckException} and {@code StartMode} are
- * plumbing; {@code EmulatorSource} is chosen through the capture-target dialog and never named by type —
- * {@link #CAPTURE_SOURCE}, the interface, is the one a variable holds; {@code Emulator}/{@code EmulatorRef}
- * come from {@code Emulators.named(…)} and {@code LaunchTarget} from the launch dialog; and {@code Session}
- * and {@code Time} are facades, not values to hold.
+ * <p>A seed already carries everything a declarable type needs: the type's name, the Java a fresh value of it
+ * is written as, and the imports that expression wants. That is the same triple the deleted constants
+ * carried — {@code Precision.class} plus {@code new EnumConst("Precision", "DEFAULT")} is
+ * {@code SourceSeed.of("…Precision", "…Precision.DEFAULT")} with the label spelled twice. So nothing was
+ * added to the contract: the surface that answers <em>what does a fresh one look like</em> already answers
+ * <em>can I declare one</em>, and a plugin that seeds a type gets it offered for free.
  *
- * <p>That list used to be longer. SDK 1.1.0 moved the {@code CaptureSource} implementations
- * ({@code Desktop}, {@code Monitor}, {@code NamedWindow}, {@code SessionSource}) and the observation stack
- * ({@code Bots}, {@code BotObserver}, {@code Surface} and the event records) into
- * {@code com.botmaker.sdk.internal}, on the rule that a type a bot can only ever <em>receive</em> is not
- * public API. They stopped being nameable here with that move, so this file no longer has to exclude by hand
- * what the SDK's own package boundary now excludes.
- *
- * <p>{@link #COLOR} is the JDK's {@code java.awt.Color}, not an SDK type: it is what the block editor's colour
- * picker already commits ({@code ColorArgPicker}), so a variable holding one is the same value a block holds.
- * The SDK's colour-bearing types — {@link #COLOR_MATCH} and {@link #TEXT_MATCH} — are vision <em>results</em>
- * and remain unstorable. And there is no {@code float} — one decimal type is
- * enough, and it is {@code double}, which is what every SDK method that takes one uses.
+ * <p>The cost, stated plainly: a plugin can no longer be <em>curated</em> from here. This file used to be an
+ * allow-list, and its javadoc argued for that — deriving the list from the catalog would put every new SDK
+ * class in front of the user, and most of what the SDK ships is not something to declare a variable of. That
+ * argument still holds and the answer moved rather than went: the seed list <em>is</em> the curation, and it
+ * is written by the plugin that knows which of its types are worth holding. The SDK offering three types
+ * where it used to offer fourteen is a decision for {@code SdkPlugin.sourceSeeds()}, not for this file.
  *
  * <h2>Every entry compiles on the spot</h2>
  *
  * <p>Each carries the {@link Initializer} a fresh declaration is seeded with, so choosing a type from the menu
- * produces a statement that builds — {@code Matches.none()}, {@code Precision.DEFAULT},
- * {@code Source.current()} — rather than a {@code null} the user has to notice and replace. {@link #NOTHING}
- * is the one entry with none: {@code void} is a return type and cannot be a variable, which is what
- * {@link #declarable()} answers.
+ * produces a statement that builds — {@code java.time.LocalDate.now()}, {@code false} — rather than a
+ * {@code null} the user has to notice and replace. {@link #NOTHING} is the one entry with none: {@code void}
+ * is a return type and cannot be a variable, which is what {@link #declarable()} answers.
+ *
+ * <p>{@link #COLOR} is the JDK's {@code java.awt.Color} and stays here for that reason alone — it is what the
+ * block editor's own colour picker commits, so a variable holding one is the same value a block holds. There
+ * is no {@code float}: one decimal type is enough and it is {@code double}.
  */
-public enum BotType {
+public final class BotType {
 
     // --- Basics: the four literals a bot mostly counts, flags and labels with, plus void. -----------------
 
-    TEXT(Group.BASICS, "Text", JdkType.STRING, "text", new StrLit("")),
-    YES_NO(Group.BASICS, "Yes/No", PrimitiveKind.BOOLEAN, JdkType.BOOLEAN, "flag", new BoolLit(false)),
-    WHOLE_NUMBER(Group.BASICS, "Whole number", PrimitiveKind.INT, JdkType.INTEGER, "number", new IntLit("0")),
-    DECIMAL_NUMBER(Group.BASICS, "Decimal number", PrimitiveKind.DOUBLE, JdkType.DOUBLE, "decimal",
-            new DoubleLit("0.0")),
-    CHARACTER(Group.BASICS, "Character", PrimitiveKind.CHAR, JdkType.CHARACTER, "letter", new CharLit('a')),
+    public static final BotType TEXT =
+            jdk("TEXT", Group.BASICS, "Text", JdkType.STRING, "text", new StrLit(""));
+    public static final BotType YES_NO =
+            primitive("YES_NO", Group.BASICS, "Yes/No", PrimitiveKind.BOOLEAN, JdkType.BOOLEAN, "flag",
+                    new BoolLit(false));
+    public static final BotType WHOLE_NUMBER =
+            primitive("WHOLE_NUMBER", Group.BASICS, "Whole number", PrimitiveKind.INT, JdkType.INTEGER,
+                    "number", new IntLit("0"));
+    public static final BotType DECIMAL_NUMBER =
+            primitive("DECIMAL_NUMBER", Group.BASICS, "Decimal number", PrimitiveKind.DOUBLE, JdkType.DOUBLE,
+                    "decimal", new DoubleLit("0.0"));
+    public static final BotType CHARACTER =
+            primitive("CHARACTER", Group.BASICS, "Character", PrimitiveKind.CHAR, JdkType.CHARACTER, "letter",
+                    new CharLit('a'));
+
     /**
      * A colour, as {@code java.awt.Color} — the JDK type, written fully qualified so it needs no import, and
      * the very type the block editor's colour picker reads and writes. White by default, matching the seed
      * {@code InitializerFactory} gives a colour-typed argument slot.
      */
-    COLOR(Group.BASICS, "Color", "java.awt.Color", "color",
-            new NewInstance("java.awt.Color",
-                    List.of(new IntLit("255"), new IntLit("255"), new IntLit("255")))),
+    public static final BotType COLOR =
+            qualified("COLOR", Group.BASICS, "Color", "java.awt.Color", "color",
+                    new NewInstance("java.awt.Color",
+                            List.of(new IntLit("255"), new IntLit("255"), new IntLit("255"))));
+
     /** {@code void} — offered as a return type only. See {@link #declarable()}. */
-    NOTHING(Group.BASICS, "Nothing", PrimitiveKind.VOID, null, null, null),
+    public static final BotType NOTHING =
+            new BotType("NOTHING", Group.BASICS, "Nothing", PrimitiveKind.VOID.keyword(), null, true, null,
+                    null);
 
     // --- Date & time: the three java.time values a bot schedules itself with. ----------------------------
 
     /**
-     * Written fully qualified, here and in the generated {@code Activities} class, for the same reason the
-     * generated class has a fixed import block: a type that needs no import cannot be forgotten from one.
+     * Written fully qualified for the same reason the others are: a type that needs no import cannot be
+     * forgotten from one, and this factory has no rewriter to add one with.
      */
-    DATE(Group.WHEN, "Date", "java.time.LocalDate", "date",
-            new StaticCall("java.time.LocalDate", "now", List.of())),
-    TIME_OF_DAY(Group.WHEN, "Time of day", "java.time.LocalTime", "time",
-            new StaticCall("java.time.LocalTime", "of", List.of(new IntLit("0"), new IntLit("0")))),
+    public static final BotType DATE =
+            qualified("DATE", Group.WHEN, "Date", "java.time.LocalDate", "date",
+                    new StaticCall("java.time.LocalDate", "now", List.of()));
+    public static final BotType TIME_OF_DAY =
+            qualified("TIME_OF_DAY", Group.WHEN, "Time of day", "java.time.LocalTime", "time",
+                    new StaticCall("java.time.LocalTime", "of", List.of(new IntLit("0"), new IntLit("0"))));
     /** A length of time — {@code 90s}, {@code 5m}, {@code 1h30m} in the editor; a {@code Duration} in the bot. */
-    DURATION(Group.WHEN, "Duration", "java.time.Duration", "howLong",
-            new StaticCall("java.time.Duration", "ofSeconds", List.of(new IntLit("0")))),
-
-    // --- Vision ------------------------------------------------------------------------------------------
+    public static final BotType DURATION =
+            qualified("DURATION", Group.WHEN, "Duration", "java.time.Duration", "howLong",
+                    new StaticCall("java.time.Duration", "ofSeconds", List.of(new IntLit("0"))));
 
     /**
-     * Seeded with an empty path, which is what opens the picture picker on the freshly declared variable.
-     *
-     * <p>It used to be seeded with the shipped placeholder, named by its generated {@code Templates} constant
-     * — which meant this enum reading the SDK's own name and library classes to say what a fresh picture is.
-     * That is the SDK plugin's sentence, and since 2026-09-01 the plugin writes it, as the
-     * {@code SourceSeed} for {@code ImageTemplate}. This entry says the same thing the seed does.
+     * The types this editor declares for itself, in display order. Everything else in {@link #values()} comes
+     * from a plugin.
      */
-    IMAGE_TEMPLATE(Group.VISION, ImageTemplate.class, "template",
-            new NewInstance(ImageTemplate.class.getSimpleName(), List.of(new StrLit("")))),
-    /** An empty group is legal and means "nothing to look for" — the SDK is explicit about it. */
-    IMAGE_TEMPLATE_GROUP(Group.VISION, ImageTemplateGroup.class, "group",
-            new StaticCall(ImageTemplateGroup.class.getSimpleName(), "of", List.of())),
-    MATCH_RESULT(Group.VISION, MatchResult.class, "match",
-            new StaticCall(Vision.class.getSimpleName(), "lastMatch", List.of())),
-    MATCHES(Group.VISION, Matches.class, "matches",
-            new StaticCall(Matches.class.getSimpleName(), "none", List.of())),
-    COLOR_MATCH(Group.VISION, ColorMatch.class, "color",
-            new StaticCall(Vision.class.getSimpleName(), "lastColorMatch", List.of())),
-    TEXT_MATCH(Group.VISION, TextMatch.class, "textMatch",
-            new StaticCall(Vision.class.getSimpleName(), "lastTextMatch", List.of())),
-    PRECISION(Group.VISION, Precision.class, "precision",
-            new EnumConst(Precision.class.getSimpleName(), "DEFAULT")),
-
-    // --- Geometry ----------------------------------------------------------------------------------------
-
-    POINT(Group.GEOMETRY, Point.class, "point",
-            new NewInstance(Point.class.getSimpleName(), List.of(new IntLit("0"), new IntLit("0")))),
-    RECT(Group.GEOMETRY, Rect.class, "area",
-            new NewInstance(Rect.class.getSimpleName(),
-                    List.of(new IntLit("0"), new IntLit("0"), new IntLit("0"), new IntLit("0")))),
-    SIZE(Group.GEOMETRY, Size.class, "size",
-            new NewInstance(Size.class.getSimpleName(), List.of(new IntLit("0"), new IntLit("0")))),
-    DIRECTION(Group.GEOMETRY, Direction.class, "direction",
-            new EnumConst(Direction.class.getSimpleName(), "NORTH")),
-
-    // --- Input -------------------------------------------------------------------------------------------
-
-    KEY(Group.INPUT, Key.class, "key", new EnumConst(Key.class.getSimpleName(), "A")),
-    MOUSE_BUTTON(Group.INPUT, MouseButton.class, "button",
-            new EnumConst(MouseButton.class.getSimpleName(), "LEFT")),
-
-    // --- Capture -----------------------------------------------------------------------------------------
-
-    /** Seeded from whatever the bot is currently pointed at, which is the only source known to exist. */
-    CAPTURE_SOURCE(Group.CAPTURE, CaptureSource.class, "source",
-            new StaticCall(Source.class.getSimpleName(), "current", List.of()));
+    private static final List<BotType> BUILT_IN = List.of(
+            TEXT, YES_NO, WHOLE_NUMBER, DECIMAL_NUMBER, CHARACTER, COLOR, NOTHING,
+            DATE, TIME_OF_DAY, DURATION);
 
     /** How the list is grouped in a menu or a dropdown. Declaration order is display order. */
     public enum Group {
         BASICS("Basics"),
         WHEN("Date & time"),
-        VISION("Vision"),
-        GEOMETRY("Geometry"),
-        INPUT("Input"),
-        CAPTURE("Capture");
+        /**
+         * Everything the loaded plugins contribute, under one heading.
+         *
+         * <p>There were four more groups here — Vision, Geometry, Input, Capture — and every type in them was
+         * the SDK's. They were this editor's own arrangement of one plugin's API, which is a thing it has no
+         * standing to arrange: a second plugin's types would have had nowhere to go, and the SDK could not
+         * have moved its own type between two of them. A plugin that wants its types grouped is asking for a
+         * group on the contract, which is a decision to take when there are two plugins, not one.
+         */
+        FROM_PLUGINS("From plugins");
 
         private final String label;
 
@@ -190,62 +149,87 @@ public enum BotType {
         }
     }
 
+    private final String id;
     private final Group group;
     private final String label;
     private final String typeName;
     /** The name this type takes inside {@code List<…>}; null when it can't go in one. */
     private final String boxedName;
     private final boolean primitive;
-    private final Class<?> sdk;
     private final String varName;
     private final Initializer init;
 
-    /** An SDK type: its label, and the name it is written under, are its own simple name. */
-    BotType(Group group, Class<?> sdk, String varName, Initializer init) {
-        this(group, sdk.getSimpleName(), sdk.getSimpleName(), sdk.getSimpleName(), false, sdk, varName, init);
-    }
-
-    /** A {@code java.lang} type written by its simple name — {@code String}. */
-    BotType(Group group, String label, JdkType type, String varName, Initializer init) {
-        this(group, label, type.simpleName(), type.simpleName(), false, null, varName, init);
-    }
-
-    /**
-     * A JDK type written fully qualified — {@code java.time.Duration}. Verbose at the use site and worth it:
-     * every file that can hold one of these is generated with a fixed import block, and the qualified form is
-     * the only one that cannot be left out of it.
-     */
-    BotType(Group group, String label, String qualifiedName, String varName, Initializer init) {
-        this(group, label, qualifiedName, qualifiedName, false, null, varName, init);
-    }
-
-    /** A primitive, plus the box it takes inside a {@code List<…>}. A null box means "no list form". */
-    BotType(Group group, String label, PrimitiveKind kind, JdkType box, String varName, Initializer init) {
-        this(group, label, kind.keyword(), box == null ? null : box.simpleName(), true, null, varName, init);
-    }
-
-    BotType(Group group, String label, String typeName, String boxedName, boolean primitive, Class<?> sdk,
-            String varName, Initializer init) {
+    private BotType(String id, Group group, String label, String typeName, String boxedName, boolean primitive,
+                    String varName, Initializer init) {
+        this.id = id;
         this.group = group;
         this.label = label;
         this.typeName = typeName;
         this.boxedName = boxedName;
         this.primitive = primitive;
-        this.sdk = sdk;
         this.varName = varName;
         this.init = init;
+    }
+
+    /** A {@code java.lang} type written by its simple name — {@code String}. */
+    private static BotType jdk(String id, Group group, String label, JdkType type, String varName,
+                               Initializer init) {
+        return new BotType(id, group, label, type.simpleName(), type.simpleName(), false, varName, init);
+    }
+
+    /** A type written fully qualified — {@code java.time.Duration}. Verbose, and needs no import. */
+    private static BotType qualified(String id, Group group, String label, String qualifiedName,
+                                     String varName, Initializer init) {
+        return new BotType(id, group, label, qualifiedName, qualifiedName, false, varName, init);
+    }
+
+    /** A primitive, plus the box it takes inside a {@code List<…>}. A null box means "no list form". */
+    private static BotType primitive(String id, Group group, String label, PrimitiveKind kind, JdkType box,
+                                     String varName, Initializer init) {
+        return new BotType(id, group, label, kind.keyword(), box == null ? null : box.simpleName(), true,
+                varName, init);
+    }
+
+    /**
+     * A declarable type read off one plugin's {@link SourceSeed}.
+     *
+     * <p>Written fully qualified, deliberately: the seed names its type either way and this factory has no
+     * rewriter to add an import with, so the qualified form is the only one that always compiles. The label
+     * and the suggested variable name are derived from the simple name, which is what the deleted SDK
+     * constants did too — {@code Point.class.getSimpleName()} was both.
+     */
+    private static BotType fromSeed(SourceSeed seed) {
+        String qualified = seed.typeName();
+        int dot = qualified.lastIndexOf('.');
+        String simple = dot >= 0 ? qualified.substring(dot + 1) : qualified;
+        String varName = simple.isEmpty()
+                ? "value"
+                : Character.toLowerCase(simple.charAt(0)) + simple.substring(1);
+        return new BotType("SEED_" + qualified, Group.FROM_PLUGINS, simple, qualified, qualified, false,
+                varName, new Raw(seed.expression()));
+    }
+
+    /**
+     * A stable identifier — the name of the constant, or {@code SEED_} plus the seeded type's qualified name.
+     *
+     * <p>It was {@code Enum.name()} until 2026-09-01 and the built-in ids are unchanged, because
+     * {@code BlockCatalog} builds a drag-and-drop block id out of it ({@code DECLARE_TEXT}) and that string
+     * crosses a dragboard.
+     */
+    public String id() {
+        return id;
     }
 
     public Group group() {
         return group;
     }
 
-    /** What the user is shown — "Whole number" for {@code int}, and the class's own name for an SDK type. */
+    /** What the user is shown — "Whole number" for {@code int}, and the class's own name for a plugin type. */
     public String label() {
         return label;
     }
 
-    /** The name as it is written in source: {@code int}, {@code String}, {@code MatchResult}. */
+    /** The name as it is written in source: {@code int}, {@code String}, {@code com.example.Point}. */
     public String typeName() {
         return typeName;
     }
@@ -257,11 +241,6 @@ public enum BotType {
     /** The name this type takes inside {@code List<…>} — {@code Integer} for {@code int}. */
     public String boxedName() {
         return boxedName;
-    }
-
-    /** The SDK type this names, or empty for a primitive or a {@code java.lang} type. */
-    public Optional<Class<?>> sdkType() {
-        return Optional.ofNullable(sdk);
     }
 
     /** A suggested variable name — the seed the declare-variable blocks have always carried. */
@@ -284,14 +263,45 @@ public enum BotType {
         return boxedName != null;
     }
 
-    /** The types offered in {@code group}, in declaration order. */
-    public static List<BotType> in(Group group) {
-        return java.util.Arrays.stream(values()).filter(t -> t.group == group).toList();
+    @Override
+    public String toString() {
+        return id;
     }
 
-    /** Every type a variable can be declared of, in declaration order — {@link #NOTHING} excluded. */
+    /**
+     * Every offered type: this editor's own, then whatever the loaded plugins seed.
+     *
+     * <p>Asked each time rather than cached, which is {@code SourceSeed}'s own rule — the SDK's capture-source
+     * seed reads the project's <em>current</em> default target, and a list built at load would freeze it. A
+     * plugin contributing a type this editor already declares is dropped rather than shadowing it: a duplicate
+     * in a type menu is a menu the user cannot use, and the built-in is the one whose label is a sentence.
+     */
+    public static List<BotType> values() {
+        List<BotType> all = new ArrayList<>(BUILT_IN);
+        for (SourceSeed seed : PluginHost.sourceSeeds()) {
+            if (seed.typeName() == null || seed.typeName().isBlank()) continue;
+            BotType seeded = fromSeed(seed);
+            boolean known = all.stream().anyMatch(t -> simple(t.typeName).equals(simple(seeded.typeName)));
+            if (!known) all.add(seeded);
+        }
+        return List.copyOf(all);
+    }
+
+    /** The types offered in {@code group}, in display order. */
+    public static List<BotType> in(Group group) {
+        return values().stream().filter(t -> t.group == group).toList();
+    }
+
+    /** Every type a variable can be declared of, in display order — {@link #NOTHING} excluded. */
     public static List<BotType> declarableTypes() {
-        return java.util.Arrays.stream(values()).filter(BotType::declarable).toList();
+        return values().stream().filter(BotType::declarable).toList();
+    }
+
+    private static String simple(String typeName) {
+        if (typeName == null) return "";
+        String trimmed = typeName.trim();
+        int dot = trimmed.lastIndexOf('.');
+        return dot >= 0 ? trimmed.substring(dot + 1) : trimmed;
     }
 
     /**
@@ -331,11 +341,11 @@ public enum BotType {
     }
 
     /**
-     * A type as chosen in a dialog: one of the curated types, in one of the two {@link Shape}s.
+     * A type as chosen in a dialog: one of the offered types, in one of the two {@link Shape}s.
      *
      * <p>The shape is an axis rather than twice as many constants because it composes with all of them and
-     * carries no information of its own — {@code List<Point>} needs nothing from the catalogue that
-     * {@code Point} did not already supply, beyond the box a primitive takes inside the angle brackets.
+     * carries no information of its own — {@code List<Point>} needs nothing from the list that {@code Point}
+     * did not already supply, beyond the box a primitive takes inside the angle brackets.
      */
     public record Choice(BotType type, Shape shape) {
 
@@ -372,7 +382,7 @@ public enum BotType {
 
         /**
          * The default value's source text — {@code ""}, {@code false}, {@code List.of()} — or {@code "null"}
-         * for a type the catalogue seeds nothing for.
+         * for a type nothing seeds.
          *
          * <p>It says what {@code MethodHandler} actually writes, which is the point: a function retyped to
          * give back {@code Text} gets {@code return "";}, and the preview that announced the change has to
@@ -383,7 +393,7 @@ public enum BotType {
             return type.defaultValue().map(Initializer::sourceText).orElse("null");
         }
 
-        /** What the user is shown — "Point", "One of Point", "Many of Point", or "List of Point". */
+        /** What the user is shown — "Point", or "List of Point". */
         public String label() {
             return shape.prefix + type.label();
         }
@@ -403,15 +413,16 @@ public enum BotType {
 
         /**
          * The choice a source-level type name denotes — the inverse of {@link #sourceName()}, empty when the
-         * name is not one of the curated types.
+         * name is not one of the offered types.
          *
          * <p>For the one caller that reads a signature back out of a file instead of out of a dialog: the
          * Edit button on a method header, which has to pre-fill the Add Function dialog from what is written.
          * Matching is on the <em>simple</em> name, so {@code Duration} and {@code java.time.Duration} both
-         * land on {@link BotType#DURATION} — a method someone typed by hand and one this editor generated
-         * name the same type differently, and only one of the two spellings is in the catalogue.
+         * land on {@link #DURATION} — a method someone typed by hand and one this editor generated name the
+         * same type differently, and only one of the two spellings is in the list. That matters more now than
+         * it did: a plugin-seeded type is written qualified, and the user's own source almost never is.
          *
-         * <p>Empty is a real answer and not a failure: a parameter of a type outside the catalogue
+         * <p>Empty is a real answer and not a failure: a parameter of a type nothing offers
          * ({@code String[] args}) cannot be rendered in the dialog, and the caller is expected to say so
          * rather than to guess a replacement.
          */
@@ -419,20 +430,14 @@ public enum BotType {
             String name = sourceName == null ? "" : sourceName.trim();
             if (name.startsWith("List<") && name.endsWith(">")) {
                 String element = simple(name.substring(5, name.length() - 1));
-                return java.util.Arrays.stream(values())
-                        .filter(t -> element.equals(t.boxedName))
+                return values().stream()
+                        .filter(t -> element.equals(simple(t.boxedName)))
                         .findFirst().map(Choice::listOf);
             }
             String simple = simple(name);
-            return java.util.Arrays.stream(values())
+            return values().stream()
                     .filter(t -> simple.equals(simple(t.typeName)))
                     .findFirst().map(Choice::of);
-        }
-
-        private static String simple(String typeName) {
-            String trimmed = typeName.trim();
-            int dot = trimmed.lastIndexOf('.');
-            return dot >= 0 ? trimmed.substring(dot + 1) : trimmed;
         }
     }
 }

@@ -82,27 +82,30 @@ public final class BlockCatalog {
     // FIND_IMAGE_ACTIONS, the body-carrying find. All four named an SDK facade and all four are gone; the
     // LambdaCallBlock that rendered the last one is untouched, because round-tripping an existing lambda is
     // read from the source, not from a palette entry.
-    // The "Declare Bot Variable" submenu is generated from BotType — the same curated list the Add Function
-    // dialog picks a return type and parameter types from. It was five hand-written entries (Point, Rect,
-    // Size, MatchResult, ImageTemplate) while the dialog knew a different set again, so a type you could take
-    // as a parameter was not necessarily one you could declare. Each entry's seed value is the type's own
-    // default, which is why every one of them compiles the moment it is dropped: Vision.lastMatch()
-    // rather than null, ImageTemplateGroup.of() rather than an empty group that throws, and the built-in
-    // template (shipped by ProjectCreator) rather than a missing "image.png".
-    private static final List<BlockType> BOT_VARIABLES = BotType.declarableTypes().stream()
-            .filter(t -> t.group() != BotType.Group.BASICS)
-            .<BlockType>map(BlockCatalog::declareBlock)
-            .toList();
+    /**
+     * The "Declare Bot Variable" submenu — generated from {@link BotType}, the same list the Add Function
+     * dialog picks a return type and parameter types from. It was five hand-written entries while the dialog
+     * knew a different set again, so a type you could take as a parameter was not necessarily one you could
+     * declare. Each entry's seed value is the type's own default, which is why every one of them compiles the
+     * moment it is dropped.
+     *
+     * <p><b>It is computed per call since 2026-09-01, and the {@code static final} field it replaces was a
+     * latent bug the moment the list stopped being closed.</b> Most of these types now come from the loaded
+     * plugins' source seeds, so the list depends on which project is open — and a field initialised when this
+     * class is first touched would have frozen whatever was loaded then, which for a class the palette reaches
+     * during start-up is often nothing at all.
+     */
+    private static List<BlockType> botVariables() {
+        return BotType.declarableTypes().stream()
+                .filter(t -> t.group() != BotType.Group.BASICS)
+                .<BlockType>map(BlockCatalog::declareBlock)
+                .toList();
+    }
 
-    public static final BlockType DECLARE_POINT = declared(BotType.POINT);
-    public static final BlockType DECLARE_RECT = declared(BotType.RECT);
-    public static final BlockType DECLARE_SIZE = declared(BotType.SIZE);
-    public static final BlockType DECLARE_MATCH = declared(BotType.MATCH_RESULT);
-    public static final BlockType DECLARE_TEMPLATE = declared(BotType.IMAGE_TEMPLATE);
-    // (No hardcoded DECLARE_DIRECTION block: a Direction variable is declared through the generic
-    // "declare variable → pick type Direction" flow, whose initializer is seeded dynamically from the
-    // index-resolved first enum constant (InitializerFactory) and edited via the EnumPicker — so there's a
-    // single, index-driven source of truth instead of a stale hardcoded `Direction.NORTH` duplicate.)
+    // DECLARE_POINT, DECLARE_RECT, DECLARE_SIZE, DECLARE_MATCH and DECLARE_TEMPLATE stood here, each a named
+    // handle onto one generated entry, and each named an SDK type. They went with the SDK half of BotType on
+    // 2026-09-01. Nothing in the module read any of them — one test did, and it now builds the entry it wants
+    // through declareBlockFor, which is the path the Variables screen's Add already used.
 
     // Game launch (Game.launch/launchSteam/launchEpic) and the two emulator blocks (Emulators.use, and the
     // Emulators.named declaration) stood here. Every one named a facade of the SDK's, and the GAME category is
@@ -124,25 +127,28 @@ public final class BlockCatalog {
      * {@code PluginHost.catalogFor} since the palette became plugin-served. Grep found no production reader of
      * any of them.
      *
-     * <p>What is left is control flow, variables, functions, the three {@code Scanner} reads and the comment —
-     * all of it Java, none of it anybody's API.
+     * <p>What is left is control flow, variables, functions and the comment — all of it Java, none of it
+     * anybody's API. The three console reads went the same day for the same reason: they emitted
+     * {@code BotMaker.readLine()}.
+     *
+     * <p><b>The bot-variable entries are the exception, and they are not the editor's.</b> They are one
+     * declare-block per type the loaded plugins seed, so this list is <em>not</em> constant and is rebuilt on
+     * every call. That is why there is no {@code ALL} field any more.
      */
-    private static final List<BlockType> ALL = Stream.of(
-                    List.of(PRINT,
-                            IF, SWITCH,
-                            WHILE, FOR, DO_WHILE,
-                            BREAK, CONTINUE, RETURN,
-                            DECLARE_INT, DECLARE_DOUBLE, DECLARE_BOOLEAN, DECLARE_STRING, DECLARE_ARRAY,
-                            ASSIGNMENT,
-                            FUNCTION_CALL, METHOD_DECLARATION, DECLARE_ENUM),
-                    BOT_VARIABLES,
-                    List.of(COMMENT))
-            .flatMap(List::stream)
-            .toList();
+    private static final List<BlockType> LANGUAGE = List.of(
+            PRINT,
+            IF, SWITCH,
+            WHILE, FOR, DO_WHILE,
+            BREAK, CONTINUE, RETURN,
+            DECLARE_INT, DECLARE_DOUBLE, DECLARE_BOOLEAN, DECLARE_STRING, DECLARE_ARRAY,
+            ASSIGNMENT,
+            FUNCTION_CALL, METHOD_DECLARATION, DECLARE_ENUM);
 
     /** All insertable blocks in palette/menu display order. */
     public static List<BlockType> all() {
-        return ALL;
+        return Stream.of(LANGUAGE, botVariables(), List.of(COMMENT))
+                .flatMap(List::stream)
+                .toList();
     }
 
     // botActions() — the nine bot-first entries promoted to the top of the insert menu — went with them, and it
@@ -151,7 +157,7 @@ public final class BlockCatalog {
     /** Resolves a block from its {@link BlockType#id()} (used to deserialize a dragboard payload). */
     public static Optional<BlockType> byId(String id) {
         if (id == null) return Optional.empty();
-        return ALL.stream().filter(b -> b.id().equals(id)).findFirst();
+        return all().stream().filter(b -> b.id().equals(id)).findFirst();
     }
 
     private static ControlFlow cf(String id, String displayName, BlockCategory category, Kind kind) {
@@ -167,19 +173,12 @@ public final class BlockCatalog {
         return declareBlock(type);
     }
 
-    /** The declare-a-variable block for one curated type. */
+    /** The declare-a-variable block for one offered type. */
     private static VarDecl declareBlock(BotType type) {
-        return new VarDecl("DECLARE_" + type.name(), type.label(), BOT_VARIABLE,
+        return new VarDecl("DECLARE_" + type.id(), type.label(), BOT_VARIABLE,
                 type.typeName(), type.isPrimitive(), type.suggestedName(),
                 type.defaultValue().orElseThrow(
                         () -> new IllegalStateException(type + " is declarable but has no default value")));
     }
 
-    /** The generated declare-block for {@code type} — the named handles the rest of the app refers to. */
-    private static BlockType declared(BotType type) {
-        return BOT_VARIABLES.stream()
-                .filter(b -> b.id().equals("DECLARE_" + type.name()))
-                .findFirst()
-                .orElseThrow(() -> new IllegalStateException("no declare block for " + type));
-    }
 }

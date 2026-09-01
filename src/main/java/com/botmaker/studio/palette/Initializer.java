@@ -10,7 +10,7 @@ import java.util.List;
 public sealed interface Initializer
         permits Initializer.IntLit, Initializer.DoubleLit, Initializer.BoolLit, Initializer.CharLit,
                 Initializer.StrLit, Initializer.NullLit, Initializer.NewInstance, Initializer.EnumConst,
-                Initializer.StaticCall {
+                Initializer.StaticCall, Initializer.Raw {
 
     /** Numeric literal rendered as an integer, e.g. {@code 0}. */
     record IntLit(String value) implements Initializer {}
@@ -49,6 +49,20 @@ public sealed interface Initializer
     }
 
     /**
+     * A Java expression somebody else wrote, carried through as text.
+     *
+     * <p>The other nine variants describe a shape this editor knows how to build; this one describes nothing
+     * at all, and it exists because a plugin's {@code SourceSeed} is exactly that — the plugin's own sentence
+     * about what a fresh value of its type looks like. Studio must not take it apart: {@code Precision.DEFAULT}
+     * and {@code new ImageTemplate("")} have nothing structurally in common, and a variant per shape here
+     * would be this file guessing at a vocabulary it does not own.
+     *
+     * <p>It is the one variant that can fail to build: the text may not parse, and {@code InitializerFactory}
+     * falls back rather than writing something uncompilable. The contract's {@code SourceSeed} says so too.
+     */
+    record Raw(String source) implements Initializer {}
+
+    /**
      * This default as the source text {@code StatementFactory} would produce for it — {@code ""},
      * {@code false}, {@code java.time.LocalDate.now()}.
      *
@@ -74,6 +88,7 @@ public sealed interface Initializer
             case EnumConst(String typeName, String constant) -> typeName + "." + constant;
             case StaticCall(String typeName, String methodName, List<Initializer> args) ->
                     typeName + "." + methodName + "(" + argText(args) + ")";
+            case Raw(String source) -> source;
         };
     }
 

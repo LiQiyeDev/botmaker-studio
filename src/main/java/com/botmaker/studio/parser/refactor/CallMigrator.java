@@ -167,8 +167,9 @@ public final class CallMigrator {
 
     /** A default value for {@code type}, importing whatever naming it needs in {@code ctx}'s file. */
     public static Expression defaultFor(EditContext ctx, SignatureType type) {
+        // Only List needs importing: every non-primitive BotType offers is written fully qualified since
+        // 2026-09-01, when the fourteen SDK class literals left and the rest became plugin-seeded.
         type.described().ifPresent(choice -> {
-            choice.type().sdkType().ifPresent(ctx::addImport);
             if (choice.isList()) ctx.addImport("java.util.List");
         });
         ResolvedType resolved = resolvedOf(type);

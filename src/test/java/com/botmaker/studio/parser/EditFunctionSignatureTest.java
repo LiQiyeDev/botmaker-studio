@@ -28,20 +28,24 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Editing a signature that already exists — the Edit button on a method header.
  *
  * <p>The header used to offer five controls that each rewrote the file on their own: a name field, a
- * return-type chip, and a type chip plus a name field per parameter. Getting from {@code clickAt(Point, int)}
- * to {@code tapAt(Rect)} therefore went through three or four intermediate signatures, every one of them
- * written to disk, compiled, and wrong. So the assertion that matters most here is the count: <b>one</b> code
- * update for the whole change.
+ * return-type chip, and a type chip plus a name field per parameter. Getting from
+ * {@code clickAt(LocalDate, int)} to {@code tapAt(LocalTime)} therefore went through three or four
+ * intermediate signatures, every one of them written to disk, compiled, and wrong. So the assertion that
+ * matters most here is the count: <b>one</b> code update for the whole change.
+ *
+ * <p><b>The fixture types were the SDK's {@code Point} and {@code Rect} until 2026-09-01.</b> They are
+ * {@code java.time.LocalDate} and {@code LocalTime} now, which is not merely a rename: this test must keep
+ * passing once {@code botmaker-studio} stops depending on {@code botmaker-sdk} at all, and at that point no
+ * plugin is loaded in a headless test, so {@code BotType.values()} is the ten types this editor declares for
+ * itself. A fixture typed by a plugin-contributed type would pass here and fail there.
  */
 class EditFunctionSignatureTest {
 
     private static final String SOURCE = """
             package test;
 
-            import com.botmaker.sdk.api.geometry.Point;
-
             public class Subject {
-                public boolean clickAt(Point where, int tries) {
+                public boolean clickAt(java.time.LocalDate where, int tries) {
                     System.out.println(tries);
                     return where != null;
                 }
@@ -104,12 +108,12 @@ class EditFunctionSignatureTest {
     @Test
     void theWholeSignatureIsRewrittenInOneEdit() {
         editor.applyFunctionSignature(clickAt(), new FunctionDraft("tapAt",
-                BotType.Choice.of(BotType.NOTHING), List.of(param("area", BotType.RECT))));
+                BotType.Choice.of(BotType.NOTHING), List.of(param("area", BotType.TIME_OF_DAY))));
 
         assertEquals(1, updates, "a half-applied signature must not be reachable, so there is one write");
-        assertTrue(lastCode.contains("public void tapAt(Rect area)"), lastCode);
-        assertTrue(lastCode.contains("import com.botmaker.sdk.api.geometry.Rect;"),
-                "a new parameter type brings its import:\n" + lastCode);
+        assertTrue(lastCode.contains("public void tapAt(java.time.LocalTime area)"), lastCode);
+        assertFalse(lastCode.contains("import java.time.LocalTime;"),
+                "a qualified parameter type resolves on its own, so nothing is imported for it:\n" + lastCode);
     }
 
     @Test
@@ -118,9 +122,9 @@ class EditFunctionSignatureTest {
         // referring to a name that no longer existed.
         editor.applyFunctionSignature(clickAt(), new FunctionDraft("clickAt",
                 BotType.Choice.of(BotType.YES_NO),
-                List.of(param("target", BotType.POINT, 0), param("attempts", BotType.WHOLE_NUMBER, 1))));
+                List.of(param("target", BotType.DATE, 0), param("attempts", BotType.WHOLE_NUMBER, 1))));
 
-        assertTrue(lastCode.contains("clickAt(Point target, int attempts)"), lastCode);
+        assertTrue(lastCode.contains("clickAt(java.time.LocalDate target, int attempts)"), lastCode);
         assertTrue(lastCode.contains("System.out.println(attempts);"), lastCode);
         assertTrue(lastCode.contains("return target != null;"), lastCode);
         assertFalse(lastCode.contains("tries"), "no reference to the old name survives:\n" + lastCode);
@@ -132,9 +136,9 @@ class EditFunctionSignatureTest {
         // references to that name keep working.
         editor.applyFunctionSignature(clickAt(), new FunctionDraft("clickAt",
                 BotType.Choice.of(BotType.YES_NO),
-                List.of(param("where", BotType.RECT, 0), param("tries", BotType.WHOLE_NUMBER, 1))));
+                List.of(param("where", BotType.TIME_OF_DAY, 0), param("tries", BotType.WHOLE_NUMBER, 1))));
 
-        assertTrue(lastCode.contains("clickAt(Rect where, int tries)"), lastCode);
+        assertTrue(lastCode.contains("clickAt(java.time.LocalTime where, int tries)"), lastCode);
         assertTrue(lastCode.contains("return where != null;"), lastCode);
     }
 
@@ -142,23 +146,23 @@ class EditFunctionSignatureTest {
     void aSurplusParameterIsRemovedAndANewOneAppended() {
         editor.applyFunctionSignature(clickAt(), new FunctionDraft("clickAt",
                 BotType.Choice.of(BotType.YES_NO),
-                List.of(param("where", BotType.POINT, 0), param("howLong", BotType.DURATION))));
+                List.of(param("where", BotType.DATE, 0), param("howLong", BotType.DURATION))));
 
-        assertTrue(lastCode.contains("clickAt(Point where, java.time.Duration howLong)"), lastCode);
+        assertTrue(lastCode.contains("clickAt(java.time.LocalDate where, java.time.Duration howLong)"), lastCode);
         assertFalse(lastCode.contains("int tries"), lastCode);
     }
 
     @Test
     void movingAParameterMovesItRatherThanRetypingWhatSatThere() {
         // The whole reason a parameter carries an origin. By position this reads as "parameter 0 is now an int
-        // called tries" and "parameter 1 is now a Point called where" — two retypes, and every reference in the
-        // body silently changed meaning. By origin it is one move.
+        // called tries" and "parameter 1 is now a LocalDate called where" — two retypes, and every reference
+        // in the body silently changed meaning. By origin it is one move.
         editor.applyFunctionSignature(clickAt(), new FunctionDraft("clickAt",
                 BotType.Choice.of(BotType.YES_NO),
-                List.of(param("tries", BotType.WHOLE_NUMBER, 1), param("where", BotType.POINT, 0))));
+                List.of(param("tries", BotType.WHOLE_NUMBER, 1), param("where", BotType.DATE, 0))));
 
         assertEquals(1, updates, "a reorder is still one write");
-        assertTrue(lastCode.contains("clickAt(int tries, Point where)"),
+        assertTrue(lastCode.contains("clickAt(int tries, java.time.LocalDate where)"),
                 "both parameters kept their own name and type on the way:\n" + lastCode);
         assertTrue(lastCode.contains("System.out.println(tries);"), lastCode);
         assertTrue(lastCode.contains("return where != null;"), lastCode);
@@ -168,9 +172,9 @@ class EditFunctionSignatureTest {
     void aMovedParameterCanBeRenamedInTheSameEdit() {
         editor.applyFunctionSignature(clickAt(), new FunctionDraft("clickAt",
                 BotType.Choice.of(BotType.YES_NO),
-                List.of(param("attempts", BotType.WHOLE_NUMBER, 1), param("target", BotType.POINT, 0))));
+                List.of(param("attempts", BotType.WHOLE_NUMBER, 1), param("target", BotType.DATE, 0))));
 
-        assertTrue(lastCode.contains("clickAt(int attempts, Point target)"), lastCode);
+        assertTrue(lastCode.contains("clickAt(int attempts, java.time.LocalDate target)"), lastCode);
         assertTrue(lastCode.contains("System.out.println(attempts);"),
                 "the body follows the parameter it was renamed from:\n" + lastCode);
         assertTrue(lastCode.contains("return target != null;"), lastCode);
@@ -189,19 +193,21 @@ class EditFunctionSignatureTest {
     @Test
     void aReturnTypeChangedToNothingDropsTheTrailingReturn() {
         editor.applyFunctionSignature(clickAt(), new FunctionDraft("clickAt",
-                BotType.Choice.of(BotType.NOTHING), List.of(param("where", BotType.POINT, 0))));
+                BotType.Choice.of(BotType.NOTHING), List.of(param("where", BotType.DATE, 0))));
 
-        assertTrue(lastCode.contains("public void clickAt(Point where)"), lastCode);
+        assertTrue(lastCode.contains("public void clickAt(java.time.LocalDate where)"), lastCode);
         assertFalse(lastCode.contains("return where != null;"),
                 "a void method cannot keep returning a value:\n" + lastCode);
     }
 
     @Test
     void theClassReportsItsSignaturesAndReadsOneBackAsADraft() {
-        assertEquals(Set.of("clickAt(Point,int)", "other()"), MethodSignatures.declaredIn(subject()));
+        // The clash key erases to simple names — two overloads differing only by package would be a clash in
+        // Java anyway — so it says LocalDate where the written signature below says java.time.LocalDate.
+        assertEquals(Set.of("clickAt(LocalDate,int)", "other()"), MethodSignatures.declaredIn(subject()));
 
         FunctionDraft draft = MethodSignatures.draftOf(clickAt()).orElseThrow();
-        assertEquals("boolean clickAt(Point where, int tries)", draft.signature(),
+        assertEquals("boolean clickAt(java.time.LocalDate where, int tries)", draft.signature(),
                 "what the Edit dialog opens on is what the file says");
         assertEquals(MethodSignatures.keyOf(clickAt()), draft.signatureKey(),
                 "both sides of the clash check spell the same signature the same way");

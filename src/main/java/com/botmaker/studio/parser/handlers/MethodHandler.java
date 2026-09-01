@@ -415,17 +415,24 @@ public class MethodHandler {
         return typeNodeFor(ctx, described.get());
     }
 
-    /** A type node for a curated choice, importing what it names — {@code Point}, or {@code List<Point>}. */
+    /**
+     * A type node for an offered choice — {@code Point}, or {@code List<Point>}.
+     *
+     * <p>It used to add an import for the choice's SDK class first ({@code choice.type().sdkType()}); there
+     * are no SDK classes in {@code BotType} since 2026-09-01, and every type it offers that is not a primitive
+     * or {@code java.lang} is written <b>fully qualified</b> — which is what makes the import unnecessary
+     * rather than merely absent. The element node therefore goes through {@code createTypeNode} too:
+     * {@code newSimpleName} throws on a dotted name.
+     */
     private static Type typeNodeFor(EditContext ctx, BotType.Choice choice) {
         AST ast = ctx.ast();
-        choice.type().sdkType().ifPresent(ctx::addImport);
         if (!choice.isList()) {
             return ProjectAnalyzer.createTypeNode(ast, choice.type().typeName());
         }
         ctx.addImport(LIST_FQN);
         ParameterizedType listType =
                 ast.newParameterizedType(ast.newSimpleType(ast.newSimpleName("List")));
-        listType.typeArguments().add(ast.newSimpleType(ast.newSimpleName(choice.elementName())));
+        listType.typeArguments().add(ProjectAnalyzer.createTypeNode(ast, choice.elementName()));
         return listType;
     }
 

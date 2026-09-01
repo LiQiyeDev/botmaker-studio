@@ -14,6 +14,7 @@ import com.botmaker.studio.parser.CodeEditor;
 import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.palette.BlockCatalog;
+import com.botmaker.studio.palette.BotType;
 import com.botmaker.studio.ui.dnd.BlockDragAndDropManager;
 import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.jdt.core.dom.BodyDeclaration;
@@ -99,10 +100,10 @@ public class BlockDragDropEditTest {
         // (READ_INT, asserting `BotMaker.readInt()`) went on 2026-09-01 with the variant itself.
         BodyBlock body = firstBodyWithStatements();
 
-        editor.addStatement(body, BlockCatalog.DECLARE_RECT, body.getStatements().size());
+        editor.addStatement(body, BlockCatalog.declareBlockFor(BotType.COLOR), body.getStatements().size());
         assertNotNull(lastCode, "Drop should have produced a code update");
-        assertTrue(lastCode.contains("new Rect(0, 0, 0, 0)"),
-                "DECLARE_RECT should build a Rect constructor:\n" + lastCode);
+        assertTrue(lastCode.contains("new java.awt.Color(255, 255, 255)"),
+                "a declare block should build its type's own default:\n" + lastCode);
     }
 
     @Test
