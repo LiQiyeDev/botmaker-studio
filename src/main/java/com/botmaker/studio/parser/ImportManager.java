@@ -148,7 +148,7 @@ public class ImportManager {
     // factory, and ListHandler's ImageTemplate arm. A picture is the SDK plugin's concept, so a reference to
     // one is written by that plugin, through SlotContext.replaceWith, which carries its own imports.
     //
-    // This was the last thing in Studio that named com.botmaker.sdk.authoring.TemplateNames.
+    // This was the last thing in Studio that named the SDK's picture-naming class.
 
     /**
      * Raw add import (expects FQN).

@@ -152,9 +152,22 @@ pickers do not have, which is the bug the move exists to prevent.
   plugin offering the type owns the folder. The façade exists only so ~90 call sites across 20 files —
   `sharing/TemplateArchive`, `ProjectRepair`, `SchemaMigrations`, `StatementFactory`, `BotType` and the
   dialogs — did not have to move with it.
-- **`TemplateReferences` did not go and cannot**: it finds and repoints a picture's uses in the bot's *own
-  source*, through the open buffers (`ProjectState`) and `ReviewMarker`. Rewriting a user's Java is host
-  work, which is why `ResourceManagerDialog`'s rename and delete guards stay here.
+- **`TemplateReferences` was said here to be unable to go, and on 2026-09-01 it went — half of it, which is
+  the interesting part.** The sentence that stood here was right about *why* it could not move whole: it finds
+  and repoints a picture's uses in the bot's own source, through the open buffers (`ProjectState`),
+  `ReviewMarker` and a Project History snapshot, and rewriting a user's Java is host work by construction.
+  What the sentence missed is that the class did two jobs. Knowing that `ore.png` is written `Templates.ORE`
+  is `ImageTemplate`'s concept, so the editor was holding one plugin's vocabulary on its behalf and a second
+  plugin renaming a concept of its own had no way to ask for the same service.
+  The split is `com.botmaker.plugin.api.Sources`, implemented here as **`plugin/HostSources`**: the host takes
+  a list of **Java token needles**, matches them token-wise (`Templates.ORE` matches `Templates . ORE` and not
+  `Templates.OREX`), rewrites buffer and disk, snapshots, and marks. The spellings are the SDK's
+  `TemplateUses`, and `ResourceManagerDialog` went with them. `TemplateReferences` and its test are deleted.
+- **`HostSources.replace` does two things a plugin cannot see the need for**, and both are here rather than in
+  the capability's caller for that reason: it calls `ReviewMarker.prepare` *before* the walk (a mark naming an
+  annotation the project does not declare is a bot that stops compiling), and it publishes a
+  `UIRefreshRequestedEvent` for the active file afterwards (a plugin never learns which file was open, so it
+  cannot know it just rewrote the one on screen).
 - **`openActivityTag` stayed** for the narrower version of the same reason — *which file is open* is editor
   state. `TemplateLibrary.declaredTag` is the half that travelled.
 - **`ResourcesChangedEvent` is deleted (2026-08-31).** It had four publishers and never a subscriber, and its
@@ -204,10 +217,13 @@ pickers do not have, which is the bug the move exists to prevent.
   say where to go instead, exactly as the Remote Pilot's step already did. `ProjectSetupDialog.row` grew a
   null-label arm for it.
 - **`ResourceManagerDialog`'s "Capture new..." went with them**, the accepted consequence recorded when this
-  was planned: the dialog itself cannot move — its rename and delete guards run through
-  `TemplateReferences`, which reads the editor's open buffers and writes `@NeedsReview`, both host work by
-  construction — so the toolbar is the one way in. Its per-picture **Capture a new picture…** stays: that is
-  a region crop this window runs itself, over a picture that already exists.
+  was planned: a dialog has no handle on another plugin's toolbar item, so the toolbar is the one way in. The
+  clause that followed — *the dialog itself cannot move, its guards are host work* — was true of the guards
+  and not of the dialog, and **on 2026-09-01 the dialog moved too**, to
+  `sdk/internal/plugin/templates/ResourceManagerDialog` and a 🖼 Manage Pictures item in `ToolbarGroup.TOOLS`
+  at order 30. What unblocked it is the `Sources` capability above: the guards stayed host work and stopped
+  being *this window's* work. Its per-picture **Capture a new picture…** stays with it — a region crop the
+  window runs itself, over a picture that already exists.
 - **`OverlayToolbars.show` is deleted and `installDrag` delegates.** The mini-toolbar factory is
   `OverlayStage.bar` now; its only caller was the tool that left, and the `ProgramShapeOverlay` HUD builds
   its own stage and only ever wanted the drag.

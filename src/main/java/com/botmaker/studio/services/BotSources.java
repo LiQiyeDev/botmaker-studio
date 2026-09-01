@@ -17,8 +17,8 @@ import java.util.function.BiPredicate;
 import java.util.stream.Stream;
 
 /**
- * One walk over the bot's own Java sources, for the three things that need it: finding template references
- * and rewriting them ({@link TemplateReferences}), finding review marks and stripping them
+ * One walk over the bot's own Java sources, for the three things that need it: finding and repointing a token
+ * sequence on a plugin's behalf ({@code plugin/HostSources}), finding review marks and stripping them
  * ({@link ReviewService}), and repointing every reference to a seed's type when the thing it stands for is
  * renamed ({@code project/seed/SeedSync}).
  *

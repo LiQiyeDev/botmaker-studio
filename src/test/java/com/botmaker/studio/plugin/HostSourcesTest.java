@@ -42,7 +42,7 @@ class HostSourcesTest {
         for (Map.Entry<String, String> e : files.entrySet()) {
             Files.writeString(config.mainPackageDir().resolve(e.getKey()), e.getValue());
         }
-        HostSources.install(config, new ProjectState());
+        HostSources.install(config, new ProjectState(), null);
         return config;
     }
 
@@ -143,7 +143,7 @@ class HostSourcesTest {
                 + "        Templates.ORE;\n    // the user is mid-edit and this file has no closing brace\n";
         ProjectFile buffer = new ProjectFile(file, unparseable);
         state.addFile(buffer);
-        HostSources.install(config, state);
+        HostSources.install(config, state, null);
 
         HostSources.live().replace(Map.of("Templates.ORE", "Templates.GOLD"), null, null);
 
@@ -168,8 +168,12 @@ class HostSourcesTest {
         assertAll(
                 () -> assertTrue(withNote.contains("NeedsReview"),
                         "a rewrite that changes what the bot does says so: " + withNote),
+                () -> assertTrue(Files.exists(marked.mainPackageDir().resolve("NeedsReview.java")),
+                        "and the annotation it names is declared, or the mark is a compile error"),
                 () -> assertFalse(withoutNote.contains("NeedsReview"),
-                        "a rename is lossless and must not cry wolf: " + withoutNote));
+                        "a rename is lossless and must not cry wolf: " + withoutNote),
+                () -> assertFalse(Files.exists(plain.mainPackageDir().resolve("NeedsReview.java")),
+                        "and an unmarked rewrite adds no file to the project"));
     }
 
     /**

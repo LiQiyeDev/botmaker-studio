@@ -1,8 +1,11 @@
 package com.botmaker.studio.plugin;
 
 import com.botmaker.plugin.api.Sources;
+import com.botmaker.studio.events.CoreApplicationEvents;
+import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.parser.refactor.ReviewMarker;
 import com.botmaker.studio.project.ProjectConfig;
+import com.botmaker.studio.project.ProjectFile;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.project.vcs.ProjectVcs;
 import com.botmaker.studio.services.BotSources;
@@ -20,9 +23,9 @@ import java.util.regex.Pattern;
  *
  * <p><b>Nothing here is new capability.</b> The walk is {@link BotSources}, which already visits every file
  * the bot owns with the open buffer preferred over the disk; the review mark is {@link ReviewMarker}; the
- * snapshot is {@link ProjectVcs}. What this class adds is the shape — the same job {@code TemplateReferences}
- * did, with every mention of what a picture is called taken out of it, so the half that is genuinely the
- * editor's can be reached by a plugin that owns the other half.
+ * snapshot is {@link ProjectVcs}. What this class adds is the shape — the same job Studio's own template
+ * reference rewriter did until 2026-09-01, with every mention of what a picture is called taken out of it, so
+ * the half that is genuinely the editor's can be reached by a plugin that owns the other half.
  *
  * <p><b>Installed per project, static, one at a time</b>, exactly as {@link HostRuns} is and for the same
  * reason: {@link HostServices} is built ad hoc from a {@code ProjectConfig} at call sites with no
@@ -34,8 +37,8 @@ import java.util.regex.Pattern;
  *
  * <p>A needle is tokenized and rebuilt as a pattern: identifiers get word boundaries, string literals are
  * quoted whole, and any two tokens may be separated by whitespace. So {@code Templates.ORE} becomes
- * {@code \bTemplates\b\s*\.\s*\bORE\b} — which is character for character what {@code TemplateReferences}
- * wrote by hand for that one case, now derived from the needle instead of known in advance.
+ * {@code \bTemplates\b\s*\.\s*\bORE\b} — which is character for character what the old rewriter wrote by
+ * hand for that one case, now derived from the needle instead of known in advance.
  *
  * <p><b>Line by line, and that is a property rather than a shortcut.</b> A token sequence a rename cares
  * about cannot span a line in any source a person wrote, and working line by line is what lets the review
@@ -49,19 +52,26 @@ public final class HostSources implements Sources {
 
     private final ProjectConfig config;
     private final ProjectState state;
+    private final EventBus eventBus;
 
-    private HostSources(ProjectConfig config, ProjectState state) {
+    private HostSources(ProjectConfig config, ProjectState state, EventBus eventBus) {
         this.config = config;
         this.state = state;
+        this.eventBus = eventBus;
     }
 
-    /** Makes this project's sources the ones a plugin reaches, replacing whatever was installed before. */
-    public static synchronized void install(ProjectConfig config, ProjectState state) {
+    /**
+     * Makes this project's sources the ones a plugin reaches, replacing whatever was installed before.
+     *
+     * <p>{@code eventBus} may be null — it is only how the editor is told to redraw a file this class rewrote
+     * underneath it, and a headless caller has no editor to redraw.
+     */
+    public static synchronized void install(ProjectConfig config, ProjectState state, EventBus eventBus) {
         if (config == null || state == null) {
             clear();
             return;
         }
-        current = new HostSources(config, state);
+        current = new HostSources(config, state, eventBus);
     }
 
     /** No project: a plugin asking now gets {@link Sources#NONE}. */
@@ -97,6 +107,10 @@ public final class HostSources implements Sources {
         if (compiled.isEmpty()) return List.of();
 
         snapshot(historyLabel);
+        // Before the walk, because it writes a file: a mark naming an annotation the project does not declare
+        // is a bot that stops compiling, which is a worse outcome than the rewrite going unrecorded. Null when
+        // there is nowhere to write one, which markLines reads as "record nothing".
+        String markerPackage = reviewNote == null ? null : ReviewMarker.prepare(config);
 
         List<Path> changed = new ArrayList<>();
         BotSources.forEach(config, state, (file, source) -> {
@@ -115,9 +129,26 @@ public final class HostSources implements Sources {
             changed.add(file);
             String rewritten = String.join("\n", lines);
             if (reviewNote == null || !ReviewMarker.marksSurvive(config, state, file)) return rewritten;
-            return ReviewMarker.markLines(rewritten, touched, config.mainPackage(), reviewNote);
+            return ReviewMarker.markLines(rewritten, touched, markerPackage, reviewNote);
         });
+        if (!changed.isEmpty()) redrawActiveFile();
         return List.copyOf(changed);
+    }
+
+    /**
+     * Tells the editor to re-render the file it is showing, when this class has just rewritten it underneath.
+     *
+     * <p>The host's job rather than the plugin's, and the reason is the shape of the capability: a plugin
+     * passes needles and never learns which files were open, so it cannot know that one of them was the one on
+     * screen. Without this the user watches a rename succeed and the editor keep showing the old name until
+     * they click away and back — the buffer really has changed, so the stale view is the only thing wrong,
+     * which is exactly the kind of bug that reads as data loss.
+     */
+    private void redrawActiveFile() {
+        if (eventBus == null) return;
+        ProjectFile active = state.getActiveFile();
+        if (active == null) return;
+        eventBus.publish(new CoreApplicationEvents.UIRefreshRequestedEvent(active.getContent()));
     }
 
     /**

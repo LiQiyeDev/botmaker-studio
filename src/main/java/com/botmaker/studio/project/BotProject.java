@@ -264,7 +264,7 @@ public class BotProject {
         // The bot's own sources, as a plugin is allowed to rewrite them. Same lifetime and same reason: a
         // plugin renaming something it owns between projects must find nothing rather than repoint the code
         // of the project the user just left.
-        HostSources.install(config, state);
+        HostSources.install(config, state, eventBus);
     }
 
     // =========================================================================

@@ -10,6 +10,18 @@ date it.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+- **The Resource Manager is the SDK's 🖼 Manage Pictures now.** The window that renames, retags, replaces,
+  deletes, imports and exports your bot's pictures moved out of the editor and onto the toolbar, beside ✂
+  Capture Templates. It does everything it did, including rewriting the blocks that name a picture you rename
+  or delete — that half never left. What left is the half that knew what a picture is called.
+- **A plugin can rename something it owns and carry your code with it.** Whatever a plugin names in your bot's
+  source, it can now find and repoint through the editor, in your open buffers as well as on disk, with the
+  project snapshotted to Project History first and the changed functions marked for review when the meaning
+  moved. It reaches files that do not currently compile, which is exactly the file a half-finished rename
+  leaves behind.
+
 ## [1.0.31] — 2026-08-24
 
 - **The files BotMaker generates for you come from the SDK your project pins, not from Studio.** Studio fills

@@ -84,5 +84,6 @@ public final class SdkNodes {
     //
     // Nothing in this class knows what a picture is now, which is the point: both spellings belong to the
     // plugin that owns ImageTemplate, and both are its to write — as a SourceSeed for a fresh one and
-    // through its own slot editors for an existing one. TemplateNames leaves Studio entirely with them.
+    // through its own slot editors for an existing one. The SDK's picture-naming class leaves Studio
+    // entirely with them.
 }

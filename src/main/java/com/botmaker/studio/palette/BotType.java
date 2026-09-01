@@ -126,8 +126,8 @@ public enum BotType {
      * Seeded with an empty path, which is what opens the picture picker on the freshly declared variable.
      *
      * <p>It used to be seeded with the shipped placeholder, named by its generated {@code Templates} constant
-     * — which meant this enum reading {@code TemplateNames} and {@code ImageTemplateLibrary} to say what a
-     * fresh picture is. That is the SDK plugin's sentence, and since 2026-09-01 the plugin writes it, as the
+     * — which meant this enum reading the SDK's own name and library classes to say what a fresh picture is.
+     * That is the SDK plugin's sentence, and since 2026-09-01 the plugin writes it, as the
      * {@code SourceSeed} for {@code ImageTemplate}. This entry says the same thing the seed does.
      */
     IMAGE_TEMPLATE(Group.VISION, ImageTemplate.class, "template",
