@@ -1,19 +1,13 @@
 package com.botmaker.studio.parser.factories;
 
 import com.botmaker.sdk.api.util.BotMaker;
-import com.botmaker.sdk.api.vision.ImageTemplate;
-import com.botmaker.sdk.api.vision.Matches;
-import com.botmaker.studio.blocks.flow.MatchesGroupScope;
 import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.palette.BotMakerApi;
 import com.botmaker.studio.palette.Initializer;
-import com.botmaker.studio.palette.MatchesCheck;
 import com.botmaker.studio.parser.EditContext;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
-import com.botmaker.studio.parser.handlers.MatchesSwitchHandler;
 import com.botmaker.studio.parser.helpers.SdkNodes;
 import com.botmaker.studio.project.ProjectState;
-import com.botmaker.studio.services.ImageTemplateLibrary;
 import com.botmaker.studio.services.SdkSurfaceService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
 import com.botmaker.studio.types.JdkType;
@@ -59,7 +53,6 @@ public class StatementFactory {
             case FOR -> createForStatement(ast, ctx.analyzer(), context);
             case DO_WHILE -> createDoWhileStatement(ast);
             case SWITCH -> createSwitchStatement(ast, ctx.analyzer(), context);
-            case MATCHES_SWITCH -> createMatchesSwitchStatement(ctx, context);
             case BREAK -> ast.newBreakStatement();
             case CONTINUE -> ast.newContinueStatement();
             case RETURN -> ast.newReturnStatement();
@@ -489,45 +482,14 @@ public class StatementFactory {
         return switchStmt;
     }
 
-    /**
-     * A {@code switch} over the first {@code Matches} variable in scope — the value a group-lambda body is
-     * handed — seeded with one branch plus the {@code default} rule a pattern switch needs to be exhaustive.
-     *
-     * <p>The seed template is the enclosing find call's first, so the branch is born testing something the
-     * group can actually produce; outside such a call there is nothing to narrow to and it falls back to the
-     * project's default template. Either way it is never an empty guard, which wouldn't compile.
-     *
-     * <p>{@code Matches} is deliberately absent from {@link #SWITCHABLE_TYPES}: the ordinary colon-form switch
-     * must keep rejecting it, or dropping "Switch" here would produce source that doesn't build.
-     */
-    private static Statement createMatchesSwitchStatement(EditContext ctx, ASTNode context) {
-        AST ast = ctx.ast();
-        // The enclosing find call's lambda parameter first, and only then a type lookup. A lambda parameter's
-        // inferred type routinely resolves to nothing at edit time (Studio doesn't compile against the SDK),
-        // so asking the analyzer for "a variable of type Matches" comes back empty in precisely the place the
-        // answer is certain — and the block then inserted `switch (null)`.
-        String subject = MatchesGroupScope.matchesVariable(context);
-        if (subject == null) {
-            ProjectAnalyzer.VariableOption typed = firstVisibleVariable(ctx.analyzer(), context,
-                    v -> v.type() != null && v.type().is(Matches.class));
-            subject = typed == null ? null : typed.name();
-        }
-
-        // `Matches` is named in every case label, so the file needs it even though the variable it switches on
-        // came from a lambda parameter whose type is inferred and therefore never imported by anything else.
-        ctx.addImport(Matches.class);
-        ctx.addImport(ImageTemplate.class);
-        ctx.addTemplatesImport();
-
-        List<String> allowed = MatchesGroupScope.allowedPaths(context);
-        String seed = (allowed != null && !allowed.isEmpty())
-                ? allowed.getFirst()
-                : ImageTemplateLibrary.DEFAULT_TEMPLATE_PATH;
-
-        return MatchesSwitchHandler.newMatchesSwitch(ast,
-                subject == null ? emptySlot(ast) : ast.newSimpleName(subject),
-                MatchesCheck.ANY, List.of(seed));
-    }
+    // createMatchesSwitchStatement stood here until 2026-09-01. It built a guarded pattern switch over the
+    // SDK's Matches, which meant naming that type, its templates, the pattern variable and the mandatory
+    // default rule — this factory spelling one library's vocabulary because a switch is a language construct
+    // and cannot be assembled out of catalogued members. Branching on a frame is a chain of ordinary calls
+    // now, so it arrives through the ordinary member-insert path and needs no bespoke shape here. It also
+    // carried a note that Matches was deliberately absent from SWITCHABLE_TYPES so the colon-form switch kept
+    // rejecting it; that is no longer a decision anybody has to keep, since the set is the integral types,
+    // String, char and enums, and nothing offers a switch over a library value at all.
 
     /** What Java lets you switch on: the integral types (and their boxes), {@code String}, {@code char}, enums. */
     private static boolean isSwitchable(ResolvedType type) {

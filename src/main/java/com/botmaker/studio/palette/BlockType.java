@@ -43,7 +43,11 @@ public sealed interface BlockType
     /** One-off statements whose AST shape is bespoke; built by {@code StatementFactory} keyed on {@link Kind}. */
     record ControlFlow(String id, String displayName, BlockCategory category, Kind kind) implements BlockType {
         public enum Kind {
-            PRINT, IF, WHILE, FOR, DO_WHILE, SWITCH, MATCHES_SWITCH,
+            // MATCHES_SWITCH stood between SWITCH and BREAK until 2026-09-01. It built a guarded pattern
+            // switch over the SDK's Matches — a language construct the editor had to spell on one library's
+            // behalf. Branching on what was found is a chain of ordinary calls now, which the palette offers
+            // like any other member, so there is no bespoke statement shape left to key on.
+            PRINT, IF, WHILE, FOR, DO_WHILE, SWITCH,
             BREAK, CONTINUE, RETURN, WAIT, ASSIGNMENT, FUNCTION_CALL, COMMENT, ARRAY
         }
 

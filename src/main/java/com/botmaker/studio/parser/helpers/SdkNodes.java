@@ -89,31 +89,10 @@ public final class SdkNodes {
     // so no picker has to know there are two; and both round-trip, so opening an old project and editing one
     // block doesn't rewrite the others.
 
-    /**
-     * The project-relative path a template argument names — the literal itself, or the path the
-     * {@code Templates} constant stands for. Empty for anything else: a variable, a field or a call is a
-     * reference the pickers cannot represent and must not overwrite.
-     */
-    public static Optional<String> templatePathOf(Object argument) {
-        if (argument instanceof StringLiteral literal) {
-            return Optional.of(literal.getLiteralValue());
-        }
-        if (argument instanceof QualifiedName qualified
-                && TemplateNames.CLASS_NAME.equals(qualified.getQualifier().toString())) {
-            return Optional.ofNullable(TemplateNames.pathForConstant(qualified.getName().getIdentifier()));
-        }
-        return Optional.empty();
-    }
-
-    /** {@link #templatePathOf} applied to the first argument of a {@code new ImageTemplate(…)}. */
-    public static Optional<String> imageTemplatePathOf(Object node) {
-        if (isInstantiationOf(node, ImageTemplate.class)
-                && node instanceof ClassInstanceCreation cic
-                && !cic.arguments().isEmpty()) {
-            return templatePathOf(cic.arguments().getFirst());
-        }
-        return Optional.empty();
-    }
+    // templatePathOf and imageTemplatePathOf stood here until 2026-09-01. Both existed to *read* a template
+    // argument back — which only the guarded switch ever asked for, so they went out with it. The reading
+    // half of "two spellings, one meaning" is therefore gone; the writing half is templateArgument below,
+    // and it has one caller left (ListHandler), which is the next thing to leave.
 
     /**
      * How to write {@code path} as the argument of a {@code new ImageTemplate(…)}: {@code Templates.YTUJ} when

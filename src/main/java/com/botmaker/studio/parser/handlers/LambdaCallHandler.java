@@ -1,9 +1,6 @@
 package com.botmaker.studio.parser.handlers;
 
-import com.botmaker.sdk.api.vision.ImageTemplate;
 import com.botmaker.sdk.api.vision.ImageTemplateGroup;
-import com.botmaker.sdk.api.vision.Matches;
-import com.botmaker.studio.blocks.flow.MatchesGroupScope;
 import com.botmaker.studio.parser.EditContext;
 import com.botmaker.studio.parser.helpers.SdkNodes;
 import org.eclipse.jdt.core.dom.*;
@@ -104,74 +101,23 @@ public final class LambdaCallHandler {
 
         LambdaExpression lambda = lambdaArg(mi);
         if (lambda != null) {
-            adjustLambdaParam(ast, rewriter, lambda, lambdaParam, seededBody(ctx, lambda,
-                    firstTemplatePath(leading), group, lambdaParam));
+            // The third argument was a seeded body until 2026-09-01: a group form was born holding a guarded
+            // switch over the value it hands the body. Nothing seeds a body now — the thing it seeded is
+            // deleted, and a chain of branches is a call the palette offers like any other member — so the
+            // body is only ever carried across, never replaced.
+            adjustLambdaParam(ast, rewriter, lambda, lambdaParam, null);
         }
     }
 
-    /**
-     * Seeds a group form's empty body with the {@code Matches} switch — the <em>other</em> moment the seed can
-     * become possible, and the one that was missing.
-     *
-     * <p>{@link #switchVariant} seeds when the method changes, but a freshly dropped find block's image slot is
-     * still a {@code null} literal, so {@link #firstTemplatePath} reads nothing and it correctly declines. If
-     * the user then picks the images — the natural order — nothing was watching, and the body stayed empty.
-     * This is the hook for that second order: the picker calls it after writing the group argument, passing the
-     * path it just wrote (the AST still holds the slot it is replacing, so the template cannot be read back
-     * from it yet).
-     *
-     * <p><b>Idempotent</b>, because "the body is empty" is one of the conditions: a user who deletes the seeded
-     * switch and re-picks the images is not handed it back.
-     *
-     * @param groupArg     the expression just written into the call's leading image slot
-     * @param templatePath the first template that argument now names; the guard needs a literal one to compile
-     */
-    public static void seedIfReady(EditContext ctx, Expression groupArg, String templatePath) {
-        if (groupArg == null || !(groupArg.getParent() instanceof MethodInvocation call)) return;
-        List<?> args = call.arguments();
-        if (args.isEmpty() || args.get(0) != groupArg) return;
-        if (!MatchesGroupScope.isGroupLambdaCall(call.getName().getIdentifier())) return;
-
-        LambdaExpression lambda = lambdaArg(call);
-        SimpleName param = lambdaParamName(call);
-        if (lambda == null || param == null) return;
-
-        Block seeded = seededBody(ctx, lambda, templatePath, true, param.getIdentifier());
-        if (seeded != null) ctx.rewriter().replace(lambda.getBody(), seeded, null);
-    }
-
-    /**
-     * The body a group form is born with: a {@code Matches} switch over the lambda's value, seeded with the
-     * group's first template — so picking {@code whileFindAny} lands on the question that variant exists to
-     * ask rather than on an empty block.
-     *
-     * <p>Returns null — leave the body alone — unless <b>all</b> of: the target is a group form that actually
-     * hands over a {@code Matches} ({@code untilFind…} takes a {@link Runnable} and has no value to switch
-     * on); the body is <em>empty</em>, so nothing the user wrote can be displaced; and a literal template is
-     * known, since a guard with no template would not compile.
-     */
-    private static Block seededBody(EditContext ctx, LambdaExpression lambda, String templatePath,
-                                    boolean group, String lambdaParam) {
-        if (!group || lambdaParam == null || lambdaParam.isBlank()) return null;
-        if (!(lambda.getBody() instanceof Block body) || !body.statements().isEmpty()) return null;
-        if (templatePath == null) return null;
-
-        ctx.addImport(Matches.class);
-        ctx.addImport(ImageTemplate.class);
-        ctx.addTemplatesImport();
-        return MatchesSwitchHandler.newSeededBody(ctx.ast(), lambdaParam, templatePath);
-    }
-
-    /**
-     * The first template the leading image argument names — inline group, constant, or the single template
-     * being converted. {@code MatchesGroupScope} owns reading that argument, because the seeded switch's chip
-     * menus are narrowed by the very same answer and two readers would drift.
-     */
-    private static String firstTemplatePath(Expression leading) {
-        if (leading == null) return null;
-        List<String> paths = MatchesGroupScope.groupPaths(leading);
-        return paths == null || paths.isEmpty() ? null : paths.getFirst();
-    }
+    // seedIfReady, seededBody and firstTemplatePath stood here until 2026-09-01, and went with the guarded
+    // switch they seeded. Together they were the whole "a group form is born holding a combination switch"
+    // feature: two entry points, because the user can pick the method first or the pictures first, and either
+    // order had to be watched for. What they wrote was a language construct assembled out of one library's
+    // vocabulary — Matches, ImageTemplate, the generated Templates class, a pattern variable and a mandatory
+    // default rule — which is what made this handler need three SDK imports to switch a method name.
+    //
+    // Nothing seeds a body now. A group form is born with an empty one, and branching on what it found is a
+    // call the palette offers like any other member (see BranchChainHandler for how one is drawn).
 
     /** Wrap a single image into {@code ImageTemplateGroup.of(...)} or unwrap the group's first element; null = leave as-is. */
     private static Expression convertLeading(AST ast, Expression leading, boolean group) {

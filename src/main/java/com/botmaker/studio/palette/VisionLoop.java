@@ -16,8 +16,9 @@ import java.util.Optional;
  * owned the authoritative table; {@code MatchesGroupScope} kept a second, hand-written
  * {@code Set.of("ifFindAny","whileFindAny","ifFindAll","whileFindAll")} — which is not an independent fact but
  * exactly {@link #handsOverMatches()}, i.e. the group forms that pass a parameter — and {@code BlockCatalog},
- * {@code LambdaCallHandler}, {@code MatchesSwitchHandler} and {@code BlockConverter} each named individual
- * methods. Adding a tenth helper to the SDK meant finding all six.
+ * {@code LambdaCallHandler} and {@code BlockConverter} each named individual methods. Adding a tenth helper to
+ * the SDK meant finding all six. (Two of those readers are gone: {@code MatchesGroupScope} and
+ * {@code MatchesSwitchHandler} were deleted on 2026-09-01 with the guarded switch.)
  *
  * <p>The parse is total ({@link #fromMethodName} → empty) because it is asked of arbitrary source: a call
  * named {@code ifFindNearest} by a future SDK simply isn't one of these, which is a different answer from an
@@ -83,9 +84,13 @@ public enum VisionLoop {
     }
 
     /**
-     * Whether the body is handed a {@code Matches} — the group forms that pass a parameter. This is the set
-     * whose body is worth seeding with a combination switch: the single-template forms hand over one
-     * {@code MatchResult}, which has no combination to test, and {@code untilFind…} hands over nothing.
+     * Whether the body is handed the whole combination — the group forms that pass a parameter, as opposed to
+     * the single-template forms (one hit) and {@code untilFind…} (nothing).
+     *
+     * <p>It existed to answer "is this body worth seeding with a combination switch", and nothing seeds a body
+     * any more (2026-09-01). It is kept because it is the honest reading of the table either way, and because
+     * {@code VisionLoopTest} asserts the set against {@link #defaultParamName} — but it now has no caller in
+     * main source, so it is a fair thing to delete the next time this enum is touched.
      */
     public boolean handsOverMatches() {
         return group && hasParam();

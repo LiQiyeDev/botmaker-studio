@@ -6,6 +6,37 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-09-01 — the guarded switch is deleted, and 2,868 lines with it.** `blocks/flow/MatchesSwitchBlock`
+  (632), `parser/handlers/MatchesSwitchHandler` (492), `blocks/flow/MatchesGroupScope` (219),
+  `parser/handlers/GuardTree` (203), `palette/MatchesCheck`, `palette/MatchesJoin`, and four tests
+  (`MatchesSwitchBlockTest`, `MatchesSwitchHandlerTest`, `GuardTreeTest`, `GroupSlotSeedTest`). Its
+  replacement is the branch chain block below.
+
+  **What went with them, and what each removal proves.** `BlockType.ControlFlow.Kind.MATCHES_SWITCH` and
+  `StatementFactory.createMatchesSwitchStatement` — the palette no longer has a bespoke statement shape for
+  one library's branching, because branching is a member the catalog offers. `CodeEditor`'s five editor
+  methods (`setMatchesCheckMode`, `setMatchesGuard`, `addMatchesCase`, `removeMatchesCase`, and
+  `setMatchesCheckTemplates` before them) — every one named a piece of that vocabulary; their replacements
+  say only "a branch". `LambdaCallHandler.seedIfReady`/`seededBody`/`firstTemplatePath`, which is why that
+  handler needed three SDK imports to rename a method and now needs one. `SdkNodes.templatePathOf` and
+  `imageTemplatePathOf`, whose only caller was the switch — so the *reading* half of "two spellings, one
+  meaning" is gone and only `templateArgument` remains, with one caller left.
+
+  **`BlockConverter.dispatchStatement` has one switch arm again.** The matches arm sat ahead of the ordinary
+  one because a guarded arrow switch rendered as an unreadable colon-form label; nothing composes one now, so
+  a switch of any form is an ordinary switch, and a hand-written guarded switch degrades through the arm that
+  always handled it.
+
+  **`VisionLoop.handsOverMatches` is kept and has no main-source caller.** It answered "is this body worth
+  seeding with a combination switch" and nothing seeds a body now; it stays because it is the honest reading
+  of the table and `VisionLoopTest` asserts it, and it is flagged in place as fair to delete next time that
+  enum is touched.
+
+  **Verified against a baseline rather than by building**, since the module does not compile for reasons
+  predating this work: 95 errors across 43 files before, 93 after, and the one entry that is not in the
+  baseline is `BlockType.java:66` shifted to `:70` by a four-line comment — the same unresolved `InputKind`.
+  So the deletions introduced nothing and removed two. **Nothing here has been run.**
+
 - **2026-09-01 — a branch chain is a block, and it knows nobody's vocabulary. NOT COMPILED — see the
   warning at the end of this entry.** `parser/handlers/BranchChainHandler` and
   `blocks/flow/BranchChainBlock` draw `subject.when(m -> test, () -> { … }).otherwise(() -> { … })` as one

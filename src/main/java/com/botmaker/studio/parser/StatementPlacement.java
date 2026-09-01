@@ -89,8 +89,9 @@ public final class StatementPlacement {
     /**
      * Whether this switch is written with Java 14 arrow rules ({@code case X -> …}) rather than the classic
      * colon form. {@code break} closes a colon case and is illegal in an arrow one, so the two forms have
-     * opposite answers — and {@code MatchesSwitchBlock} emits the arrow form, which is why the matchswitch
-     * block used to offer a {@code break} that could not compile.
+     * opposite answers. The bug that prompted the distinction was a deleted block emitting arrow rules and
+     * then offering a {@code break} that could not compile; the rule outlives it, because a hand-written
+     * arrow switch reaches this code exactly the same way.
      *
      * <p>A switch is all one form or the other (mixing them doesn't compile), so the first label decides.
      */

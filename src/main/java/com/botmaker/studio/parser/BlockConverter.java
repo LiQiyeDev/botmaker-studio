@@ -26,7 +26,6 @@ import com.botmaker.studio.palette.InputKind;
 import com.botmaker.studio.parser.handlers.BranchChainHandler;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
 import com.botmaker.studio.parser.helpers.FileTypeDetector;
-import com.botmaker.studio.parser.handlers.MatchesSwitchHandler;
 import com.botmaker.studio.project.LockResolver;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectState;
@@ -288,12 +287,9 @@ public class BlockConverter {
             if (stmt instanceof WhileStatement w) return parseWhile(w, ctx);
             if (stmt instanceof EnhancedForStatement f) return parseFor(f, ctx);
             if (stmt instanceof DoStatement d) return parseDoWhile(d, ctx);
-            // Ahead of the ordinary switch: a Matches switch is the arrow/guarded form, which parseSwitch's
-            // colon-form walk would render as an unreadable expression label. Anything that isn't exactly the
-            // shape MatchesSwitchHandler writes falls through to it unchanged.
-            if (stmt instanceof SwitchStatement s && MatchesSwitchHandler.isMatchesSwitch(s)) {
-                return parseMatchesSwitch(s, ctx);
-            }
+            // A guarded arrow switch had its own arm here until 2026-09-01, ahead of this one. Nothing
+            // composes one now — branching on what was found is a chain of calls (BranchChainHandler) — so a
+            // switch of any form is an ordinary switch again, which is what this arm always handled.
             if (stmt instanceof SwitchStatement s) return parseSwitch(s, ctx);
             if (stmt instanceof BreakStatement b) return Optional.of(new BreakBlock(BlockId.of(b), b));
             if (stmt instanceof ContinueStatement c) return Optional.of(new ContinueBlock(BlockId.of(c), c));
@@ -474,51 +470,6 @@ public class BlockConverter {
         return Optional.of(block);
     }
 
-    /**
-     * The guarded-arrow {@code switch (found) { case Matches m when … -> { … } }}.
-     *
-     * <p>Unlike {@link #parseSwitch}, a case's label mostly contributes no block: the checks and the
-     * {@code and}/{@code or} that join them are described by the {@code Guard} tree, which the block renders as
-     * toggles and chip rows, so there is nothing there for the user to drag or to fill. The exception is a
-     * {@code Guard.Other} leaf — a condition this block cannot say in chips — which becomes a real expression
-     * block so it renders as an ordinary, droppable expression slot instead of as text.
-     */
-    private Optional<StatementBlock> parseMatchesSwitch(SwitchStatement stmt, ParseContext ctx) {
-        MatchesSwitchBlock block = new MatchesSwitchBlock(BlockId.of(stmt), stmt);
-        ctx.nodeToBlockMap().put(stmt, block);
-
-        for (Object o : stmt.statements()) {
-            if (!(o instanceof SwitchCase sc)) continue;
-            // The body is the case's single braced Block, so a branch is a real BodyBlock with the same drop
-            // zones as an `if` — the switch's own statement list is never a drop target.
-            Block braced = MatchesSwitchHandler.singleBlockBody(stmt, sc);
-            BodyBlock body = braced == null ? null : parseBodyBlock(braced, ctx);
-            if (body != null) applyReadOnly(body, ctx);
-
-            if (sc.isDefault()) {
-                block.setDefault(sc, body);
-            } else {
-                MatchesSwitchHandler.guardOf(sc).ifPresent(guard -> {
-                    block.addCase(sc, guard, body);
-                    parseGuardSlots(guard, block, ctx);
-                });
-            }
-        }
-        return Optional.of(block);
-    }
-
-    /** Gives every {@code Other} leaf of a guard tree the expression block its slot renders. */
-    private void parseGuardSlots(MatchesSwitchHandler.Guard guard, MatchesSwitchBlock block, ParseContext ctx) {
-        switch (guard) {
-            case MatchesSwitchHandler.Guard.Other other ->
-                    parseExpression(other.node(), ctx).ifPresent(e -> block.putGuardSlot(other.node(), e));
-            case MatchesSwitchHandler.Guard.Not not -> parseGuardSlots(not.operand(), block, ctx);
-            case MatchesSwitchHandler.Guard.Container container ->
-                    container.operands().forEach(operand -> parseGuardSlots(operand, block, ctx));
-            case MatchesSwitchHandler.Guard.Check ignored -> { }
-        }
-    }
-
     private Optional<StatementBlock> parseSwitch(SwitchStatement stmt, ParseContext ctx) {
         SwitchBlock block = new SwitchBlock(BlockId.of(stmt), stmt, ctx.manager());
         ctx.nodeToBlockMap().put(stmt, block);
@@ -541,8 +492,8 @@ public class BlockConverter {
                 // disagree. A colon case's statements are siblings of its label in the switch's own list, so
                 // the label is the anchor. An arrow rule's are inside a Block of their own — anchoring on the
                 // label there inserted the statement *in front of* that Block, as a bare block among arrow
-                // rules, which doesn't parse. `parseMatchesSwitch` already backed its branches with the Block;
-                // this is the same rule for every arrow switch.
+                // rules, which doesn't parse. The deleted matches-switch arm already backed its branches with
+                // the Block; this is the same rule for every arrow switch.
                 Block ruleBody = labeledRuleBody(sc, statements, i);
                 if (ruleBody != null) {
                     consumedRuleBody = ruleBody;

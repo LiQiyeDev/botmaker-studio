@@ -8,7 +8,6 @@ import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.palette.ExpressionCatalog;
 import com.botmaker.studio.palette.ExpressionType;
 import com.botmaker.studio.palette.FunctionDraft;
-import com.botmaker.studio.palette.MatchesCheck;
 import com.botmaker.studio.parser.factories.InitializerFactory;
 import com.botmaker.studio.parser.factories.StatementFactory;
 import com.botmaker.studio.parser.handlers.BranchChainHandler;
@@ -16,7 +15,6 @@ import com.botmaker.studio.parser.handlers.EnumManipulationHandler;
 import com.botmaker.studio.parser.handlers.InstantiationHandler;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
 import com.botmaker.studio.parser.handlers.ListHandler;
-import com.botmaker.studio.parser.handlers.MatchesSwitchHandler;
 import com.botmaker.studio.parser.handlers.MethodHandler;
 import com.botmaker.studio.parser.handlers.OperatorReplacementHandler;
 import com.botmaker.studio.parser.handlers.RawExpressionHandler;
@@ -443,9 +441,9 @@ public class CodeEditor {
     // already stopped consulting.
     //
     // What went with them and is worth naming: the group writer also called LambdaCallHandler.seedIfReady,
-    // so filling a group slot no longer seeds the combination switch in the loop body. That seam has to be
-    // re-made on the plugin's side of the boundary — see the phase C note in the plan about the writing
-    // half of the Matches vocabulary, which is the same unresolved question.
+    // so filling a group slot no longer seeds anything in the loop body. That question is closed rather than
+    // still open — the thing it used to seed was the combination switch, which is deleted (2026-09-01), and a
+    // body that starts empty is the honest state now that branching is a call the palette offers.
 
     /**
      * Replaces the trailing arguments of {@code call} from {@code fromIndex} with exactly
@@ -1222,46 +1220,12 @@ public class CodeEditor {
         edit(caseNode, EditKind.BODY, false, (cu, code) -> moveSwitchCase(cu, code, caseNode, moveUp));
     }
 
-    // --- The Matches switch (guarded arrow rules; see MatchesSwitchHandler) ---
-
-    // setMatchesCheckTemplates went on 2026-08-31 with the chip row it wrote for. A check's pictures are the
-    // arguments of one call, so setTrailingArguments (fromIndex 0) writes them, and it does so without
-    // knowing what a picture is: the plugin hands over the expressions. That is the whole difference — this
-    // method took template *paths* and built new ImageTemplate(path) itself, which is the host spelling an
-    // API that is not its own.
-
-    /** Flips one check between "any of" ({@code hasAny}) and "all of" ({@code hasAll}). */
-    public void setMatchesCheckMode(MethodInvocation call, MatchesCheck check) {
-        edit(call, EditKind.BODY, true,
-                (cu, code) -> MatchesSwitchHandler.setCheckMode(cu, code, call, check));
-    }
-
-    /**
-     * Rewrites a branch's whole condition to {@code newTree} — every composition gesture the block offers goes
-     * through here, having built the new tree with {@link com.botmaker.studio.parser.handlers.GuardTree}. A null
-     * tree is a refused gesture (removing the last condition, flipping a container to the word it already has),
-     * so it is a no-op rather than an edit that writes nothing.
-     */
-    public void setMatchesGuard(SwitchCase caseNode, MatchesSwitchHandler.Guard newTree) {
-        if (caseNode == null || newTree == null) return;
-        edit(caseNode, EditKind.BODY, true,
-                (cu, code) -> MatchesSwitchHandler.setGuard(cu, code, caseNode, newTree));
-    }
-
-    /**
-     * Adds a branch seeded with {@code templatePath}, before the {@code default} rule. A null path is a no-op:
-     * a guard with no templates wouldn't compile, so there is nothing to insert.
-     */
-    public void addMatchesCase(SwitchStatement switchStmt, String templatePath) {
-        if (templatePath == null) return;
-        edit(switchStmt, EditKind.BODY, true,
-                (cu, code) -> MatchesSwitchHandler.addCase(
-                        cu, code, switchStmt, MatchesCheck.ANY, List.of(templatePath)));
-    }
-
-    public void removeMatchesCase(SwitchCase caseNode) {
-        edit(caseNode, EditKind.BODY, true, (cu, code) -> MatchesSwitchHandler.removeCase(cu, code, caseNode));
-    }
+    // The Matches switch had five editor methods here — setMatchesCheckMode, setMatchesGuard, addMatchesCase,
+    // removeMatchesCase and, until 2026-08-31, setMatchesCheckTemplates. All are deleted (2026-09-01) with the
+    // guarded pattern switch they wrote. Every one of them named a piece of one library's vocabulary: a check
+    // mode, a guard tree, a case seeded with a picture. Their replacements are addBranchLink and
+    // removeBranchLink above, which say nothing but "a branch" — a chain is composed of ordinary calls, so
+    // editing one is editing an expression and a body, which this class could already do.
 
     // =================================================================================
     // COMMENTS / OPERATORS
