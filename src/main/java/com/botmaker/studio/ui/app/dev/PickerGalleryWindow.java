@@ -8,7 +8,6 @@ import com.botmaker.studio.project.activity.ActivityVariable;
 import com.botmaker.studio.project.activity.Bounds;
 import com.botmaker.studio.project.activity.ParamVisibility;
 import com.botmaker.studio.project.activity.ValueWire;
-import com.botmaker.sdk.authoring.TemplateLibrary;
 import com.botmaker.studio.ui.app.params.ParamValueWidgets;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.animation.Animation;
@@ -324,12 +323,26 @@ public final class PickerGalleryWindow {
         };
     }
 
-    /** The project's own templates, so the chips resolve to real pictures; empty when nothing is open. */
+    /**
+     * The project's own pictures, so the chips resolve to something real; empty when nothing is open.
+     *
+     * <p>Read as a directory listing rather than through the SDK's picture library, which is what it used
+     * until 2026-09-01. The library would answer this better — it knows about sidecars and the placeholder —
+     * but what this screen needs is three names that have a file behind them, and the folder answers that on
+     * its own. A dev diagnostic is the last place worth holding a dependency on another module's vocabulary
+     * for.
+     */
     private List<String> templateNames() {
         if (project == null) return List.of();
-        return TemplateLibrary.list(project.resourcesRoot()).stream()
-                .limit(3)
-                .map(TemplateLibrary::baseName)
-                .toList();
+        try (var files = java.nio.file.Files.list(project.imagesRoot())) {
+            return files.map(p -> p.getFileName().toString())
+                    .filter(name -> name.endsWith(".png"))
+                    .sorted()
+                    .limit(3)
+                    .map(name -> name.substring(0, name.length() - ".png".length()))
+                    .toList();
+        } catch (java.io.IOException e) {
+            return List.of();   // no folder yet, which is an ordinary state for a project with no pictures
+        }
     }
 }

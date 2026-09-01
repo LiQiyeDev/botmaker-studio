@@ -1,30 +1,14 @@
 package com.botmaker.studio.palette;
 
-import com.botmaker.sdk.api.emulator.Emulator;
-import com.botmaker.sdk.api.emulator.Emulators;
-import com.botmaker.sdk.api.geometry.Point;
-import com.botmaker.sdk.api.interaction.Key;
-import com.botmaker.sdk.api.interaction.Keyboard;
-import com.botmaker.sdk.api.interaction.Mouse;
-import com.botmaker.sdk.api.interaction.Wait;
-import com.botmaker.sdk.api.launch.Game;
-import com.botmaker.sdk.api.vision.ImageClicker;
-import com.botmaker.sdk.api.vision.ImageFinder;
-import com.botmaker.sdk.api.vision.ImageWaiter;
 import com.botmaker.studio.palette.BlockType.ControlFlow;
 import com.botmaker.studio.palette.BlockType.ControlFlow.Kind;
 import com.botmaker.studio.palette.BlockType.EnumDecl;
-import com.botmaker.studio.palette.BlockType.LambdaCall;
-import com.botmaker.studio.palette.BlockType.LibraryCall;
 import com.botmaker.studio.palette.BlockType.MethodMember;
 import com.botmaker.studio.palette.BlockType.ScannerRead;
 import com.botmaker.studio.palette.BlockType.VarDecl;
 import com.botmaker.studio.palette.Initializer.BoolLit;
 import com.botmaker.studio.palette.Initializer.DoubleLit;
-import com.botmaker.studio.palette.Initializer.EnumConst;
 import com.botmaker.studio.palette.Initializer.IntLit;
-import com.botmaker.studio.palette.Initializer.NewInstance;
-import com.botmaker.studio.palette.Initializer.StaticCall;
 import com.botmaker.studio.palette.Initializer.StrLit;
 
 import java.util.List;
@@ -66,13 +50,8 @@ public final class BlockCatalog {
     // Activity enable/disable and stop-the-bot are standard SDK facade calls now — Activity.enable/disable("X")
     // and Bot.stop() come from the Activity/Bot facade submenus and render with the normal SDK-block chrome, so
     // there are no bespoke CONTROL blocks for them (they used to be DISABLE_ACTIVITY/ENABLE_ACTIVITY/STOP_BOT).
-    // "Wait" is a standard SDK block on the Wait facade, so the user gets the class/method/overload chrome —
-    // not a raw Thread.sleep. (Existing Thread.sleep bots still round-trip via WaitBlock; this only changes
-    // what the menu inserts.) It inserts the Duration overload rather than milliseconds(int) because that is
-    // the one the Studio gives a real editor to — a unit dropdown and the random-range toggle — where a bare
-    // int is only ever a text pill whose unit lives in the method name.
-    public static final BlockType WAIT = new LibraryCall("WAIT", "Wait", CONTROL, Wait.class, "time",
-            List.of(new StaticCall("Duration", "ofSeconds", List.of(new IntLit("1")))));
+    // "Wait" was a hand-written LibraryCall on Wait.class here until 2026-09-01, and it went with every other
+    // entry in this file that named an SDK type. See the note above ALL for why they all went at once.
 
     // --- Variables ---
     public static final BlockType DECLARE_INT =
@@ -87,12 +66,8 @@ public final class BlockCatalog {
     public static final BlockType ASSIGNMENT = cf("ASSIGNMENT", "Set Variable", VARIABLES, Kind.ASSIGNMENT);
 
     // --- Input & interaction ---
-    public static final BlockType CLICK = new LibraryCall("CLICK", "Mouse Click", INPUT, Mouse.class, "click",
-            List.of(new NewInstance(Point.class.getSimpleName(), List.of(new IntLit("0"), new IntLit("0")))));
-    public static final BlockType TYPE_TEXT = new LibraryCall("TYPE_TEXT", "Type Text", INPUT, Keyboard.class, "type",
-            List.of(new StrLit("")));
-    public static final BlockType PRESS_KEY = new LibraryCall("PRESS_KEY", "Press Key", INPUT, Keyboard.class, "tap",
-            List.of(new EnumConst(Key.class.getSimpleName(), "ENTER")));
+    // CLICK, TYPE_TEXT and PRESS_KEY stood here as hand-written calls on Mouse and Keyboard. The three that
+    // remain read a Scanner, which is the JDK and nobody's plugin.
     public static final BlockType READ_LINE =
             new ScannerRead("READ_LINE", "Read Text", INPUT, InputKind.LINE, "input");
     public static final BlockType READ_INT =
@@ -106,20 +81,10 @@ public final class BlockCatalog {
             new MethodMember("METHOD_DECLARATION", "Declare Function", FUNCTIONS);
     public static final BlockType DECLARE_ENUM = new EnumDecl("DECLARE_ENUM", "Define Enum", VARIABLES);
 
-    // --- Vision (find/click/wait promoted as bot actions; no dedicated "Vision" submenu) ---
-    public static final BlockType FIND_IMAGE =
-            new LibraryCall("FIND_IMAGE", "Find Image", INPUT, ImageFinder.class, "find", List.of());
-    public static final BlockType CLICK_IMAGE =
-            new LibraryCall("CLICK_IMAGE", "Click Image", INPUT, ImageClicker.class, "click", List.of());
-    public static final BlockType WAIT_FOR_IMAGE =
-            new LibraryCall("WAIT_FOR_IMAGE", "Wait For Image", INPUT, ImageWaiter.class, "waitFor", List.of());
-    // A single body-carrying find block: renders like an SDK ImageFinder call with a method dropdown
-    // (ifFind/whileFind/untilFind × single/any/all) plus a droppable action body — see LambdaCallBlock. The
-    // block implementation is retained (round-trips existing ImageFinder.ifFind lambdas, and is reused by the
-    // Phase 2 overlay method palette), but it is intentionally NOT listed in the statement menu — hence it is
-    // excluded from ALL below.
-    public static final BlockType FIND_IMAGE_ACTIONS = new LambdaCall("FIND_IMAGE_ACTIONS", "Find Image → Do Actions",
-            INPUT, ImageFinder.class, VisionLoop.IF_FIND.methodName(), List.of(), VisionLoop.IF_FIND.defaultParamName());
+    // Vision stood here — FIND_IMAGE, CLICK_IMAGE, WAIT_FOR_IMAGE on ImageFinder/ImageClicker/ImageWaiter, and
+    // FIND_IMAGE_ACTIONS, the body-carrying find. All four named an SDK facade and all four are gone; the
+    // LambdaCallBlock that rendered the last one is untouched, because round-tripping an existing lambda is
+    // read from the source, not from a palette entry.
     // The "Declare Bot Variable" submenu is generated from BotType — the same curated list the Add Function
     // dialog picks a return type and parameter types from. It was five hand-written entries (Point, Rect,
     // Size, MatchResult, ImageTemplate) while the dialog knew a different set again, so a type you could take
@@ -142,43 +107,40 @@ public final class BlockCatalog {
     // index-resolved first enum constant (InitializerFactory) and edited via the EnumPicker — so there's a
     // single, index-driven source of truth instead of a stale hardcoded `Direction.NORTH` duplicate.)
 
-    // --- Game ---
-    public static final BlockType LAUNCH_GAME = new LibraryCall("LAUNCH_GAME", "Launch Program", GAME,
-            Game.class, "launch", List.of(new StrLit("")));
-    public static final BlockType LAUNCH_STEAM_GAME = new LibraryCall("LAUNCH_STEAM_GAME", "Launch Steam Game", GAME,
-            Game.class, "launchSteam", List.of(new StrLit("")));
-    public static final BlockType LAUNCH_EPIC_GAME = new LibraryCall("LAUNCH_EPIC_GAME", "Launch Epic Game", GAME,
-            Game.class, "launchEpic", List.of(new StrLit("")));
-
-    // --- Emulator (Android) ---
-    // "Use Emulator As Source" is the common one-block flow: Emulators.use("<instance>") connects to the
-    // running emulator and points the whole bot at it (Source.set), so every no-source vision/click/OCR call
-    // then targets the emulator. The instance-name arg gets the EmulatorArgPicker (discovered-instance dropdown).
-    public static final BlockType USE_EMULATOR = new LibraryCall("USE_EMULATOR", "Use Emulator As Source", GAME,
-            Emulators.class, "use", List.of(new StrLit("")));
-    // "Connect Emulator" keeps a handle: Emulator emulator = Emulators.named("<instance>"); — for bots that
-    // want to call emulator-native verbs (tap/swipe/startApp) or pass it as an explicit CaptureSource.
-    public static final BlockType CONNECT_EMULATOR = new VarDecl("CONNECT_EMULATOR", "Connect Emulator", GAME,
-            Emulator.class.getSimpleName(), false, "emulator",
-            new StaticCall(Emulators.class.getSimpleName(), "named", List.of(new StrLit(""))));
+    // Game launch (Game.launch/launchSteam/launchEpic) and the two emulator blocks (Emulators.use, and the
+    // Emulators.named declaration) stood here. Every one named a facade of the SDK's, and the GAME category is
+    // now empty — ExpressionMenu.addCategoryMenu already skips a category with nothing in it, so the submenu
+    // simply does not appear rather than appearing empty.
 
     // --- Utility ---
     public static final BlockType COMMENT = cf("COMMENT", "Comment", UTILITY, Kind.COMMENT);
 
+    /**
+     * All insertable blocks in palette/menu display order — <b>the language, and nothing any plugin owns.</b>
+     *
+     * <p>Sixteen entries were removed on 2026-09-01, each a hand-written call on an SDK facade: Wait, Mouse,
+     * Keyboard, ImageFinder, ImageClicker, ImageWaiter, Game and Emulators. They went for the reason the whole
+     * migration exists — a call on a plugin's type is that plugin's to offer — and it cost nothing visible,
+     * because <b>they had already stopped being reachable</b>. {@code StatementMenu.languageBlocks} filters
+     * every {@code LibraryCall}/{@code LambdaCall} on a catalogued facade out of this list and offers the
+     * plugin's own per-class submenus instead, so the entries had been shadowed by
+     * {@code PluginHost.catalogFor} since the palette became plugin-served. Grep found no production reader of
+     * any of them.
+     *
+     * <p>What is left is control flow, variables, functions, the three {@code Scanner} reads and the comment —
+     * all of it Java, none of it anybody's API.
+     */
     private static final List<BlockType> ALL = Stream.of(
                     List.of(PRINT,
                             IF, SWITCH,
                             WHILE, FOR, DO_WHILE,
-                            BREAK, CONTINUE, RETURN, WAIT,
+                            BREAK, CONTINUE, RETURN,
                             DECLARE_INT, DECLARE_DOUBLE, DECLARE_BOOLEAN, DECLARE_STRING, DECLARE_ARRAY,
                             ASSIGNMENT,
-                            CLICK, TYPE_TEXT, PRESS_KEY, READ_LINE, READ_INT, READ_DOUBLE,
-                            FUNCTION_CALL, METHOD_DECLARATION, DECLARE_ENUM,
-                            FIND_IMAGE, CLICK_IMAGE, WAIT_FOR_IMAGE),
+                            READ_LINE, READ_INT, READ_DOUBLE,
+                            FUNCTION_CALL, METHOD_DECLARATION, DECLARE_ENUM),
                     BOT_VARIABLES,
-                    List.of(LAUNCH_GAME, LAUNCH_STEAM_GAME, LAUNCH_EPIC_GAME,
-                            USE_EMULATOR, CONNECT_EMULATOR,
-                            COMMENT))
+                    List.of(COMMENT))
             .flatMap(List::stream)
             .toList();
 
@@ -187,19 +149,8 @@ public final class BlockCatalog {
         return ALL;
     }
 
-    /**
-     * The bot-first actions promoted to the very top of the insert menu (rendered flat, no submenu) so the most
-     * common automation building blocks are the first thing reached for. Game launch is promoted here (rather than
-     * a "Game" submenu) per its prominence; promoting a category's blocks empties its submenu, so no "Game" group
-     * is shown (see {@code ExpressionMenu.addCategoryMenu}, which skips empty categories).
-     */
-    private static final List<BlockType> BOT_ACTIONS = List.of(
-            FIND_IMAGE, CLICK_IMAGE, WAIT_FOR_IMAGE, CLICK, WAIT, LAUNCH_GAME, LAUNCH_STEAM_GAME, LAUNCH_EPIC_GAME,
-            USE_EMULATOR);
-
-    public static List<BlockType> botActions() {
-        return BOT_ACTIONS;
-    }
+    // botActions() — the nine bot-first entries promoted to the top of the insert menu — went with them, and it
+    // had no caller at all by then: the promotion it described is the plugin's facade submenus now.
 
     /** Resolves a block from its {@link BlockType#id()} (used to deserialize a dragboard payload). */
     public static Optional<BlockType> byId(String id) {

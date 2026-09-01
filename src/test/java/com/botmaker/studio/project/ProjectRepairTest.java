@@ -4,7 +4,6 @@ import com.botmaker.shared.config.ProjectProperties;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityDefinition;
 import com.botmaker.studio.services.ActivityService;
-import com.botmaker.sdk.authoring.TemplateLibrary;
 import com.botmaker.studio.services.MavenService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -82,8 +81,9 @@ class ProjectRepairTest {
         MavenService.writePom(config.projectPath(), config, MavenService.SDK_FALLBACK_VERSION);
         BotSettings.write(config.resourcesRoot(), BotSettings.GAME_DEFAULTS);
         StudioProjectSettings.empty().withTemplate(ProjectTemplate.GAME_BOT).write(config.resourcesRoot());
-        TemplateLibrary.writePlaceholderAt(
-                config.imagesRoot().resolve(TemplateLibrary.DEFAULT_TEMPLATE_FILE));
+        // The placeholder picture was laid down here too, through the SDK's library. It is not laid down and
+        // not looked for any more: this class tests what the editor recovers, and a picture is not one of the
+        // editor's files.
     }
 
     @Test
@@ -170,19 +170,19 @@ class ProjectRepairTest {
     void deletedResourceFilesAreFoundAndRestored() throws IOException {
         Path properties = config.resourcesRoot().resolve(ProjectProperties.FILE_NAME);
         Path settings = config.resourcesRoot().resolve(StudioProjectSettings.FILE_NAME);
-        Path placeholder = config.imagesRoot().resolve(TemplateLibrary.DEFAULT_TEMPLATE_FILE);
         Files.delete(properties);
         Files.delete(settings);
-        Files.delete(placeholder);
 
         List<ProjectRepair.Missing> missing =
                 ProjectRepair.findMissing(config, ProjectTemplate.GAME_BOT, ActivitiesConfig.empty());
-        assertEquals(List.of("botmaker-project.properties", "settings.json", "default_template.png"),
+        // The placeholder picture was a third row here until 2026-09-01. It repairs itself now: the SDK
+        // plugin's picture surfaces call ensurePlaceholder the first time they look at the folder, so the
+        // editor restoring it only meant the editor knowing what a picture is called.
+        assertEquals(List.of("botmaker-project.properties", "settings.json"),
                 missing.stream().map(ProjectRepair.Missing::fileName).toList());
 
-        assertEquals(3, ProjectRepair.recover(config, missing).size());
+        assertEquals(2, ProjectRepair.recover(config, missing).size());
         assertTrue(Files.exists(properties));
-        assertTrue(Files.exists(placeholder));
         // The template is the one thing settings.json holds that cannot be re-derived, so it is restored only
         // with the recorded one written back into it — never guessed at from what the source files look like.
         assertEquals(ProjectTemplate.GAME_BOT,

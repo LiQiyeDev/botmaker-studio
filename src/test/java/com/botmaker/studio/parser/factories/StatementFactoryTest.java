@@ -6,6 +6,7 @@ import com.botmaker.studio.palette.BlockCategory;
 import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.palette.BlockType.ControlFlow.Kind;
 import com.botmaker.studio.palette.BotType;
+import com.botmaker.studio.palette.Initializer;
 import com.botmaker.studio.parser.EditContext;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
@@ -157,15 +158,29 @@ class StatementFactoryTest {
         assertTrue(source.contains("BotMaker.read"), source);
     }
 
+    /**
+     * The fixtures are built here rather than taken from {@link BlockCatalog}, and the reason is the point of
+     * the change that forced it: the palette's own {@code LibraryCall}s and {@code LambdaCall}s were calls on
+     * the SDK's facades, and they were deleted on 2026-09-01 because a call on a plugin's type is that
+     * plugin's to offer. What the factory does with either shape is not about who owns the facade, so the test
+     * names a JDK class and asserts the shape.
+     */
+    private static BlockType.LibraryCall libraryCall() {
+        return new BlockType.LibraryCall("TEST_LIB", "Library Call", BlockCategory.UTILITY,
+                java.util.Objects.class, "requireNonNull", List.of(new Initializer.StrLit("x")));
+    }
+
     @Test
     void aLibraryCallBecomesTheStaticCallItNames() {
-        String source = text(BlockCatalog.CLICK);
-        assertTrue(source.startsWith("Mouse.click("), source);
+        String source = text(libraryCall());
+        assertTrue(source.startsWith("Objects.requireNonNull("), source);
     }
 
     @Test
     void aLambdaCallEndsInABodyLambda() {
-        String source = text(BlockCatalog.FIND_IMAGE_ACTIONS);
+        String source = text(new BlockType.LambdaCall("TEST_LAMBDA", "Lambda Call", BlockCategory.UTILITY,
+                java.util.Optional.class, "ifPresent", List.of(), "value"));
+
         assertTrue(source.contains("->"), "the trailing argument must be a lambda: " + source);
         assertTrue(source.contains("{"), "and it must have a block body to drop statements into: " + source);
     }
@@ -187,29 +202,16 @@ class StatementFactoryTest {
 
     // ---- MISSING 6: what the Wait block emits, and what it no longer emits ----
 
-    /**
-     * <b>What running this showed: SP8's target is already unreachable.</b>
-     *
-     * <p>SP8 is listed as a cross-module item — "{@code StatementFactory} stops emitting
-     * {@code printStackTrace} into bot source", with the SDK's {@code Debug} channel as the replacement, which
-     * would make it the only blocks/parser item needing a coordinated SDK release. It doesn't: the palette's
-     * {@code WAIT} entry is a {@code LibraryCall} onto the SDK's {@code Wait.time}, and
-     * {@code Kind.WAIT} — the only route to {@code createWaitStatement}, the only place in the factory that
-     * emits {@code printStackTrace} — has <b>no reference anywhere in the module</b>.
-     *
-     * <p>So what remains of SP8 is a deletion, not a release. {@code BlockConverter.isWait} must stay: it is
-     * what lets an existing bot's hand-written {@code Thread.sleep} still round-trip through the editor.
-     */
-    @Test
-    void theWaitBlockInsertsAnSdkCallAndNotARawThreadSleep() {
-        String inserted = text(BlockCatalog.WAIT);
-
-        assertTrue(inserted.startsWith("Wait.time(Duration."),
-                "the palette's Wait must insert the SDK call, in its editable Duration form: " + inserted);
-        assertTrue(!inserted.contains("Thread.sleep"), inserted);
-        assertTrue(!inserted.contains("printStackTrace"),
-                "no generated bot source may carry a printStackTrace: " + inserted);
-    }
+    // theWaitBlockInsertsAnSdkCallAndNotARawThreadSleep stood here, asserting that the palette's WAIT entry
+    // emitted Wait.time(Duration.…) rather than a raw Thread.sleep. Its subject is gone: WAIT was a hand-written
+    // LibraryCall on the SDK's Wait facade, deleted on 2026-09-01 with every other palette entry that named a
+    // plugin's type, and a Wait block now comes from the plugin's own catalog. The test's own javadoc had
+    // already concluded that what remained of SP8 was a deletion; this is it.
+    //
+    // What it also asserted — that no generated bot source carries a printStackTrace — is not lost: the dead
+    // Kind.WAIT branch below is still asserted dead, and that branch is the only place in the factory that ever
+    // emitted one. BlockConverter.isWait is likewise untouched, so an existing bot's hand-written Thread.sleep
+    // still round-trips through the editor.
 
     /**
      * The dead branch, asserted as dead. {@code Kind.WAIT} still builds the old template — including the

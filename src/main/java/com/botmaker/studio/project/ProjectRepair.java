@@ -4,7 +4,6 @@ import com.botmaker.shared.config.ProjectProperties;
 import com.botmaker.studio.parser.helpers.SourceParser;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityDefinition;
-import com.botmaker.sdk.authoring.TemplateLibrary;
 import com.botmaker.studio.services.MavenService;
 import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.ASTNode;
@@ -212,10 +211,11 @@ public final class ProjectRepair {
                     "editor settings"));
         }
 
-        Path placeholder = config.imagesRoot().resolve(TemplateLibrary.DEFAULT_TEMPLATE_FILE);
-        if (!Files.exists(placeholder)) {
-            missing.add(new Missing(placeholder, TemplateLibrary::writePlaceholderAt, "image templates"));
-        }
+        // The placeholder picture was a fourth row here until 2026-09-01, restored through the SDK's
+        // TemplateLibrary. It goes because it was repairing another module's file on its behalf, and because
+        // it had already stopped being needed: the plugin's own picture surfaces call ensurePlaceholder the
+        // first time they look at the folder, so a missing placeholder repairs itself the next time anything
+        // opens a gallery. Recovering it from here only meant Studio knowing what a picture is called.
         return missing;
     }
 
