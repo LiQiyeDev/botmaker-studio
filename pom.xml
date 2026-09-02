@@ -624,9 +624,39 @@
                                          — and that would delete bin/java and bin/javac, i.e. exactly the tools
                                          Studio shells out to. Never add it back. And bind-services is not wanted
                                          either; it drags most of the JDK back in through service providers. -->
-                                    <modulePaths>
-                                        <modulePath>${java.home}/jmods</modulePath>
-                                    </modulePaths>
+                                    <!-- THERE IS DELIBERATELY NO <modulePaths> HERE, and re-adding the
+                                         obvious `${java.home}/jmods` breaks the build on JDK 25.
+
+                                         JEP 493 (JDK 24) lets jlink link from the **run-time image**
+                                         itself, and a JDK built with it — Temurin 25 and Fedora's
+                                         java-25-openjdk both are — ships **no `jmods` directory at all**.
+                                         The first JDK 25 package run failed on exactly that, identically
+                                         on both runners:
+
+                                           File or directory /usr/lib/jvm/temurin-25-jdk-amd64/jmods
+                                           does not exist
+
+                                         `jlink` on such a JDK reports "Linking from run-time image
+                                         enabled" in its usage text, and with no module path given that is
+                                         what it uses. The
+                                         module list below is unchanged and still resolved the same way.
+                                         If a future JDK is built *without* the linkable-runtime capability
+                                         its `jmods` returns and pointing at it would work again — but a
+                                         path that must exist is a worse default than one that is inferred,
+                                         so leave this out either way.
+
+                                         ONE CONSEQUENCE TO KNOW BEFORE BUILDING `-Pdist` LOCALLY: linking
+                                         from a run-time image refuses a JDK whose own config files a
+                                         distribution has patched, and Fedora patches `java.security` for
+                                         crypto-policies. So on Fedora's `java-25-openjdk` this fails with
+
+                                           Error: /usr/lib/jvm/java-25-openjdk/conf/security/java.security
+                                           has been modified
+
+                                         — and it is not this pom: a bare `jlink` run by hand on that JDK
+                                         says the same. Build the installers with an upstream
+                                         JDK (Temurin, or anything under ~/.jdks), which is what the CI
+                                         runners use. -->
                                     <addModules>
                                         <addModule>java.base</addModule>
                                         <addModule>java.compiler</addModule>
