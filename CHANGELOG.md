@@ -10,7 +10,7 @@ date it.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
-## [Unreleased]
+## [1.0.32] — 2026-09-02
 
 - **New projects declare what the editor needs to show you the SDK's own screens.** A generated `pom.xml`
   now lists the widget toolkit, JavaFX, the pilot's server and its QR encoder at `provided` scope. They are
