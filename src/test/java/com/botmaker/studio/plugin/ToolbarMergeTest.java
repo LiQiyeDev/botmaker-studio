@@ -129,18 +129,20 @@ class ToolbarMergeTest {
     }
 
     /**
-     * The bundled SDK plugin contributes the Pilot button, and Studio's own bar no longer builds one.
+     * With no project bound the bar carries no plugin items at all.
      *
-     * <p>This used to assert the opposite — that the bundled set offered nothing — as a guard against the bar
-     * showing the same button twice while the pilot was still Studio's. The pilot moved to the SDK on
-     * 2026-08-30, so the guard is inverted rather than deleted: a bar with no Pilot item at all means the
-     * merge stopped reaching the bundled plugin, which is exactly as invisible as a duplicate would have been.
+     * <p>This assertion has now been inverted twice, and both inversions are the same fact seen from
+     * different sides. It first said the bundled set offered nothing — a guard against the bar showing the
+     * Pilot button twice while the pilot was still Studio's. When the pilot moved to the SDK plugin
+     * (2026-08-30) it said the opposite, that the bundled set must contribute it. On 2026-09-02 Studio
+     * stopped depending on the SDK altogether, so it bundles no plugin and the bar is empty again — but for
+     * the opposite reason: not because the host builds these buttons, because nothing is loaded until a
+     * project is.
      */
     @Test
-    void the_bundled_set_contributes_the_pilot_button() {
-        assertFalse(PluginHost.plugins().isEmpty(), "the bundled set is empty; see PluginHostLoadTest");
-        assertTrue(ids(PluginHost.toolbarItems()).stream().anyMatch(id -> id.contains("pilot")),
-                "the SDK plugin's Pilot item is not in the merged bar — either it stopped contributing it or"
-                        + " the merge stopped reaching the bundled plugins");
+    void an_unbound_host_contributes_no_plugin_items() {
+        assertTrue(PluginHost.plugins().isEmpty(), "Studio bundles no plugin: " + PluginHost.plugins());
+        assertTrue(PluginHost.toolbarItems().isEmpty(),
+                "the bar carries plugin items with nothing loaded: " + ids(PluginHost.toolbarItems()));
     }
 }

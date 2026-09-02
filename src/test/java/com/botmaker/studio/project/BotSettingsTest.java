@@ -18,8 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * {@code botmaker-project.properties} is the storage format for the bot's runtime tuning, so what matters is
  * that every value written can be read back, that an absent key degrades to its default rather than failing,
- * and — the part that would bite an existing project — that a project still carrying a generated
- * {@code BotSettings.java} is migrated without losing what it was tuned to.
+ * and that an absent key degrades to its default rather than failing.
  */
 class BotSettingsTest {
 
@@ -28,10 +27,6 @@ class BotSettingsTest {
         Files.createDirectories(config.mainSourceFile().getParent());
         Files.createDirectories(config.resourcesRoot());
         return config;
-    }
-
-    private static Path legacyFile(ProjectConfig config) {
-        return config.mainSourceFile().getParent().resolve("BotSettings.java");
     }
 
     @Test
@@ -89,118 +84,9 @@ class BotSettingsTest {
         assertEquals(BotSettings.DEFAULTS, BotSettings.read(root.resolve("nope")));
     }
 
-    // --- migration off the generated file ---
-
-    /** A generated {@code BotSettings.java} in the shape the previous Studio wrote. */
-    private static String generatedFile(String body) {
-        return """
-            package com.mybot;
-
-            import com.botmaker.sdk.api.vision.ClickConfig;
-
-            public final class BotSettings {
-
-                public static void apply() {
-            %s    }
-
-                private BotSettings() {}
-            }
-            """.formatted(body);
-    }
-
-    @Test
-    void migrationCarriesEveryTunedValueIntoTheProjectFile(@TempDir Path root) throws IOException {
-        ProjectConfig config = project(root);
-        Files.writeString(legacyFile(config), generatedFile("""
-                    System.setProperty("botmaker.linux.input", "uinput");
-                    Session.disable();
-                    Session.useBackend("xephyr");
-                    ClickConfig.useRealInput(true);
-                    ClickConfig.setFoundDelay(750);
-                    ClickConfig.setNotFoundDelay(125);
-                    ClickConfig.setDefaultConfidence(0.62);
-                    ClickConfig.enableRandomClicks(false);
-                    ClickConfig.DEFAULT_COMPARE_MARGIN = 0.11;
-                    ClickConfig.setMaxRetryAttempts(7);
-            """));
-        Files.writeString(config.mainSourceFile(), """
-            package com.mybot;
-
-            import com.botmaker.sdk.api.bot.Bot;
-
-            public class MyBot {
-                public static void main(String[] args) {
-                    BotSettings.apply();
-                    Bot.start(FlowDriver::run, GoHome.INSTANCE::execute);
-                }
-            }
-            """);
-
-        String updated = BotSettings.migrate(config);
-
-        assertEquals(new BotSettings(true, 750, 125, 0.62, false, 0.11, 7,
-                        LinuxInputBackendId.UINPUT, false, BotSettings.SessionBackend.XEPHYR),
-                BotSettings.read(config.resourcesRoot()),
-                "everything the project was tuned to has to survive the move");
-        assertFalse(Files.exists(legacyFile(config)),
-                "the generated file calls a facade that no longer exists — leaving it breaks the build");
-        assertNotNull(updated, "the entry point is rewritten, so the caller can refresh its cached copy");
-        assertFalse(updated.contains("BotSettings.apply()"), "nothing left to call:\n" + updated);
-        assertTrue(updated.contains("Bot.start("), "the rest of main is untouched:\n" + updated);
-    }
-
-    @Test
-    void migrationLeavesSettingsTheGeneratedFileNeverMentionedAlone(@TempDir Path root) throws IOException {
-        ProjectConfig config = project(root);
-        // Isolation was always written to the properties file too, and that copy is the one Studio read. A
-        // generated file that says nothing about Session must not now reset it to the default.
-        ProjectCreator.writeSessionIsolated(config.resourcesRoot(), false);
-        Files.writeString(legacyFile(config), generatedFile("        ClickConfig.setFoundDelay(750);\n"));
-        Files.writeString(config.mainSourceFile(), "package com.mybot;\npublic class MyBot { }\n");
-
-        BotSettings.migrate(config);
-
-        BotSettings after = BotSettings.read(config.resourcesRoot());
-        assertEquals(750, after.foundDelay());
-        assertFalse(after.isolatedSession(), "the key the generated file never mentioned has to survive");
-    }
-
-    @Test
-    void migrationHandlesTheOlderInlineCallInMain(@TempDir Path root) throws IOException {
-        ProjectConfig config = project(root);
-        // Older still: before the generated file existed, real input was one call in main.
-        Files.writeString(config.mainSourceFile(), """
-            package com.mybot;
-
-            import com.botmaker.sdk.api.bot.Bot;
-            import com.botmaker.sdk.api.vision.ClickConfig;
-
-            public class MyBot {
-                public static void main(String[] args) {
-                    ClickConfig.useRealInput(true);
-                    Bot.start(FlowDriver::run, GoHome.INSTANCE::execute);
-                }
-            }
-            """);
-
-        String updated = BotSettings.migrate(config);
-
-        assertTrue(BotSettings.read(config.resourcesRoot()).realInput(),
-                "the setting the project had must survive the move");
-        assertNotNull(updated, updated);
-        assertFalse(updated.contains("useRealInput"), "the inline call is removed, not duplicated:\n" + updated);
-        assertFalse(updated.contains("import com.botmaker.sdk.api.vision.ClickConfig;"),
-                "the now-unused import goes with the call it served:\n" + updated);
-    }
-
-    @Test
-    void migrationIsANoOpOnAProjectThatHasNeitherForm(@TempDir Path root) throws IOException {
-        ProjectConfig config = project(root);
-        BotSettings.write(config.resourcesRoot(), BotSettings.DEFAULTS.withRealInput(true));
-        Files.writeString(config.mainSourceFile(), "package com.mybot;\npublic class MyBot { }\n");
-
-        assertNull(BotSettings.migrate(config), "nothing to migrate — and nothing rewritten");
-        assertTrue(BotSettings.read(config.resourcesRoot()).realInput(),
-                "an already-migrated project's values are never re-seeded");
-    }
+    // The four migration tests stood here until 2026-09-02, with generatedFile() and legacyFile() to
+    // stage the fixture: a generated BotSettings.java full of ClickConfig.* and Session.* calls that
+    // BotSettings.migrate read back with regexes. They go with that method — matching one plugin's facade
+    // calls in the user's own source is not something the editor can own, because the editor does not know
+    // what a ClickConfig is.
 }

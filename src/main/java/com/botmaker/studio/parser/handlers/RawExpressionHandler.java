@@ -11,8 +11,8 @@ import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 
 /**
  * Replaces an expression slot with a parsed Java <em>expression snippet</em> (e.g.
- * {@code com.botmaker.sdk.api.capture.CaptureSource.screen()}). Used where the exact source text is known up
- * front — the capture-source picker emits a fully-qualified inline call, which is simpler and more robust than
+ * {@code com.example.plugin.CaptureSource.screen()}). Used where the exact source text is known up
+ * front — a plugin's slot editor emits a fully-qualified inline call, which is simpler and more robust than
  * building the equivalent {@code MethodInvocation} AST by hand (a fully-qualified name needs no import mgmt).
  */
 public final class RawExpressionHandler {
@@ -27,7 +27,7 @@ public final class RawExpressionHandler {
     /**
      * As above, additionally importing {@code importFqn} — for a snippet that names a type by its
      * <em>simple</em> name ({@code Precision.TIGHT}). The fully-qualified alternative needs no import but puts
-     * {@code com.botmaker.sdk.api.vision.Precision.TIGHT} in the user's source, and these two read as
+     * {@code com.example.plugin.Precision.TIGHT} in the user's source, and these two read as
      * documentation at the call site or they are not worth being types at all.
      */
     public static String replaceWithExpression(CompilationUnit cu, String originalCode,

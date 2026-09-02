@@ -1058,7 +1058,7 @@ public class ProjectAnalyzer {
     /**
      * Like {@link #createTypeNode(AST, ResolvedType)} but always uses the type's SIMPLE (leaf) name. For callers
      * that also add an {@code import}, so the generated source reads {@code Point}, not
-     * {@code com.botmaker.sdk.api.geometry.Point}.
+     * {@code com.example.plugin.geometry.Point}.
      */
     public static Type createSimpleTypeNode(AST ast, ResolvedType type) {
         if (type == null || type.isUnknown()) return ast.newSimpleType(ast.newSimpleName("Object"));
@@ -1315,7 +1315,7 @@ public class ProjectAnalyzer {
     }
 
     /**
-     * Resolves a bytecode type descriptor (e.g. {@code com.botmaker.sdk.api.geometry.Direction} or
+     * Resolves a bytecode type descriptor (e.g. {@code com.example.plugin.geometry.Direction} or
      * {@code …ImageTemplate[]}) to a {@link ResolvedType}, preferring the library index so the result is
      * enum-aware ({@link ResolvedType.FromIndex}). Falls back to a name-only type for primitives / types not
      * in the index. Array/varargs suffixes are stripped and re-applied.

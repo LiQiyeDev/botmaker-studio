@@ -48,7 +48,8 @@ import java.util.Set;
  * entry somebody types by hand.
  *
  * <p><b>It parses nothing.</b> {@link TypeSummaryManager} already ClassGraph-scans the bot's <em>resolved</em>
- * SDK jar, restricted to {@code com.botmaker.sdk.api}; this reads the {@link ClassInfo} it already holds. The
+ * plugin jars, restricted to the packages those plugins catalogue; this reads the {@link ClassInfo} it
+ * already holds. The
  * {@code @Deprecated} flag likewise comes straight from bytecode (it is {@code RUNTIME}-retained), <b>not</b>
  * from parsing Javadoc — the Javadoc {@code @deprecated} <em>text</em> naming the replacement is a separate
  * concern and stays with {@link SdkDocsService}.
@@ -57,7 +58,7 @@ import java.util.Set;
  * other; it is simply not proposed. The curation queries below ({@link #isCurated},
  * {@link #offeredSignatures}, {@link #retainOffered}) are about the menus and nothing else.
  *
- * <p><b>Fail-open, deliberately.</b> When the index holds no {@code com.botmaker.sdk.api} types at all — the
+ * <p><b>Fail-open, deliberately.</b> When the index holds no catalogued types at all — the
  * jar has not resolved yet, the scan failed, the user is offline on first open — every lookup answers "yes,
  * present". A degraded probe must never hide a block the user legitimately has: a missing menu entry reads as
  * a Studio bug and has no diagnosis, whereas the pre-existing failure mode (offering something that will not
@@ -93,8 +94,8 @@ public final class SdkSurfaceService {
     // =========================================================================
 
     /**
-     * Rebuilds the snapshot from the current index. Cheap (a walk of the already-scanned
-     * {@code com.botmaker.sdk.api} classes) and safe to call from any thread — the snapshot is swapped in
+     * Rebuilds the snapshot from the current index. Cheap (a walk of the already-scanned catalogued
+     * classes) and safe to call from any thread — the snapshot is swapped in
      * whole, so a reader sees either the old map or the new one, never a half-built one.
      */
     public void refresh() {

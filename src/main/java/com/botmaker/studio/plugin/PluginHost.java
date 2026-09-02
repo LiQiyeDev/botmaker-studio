@@ -466,6 +466,32 @@ public final class PluginHost {
     }
 
     /**
+     * The packages the loaded plugins catalogue types in — what the type index treats as offerable library
+     * surface, and everything outside it is scanned for resolution but kept out of the menus.
+     *
+     * <p><b>It was the literal {@code Set.of("com.botmaker.sdk.api")} until 2026-09-02</b>, on
+     * {@code TypeSummaryManager}, which is the editor holding one plugin's package name on that plugin's
+     * behalf — the same shape as every other thing that left this year, and the last of them with real
+     * behaviour behind it. Asking the catalog is strictly better than a list: a plugin that puts its API in
+     * two packages gets both, and a plugin nobody wrote yet gets its own without an edit here.
+     *
+     * <p>Derived from {@link #bundled()} rather than a pin, because the index is built once per project
+     * <em>load</em> and outlives any one catalog lookup; a package set that changed under the index would
+     * hide types that had already been indexed as visible. Empty when no plugin is loaded, which is the
+     * honest answer — with nothing catalogued there is no curated surface, and the menus fall back to
+     * everything the bot's own classpath resolves.
+     */
+    public static Set<String> cataloguedPackages() {
+        Set<String> packages = new LinkedHashSet<>();
+        for (FacadeEntry facade : bundled().facades()) {
+            String qualified = facade.qualifiedName();
+            int dot = qualified.lastIndexOf('.');
+            if (dot > 0) packages.add(qualified.substring(0, dot));
+        }
+        return Set.copyOf(packages);
+    }
+
+    /**
      * The bundled facade with this simple name, if exactly one plugin offers it.
      *
      * <p>The import path's question, and the reason a catalog holds real {@link Class} objects rather than

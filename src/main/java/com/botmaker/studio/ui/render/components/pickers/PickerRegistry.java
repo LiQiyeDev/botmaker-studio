@@ -39,20 +39,20 @@ public final class PickerRegistry {
 
             // The Steam/Epic launch id, the program path, the trailing launch options and the bounded
             // BotSettings setters were all here until 2026-08-28. They are the SDK's now
-            // (com.botmaker.sdk.internal.plugin.editors.LaunchEditors / SettingsEditors), reached through
+            // (its own internal launch and settings editors), reached through
             // PluginPickers below like any other plugin's — they were only ever Studio's because Studio was
             // written first, which is the same reasoning that emptied the contract of the SDK's vocabulary.
 
             // Type-based.
             // The Pixel facade's strictness argument has no entry here any more either, on the same reasoning
             // as DURATION and COLOR: it is the SDK's own value type, so its editor is the SDK's
-            // (com.botmaker.sdk.internal.plugin.editors.PrecisionEditors), reached through PluginPickers
+            // (its own internal precision editor), reached through PluginPickers
             // below. Deleting this entry and the PRECISION arm of ValueEditors is what lets one editor draw
             // it in both places — the Parameters window used to show the same three numbers as bare fields,
             // with none of the swatch strip, the blob preview or the frame readout.
             // A single ImageTemplate has no entry here any more, for the same reason: a named picture is
             // ImageTemplate's own concept, so its editor is the SDK's
-            // (com.botmaker.sdk.internal.plugin.editors.TemplateEditors), reached through PluginPickers
+            // (its own internal template editor), reached through PluginPickers
             // below. Deleting this entry and the IMAGE_TEMPLATE arm of ValueEditors is what lets one editor
             // draw it in both places.
     );
@@ -84,7 +84,7 @@ public final class PickerRegistry {
             // beside it in the Parameters window: a type this list answers is a type no plugin is ever
             // offered, so leaving it here is what would stop the SDK's own colour editor being drawn.
             // Rect, Point and Size are gone from this list: they are the SDK's types, so they are the SDK's
-            // editors now (com.botmaker.sdk.internal.plugin.editors.GeometryEditors), reached through
+            // editors now (its own internal geometry editors), reached through
             // PluginPickers below exactly as any other plugin's would be.
 
             // Enum fallback (re-resolves name-only SDK types through the project/library index).

@@ -106,8 +106,8 @@ class ProjectClosingTest {
         PluginHost.bind(List.of());
         PluginHost.unbind();
 
+        // It also asserted that the set still held the SDK plugin, until 2026-09-02: Studio bundles no
+        // plugin at all now, so the bundled set is empty and identity is the whole of what there is to check.
         assertSame(before, PluginHost.plugins(), "the bundled set is never unloaded");
-        assertTrue(PluginHost.plugins().stream().anyMatch(p -> "com.botmaker.sdk".equals(p.id())),
-                "and still holds the SDK, so the palette survives a project being closed");
     }
 }

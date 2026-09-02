@@ -134,10 +134,10 @@ public sealed interface ResolvedType
     /**
      * A type by class identity — {@code ResolvedType.of(ImageTemplate.class)} rather than
      * {@code ResolvedType.named("ImageTemplate")}. Carries the <em>qualified</em> name, which the simple-name
-     * spelling never could: the SDK's facades and value types live in sub-packages, so nothing could derive
-     * {@code com.botmaker.sdk.api.vision.ImageTemplate} from the string a slot was declared with.
+     * spelling never could: a plugin's facades and value types live in its own sub-packages, so nothing could
+     * derive {@code com.example.plugin.vision.ImageTemplate} from the string a slot was declared with.
      *
-     * <p>The class literal is the point: a type renamed in the SDK breaks this build rather than a menu.
+     * <p>The class literal is the point: a type renamed under the caller's nose breaks this build, not a menu.
      */
     static ResolvedType of(Class<?> type) {
         return new Named(type.getName());

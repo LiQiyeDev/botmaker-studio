@@ -101,7 +101,7 @@ public final class ValueWire {
 
     /**
      * The Java type of the generated field — {@code int}, {@code java.time.Duration},
-     * {@code java.util.List<com.botmaker.sdk.api.geometry.Point>}.
+     * {@code java.util.List<com.example.plugin.Point>}.
      *
      * <p>Everything outside {@code java.lang} is named in full, so the generated {@code Activities} class
      * needs no import for a variable's type — the cheapest way to guarantee it never needs one that was

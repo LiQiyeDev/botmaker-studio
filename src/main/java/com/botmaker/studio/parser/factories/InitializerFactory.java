@@ -4,7 +4,6 @@ import com.botmaker.plugin.api.SourceSeed;
 import com.botmaker.studio.parser.EditContext;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
 import com.botmaker.studio.parser.helpers.DefaultValueHelper;
-import com.botmaker.studio.parser.helpers.SdkNodes;
 import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;

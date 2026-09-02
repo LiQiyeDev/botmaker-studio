@@ -1,7 +1,6 @@
 package com.botmaker.studio.parser.handlers;
 
 import com.botmaker.studio.parser.EditContext;
-import com.botmaker.studio.parser.helpers.SdkNodes;
 import org.eclipse.jdt.core.dom.*;
 import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 
@@ -32,7 +31,7 @@ public final class LambdaCallHandler {
                                                    List<Expression> leadingArgs, String lambdaParam) {
         AST ast = ctx.ast();
         MethodInvocation mi = ast.newMethodInvocation();
-        mi.setExpression(SdkNodes.name(ast, facade));
+        mi.setExpression(ast.newSimpleName(facade.getSimpleName()));
         mi.setName(ast.newSimpleName(method));
         ctx.addImport(facade);
 

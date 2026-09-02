@@ -23,7 +23,6 @@ import com.botmaker.studio.parser.handlers.TypeHandler;
 import com.botmaker.studio.parser.guard.RefusalJournal;
 import com.botmaker.studio.parser.guard.RefusedEdit;
 import com.botmaker.studio.parser.helpers.AstRewriteHelper;
-import com.botmaker.studio.parser.helpers.SdkNodes;
 import com.botmaker.studio.parser.helpers.SourceFormatter;
 import com.botmaker.studio.parser.helpers.SourceParser;
 import com.botmaker.studio.parser.refactor.CallMigrator;
@@ -732,19 +731,11 @@ public class CodeEditor {
         return ImportManager.listImports(getCompilationUnit());
     }
 
-    /**
-     * Repoints this file's SDK imports at the packages those classes live in today — see
-     * {@link ImportManager#repairSdkImports}. A no-op (and no edit, so no dirty file) when nothing is stale.
-     */
-    public List<String> repairSdkImports() {
-        List<String> repaired = new java.util.ArrayList<>();
-        edit(getCompilationUnit(), EditKind.SIGNATURE, false, (cu, code) -> {
-            ASTRewrite rewriter = ASTRewrite.create(cu.getAST());
-            repaired.addAll(ImportManager.repairSdkImports(cu, rewriter));
-            return repaired.isEmpty() ? code : AstRewriteHelper.applyRewrite(rewriter, code);
-        });
-        return List.copyOf(repaired);
-    }
+    // repairSdkImports() stood here until 2026-09-02. It repointed a bot's `com.botmaker.sdk.api.*` and
+    // `com.botmaker.shared.ocr.*` imports at wherever those classes had moved to, which is the editor
+    // carrying one library's package-move history. A plugin that renames its own types says so with
+    // @ReplacedBy, which the migration path already reads; a package move nobody declared is a compile
+    // error in a line the user can read, which is the honest outcome.
 
     public void addImport(String qualifiedName) {
         edit(getCompilationUnit(), EditKind.SIGNATURE, false, (cu, code) -> {

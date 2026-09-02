@@ -19,10 +19,9 @@
         <botmaker.shared.version>0.0.0-SNAPSHOT</botmaker.shared.version>
         <!-- botmaker-session version. Same contract as botmaker.shared.version above. -->
         <botmaker.session.version>0.0.0-SNAPSHOT</botmaker.session.version>
-        <!-- botmaker-sdk version. Same contract again. Studio compiles against the SDK for *type identity*
-             only (palette/SdkType); the methods and Javadoc a bot is offered still come from the SDK version
-             that bot pins, resolved at runtime. -->
-        <botmaker.sdk.version>0.0.0-SNAPSHOT</botmaker.sdk.version>
+        <!-- botmaker.sdk.version was here and is gone with the dependency it versioned (2026-09-02).
+             Studio resolves no SDK at all now; the only SDK a running Studio sees is the one the open
+             project's own pom pins, resolved onto that project's classpath. See the dependency section. -->
         <!-- botmaker-studio-api version: the plugin contract Studio hosts. Same contract again. Studio is
              the *host* side of it — it implements SlotContext/StudioServices and consumes what a plugin
              contributes. -->
@@ -91,17 +90,25 @@
             <version>${botmaker.session.version}</version>
         </dependency>
 
-        <!-- The BotMaker SDK — for TYPE IDENTITY ONLY. palette/SdkType names the api.* facades and value
-             types as real class literals, so the facade set, its FQNs (they live in sub-packages:
-             api.vision.ImageFinder, api.capture.Window) and the import path are compiler-checked instead of
-             hand-mirrored strings. Studio deliberately does NOT read methods or Javadoc from this jar: a bot
-             compiles against the SDK version *it* pins, which may be older, so method knowledge stays with
-             ProjectAnalyzer/ClassGraph and SdkDocsService over the bot's own resolved jars. -->
-        <dependency>
-            <groupId>com.github.LiQiyeDev</groupId>
-            <artifactId>botmaker-sdk</artifactId>
-            <version>${botmaker.sdk.version}</version>
-        </dependency>
+        <!-- botmaker-sdk stood here until 2026-09-02 and is GONE, which is the end of the migration this
+             module has been under all year. It was `compile` scope and described as "for type identity
+             only": palette/SdkType named the api.* facades as class literals. SdkType was deleted in
+             plugin-platform phase 7, the palette became a plugin contribution, and everything since —
+             the pilot, capture, the picture library, the value vocabulary, the slot editors, the geometry
+             and launch editors, the parameter groups, the macro recorder — followed it out. There is now
+             no `import com.botmaker.sdk` anywhere in src/main/java, so the dependency was buying one thing:
+             a plugin on Studio's OWN classloader.
+
+             That was PluginHost.BUNDLED, and losing it is the accepted cost, stated rather than glossed:
+             with no project open Studio can no longer resolve a bare `Point` to the SDK's, and the toolbar
+             carries no plugin items until a project binds. With a project open nothing changes — PluginHost
+             .bind() loads plugins from the PROJECT's resolved classpath, which is where a bot's own pinned
+             SDK has always come from, and which is the arrangement that makes the pin real.
+
+             The rule this leaves is the one worth keeping: the editor hosts plugins and ships none. A
+             plugin reaches a user through the project's pom (Project ▸ Manage Plugins), never through
+             Studio's. Re-adding a dependency here to make a menu look fuller would put the host back in the
+             business of shipping one plugin's vocabulary, which is the whole thing that was undone. -->
 
         <!-- The plugin contract, from the host's side: Studio implements SlotContext, StudioServices, Theme,
              Capture and Dialogs over its own editor, and reads the PaletteCatalog a plugin contributes.

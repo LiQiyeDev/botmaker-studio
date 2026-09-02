@@ -303,61 +303,17 @@ public class ImportManager {
         }
     }
 
-    /**
-     * Repoints this file's {@code com.botmaker.sdk.api.*} imports at wherever those classes live <em>now</em>,
-     * and reports what it changed.
-     *
-     * <p>SDK 1.1.0 reorganised the api package — {@code api.Point} became {@code api.geometry.Point},
-     * {@code api.Debug} became {@code api.util.Debug}, and so on. A bot written against an earlier SDK
-     * carries the old import lines, and a stale import is a hard compile error on a line the user never
-     * wrote: it would open every existing project with a wall of red for a rename nobody asked for. This is
-     * the repair, and it costs nothing because the bundled catalog already holds the current FQN for every
-     * simple name the SDK owns. SDK 1.2.0 added one more source of stale lines — {@code shared.ocr} moved
-     * into {@code api.vision} — handled by the same lookup; see {@link #SHARED_OCR_PREFIX}.
-     *
-     * <p><b>An unrecognised name is left alone, deliberately.</b> A simple name the catalog does not know
-     * is either a class that left the public API (the {@code CaptureSource} implementations, the observation
-     * stack) or one this Studio is too old to know about, and there is no honest FQN to write for either. A
-     * wrong import compiles into a different type; an untouched one fails to compile where the user can read
-     * why. Nothing a bot could actually have named falls in that gap — those classes were only ever
-     * <em>returned</em>, never written down.
-     *
-     * @return the old FQNs that were repointed, in source order — empty when the file needed nothing
-     */
-    public static List<String> repairSdkImports(CompilationUnit cu, ASTRewrite rewriter) {
-        if (cu == null) return List.of();
-        List<String> repaired = new java.util.ArrayList<>();
-        ListRewrite listRewrite = rewriter.getListRewrite(cu, CompilationUnit.IMPORTS_PROPERTY);
-        for (Object o : cu.imports()) {
-            ImportDeclaration imp = (ImportDeclaration) o;
-            if (imp.isOnDemand() || imp.isStatic()) continue;
-            String stale = imp.getName().getFullyQualifiedName();
-            if (!stale.startsWith(SDK_API_PREFIX) && !stale.startsWith(SHARED_OCR_PREFIX)) continue;
-
-            String simpleName = stale.substring(stale.lastIndexOf('.') + 1);
-            String current = PluginHost.qualifiedName(simpleName);
-            if (current == null || current.equals(stale)) continue;
-
-            ImportDeclaration fixed = cu.getAST().newImportDeclaration();
-            fixed.setName(cu.getAST().newName(current));
-            listRewrite.replace(imp, fixed, null);
-            repaired.add(stale);
-        }
-        return List.copyOf(repaired);
-    }
-
-    /** Package prefix every SDK API class shares — the scope {@link #repairSdkImports} is allowed to touch. */
-    private static final String SDK_API_PREFIX = "com.botmaker.sdk.api.";
-
-    /**
-     * The second scope, and the only non-SDK one: SDK 1.2.0 moved {@code com.botmaker.shared.ocr} into the
-     * SDK, so a bot that tuned OCR carries {@code import com.botmaker.shared.ocr.OcrOptions;} and would open
-     * with a compile error on a line it never wrote. The three names a bot could have written down —
-     * {@code OcrOptions}, {@code OcrLanguage}, {@code TextResult} — are all in the catalog now, so the same
-     * simple-name lookup below answers them; the engine classes are internal and were never importable.
-     * This is a fixed, closed list of one dead package, not an invitation to repair arbitrary imports.
-     */
-    private static final String SHARED_OCR_PREFIX = "com.botmaker.shared.ocr.";
+    // repairSdkImports stood here until 2026-09-02, with two hard-coded package prefixes:
+    // "com.botmaker.sdk.api." and "com.botmaker.shared.ocr.". It repointed a bot's stale import lines at
+    // wherever the catalog said those simple names lived now, so that SDK 1.1.0's api reorganisation and
+    // 1.2.0's move of the OCR package did not open every existing project with a wall of red.
+    //
+    // It goes because those two constants are the editor holding one library's package-move history, and
+    // because the editor no longer resolves that library at all: with no bundled plugin the catalog it
+    // consulted is empty until a project binds, and a repair that runs on open would have nothing to look
+    // names up in. A plugin that renames its own types declares it with @ReplacedBy, which the migration
+    // path reads; a package move nobody declared is a compile error on a line the user can read, which is
+    // the honest outcome and the one this method's own javadoc preferred for unrecognised names anyway.
 
     /** The fully-qualified names of the current file's import declarations, in source order. */
     public static List<String> listImports(CompilationUnit cu) {

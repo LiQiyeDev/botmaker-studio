@@ -17,7 +17,7 @@ public final class ResolutionChoices {
     /**
      * A width and a height in pixels.
      *
-     * <p>It was {@code com.botmaker.sdk.authoring.CaptureModel.Resolution}, which made a dropdown of standard
+     * <p>It was a nested type of the capture plugin's own model, which made a dropdown of standard
      * screen sizes depend on the plugin that owns {@code capture.json}. The size a project's <em>pictures</em>
      * are captured at is indeed that plugin's — and left with it — but "1920 × 1080" is a fact about screens,
      * and the overlay's own readout needs one without asking anybody.

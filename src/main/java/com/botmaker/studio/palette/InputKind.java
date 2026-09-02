@@ -16,10 +16,10 @@ import java.util.Optional;
  * method, type and label in one constant.
  *
  * <p>The marker itself stays a {@code String} on purpose. {@link #MARKER_PREFIX} is a cross-process protocol
- * shared with {@code com.botmaker.sdk.api.util.BotMaker}, which Studio does not compile against for method
- * knowledge — so it is hoisted to one constant here, not restructured. The parse is total: a marker from a
- * newer SDK naming a read this Studio has never heard of yields {@link Optional#empty()} and the caller falls
- * back to a generic prompt, rather than failing the running bot's input popup.
+ * between the editor and whatever a running bot prints on it, and the editor compiles against none of that —
+ * so it is hoisted to one constant here, not restructured. The parse is total: a marker naming a read this
+ * Studio has never heard of yields {@link Optional#empty()} and the caller falls back to a generic prompt,
+ * rather than failing the running bot's input popup.
  */
 public enum InputKind {
 

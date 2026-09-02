@@ -4,7 +4,6 @@ import com.botmaker.studio.palette.BlockType;
 import com.botmaker.studio.palette.Initializer;
 import com.botmaker.studio.parser.EditContext;
 import com.botmaker.studio.parser.handlers.LambdaCallHandler;
-import com.botmaker.studio.parser.helpers.SdkNodes;
 import com.botmaker.studio.project.ProjectState;
 import com.botmaker.studio.services.SdkSurfaceService;
 import com.botmaker.studio.suggestions.ProjectAnalyzer;
@@ -170,7 +169,7 @@ public class StatementFactory {
     private static Statement buildLibraryCall(EditContext ctx, BlockType.LibraryCall l) {
         AST ast = ctx.ast();
         MethodInvocation mi = ast.newMethodInvocation();
-        mi.setExpression(SdkNodes.name(ast, l.facade()));
+        mi.setExpression(ast.newSimpleName(l.facade().getSimpleName()));
         mi.setName(ast.newSimpleName(l.method()));
         ctx.addImport(l.facade());
         if (!l.args().isEmpty()) {

@@ -1,7 +1,8 @@
 package com.botmaker.studio.types;
 
-import com.botmaker.sdk.api.vision.ImageTemplate;
 import org.junit.jupiter.api.Test;
+
+import java.time.LocalDate;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -54,7 +55,7 @@ class SlotFitTest {
         assertFalse(TypeExpectation.fits(ResolvedType.BOOLEAN, ResolvedType.VOID));
         assertFalse(TypeExpectation.fits(ResolvedType.UNKNOWN, ResolvedType.VOID), "not even an unknown slot");
         assertFalse(TypeExpectation.fits(null, ResolvedType.VOID));
-        assertFalse(TypeExpectation.fits(ResolvedType.of(ImageTemplate.class), ResolvedType.named("void")),
+        assertFalse(TypeExpectation.fits(ResolvedType.of(LocalDate.class), ResolvedType.named("void")),
                 "the dragboard carries the name, so the name has to answer the same way");
     }
 
@@ -62,10 +63,13 @@ class SlotFitTest {
     void anObjectSlotComparesNames() {
         // Neither side falls into one of the four categories, so the name is all there is to go on. The
         // simple name counts because a slot is routinely declared with the bare identifier the source wrote.
-        ResolvedType template = ResolvedType.of(ImageTemplate.class);
-        assertTrue(TypeExpectation.fits(template, ResolvedType.named(ImageTemplate.class.getSimpleName())));
-        assertFalse(TypeExpectation.fits(template, ResolvedType.of(JdkType.STRING)));
-        assertFalse(TypeExpectation.fits(template, ResolvedType.named("com.example.Other")));
+        // The fixture was the SDK's ImageTemplate until 2026-09-02, and it is a JDK type now because Studio
+        // resolves no SDK at all: what this asserts is name reasoning over an ordinary object type, which
+        // any class outside the four categories exercises equally.
+        ResolvedType object = ResolvedType.of(LocalDate.class);
+        assertTrue(TypeExpectation.fits(object, ResolvedType.named(LocalDate.class.getSimpleName())));
+        assertFalse(TypeExpectation.fits(object, ResolvedType.of(JdkType.STRING)));
+        assertFalse(TypeExpectation.fits(object, ResolvedType.named("com.example.Other")));
     }
 
     /**
@@ -82,7 +86,7 @@ class SlotFitTest {
                 SlotFit.refusal(ResolvedType.BOOLEAN, ResolvedType.VOID));
         assertEquals("This slot needs a yes/no, and that line gives int.",
                 SlotFit.refusal(ResolvedType.BOOLEAN, ResolvedType.named("int")));
-        assertEquals("This slot needs a ImageTemplate, and that line gives String.",
-                SlotFit.refusal(ResolvedType.of(ImageTemplate.class), ResolvedType.of(JdkType.STRING)));
+        assertEquals("This slot needs a LocalDate, and that line gives String.",
+                SlotFit.refusal(ResolvedType.of(LocalDate.class), ResolvedType.of(JdkType.STRING)));
     }
 }

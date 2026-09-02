@@ -38,50 +38,33 @@ final class SdkApiModel {
     /**
      * The forward pointer, on the deprecated element. Class-retained, so it survives into the jar.
      *
-     * <p>This is the spelling as of the 2026-08-27 move into the plugin contract, and it is where the
-     * vocabulary stays: it is every plugin's, not the SDK's. The two below are older jars' spellings, and
-     * <b>all three are read</b> — see {@link #REPLACED_BY_LEGACY} for why a reader that only knows the
-     * current name silently turns old redirects into unpaired breaks.
+     * <p>This is the spelling as of the 2026-08-27 move into the plugin contract, and since 2026-09-02 it is
+     * the <b>only</b> one read: the vocabulary is every plugin's, not the SDK's, and knowing three
+     * historical package names for one plugin's annotations was that plugin's history written down here.
      */
     private static final String REPLACED_BY = "com.botmaker.plugin.api.meta.ReplacedBy";
 
     /** @see #REPLACED_BY */
     private static final String REPLACES = "com.botmaker.plugin.api.meta.Replaces";
 
-    /** Where the pointers lived between SDK 1.1.0 and the move into the contract. */
-    private static final String REPLACED_BY_SDK = "com.botmaker.sdk.api.meta.ReplacedBy";
-
-    /** @see #REPLACED_BY_SDK */
-    private static final String REPLACES_SDK = "com.botmaker.sdk.api.meta.Replaces";
-
-    /**
-     * Where the pointers lived before SDK 1.1.0 moved them into {@code api.meta}. Both spellings are read,
-     * and the legacy one is not a courtesy: the jar being upgraded <em>from</em> is by definition the older
-     * of the two, and for a bot coming off 1.0.x it is the only jar carrying the forward pointer on the
-     * element that bot still calls. Reading only the new name would silently turn every pre-1.1.0 redirect
-     * into an unpaired break — the exact failure the pointer pair exists to prevent.
-     */
-    private static final String REPLACED_BY_LEGACY = "com.botmaker.sdk.api.ReplacedBy";
-
-    /** @see #REPLACED_BY_LEGACY */
-    private static final String REPLACES_LEGACY = "com.botmaker.sdk.api.Replaces";
-
     /**
      * The release an element first appeared in, which is what gives "What's new" its eras.
-     *
-     * <p>There is no pre-{@code api.meta} spelling to read for this one or for {@link #SCAFFOLDING}, and
-     * that is a fact about the SDK rather than an omission: both were introduced in the same unreleased
-     * window that moved the whole surface into {@code api.meta}, so no published jar has ever carried them
-     * under {@code api}. The 2026-08-27 move into the contract does leave two, read the same way as the
-     * pointers above.
      */
     private static final String SINCE = "com.botmaker.plugin.api.meta.Since";
 
-    /** @see #SINCE */
-    private static final String SINCE_SDK = "com.botmaker.sdk.api.meta.Since";
-
-    /** Marks a member Studio's own generated files write — see {@code Report.scaffolding()}. */
-    private static final String SCAFFOLDING = "com.botmaker.sdk.api.meta.Scaffolding";
+    // Four more spellings stood here until 2026-09-02 and were read alongside the two above:
+    // com.botmaker.sdk.api.meta.{ReplacedBy,Replaces,Since} (where they lived between SDK 1.1.0 and the move
+    // into the contract), com.botmaker.sdk.api.{ReplacedBy,Replaces} (where they lived before 1.1.0) and
+    // com.botmaker.sdk.api.meta.Scaffolding.
+    //
+    // They go because this class reads *any* plugin's jar, and a reader that knows three historical package
+    // names for one plugin's annotations is that plugin's history written down in the editor. The vocabulary
+    // is the contract's — com.botmaker.plugin.api.meta — and a plugin that wants its renames honoured uses
+    // it. The SDK keeps its own names as deprecated shims pointing there, which is what @ReplacedBy is for.
+    //
+    // The accepted cost: a bot upgrading off a pre-2026-08-27 SDK jar sees its redirects as unpaired breaks
+    // rather than as pointers, so the repair marks @NeedsReview instead of rewriting the call. Scaffolding
+    // was already dead — Studio has generated no scaffold since 2026-08-25.
 
     /** A constructor has no name of its own; this is how the pointer grammar spells one. */
     static final String CTOR = SdkReferences.CTOR;
@@ -225,7 +208,7 @@ final class SdkApiModel {
     // =========================================================================
 
     /**
-     * Scans one SDK jar down to its {@code com.botmaker.sdk.api} classes. Goes through
+     * Scans one library jar down to the classes its plugin catalogues. Goes through
      * {@link TypeSummaryManager} rather than ClassGraph directly so the scan lands in the same per-jar disk
      * cache everything else uses — comparing against a given target version is fast the second time.
      */
@@ -254,10 +237,10 @@ final class SdkApiModel {
                     : lastSegment(mi.getTypeSignatureOrTypeDescriptor().getResultType().toString());
             byName.computeIfAbsent(name, k -> new ArrayList<>())
                     .add(new ApiMember(name, type, paramsOf(mi), false,
-                            Pointer.of(either(mi.getAnnotationInfo(), REPLACED_BY, REPLACED_BY_SDK, REPLACED_BY_LEGACY)),
-                            claims(either(mi.getAnnotationInfo(), REPLACES, REPLACES_SDK, REPLACES_LEGACY)),
-                            text(either(mi.getAnnotationInfo(), SINCE, SINCE_SDK), "value"),
-                            mi.hasAnnotation(SCAFFOLDING)));
+                            Pointer.of(either(mi.getAnnotationInfo(), REPLACED_BY)),
+                            claims(either(mi.getAnnotationInfo(), REPLACES)),
+                            text(either(mi.getAnnotationInfo(), SINCE), "value"),
+                            false));
             // A name counts as deprecated only when every overload carrying it is — same rule as
             // SdkSurfaceService, and for the same reason: the user reads a name, not an overload.
             (mi.hasAnnotation(Deprecated.class.getName()) ? deprecatedNames : liveNames).add(name);
@@ -269,10 +252,10 @@ final class SdkApiModel {
             byName.computeIfAbsent(fi.getName(), k -> new ArrayList<>())
                     .add(new ApiMember(fi.getName(), lastSegment(fi.getTypeDescriptor().toString()),
                             List.of(), true,
-                            Pointer.of(either(fi.getAnnotationInfo(), REPLACED_BY, REPLACED_BY_SDK, REPLACED_BY_LEGACY)),
-                            claims(either(fi.getAnnotationInfo(), REPLACES, REPLACES_SDK, REPLACES_LEGACY)),
-                            text(either(fi.getAnnotationInfo(), SINCE, SINCE_SDK), "value"),
-                            fi.hasAnnotation(SCAFFOLDING)));
+                            Pointer.of(either(fi.getAnnotationInfo(), REPLACED_BY)),
+                            claims(either(fi.getAnnotationInfo(), REPLACES)),
+                            text(either(fi.getAnnotationInfo(), SINCE), "value"),
+                            false));
             (fi.hasAnnotation(Deprecated.class.getName()) ? deprecatedNames : liveNames).add(fi.getName());
         }
         deprecatedNames.removeAll(liveNames);
@@ -280,9 +263,9 @@ final class SdkApiModel {
         ci.getSuperclasses().forEach(parent -> supertypes.add(parent.getSimpleName()));
         ci.getInterfaces().forEach(parent -> supertypes.add(parent.getSimpleName()));
         return new ApiClass(ci.getName(), ci.getSimpleName(),
-                Pointer.of(either(ci.getAnnotationInfo(), REPLACED_BY, REPLACED_BY_SDK, REPLACED_BY_LEGACY)),
-                claims(either(ci.getAnnotationInfo(), REPLACES, REPLACES_SDK, REPLACES_LEGACY)),
-                text(either(ci.getAnnotationInfo(), SINCE, SINCE_SDK), "value"), ci.hasAnnotation(SCAFFOLDING),
+                Pointer.of(either(ci.getAnnotationInfo(), REPLACED_BY)),
+                claims(either(ci.getAnnotationInfo(), REPLACES)),
+                text(either(ci.getAnnotationInfo(), SINCE), "value"), false,
                 ci.hasAnnotation(Deprecated.class.getName()), Set.copyOf(supertypes),
                 Map.copyOf(byName), Set.copyOf(deprecatedNames));
     }
@@ -428,7 +411,7 @@ final class SdkApiModel {
     // THE POINTER GRAMMAR
     // =========================================================================
 
-    /** {@code com.botmaker.sdk.api.Key#ENTER} → {@code ENTER}; a name with no {@code #} is its own answer. */
+    /** {@code com.example.plugin.Key#ENTER} → {@code ENTER}; a name with no {@code #} is its own answer. */
     static String memberPart(String key) {
         int hash = key.indexOf('#');
         return hash < 0 ? key : key.substring(hash + 1);

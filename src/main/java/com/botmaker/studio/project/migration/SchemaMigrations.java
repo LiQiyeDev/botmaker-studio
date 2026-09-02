@@ -128,18 +128,17 @@ public final class SchemaMigrations {
     private static final List<SchemaMigration> SETTINGS_STEPS = List.of();
 
     /**
-     * <b>0 → 1: the bot's runtime tuning moved into this file.</b> Click delays, vision confidence, real input
-     * and the retry count used to be a generated {@code BotSettings.java} calling the SDK facade (or, older
-     * still, an inline {@code ClickConfig} call in the entry point). {@link BotSettings#migrate} reads
-     * whichever form it finds, writes the eight keys here, and rewrites the entry point.
+     * <b>0 → 1 stood here and is a no-op since 2026-09-02.</b> It moved a bot's runtime tuning out of a
+     * generated {@code BotSettings.java} — click delays, vision confidence, real input, the retry count —
+     * by matching one plugin's facade calls with regexes over the user's own source. That is not a schema
+     * migration the editor can own: it knew what a {@code ClickConfig} was, and the editor does not.
+     *
+     * <p>The step is kept as a no-op rather than removed so the version numbering does not shift under
+     * projects that already record themselves as being at 1. A project still at 0 is simply moved to 1 with
+     * nothing rewritten; if it carries a generated {@code BotSettings.java}, that file stays and will not
+     * compile against a current SDK.
      */
-    private static final List<SchemaMigration> PROPERTIES_STEPS = List.of(
-            ctx -> {
-                String rewrittenMain = BotSettings.migrate(ctx.config());
-                ctx.mainRewritten().accept(rewrittenMain);
-                return rewrittenMain == null ? null
-                        : "Moved this project's input and vision tuning into its project properties.";
-            });
+    private static final List<SchemaMigration> PROPERTIES_STEPS = List.of(ctx -> null);
 
     /** The ordered steps for {@code file}. Index <i>i</i> migrates version <i>i</i> to <i>i+1</i>. */
     public static List<SchemaMigration> stepsFor(SchemaFile file) {

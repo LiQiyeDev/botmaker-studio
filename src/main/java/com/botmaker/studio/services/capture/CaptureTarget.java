@@ -9,7 +9,7 @@ import com.botmaker.shared.config.CaptureSourceKind;
  *
  * <p>This is not the project's capture target. That is {@code capture.json}, it describes what the <em>bot</em>
  * looks at, and it belongs to the plugin that owns {@code CaptureSource} — which is why
- * {@code com.botmaker.sdk.authoring.CaptureTargetModel} is not named here and Studio no longer reads that file.
+ * that plugin's own model of a capture target is not named here and Studio no longer reads that file.
  *
  * <p>What Studio still needs, and what this is, is a way to say <b>which window the editor is drawing over</b>.
  * The overlay editor is Studio's (see {@code docs/refactor/24-plugin-platform.md} §2), and a window to draw on

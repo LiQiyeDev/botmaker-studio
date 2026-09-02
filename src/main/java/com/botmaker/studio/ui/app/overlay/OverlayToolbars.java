@@ -16,10 +16,10 @@ import java.util.function.BooleanSupplier;
  *
  * <h2>Why this is a second copy, and why that is the right answer</h2>
  *
- * <p>The same two methods exist in the SDK plugin, as {@code OverlayStage}, and from 2026-08-30 to 2026-09-01
- * this class was a three-line delegation to them — the last Studio source that named a
- * {@code com.botmaker.sdk.internal} type, which is the editor reaching into a plugin's private package and is
- * worse than any duplication. So the implementation came back.
+ * <p>The same two methods exist in the default plugin, and from 2026-08-30 to 2026-09-01 this class was a
+ * three-line delegation to them — the last Studio source that named a plugin's {@code internal} type, which
+ * is the editor reaching into a private package and is worse than any duplication. So the implementation
+ * came back.
  *
  * <p>There is no third home for it, and the reason is worth stating so nobody spends an afternoon looking for
  * one. The promotion is {@code botmaker-shared}'s {@link NativeControllerFactory} plus a JavaFX {@link Stage},

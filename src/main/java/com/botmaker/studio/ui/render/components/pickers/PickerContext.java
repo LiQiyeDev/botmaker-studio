@@ -35,7 +35,7 @@ public record PickerContext(CodeEditorService context, ValueSlot arg, ResolvedTy
 
     // The four Game predicates — the program path, the trailing launch options, and the Steam and Epic launch
     // ids — went with their editors on 2026-08-28 (plugin platform, phase 12c). They are
-    // com.botmaker.sdk.internal.plugin.editors.CallSites now, written against SlotContext's enclosingClass /
+    // that plugin's own call-site matchers now, written against SlotContext's enclosingClass /
     // enclosingMethod / argIndex, which is the same three facts this record carries and is what the contract
     // exposes them for.
 

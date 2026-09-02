@@ -66,11 +66,18 @@ class ParameterModelTest {
                 variable("accent", COLOR).withValue("mauve").value(), "unreadable reads as white");
     }
 
-    /** A fresh image variable names the template every project ships, not an empty chip nothing can run on. */
+    /**
+     * A type no loaded plugin registers keeps its stored text rather than being coerced or dropped.
+     *
+     * <p>This asserted the SDK's own default template name until 2026-09-02. It cannot any more, and the
+     * reason is the assertion: Studio bundles no plugin, so in a headless test nothing registers
+     * {@code IMAGE_TEMPLATE} and it resolves to {@link ValueType#unknown}. That is the ordinary state of a
+     * project opened without one of its plugins, and what matters about it is that the value survives —
+     * an unknown type renders read-only and declines to emit, it never loses what the file said.
+     */
     @Test
-    void aFreshImageVariablePointsAtTheDefaultTemplate() {
-        assertEquals(List.of(com.botmaker.sdk.authoring.TemplateLibrary.DEFAULT_TEMPLATE_NAME),
-                variable("target", IMAGE_TEMPLATE).value());
+    void aTypeNoPluginRegistersKeepsItsStoredValue() {
+        assertEquals(List.of("ore.png"), variable("target", IMAGE_TEMPLATE).withValue("ore.png").value());
     }
 
     /**

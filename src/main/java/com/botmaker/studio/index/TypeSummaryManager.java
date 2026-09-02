@@ -1,6 +1,7 @@
 package com.botmaker.studio.index;
 
 import com.botmaker.shared.config.CacheDirs;
+import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.studio.util.ClassPathManager;
 import io.github.classgraph.ClassGraph;
 import io.github.classgraph.ClassInfo;
@@ -26,12 +27,18 @@ public class TypeSummaryManager {
 
     /**
      * Package prefixes whose classes are exposed to the user as "allowed" library types. Everything indexed
-     * outside these prefixes (the SDK's {@code internal} package and all transitive dependencies — opencv,
-     * jackson, eclipse, ddmlib…) is still scanned for resolution-completeness but hidden from the type and
-     * expression menus, keeping the bot-builder surface curated. Future work ("import other users' bots")
-     * extends this set rather than special-casing it.
+     * outside these prefixes (a plugin's own {@code internal} package and all transitive dependencies —
+     * opencv, jackson, eclipse, ddmlib…) is still scanned for resolution-completeness but hidden from the
+     * type and expression menus, keeping the bot-builder surface curated.
+     *
+     * <p><b>It was the literal {@code "com.botmaker.sdk.api"} until 2026-09-02</b>, which made this class
+     * the last place in the editor holding one plugin's package name. It asks the loaded plugins now —
+     * {@link PluginHost#cataloguedPackages()} — so a plugin's API is offerable because that plugin
+     * catalogued it, not because the editor was told where to look.
      */
-    public static final Set<String> DEFAULT_ALLOWED_PACKAGE_PREFIXES = Set.of("com.botmaker.sdk.api");
+    public static Set<String> defaultAllowedPackagePrefixes() {
+        return PluginHost.cataloguedPackages();
+    }
 
     private final Set<String> allowedPackagePrefixes;
 
@@ -54,7 +61,7 @@ public class TypeSummaryManager {
     private List<ClassInfo> staticUtilityCache = List.of();
 
     public TypeSummaryManager() {
-        this(DEFAULT_ALLOWED_PACKAGE_PREFIXES);
+        this(defaultAllowedPackagePrefixes());
     }
 
     public TypeSummaryManager(Set<String> allowedPackagePrefixes) {
