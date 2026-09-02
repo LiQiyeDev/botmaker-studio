@@ -91,10 +91,11 @@ jobs:
 
       - name: Install the four upstreams (0.0.0-SNAPSHOT)
         run: |
-          mvn -B -f .deps/botmaker-studio-api/pom.xml install -DskipTests
-          mvn -B -f .deps/botmaker-plugin-host/pom.xml install -DskipTests
-          mvn -B -f .deps/botmaker-shared/pom.xml install -DskipTests
-          mvn -B -f .deps/botmaker-session/pom.xml install -DskipTests
+          source .github/mvn-retry.sh
+          mvn_retry mvn -B -f .deps/botmaker-studio-api/pom.xml install -DskipTests
+          mvn_retry mvn -B -f .deps/botmaker-plugin-host/pom.xml install -DskipTests
+          mvn_retry mvn -B -f .deps/botmaker-shared/pom.xml install -DskipTests
+          mvn_retry mvn -B -f .deps/botmaker-session/pom.xml install -DskipTests
 
       # Deliberately not `-Pdist`: the native installers are the `package` job's business, not the gate's.
       - name: Build
@@ -246,13 +247,18 @@ jobs:
 
       # Lands all four at 0.0.0-SNAPSHOT — the version this pom's properties already default to — so the
       # build below needs no -Dbotmaker.*.version at all, and resolves nothing from JitPack.
+      # RETRIED — this is the step that failed the v1.0.32 release, on the very first plugin descriptor:
+      # Maven Central answered 429 Too Many Requests to the runner. See .github/mvn-retry.sh for why the
+      # retry cannot be a Maven flag. `shell: bash` is already required here for the Windows leg of the
+      # matrix, so sourcing the helper works on both.
       - name: Install the four upstreams (0.0.0-SNAPSHOT)
         shell: bash
         run: |
-          mvn -B -f .deps/botmaker-studio-api/pom.xml install -DskipTests
-          mvn -B -f .deps/botmaker-plugin-host/pom.xml install -DskipTests
-          mvn -B -f .deps/botmaker-shared/pom.xml install -DskipTests
-          mvn -B -f .deps/botmaker-session/pom.xml install -DskipTests
+          source .github/mvn-retry.sh
+          mvn_retry mvn -B -f .deps/botmaker-studio-api/pom.xml install -DskipTests
+          mvn_retry mvn -B -f .deps/botmaker-plugin-host/pom.xml install -DskipTests
+          mvn_retry mvn -B -f .deps/botmaker-shared/pom.xml install -DskipTests
+          mvn_retry mvn -B -f .deps/botmaker-session/pom.xml install -DskipTests
 
       - name: Build app-image and installers
         # One `-Pdist package` produces the app-image *and* this OS's native installers. The installer
