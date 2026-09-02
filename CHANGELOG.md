@@ -10,7 +10,7 @@ date it.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
-## [Unreleased]
+## [1.0.33] — 2026-09-02
 
 - **Studio runs on Java 25 (LTS) and JavaFX 25.0.4.** If you installed Studio from a release, nothing is
   asked of you: the installers bundle their own runtime, and jpackage now bundles a 25 one. If you build from
