@@ -140,8 +140,10 @@ final class StudioActions {
         // ✂ Capture Templates stood here until 2026-08-31 and is the SDK plugin's item now, placed by the
         // same merge as the pilot's. Everything behind it — the capture target, the size to snap to, the
         // picture folder it writes into — is that plugin's, so there is nothing left for the shell to wire.
-        toolbar.setOnOverlayEditor(() -> openOverlayEditor(false));
-        toolbar.setOnRecordMacro(() -> openOverlayEditor(true));
+        toolbar.setOnOverlayEditor(this::openOverlayEditor);
+        // ⏺ Record stood beside it and opened the same overlay straight into recording. The recorder is the
+        // SDK plugin's since 2026-09-02 — what a recorded click is written down as is that plugin's sentence —
+        // so it reaches the bar as a ToolbarItem and there is nothing left for the shell to wire.
 
         // The Remote Pilot used to be wired here. It is the SDK plugin's feature since 2026-08-30 and reaches
         // the bar as a ToolbarItem like any other plugin's, so there is nothing for the shell to wire.
@@ -286,13 +288,10 @@ final class StudioActions {
 
     /**
      * Opens the program-shape overlay authoring editor (compact clickable block tree + insertion cursor).
-     *
-     * <p>{@code startRecording} is the toolbar's ⏺ Record: the entry point that keeps the overlay's recording
-     * flag live, now that the standalone Record Macro button is gone and the recorder lives in the HUD.
      */
-    private void openOverlayEditor(boolean startRecording) {
+    private void openOverlayEditor() {
         ProgramShapeOverlay.open(primaryStage, codeEditorService, projectSettingsService, screenCaptureService,
-                activityService, this::liveSessionWindow, startRecording, null);
+                activityService, this::liveSessionWindow, null);
     }
 
     /**
@@ -327,7 +326,7 @@ final class StudioActions {
                 // SDK plugin's since 2026-09-01 and the shell has no handle on it.
                 .on(StudioAction.ACTIVITY_FLOW, this::openActivityFlow)
                 .on(StudioAction.PARAMETERS, this::openParameters)
-                .on(StudioAction.OVERLAY_EDITOR, () -> openOverlayEditor(false))
+                .on(StudioAction.OVERLAY_EDITOR, this::openOverlayEditor)
                 .on(StudioAction.PUBLISH, this::openPublishDialog)
                 .on(StudioAction.GALLERY, this::openGallery)
                 .build();

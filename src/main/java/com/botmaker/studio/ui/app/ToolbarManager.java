@@ -59,8 +59,6 @@ public class ToolbarManager {
     private Runnable onConfigureInput;
     /** Opens the program-shape overlay authoring editor; wired by {@link UIManager}. */
     private Runnable onOverlayEditor;
-    /** Opens the overlay editor already recording; wired by {@link UIManager}. */
-    private Runnable onRecordMacro;
     /** Opens the Resource Manager (image templates); wired by {@link UIManager}. */
     private Runnable onAccessResources;
 
@@ -183,11 +181,6 @@ public class ToolbarManager {
         this.onPreviewAsUser = onPreview;
     }
 
-    /** Sets the callback invoked when the toolbar's Record button is clicked (overlay + recording). */
-    public void setOnRecordMacro(Runnable callback) {
-        this.onRecordMacro = callback;
-    }
-
     /** Sets the callback invoked when the toolbar's Resources button is clicked. */
     public void setOnAccessResources(Runnable callback) {
         this.onAccessResources = callback;
@@ -291,12 +284,9 @@ public class ToolbarManager {
                 "Build the bot over the running game: a compact block tree on top of the target window",
                 ToolbarGroup.TOOLS, 30, c -> run(onOverlayEditor)));
 
-        // The same overlay, opened straight into recording. Its own button because "record what I do in the
-        // game" is how the tool is reached for, and routing it through ⧉ Overlay → ● Record made the feature
-        // look absent: the standalone Record Macro button was dropped in 2026-07 and nothing replaced it.
-        place(placed, ctx, ToolbarItem.of("record", "⏺ Record",
-                "Open the overlay and start recording real clicks and keys into the current activity",
-                ToolbarGroup.TOOLS, 40, c -> run(onRecordMacro)));
+        // ⏺ Record stood here at order 40 and opened the overlay straight into recording. It is the SDK
+        // plugin's ⏺ Record Macro since 2026-09-02 and arrives as a ToolbarItem like any other plugin's:
+        // deciding that a recorded click is a Mouse.click is that plugin's vocabulary, not the shell's.
 
         place(placed, ctx, ToolbarItem.of("resources", "🗂 Resources",
                 "Browse the project's resource files",

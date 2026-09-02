@@ -59,7 +59,7 @@ import static com.botmaker.studio.ui.app.overlay.OverlayStyles.warn;
  * HUD</em> that mirrors <em>the current shape of the program</em> as a compact, clickable, scrollable list of
  * one-line rows — one per block — reusing the live {@link CodeBlock} tree (not a second renderer). It is the
  * companion to the capture overlay: while you work in the target app, this shows where you are in the bot and
- * lets you grow it, either by hand or by <b>recording real input</b>.
+ * lets you grow it.
  *
  * <p>Like the capture tool it is a <b>true overlay over a window target</b>: opening it requires the project's
  * default capture target to be a window, and on open it brings that window to the front and snaps it to the
@@ -73,35 +73,34 @@ import static com.botmaker.studio.ui.app.overlay.OverlayStyles.warn;
  * dev box), so nothing about the drawing or the capture path changes. Two things do: the window is named by
  * <em>id</em> rather than title, because gamescope renames its output window after the app inside it; and it is
  * never resized, because gamescope's output and internal sizes are launched equal on purpose and a resize is
- * what would break the 1:1 mapping the recorded coordinates depend on. Input needs no routing — gamescope
- * forwards host input into its Xwayland, so the existing global {@code :0} recording already sees the right
- * coordinates.
+ * what would break the 1:1 mapping between what is drawn and what is clicked.
  *
  * <p><b>What this class is now.</b> It is the <em>coordinator</em>: the stage and its lifecycle, the event
  * subscriptions, and the FX-thread-confined pending state that sequences an edit against the re-parse it
  * causes ({@link #pendingInsert}, {@link #pendingOverload}, {@link #pendingConfig}). Everything with a shape of
  * its own lives beside it — {@link BlockTree} (the model), {@link OverlayTreeView} (the rows),
  * {@link OverlayTargetPicker} (where blocks go), {@link OverlayPalette} (what goes there),
- * {@link ArgumentConfigPopover}, {@link OverlayRecorder} and {@link RecordedBatchInserter}. None of them holds
- * a reference back to this class; each takes callbacks.
+ * and {@link ArgumentConfigPopover}. None of them holds a reference back to this class; each takes callbacks.
  *
  * <p>An {@link InsertionCursor} (kept on {@link ProjectState}) marks the <em>focused</em> block; the <b>step</b>
  * buttons move it and the palette inserts a new block just beneath it. The palette is the project's SDK
  * facades as chips, plus an <em>＋ Add block</em> button opening the full categorized statement menu (control
  * flow, variables, print, …).
  *
- * <p><b>Record mode</b> (Linux/X11 only) merges the former standalone macro recorder: pressing Record (or the
- * {@link OverlayHotkey global hotkey}) observes real clicks/keys/waits, and Stop translates them
- * ({@code MacroTranslator}) and inserts the resulting blocks <em>at the cursor</em>, progressively — so
- * recording grows the same tree that hand-authoring does.
+ * <p><b>Record mode lived here until 2026-09-02 and does not any more.</b> Pressing Record observed real
+ * clicks and keys and inserted the translated blocks at the cursor — which meant the editor owned
+ * {@code MacroTranslator}, and therefore owned five SDK class literals deciding that a click is a
+ * {@code Mouse}. That is a vocabulary and it belongs to the plugin whose types it spells, so the whole
+ * recorder moved into the SDK plugin ({@code com.botmaker.sdk.internal.plugin.record}) and is reached from
+ * the toolbar. <b>The cursor did not go with it</b>: a recording is delivered as text to copy, because there
+ * is no contract capability for inserting statements at an editor's cursor and one shaped to a single caller
+ * is the back door the platform exists to close. That is a real loss, recorded here rather than smoothed over.
  *
  * <p><b>Where the blocks land.</b> The HUD names its target: an activity picker switches the editor to
  * {@code activities/<Name>.java} and parks the cursor inside that activity's {@code run()}. It has to, because
  * the target used to be implicit — whatever file was last rendered, at {@link CursorNavigator#defaultCursor}.
  * In a GAME_BOT project every file that opens by default is generated scaffolding, so every body is read-only,
- * the default cursor finds nothing editable, and {@link #insertBelowCursor} returns without a word: recording
- * appeared to do nothing at all. A project with no activities disables recording and says so, rather than
- * repeating that silence.
+ * the default cursor finds nothing editable, and {@link #insertBelowCursor} returns without a word.
  */
 public final class ProgramShapeOverlay {
 
@@ -169,20 +168,12 @@ public final class ProgramShapeOverlay {
     /** What goes there: the SDK facade chips and the ＋ Add block menu. See {@link OverlayPalette}. */
     private final OverlayPalette palette;
 
-    // ── Record mode ──────────────────────────────────────────────────────────────────────────────────────
-    /** Record/Pause/Stop and the session behind them; hands finished batches to {@link #inserter}. */
-    private OverlayRecorder recorder;
-    /** Inserts a recorded batch one block per re-parse. See {@link RecordedBatchInserter}. */
-    private final RecordedBatchInserter inserter =
-            new RecordedBatchInserter(this::insertBelowCursor, Platform::runLater);
     /**
-     * The HUD's one-line readout: what the last action did, or why it did nothing. Recording overwrites it with
-     * a live count while a session runs. Every silent return in this class used to be exactly that — silent —
-     * on a surface that has no other channel: there is no console, no status bar and no undo visible from here.
+     * The HUD's one-line readout: what the last action did, or why it did nothing. Every silent return in this
+     * class used to be exactly that — silent — on a surface that has no other channel: there is no console, no
+     * status bar and no undo visible from here.
      */
     private Label status;
-    /** Set when the overlay should begin recording as soon as it is shown (opened via the Record Macro button). */
-    private boolean autoStartRecording;
 
     /**
      * A just-requested edit whose result must be focused after the next {@link UIBlocksUpdatedEvent}.
@@ -204,9 +195,6 @@ public final class ProgramShapeOverlay {
      */
     private final Set<BlockTree.Position> collapsed = new HashSet<>();
 
-    /** Starts/stops recording from inside the game, with the HUD unfocused. See {@link OverlayHotkey}. */
-    private OverlayHotkey hotkey;
-
     /**
      * A block whose config popover should open on the <em>next</em> re-parse, rather than this one. Applying a
      * palette-picked overload ({@link #pendingOverload}) is itself an edit, so the block resolved from
@@ -214,13 +202,6 @@ public final class ProgramShapeOverlay {
      * after adding" silently did nothing for every method with more than one overload, i.e. most of the palette.
      */
     private BlockTree.Position pendingConfig;
-
-    /**
-     * The HUD's screen bounds, republished from the FX thread whenever the stage moves or resizes. The recorder
-     * polls this from its native listener thread to drop clicks on the HUD's own buttons, and JavaFX properties
-     * cannot be read from there — so it is a plain snapshot, not a live {@code stage.getX()} read.
-     */
-    private volatile java.awt.Rectangle hudBounds;
 
     private ProgramShapeOverlay(CodeEditorService context, ProjectSettingsService settings,
                                 ScreenCaptureService capture, ActivityService activities,
@@ -251,9 +232,7 @@ public final class ProgramShapeOverlay {
     }
 
     /**
-     * Opens (or focuses) the overlay editor for the active file. When {@code startRecording} is true, recording
-     * begins as soon as the overlay is shown (used by the "Record Macro" toolbar button). Must be called on the
-     * FX thread.
+     * Opens (or focuses) the overlay editor for the active file. Must be called on the FX thread.
      *
      * @param chooseTarget invoked when nothing can be drawn over, with a callback to re-attempt the open; the
      *                     caller shows the Launch Target dialog and runs it once that closes. The retry passes
@@ -262,11 +241,10 @@ public final class ProgramShapeOverlay {
      */
     public static void open(Window owner, CodeEditorService context, ProjectSettingsService settings,
                             ScreenCaptureService capture, ActivityService activities,
-                            java.util.function.LongSupplier sessionWindow, boolean startRecording,
+                            java.util.function.LongSupplier sessionWindow,
                             java.util.function.Consumer<Runnable> chooseTarget) {
         if (active != null && active.stage != null && active.stage.isShowing()) {
             active.stage.toFront();
-            if (startRecording && active.recorder != null) active.recorder.start();
             return;
         }
         TargetCapture.WindowRef session = sessionTarget(sessionWindow);
@@ -288,7 +266,7 @@ public final class ProgramShapeOverlay {
             // on a fresh app run the session path always misses (the launcher is created lazily elsewhere).
             if (chooseTarget != null) {
                 chooseTarget.accept(() -> open(owner, context, settings, capture, activities,
-                        sessionWindow, startRecording, null));
+                        sessionWindow, null));
                 return;
             }
             warn(owner, "Overlay editor needs something to draw over.\n\nPick what the bot launches in "
@@ -299,7 +277,6 @@ public final class ProgramShapeOverlay {
         // name a gamescope host window at all. Otherwise the default target names a window, or it does not.
         ProgramShapeOverlay overlay = new ProgramShapeOverlay(context, settings, capture, activities, target,
                 session != null ? session : TargetCapture.WindowRef.of(target));
-        overlay.autoStartRecording = startRecording;
         active = overlay;
         overlay.start(owner);
     }
@@ -375,10 +352,6 @@ public final class ProgramShapeOverlay {
 
     private void show(java.awt.Rectangle windowBounds) {
         this.windowBounds = windowBounds;
-        recorder = new OverlayRecorder(capture, window, windowBounds, new OverlayRecorder.Callbacks(
-                this::status, this::onRecordWindowBounds, this::insertRecordedBatch,
-                picker::hasTargets, this::overlayScreenBounds, () -> stage));
-
         VBox rootPane = buildRoot();
         rootPane.setMinWidth(340);
         rootPane.setPrefWidth(340);
@@ -407,25 +380,14 @@ public final class ProgramShapeOverlay {
         stage.setOnHidden(e -> {
             if (suppressHideTeardown) return;   // a temporary capture-hide, not a real close
             saveState();
-            if (hotkey != null) {
-                hotkey.close();
-                hotkey = null;
-            }
             if (captureVisibility != null) {
                 try { captureVisibility.close(); } catch (Exception ignored) {}
                 captureVisibility = null;
             }
             subscriptions.forEach(EventBus.Subscription::close);
             subscriptions.clear();
-            if (recorder != null) recorder.abandon();
             if (active == this) active = null;
         });
-        // The recorder polls hudBounds from its native thread, so keep the snapshot current here — on the FX
-        // thread — for every way the HUD can move or resize: the header drag, sizeToScene, the Show-lines spinner.
-        stage.xProperty().addListener((o, a, b) -> updateHudBounds());
-        stage.yProperty().addListener((o, a, b) -> updateHudBounds());
-        stage.widthProperty().addListener((o, a, b) -> updateHudBounds());
-        stage.heightProperty().addListener((o, a, b) -> updateHudBounds());
         // Keyboard navigation of the compact block tree: → step into, Shift+→ cycle to the next branch of the
         // same block (else / case / otherwise — otherwise reachable only by clicking its row), ← step out,
         // ↑/↓ move, Enter configure, Delete/Backspace remove. Without the last pair a mis-recorded or
@@ -451,7 +413,6 @@ public final class ProgramShapeOverlay {
         });
 
         stage.show();
-        updateHudBounds();                             // the listeners above only fire on later changes
         OverlayToolbars.installDrag(header.node(), stage);   // borderless: drag by the header bar
         // Stay above fullscreen games (X11) — but stand down while the argument-config popover is open, or the
         // periodic re-raise puts the HUD back on top of the very window it just opened.
@@ -477,14 +438,7 @@ public final class ProgramShapeOverlay {
         // Keep the activity picker current when an activity is created/renamed/removed elsewhere in the app —
         // it otherwise only ever reflects the list captured at the moment the overlay was opened.
         subscriptions.add(context.getEventBus().subscribe(ActivitiesChangedEvent.class, e -> {
-            if (stage != null && stage.isShowing()) {
-                Platform.runLater(() -> {
-                    picker.refreshActivities();
-                    // Record's disabled state was computed once, at build time, so adding the project's first
-                    // activity left the button permanently grey behind a tooltip that no longer applied.
-                    recorder.refreshAvailability();
-                });
-            }
+            if (stage != null && stage.isShowing()) Platform.runLater(picker::refreshActivities);
         }));
 
         // Refusals raised inside CodeEditor — chiefly the pinned trailing `return` a block may not be moved
@@ -500,11 +454,6 @@ public final class ProgramShapeOverlay {
         refreshMethods();
         ensureCursor();
         render();
-
-        hotkey = new OverlayHotkey(() -> recorder.toggle());
-        hotkey.start();
-
-        if (autoStartRecording) recorder.start();
     }
 
     /**
@@ -549,13 +498,7 @@ public final class ProgramShapeOverlay {
         return header.node();
     }
 
-    /** Fresh target-window bounds re-probed by the recorder when a session starts (see {@link OverlayRecorder}). */
-    private void onRecordWindowBounds(java.awt.Rectangle bounds) {
-        windowBounds = bounds;
-        header.showSize(bounds, reference);
-    }
-
-    /** Palette (SDK category bar) + step nav + record controls + options, all in one translucent panel. */
+    /** Palette (SDK category bar) + step nav + options, all in one translucent panel. */
     private VBox buildControls() {
         VBox paletteBar = palette.node();
 
@@ -570,8 +513,6 @@ public final class ProgramShapeOverlay {
         HBox stepRow = new HBox(6, label("Step:"), up, down, into, branch, out, refresh);
         stepRow.setAlignment(Pos.CENTER_LEFT);
 
-        HBox recordRow = recorder.node();
-
         status = new Label("");
         status.setStyle(LABEL);
         status.setWrapText(true);
@@ -582,7 +523,7 @@ public final class ProgramShapeOverlay {
         autoFillArgs.setTooltip(new Tooltip(
                 "When on, adding an action immediately opens its argument editor (draw rect / pick template)"));
 
-        VBox controls = new VBox(6, picker.activityRow(), picker.methodRow(), paletteBar, stepRow, recordRow,
+        VBox controls = new VBox(6, picker.activityRow(), picker.methodRow(), paletteBar, stepRow,
                 autoFillArgs, status);
         controls.setPadding(new Insets(8));
         controls.setStyle(PANEL);
@@ -636,18 +577,6 @@ public final class ProgramShapeOverlay {
 
     private VBox buildTreePanel() {
         return tree.node();
-    }
-
-    /** Republishes {@link #hudBounds} from the FX thread; see that field for why it is a snapshot. */
-    private void updateHudBounds() {
-        hudBounds = (stage == null) ? null
-                : new java.awt.Rectangle((int) stage.getX(), (int) stage.getY(),
-                        (int) stage.getWidth(), (int) stage.getHeight());
-    }
-
-    /** The HUD's last known screen bounds. Called from the recorder's native thread — no FX property reads. */
-    private java.awt.Rectangle overlayScreenBounds() {
-        return hudBounds;
     }
 
     // ── insertion ────────────────────────────────────────────────────────────────────────────────────────
@@ -767,18 +696,6 @@ public final class ProgramShapeOverlay {
         menu.show(anchor, Side.BOTTOM, 0, 0);
     }
 
-    /** Queues a recorded block sequence for one-per-re-parse insertion at the cursor, without arg popovers. */
-    private void insertRecordedBatch(List<BlockType> blocks) {
-        if (blocks == null || blocks.isEmpty()) {
-            status("Nothing to insert — no recognizable actions were recorded.");
-            return;
-        }
-        // Before the enqueue: it inserts the batch's first block straight away, and that insert may have a
-        // more specific thing to say (a read-only body, no caret) which this line must not overwrite.
-        status("Recorded — inserting " + blocks.size() + (blocks.size() == 1 ? " block" : " blocks") + "…");
-        inserter.enqueue(blocks);
-    }
-
     // ── cursor ───────────────────────────────────────────────────────────────────────────────────────────
 
     private InsertionCursor cursor() {
@@ -859,9 +776,7 @@ public final class ProgramShapeOverlay {
                     state.setInsertionCursor(new InsertionCursor(body, p.index()));
                     render();
                     StatementBlock inserted = statements.get(p.index());
-                    if (!inserter.isDraining()) {
-                        status((fresh ? "Inserted " : "Moved ") + OverlayTreeView.compactLabel(inserted));
-                    }
+                    status((fresh ? "Inserted " : "Moved ") + OverlayTreeView.compactLabel(inserted));
                     if (ov != null && inserted instanceof MethodInvocationBlock mib) {
                         // A specific overload was picked in the palette bar — apply it to the fresh call. That
                         // is another edit, so the block we'd open the popover on is about to be replaced;
@@ -878,8 +793,6 @@ public final class ProgramShapeOverlay {
             pendingConfig = null;
             if (index().statementAt(p) instanceof MethodInvocationBlock mib) config.open(mib);
         }
-        // Continue draining a recorded batch after the cursor has re-homed onto the last insert.
-        inserter.tick();
     }
 
     private void render() {
@@ -912,6 +825,6 @@ public final class ProgramShapeOverlay {
 
     /** Whether a freshly inserted call should have its argument editor opened for it. */
     private boolean autoFillEnabled() {
-        return !inserter.suppressesAutoFill() && autoFillArgs != null && autoFillArgs.isSelected();
+        return autoFillArgs != null && autoFillArgs.isSelected();
     }
 }

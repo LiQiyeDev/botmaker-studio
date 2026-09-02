@@ -125,7 +125,7 @@ Blocks that call the SDK come from the palette on the left, grouped by facade: v
 
 The only way to write or record a bot without leaving the game. Add blocks where the cursor is, or hit Record and let it write the clicks and drags you perform, then insert the batch into an activity.
 
-*In Studio:* ⧉ Overlay on the toolbar, or F9 anywhere
+*In Studio:* ⧉ Overlay on the toolbar
 
 ## 10. Run and debug
 

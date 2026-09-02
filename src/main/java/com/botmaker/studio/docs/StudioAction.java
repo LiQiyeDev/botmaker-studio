@@ -27,7 +27,9 @@ public enum StudioAction {
     RESOURCES("Open Resource Manager ▸", "Project ▸ Resource Manager… (or 🗂 Resources on the toolbar)"),
     ACTIVITY_FLOW("Open Activity Flow ▸", "Project ▸ Activity Flow… (or 🔀 Flow on the toolbar)"),
     PARAMETERS("Open Parameters ▸", "Project ▸ Parameters… (or 🎚 Parameters on the toolbar)"),
-    OVERLAY_EDITOR("Open Overlay Editor ▸", "⧉ Overlay on the toolbar, or F9 anywhere"),
+    // F9 was named here as a shortcut and never was one: it is the *recorder's* global hotkey, which left
+    // with the recorder on 2026-09-02 and was never bound to opening the overlay in the first place.
+    OVERLAY_EDITOR("Open Overlay Editor ▸", "⧉ Overlay on the toolbar"),
     REMOTE_PILOT("Enable Remote Pilot ▸", "🎮 Pilot on the toolbar (contributed by the BotMaker SDK)"),
     PUBLISH("Open Publish ▸", "Project ▸ Publish to Gallery…"),
     GALLERY("Open the Gallery ▸", "Project ▸ Browse Gallery…");
