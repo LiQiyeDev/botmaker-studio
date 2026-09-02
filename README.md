@@ -113,7 +113,7 @@ required**. Any folder with this layout shows up in the selection screen.
 
 ### Requirements
 
-- **JDK 21** or newer (only to *build* — released app-images bundle their own runtime)
+- **JDK 25** or newer (only to *build* — released app-images bundle their own runtime)
 - **Maven 3.9+** (or an IDE that bundles Maven)
 - **Linux, macOS, or Windows** (Linux is the primary development platform)
 

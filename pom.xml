@@ -9,10 +9,9 @@
     <version>0.0.0-SNAPSHOT</version>
 
     <properties>
-        <maven.compiler.source>21</maven.compiler.source>
-        <maven.compiler.target>21</maven.compiler.target>
+        <maven.compiler.release>25</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <javafx.version>21</javafx.version>
+        <javafx.version>25.0.4</javafx.version>
         <!-- botmaker-shared version. Default 0.0.0-SNAPSHOT resolves the sibling module in the umbrella
              reactor; the umbrella release.sh bumps this to the released shared tag so a JitPack/standalone
              build resolves com.github.LiQiyeDev:botmaker-shared:<tag>. -->

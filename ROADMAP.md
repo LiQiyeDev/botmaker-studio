@@ -6,6 +6,17 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-09-02 — JDK 25 LTS and JavaFX 25.0.4.** `pom.xml` (`maven.compiler.release` 25 in place of
+  `source`/`target`, `javafx.version` → 25.0.4), both `java-version` steps in `ci.yml` including the
+  per-OS `package` matrix, and `README.md`'s build requirement. jpackage bundles whatever JDK builds the
+  app-image, so the installers now carry a 25 runtime and an installed Studio asks nothing of its user.
+  The umbrella's two `testing/` Docker images moved with it — `java-25-openjdk-devel` on Fedora 43 and
+  `openjdk-25-jdk` on Ubuntu 24.04 both exist in those distributions' own archives, so the images kept
+  their bases. **The per-OS installer build is the part CI cannot answer**, and is the thing to check by
+  hand on the next release. Note that Studio's suite already fails 78 tests on `main` from the SDK
+  dependency's removal; that count is unchanged by this, verified by re-running with the pom stashed.
+  Full account of the constellation-wide move in `../botmaker-studio-api/ROADMAP.md`.
+
 - **2026-09-01 — `TemplateNames` leaves Studio's parser, and the last hand-built SDK node with it.**
   `ListHandler.addImageTemplateElement` assembled `new ImageTemplate(Templates…)` by hand — two SDK class
   names and the generated constants class, in a handler whose subject is lists — and it is replaced by

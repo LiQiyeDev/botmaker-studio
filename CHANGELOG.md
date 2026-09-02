@@ -10,6 +10,13 @@ date it.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+- **Studio runs on Java 25 (LTS) and JavaFX 25.0.4.** If you installed Studio from a release, nothing is
+  asked of you: the installers bundle their own runtime, and jpackage now bundles a 25 one. If you build from
+  source you need a JDK 25 or newer. The bots you create are unaffected by this — what they compile against
+  is whichever SDK version their own pom pins.
+
 ## [1.0.32] — 2026-09-02
 
 - **New projects declare what the editor needs to show you the SDK's own screens.** A generated `pom.xml`
