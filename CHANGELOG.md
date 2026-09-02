@@ -12,6 +12,17 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+- **New projects declare what the editor needs to show you the SDK's own screens.** A generated `pom.xml`
+  now lists the widget toolkit, JavaFX, the pilot's server and its QR encoder at `provided` scope. They are
+  there so the editor can draw the SDK's pickers and open the Remote Pilot; `provided` means your *bot*
+  still does not link any of them, so a headless bot is unchanged and downloads nothing extra at run time.
+  Without them the 🎮 Pilot button failed with a missing class, and the SDK's slot editors were silently
+  absent.
+- **Studio ships no plugins of its own, and asks your project which ones it has.** The editor no longer
+  carries a copy of the SDK. Every menu, value type and toolbar button you see comes from the plugins your
+  open project actually resolves — so what you are offered is what your bot can really call, and a project
+  pinning an older SDK is offered that SDK. With **no** project open there is nothing to ask, so type names
+  are not recognised and plugin buttons are absent until you open one.
 - **The Resource Manager is the SDK's 🖼 Manage Pictures now.** The window that renames, retags, replaces,
   deletes, imports and exports your bot's pictures moved out of the editor and onto the toolbar, beside ✂
   Capture Templates. It does everything it did, including rewriting the blocks that name a picture you rename

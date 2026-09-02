@@ -29,9 +29,8 @@
         <!-- botmaker-plugin-host version: the loader Studio gets a project's plugins from. Same contract
              again. -->
         <botmaker.pluginhost.version>0.0.0-SNAPSHOT</botmaker.pluginhost.version>
-        <!-- botmaker-plugin-toolkit version. Same contract again, and at RUNTIME scope only — see the
-             dependency below for why Studio carries it at all and why no Studio source may name it. -->
-        <botmaker.plugintoolkit.version>0.0.0-SNAPSHOT</botmaker.plugintoolkit.version>
+        <!-- botmaker.plugintoolkit.version was here and is gone with the dependency it versioned
+             (2026-09-02). See the note where that dependency stood, below. -->
         <!-- Numeric-only version for jpackage (rejects -SNAPSHOT / non-numeric versions). -->
         <app.version>1.0.5</app.version>
 
@@ -131,25 +130,34 @@
             <version>${botmaker.pluginhost.version}</version>
         </dependency>
 
-        <!-- botmaker-plugin-toolkit, RUNTIME scope, and the scope is the whole point.
-             Studio's own plugin #1 is the SDK, whose SdkPlugin extends the toolkit's AbstractStudioPlugin
-             and whose editors are built on the toolkit's widgets — and the SDK declares the toolkit
-             `optional`, so it is NOT transitive. Without this line Studio's bundled set fails to
-             instantiate with NoClassDefFoundError, PluginHost.discover swallows it, and the palette is
-             silently empty. (Found 2026-08-28; PluginHostLoadTest is what keeps it found.)
-             A host supplying its bundled plugin's dependencies is the model working, not a leak: whoever
-             puts a plugin on a classpath supplies what that plugin needs.
-             It does NOT lock a plugin to Studio's version. PluginLoader is parent-first only for
-             com.botmaker.plugin.api.** and the platform namespaces; the toolkit is child-first, so a plugin
-             carrying its own copy still resolves its own. This one is the fallback for a plugin without one.
-             RUNTIME rather than compile so javac never sees it: no Studio source can name a toolkit type,
-             which is what StudioSourcesTest asserts. -->
-        <dependency>
-            <groupId>com.github.LiQiyeDev</groupId>
-            <artifactId>botmaker-plugin-toolkit</artifactId>
-            <version>${botmaker.plugintoolkit.version}</version>
-            <scope>runtime</scope>
-        </dependency>
+        <!-- botmaker-plugin-toolkit stood here at RUNTIME scope from 2026-08-28 and is GONE (2026-09-02),
+             with the bundled plugin that was its only reason.
+
+             It was added because Studio's plugin #1 was the SDK, whose SdkPlugin extends the toolkit's
+             AbstractStudioPlugin through an `optional` (non-transitive) dependency: without it the bundled
+             set failed to instantiate, PluginHost.discover swallowed the NoClassDefFoundError, and Studio
+             ran with a silently empty palette. That was the rule `whoever puts a plugin on a classpath
+             supplies what that plugin needs` working correctly — and Studio now puts no plugin on any
+             classpath, so it supplies nothing.
+
+             The line then survived one more day on a SECOND justification, `the fallback copy for a plugin
+             that brings none`, and that justification does not survive reading the gate. A plugin either
+             declares the toolkit at compile scope — which is what botmaker-plugin-archetype generates, and
+             what botmaker-cli's `pom-scopes` check enforces by REFUSING a `provided` toolkit — or it uses
+             no toolkit widget at all, which that same check passes as `contract provided, no toolkit` and
+             which needs nothing from anybody. There is no third plugin for a fallback to rescue. The only
+             one it would have rescued is the one the plugin registry rejects, and rescuing it would bind it
+             to STUDIO's toolkit version rather than the one it compiled against — a NoSuchMethodError
+             deferred to whichever method moved, instead of an honest failure to load.
+
+             PluginValidator.checkPomScopes says so in its own refusal message, in the present tense: `the
+             host does not have one to provide, because botmaker-studio must never depend on it`. While this
+             dependency existed, the gate that refuses a pull request asserted something Studio's own pom
+             made false.
+
+             What survives is StudioSourcesTest, and it is stronger now than the scope ever made it: no
+             Studio source may name a com.botmaker.plugin.toolkit type, and there is no longer a jar on any
+             Studio classpath for one to resolve against. -->
 
         <!-- OpenCV (native bindings). Drives the GrabCut object-capture wand in ui/app/capture.
              Same artifact + version the SDK pins (see ../botmaker-sdk/pom.xml) so the two modules

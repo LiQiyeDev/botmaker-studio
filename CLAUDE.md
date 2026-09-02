@@ -107,8 +107,9 @@ Three things are worth knowing before touching any of it.
   persisted; but a private session's gamescope host window cannot be named by title at all, so the caller
   that launched it carries the id for one session and `resolveWindow` falls back to the title when it goes
   stale. `WindowRef.of(target)` is the ordinary path; only `ProgramShapeOverlay.sessionTarget` builds one
-  with an id. `OverlayRecorder` holds a `WindowRef` rather than a target because every click it records is
-  window-relative — a screen or an emulator is not something it can record against at all.
+  with an id. (`OverlayRecorder` held a `WindowRef` rather than a target for the same reason the SDK
+  plugin's `MacroRecorderDialog` does now: every click it records is window-relative, and a screen or an
+  emulator is not something it can record against at all.)
 - **A spec nothing recognises reads as the whole desktop**, in every branch that used to switch on a sealed
   type. That state was unreachable before and is ordinary now (a hand-edited file, a newer Studio's form),
   and the legacy `settings.json` reader is deliberately a **tree walk** rather than a resurrected record set
@@ -253,22 +254,32 @@ User projects live in `~/BotMakerProjects/` (not inside this repo). Each project
 
 ### Relationship to the SDK and shared
 
-Studio's BotMaker Maven dependencies are **`botmaker-shared`** (editor-time native window capture),
-**`botmaker-session`** (private displays) and **`botmaker-sdk`**. The SDK dep is narrow and deliberate, and
-there are three distinct relationships to keep straight:
+Studio's BotMaker Maven dependencies are **`botmaker-studio-api`** (the plugin contract it hosts),
+**`botmaker-plugin-host`** (the loader), **`botmaker-shared`** (editor-time native window capture) and
+**`botmaker-session`** (private displays). **That is the whole list, and the two that are missing are the
+point of it.**
 
-- **Studio compiles against the SDK for _type identity only_, and since 2026-08-26 it asks the SDK rather
-  than mirroring it.** `palette/SdkType` — an enum over every class under `com.botmaker.sdk.api`, each
-  constant holding a real `Class<?>` literal — is **deleted** (plugin platform, phase 7), and so are
-  `SdkTypeTest` and `SdkTypeUseTest`. What it was *right* about survives whole: the facade set, the menu
-  order, the icons and the **fully-qualified names** are still compiler-checked real `Class<?>` identities,
-  because the SDK's own per-version catalog (`internal/plugin/catalog`) names its members with **method
-  references**. What it was wrong about is that Studio was the author: a class renamed in the SDK broke a
-  menu at runtime, and a class *added* to the SDK was invisible until somebody typed a constant here.
-  It replaced `palette/SdkApi`, a hand-maintained `List<String>` nothing verified, plus a second
-  hand-maintained icon map in `MenuIcons`; the catalog replaced it in turn.
+- **`botmaker-sdk` left this pom on 2026-09-02, and with it every `com.botmaker.sdk` name in
+  `src/main/java`.** Studio is a plugin host that bundles no plugin: the SDK reaches it only as *a plugin*,
+  loaded off the open project's own resolved classpath by `PluginHost.bind` — which is where a bot's pinned
+  SDK always came from, so an open project is unaffected. What is lost is `PluginHost.BUNDLED`: with **no
+  project open** there is no name resolution and no plugin toolbar item. The lineage of the thing that went
+  is worth one line, because each step deleted the one before it: `palette/SdkApi` (a hand-kept
+  `List<String>` nothing verified) → `palette/SdkType` (an enum of real `Class<?>` literals, deleted in
+  plugin-platform phase 7) → the SDK's own reflected `PaletteCatalog` → **no compile-time knowledge of any
+  plugin at all**.
 
-  **`plugin/PluginHost` is where a name is now resolved, and it serves two different catalogs on purpose.**
+- **`botmaker-plugin-toolkit` left it the same day.** Studio carried it at `runtime` scope from 2026-08-28
+  so its bundled `SdkPlugin` — a subclass of the toolkit's `AbstractStudioPlugin`, reached through the SDK's
+  non-transitive `optional` dependency — could be constructed at all. With no bundled plugin there is
+  nothing to construct. It survived one more day on *"the fallback copy for a plugin that brings none"*,
+  which does not survive reading the gate: `botmaker-cli`'s `pom-scopes` check **refuses** a `provided`
+  toolkit and **passes** a plugin with no toolkit at all, so a plugin either brings its own at `compile`
+  scope (what the archetype generates) or needs none. The only plugin a fallback would rescue is the one the
+  registry rejects — and it would bind that plugin to *Studio's* toolkit version rather than the one it
+  compiled against. `StudioSourcesTest` still forbids naming a `com.botmaker.plugin.toolkit` type here.
+
+- **`plugin/PluginHost` is where a name is resolved, and it serves two different catalogs on purpose.**
   `bundled()` is "which names does a plugin own?" — the newest surface this build knows — and backs
   `ownerOf` / `qualifiedName` / `isFacadeClass` / `menuFacades` / `facadeNames`, every one of which is a
   question asked with **no project in hand**. `catalogFor(pin)` is "what should we offer *this* bot?" and is
@@ -281,9 +292,10 @@ there are three distinct relationships to keep straight:
   parent-first/child-first split is the last code in this project that should exist in two copies.
   `PluginHost` itself stayed: it is the bundled fallback, the per-project bind and the two catalogs above,
   all of which are about *Studio's* open project. **`botmaker-plugin-host` is not `botmaker-plugin-toolkit`,
-  and Studio must still never list the second** — the toolkit is a *plugin's* dependency, resolved onto the
-  plugin's own classloader, and the moment Studio resolves one version of it two plugins can no longer hold
-  two.
+  and Studio must never list the second** — the toolkit is a *plugin's* dependency, resolved onto the
+  plugin's own classloader. (The reason is not that a host copy would deny a plugin its own version:
+  `PluginLoader` is child-first for the toolkit, so it would not. It is that there is no plugin the host
+  copy helps and one it would silently mis-serve — see the bullet above.)
 
   **The catalog mirrors the SDK's `api`/`internal` boundary; it does not draw a second one.** The SDK's rule
   is *"can a bot write the name down?"* — a type it can only ever *receive* lives in `internal`. When 1.1.0
@@ -291,11 +303,15 @@ there are three distinct relationships to keep straight:
   `SessionSource`) and the observation stack (`Bots`, `BotObserver`, `Surface`, `ClickEvent`, `MatchEvent`,
   `SwipeEvent`) left `api`, and `Screen` was deleted. A type only a factory returns is not catalogued.
   The same release sub-packaged the whole surface — `api.geometry.Point`, `api.util.Debug`,
-  `api.bot.Session`, `api.meta.ReplacedBy` — which is why **`ImportManager.repairSdkImports` exists**: an
-  existing bot's `import com.botmaker.sdk.api.Point;` no longer resolves, so it is repointed on open by
-  asking `PluginHost.qualifiedName` for the simple name's current FQN, guarded by the
-  `com.botmaker.sdk.api.` prefix. A name no plugin owns is left untouched, never guessed — a wrong import
-  compiles into a different type, an untouched one fails where the user can read why.
+  `api.bot.Session`, `api.meta.ReplacedBy` — which is why **`ImportManager.repairSdkImports` existed**: an
+  existing bot's `import com.botmaker.sdk.api.Point;` no longer resolved, so it was repointed on open by
+  asking `PluginHost.qualifiedName` for the simple name's current FQN, guarded by a
+  `com.botmaker.sdk.api.` prefix constant. **Deleted 2026-09-02**, with `SDK_API_PREFIX` and
+  `SHARED_OCR_PREFIX`, because that guard is one plugin's package name written down in the host: the
+  repair could only ever fire for the SDK, and a second plugin re-packaging its own types got nothing.
+  A declared rename is `@ReplacedBy` and the migrator's business; an undeclared package move is now a
+  readable compile error, which is the honest outcome for a host that cannot know what the package was
+  called.
 - **Method knowledge does _not_ come from that jar, on purpose.** A generated bot compiles against the SDK
   version *it* pins, which may be older than Studio's. So methods still come from `ProjectAnalyzer` scanning
   the bot's **resolved** SDK jar with ClassGraph, and Javadoc from `SdkDocsService` parsing the bot's
@@ -524,9 +540,11 @@ there are three distinct relationships to keep straight:
       argument that **called or constructed something** all are (`droppedWork`).
     - **Deleting a variable** — marked when the uses become defaults, not when they are pointed at another
       variable, which is a complete repair.
-    - **Repointing a template** (`TemplateReferences.retarget`, `ResourceManagerDialog.repointEntry`) —
-      marked when blocks end up looking for a *different* picture (a delete, a missing-file repair), not on a
-      rename, where every block still watches for the same thing under a new name.
+    - **Repointing a template** — marked when blocks end up looking for a *different* picture (a delete, a
+      missing-file repair), not on a rename, where every block still watches for the same thing under a new
+      name. Both the caller and the rule are the SDK plugin's now (`internal/plugin/templates/TemplateUses`
+      and `ResourceManagerDialog`); what Studio kept is the `reviewNote` parameter of the `Sources`
+      capability, which is how a plugin asks for the mark without knowing what a picture is.
     - `SdkMigrationRunner`, as above.
   - **`prepare` may answer null, and that is not a failure.** A mark is a reference to a generated annotation,
     so if the annotation cannot be written the choice is between refusing the refactor and doing it unmarked
@@ -547,7 +565,9 @@ there are three distinct relationships to keep straight:
     cannot go stale, which a cached list demonstrably would: four refactors write marks and two of them never
     touch the editor. The **entry text**, not the function name, identifies a row — two overloads can both be
     marked. `services/BotSources` is the one walk over the bot's `.java` files, shared with
-    `TemplateReferences`: buffer before disk, and a rewrite written to both.
+    `plugin/HostSources` — the implementation behind the contract's `Sources` capability, which is what
+    `TemplateReferences` became when its *walk* stayed and its *spellings* went to the SDK plugin. Buffer
+    before disk, and a rewrite written to both.
   - **The badge is the only annotation the block editor renders** (`MethodDeclarationBlock.reviewBadge`). It
     reads `@NeedsReview` off the very `MethodDeclaration` the block was built from, so the count cannot drift
     and a mark stripped in the tab is gone from the header on the next render with nothing kept in step. The
@@ -673,13 +693,20 @@ there are three distinct relationships to keep straight:
   user-selectable in the project screen from JitPack's version list). That pin is independent of the version
   Studio itself compiles against.
 
-This Studio repo is a submodule of the **`botmaker` umbrella repo** (sibling submodules `botmaker-shared/`,
-`botmaker-sdk/`, `botmaker-studio/` + an aggregator `pom.xml`; see `../CLAUDE.md`). From the umbrella root
-`mvn install` builds shared → sdk → studio in one reactor. **All SDK/shared changes go through their umbrella
-submodules** — edit there, commit inside that submodule, bump its pointer in the umbrella. Don't vendor either
-inside this repo. To try local SDK changes in a generated bot without pushing a tag, use
-`botmaker-sdk/dev-install.sh` and pin the bot to `local-SNAPSHOT` (see `../botmaker-sdk/CLAUDE.md`). Releases
-are cut with the umbrella's `../release.sh`; **the maintainer owns the SDK/shared → JitPack publish.**
+This Studio repo is a submodule of the **`botmaker` umbrella repo**, whose aggregator `pom.xml` builds nine
+modules in dependency order — `studio-api → plugin-toolkit → plugin-host → plugin-archetype → cli → shared →
+session → sdk → studio` (see `../CLAUDE.md`). **All upstream changes go through their own umbrella
+submodules** — edit there, commit inside that submodule, bump its pointer in the umbrella. Don't vendor any
+of them inside this repo.
+
+To try a local SDK change in a generated bot without pushing a tag, run `mvn -pl botmaker-sdk -am install`
+from the umbrella root: `-am` builds shared and session first, so all three land at `0.0.0-SNAPSHOT`, the
+version every consumer's pom defaults to. (`dev-install.sh` and the `local-SNAPSHOT` pin are obsolete and
+deleted; the SDK's pom `groupId` is `com.github.LiQiyeDev` now, so a plain install already lands where a bot
+resolves.) Studio lists locally installed SDK snapshots at the top of its version dropdown, labelled
+`(local build)` and preselected, gated on `AppVersion.isDevBuild()`.
+
+Releases are cut with the umbrella's `../release.sh`; **the maintainer owns the JitPack publish.**
 
 The read-input blocks depend on a small SDK protocol: `BotMaker.readX()` prints a `BM-INPUT:<type>` marker (SOH-wrapped) to stdout before blocking on stdin. The Studio detects and strips that marker (`CodeExecutionService` for run, `DebuggingService` for debug), shows the modal input prompt, and writes the entered line back to the process's stdin via `SendInputEvent` → `sendInput(...)`. Changing the marker on either side without the other breaks input prompts.
 
@@ -842,9 +869,16 @@ The `ui/` package is split by concern:
   `BlockTree` (**pure, no JavaFX** — the tree model and the flattened row list, so the placement rules that
   fail silently are testable headlessly), `OverlayTreeView` (the rows), `OverlayTargetPicker` (which activity
   and method blocks land in), `OverlayPalette` (the SDK facade chips + ＋ Add block),
-  `ArgumentConfigPopover`, `OverlayRecorder` (Record/Pause/Stop over `services/record/RecordingSession`),
-  `RecordedBatchInserter` (inserts a recorded batch one block per re-parse), `OverlayHeader`,
-  `OverlayHotkey` (the global `F9`), `OverlayStyles` and `OverlayToolbars` (shared with `capture/`).
+  `ArgumentConfigPopover`, `OverlayHeader`, `OverlayStyles` and `OverlayToolbars` (shared with `capture/`).
+  **`OverlayRecorder`, `RecordedBatchInserter`, `OverlayHotkey` (the global `F9`) and
+  `services/record/` are gone (2026-09-02)** — the macro recorder is the SDK plugin's, as
+  `internal/plugin/record/`, reached from its own toolbar item. `RecordingSession` moved byte-for-byte
+  because its only dependency was ever `com.botmaker.shared.input`; only the *translator* named the SDK,
+  because deciding what a recorded click is written down as is a plugin's vocabulary. **The accepted cost,
+  stated rather than glossed:** recorded actions no longer land at the overlay's cursor. The plugin emits
+  Java source and the user pastes it — there is no contract capability for *"insert these statements here"*,
+  `Sources` is find-and-replace rather than append, and a surface shaped to one caller is the back door the
+  platform exists to close.
 - **`ui/dnd/`** — drag-and-drop and block input events: `BlockDragAndDropManager`, `DropInfo`, `MoveBlockInfo`,
   `BlockEvent`, `DropZoneFactory`.
 - **`palette/`** (top-level, dependency-light) — the insertable catalogs: `BlockType`/`BlockCatalog`/`BlockCategory`
@@ -920,19 +954,28 @@ JitPack — and a plugin now is too:
   built one wants the one they built. A local build nobody has published becomes a row of its own, at the
   top.
 
-**Studio carries `botmaker-plugin-toolkit` at `runtime` scope, and the reason is a defect worth
-remembering (2026-08-28).** Studio's own plugin #1 is the SDK, whose `SdkPlugin` extends the toolkit's
-`AbstractStudioPlugin`; the SDK declares the toolkit `optional`, so it is **not transitive**, so Studio's
-classpath had no toolkit at all. `ServiceLoader` threw `NoClassDefFoundError` while constructing it,
-`PluginHost.discover` caught it — correctly; a classpath with no plugin on it is an ordinary state — and
-Studio ran with an **empty palette, no name recognition and no SDK slot editors**, having printed one
-line to stderr. Nothing failed to compile at any point.
+**Studio carried `botmaker-plugin-toolkit` at `runtime` scope from 2026-08-28 to 2026-09-02, and both the
+defect that put it there and the reasoning that took it out are worth remembering.**
 
-- **`PluginHostLoadTest` is the guard**, and every assertion in it is "not empty", because empty is exactly
-  what this break looks like. It reads the unbound statics, which answer from `BUNDLED`.
-- **The scope is `runtime` so javac never sees the toolkit**: no Studio source may name a
-  `com.botmaker.plugin.toolkit` type, and `StudioSourcesTest` refuses a widening to `compile`. The toolkit is
-  a *plugin's* widget kit; Studio having a version of its own to keep in step is the thing to avoid.
+The defect: Studio's plugin #1 was the SDK, whose `SdkPlugin` extends the toolkit's `AbstractStudioPlugin`;
+the SDK declares the toolkit `optional`, so it is **not transitive**, so Studio's classpath had no toolkit at
+all. `ServiceLoader` threw `NoClassDefFoundError` while constructing it, `PluginHost.discover` caught it —
+correctly; a classpath with no plugin on it is an ordinary state — and Studio ran with an **empty palette, no
+name recognition and no SDK slot editors**, having printed one line to stderr. Nothing failed to compile at
+any point. `PluginHostLoadTest` was the guard, every assertion in it "not empty", because empty is exactly
+what that break looks like.
+
+The removal: Studio bundles no plugin now, so there is nothing to construct and `PluginHostLoadTest` has no
+subject — it is **deleted**, along with the dependency. The second justification the line briefly stood on,
+*"the fallback copy for a plugin that brings none"*, does not survive reading the gate: `botmaker-cli`'s
+`pom-scopes` check **refuses** a `provided` toolkit and **passes** a plugin declaring none, so a plugin either
+brings its own at `compile` scope or needs none, and there is no third case for a fallback to serve. Its
+refusal message already said so: *"the host does not have one to provide, because botmaker-studio must never
+depend on it."*
+
+- **`StudioSourcesTest` survives and matters more than before.** No Studio source may name a
+  `com.botmaker.plugin.toolkit` type. It scans the *source*, not the classpath — which is what keeps it a
+  real test now that the way to break the rule is to add the dependency back rather than widen a scope.
 **The Remote Pilot left Studio (2026-08-30).** Fifth step of *Studio knows only the contract*, and the one the
 toolbar surface was added for: 17 files and ~3,400 lines, plus the built web client under
 `src/main/resources/pilot/`, moved to `botmaker-sdk`'s `internal/plugin/pilot/`, and Javalin and ZXing left
