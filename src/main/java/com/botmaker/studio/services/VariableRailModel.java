@@ -1,6 +1,6 @@
 package com.botmaker.studio.services;
 
-import com.botmaker.sdk.authoring.TagCatalog;
+import com.botmaker.plugin.api.ParameterGroup;
 import com.botmaker.studio.project.activity.ActivityVariable;
 
 import java.util.ArrayList;
@@ -10,16 +10,20 @@ import java.util.List;
  * What the Parameters dialog's tag rail shows, and which variables each row holds — the parts of that dialog that
  * are a decision rather than a widget, kept free of JavaFX so they can be tested headlessly.
  *
- * <p>It is deliberately the same shape as {@link TemplateGalleryModel}: <em>All</em>, then the activity tags
- * under a heading, then the custom ones under theirs. A tag means the same thing in both places because it
- * <em>is</em> the same tag — one {@link TagCatalog}, so renaming an activity renames its group in the gallery
- * and here at once, and there is no second vocabulary to drift.
+ * <p><b>The categories are the plugins' now, not the activity list's (2026-09-02).</b> This rail was built
+ * over {@code TagCatalog} — one tag per activity in {@code activities.json}, plus the custom tags in
+ * {@code templates.json} — which was right while Studio was the thing that defined activities. It no longer
+ * is: activities are the SDK plugin's, so the rail was reading one plugin's file to decide the editor's own
+ * headings, and renaming an activity silently renamed a category. What replaced it is a second layer
+ * <em>inside</em> a section: each {@link ParameterGroup} declares the categories its own parameters may be
+ * filed under, and this model is handed that list. There is nothing left to drift because there is nothing
+ * left to derive.
  *
- * <p><b>Nothing is ever unreachable.</b> A variable filed under a tag the catalog no longer declares — the
- * activity it named was deleted — would otherwise have no row at all. Rather than inventing one, it is listed
- * under {@link ActivityVariable#GENERAL}, which is where a variable with no tag lives and where this one effectively now
- * is. The dialog's tag picker then shows it as unfiled, so the fix is a visible choice rather than a silent
- * relabel.
+ * <p><b>Nothing is ever unreachable.</b> A variable filed under a category the group no longer declares —
+ * the plugin dropped it, or an older project carries an activity name — would otherwise have no row at all.
+ * Rather than inventing one, it is listed under {@link ActivityVariable#GENERAL}, which is where a variable
+ * with no category lives and where this one effectively now is. The dialog's picker then shows it as
+ * unfiled, so the fix is a visible choice rather than a silent relabel.
  */
 public final class VariableRailModel {
 
@@ -38,47 +42,63 @@ public final class VariableRailModel {
     public record TagRow(String tag, int count) implements Row {}
 
     /**
-     * The rail for {@code variables} over {@code catalog}: All, then a <i>Categories</i> heading over General
-     * and each group of declared tags. Both computed rows are always present — All because it is the way to see everything, General because it is
-     * where a new variable lands before anyone files it, and a bucket you cannot select is a bucket you cannot
-     * put anything in.
+     * The rail for {@code variables} over the categories {@code declared} by the plugins: All, then a
+     * <i>Categories</i> heading over General and each declared category in the order the plugin listed them.
+     * Both computed rows are always present — All because it is the way to see everything, General because it
+     * is where a new variable lands before anyone files it, and a bucket you cannot select is a bucket you
+     * cannot put anything in.
+     *
+     * <p>The declared list is flat and already merged across groups. It is not split into a heading per
+     * plugin, because the sections in the pane on the right already are: a rail that also grouped by plugin
+     * would ask the user to hold the plugin architecture in their head twice.
      */
-    public static List<Row> rows(List<ActivityVariable> variables, TagCatalog catalog) {
+    public static List<Row> rows(List<ActivityVariable> variables, List<String> declared) {
         List<ActivityVariable> all = variables == null ? List.of() : variables;
-        TagCatalog safe = catalog == null ? TagCatalog.empty() : catalog;
+        List<String> categories = declared == null ? List.of() : declared;
 
         List<Row> rows = new ArrayList<>();
         rows.add(new TagRow(ALL, all.size()));
         // "General" on its own, directly under All, read as a second everything-bucket. A heading over it says
         // what it is — one category among the others — before the count does.
         rows.add(new Heading("Categories"));
-        rows.add(new TagRow(ActivityVariable.GENERAL, in(all, ActivityVariable.GENERAL, safe).size()));
-        addGroup(rows, "Activity categories", safe.namesOf(TagCatalog.Kind.ACTIVITY), all, safe);
-        addGroup(rows, "Custom categories", safe.namesOf(TagCatalog.Kind.CUSTOM), all, safe);
+        rows.add(new TagRow(ActivityVariable.GENERAL, in(all, ActivityVariable.GENERAL, categories).size()));
+        for (String category : categories) {
+            rows.add(new TagRow(category, in(all, category, categories).size()));
+        }
         return List.copyOf(rows);
+    }
+
+    /** Every category declared by any of {@code groups}, in group order then declaration order, deduplicated. */
+    public static List<String> categoriesOf(List<ParameterGroup> groups) {
+        if (groups == null || groups.isEmpty()) return List.of();
+        List<String> out = new ArrayList<>();
+        for (ParameterGroup group : groups) {
+            for (String category : group.categories()) {
+                if (out.stream().noneMatch(seen -> seen.equalsIgnoreCase(category))) out.add(category);
+            }
+        }
+        return List.copyOf(out);
+    }
+
+    /** Whether any of {@code declared} is {@code category}, compared the way a user reads it. */
+    public static boolean isDeclared(List<String> declared, String category) {
+        if (category == null || category.isBlank() || declared == null) return false;
+        return declared.stream().anyMatch(d -> d.equalsIgnoreCase(category.trim()));
     }
 
     /**
      * The variables row {@code tag} holds, in the order they were declared.
      *
-     * <p>{@link #ALL} is everything. {@link ActivityVariable#GENERAL} is everything untagged <em>plus</em> everything
-     * whose tag the catalog does not declare — see the class note. Any other row is an exact, case-insensitive
-     * tag match.
+     * <p>{@link #ALL} is everything. {@link ActivityVariable#GENERAL} is everything unfiled <em>plus</em>
+     * everything whose category no plugin declares — see the class note. Any other row is an exact,
+     * case-insensitive match.
      */
-    public static List<ActivityVariable> in(List<ActivityVariable> variables, String tag, TagCatalog catalog) {
+    public static List<ActivityVariable> in(List<ActivityVariable> variables, String tag, List<String> declared) {
         if (variables == null || variables.isEmpty()) return List.of();
-        TagCatalog safe = catalog == null ? TagCatalog.empty() : catalog;
         if (tag == null || ALL.equals(tag)) return List.copyOf(variables);
         if (ActivityVariable.GENERAL.equals(tag)) {
-            return variables.stream().filter(s -> !safe.isDeclared(s.tag())).toList();
+            return variables.stream().filter(s -> !isDeclared(declared, s.tag())).toList();
         }
         return variables.stream().filter(s -> s.tag().equalsIgnoreCase(tag)).toList();
-    }
-
-    private static void addGroup(List<Row> rows, String heading, List<String> tags, List<ActivityVariable> variables,
-                                 TagCatalog catalog) {
-        if (tags.isEmpty()) return;  // no heading over nothing
-        rows.add(new Heading(heading));
-        for (String tag : tags) rows.add(new TagRow(tag, in(variables, tag, catalog).size()));
     }
 }

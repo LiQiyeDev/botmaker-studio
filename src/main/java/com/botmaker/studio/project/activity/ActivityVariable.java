@@ -1,7 +1,6 @@
 package com.botmaker.studio.project.activity;
 
 import com.botmaker.plugin.api.ParameterGroup;
-import com.botmaker.sdk.authoring.TagCatalog;
 import com.botmaker.plugin.api.value.ValueChoice;
 import com.botmaker.plugin.api.value.ValueShape;
 import com.botmaker.studio.plugin.PluginHost;
@@ -16,9 +15,13 @@ import java.util.List;
  *
  * <p><b>Every variable belongs to the project, not to an activity.</b> A delay two activities both wait for
  * is one variable they both read, rather than a copy each. What organises them for a reader is {@link #tag()}
- * — the same tag vocabulary image templates use ({@link com.botmaker.studio.services.TagCatalog}), so "the
- * Mining variables" is a <em>view</em> and never a scope. A variable tagged after an activity is readable
- * from anywhere, and renaming the activity renames the tag in the gallery and here at once.
+ * — one of the categories its own {@link ParameterGroup} declares — so "the Timing variables" is a
+ * <em>view</em> and never a scope.
+ *
+ * <p>The tag was the picture library's tag vocabulary until 2026-09-02: one tag per activity, derived from
+ * {@code activities.json}. It is a plugin-declared category now, because activities are the SDK plugin's and
+ * a rail whose headings come from one plugin's data renames itself behind the user. An older project's tag
+ * that no group declares stays in the file and reads as unfiled — see {@code VariableRailModel}.
  *
  * <p><b>The value is text.</b> {@link #value()} is the wire form described by {@link ValueWire}: a list of
  * strings, one entry for an ordinary variable and one per item for a {@code List of …} one. One shape on disk

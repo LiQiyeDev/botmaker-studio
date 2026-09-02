@@ -3,7 +3,6 @@ package com.botmaker.studio.ui.app.params;
 import com.botmaker.plugin.api.ParameterGroup;
 import com.botmaker.plugin.api.value.ValueCatalog;
 import com.botmaker.plugin.api.value.ValueType;
-import com.botmaker.sdk.authoring.TagCatalog;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.activity.ActivitiesConfig;
 import com.botmaker.studio.project.activity.ActivityVariable;
@@ -13,7 +12,6 @@ import com.botmaker.studio.project.activity.ValueWire;
 import com.botmaker.studio.plugin.PluginHost;
 import com.botmaker.studio.services.ActivityService;
 import com.botmaker.studio.services.MavenService;
-import com.botmaker.sdk.authoring.TemplateLibrary;
 import com.botmaker.studio.services.VariableRailModel;
 import com.botmaker.studio.state.SnapshotHistory;
 import com.botmaker.studio.ui.app.ActivityFlowDialog;
@@ -67,14 +65,19 @@ import java.util.function.UnaryOperator;
  * The one place a bot's variables are defined: what each is called, what it holds, who it is for, and what it
  * is set to.
  *
- * <h2>One list, organised by tag</h2>
+ * <h2>One list, organised by category</h2>
  *
  * <p>Every variable belongs to the project. What the rail on the left offers is a <em>view</em> of that one
- * list — <i>All</i>, <i>General</i> for the untagged, then the activity tags and the custom ones — over the
- * same {@link TagCatalog} the template gallery uses, so renaming an activity renames its group in both places
- * and there is no second tag vocabulary to drift. Filing a variable under "Mining" does not scope it to
- * Mining: it is still {@code Activities.<name>} from anywhere, which is the whole reason a delay two
- * activities wait for is one variable rather than a copy each.
+ * list — <i>All</i>, <i>General</i> for the unfiled, then the categories the loaded plugins declare on their
+ * own {@link ParameterGroup}s. Filing a variable under "Timing" does not scope it to anything: it is still
+ * {@code Parameters.<name>} from anywhere, which is the whole reason a delay two activities wait for is one
+ * variable rather than a copy each.
+ *
+ * <p><b>Categories are the plugins' since 2026-09-02</b>, and before that they were the picture library's
+ * {@code TagCatalog} — one per activity, plus the user's custom tags. That was right while Studio defined
+ * activities and is not now; see {@link VariableRailModel} for the whole argument. The shape it leaves is a
+ * second layer <em>inside</em> a section rather than more sections: one window, one section per plugin, a
+ * rail of that plugin's own headings down the side.
  *
  * <h2>Why it is not in the flow editor</h2>
  *
@@ -116,7 +119,14 @@ public final class ParametersDialog {
     /** Readers for the value widgets currently on screen; re-created whenever the column is rebuilt. */
     private final List<ValueEditor> valueEditors = new ArrayList<>();
 
-    private TagCatalog catalog = TagCatalog.empty();
+    /**
+     * The categories the loaded plugins declare, merged across their sections — the rail's whole vocabulary.
+     *
+     * <p>It was a {@code TagCatalog} read out of the picture library until 2026-09-02; see
+     * {@link VariableRailModel} for why deriving the editor's headings from one plugin's activity list
+     * stopped making sense.
+     */
+    private List<String> categories = List.of();
     private String selectedTag = VariableRailModel.ALL;
 
     /**
@@ -168,8 +178,8 @@ public final class ParametersDialog {
     public void show() {
         ActivitiesConfig cfg = activityService.current();
         variables.addAll(cfg.variables());
-        // The very catalog the template gallery reads, so a tag means the same thing in both places.
-        catalog = TemplateLibrary.tagCatalog(config.resourcesRoot());
+        // Every section's own declared categories, in section order — the second layer inside a group.
+        categories = VariableRailModel.categoriesOf(PluginHost.parameterGroups(sdkPin()));
 
         StudioWindow window = StudioWindow.modal("parameters", "Parameters", owner)
                 .size(900, 640).minSize(700, 460);
@@ -280,10 +290,10 @@ public final class ParametersDialog {
             }
         });
 
-        // "＋ New category" stood here until 2026-09-01. Declaring one meant prompting for a tag name, and
-        // what a tag may be called — the sanitizing, the clash check, the wording — is the picture library's
-        // rule, which left with it. The rail still shows and files under every declared category; declaring a
-        // new one is the Tag Manager's job, where that rule lives.
+        // "＋ New category" stood here until 2026-09-01, when declaring one was still the picture library's
+        // rule and left with it. It stays hidden for a better reason now: a category is declared by the
+        // plugin that owns the section, so there is no button anywhere that adds one. Declaring is what
+        // makes the set finite — a category typed into a field is how "Minning" ends up beside "Mining".
         newCategory.setVisible(false);
         newCategory.setManaged(false);
 
@@ -312,7 +322,7 @@ public final class ParametersDialog {
     private void moveIntoSelected() {
         if (VariableRailModel.ALL.equals(selectedTag)) return;
         String home = ActivityVariable.GENERAL.equals(selectedTag) ? "" : selectedTag;
-        List<ActivityVariable> inside = VariableRailModel.in(variables, selectedTag, catalog);
+        List<ActivityVariable> inside = VariableRailModel.in(variables, selectedTag, categories);
         List<ActivityVariable> outside = variables.stream().filter(v -> !inside.contains(v)).toList();
         if (outside.isEmpty()) {
             error("Every variable is already filed under \u201c" + selectedTag + "\u201d.");
@@ -369,7 +379,7 @@ public final class ParametersDialog {
 
     /** Redraws the rail (the counts move on every add, delete and re-tag) and keeps the selection. */
     private void rebuildRail() {
-        List<VariableRailModel.Row> rows = VariableRailModel.rows(variables, catalog);
+        List<VariableRailModel.Row> rows = VariableRailModel.rows(variables, categories);
         rail.getItems().setAll(rows);
         VariableRailModel.Row keep = rows.stream()
                 .filter(r -> r instanceof VariableRailModel.TagRow t && t.tag().equals(selectedTag))
@@ -404,7 +414,7 @@ public final class ParametersDialog {
     private List<String> filingChoices() {
         List<String> choices = new ArrayList<>();
         choices.add(ActivityVariable.GENERAL);
-        choices.addAll(catalog.names());
+        choices.addAll(categories);
         return choices;
     }
 
@@ -432,7 +442,7 @@ public final class ParametersDialog {
         explain.getStyleClass().add("dialog-hint-text");
         paramColumn.getChildren().addAll(title, explain);
 
-        List<ActivityVariable> shown = VariableRailModel.in(variables, selectedTag, catalog);
+        List<ActivityVariable> shown = VariableRailModel.in(variables, selectedTag, categories);
         for (ParameterGroup group : sections()) {
             List<ActivityVariable> mine = shown.stream().filter(v -> v.isIn(group.id())).toList();
             paramColumn.getChildren().add(sectionHeader(group, mine.isEmpty()));
@@ -605,7 +615,7 @@ public final class ParametersDialog {
     private Node buildTagPicker(ActivityVariable v) {
         ComboBox<String> picker = new ComboBox<>();
         picker.getItems().setAll(filingChoices());
-        picker.setValue(catalog.isDeclared(v.tag()) ? v.tag() : ActivityVariable.GENERAL);
+        picker.setValue(VariableRailModel.isDeclared(categories, v.tag()) ? v.tag() : ActivityVariable.GENERAL);
         picker.setOnAction(e -> {
             String chosen = picker.getValue();
             edit(v, "the category", current ->
